@@ -6,12 +6,14 @@ route with the oracle hazard (:mod:`tests.studies.mtp_boundaries_common`).
 ==========================  =====================================================================
 family                      cells, replications and size
 ==========================  =====================================================================
-``interval_calibration``    seven positives with the correctly specified outcome model, at
-                            n = 2,000, with the two derived controls of each: ``LTMLE`` under
-                            ``p1`` to ``p4`` on law B and ``p5`` on law B', and ``SDR`` under
-                            ``p4`` and ``p5`` (``p4_sdr``, ``p5_sdr``).  Each positive has its
-                            own replications, :data:`CALIBRATION_REPLICATES`, set from the
-                            calibration pilot by the arm-pooled rule
+``interval_calibration``    seven positives with the correctly specified outcome model, with the
+                            two derived controls of each: ``LTMLE`` under ``p1`` to ``p4`` on
+                            law B and ``p5`` on law B', and ``SDR`` under ``p4`` and ``p5``
+                            (``p4_sdr``, ``p5_sdr``).  n = 2,000, except ``p4`` and ``p4_sdr``
+                            at n = 4,000 (:data:`CALIBRATION_SIZES`).  The gating positives
+                            have :data:`POOLED_REPLICATES` replications, set from the pilot by
+                            the arm-pooled rule; ``p4_sdr`` reports
+                            (:data:`REPORTING_LABELS`)
 ``jacobian_necessity``      ``p3``, dose-blind outcome: the declared fit against the same draw
                             with every piece's inverse slope replaced by 1; 1,000 at n = 2,000
 ``branch_necessity``        ``p4``, wrong outcome: Equation (3) summed over the first branch
@@ -133,10 +135,42 @@ CELLS: dict[str, tuple[str, str]] = {
 }
 #: The pilot's draws per calibration positive.
 PILOT_DRAWS = 3_000
-#: The replications of each calibration positive.  Provisional: the expected ``R`` at a pilot
-#: mean of 1.005.  The declaration commit replaces it with the ``R`` that
-#: :func:`~tests.studies.mtp_study_tools.replicates_from_pilot` reads off the pilot.
-CALIBRATION_REPLICATES: dict[str, int] = dict.fromkeys(CELLS, 6_400)
+#: Each calibration positive's sample size.  ``p4`` (LTMLE) moved to n = 4,000 under sizing
+#: rule 2: its n = 2,000 pilot read 0.942, outside the screen, and the diagnosis found
+#: right-skewed standard errors from rare large weights and no defect
+#: (``X40-pilot-diagnosis.md`` E6).  At n = 4,000 it reads 0.971, inside the screen.
+#: ``p4_sdr`` moved with it (diagnosis E4) and stays outside, so it reports.
+CALIBRATION_SIZES: dict[str, int] = dict.fromkeys(CELLS, CALIBRATION_N) | {
+    "p4": 4_000,
+    "p4_sdr": 4_000,
+}
+#: The calibration positives declared ``reporting`` with an owner before the run (sizing rule
+#: 2).  ``p4_sdr`` read 0.919 at n = 2,000 and 0.926 at n = 4,000 with the projected
+#: pseudo learner, both outside the screen.  Owner: the SDR caveat in
+#: ``docs/technical-reference/longitudinal-tmle.md``, which states both readings and the
+#: unprojected 0.573.  Such an arm leaves the pooled rule and the gate, and it runs at
+#: :data:`PILOT_DRAWS` replications.
+REPORTING_LABELS: frozenset[str] = frozenset({"p4_sdr"})
+#: Each arm's pilot SE ratio at its declared size, from the published pilots
+#: (``reviews/x40/pilots`` in the plans repository): ``p1`` to ``p5`` and ``p5_sdr`` from
+#: ``s1-calibration-pilot.json`` (``p5_sdr`` from the projected re-pilot), ``p4`` from the
+#: n = 4,000 re-pilot.  The reporting arm is not pooled.
+PILOT_SE_RATIOS: dict[str, float] = {
+    "p1": 1.0182,
+    "p2": 0.9797,
+    "p3": 0.9938,
+    "p4": 0.9707,
+    "p5": 0.9957,
+    "p5_sdr": 0.9988,
+}
+#: The pooled rule's ``R`` from :data:`PILOT_SE_RATIOS`
+#: (:func:`~tests.studies.mtp_study_tools.replicates_from_pilot`: mean 0.9928, tau 0.0196,
+#: per-cell 0.991, family-wise 0.950).
+POOLED_REPLICATES = 26_400
+#: The replications of each calibration positive.
+CALIBRATION_REPLICATES: dict[str, int] = {
+    label: PILOT_DRAWS if label in REPORTING_LABELS else POOLED_REPLICATES for label in CELLS
+}
 #: Each necessity family: ``(plan, (positive arm, control arm), defect)``.
 NECESSITY: dict[str, tuple[str, tuple[str, str], str]] = {
     family: (label, (positive, control), family.removesuffix("_necessity"))
@@ -155,7 +189,10 @@ NECESSITY_OUTCOME: dict[str, str] = {
 #: rows and the five-fold rows report.  ``tests/unit/test_mtp_boundaries_design.py`` reads the
 #: committed tables through :func:`~tests.studies.mtp_study_tools.gating_findings`.
 GATING_CELLS: tuple[str, ...] = tuple(
-    f"{family}/{cell}" for family, cells in study.PROPERTY_CELLS.items() for cell in cells
+    f"{family}/{cell}"
+    for family, cells in study.PROPERTY_CELLS.items()
+    for cell in cells
+    if not (family == "interval_calibration" and cell.split("__")[0] in REPORTING_LABELS)
 )
 GATING_TRUTH: tuple[str, ...] = (study.STUDY.implementation,)
 #: The efficiency bound of each calibration label, which sizes the noise control only
@@ -303,7 +340,7 @@ class DeclaredLaw:
 #: Every fit set: ``(family, stream label, n, replicates)``.
 FIT_SETS: tuple[tuple[str, str, int, int], ...] = (
     *(
-        ("interval_calibration", label, CALIBRATION_N, CALIBRATION_REPLICATES[label])
+        ("interval_calibration", label, CALIBRATION_SIZES[label], CALIBRATION_REPLICATES[label])
         for label in CELLS
     ),
     *((family, "paired", NECESSITY_N, NECESSITY_REPLICATES) for family in NECESSITY),
@@ -356,7 +393,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 f"{label}__{cell}",
                 role,
                 plan,
-                CALIBRATION_N,
+                CALIBRATION_SIZES[label],
                 CALIBRATION_REPLICATES[label],
                 label,
             )
@@ -516,21 +553,20 @@ def generate_property_rows(
         checkpoint=tools.property_checkpoint(parts) if budget is None else None,
     )
     rows = pd.DataFrame([row for result in outcomes for row in result])
-    rows = pd.concat(
-        [
+    # The noise control's scale reads each positive's own n, so each size is one call.
+    controls = [
+        calibration_controls(
             rows,
-            calibration_controls(
-                rows,
-                STUDY,
-                labels=tuple(CELLS),
-                efficiency_bounds=EFFICIENCY_SD,
-                calibration_n=CALIBRATION_N,
-                shrunken_se_factor=SHRUNKEN_SE_FACTOR,
-                critical=CRITICAL,
-            ),
-        ],
-        ignore_index=True,
-    )
+            STUDY,
+            labels=tuple(label for label in CELLS if CALIBRATION_SIZES[label] == size),
+            efficiency_bounds=EFFICIENCY_SD,
+            calibration_n=size,
+            shrunken_se_factor=SHRUNKEN_SE_FACTOR,
+            critical=CRITICAL,
+        )
+        for size in sorted(set(CALIBRATION_SIZES.values()))
+    ]
+    rows = pd.concat([rows, *controls], ignore_index=True)
     return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
@@ -658,9 +694,9 @@ _CALIBRATION_SECONDS = {
     "p1": 0.83,
     "p2": 0.79,
     "p3": 0.80,
-    "p4": 0.86,
+    "p4": 3.72,  # n = 4,000, the re-pilot's mean
     "p5": 0.80,
-    "p4_sdr": 0.84,
+    "p4_sdr": 2.56,  # n = 4,000, the re-pilot's mean
     "p5_sdr": 0.77,
 }
 _PAIR_SECONDS = {
@@ -673,8 +709,9 @@ _PRIMARY_SECONDS = 3.41  # the four scenarios of one replicate
 _HOUR = 3600.0
 
 
-def _calibration_hours(replicates: int) -> float:
-    return sum(_CALIBRATION_SECONDS.values()) * replicates / _HOUR
+def _calibration_hours(replicates: int | dict[str, int]) -> float:
+    counts = replicates if isinstance(replicates, dict) else dict.fromkeys(CELLS, replicates)
+    return sum(_CALIBRATION_SECONDS[label] * counts[label] for label in CELLS) / _HOUR
 
 
 BUDGET: dict[str, Any] = {
@@ -687,7 +724,7 @@ BUDGET: dict[str, Any] = {
     "cpu_hours": {
         "calibration_pilot": _calibration_hours(PILOT_DRAWS),
         "necessity_pilot": NECESSITY_PILOT_DRAWS * sum(_PAIR_SECONDS.values()) / _HOUR,
-        "calibration": {r: _calibration_hours(r) for r in (6_000, 6_400, 8_000)},
+        "calibration": _calibration_hours(CALIBRATION_REPLICATES),
         "necessity": NECESSITY_REPLICATES * sum(_PAIR_SECONDS.values()) / _HOUR,
         "primary": study.PRIMARY_REPLICATES * _PRIMARY_SECONDS / _HOUR,
     },
@@ -695,7 +732,7 @@ BUDGET: dict[str, Any] = {
 BUDGET["cpu_hours"]["python_total"] = (
     BUDGET["cpu_hours"]["calibration_pilot"]
     + BUDGET["cpu_hours"]["necessity_pilot"]
-    + BUDGET["cpu_hours"]["calibration"][6_400]
+    + BUDGET["cpu_hours"]["calibration"]
     + BUDGET["cpu_hours"]["necessity"]
     + BUDGET["cpu_hours"]["primary"]
 )

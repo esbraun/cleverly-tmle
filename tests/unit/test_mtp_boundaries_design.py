@@ -179,11 +179,53 @@ def test_the_per_arm_screen_and_the_contingency() -> None:
 
 def test_the_declared_sizes() -> None:
     assert properties.PILOT_DRAWS == 3_000
-    assert set(properties.CALIBRATION_REPLICATES.values()) <= {6_000, 6_400, 8_000}
     assert set(properties.CALIBRATION_REPLICATES) == set(study.CALIBRATION_LABELS)
+    for label, replicates in properties.CALIBRATION_REPLICATES.items():
+        reporting = label in properties.REPORTING_LABELS
+        expected = properties.PILOT_DRAWS if reporting else properties.POOLED_REPLICATES
+        assert replicates == expected, label
+    assert {label for label, n in properties.CALIBRATION_SIZES.items() if n != 2_000} == {
+        "p4",
+        "p4_sdr",
+    }
     assert properties.NECESSITY_REPLICATES == 1_000
     assert properties.NECESSITY_PILOT_DRAWS >= 100
     assert study.FAILURE_BOUND == 0.01
+
+
+def test_the_pooled_r_is_the_rule_read_off_the_published_pilots() -> None:
+    """Sizing rules 1 to 3 on the declared pilot readings, the reporting arm left out."""
+    assert set(properties.PILOT_SE_RATIOS) == set(properties.CELLS) - properties.REPORTING_LABELS
+    reading = tools.replicates_from_pilot(
+        list(properties.PILOT_SE_RATIOS.values()), properties.PILOT_DRAWS
+    )
+    assert all(reading["screened"]) and not reading["suspect"]
+    assert reading["R"] == properties.POOLED_REPLICATES
+    assert reading["family_wise"] >= 0.95 and reading["per_cell"] >= 0.90
+    # The reporting arm's two readings lie outside the screen at both sizes.
+    half = tools.screen_half_width(properties.PILOT_DRAWS)
+    assert abs(0.919 - 1.0) > half and abs(0.926 - 1.0) > half
+
+
+def test_the_projected_pseudo_learner_moves_an_sdr_fit_on_law_b() -> None:
+    """X40-pilot-diagnosis.md fix item 3: the learner choice is visible in the record.
+
+    On pilot draw 0 of ``p4_sdr`` at n = 2,000 the unprojected first node misses the true
+    ``m_1`` by up to 6.8 at the assigned dose (E3), so the two fits must differ.
+    """
+    plan = "p4"
+    law = common.LAW_OF[plan]
+    seed = properties._pilot_seed("interval_calibration", "p4_sdr", 0)
+    frame = common.SAMPLERS[law](2_000, seed)
+    name = properties.estimand(plan)
+    labels = (study.REFERENCE, plan)
+    fits = [
+        study.fit(frame, law, labels, estimator="sdr", outcome="correct", pseudo_learner=learner)[
+            name
+        ].psi
+        for learner in (None, common.UnitRangePseudo())
+    ]
+    assert abs(fits[0] - fits[1]) > 0.01
 
 
 def test_necessity_power_as_a_function_of_the_pilot_bias() -> None:
@@ -354,7 +396,8 @@ def test_the_gating_cells_are_published_and_hold_no_inadmissible_red() -> None:
         f"{family}/{cell}" for family, cells in study.PROPERTY_CELLS.items() for cell in cells
     }
     assert set(properties.GATING_CELLS) <= published
-    assert len(properties.GATING_CELLS) == 7 * 3 + 4 * 2
+    assert len(properties.GATING_CELLS) == 6 * 3 + 4 * 2
+    assert not any("p4_sdr" in cell for cell in properties.GATING_CELLS)
     assert (study.STUDY.implementation,) == properties.GATING_TRUTH
     assert (
         tools.gating_findings(study.STUDY, properties.GATING_CELLS, properties.GATING_TRUTH) == []
