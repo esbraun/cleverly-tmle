@@ -1,0 +1,163 @@
+{
+  "schema_version": 2,
+  "study": "sequential g-computation and IPW",
+  "slug": "sequential-baselines",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-sequential-baselines",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "0d068d5286e62bca2d710797a1e3c1ba350cd7b6",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 8000,
+    "seed": 20261441,
+    "resampling_seed": 2026144101,
+    "scenario_seed_owners": {
+      "d2_ice": "d2_ice",
+      "d2_hajek": "d2_ice",
+      "d2_ht": "d2_ice",
+      "g_ice": "g_ice",
+      "g_hajek": "g_ice",
+      "g_ht": "g_ice"
+    },
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-sequential-baselines": 0.01
+    },
+    "scenarios": {
+      "d2_ice": [
+        "ey_regimen[static_12]",
+        "ey_regimen[static_00]",
+        "ey_regimen[rule]",
+        "ey_regimen[policy]",
+        "ate_regimen[static_12 vs static_00]"
+      ],
+      "d2_hajek": [
+        "ey_regimen[static_12]",
+        "ey_regimen[static_00]",
+        "ey_regimen[rule]",
+        "ey_regimen[policy]",
+        "ate_regimen[static_12 vs static_00]"
+      ],
+      "d2_ht": [
+        "ey_regimen[static_12]",
+        "ey_regimen[static_00]",
+        "ey_regimen[rule]",
+        "ey_regimen[policy]",
+        "ate_regimen[static_12 vs static_00]"
+      ],
+      "g_ice": [
+        "ey_regimen[treat_all]",
+        "ey_regimen[treat_none]",
+        "ey_regimen[rule]",
+        "ate_regimen[treat_all vs treat_none]"
+      ],
+      "g_hajek": [
+        "ey_regimen[treat_all]",
+        "ey_regimen[treat_none]",
+        "ey_regimen[rule]",
+        "ate_regimen[treat_all vs treat_none]"
+      ],
+      "g_ht": [
+        "ey_regimen[treat_all]",
+        "ey_regimen[treat_none]",
+        "ey_regimen[rule]",
+        "ate_regimen[treat_all vs treat_none]"
+      ]
+    },
+    "estimators": {
+      "ice": "SequentialGComputation",
+      "hajek": "SequentialIPW(normalization='hajek')",
+      "ht": "SequentialIPW(normalization='horvitz_thompson')"
+    },
+    "outcome_learner": {
+      "D2 family": "GLM(interactions=2)",
+      "G, X, GM": "GLM(family='gaussian')"
+    },
+    "mechanism_learner": "GLM()",
+    "g_bounds": [
+      0.01,
+      1.0
+    ],
+    "q_bounds": {
+      "G": [
+        -3.025001,
+        4.165
+      ],
+      "X": [
+        -1.525,
+        6.23525
+      ],
+      "GM": [
+        -3.7460000000000004,
+        5.746
+      ]
+    },
+    "ladder": [
+      2000,
+      4000,
+      8000
+    ],
+    "calibration_n": 2000,
+    "expected_red": [
+      "misspecification_control/ice_x_contrast__main_terms",
+      "misspecification_control/hajek_x_contrast__main_terms",
+      "misspecification_control/ht_x_contrast__main_terms"
+    ],
+    "reference": "none; the R ltmle parity is a separate study",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_sequential_baselines.py": "b37d72b43dff23d19cc72a53fe22ded1da6816475f8e65894e15442bddd1e481",
+    "tests/studies/sequential_baselines_properties.py": "b466664ea58dc2a3c5ee7385131c8992e093d640c1c4da3b24f9470ce873d871",
+    "tests/studies/sequential_baselines_laws.py": "c9ab84b182d1f84dcbcae8169fd42aa4831cef82b338ece4b21f5af6ccf64c56",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "604bfafb90e7c2ab239cdd8b80cc617169299c50f1bbc2468292065d15713569",
+    "summary.csv": "95eddb78cd7ec73156f47d9e4973ba3c0a9ac337061ecd3c2efee5f627a78d8e",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "60b6ee501a1fe94a5e8e2a92f92b886247c27705296acee10d2ede703dbd1d9f",
+    "property-replicates.csv.gz": "c555790ac44ef55f2df58ad4ecac687d3ca9db329bc48e2ec4989457a74f3e05",
+    "properties.csv": "3c2af40c3803c2efdb2efa50b3311a598d227c183b221238eef1b27a3301502f"
+  }
+}

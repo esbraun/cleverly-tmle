@@ -33,7 +33,7 @@ from tests.studies.evidence import (
     property_verdicts,
     replication,
 )
-from tests.studies.evidence.claims import load, quantities, thresholds, value
+from tests.studies.evidence.claims import citation, load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
     _CLOSE,
@@ -276,8 +276,13 @@ def property_bound_consistent(
 
 
 def _cheap(study: StudyRecord) -> StudyRecord:
+    """The record at the control budget, with its paired verdict computed.
+
+    A descriptive record publishes no ``passed`` column.  The mutation controls ask whether
+    the comparison *could* see a regression, so they read the gated form of its legs.
+    """
     margins = dataclasses.replace(study.margins, bootstrap_replicates=CONTROL_BOOTSTRAP)
-    return dataclasses.replace(study, margins=margins)
+    return dataclasses.replace(study, margins=margins, paired_role="gated")
 
 
 class TestArtifacts:
@@ -338,7 +343,7 @@ class TestArtifacts:
             "performance-tests.csv",
             "property-replicates.csv.gz",
             "properties.csv",
-        } | set(study.extra_artifacts) | {
+        } | set(study.extra_artifacts) | set(study.property_artifacts) | {
             # The failure files exist only when a fit failed, and then each is hashed.
             name
             for name in (
@@ -575,6 +580,11 @@ class TestPublishedVerdicts:
             int(lost.get((str(s), str(e)), 0))
             for s, e in published[["scenario", "estimand"]].itertuples(index=False)
         ] == published["dropped_replications"].astype(int).tolist()
+        if study.paired_role == "descriptive":
+            # The endpoints stay; the verdict does not.  No accounting row corrects it.
+            assert "passed" not in published.columns
+            assert set(published["comparison_conclusion"]) == {"descriptive"}
+            return
         gates = failures.cell_gates(_accounting(study), "equivalence")
         equivalent = published["paired_similarity"] & published["subject_not_inferior"]
         own = np.select(
@@ -1285,6 +1295,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "density_necessity",
         "learner_weight_necessity",
         "missingness_necessity",
+        # X16's three-arm pair: the positive cell's bias inside the margin, the control's
+        # outside it.
+        "multi_arm",
         "selector_necessity",
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
@@ -1373,6 +1386,13 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Four rules keyed by the cell's last segment: a conservative SE ratio, accuracy, a
         # one-sided bias control and a growth control.  Checked row by row below.
         property_verdicts.ONE_WRONG_FAMILY,
+        # A declared-red control that answers to the calibration SE-ratio and coverage bands
+        # of a positive cell, so its expected failure is the positive rule's.
+        "misspecification_control",
+        # Diagnostic-role SE readings whose powered cells answer to an SE-ratio interval
+        # outside the calibration band on a predicted side; the other cells report.
+        "first_node_se",
+        "fixed_mechanism_se",
     }
 )
 
@@ -1396,6 +1416,10 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "censoring_complete_case",
         "in_sample_fit",
         "one_wrong_reported",
+        # The isotonic cell's binding share: the projection moved a level or it did not.
+        "isotonic_projection",
+        # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
+        "adaptive_learners",
     }
 )
 
@@ -2064,8 +2088,13 @@ class TestTheMethodEvidenceGrid:
             )
             return
         found = COUNT.findall(cell)
-        assert len(found) == 1, f"{column!r} should carry exactly one count, found {found}"
         passed_name, total_name = COUNTED[column]
+        if column == "`cleverly` vs canonical" and study.paired_role == "descriptive":
+            # A descriptive comparison counts no passes, so its cell carries no count.
+            assert found == [], f"{column!r} is descriptive and carries no count, found {found}"
+            assert "descriptive" in cell, f"{column!r} must say the comparison is descriptive"
+            return
+        assert len(found) == 1, f"{column!r} should carry exactly one count, found {found}"
         data = load(study)
         passed, total = (int(part) for part in found[0])
         assert total == int(value(study, total_name, data)), (
@@ -2251,7 +2280,7 @@ class TestTheQuotedMeasurements:
         for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
             name = row["quantity"].strip("`")
             quoted.add(name)
-            written = render(value(study, name, data), study.quoted_decimals.get(name))
+            written = citation(study, name, data, render)
             if row["value"] != written:
                 wrong.append(f"{name}: quoted {row['value']}, generator writes {written}")
         assert wrong == [], (
@@ -2370,7 +2399,7 @@ def _agreement_result(row: Any) -> str:
     by construction.
     """
     conclusion = str(row.comparison_conclusion)
-    if bool(row.passed):
+    if conclusion == "descriptive" or bool(row.passed):
         return conclusion
     return f"*{conclusion}*" if conclusion == "underpowered" else f"**{conclusion}**"
 
@@ -2652,6 +2681,8 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:policy_displacement": lambda s: s.properties().POLICY_DISPLACEMENT,
     "margin:inverse_displacement": lambda s: s.properties().INVERSE_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
+    "margin:subject_failure_bound": lambda s: s.runner().FAILURE_BOUND,
+    "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
 }
 
 

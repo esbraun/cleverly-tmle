@@ -333,6 +333,9 @@ GOLDEN: dict[str, dict[str, Any]] = {
                 "treatment-and-censoring probability (package default; R "
                 "ltmle-compatible heuristic -- inspect truncation "
                 "diagnostics)",
+                "survival model: iterated_mean",
+                "targeting: iterative",
+                "isotonic projection: none",
                 "confidence level: 95%",
                 "random_state: 11",
             ],

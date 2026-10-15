@@ -18,6 +18,8 @@ mar-natural-course-tmle,root_n_and_efficiency,coverage resolves,fixed at size
 mar-tmle,root_n_and_efficiency,coverage resolves,fixed at size
 multi-arm-mar-drtmle,root_n_and_efficiency,coverage resolves,fixed at size
 point-msm,root_n_and_efficiency,coverage resolves,fixed at size
+point-survival-hazard,root_n_and_efficiency,coverage resolves,fixed at size
+point-survival-curve,root_n_and_efficiency,coverage resolves,fixed at size
 point-treatment-survival,root_n_and_efficiency,coverage resolves,fixed at size
 shift-policies,root_n_and_efficiency,coverage resolves,fixed at size
 stochastic-categorical-ltmle,root_n_and_efficiency,coverage resolves,fixed at size

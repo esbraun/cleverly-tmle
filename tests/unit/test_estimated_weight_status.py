@@ -23,6 +23,7 @@ import pytest
 from cleverly._inference_status import NON_INFERENTIAL
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
+from cleverly.estimators.ctmle import per_arm_parametric_support
 from cleverly.exceptions import WeightingWarning
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
@@ -201,20 +202,26 @@ class TestASavedResultLoadsAsSaved:
 class TestAPerArmCTMLEFitTakesTheGeneratedDesignStatus:
     """The per-arm C-TMLE half of the status text cannot be reached on a shipped fit.
 
-    :data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` is ``False``, so every
-    ``"oat"`` fit takes ``"generated_design_plugin"`` before the weight declaration is read.
-    F19 holds that interval, and X50 reopens the status for ``DRTMLE`` only.
+    :func:`~cleverly.estimators.ctmle.per_arm_parametric_support` refuses observation weights,
+    so a weighted ``"oat"`` fit takes ``"generated_design_plugin"`` before the weight
+    declaration is read. F19 holds that interval, and X50 reopens the status for ``DRTMLE``
+    only.
     """
 
     def test_estimated_weights_report_the_generated_design_status(self, frame: Any) -> None:
-        result = fit(frame, estimator=CTMLE, strategy="oat", oat_design="per_arm")
+        settings = {"strategy": "oat", "oat_design": "per_arm"}
+        result = fit(frame, estimator=CTMLE, **settings)
         assert result.data.declares_estimated_weights
+        verdict = per_arm_parametric_support(
+            CTMLE(**linear_in_sample(estimands=ESTIMANDS, **settings)), result.data
+        )
+        assert verdict.admitted is False
         assert result.inference_status == "generated_design_plugin"
         assert NON_INFERENTIAL["generated_design_plugin"].reopened_by == "F19"
 
     def test_the_status_text_names_each_row_for_its_estimator(self) -> None:
         assert RECORD.reopened_by == "X50"
         assert "X50 in docs/roadmap.md reopens this for DRTMLE" in RECORD.reason
-        assert "generated_design_plugin status while OAT_PER_ARM_INFERENTIAL" in RECORD.reason
+        assert "generated_design_plugin status, because per_arm_parametric_support" in RECORD.reason
         assert "F19 in docs/roadmap.md holds its interval" in RECORD.reason
         assert RECORD.assessment_note.endswith("reopens it for DRTMLE")

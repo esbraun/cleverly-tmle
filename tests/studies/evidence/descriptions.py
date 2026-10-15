@@ -81,13 +81,30 @@ ARMS: dict[str, str] = {
         for horizon in (1, 2, 3)
     },
     "survival_t5": "difference of arm 1 and arm 0 at visit 5, five-visit held law",
+    "survival_t5_per_horizon": (
+        "difference of arm 1 and arm 0 at visit 5, five-visit held law, targeted one horizon "
+        "at a time"
+    ),
     "rmst_5": "RMST difference up to visit 5, five-visit held law",
     "competing_t4": "difference in the death incidence at visit 4, two causes",
     "three_arm_t3": "difference of arm 2 and arm 0 at visit 3, three arms with L_t",
     "continuous_t4": "difference at grid time 3, exponential event time, visit dropout",
     "end_of_study": "held end-of-study difference after two censoring nodes",
     "weighted_t5": "difference at visit 5 under the weight 1 + W1 / 2",
+    "policy_t3": (
+        "difference of a known baseline policy and arm 0 at visit 3, three arms without L_t"
+    ),
+    "isotonic_t2": (
+        "risk at visit 2 under treatment at both nodes, two-node law, fitted with the isotonic "
+        "projection"
+    ),
     "clustered_t5": "arm-0 risk at visit 5, 25 clusters of 80 that share W",
+    "clustered_t5_per_horizon": (
+        "arm-0 risk at visit 5, 25 clusters of 80 that share W, targeted one horizon at a time"
+    ),
+    "weighted_t5_per_horizon": (
+        "difference at visit 5 under the weight 1 + W1 / 2, targeted one horizon at a time"
+    ),
     "policy_t5": "baseline policy against the natural course at visit 5",
     "mtp_t5": "baseline minus one against the natural course at visit 5",
     "ate": "average treatment effect",
@@ -159,6 +176,8 @@ ARMS: dict[str, str] = {
     "regimens": "the three regimen means and their two contrasts",
     "all_reported": "every parameter the calibration fit reports",
     "curve_always": "the always plan alone, at every declared horizon",
+    "curve_arm1": "the arm-1 risk curve alone, at the five visits",
+    "curve_arm0": "the arm-0 risk curve alone, at the five visits",
     "strata": "the six marginal and eighteen stratum parameters of the in-sample fit",
     "crossfit_strata": "the three marginal and nine stratum parameters of the cross-fitted fit",
     "default_fit": "the shipped TMLE() defaults on the binary law",
@@ -389,6 +408,41 @@ ARMS: dict[str, str] = {
     "survival_grid": "three plans by three horizons, the risks and six contrasts",
 }
 
+#: The labels of ``sequential-baselines``: an estimator, a law and a target.  Mirrored from
+#: ``tests.studies.canonical_sequential_baselines.CALIBRATION_LABELS``, which this module cannot
+#: import; ``tests/unit/test_sequential_baselines_design.py`` pins that every cell resolves.
+_BASELINE_ESTIMATORS = {
+    "ice": "sequential g-computation (ICE)",
+    "hajek": "sequential IPW, Hajek",
+    "ht": "sequential IPW, Horvitz-Thompson",
+}
+_BASELINE_TARGETS = {
+    "d2_static_12": "law D2, mean under arm 1 then arm 2",
+    "d2_static_00": "law D2, mean under arm 0 at both times",
+    "d2_rule": "law D2, mean under the rule A1 = L1, A2 = 2 L2",
+    "d2_policy": "law D2, mean under arm 1 then the known three-arm policy",
+    "d2_contrast": "law D2, arm 1 then arm 2 against arm 0 at both times",
+    "d2w_static_12": "law D2 weighted by 1 + 0.5 W, mean under arm 1 then arm 2",
+    "d2s_risk_h1": "law D2S, risk by t = 1 under arm 1",
+    "d2s_risk_h2": "law D2S, risk by t = 2 under arm 1 then arm 2",
+    "d2s_contrast_h2": "law D2S, risk difference by t = 2 against arm 0 at both times",
+    "d2c_relapse_h2": "law D2C, relapse incidence by t = 2 under arm 1 then arm 2",
+    "g_treat_all": "law G, mean under treatment at all three times",
+    "g_treat_none": "law G, mean under no treatment",
+    "g_rule": "law G, mean under the rule A_t = V",
+    "g_contrast": "law G, treatment at all three times against none",
+    "gm_down": "law GM, mean under the dose lowered by 0.5 where it stays in support",
+    "gm_contrast": "law GM, the lowered dose against the natural course",
+    "x_contrast": "law X, treatment at all three times against none",
+}
+ARMS.update(
+    {
+        f"{estimator}_{target}": f"{words}: {target_words}"
+        for estimator, words in _BASELINE_ESTIMATORS.items()
+        for target, target_words in _BASELINE_TARGETS.items()
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -421,6 +475,9 @@ _TERM = re.compile(
 
 IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-oat-per-arm": "`cleverly` per-arm outcome-adaptive C-TMLE",
+    "cleverly-ctmle-oat-per-arm-parametric": (
+        "`cleverly` per-arm outcome-adaptive C-TMLE with a parametric outcome and mechanism"
+    ),
     "drtmle-r-oat-per-arm": "R `drtmle` with `adapt_g`, by a binary recode per arm",
     "drtmle-r-oat-per-arm-strata-missing": (
         "R `drtmle` with `adapt_g`, by a binary recode per arm, with `DeltaY`, `DeltaA` and"
@@ -437,6 +494,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "ltmle-known-gform": "R `ltmle` with the known factors as a numeric `gform`",
     "cleverly": "`cleverly`",
     "cleverly-cross-fitted-point-survival": "`cleverly` cross-fitted point-treatment survival",
+    "cleverly-cross-fitted-hazard-survival": (
+        "`cleverly` cross-fitted point-treatment survival with hazard targeting"
+    ),
     "cleverly-held-policy-ltmle": "`cleverly` LTMLE with a policy at a held baseline treatment",
     "survtmle": 'R `survtmle`, `method="mean"`',
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
@@ -461,8 +521,10 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
     "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
     "cleverly-competing-ltmle": "`cleverly` competing-risk LTMLE",
+    "cleverly-ctmle-derivative": "`cleverly` C-TMLE0 derivative covariate",
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
+    "cleverly-ctmle-sequences": "`cleverly` C-TMLE lasso and declared-learner sequences",
     "cleverly-fold-evaluated-cvtmle": "`cleverly` fold-evaluated CV-TMLE",
     "cleverly-fold-targeted-cvtmle": "`cleverly` fold-targeted CV-TMLE",
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
@@ -578,6 +640,13 @@ SCENARIOS: dict[str, str] = {
     "smart_q_correct": "two-node SMART with known factors, correct outcome regressions",
     "smart_q_wrong": "two-node SMART with known factors, outcome regressions without L1",
     "binary": "binary-outcome law",
+    "binary_lasso": "binary-outcome law, lasso candidate sequence",
+    "binary_learners": "binary-outcome law, four declared lasso learners",
+    "binary_declared_pair": "binary-outcome law, both sides at one declared pair of penalties",
+    "binary_pipeline": "binary-outcome law, each side's own penalty cross-validation",
+    "binary_constant_q": (
+        "binary-outcome law, one declared pair of penalties, a constant outcome regression"
+    ),
     "survival": "five visits, a binary baseline treatment held over every node, visit dropout",
     "competing": "four visits, two competing causes, a held binary treatment, visit dropout",
     "three_arm": "three visits, three arms held over every node, a binary L_t at each later visit",
@@ -971,6 +1040,9 @@ PROPERTIES: dict[str, str] = {
         "the target"
     ),
     "natural_course_identity": "the natural-course intervention reduces exactly to the sample mean",
+    "multi_arm": (
+        "the candidate sequence targets a contrast of a three-arm treatment without bias"
+    ),
     "power": "the test detects a real effect, so a passing null result cannot come from an inert test",
     "projection_necessity": (
         "the declared projection measure determines the coefficient rather than an implicit "
@@ -988,6 +1060,10 @@ PROPERTIES: dict[str, str] = {
     ),
     "root_n_rate": "the sampling spread contracts at the root-n rate the theory predicts",
     "rule_necessity": "the covariate-dependent rule, rather than a static substitute, determines the target",
+    "isotonic_projection": (
+        "the isotonic projection leaves a regular curve unchanged, and the study records how "
+        "often it moves a level"
+    ),
     "simultaneous_coverage": (
         "the multiplier band over a law's reported estimands covers the whole truth vector at "
         "the nominal joint rate"
@@ -1480,6 +1556,53 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin, with the reported standard "
         "error still on the scale of the empirical spread",
     ),
+    ("double_robustness", "multi_arm_treatment_correct"): (
+        "three arms with a multinomial lasso and a constant outcome regression, on the "
+        "contrast of arm 1.0 against arm 0.0",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "missing_outcome_treatment_correct"): (
+        "outcomes missing at random with a correct response learner, and an outcome GLM "
+        "that omits a confounder",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "cross_fitted_treatment_correct"): (
+        "five cross-fitting folds, a consistent lasso mechanism, and an outcome GLM that "
+        "omits a confounder",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "both_wrong_lasso"): (
+        "the lasso sequence with a constant outcome regression, so both nuisances are misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("double_robustness", "both_wrong_learners"): (
+        "the declared learners with a constant outcome regression, so both nuisances are "
+        "misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("double_robustness", "lasso_outcome_correct"): (
+        "only the outcome regression is correct, and no lasso candidate is a correct mechanism",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "lasso_treatment_correct"): (
+        "only the treatment mechanism is correct, and the lasso path contains it",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "learners_outcome_correct"): (
+        "only the outcome regression is correct, and no declared learner is a correct mechanism",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "learners_treatment_correct"): (
+        "only the treatment mechanism is correct, and the terminal learner specifies it",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
     ("generated_design", "oracle_design"): (
         "the outcome-adaptive design is supplied rather than estimated",
         "SE ratio and coverage intervals both inside their calibration bands",
@@ -1554,6 +1677,23 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "both nuisances are correctly specified",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
+    ("interval_calibration", "in_sample"): (
+        "the internal lasso is consistent for the main-terms treatment law, and the outcome "
+        "regression is a correct GLM",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "cross_fitted"): (
+        "the same law and nuisances, cross-fitted over five folds",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "multi_arm"): (
+        "three arms with a multinomial lasso, on the contrast of arm 1.0 against arm 0.0",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "missing_outcome"): (
+        "outcomes are missing at random, with a correct response learner",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
     ("interval_calibration", "flexible_learning"): (
         "separate depth-five trees fit the outcome and response nuisances out of fold; on this "
         "six-cell law each tree fits the saturated, correct model",
@@ -1605,6 +1745,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("power", "alternative"): (
         "the same test applied to a law with a real effect",
         "rejection lower bound clears the minimum power",
+    ),
+    ("isotonic_projection", "moved"): (
+        "per replication, the distance the projection moved the level, against a truth of zero",
+        "none. The row is a diagnostic and states no verdict",
     ),
     ("simultaneous_coverage", "simultaneous_band"): (
         "the max-t multiplier band over every estimand the law reports, from the same-row "
@@ -1914,6 +2058,24 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the selector is forced to stop at an empty path",
         "bias interval must fall entirely outside the margin",
     ),
+    ("selector_necessity", "lasso_collaborative"): (
+        "the selector chooses its own penalty along the lasso sequence",
+        "bias interval inside the equivalence margin, and RMSE at most the declared ratio of "
+        "the paired control's",
+    ),
+    ("selector_necessity", "learners_collaborative"): (
+        "the selector chooses its own learner along the declared nested sequence",
+        "bias interval inside the equivalence margin, a declared expected red, and RMSE at most "
+        "the declared ratio of the paired control's",
+    ),
+    ("multi_arm", "lasso_treatment_correct"): (
+        "the lasso sequence on the three-arm law, with a constant outcome regression",
+        "bias interval inside the equivalence margin",
+    ),
+    ("multi_arm", "empty_control"): (
+        "the selector is forced to stop at an empty path on the three-arm law",
+        "bias interval must fall entirely outside the margin",
+    ),
     # "misspecified" rather than "constant", and "fit" rather than "backward recursion":
     # six studies register this family and the description is shared by all of them.  The
     # longitudinal ones fluctuate a sample-prior constant over a two-node recursion; the
@@ -2119,6 +2281,23 @@ ARM_CELLS.update(
         )
     }
 )
+#: A reading of a label or a cell kind that holds for one study only, keyed by study slug.  A
+#: label such as ``rule_t3`` names different estimands in different studies, and the shared
+#: tables above cannot say which.
+STUDY_ARMS: dict[tuple[str, str], str] = {
+    ("point-survival-curve", "rule_t3"): (
+        "difference of the rule that treats where W1 is one and arm 0 at visit 3, three arms "
+        "without L_t"
+    ),
+}
+STUDY_ARM_CELLS: dict[tuple[str, str, str, str], tuple[str, str]] = {
+    ("point-survival-curve", "clustered_inference", label, "cluster_robust"): (
+        "the cluster-robust interval from the cluster-level influence curve of a single-fold "
+        "hazard fit",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    )
+    for label in ("clustered_t5", "clustered_t5_per_horizon")
+}
 ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (
     "the outcome regression, treatment mechanism and observation mechanism are correct",
     "SE ratio and coverage intervals both inside their calibration bands",
@@ -2200,6 +2379,90 @@ ARM_CELLS.update(
             "the lower confidence endpoint clears the declared unresolved-score floor",
         ),
     }
+)
+
+
+#: The ``ctmle-oat-per-arm-parametric`` cells (X58a).  A calibration cell reads one estimand of
+#: one fit, so the entries compose the label's description with the estimand's.  The label
+#: ``binary_active`` is an :data:`ARMS` key, so its cells resolve through :data:`ARM_CELLS`.
+_PARAMETRIC_ESTIMANDS = {
+    "ey0": "arm-0 mean",
+    "ey1": "arm-1 mean",
+    "ate": "ATE",
+    "log_rr": "log risk ratio",
+    "log_or": "log odds ratio",
+}
+_PARAMETRIC_CALIBRATION = ("SE ratio and coverage intervals both inside their calibration bands",)
+_PARAMETRIC_FITS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "auto_bounds": (
+        'the stacked curve with the default g_bounds of "auto"',
+        ("ey0", "ey1", "ate"),
+    ),
+    "bounded_outcome": (
+        "the stacked curve for an outcome bounded in 2 to 10, fitted with q_bounds on the "
+        "scaled outcome",
+        ("ey0", "ey1", "ate"),
+    ),
+    "bounds_active": (
+        "the stacked curve with g_bounds of (0.05, 0.95), which clip a share of the rows at the "
+        "limit",
+        ("ey0", "ey1", "ate"),
+    ),
+    "kappa_cubic": (
+        "the stacked curve on a U-shaped mechanism, with the cubic basis in logit q",
+        ("ey0", "ey1", "ate"),
+    ),
+    "kappa_linear": (
+        "the stacked curve on a U-shaped mechanism, with the linear basis in logit q",
+        ("ey0", "ey1", "ate"),
+    ),
+    "n_500": ("the stacked curve at n = 500", ("ey0", "ey1", "ate")),
+    "n_2000": ("the stacked curve at n = 2,000", ("ey0", "ey1", "ate")),
+    "n_8000": ("the stacked curve at n = 8,000", ("ey0", "ey1", "ate")),
+    "pseudo_true": (
+        "the stacked curve with W1 dropped from the outcome features, so the interval covers "
+        "the limit psi*",
+        ("ey0", "ey1", "ate"),
+    ),
+    "shared_prognosis": (
+        "the stacked curve on a law whose two arm means share W1 and W2 in their outcome index",
+        ("ate", "log_rr", "log_or"),
+    ),
+}
+for _label, (_fit, _estimands) in _PARAMETRIC_FITS.items():
+    for _estimand in _estimands:
+        CELLS[("interval_calibration", f"{_label}__{_estimand}__corrected")] = (
+            f"{_fit}: {_PARAMETRIC_ESTIMANDS[_estimand]}",
+            *_PARAMETRIC_CALIBRATION,
+        )
+for _estimand in ("ey0", "ey1", "ate"):
+    ARM_CELLS[("interval_calibration", "binary_active", f"{_estimand}__corrected")] = (
+        f"the stacked curve at n = 1,500: {_PARAMETRIC_ESTIMANDS[_estimand]}",
+        *_PARAMETRIC_CALIBRATION,
+    )
+ARM_CELLS.update(
+    {
+        ("interval_calibration", "binary_active", "ate__shrunken_se_control"): (
+            "the ATE standard errors are multiplied by a declared factor below one",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("interval_calibration", "binary_active", "ate__noise_control"): (
+            "a declared scale of independent noise is added to each ATE estimate",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("interval_calibration", "binary_active", "ate__shipped_curve__shrunken_se_control"): (
+            "the ATE standard errors come from the shipped adaptive-propensity curve of the "
+            "same fits, which omits the generated-design term",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+    }
+)
+CELLS[
+    ("interval_calibration", "shared_prognosis__ate__cross_term_dropped__inflated_se_control")
+] = (
+    "the ATE standard errors are built from the two arm variances without the cross-arm "
+    "covariance, on a law whose arm estimates correlate",
+    "the SE-ratio interval must fall above the calibration band",
 )
 
 
@@ -2360,6 +2623,7 @@ def cell(
     role: str | None = None,
     nuisance_count: int = 2,
     response_nuisance: bool = False,
+    slug: str | None = None,
 ) -> tuple[str, str]:
     """What a property cell configures, and what its verdict requires.
 
@@ -2379,8 +2643,10 @@ def cell(
         base = size.group("cell")
     try:
         tested, required = (
-            ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None
-        ) or CELLS[family, base]
+            (STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None)
+            or (ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None)
+            or CELLS[family, base]
+        )
     except KeyError:
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
@@ -2431,7 +2697,8 @@ def cell(
                 f"{role!r} selects neither, and the two rules are not interchangeable"
             )
     if arm is not None:
-        tested = f"{ARMS[arm.group('arm')]}: {tested}"
+        words = STUDY_ARMS.get((slug, arm.group("arm"))) if slug else None
+        tested = f"{words or ARMS[arm.group('arm')]}: {tested}"
     if term is not None:
         tested = f"{TERMS[term.group('term')]}: {tested}"
     return tested, required
@@ -2683,5 +2950,76 @@ CELLS.update(
             "a declared scale of independent noise is added to each estimate",
             "the SE-ratio interval must fall below the calibration band",
         ),
+    }
+)
+
+
+# ------------------------------------------------------------------ sequential-baselines
+IMPLEMENTATIONS["cleverly-sequential-baselines"] = (
+    "`cleverly` sequential g-computation (ICE) and sequential IPW, Hajek and Horvitz-Thompson, "
+    "with GLM nuisances"
+)
+SCENARIOS.update(
+    {
+        **{
+            f"d2_{estimator}": f"law D2: two nodes, a three-arm second node, censoring; {words}"
+            for estimator, words in _BASELINE_ESTIMATORS.items()
+        },
+        **{
+            f"g_{estimator}": f"law G: three nodes, a continuous outcome, censoring; {words}"
+            for estimator, words in _BASELINE_ESTIMATORS.items()
+        },
+    }
+)
+REGIMENS.update(
+    {
+        "static_12": "assign arm 1 first, then arm 2",
+        "static_00": "assign arm 0 at both times",
+        "policy": "assign arm 1 first, then draw the arm from the known policy (0.2, 0.3, 0.5)",
+        "treat_all": "treat at each of the three times",
+        "treat_none": "treat at none of the three times",
+        "down": "lower each dose by 0.5 where the result stays in its conditional support",
+    }
+)
+PROPERTIES.update(
+    {
+        "misspecification_control": (
+            "with every main-terms GLM wrong, the interval covers the misspecified limit, so the "
+            "calibration rule fails"
+        ),
+        "fixed_mechanism_se": (
+            "the IPW standard error that treats the fitted mechanism as known, against the "
+            "empirical spread"
+        ),
+        "first_node_se": (
+            "the ICE standard error of the first-node term alone, against the empirical spread"
+        ),
+        "adaptive_learners": (
+            "points with the default learner library, reported without an interval"
+        ),
+    }
+)
+CELLS.update(
+    {
+        ("misspecification_control", "main_terms"): (
+            "main-terms GLM outcome regressions and mechanisms on law X, where both are wrong",
+            "declared red: the calibration rule must fail",
+        ),
+        ("fixed_mechanism_se", "fixed_mechanism"): (
+            "the mechanism is fitted, and the standard error omits its estimation term",
+            "where gated, the SE-ratio interval must rise above the calibration band; "
+            "otherwise reported",
+        ),
+        ("first_node_se", "first_node"): (
+            "the spread of the first-node term alone, without the later chain terms",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        **{
+            ("adaptive_learners", f"n_{size}"): (
+                f"the default learner library on law X, at n = {size:,}",
+                "reported only",
+            )
+            for size in (1_000,)
+        },
     }
 )

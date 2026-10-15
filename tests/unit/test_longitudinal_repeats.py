@@ -32,9 +32,10 @@ import pytest
 
 import cleverly.longitudinal.estimator as estimator_module
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly._refusal import RefusalReason
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, MethodConfigurationError
 from cleverly.inference.cluster import influence_variance
 from cleverly.inference.delta import Transform
 from cleverly.inference.influence import _median_adjusted_variance, make_estimate
@@ -296,7 +297,16 @@ def test_config_records_repeats_and_the_multiplier_seed() -> None:
 def test_read_through_fields_are_draw_zero() -> None:
     result = _fit("sdr", repeats=3)
     first = result.repeats[0]
-    for field in ("fits", "mechanism", "folds", "msm_fits", "fold_mechanisms", "replay_recipe"):
+    for field in (
+        "fits",
+        "mechanism",
+        "folds",
+        "msm_fits",
+        "fold_mechanisms",
+        "replay_recipe",
+        "isotonic_moves",
+        "initial_hazards",
+    ):
         assert getattr(result, field) is getattr(first, field), field
 
 
@@ -846,6 +856,23 @@ def test_repeats_need_more_than_one_fold(cls: Any) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "setting",
+    [
+        {"survival_model": "hazard"},
+        {"survival_model": "hazard", "targeting": "one_step"},
+        {"survival_model": "hazard", "step_size": 0.01},
+        {"isotonic": True},
+    ],
+    ids=["hazard", "targeting", "step_size", "isotonic"],
+)
+def test_repeats_refuse_the_hazard_and_isotonic_curve_options(setting: dict[str, Any]) -> None:
+    with pytest.raises(MethodConfigurationError) as raised:
+        LTMLE({"always": 1}, repeats=2, n_folds=2, **setting)
+    assert raised.value.refusal.reason is RefusalReason.INFERENCE_GAP
+    assert "repeats=1" in (raised.value.refusal.alternative or "")
+
+
 @pytest.mark.parametrize("cls", [LTMLE, SDR, IPSI])
 def test_repeats_refuse_the_bootstrap(cls: Any) -> None:
     with pytest.raises(ValueError) as raised:
@@ -1200,6 +1227,10 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "treatment_probabilities": _witness(EACH_DRAW, "known"),
     "censoring_probabilities": _witness(EACH_DRAW, "known"),
     "kwargs": _witness(EACH_DRAW, "ipsi"),
+    "survival_model": _witness("test_repeats_refuse_the_hazard_and_isotonic_curve_options"),
+    "targeting": _witness("test_repeats_refuse_the_hazard_and_isotonic_curve_options"),
+    "step_size": _witness("test_repeats_refuse_the_hazard_and_isotonic_curve_options"),
+    "isotonic": _witness("test_repeats_refuse_the_hazard_and_isotonic_curve_options"),
 }
 
 _READERS = _witness("test_readers_report_the_combined_estimates")
@@ -1236,6 +1267,8 @@ RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "fits": _READ_THROUGH,
     "fold_mechanisms": _READ_THROUGH,
     "folds": _READ_THROUGH,
+    "initial_hazards": _READ_THROUGH,
+    "isotonic_moves": _READ_THROUGH,
     "get": _READERS,
     "incidence_total": _witness("test_incidence_total_applies_per_draw"),
     "inference_status": _witness("test_status_is_the_precedent_of_the_draws"),

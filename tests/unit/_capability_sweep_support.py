@@ -31,8 +31,10 @@ from cleverly import (
     CausalStudy,
     IncrementalEffect,
     LongitudinalTreatment,
+    RegimeContrast,
     RegimeMean,
     SplitPlan,
+    TimeToEvent,
 )
 from cleverly.assessment import (
     AssessmentStatus,
@@ -49,6 +51,7 @@ from cleverly.datasets import (
     make_missing_outcome,
     make_missing_outcome_binary,
     make_multi_arm,
+    make_point_survival,
     make_shift_dose,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -700,6 +703,39 @@ def fit_ltmle() -> Any:
     )
 
 
+def _fit_point_survival(**settings: Any) -> Any:
+    """A two-arm survival curve fit on ``make_point_survival(600, 3)``, in sample."""
+    frame, _ = make_point_survival(n=600, seed=3, n_times=4)
+    study = CausalStudy(
+        frame,
+        design=TimeToEvent(time="time", event="event", treatment="A", baseline=["W1", "W2"]),
+    )
+    return study.identify(RegimeContrast(regimens={"a1": 1, "a0": 0}, reference="a0")).estimate(
+        outcome_learner=LogisticRegression(max_iter=1000, random_state=0),
+        treatment_learner=LogisticRegression(max_iter=1000, random_state=0),
+        censoring_learner=LogisticRegression(max_iter=1000, random_state=0),
+        random_state=5,
+        simultaneous=False,
+        **IN_SAMPLE,
+        **settings,
+    )
+
+
+def fit_hazard() -> Any:
+    """The per-horizon hazard fit of the X14 survival curve."""
+    return _fit_point_survival(survival_model="hazard")
+
+
+def fit_hazard_one_step() -> Any:
+    """The one-step whole-curve hazard fit."""
+    return _fit_point_survival(survival_model="hazard", targeting="one_step")
+
+
+def fit_isotonic() -> Any:
+    """The iterated-mean fit with its curve projected."""
+    return _fit_point_survival(isotonic=True, pseudo_learner=LinearRegression())
+
+
 def fit_ipsi() -> Any:
     """The in-sample two-node odds-tilt fit of ``make_longitudinal(400, 12)``, by IPSI."""
     frame, _ = make_longitudinal(n=400, seed=12)
@@ -724,6 +760,34 @@ def fit_ipsi() -> Any:
         simultaneous=False,
         **IN_SAMPLE,
     )
+
+
+def _fit_baseline(method: str) -> Any:
+    """The in-sample two-node regime fit of ``make_longitudinal(400, 12)`` by a baseline."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
+        method=method, random_state=5, simultaneous=False
+    )
+
+
+def fit_gcomp() -> Any:
+    """The two-node regime fit of ``make_longitudinal(400, 12)``, by g-computation."""
+    return _fit_baseline("gcomp")
+
+
+def fit_ipw() -> Any:
+    """The two-node regime fit of ``make_longitudinal(400, 12)``, by IPW."""
+    return _fit_baseline("ipw")
 
 
 # ------------------------------------------------------------------------- the kinds
@@ -857,8 +921,15 @@ KINDS: dict[str, Kind] = {
         reconfigured_ctmle_clustered, *_READ, "truncation_curve", refits=False
     ),
     "ltmle": _kind(fit_ltmle, *_READ, "truncation_curve"),
+    "ltmle_hazard": _kind(fit_hazard, *_READ, "truncation_curve"),
+    "ltmle_hazard_one_step": _kind(fit_hazard_one_step, *_READ, "truncation_curve"),
+    "ltmle_isotonic": _kind(fit_isotonic, *_READ, "truncation_curve"),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", "truncation_curve"),
+    # The baselines fit no fluctuation, so no score equation. A g-computation estimate reads
+    # no treatment mechanism, so its bounds move nothing and no truncation curve exists.
+    "gcomp": _kind(fit_gcomp, "nuisance_models", "support"),
+    "ipw": _kind(fit_ipw, "nuisance_models", "support", "truncation_curve"),
 }
 
 

@@ -513,6 +513,15 @@ def missing_treatment_refusal(
     method = getattr(estimator, "_assessment_method", None)
     from .ctmle import is_per_arm_oat
 
+    if method == "collaborative_tmle" and getattr(estimator, "strategy", None) == "derivative":
+        return _message(
+            data,
+            "strategy='derivative' builds its derivative columns from the treatment mechanism "
+            "and a partner mechanism, and no partner is defined for the composite indicator.",
+            "Fit TMLE or DRTMLE.",
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="X62",
+        )
     per_arm_oat = is_per_arm_oat(estimator)
     if method == "collaborative_tmle" and not per_arm_oat:
         return _message(
