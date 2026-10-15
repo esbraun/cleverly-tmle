@@ -739,7 +739,7 @@ class TestConfiguration:
             ({"strategy": "lasso", "lambdas": [0.1, 0.2]}, r"strictly decreasing"),
             ({"strategy": "lasso", "lambdas": [0.1]}, r"at least two penalties.*lambdas=None"),
             ({"strategy": "lasso", "lambdas": 0.1}, r"at least two penalties; got \[0\.1\]"),
-            ({"strategy": "nope"}, r"'lasso', 'learners' or 'oat'"),
+            ({"strategy": "nope"}, r"'lasso', 'learners', 'derivative' or 'oat'"),
         ],
     )
     def test_value_errors(self, settings: dict[str, Any], pattern: str) -> None:

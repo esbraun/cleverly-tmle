@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
-from ._support import record_refusal_site
 from ._typing import Family
 from .data import CausalData
 from .data.known_mechanism import KNOWN_CTMLE_REFUSAL, probability_columns
@@ -3652,30 +3651,16 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         # would tell them. An effect built without a study cannot answer this, and it
         # claims nothing.
         design = getattr(self._study, "design", None)
-        clustered = getattr(design, "cluster", None) is not None
-        # A design that declares its mechanism leaves C-TMLE nothing to select.
+        # A design that declares its mechanism leaves C-TMLE nothing to select. A design that
+        # declares clusters keeps the method: strategy="derivative" (C-TMLE0) selects
+        # nothing and has the ordinary TMLE's clustered result, and every other strategy
+        # refuses id= before its first learner.
         known = getattr(design, "treatment_probabilities", None) is not None
         collaborative_item = _variant_roadmap("collaborative_tmle", self.functional, design)
         drtmle_item = _variant_roadmap("drtmle", self.functional, design)
-        if clustered and not known:
-            record_refusal_site(
-                "study.ctmle_clustered",
-                RefusalReason.IMPLEMENTATION_GAP,
-                "F22",
-                flagged=True,
-                availability=True,
-            )
         collaborative_blocker = (
             KNOWN_CTMLE_REFUSAL
             if known
-            else Refusal(
-                RefusalReason.IMPLEMENTATION_GAP,
-                "C-TMLE has no clustered result: the search draws selection and nested folds "
-                "of its own, and no reviewed result covers a grouped draw of them.",
-                alternative="Fit method='tmle'.",
-                roadmap="F22",
-            )
-            if clustered
             else blocker
             or Refusal(
                 RefusalReason.IMPLEMENTATION_GAP,
@@ -3684,7 +3669,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 roadmap=collaborative_item,
             )
         )
-        collaborative = variants and not clustered and not known
+        collaborative = variants and not known
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         return (

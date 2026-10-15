@@ -97,7 +97,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._support import record_refusal_site
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
-from ..estimators.ctmle import CTMLESelection, declares_no_selection
+from ..estimators.ctmle import CTMLEDerivativeFit, CTMLESelection, declares_no_selection
 from ..estimators.direct_effect import declares_intermediate
 from ..estimators.targeting import build_submodel
 from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_refusal
@@ -366,10 +366,16 @@ def _refuse_selected_mechanism(result: Any) -> Refusal | None:
     declared ``"discrete"`` list as its path, and a ``"learners"`` path is the declared list
     followed by the terminal candidate, so the path without its last entry stands for the
     declared ``"learners"`` list.
+
+    A ``"derivative"`` fit (C-TMLE0) selects nothing and assumes a consistent mechanism as
+    the ordinary TMLE does, so the bound admits it. Its ``benchmark`` refit meets the refit
+    refusal of a fit that declared propensity arrays.
     """
     if result.fitted_method != "collaborative_tmle":
         return None
     selection = result.extra.get("ctmle")
+    if isinstance(selection, CTMLEDerivativeFit):
+        return None
     if isinstance(selection, CTMLESelection) and declares_no_selection(
         selection.strategy,
         selection.path,
