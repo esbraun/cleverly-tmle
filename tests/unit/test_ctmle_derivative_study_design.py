@@ -92,10 +92,10 @@ def test_the_outcome_correct_law_is_the_one_the_committed_pilot_chose() -> None:
     assert pilot.law_for(laws.OUTCOME_CURVATURE) == laws.OUTCOME_CORRECT
     raw = frame.drop(
         columns=[c for c in frame.columns if c.startswith("trend_")]
-        + ["check_4", "check_5", "passed"]
+        + ["check_4", "check_5", "admissible"]
     )
     reselected = pilot.select(raw)
-    for column in ("check_4", "check_5", "passed"):
+    for column in ("check_4", "check_5", "admissible"):
         assert reselected[column].tolist() == frame[column].astype(bool).tolist()
     chosen = frame.loc[np.isclose(frame["curvature"], laws.OUTCOME_CURVATURE)].iloc[0]
     assert chosen["truncation"] <= pilot.DR_TRUNCATION_CEILING

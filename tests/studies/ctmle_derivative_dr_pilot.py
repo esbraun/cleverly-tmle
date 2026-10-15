@@ -269,7 +269,7 @@ def _pass_z(cell: str, bias: float, sd: float, error: float) -> float:
 
 
 def select(summary: pd.DataFrame) -> pd.DataFrame:
-    """Add the trend values, checks 4 and 5, and ``passed`` to the assessed grid.
+    """Add the trend values, checks 4 and 5, and ``admissible`` to the assessed grid.
 
     Check 4 reads unweighted lines of C-TMLE0's limit bias and of sigma.  Check 5 reads, per
     cell, a quadratic of the bias weighted by its Monte Carlo error ``sd / sqrt(400)`` and
@@ -311,7 +311,7 @@ def select(summary: pd.DataFrame) -> pd.DataFrame:
         )
     out["check_4"] = out["trend_ctmle_limit_bias"].abs() >= CTMLE_LIMIT_FLOOR * out["trend_sigma"]
     out["check_5"] = passes
-    out["passed"] = out[[f"check_{index}" for index in range(1, 6)]].all(axis=1)
+    out["admissible"] = out[[f"check_{index}" for index in range(1, 6)]].all(axis=1)
     return out
 
 
@@ -329,7 +329,7 @@ def search(*, n_jobs: int = STUDY_JOBS) -> tuple[pd.DataFrame, pd.DataFrame]:
 def chosen_curvature() -> float:
     """The coefficient the committed pilot chose."""
     frame = pd.read_csv(PILOT, float_precision="round_trip")
-    passed = frame.loc[frame["passed"].astype(bool), "curvature"]
+    passed = frame.loc[frame["admissible"].astype(bool), "curvature"]
     if passed.empty:
         raise ValueError("no coefficient of the committed pilot passes every check")
     return float(passed.min())
