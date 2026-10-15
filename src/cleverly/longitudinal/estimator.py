@@ -4008,6 +4008,9 @@ class _SequentialEstimator:
             isotonic=self.isotonic,
             msm=self.msm is not None,
             pseudo_learner=self.pseudo_learner is not None,
+            iterate=getattr(self, "iterate", "last"),
+            stopping=getattr(self, "stopping", "relative"),
+            step_bound=getattr(self, "step_bound", None),
         )
         if self.msm is not None and self.reference is not None:
             raise ValueError(

@@ -73,7 +73,13 @@ from scipy.special import xlogy
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import CapabilityError, ConvergenceWarning, RefusalReason
+from ..exceptions import (
+    NO_ALTERNATIVE,
+    CapabilityError,
+    ConvergenceWarning,
+    Refusal,
+    RefusalReason,
+)
 from ..fluctuation._score import relative_score
 from ..fluctuation.iterative import TargetingFailure
 from ..learners.crossfit import Folds
@@ -90,6 +96,7 @@ __all__ = [
     "InitialHazards",
     "fit_hazards",
     "hazard_inputs",
+    "hazard_rules_refusal",
     "project_curves",
     "refuse_hazard_design",
     "refuse_hazard_settings",
@@ -103,6 +110,10 @@ HazardAlgorithm = Literal["per_horizon", "one_step"]
 
 #: The roadmap item that tracks hazard targeting outside its held baseline design.
 HAZARD_ROADMAP = "X70"
+
+#: The roadmap item that tracks the X22 targeting rules (``iterate=``, ``stopping=`` and
+#: ``step_bound=``) on the hazard walk.
+HAZARD_RULES_ROADMAP = "X33"
 
 #: The variance floor of a one-step target whose initial influence curve is zero, so that
 #: the fixed metric :math:`\Sigma` stays invertible.
@@ -1251,6 +1262,29 @@ def target_regimens(
 # ------------------------------------------------------------------------ refusals
 
 
+def hazard_rules_refusal(names: Sequence[str]) -> Refusal:
+    """The refusal of a targeting rule the hazard walk does not read (R-abc4).
+
+    Parameters
+    ----------
+    names : sequence of str
+        The declared rules, each as the keyword the caller wrote, such as ``"stopping="``.
+
+    Returns
+    -------
+    Refusal
+        An implementation gap tracked by :data:`HAZARD_RULES_ROADMAP`, with no alternative.
+    """
+    listed = ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0]
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"survival_model='hazard' walks its own path in steps of step_size, so {listed} do not "
+        "apply to it.",
+        alternative=NO_ALTERNATIVE,
+        roadmap=HAZARD_RULES_ROADMAP,
+    )
+
+
 def refuse_hazard_settings(
     *,
     survival_model: str,
@@ -1259,8 +1293,11 @@ def refuse_hazard_settings(
     isotonic: bool,
     msm: bool,
     pseudo_learner: bool,
+    iterate: str = "last",
+    stopping: str = "relative",
+    step_bound: float | None = None,
 ) -> None:
-    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H6, H8).
+    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H6, H8, R-abc4).
 
     Parameters
     ----------
@@ -1276,6 +1313,12 @@ def refuse_hazard_settings(
         Whether ``msm=`` was passed.
     pseudo_learner : bool
         Whether ``pseudo_learner=`` was passed.
+    iterate : str, default="last"
+        The ``iterate=`` value. The caller has validated it.
+    stopping : str, default="relative"
+        The ``stopping=`` value. The caller has validated it.
+    step_bound : float or None, default=None
+        The ``step_bound=`` value. The caller has validated it.
 
     Raises
     ------
@@ -1317,6 +1360,18 @@ def refuse_hazard_settings(
                 "the curve and take contrasts."
             ),
         )
+    if survival_model == "hazard":
+        declared = [
+            name
+            for name, differs in (
+                ("iterate=", iterate != "last"),
+                ("stopping=", stopping != "relative"),
+                ("step_bound=", step_bound is not None),
+            )
+            if differs
+        ]
+        if declared:
+            raise CapabilityError(refusal=hazard_rules_refusal(declared))
     if pseudo_learner and survival_model == "hazard":
         raise ValueError(
             "pseudo_learner= is not used with survival_model='hazard'. A hazard fit "

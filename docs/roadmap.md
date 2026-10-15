@@ -124,6 +124,7 @@ not change the package version.
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
+| B1 | Longitudinal fitting options | no new theory; each option keeps its default bit-identical | X22 | [X33](#x33-longitudinal-fitting-options) |
 | B2 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
 | B3 | Applied tutorials for offers and pricing | no new theory | X40; the shipped `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
@@ -678,12 +679,25 @@ theory. Each option keeps every default fit bit-identical, and each changes a fi
 | (a) best iterate | report the targeting iterate with the smallest score norm over the loop | a fit that stops at `max_iter` reports its best iterate, and its record says which one | `tmle3` `use_best` |
 | (b) stopping rule | choose the score threshold: the shipped variance-scaled rule, or a threshold of $1/n$ | the two rules that `tmle3` names `scaled_var` and `sample_size` | `tmle3` `convergence_type` |
 | (c) step bound | bound the fluctuation step in each iteration | a damped update for a fit whose first step overshoots | `tmle3` `constrain_step` and `delta_epsilon` |
-| (d) quantile trimming | trim the cumulative density ratio at a declared quantile, beside the shipped bound `g_bounds` | the trimming rule of `lmtp`. The fit records the trimmed share, as it records truncation now. `SDR` reads the same per-node ratio | `lmtp` `.trim` |
-| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it. `SDR` reads the same per-node ratio and regressions | `lmtp` `k` |
 | (f) per-arm outcome fit | fit the outcome regression separately in each arm | a nuisance choice for `TMLE` and `DRTMLE` | `drtmle` `stratify` |
 | (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
-| (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |
 | (i) separate treatment covariates | fit the treatment mechanism on a declared subset of the adjustment set | a smaller propensity model. A strict subset changes the remainder, so the item states its interval contract before it ships | `ctmle` `Wg` |
+
+Acceptance: for each part, a test that the default fit is bit-identical to the fit before the
+option, and a witness on a law where the option binds.
+
+### X33. Longitudinal fitting options
+
+These options belong to the longitudinal fit. They follow [X22](#x22-targeting-and-fitting-options),
+whose stopping rule, step bound and best iterate they compose with. Each comparator ships the
+option, and none needs new theory. Each option keeps every default fit bit-identical, and each
+changes a fit when it binds. The part letters are the letters of the X22 table before this split.
+
+| part | option | what it does | comparator |
+| --- | --- | --- | --- |
+| (d) quantile trimming | trim the cumulative density ratio at a declared quantile, beside the shipped bound `g_bounds` | the trimming rule of `lmtp`. The fit records the trimmed share, as it records truncation now. `SDR` reads the same per-node ratio | `lmtp` `.trim` |
+| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it. `SDR` reads the same per-node ratio and regressions | `lmtp` `k` |
+| (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |
 | (j) pooled-over-time regressions | fit one hazard regression and one censoring regression over every node, with the node as a covariate, in place of one regression per node | a fit with fewer events per node. A pooled fit is a nuisance choice for `survival_model="hazard"` | `survtmle`, MOSS and `tmle3` `tmle_survival` |
 
 At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
@@ -693,6 +707,10 @@ Part (h) covers `survtmle` `method = "hazard"` as well as `method = "mean"`. On 
 `survival_model="hazard"`, it bounds each node's cause-specific hazard. Part (j) applies to a fit
 with `survival_model="hazard"`, which today fits one hazard regression per node and cause and one censoring regression per
 node.
+
+The hazard walk of `survival_model="hazard"` steps along its own path in steps of `step_size`. It
+does not read the X22 settings `iterate=`, `stopping=` and `step_bound=`, so `LTMLE` refuses them
+beside that model. This item lifts the refusal for the bounded hazard walk.
 
 Acceptance: for each part, a test that the default fit is bit-identical to the fit before the
 option, and a witness on a law where the option binds. Parts (d) and (e) also name their
