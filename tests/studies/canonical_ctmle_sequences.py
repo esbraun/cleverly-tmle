@@ -298,6 +298,8 @@ STUDY = StudyRecord(
     seed=SEED,
     margins=Margins(),
     implementation=IMPLEMENTATION,
+    # The replay gates check the same construction in R ctmle (Roadmap "Comparisons").
+    comparison="matching implementation",
     # The R ctmle runs are pending.  The change that registers them moves REFERENCE to
     # ``reference``, declares ``paired_role="descriptive"`` (quirk 2 drives R's
     # cross-validation to the last candidate, so the selected estimates of the two sides are

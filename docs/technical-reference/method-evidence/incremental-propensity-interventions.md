@@ -30,13 +30,15 @@ records the full survey.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x0.5 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by 0.5" against "leave the observed treatment mechanism unchanged" | 0.000146 | 0.2993 | 0.9984 | -0.0012 | 0.0180 vs 0.0500 | equivalent |
-| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x2 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by two" against "leave the observed treatment mechanism unchanged" | -0.000172 | 0.3287 | 0.9944 | -0.0012 | 0.0254 vs 0.0500 | equivalent |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[natural course]` | mean under the incremental intervention leave the observed treatment mechanism unchanged | 6.730e-13 | 3.942e-10 | 1.0000 | 0 | 4.226e-11 vs 0.0500 | equivalent |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x0.5]` | mean under the incremental intervention multiply the treatment odds by 0.5 | 0.000146 | 0.0834 | 1.0026 | 0.0019 | 0.0019 vs 0.0500 | equivalent |
-| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x2]` | mean under the incremental intervention multiply the treatment odds by two | -0.000172 | 0.0962 | 0.9993 | 0.0019 | 0.0052 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `npcausal` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x0.5 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by 0.5" against "leave the observed treatment mechanism unchanged" | 0.000146 | 0.2993 | 0.9984 | -0.0012 | different estimator | 0.0180 vs 0.0500 | equivalent |
+| binary-outcome law with three incremental odds multipliers | `ate_ipsi[odds x2 vs natural course]` | difference in means under the incremental interventions "multiply the treatment odds by two" against "leave the observed treatment mechanism unchanged" | -0.000172 | 0.3287 | 0.9944 | -0.0012 | different estimator | 0.0254 vs 0.0500 | equivalent |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[natural course]` | mean under the incremental intervention leave the observed treatment mechanism unchanged | 6.730e-13 | 3.942e-10 | 1.0000 | 0 | different estimator | 4.226e-11 vs 0.0500 | equivalent |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x0.5]` | mean under the incremental intervention multiply the treatment odds by 0.5 | 0.000146 | 0.0834 | 1.0026 | 0.0019 | different estimator | 0.0019 vs 0.0500 | equivalent |
+| binary-outcome law with three incremental odds multipliers | `ey_ipsi[odds x2]` | mean under the incremental intervention multiply the treatment odds by two | -0.000172 | 0.0962 | 0.9993 | 0.0019 | different estimator | 0.0052 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

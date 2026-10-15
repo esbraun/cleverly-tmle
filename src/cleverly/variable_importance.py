@@ -19,7 +19,7 @@ from ._inference_status import supplies_inference
 from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
-from .exceptions import CapabilityError, DataError, refuse_inference
+from .exceptions import CapabilityError, DataError, RefusalReason, refuse_inference
 from .inference.influence import ParameterEstimate
 from .inference.results import reported_status
 from .targets import parameter_stem
@@ -235,7 +235,9 @@ def variable_importance(
         # the treatment it was fitted for.
         raise CapabilityError(
             "The refit changes the data (the covariates, the treatment or the rows), and a "
-            "propensity array entry was fitted without that change. Pass learners to refit."
+            "propensity array entry was fitted without that change.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Pass learners to refit.",
         )
     # Every candidate's data is prepared, and its status asked, before the first fit.
     # This procedure ends in a Benjamini--Hochberg adjustment of one p-value per

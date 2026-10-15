@@ -39,11 +39,12 @@ diagnostic can be.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from .._refusal import Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..data.weighting import (
@@ -839,18 +840,21 @@ def positivity_report(result: TMLEResult) -> PositivityReport:
         If the treatment is continuous, which has no per-arm propensity either.
     """
     if not result.nuisance.fits_treatment:
-        raise CapabilityError(NATURAL_COURSE_SUPPORT_REFUSAL)
+        raise CapabilityError.from_refusal(NATURAL_COURSE_SUPPORT_REFUSAL)
     if result.data.is_continuous_treatment:
         raise DataError(
             f"{result.data.treatment_name} is continuous, so there is no per-arm "
             "propensity to tabulate and this report has no rows to fill. A shift's "
             "positivity question is whether the density ratio g(a - delta | W) / "
-            "g(a | W) stays bounded, not whether an arm probability does, and "
-            "check_policy_support answers it -- which res.diagnostics.support() reaches "
-            "for a fit that declared policies=. Reaching this report instead means none "
-            "were declared. With delta= or intermediate= there is a mechanism in the "
-            "denominator as well, and it is the one bound this axis actually has: "
-            "res.diagnostics.truncation_curve(mechanism=True) sweeps it."
+            "g(a | W) stays bounded, not whether an arm probability does.",
+            reason=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative=(
+                "check_policy_support answers it, which res.diagnostics.support() reaches "
+                "for a fit that declared policies=. Reaching this report instead means none "
+                "were declared. With delta= or intermediate= there is a mechanism in the "
+                "denominator as well, and it is the one bound this axis actually has: "
+                "res.diagnostics.truncation_curve(mechanism=True) sweeps it."
+            ),
         )
     if result.data.is_binary_treatment:
         return _binary_positivity_report(result)
@@ -1385,7 +1389,7 @@ def truncation_axis(result: TMLEResult, mechanism: bool | None) -> bool:
     return bool(mechanism)
 
 
-def _refuse_observation_axis(result: TMLEResult, axis: bool) -> str | None:
+def _refuse_observation_axis(result: TMLEResult, axis: bool) -> Refusal | None:
     """Refuse the mechanism axis on a fit with no mechanism in its clever covariate."""
     fitted = (
         result.nuisance.missingness is not None
@@ -1394,27 +1398,31 @@ def _refuse_observation_axis(result: TMLEResult, axis: bool) -> str | None:
     )
     if not axis or fitted:
         return None
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         "mechanism=True needs a fit with missing outcomes or an intermediate "
         "variable; without one there is no mechanism in the clever covariate to "
         f"truncate. Declare the indicator with {MISSING_OUTCOME_DECLARATION}, or the "
-        "intermediate variable with intermediate=<column> on PointTreatment or fit()."
+        "intermediate variable with intermediate=<column> on PointTreatment or fit().",
     )
 
 
-def _refuse_incremental(result: TMLEResult, axis: bool) -> str | None:
+def _refuse_incremental(result: TMLEResult, axis: bool) -> Refusal | None:
     """Refuse the propensity axis of an incremental fit, whose estimand contains ``g``."""
     if axis or result.nuisance.incremental is None:
         return None
-    return (
+    return Refusal(
+        RefusalReason.DIFFERENT_ESTIMAND,
         "the propensity g is *inside* the estimand for an incremental intervention, "
-        "so a propensity-bound curve would compare different parameters; use "
-        "diagnostics.support(), or pass mechanism=True when a separate observation "
-        "mechanism was fitted"
+        "so a propensity-bound curve would compare different parameters.",
+        alternative=(
+            "Use diagnostics.support(), or pass mechanism=True when a separate observation "
+            "mechanism was fitted."
+        ),
     )
 
 
-def _refuse_natural_course(result: TMLEResult, axis: bool) -> str | None:
+def _refuse_natural_course(result: TMLEResult, axis: bool) -> Refusal | None:
     """Refuse the propensity axis of a fit that estimates no treatment mechanism.
 
     Refused here rather than left to ``Propensity.truncate``, which would raise a bare
@@ -1425,10 +1433,14 @@ def _refuse_natural_course(result: TMLEResult, axis: bool) -> str | None:
     """
     if axis or result.nuisance.fits_treatment:
         return None
-    return (
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
         "NaturalCourseMean with missing outcomes fits no treatment propensity, so "
-        "there is no g(W) bound to sweep. Pass mechanism=True to sweep the bound on "
-        "P(Delta = 1 | A, W), which is the only mechanism this fit truncates."
+        "there is no g(W) bound to sweep.",
+        alternative=(
+            "Pass mechanism=True to sweep the bound on P(Delta = 1 | A, W), which is the "
+            "only mechanism this fit truncates."
+        ),
     )
 
 
@@ -1436,7 +1448,7 @@ def _refuse_natural_course(result: TMLEResult, axis: bool) -> str | None:
 #: the one order the module call and the capability row both use.  Each rule reads the
 #: resolved axis from :func:`truncation_axis`.  The names are the introspection contract,
 #: so a test pins the order without respelling a message.
-_TRUNCATION_RULES: tuple[tuple[str, Callable[[TMLEResult, bool], str | None]], ...] = (
+_TRUNCATION_RULES: tuple[tuple[str, Callable[[TMLEResult, bool], Refusal | None]], ...] = (
     ("observation_axis", _refuse_observation_axis),
     ("incremental", _refuse_incremental),
     ("natural_course", _refuse_natural_course),
@@ -1466,7 +1478,7 @@ def refits_reduced_regressions(result: TMLEResult) -> bool:
     )
 
 
-def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str | None:
+def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> Refusal | None:
     """Return the refusal a point-treatment truncation curve meets on one axis.
 
     :func:`truncation_curve` raises the sentence this function returns, and the
@@ -1490,25 +1502,29 @@ def truncation_refusal(result: TMLEResult, mechanism: bool | None = None) -> str
 
     Returns
     -------
-    str or None
-        Exact refusal reason, or ``None`` when the requested axis can be swept.
+    Refusal or None
+        The refusal, or ``None`` when the requested axis can be swept.
     """
     from ..estimators.drtmle import DRTMLE
 
     if refits_reduced_regressions(result) and isinstance(result.estimator, DRTMLE):
-        reason = result.estimator._reduction_configuration_refusal(
+        settings = result.estimator._reduction_configuration_refusal(
             result.extra.get("drtmle"), result.nuisance
         )
-        if reason is not None:
-            return (
-                "a guarded DR-TMLE truncation curve refits the reduced regressions under "
-                "this estimator's reduction settings, and it refuses those settings: " + reason
+        if settings is not None:
+            return replace(
+                settings,
+                condition=(
+                    "a guarded DR-TMLE truncation curve refits the reduced regressions under "
+                    "this estimator's reduction settings, and it refuses those settings: "
+                    + settings.condition
+                ),
             )
     axis = truncation_axis(result, mechanism)
     for _name, rule in _TRUNCATION_RULES:
-        reason = rule(result, axis)
-        if reason is not None:
-            return reason
+        refusal = rule(result, axis)
+        if refusal is not None:
+            return refusal
     return None
 
 
@@ -1591,14 +1607,15 @@ def truncation_curve(
     estimator = result.estimator
     if estimator is None:
         raise CapabilityError(
-            "truncation_curve needs the fitted estimator that produced the result"
+            "truncation_curve needs the fitted estimator that produced the result",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     # One predicate for the call and for the capability row, as ``tipping_gamma``'s
     # ``use_ci=True`` has.  The facade reads the same function to resolve its row, so a
     # request the row calls available is a request this line admits.
     refusal = truncation_refusal(result, mechanism)
     if refusal is not None:
-        raise CapabilityError(refusal)
+        raise CapabilityError.from_refusal(refusal)
     mechanism = truncation_axis(result, mechanism)
 
     # Every reported alias against the target that answers it, in report order. The
@@ -1727,7 +1744,8 @@ def _select(estimands: Any, reported_targets: dict[str, str]) -> tuple[str, ...]
     if not requested:
         raise CapabilityError(
             "estimands= selected no parameter; pass at least one of "
-            f"{list(reported_targets)}, or None for every parameter this fit reported"
+            f"{list(reported_targets)}, or None for every parameter this fit reported",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     targets = [
         name for name in dict.fromkeys(reported_targets.values()) if name not in reported_targets
@@ -1741,7 +1759,8 @@ def _select(estimands: Any, reported_targets: dict[str, str]) -> tuple[str, ...]
         also = f"; or a target name whose reported arms it selects: {targets}" if targets else ""
         raise CapabilityError(
             f"parameter(s) {unknown} were not reported by this fit; "
-            f"choose from {list(reported_targets)}{also}"
+            f"choose from {list(reported_targets)}{also}",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     selected = [
         alias

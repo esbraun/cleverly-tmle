@@ -117,7 +117,13 @@ from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.causal_data import CausalData
 from ..data.weighting import effective_sample_size, format_score_load
-from ..exceptions import CapabilityError, DataError, PositivityWarning
+from ..exceptions import (
+    CapabilityError,
+    DataError,
+    PositivityWarning,
+    Refusal,
+    RefusalReason,
+)
 from ..learners.crossfit import Folds
 from ..learners.density import ConditionalDensity, warn_if_unresolved
 from .support import _intervention_loads, _InterventionLoadRow
@@ -160,16 +166,25 @@ _TIE_EXCESS = 0.01
 _POLICY_DECLARATION = FunctionDeclaration(
     field="policy_kind",
     meaning="It declares whether the modified treatment policy d(a, h) is a known function.",
-    undeclared=(
+    undeclared=Refusal(
+        RefusalReason.INVALID_DECLARATION,
         "a modified treatment policy d(a, h) can close over any estimate, and no code can "
-        "inspect a closure, so its status is a declaration. Declare "
-        "ModifiedPolicy(..., policy_kind='known') when d is fixed before the fit and chosen "
-        "without reading the analysis sample"
+        "inspect a closure, so its status is a declaration.",
+        alternative=(
+            "Declare ModifiedPolicy(..., policy_kind='known') when d is fixed before the fit "
+            "and chosen without reading the analysis sample."
+        ),
     ),
-    estimated=(
-        "A policy fitted to the analysis sample makes the estimand data-dependent; Díaz et "
-        "al. (2023) Theorem 2 assumes d does not depend on P. For an odds tilt of the fitted "
-        "mechanism, put Incremental nodes in IPSI(regimens=...) from cleverly.longitudinal"
+    estimated=Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        "A policy fitted to the analysis sample makes the estimand data-dependent. Díaz et "
+        "al. (2023) Theorem 2 assumes d does not depend on P.",
+        alternative=(
+            "For an odds tilt of the fitted mechanism, put Incremental nodes in "
+            "IPSI(regimens=...) from cleverly.longitudinal."
+        ),
+        # X40 part (e) holds a data-tuned modification built on training rows.
+        roadmap="X40",
     ),
 )
 
@@ -532,9 +547,13 @@ class ModifiedPolicy:
         if self.randomizer is not None and not isinstance(self.randomizer, Randomizer):
             raise CapabilityError(
                 f"policy {self.name!r} draws a continuous randomizer. The estimator "
-                "integrates a randomizer with finitely many values of known probability; "
-                "discretize it. runif() < delta is a two-point randomizer and is accepted: "
-                "Randomizer((True, False), (delta, 1 - delta))"
+                "integrates a randomizer with finitely many values of known probability.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Discretize it. runif() < delta is a two-point randomizer and is "
+                    "accepted: Randomizer((True, False), (delta, 1 - delta))."
+                ),
+                roadmap="X64",
             )
         if (self.pieces is None) == (self.apply is None):
             raise DataError(
@@ -644,11 +663,20 @@ def refuse_policy_declarations(policies: Iterable[object]) -> None:
         kind: object = policy.policy_kind
         _POLICY_DECLARATION.check(kind)
         if kind is None:
-            raise CapabilityError(f"policy {policy.name!r}: {_POLICY_DECLARATION.undeclared}")
+            undeclared = _POLICY_DECLARATION.undeclared
+            raise CapabilityError.from_refusal(
+                replace(undeclared, condition=f"policy {policy.name!r}: {undeclared.condition}")
+            )
         if kind == "estimated":
-            raise CapabilityError(
-                f"policy {policy.name!r} is declared as estimated from the sample. "
-                + _POLICY_DECLARATION.estimated
+            estimated = _POLICY_DECLARATION.estimated
+            raise CapabilityError.from_refusal(
+                replace(
+                    estimated,
+                    condition=(
+                        f"policy {policy.name!r} is declared as estimated from the sample. "
+                        f"{estimated.condition}"
+                    ),
+                )
             )
 
 
@@ -1142,7 +1170,8 @@ def check_continuous_policy(
     if isinstance(policy, RiskRatioTilt):
         raise CapabilityError(
             f"policy {name!r} at {where} is a risk-ratio tilt, which sets a binary treatment. "
-            "It has no density ratio on a continuous dose"
+            "It has no density ratio on a continuous dose.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if not isinstance(policy, ModifiedPolicy):
         return
@@ -1151,8 +1180,9 @@ def check_continuous_policy(
             f"policy {name!r} at {where} declares apply= on a continuous treatment. A policy on "
             "a continuous dose declares pieces (Díaz et al. 2023, Assumption 4): an apply= "
             "that maps an interval to one dose is not pathwise differentiable (Section 4, "
-            "journal page 850), and no ratio route can tell that it does not. Declare "
-            "pieces=(Piece(...), ...)"
+            "journal page 850), and no ratio route can tell that it does not.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Declare pieces=(Piece(...), ...).",
         )
     a = np.asarray(observed, dtype=float).reshape(-1)
     for _, branch in policy_branches(policy):
@@ -1209,9 +1239,14 @@ def _check_monotone(
                 f"policy {name!r} at {where} maps the interval [{start[row]:g}, {stop[row]:g}) to "
                 f"the single dose {float(np.median(values)):g} on a continuous treatment, or "
                 "is not strictly monotone there. That parameter is not pathwise "
-                "differentiable (Díaz et al. 2023, Section 4, journal page 850), so no root-n "
-                "interval exists. Collapse the dose into categories and declare the policy on "
-                "a categorical node, or use a piecewise shift that moves every dose"
+                "differentiable (Díaz et al. 2023, Section 4, journal page 850), so no "
+                "regular estimator of it exists.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Each of these targets answers a different question. Collapse the dose "
+                    "into categories and declare the policy on a categorical node, or use a "
+                    "piecewise shift that moves every dose."
+                ),
             )
         for point, image in zip(grid, mapped, strict=True):
             with np.errstate(all="ignore"):
@@ -1281,7 +1316,12 @@ def _check_ties(
             f"policy {name!r} at {where} sends {share:.1%} of rows to the single dose {value:g}, "
             "more than any dose holds in the data. A policy that collapses an interval of a "
             "continuous dose to one value is not pathwise differentiable (Díaz et al. 2023, "
-            "Section 4)"
+            "Section 4), so no regular estimator of it exists.",
+            reason=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative=(
+                "Each of these targets answers a different question. Use a piecewise shift "
+                "that moves every dose, or a categorical node."
+            ),
         )
 
 
@@ -1959,9 +1999,15 @@ def _discrete_components(
     """The component arrays on a categorical treatment, by the discrete formula."""
     if data.has_missing_treatment:
         raise CapabilityError(
-            "a modified treatment policy on a categorical treatment reads the level each unit "
-            "received, and this fit declares a missing treatment. The policy mean with an "
-            "unrecorded treatment is a parameter this package has not derived"
+            f"When the missingness of {data.treatment_name} may depend on "
+            f"{data.treatment_name}, P({data.treatment_name} = a | W) is not identified; only "
+            f"P({data.treatment_name} = a | Delta_A = 1, W) is. policies= reads "
+            f"P({data.treatment_name} | W).",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Drop the rows with a missing treatment, which assumes the treatment is "
+                "missing completely at random, and fit TMLE(policies=)."
+            ),
         )
     levels = tuple(data.arm_label(code) for code in data.arm_codes)
     observed = np.asarray(data.treatment, dtype=float).astype(np.int64)

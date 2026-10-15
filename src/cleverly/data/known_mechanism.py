@@ -40,6 +40,7 @@ from typing import Any, Literal
 
 import numpy as np
 
+from .._refusal import Refusal, RefusalReason
 from .._typing import FloatArray
 from ..exceptions import CapabilityError, DataError
 
@@ -68,46 +69,62 @@ KnownSource = Literal["array", "mapping", "columns"]
 _ROW_SUM_TOLERANCE = 1e-12
 
 #: The refusal of a known mechanism on a treatment with no arms.
-CONTINUOUS_REFUSAL = (
+CONTINUOUS_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "treatment_probabilities= gives arm probabilities, and a continuous treatment has a "
-    "conditional density, not arms. A known density is not supported; fit without "
-    "treatment_probabilities=."
+    "conditional density, not arms. A known density is not supported.",
+    alternative="Fit without treatment_probabilities=.",
+    roadmap="X63",
 )
 #: The refusal of C-TMLE on data that declares the mechanism.
-KNOWN_CTMLE_REFUSAL = (
+KNOWN_CTMLE_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
     "CTMLE fits the treatment mechanism: its selector strategies select one, and "
     "strategy='derivative' fits one with a partner mechanism. The data declares it known, so "
-    "there is nothing to select or fit. Fit TMLE or DRTMLE on the declared data."
+    "there is nothing to select or fit.",
+    alternative="Fit TMLE or DRTMLE on the declared data.",
 )
 #: The refusal of the classifier ratio route beside a declared mechanism.
-KNOWN_POLICY_CLASSIFIER_REFUSAL = (
+KNOWN_POLICY_CLASSIFIER_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
     "ratio='classifier' learns each policy's density ratio from a stacked classifier, and "
-    "treatment_probabilities= declares the mechanism that ratio is built from. Pass "
-    "ratio='density', which reads the declared mechanism in the discrete formula, or fit "
-    "without treatment_probabilities=."
+    "treatment_probabilities= declares the mechanism that ratio is built from.",
+    alternative=(
+        "Pass ratio='density', which reads the declared mechanism in the discrete formula, "
+        "or fit without treatment_probabilities=."
+    ),
 )
 #: The refusal of covariate screening beside a declared mechanism.
-KNOWN_SCREEN_REFUSAL = (
+KNOWN_SCREEN_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
     "screen_treatment= selects covariates for the treatment learner, and "
-    "treatment_probabilities= replaces that learner. Drop one of the two."
+    "treatment_probabilities= replaces that learner.",
+    alternative="Drop one of the two.",
 )
 #: The refusal of a declared mechanism beside a declared missing treatment.
-KNOWN_TREATMENT_DELTA_REFUSAL = (
+KNOWN_TREATMENT_DELTA_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
     "treatment_probabilities= and treatment_delta= are not combined. A missing treatment "
     "needs P(A = a | treatment recorded, W), which equals the design mechanism only when "
-    "recording is independent of treatment given W, and the fit cannot check that. Fit "
-    "without treatment_probabilities=."
+    "recording is independent of treatment given W, and the fit cannot check that.",
+    alternative="Fit without treatment_probabilities=.",
 )
 #: The refusal of a DR-TMLE evaluation companion that declares no mechanism.
-KNOWN_EVALUATION_REFUSAL = (
+KNOWN_EVALUATION_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
     "evaluation= evaluates every nuisance on an independent draw, and that draw declares no "
-    "known treatment mechanism. Declare the same treatment_probabilities columns on an "
-    "evaluation frame, pass a CausalData evaluation companion that declares its own "
-    "treatment_probabilities, or drop evaluation=."
+    "known treatment mechanism.",
+    alternative=(
+        "Declare the same treatment_probabilities columns on an evaluation frame, pass a "
+        "CausalData evaluation companion that declares its own treatment_probabilities, or "
+        "drop evaluation=."
+    ),
 )
 
 
-def moved_known_values_refusal(count: int, bounds: tuple[float, float], values: FloatArray) -> str:
+def moved_known_values_refusal(
+    count: int, bounds: tuple[float, float], values: FloatArray
+) -> Refusal:
     """The refusal of a truncation bound pair that would move a known value.
 
     Parameters
@@ -121,16 +138,17 @@ def moved_known_values_refusal(count: int, bounds: tuple[float, float], values: 
 
     Returns
     -------
-    str
-        The sentence the fit raises.
+    Refusal
+        The record the fit raises.
     """
     known = np.asarray(values, dtype=float)
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"treatment_probabilities has {count} values outside the truncation bounds "
         f"[{bounds[0]:.4g}, {bounds[1]:.4g}] (smallest {float(np.min(known)):.4g}, largest "
         f"{float(np.max(known)):.4g}). Truncating a known design mechanism moves the estimate "
-        "with no variance reason. Pass g_bounds=(lower, upper) that contains every known "
-        "probability."
+        "with no variance reason.",
+        alternative="Pass g_bounds=(lower, upper) that contains every known probability.",
     )
 
 
@@ -279,7 +297,7 @@ def known_mechanism(
     """
     levels = list(levels)
     if not levels:
-        raise CapabilityError(CONTINUOUS_REFUSAL)
+        raise CapabilityError.from_refusal(CONTINUOUS_REFUSAL)
     source: KnownSource
     if isinstance(supplied, Mapping):
         values = _probabilities_from_levels(supplied, levels, n=n, treatment_name=treatment_name)
@@ -541,7 +559,7 @@ def known_node_mechanisms(
                     )
                 levels = list(treatment_levels[time])
                 if continuous_nodes[time] or not levels:
-                    raise CapabilityError(CONTINUOUS_REFUSAL)
+                    raise CapabilityError.from_refusal(CONTINUOUS_REFUSAL)
                 treatment[time] = _node_matrix(
                     _probabilities_from_levels(per_node, levels, n=n, treatment_name=node),
                     node,
@@ -551,7 +569,7 @@ def known_node_mechanisms(
         else:
             values = np.array(treatment_probabilities, dtype=float, copy=True)
             if any(continuous_nodes):
-                raise CapabilityError(CONTINUOUS_REFUSAL)
+                raise CapabilityError.from_refusal(CONTINUOUS_REFUSAL)
             if values.ndim == 2:
                 if values.shape != (n, n_nodes):
                     raise DataError(

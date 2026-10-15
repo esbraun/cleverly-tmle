@@ -164,6 +164,7 @@ STUDY = StudyRecord(
     implementation=IMPLEMENTATION,
     pending_reference=REFERENCE,
     pending_reason=PENDING_REASON,
+    comparison="matching implementation",
     extra_artifacts=("paired-tmle.csv", "chosen-penalties.csv"),
     modules=(
         "tests/studies/canonical_ctmle_derivative.py",

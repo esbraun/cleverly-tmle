@@ -331,11 +331,13 @@ class TestRefusals:
             _update(binary, spec)
 
     def test_one_step_targeting(self, binary: dict[str, Any]) -> None:
-        with pytest.raises(CapabilityError, match=re.escape(DERIVATIVE_ONE_STEP_REFUSAL)):
+        with pytest.raises(CapabilityError, match=re.escape(DERIVATIVE_ONE_STEP_REFUSAL.message())):
             _update(binary, replace(SPEC, targeting="one_step"))
 
     def test_target_weights(self, binary: dict[str, Any]) -> None:
-        with pytest.raises(CapabilityError, match=re.escape(DERIVATIVE_TARGET_WEIGHTS_REFUSAL)):
+        with pytest.raises(
+            CapabilityError, match=re.escape(DERIVATIVE_TARGET_WEIGHTS_REFUSAL.message())
+        ):
             _update(binary, replace(SPEC, target_weights=True))
 
     def test_derivative_columns_extend_only_the_mean_submodel(self, binary: dict[str, Any]) -> None:

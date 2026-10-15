@@ -227,6 +227,11 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
+    comparison="matching implementation",
+    comparison_overrides={
+        "binary_active:par": "related target",
+        "binary_active:paf": "related target",
+    },
     extra_artifacts=("design-gap.csv", "fit-diagnostics.csv"),
     modules=(
         "tests/studies/canonical_ctmle_oat_per_arm.py",

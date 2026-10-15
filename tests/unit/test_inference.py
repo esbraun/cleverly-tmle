@@ -34,7 +34,7 @@ from cleverly.estimators.ctmle import (
     CTMLEStrategy,
     is_selector_strategy,
 )
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.fluctuation import (
     InitialFit,
     att_submodel,
@@ -1219,16 +1219,19 @@ class TestTheCovarianceRule:
 
     def test_simultaneous_bands_refuse_a_second_moment_estimate(self) -> None:
         estimates = self._estimates("second_moment")
-        with pytest.raises(ValueError, match="covariance_rule='second_moment'") as caught:
+        with pytest.raises(CapabilityError, match="covariance_rule='second_moment'") as caught:
             simultaneous_bands(estimates, n_replicates=50, random_state=0)
+        assert caught.value.refusal.reason is RefusalReason.INFERENCE_GAP
         assert str(caught.value) == (
-            "simultaneous_bands cannot band ['first', 'second'], which declare "
+            "simultaneous_bands() cannot band ['first', 'second'], which declare "
             "covariance_rule='second_moment'. The multiplier draws center each influence "
             "curve, which matches the raw second moment only on a mean-zero curve, and "
-            "simultaneous_bands does not check the mean"
+            "simultaneous_bands() does not check the mean. Report the pointwise interval of "
+            "each named estimate, or pass the other estimates to simultaneous_bands() "
+            "without them."
         )
         mixed = {"first": self._estimates("centered")["first"], "second": estimates["second"]}
-        with pytest.raises(ValueError, match=r"cannot band \['second'\]"):
+        with pytest.raises(CapabilityError, match=r"cannot band \['second'\]"):
             simultaneous_bands(mixed, n_replicates=50, random_state=0)
         # The same curves under the centered rule band without complaint.
         bands = simultaneous_bands(self._estimates("centered"), n_replicates=50, random_state=0)

@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, Refusal, RefusalReason
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..fluctuation.submodel import Submodel, derivative_columns
 from .targeting import TargetingSpec, build_submodel, solve_submodel
@@ -45,20 +45,23 @@ __all__ = [
 ]
 
 #: The refusal of ``targeting="one_step"`` under ``strategy="derivative"``.
-DERIVATIVE_ONE_STEP_REFUSAL = (
+DERIVATIVE_ONE_STEP_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
     "strategy='derivative' runs R's single logistic fit of the 2K clever covariates, the "
     "mechanism's and their derivatives. targeting='one_step' walks the universal "
-    "least-favorable path of one target instead, which ctmle type 3 does not define. Use "
-    "targeting='iterative'."
+    "least-favorable path of one target instead, which ctmle type 3 does not define.",
+    alternative="Use targeting='iterative'.",
 )
 
 #: The refusal of ``target_weights=True`` under ``strategy="derivative"``.  Each treated row
 #: loads its arm's clever covariate and that covariate's derivative, and the weighted form
 #: moves a row's covariate into one scalar weight, which cannot keep two scores apart.
-DERIVATIVE_TARGET_WEIGHTS_REFUSAL = (
+DERIVATIVE_TARGET_WEIGHTS_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
     "strategy='derivative' fits each arm's clever covariate and its derivative together, so "
     "every row loads two columns. target_weights=True moves a row's covariate into one "
-    "observation weight, which keeps only one of the two scores. Use target_weights=False."
+    "observation weight, which keeps only one of the two scores.",
+    alternative="Use target_weights=False.",
 )
 
 #: The size below which a derivative column counts as zero, relative to one.
@@ -171,9 +174,9 @@ def derivative_update(
         converge.
     """
     if spec.targeting == "one_step":
-        raise CapabilityError(DERIVATIVE_ONE_STEP_REFUSAL)
+        raise CapabilityError(refusal=DERIVATIVE_ONE_STEP_REFUSAL)
     if spec.target_weights:
-        raise CapabilityError(DERIVATIVE_TARGET_WEIGHTS_REFUSAL)
+        raise CapabilityError(refusal=DERIVATIVE_TARGET_WEIGHTS_REFUSAL)
     a = np.asarray(treatment, dtype=float).reshape(-1)
     mask = np.asarray(observed, dtype=bool)
     ratio = derivative_ratio(mechanism, partner)
