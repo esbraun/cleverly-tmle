@@ -91,7 +91,20 @@ ARMS: dict[str, str] = {
     "continuous_t4": "difference at grid time 3, exponential event time, visit dropout",
     "end_of_study": "held end-of-study difference after two censoring nodes",
     "weighted_t5": "difference at visit 5 under the weight 1 + W1 / 2",
+    "policy_t3": (
+        "difference of a known baseline policy and arm 0 at visit 3, three arms without L_t"
+    ),
+    "isotonic_t2": (
+        "risk at visit 2 under treatment at both nodes, two-node law, fitted with the isotonic "
+        "projection"
+    ),
     "clustered_t5": "arm-0 risk at visit 5, 25 clusters of 80 that share W",
+    "clustered_t5_per_horizon": (
+        "arm-0 risk at visit 5, 25 clusters of 80 that share W, targeted one horizon at a time"
+    ),
+    "weighted_t5_per_horizon": (
+        "difference at visit 5 under the weight 1 + W1 / 2, targeted one horizon at a time"
+    ),
     "policy_t5": "baseline policy against the natural course at visit 5",
     "mtp_t5": "baseline minus one against the natural course at visit 5",
     "ate": "average treatment effect",
@@ -997,6 +1010,10 @@ PROPERTIES: dict[str, str] = {
     ),
     "root_n_rate": "the sampling spread contracts at the root-n rate the theory predicts",
     "rule_necessity": "the covariate-dependent rule, rather than a static substitute, determines the target",
+    "isotonic_projection": (
+        "the isotonic projection leaves a regular curve unchanged, and the study records how "
+        "often it moves a level"
+    ),
     "simultaneous_coverage": (
         "the multiplier band over a law's reported estimands covers the whole truth vector at "
         "the nominal joint rate"
@@ -1615,6 +1632,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the same test applied to a law with a real effect",
         "rejection lower bound clears the minimum power",
     ),
+    ("isotonic_projection", "moved"): (
+        "per replication, the distance the projection moved the level, against a truth of zero",
+        "none. The row is a diagnostic and states no verdict",
+    ),
     ("simultaneous_coverage", "simultaneous_band"): (
         "the max-t multiplier band over every estimand the law reports, from the same-row "
         "centered influence curves",
@@ -2128,6 +2149,23 @@ ARM_CELLS.update(
         )
     }
 )
+#: A reading of a label or a cell kind that holds for one study only, keyed by study slug.  A
+#: label such as ``rule_t3`` names different estimands in different studies, and the shared
+#: tables above cannot say which.
+STUDY_ARMS: dict[tuple[str, str], str] = {
+    ("point-survival-curve", "rule_t3"): (
+        "difference of the rule that treats where W1 is one and arm 0 at visit 3, three arms "
+        "without L_t"
+    ),
+}
+STUDY_ARM_CELLS: dict[tuple[str, str, str, str], tuple[str, str]] = {
+    ("point-survival-curve", "clustered_inference", label, "cluster_robust"): (
+        "the cluster-robust interval from the cluster-level influence curve of a single-fold "
+        "hazard fit",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    )
+    for label in ("clustered_t5", "clustered_t5_per_horizon")
+}
 ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (
     "the outcome regression, treatment mechanism and observation mechanism are correct",
     "SE ratio and coverage intervals both inside their calibration bands",
@@ -2369,6 +2407,7 @@ def cell(
     role: str | None = None,
     nuisance_count: int = 2,
     response_nuisance: bool = False,
+    slug: str | None = None,
 ) -> tuple[str, str]:
     """What a property cell configures, and what its verdict requires.
 
@@ -2388,8 +2427,10 @@ def cell(
         base = size.group("cell")
     try:
         tested, required = (
-            ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None
-        ) or CELLS[family, base]
+            (STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None)
+            or (ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None)
+            or CELLS[family, base]
+        )
     except KeyError:
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
@@ -2440,7 +2481,8 @@ def cell(
                 f"{role!r} selects neither, and the two rules are not interchangeable"
             )
     if arm is not None:
-        tested = f"{ARMS[arm.group('arm')]}: {tested}"
+        words = STUDY_ARMS.get((slug, arm.group("arm"))) if slug else None
+        tested = f"{words or ARMS[arm.group('arm')]}: {tested}"
     if term is not None:
         tested = f"{TERMS[term.group('term')]}: {tested}"
     return tested, required

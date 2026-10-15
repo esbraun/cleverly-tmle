@@ -800,6 +800,10 @@ The registered study [point survival hazard](method-evidence/point-survival-haza
 the per-horizon algorithm on repeated samples of two exact laws. Its `survtmle` comparator runs
 are pending.
 
+The registered study [point survival curve](method-evidence/point-survival-curve.md) validates the
+one-step walk on repeated samples of the `survival` law and on further exact laws in its property
+cells. Its `tmle3` comparator runs are pending.
+
 The registered study [point survival curve crossfit](method-evidence/point-survival-curve-crossfit.md)
 validates the one-step walk at five folds on the same exact laws. It has no comparator.
 

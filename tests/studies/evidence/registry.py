@@ -477,6 +477,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_point_survival_crossfit import (
         STUDY as POINT_SURVIVAL_CROSSFIT,
     )
+    from tests.studies.canonical_point_survival_curve import STUDY as POINT_SURVIVAL_CURVE
     from tests.studies.canonical_point_survival_curve_crossfit import (
         STUDY as POINT_SURVIVAL_CURVE_CROSSFIT,
     )
@@ -577,6 +578,7 @@ def registered() -> tuple[StudyRecord, ...]:
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,
+        POINT_SURVIVAL_CURVE,
         POINT_SURVIVAL_CURVE_CROSSFIT,
         POINT_SURVIVAL_POLICIES,
         KNOWN_MECHANISM,

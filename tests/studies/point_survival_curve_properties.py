@@ -143,6 +143,13 @@ CURVE_ARMS = ("arm1", "arm0")
 JOINT_LABEL = "all_reported"
 ISOTONIC_DIAGNOSTIC = "isotonic_t2__moved"
 
+#: The pairs that share a ``clustered_inference`` joint verdict (RM39b2 rev 3, section 5.0).
+PROPERTY_GROUPS = {
+    "clustered_inference": tuple(
+        (f"{label}__cluster_robust", f"{label}__iid_control") for label in CLUSTER_LABELS
+    )
+}
+
 # ------------------------------------------------------------------ the laws
 
 #: S3: the three-arm law of X13 without :math:`L_t`.
