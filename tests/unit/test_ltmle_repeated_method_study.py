@@ -36,6 +36,7 @@ from cleverly.longitudinal import LTMLE, LongitudinalData
 from tests.studies import canonical_ltmle_repeated as study
 from tests.studies import ltmle_repeated_law as law
 from tests.studies import ltmle_repeated_properties as properties
+from tests.studies import repeated_sizing as sizing
 from tests.studies.evidence import replication
 from tests.studies.evidence.inference import clopper_pearson, coverage_for_se_ratio
 from tests.studies.evidence.registry import registered
@@ -865,7 +866,7 @@ def test_the_calibration_budget_is_the_declared_rule_applied_to_the_pilot() -> N
         f"{label}__estimated_mechanisms" for label in (*study.GATED_LABELS, *study.EARLIER_LABELS)
     ]
     assert groups[0].mean_variance == pytest.approx(
-        sampling / properties.effective_cells(properties._cell_labels(labels))
+        sampling / properties.effective_cells(sizing.cell_labels(labels))
     )
     # The earlier per-cell rule moved every cell to the end of its own interval.  It is gone.
     assert not hasattr(properties, "evaluated_ratio")

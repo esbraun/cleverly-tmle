@@ -21,11 +21,11 @@ from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
 from .longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult, Repeated
+from .longitudinal import estimator as _sequential
 from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, tilt_nodes
 from .methods import (
     IPSI_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
-    REPEATED_OUTCOME_REFUSAL,
     SDR_POINT_REFUSAL,
     SDR_TILT_REFUSAL,
     CollaborativeTMLEMethod,
@@ -3481,17 +3481,24 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
 
         An odds tilt reads the treatment mechanism.  ``LTMLE`` fits it only as a known
         policy, when every tilt node's mechanism is declared (R1), and ``SDR`` never fits it
-        (R2).  ``IPSI`` fits every longitudinal plan set, with or without a tilt node.
+        (R2).  ``IPSI`` fits every longitudinal plan set, with or without a tilt node.  On a
+        repeated outcome, a method is available only when its kind is in the allowlist of
+        estimators with a per-horizon reduction (``REPEATED_OUTCOME_KINDS``).
         """
         if not self.functional.longitudinal:
             return True, None, False, SDR_POINT_REFUSAL, False, IPSI_POINT_REFUSAL
         data = getattr(self._study, "data", None)
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._tilt_methods(data)
-        # The fit refuses a repeated outcome on SDR and IPSI before any learner (R7), so the
-        # listing must not offer them.
+        # The fit refuses a repeated outcome on a kind outside the allowlist before any
+        # learner (R7), so the listing must not offer it, and its reason is the fit's.
         if getattr(data, "is_repeated", False):
-            refusal = REPEATED_OUTCOME_REFUSAL
-            return tmle, tmle_reason, False, refusal, False, refusal
+            kinds = _sequential.REPEATED_OUTCOME_KINDS
+            if "tmle" not in kinds:
+                tmle, tmle_reason = False, _sequential.repeated_outcome_refusal("LTMLE")
+            if "sdr" not in kinds:
+                sdr, sdr_reason = False, _sequential.repeated_outcome_refusal("SDR")
+            if "ipsi" not in kinds:
+                ipsi, ipsi_reason = False, _sequential.repeated_outcome_refusal("IPSI")
         return tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason
 
     def _tilt_methods(

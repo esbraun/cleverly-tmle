@@ -212,18 +212,14 @@ The hooks are :func:`pilot_se_ratios` (P2, P3), :func:`pilot_property_rows` (P4)
 
 from __future__ import annotations
 
-import functools
 import time
 import warnings
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.linalg import block_diag
-from scipy.optimize import brentq
-from scipy.stats import beta, binom, chi2, norm
+from scipy.stats import norm
 from sklearn.base import BaseEstimator, clone
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
@@ -236,6 +232,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.discrete_law_longitudinal import CellMeans
 from tests.parallel import STUDY_JOBS
 from tests.studies import ltmle_repeated_law as law
+from tests.studies import repeated_sizing as sizing
 from tests.studies.canonical_ltmle_repeated import (
     COLUMNS,
     EARLIER_LABELS,
@@ -275,6 +272,16 @@ from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
 from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
 from tests.studies.fractional_glm import QuasiBinomialGLM, QuasiBinomialSeparationWarning
+from tests.studies.repeated_sizing import BUDGET_STEP as BUDGET_STEP
+from tests.studies.repeated_sizing import FAMILY_WISE_PASS as FAMILY_WISE_PASS
+from tests.studies.repeated_sizing import PILOT_LEVEL as PILOT_LEVEL
+from tests.studies.repeated_sizing import PRIMARY_CELL_PASS as PRIMARY_CELL_PASS
+from tests.studies.repeated_sizing import PRIMARY_DESIGN_BIAS as PRIMARY_DESIGN_BIAS
+from tests.studies.repeated_sizing import PRIMARY_DESIGN_COVERAGE as PRIMARY_DESIGN_COVERAGE
+from tests.studies.repeated_sizing import PROPERTY_STEP as PROPERTY_STEP
+from tests.studies.repeated_sizing import PilotGroup as PilotGroup
+from tests.studies.repeated_sizing import heterogeneity_bound as heterogeneity_bound
+from tests.studies.repeated_sizing import pooled_pass_probability as pooled_pass_probability
 
 N = 2_000
 #: The sample size of every ``interval_calibration`` arm.  See the module docstring, Budgets.
@@ -1288,6 +1295,11 @@ PROPERTY_RULES = (
 # ---------------------------------------------------------------------------- design
 
 
+# The sizing rules live in :mod:`tests.studies.repeated_sizing`.  They take the study's margins
+# and its label-correlation function.  The functions below bind them to X32a, with its declared
+# 0.95 target for each sized instrument.
+
+
 def bias_equivalent_probability(bias: float, replicates: int) -> float:
     """P(an arm's 99% bias interval lies inside the margin), at standardized ``bias``.
 
@@ -1295,63 +1307,26 @@ def bias_equivalent_probability(bias: float, replicates: int) -> float:
     the arm, and the interval is the Student interval of the mean error, which is normal at
     these sizes.
     """
-    margins = STUDY.margins
-    z = float(norm.ppf(0.5 + margins.confidence_level / 2.0))
-    root = np.sqrt(replicates)
-    return float(
-        norm.cdf(root * (margins.standardized_bias - bias) - z)
-        - norm.cdf(-root * (margins.standardized_bias + bias) + z)
-    )
+    return float(sizing.bias_equivalent_probability(STUDY.margins, bias, replicates))
 
 
 def bias_discriminated_probability(gap: float, replicates: int) -> float:
     """P(a control's 99% bias interval clears the margin), at standardized ``gap``."""
-    margins = STUDY.margins
-    z = float(norm.ppf(0.5 + margins.confidence_level / 2.0))
-    return float(norm.cdf(np.sqrt(replicates) * (abs(gap) - margins.standardized_bias) - z))
+    return sizing.bias_discriminated_probability(STUDY.margins, gap, replicates)
 
 
 def coverage_floor_pass_probability(replicates: int, coverage: float) -> float:
     """The probability that the exact coverage interval's lower bound clears the floor.
 
     The gate is :attr:`~tests.studies.evidence.registry.Margins.coverage_floor` on the lower
-    end of the two-sided Clopper-Pearson interval at the study's confidence level.  The lower
-    end rises with the covered count, so the gate passes from one count upward and the
-    probability is a binomial tail.
+    end of the two-sided Clopper-Pearson interval at the study's confidence level.
     """
-    margins = STUDY.margins
-    tail = (1.0 - margins.confidence_level) / 2.0
-    counts = np.arange(1, replicates + 1)
-    lower = beta.ppf(tail, counts, replicates - counts + 1)
-    passing = counts[lower >= margins.coverage_floor]
-    if passing.size == 0:
-        return 0.0
-    return float(binom.sf(int(passing[0]) - 1, replicates, coverage))
+    return sizing.coverage_floor_pass_probability(STUDY.margins, replicates, coverage)
 
 
-@functools.cache
 def _accepted_counts(replicates: int) -> tuple[int, int] | None:
-    """The covered counts whose exact interval lies inside the calibration coverage band.
-
-    The Clopper-Pearson bounds both rise with the covered count, so the accepted counts form
-    one run.  ``None`` means that no count is accepted at this many replications.
-    """
-    margins = STUDY.margins
-    band_low, band_high = margins.calibration_coverage
-    counts = np.arange(replicates + 1)
-    tail = (1.0 - margins.confidence_level) / 2.0
-    lower = np.where(
-        counts > 0, beta.ppf(tail, counts, np.maximum(replicates - counts + 1, 1)), 0.0
-    )
-    upper = np.where(
-        counts < replicates,
-        beta.ppf(1.0 - tail, counts + 1, np.maximum(replicates - counts, 1)),
-        1.0,
-    )
-    inside = counts[(lower >= band_low) & (upper <= band_high)]
-    if inside.size == 0:
-        return None
-    return int(inside.min()), int(inside.max())
+    """The covered counts whose exact interval lies inside the calibration coverage band."""
+    return sizing.accepted_counts(STUDY.margins, replicates)
 
 
 def calibration_pass_probability(
@@ -1359,13 +1334,7 @@ def calibration_pass_probability(
 ) -> float:
     """The probability that a calibration cell passes the two-sided rule.
 
-    The SE-ratio half reads a normal approximation: the empirical SD of ``R`` normal
-    estimates has relative standard deviation ``1 / sqrt(2 (R - 1))``, and the bootstrap 99%
-    interval has half-width ``z_{0.995}`` of those.  The mean reported SE is treated as exact.
-    The coverage half is exact: it sums the binomial law of the covered count over the counts
-    whose Clopper-Pearson interval lies inside the band.  The two halves are independent under
-    this approximation, so the probability is their product.
-
+    :func:`~tests.studies.repeated_sizing.calibration_pass` defines the two halves.
     ``coverage`` defaults to the coverage a Wald interval with this SE ratio attains,
     :math:`2\\Phi(1.96\\,r) - 1`, because a cell with a ratio off one is off in both halves.
     """
@@ -1376,38 +1345,7 @@ def _calibration_pass(
     replicates: int, ratio: np.ndarray, coverage: float | None = None
 ) -> np.ndarray:
     """:func:`calibration_pass_probability` over an array of SE ratios."""
-    margins = STUDY.margins
-    low, high = margins.calibration_se_ratio
-    z = float(norm.ppf(0.5 + margins.confidence_level / 2.0))
-    spread = ratio / np.sqrt(2.0 * (replicates - 1))
-    half = z * spread
-    se_pass = np.maximum(
-        norm.cdf((high - half - ratio) / spread) - norm.cdf((low + half - ratio) / spread), 0.0
-    )
-    accepted = _accepted_counts(replicates)
-    if accepted is None:
-        return np.zeros_like(se_pass)
-    if coverage is None:
-        # ``coverage_for_se_ratio`` over an array: a unit test pins the two together.
-        wald = 2.0 * norm.cdf(norm.ppf(1.0 - margins.alpha / 2.0) * ratio) - 1.0
-    else:
-        wald = np.full_like(se_pass, coverage)
-    coverage_pass = binom.cdf(accepted[1], replicates, wald) - binom.cdf(
-        accepted[0] - 1, replicates, wald
-    )
-    return np.asarray(se_pass * coverage_pass)
-
-
-#: The one-sided 80% level of the pilot's own sampling error in both sizing rules.
-PILOT_LEVEL = 0.80
-#: The multiples of this many replications are the candidate budgets of both sizing rules.
-BUDGET_STEP = 400
-#: The family-wise pass probability both sizing rules require.
-FAMILY_WISE_PASS = 0.95
-#: The per-cell coverage-floor pass probability the primary rule requires at the stated coverage.
-PRIMARY_CELL_PASS = 0.99
-PRIMARY_DESIGN_COVERAGE = 0.93
-PRIMARY_DESIGN_BIAS = 0.15
+    return sizing.calibration_pass(STUDY.margins, replicates, ratio, coverage)
 
 
 def primary_replicates(
@@ -1436,30 +1374,9 @@ def primary_replicates(
     implementations : int
         How many implementations each cell is tested for (cleverly and R).
     """
-    lower = {
-        cell: float(beta.ppf(1.0 - PILOT_LEVEL, count, pilot_replicates - count + 1))
-        if count
-        else 0.0
-        for cell, count in covered.items()
-    }
-    replicates = BUDGET_STEP
-    while True:
-        product = (
-            np.prod(
-                [coverage_floor_pass_probability(replicates, value) for value in lower.values()]
-            )
-            ** implementations
-        )
-        if (
-            bias_equivalent_probability(PRIMARY_DESIGN_BIAS, replicates) >= 0.90
-            and coverage_floor_pass_probability(replicates, PRIMARY_DESIGN_COVERAGE)
-            >= PRIMARY_CELL_PASS
-            and product >= FAMILY_WISE_PASS
-        ):
-            return replicates
-        replicates += BUDGET_STEP
-        if replicates > 50_000:  # pragma: no cover - a pilot this poor needs a larger n
-            raise ValueError("no budget up to 50,000 replications meets the primary rule")
+    return sizing.primary_replicates(
+        STUDY.margins, covered, pilot_replicates, implementations=implementations
+    )
 
 
 #: Pilot P1 (see ``tests.studies.canonical_ltmle_repeated``): the covered count of each
@@ -1518,134 +1435,7 @@ def effective_cells(labels: Sequence[str]) -> float:
     cells, so the mean of ``k`` ratios has the noise variance of one ratio divided by this
     number.
     """
-    correlations = label_correlations(labels)
-    return float(len(labels) ** 2 / np.sum(correlations**2))
-
-
-@dataclass(frozen=True)
-class PilotGroup:
-    """Pilot values of cells that share a law, and the covariance of their pilot noise.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        The pilot value of each cell.
-    noise : numpy.ndarray
-        The covariance of the pilot noise of the cells, one row and column for each cell.
-    """
-
-    values: np.ndarray
-    noise: np.ndarray
-
-    @property
-    def mean_variance(self) -> float:
-        """The noise variance of the group mean."""
-        return float(np.sum(self.noise)) / len(self.values) ** 2
-
-
-def heterogeneity_bound(groups: Sequence[PilotGroup], *, level: float = PILOT_LEVEL) -> float:
-    r"""The one-sided upper confidence bound on the spread :math:`\tau` between cells.
-
-    A cell of a group has a true value equal to the group's true mean plus a deviation of
-    standard deviation :math:`\tau`.  The statistic is the sum over groups of the squared
-    deviations of the pilot values from their group mean.  It is a quadratic form in normal
-    noise, and a Satterthwaite chi-square matches its first two moments at each
-    :math:`\tau`.  The bound is the :math:`\tau` at which the observed statistic sits at the
-    ``1 - level`` quantile of that law, and zero if the observed statistic already lies below
-    it at :math:`\tau = 0`.  The cells' noise covariance is part of the law, so a spread that
-    the noise alone explains yields a small bound.
-
-    Parameters
-    ----------
-    groups : Sequence[PilotGroup]
-        The pilot groups.
-    level : float
-        The confidence level of the one-sided bound.
-    """
-    groups = [group for group in groups if len(group.values) > 1]
-    if not groups:
-        return 0.0
-    observed = float(sum(np.sum((group.values - np.mean(group.values)) ** 2) for group in groups))
-
-    def tail(tau: float) -> float:
-        eigenvalues: list[float] = []
-        for group in groups:
-            size = len(group.values)
-            centre = np.eye(size) - np.ones((size, size)) / size
-            covariance = tau**2 * np.eye(size) + group.noise
-            eigenvalues.extend(np.linalg.eigvalsh(centre @ covariance @ centre))
-        spectrum = np.clip(np.asarray(eigenvalues), 0.0, None)
-        mean = float(spectrum.sum())
-        if mean <= 0.0:  # no noise and no spread: the statistic is exactly zero
-            return 1.0
-        freedom = 2.0 * mean**2 / (2.0 * float(np.sum(spectrum**2)))
-        return float(chi2.cdf(observed * freedom / mean, freedom))
-
-    target = 1.0 - level
-    if tail(0.0) <= target:
-        return 0.0
-    upper = 0.01
-    while tail(upper) > target:
-        upper *= 2.0
-    return float(brentq(lambda tau: tail(tau) - target, 0.0, upper, xtol=1e-9))
-
-
-#: Gauss-Hermite nodes and weights (probabilists') of the pooled predictive integral.
-_NODES, _WEIGHTS = np.polynomial.hermite_e.hermegauss(31)
-_WEIGHTS = _WEIGHTS / _WEIGHTS.sum()
-
-
-def pooled_pass_probability(
-    groups: Sequence[PilotGroup],
-    tau: float,
-    cell_pass: Callable[[np.ndarray], np.ndarray] | Sequence[Callable[[np.ndarray], np.ndarray]],
-) -> float:
-    r"""The family-wise pass probability of the cells of ``groups`` under the pooled reading.
-
-    The true value of a group's cells is :math:`\mu \sim N(\bar v, \sigma^2)`, where
-    :math:`\bar v` is the pilot group mean and :math:`\sigma^2` is its noise variance.  Given
-    :math:`\mu`, each cell has the true value :math:`\mu + \tau z` with its own independent
-    :math:`z \sim N(0, 1)`.  The probability is the product over groups of
-    :math:`E_\mu[\prod_c E_z\, p_c(\mu + \tau z)]` for the cell pass probabilities :math:`p_c`.
-    Cells that share a fit are positively dependent, which makes the product a lower bound.
-
-    Parameters
-    ----------
-    groups : Sequence[PilotGroup]
-        The pilot groups.
-    tau : float
-        The spread between the true values of the cells of a group.
-    cell_pass : Callable or Sequence[Callable]
-        The probability that one cell passes, given its true value, over an array of values.
-        One callable serves every cell.  A sequence gives each cell of the pooled groups its
-        own, in the order of the groups' cells.
-    """
-    nodes = _NODES
-    total = 1.0
-    offset = 0
-    for group in groups:
-        size = len(group.values)
-        cells = (
-            [cell_pass] * size if callable(cell_pass) else list(cell_pass)[offset : offset + size]
-        )
-        offset += size
-        centres = float(np.mean(group.values)) + float(np.sqrt(group.mean_variance)) * nodes
-        inner: dict[int, np.ndarray] = {}
-        product = np.ones(len(nodes))
-        for cell in cells:
-            if id(cell) not in inner:
-                if tau > 0.0:
-                    inner[id(cell)] = cell(centres[:, None] + tau * nodes[None, :]) @ _WEIGHTS
-                else:
-                    inner[id(cell)] = cell(centres)
-            product = product * inner[id(cell)]
-        total *= float(np.sum(_WEIGHTS * product))
-    return total
-
-
-def _cell_labels(names: Sequence[str]) -> list[str]:
-    """The label of each ``label__configuration`` cell name, ``label`` alone if it has no suffix."""
-    return [name.split("__", 1)[0].rsplit("/", 1)[-1] for name in names]
+    return sizing.effective_cells(labels, label_correlations)
 
 
 #: Pilot P2 (see the module docstring): the SE ratio of each of the 28 gated calibration
@@ -1698,17 +1488,7 @@ def calibration_groups(ratios: Mapping[str, float], pilot_replicates: int) -> li
     pilot_replicates : int
         The pilot replications behind each ratio.
     """
-    sampling = 1.0 / (2.0 * (pilot_replicates - 1))
-    arms: dict[str, list[str]] = {}
-    for name in ratios:
-        arms.setdefault(name.split("__", 1)[1], []).append(name)
-    return [
-        PilotGroup(
-            np.array([ratios[name] for name in names]),
-            sampling * label_correlations(_cell_labels(names)) ** 2,
-        )
-        for names in arms.values()
-    ]
+    return sizing.calibration_groups(ratios, pilot_replicates, label_correlations)
 
 
 def calibration_family_pass_probability(
@@ -1719,7 +1499,7 @@ def calibration_family_pass_probability(
     Each arm reads :func:`pooled_pass_probability` with :func:`calibration_pass_probability`
     as the cell probability.
     """
-    return pooled_pass_probability(groups, tau, lambda ratio: _calibration_pass(replicates, ratio))
+    return sizing.calibration_family_pass_probability(STUDY.margins, replicates, groups, tau)
 
 
 def calibration_replicates(ratios: Mapping[str, float], pilot_replicates: int) -> int:
@@ -1740,14 +1520,9 @@ def calibration_replicates(ratios: Mapping[str, float], pilot_replicates: int) -
     pilot_replicates : int
         The pilot replications behind each ratio.
     """
-    groups = calibration_groups(ratios, pilot_replicates)
-    tau = heterogeneity_bound(groups)
-    replicates = BUDGET_STEP
-    while calibration_family_pass_probability(replicates, groups, tau) < FAMILY_WISE_PASS:
-        replicates += BUDGET_STEP
-        if replicates > 50_000:  # pragma: no cover - a pilot this far off needs a defect fixed
-            raise ValueError("no budget up to 50,000 replications meets the calibration rule")
-    return replicates
+    return sizing.calibration_replicates(
+        STUDY.margins, ratios, pilot_replicates, label_correlations
+    )
 
 
 #: Pilot P4 (see the module docstring): the standardized bias of each cell that a bias check
@@ -1818,14 +1593,6 @@ PROPERTY_PILOT_BIASES = {
 }
 
 
-def _bias_families(biases: Mapping[str, float]) -> dict[str, list[str]]:
-    """The cell names of each family, in the order of ``biases``."""
-    families: dict[str, list[str]] = {}
-    for name in biases:
-        families.setdefault(name.split("/", 1)[0], []).append(name)
-    return families
-
-
 def property_bias_groups(
     biases: Mapping[str, float], pilot_replicates: int
 ) -> dict[str, PilotGroup]:
@@ -1844,13 +1611,7 @@ def property_bias_groups(
     pilot_replicates : int
         The pilot replications behind each bias.
     """
-    return {
-        family: PilotGroup(
-            np.array([biases[name] for name in names]),
-            label_correlations(_cell_labels(names)) / pilot_replicates,
-        )
-        for family, names in _bias_families(biases).items()
-    }
+    return sizing.property_bias_groups(biases, pilot_replicates, label_correlations)
 
 
 def property_bias_pool(biases: Mapping[str, float], pilot_replicates: int) -> PilotGroup:
@@ -1860,22 +1621,7 @@ def property_bias_pool(biases: Mapping[str, float], pilot_replicates: int) -> Pi
     all families one mean.  The spread between cells then includes the spread between
     families.  Cells of two families share no draw, so the noise is block diagonal.
     """
-    groups = property_bias_groups(biases, pilot_replicates)
-    return PilotGroup(
-        np.concatenate([group.values for group in groups.values()]),
-        block_diag(*(group.noise for group in groups.values())),
-    )
-
-
-def _bias_cell_passes(
-    biases: Mapping[str, float], replicates: Mapping[str, int]
-) -> list[Callable[[np.ndarray], np.ndarray]]:
-    """The pass probability of each cell, in the order of ``biases``, at its family's size."""
-    by_replicates = {
-        count: np.vectorize(lambda bias, count=count: bias_equivalent_probability(bias, count))
-        for count in set(replicates.values())
-    }
-    return [by_replicates[replicates[name.split("/", 1)[0]]] for name in biases]
+    return sizing.property_bias_pool(biases, pilot_replicates, label_correlations)
 
 
 def property_bias_pass_probability(
@@ -1908,18 +1654,15 @@ def property_bias_pass_probability(
     pooled : bool
         Read one group for all cells.
     """
-    groups = (
-        [property_bias_pool(biases, pilot_replicates)]
-        if pooled
-        else list(property_bias_groups(biases, pilot_replicates).values())
+    return sizing.property_bias_pass_probability(
+        STUDY.margins,
+        biases,
+        pilot_replicates,
+        replicates,
+        label_correlations,
+        tau,
+        pooled=pooled,
     )
-    if tau is None:
-        tau = heterogeneity_bound(groups)
-    return pooled_pass_probability(groups, tau, _bias_cell_passes(biases, replicates))
-
-
-#: The multiples of this many replications are the candidate sizes of a property family.
-PROPERTY_STEP = 200
 
 
 def property_bias_replicates(biases: Mapping[str, float], pilot_replicates: int) -> dict[str, int]:
@@ -1938,21 +1681,9 @@ def property_bias_replicates(biases: Mapping[str, float], pilot_replicates: int)
     pilot_replicates : int
         The pilot replications behind each bias.
     """
-    groups = property_bias_groups(biases, pilot_replicates)
-    tau = heterogeneity_bound(list(groups.values()))
-    target = FAMILY_WISE_PASS ** (1.0 / len(groups))
-    sizes: dict[str, int] = {}
-    for family, group in groups.items():
-        count = PROPERTY_STEP
-        while True:
-            cell = np.vectorize(lambda bias, count=count: bias_equivalent_probability(bias, count))
-            if pooled_pass_probability([group], tau, cell) >= target:
-                break
-            count += PROPERTY_STEP
-            if count > 50_000:  # pragma: no cover - a pilot this far off needs a defect fixed
-                raise ValueError(f"no size up to 50,000 replications meets the rule for {family}")
-        sizes[family] = count
-    return sizes
+    return sizing.property_bias_replicates(
+        STUDY.margins, biases, pilot_replicates, label_correlations
+    )
 
 
 # ---------------------------------------------------------------------------- pilots
