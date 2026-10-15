@@ -33,27 +33,32 @@ from sklearn.dummy import DummyClassifier, DummyRegressor
 
 from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_competing as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_ltmle_competing as canonical
 from tests.studies.canonical_ltmle import declared_regimens
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY, joint_coverage_rows
+from tests.studies.evidence.simultaneous import joint_cells as joint_cell_names
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 4_000
@@ -294,6 +299,14 @@ def untargeted(
     return float(np.mean(stitched))
 
 
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> pd.DataFrame:
+    property_name, _, _, n, _, seed, _ = payload
+    # The power cell samples the primary law, so it needs no branch of its own here; see
+    # :data:`POWER_TRUTH` for why this study declares no separate alternative.
+    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
+    return sample(probs, n, seed)
+
+
 def _fit_replication(
     payload: tuple[str, str, int, int, int, int, str],
     *,
@@ -301,11 +314,20 @@ def _fit_replication(
     fit_fn: Callable[..., Any],
     joint_cells: bool = False,
 ) -> list[dict[str, Any]]:
-    property_name, suffix, replicate, n, requested, seed, configuration = payload
-    # The power cell samples the primary law, so it needs no branch of its own here; see
-    # :data:`POWER_TRUTH` for why this study declares no separate alternative.
-    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
-    frame = sample(probs, n, seed)
+    return _fit_drawn(
+        payload, _draw_replication(payload), study=study, fit_fn=fit_fn, joint_cells=joint_cells
+    )
+
+
+def _fit_drawn(
+    payload: tuple[str, str, int, int, int, int, str],
+    frame: pd.DataFrame,
+    *,
+    study: Any,
+    fit_fn: Callable[..., Any],
+    joint_cells: bool = False,
+) -> list[dict[str, Any]]:
+    property_name, suffix, replicate, n, requested, _, configuration = payload
     joint = joint_cells and property_name == "interval_calibration"
     result = (
         fit_fn(frame, configuration, simultaneous=True) if joint else fit_fn(frame, configuration)
@@ -381,10 +403,26 @@ def fit_curve(frame: pd.DataFrame) -> Any:
     )
 
 
-def _curve_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
-    replicate, seed = payload
-    result = fit_curve(sample(law.PROBS, CURVE_N, seed))
+def _curve_draw(payload: tuple[int, int]) -> pd.DataFrame:
+    return sample(law.PROBS, CURVE_N, payload[1])
+
+
+def _curve_replication(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
+    replicate, _ = payload
+    result = fit_curve(frame)
     return _joint(result, CURVE_LABEL, replicate, CURVE_N, CURVE_REPLICATES, study=STUDY)
+
+
+def _curve_cells_of(key: tuple[tuple[int, int]]) -> list[str]:
+    return [f"{FAMILY}/{name}" for name in joint_cell_names(CURVE_LABEL)]
+
+
+def _curve_cell_of(key: tuple[tuple[int, int]]) -> str:
+    return f"{FAMILY}/{CURVE_LABEL}"
+
+
+def _curve_replicate_of(key: tuple[tuple[int, int]]) -> int:
+    return int(key[0][0])
 
 
 def curve_rows(*, n_jobs: int = STUDY_JOBS, replicates: int = CURVE_REPLICATES) -> pd.DataFrame:
@@ -393,18 +431,32 @@ def curve_rows(*, n_jobs: int = STUDY_JOBS, replicates: int = CURVE_REPLICATES) 
         ((replicate, stream_seed(STUDY, "property_sample", FAMILY, CURVE_LABEL, replicate)),)
         for replicate in range(replicates)
     ]
-    outcomes = map_parallel(_curve_replication, payloads, n_jobs=n_jobs)
+    outcomes = fit_properties(
+        payloads,
+        splat_drawn(_curve_replication),
+        draw=splat_draw(_curve_draw),
+        cells_of=_curve_cells_of,
+        cell_of=_curve_cell_of,
+        replicate_of=_curve_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/curve",
+    )
     return pd.DataFrame([row for result in outcomes for row in result])
+
+
+def _recursion_draw(payload: tuple[int, int, int, int]) -> pd.DataFrame:
+    _, n, _, seed = payload
+    return sample(law.PROBS, n, seed)
 
 
 def _recursion_replication(
     payload: tuple[int, int, int, int],
+    frame: pd.DataFrame,
     *,
     study: Any,
     fit_fn: Callable[[pd.DataFrame, str], Any],
 ) -> list[dict[str, Any]]:
-    replicate, n, requested, seed = payload
-    frame = sample(law.PROBS, n, seed)
+    replicate, n, requested, _ = payload
     result = fit_fn(frame, "both_correct")
     rows: list[dict[str, Any]] = []
     for cause in law.CAUSES:
@@ -499,6 +551,39 @@ def _payloads(study: Any) -> list[tuple[tuple[str, str, int, int, int, int, str]
     ]
 
 
+#: Each calibration label's positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(PROPERTY_LABELS)
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]], joint: bool) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, suffix = key[0][:2]
+    names = [f"{property_name}/{label}__{suffix}" for label in CONTRASTS]
+    if property_name == "targeting_necessity":
+        names += [f"{property_name}/{label}__untargeted" for label in CONTRASTS]
+    if joint and property_name == "interval_calibration":
+        names += [f"{FAMILY}/{name}" for name in joint_cell_names(ALL_LABEL)]
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
+
+
+def _recursion_cells_of(key: tuple[tuple[int, int, int, int]]) -> list[str]:
+    return [
+        f"competing_risk_recursion_necessity/{cause}_always_t2__{arm}"
+        for cause in law.CAUSES
+        for arm in ("all_cause", "cause_specific_control")
+    ]
+
+
+def _recursion_cell_of(key: tuple[tuple[int, int, int, int]]) -> str:
+    return "competing_risk_recursion_necessity/always_t2"
+
+
+def _recursion_replicate_of(key: tuple[tuple[int, int, int, int]]) -> int:
+    return int(key[0][0])
+
+
 def generate_for(
     study: Any,
     fit_fn: Callable[..., Any],
@@ -506,10 +591,21 @@ def generate_for(
     n_jobs: int,
     joint_cells: bool = False,
 ) -> pd.DataFrame:
-    def runner(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-        return _fit_replication(payload, study=study, fit_fn=fit_fn, joint_cells=joint_cells)
+    def runner(
+        payload: tuple[str, str, int, int, int, int, str], frame: pd.DataFrame
+    ) -> list[dict[str, Any]]:
+        return _fit_drawn(payload, frame, study=study, fit_fn=fit_fn, joint_cells=joint_cells)
 
-    outcomes = map_parallel(runner, _payloads(study), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(study),
+        splat_drawn(runner),
+        draw=splat_draw(_draw_replication),
+        cells_of=lambda key: _cells_of(key, joint_cells),
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     recursion_payloads = [
         (
@@ -523,10 +619,21 @@ def generate_for(
         for replicate in range(RECURSION_REPLICATES)
     ]
 
-    def recursion_runner(payload: tuple[int, int, int, int]) -> list[dict[str, Any]]:
-        return _recursion_replication(payload, study=study, fit_fn=fit_fn)
+    def recursion_runner(
+        payload: tuple[int, int, int, int], frame: pd.DataFrame
+    ) -> list[dict[str, Any]]:
+        return _recursion_replication(payload, frame, study=study, fit_fn=fit_fn)
 
-    recursion = map_parallel(recursion_runner, recursion_payloads, n_jobs=n_jobs)
+    recursion = fit_properties(
+        recursion_payloads,
+        splat_drawn(recursion_runner),
+        draw=splat_draw(_recursion_draw),
+        cells_of=_recursion_cells_of,
+        cell_of=_recursion_cell_of,
+        replicate_of=_recursion_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/recursion",
+    )
     rows = pd.concat(
         [
             rows,
@@ -547,6 +654,16 @@ def generate_for(
     return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -572,28 +689,39 @@ def summarize_for(
     # A no-op for the cross-fitted study, which publishes no joint cell.
     simultaneous_coverage_verdicts(summary, margins=study.margins)
 
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=PROPERTY_LABELS,
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="competing_risk_recursion_necessity",
-        labels=tuple(f"{cause}_always_t2" for cause in law.CAUSES),
-        arms=("all_cause", "cause_specific_control"),
-        column="recursion_displacement",
-        threshold=RECURSION_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, COMPETING_RISK_RECURSION_NECESSITY)
     if crossfit_positive_cell is not None:
         crossfit_overfitting_verdicts(summary, rows, study, positive_cell=crossfit_positive_cell)
     return finish(summary, rates)
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=PROPERTY_LABELS,
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+#: The ``competing_risk_recursion_necessity`` family's declaration, read by its verdict and its rule.
+COMPETING_RISK_RECURSION_NECESSITY = property_verdicts.Necessity(
+    family="competing_risk_recursion_necessity",
+    labels=tuple(f"{cause}_always_t2" for cause in law.CAUSES),
+    arms=("all_cause", "cause_specific_control"),
+    column="recursion_displacement",
+    threshold=RECURSION_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return summarize_for(rows, STUDY)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY, COMPETING_RISK_RECURSION_NECESSITY),
+)

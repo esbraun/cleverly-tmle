@@ -87,6 +87,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-omitted-variable-bound",
     reference=None,
+    failure_bound={"cleverly-omitted-variable-bound": 0.01},
     modules=(
         "tests/studies/omitted_variable_bound.py",
         "tests/studies/omitted_variable_bound_properties.py",

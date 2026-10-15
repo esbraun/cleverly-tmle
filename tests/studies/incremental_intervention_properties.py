@@ -9,24 +9,28 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.estimators import TMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law as law
 from tests import incrementals
 from tests.conftest import OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_incremental_interventions import STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     control_row,
+    payload_cell,
+    payload_replicate,
     ratio_intervals,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.intervention_study_helpers import (
     INTERVENTION_CALIBRATION_REPLICATES,
@@ -100,15 +104,46 @@ def _score_control_standard_error(result: Any) -> float:
     return float(np.std(control_curve, ddof=1) / np.sqrt(result.data.n))
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(("contrast",))
+
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+
+def _probs(property_name: str) -> np.ndarray:
     if property_name == "type_i_error":
-        probs = NULL_PROBS
-    elif property_name == "treatment_score_necessity":
-        probs = SCORE_PROBS
-    else:
-        probs = law.PROBS
-    frame = sample_discrete(probs, n, seed)
+        return NULL_PROBS
+    if property_name == "treatment_score_necessity":
+        return SCORE_PROBS
+    return law.PROBS
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    property_name, _, _, n, _, seed, _ = key[0]
+    return sample_discrete(_probs(property_name), n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "targeting_necessity":
+        arm = "outcome" if cell == "outcome_targeted" else "mechanism"
+        return [f"{property_name}/{arm}__targeted", f"{property_name}/{arm}__untargeted"]
+    if property_name == "treatment_score_necessity":
+        return [
+            f"{property_name}/odds_x2__full_eif",
+            f"{property_name}/odds_x2__regime_curve_control",
+        ]
+    if property_name == "natural_course_identity":
+        return [f"{property_name}/natural__ipsi", f"{property_name}/natural__mean"]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _seed, configuration = key[0]
+    probs = _probs(property_name)
     result = fit(frame, probs, configuration)
     target = SCORE_TARGET if property_name == "treatment_score_necessity" else TARGET
     truth = float(law.functional(probs, target))
@@ -215,7 +250,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     return rows
 
 
-def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
+def _payloads() -> list[_Key]:
     specs: list[tuple[str, str, int, int, str]] = [
         (
             "mechanism_requirement",
@@ -290,7 +325,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
             ),
         ]
     )
-    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
+    out: list[_Key] = []
     for property_name, cell, n, replicates, configuration in specs:
         for replicate in range(replicates):
             seed = stream_seed(STUDY, "property_sample", property_name, cell, replicate)
@@ -298,8 +333,27 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     return out
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     controls = calibration_controls(
         rows,
@@ -311,6 +365,21 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         critical=CRITICAL,
     )
     return pd.concat([rows, controls], ignore_index=True)
+
+
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("outcome", "mechanism"),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+
+#: The cells the ``natural_course_identity`` supremum compares, and its strict tolerance.
+IDENTITY_CELLS = ("natural__ipsi", "natural__mean")
+IDENTITY_TOLERANCE = 1e-8
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -334,15 +403,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
     summary.loc[mechanism, "property_passed"] = bool(summary.loc[mechanism, "passed"].all())
 
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("outcome", "mechanism"),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
 
     score = summary["property"] == "treatment_score_necessity"
     score_passes: list[bool] = []
@@ -368,8 +429,30 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     identity = summary["property"] == "natural_course_identity"
     source = rows.loc[rows["property"] == "natural_course_identity"]
     wide = source.pivot(index="replicate", columns="cell", values="estimate")
-    difference = float(np.max(np.abs(wide["natural__ipsi"] - wide["natural__mean"])))
+    shifted, natural = IDENTITY_CELLS
+    difference = float(np.max(np.abs(wide[shifted] - wide[natural])))
     summary.loc[identity, "maximum_identity_difference"] = difference
-    summary.loc[identity, "passed"] = difference < 1e-8
-    summary.loc[identity, "property_passed"] = bool(difference < 1e-8)
+    summary.loc[identity, "passed"] = difference < IDENTITY_TOLERANCE
+    summary.loc[identity, "property_passed"] = bool(difference < IDENTITY_TOLERANCE)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY),
+    property_verdicts.requirement_rule("mechanism_requirement", shared="summarize_properties"),
+    property_verdicts.score_necessity_rule(
+        "treatment_score_necessity",
+        efficiency_band=EFFICIENCY_RATIO_BAND,
+        shared="summarize_properties",
+    ),
+    property_verdicts.identity_rule(
+        "natural_course_identity",
+        column="maximum_identity_difference",
+        cells=IDENTITY_CELLS,
+        tolerance=IDENTITY_TOLERANCE,
+        shared="summarize_properties",
+    ),
+)

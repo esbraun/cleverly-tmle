@@ -72,6 +72,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-cross-fitted-ltmle",
     reference="lmtp",
+    failure_bound={"cleverly-cross-fitted-ltmle": 0.01, "lmtp": 0.01},
     comparison="different estimator",
     modules=(
         "tests/studies/canonical_ltmle_crossfit.py",

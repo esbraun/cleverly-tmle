@@ -404,3 +404,221 @@ def test_induced_records_name_the_subject_group() -> None:
         failures.induced(
             subject, record=dataclasses.replace(record, reference=None, comparison=None)
         )
+
+
+# ---- fit_properties (RM39 part b2) -----------------------------------------------------------
+
+#: Two property fit sets: a key ``(fit, replicate)`` writes one row per cell of its fit set.
+PROPERTY_CELLS = {"a": ("fam/a_left", "fam/a_right"), "b": ("fam/b",)}
+PROPERTY_KEYS = [(fit, replicate) for fit in ("a", "b") for replicate in range(25)]
+
+
+def _property_rows(key, drawn):  # type: ignore[no-untyped-def]
+    return [
+        {
+            "property": name.split("/")[0],
+            "cell": name.split("/")[1],
+            "replicate": key[1],
+            "estimate": float(drawn.mean()),
+            "std_error": 0.1,
+        }
+        for name in PROPERTY_CELLS[key[0]]
+    ]
+
+
+def _mean_of(drawn):  # type: ignore[no-untyped-def]
+    return float(np.mean(drawn))
+
+
+def _property_singular_on(bad):  # type: ignore[no-untyped-def]
+    def fit(key, drawn):  # type: ignore[no-untyped-def]
+        if key in bad:
+            np.linalg.inv(np.zeros((2, 2)))
+        return _property_rows(key, drawn)
+
+    return fit
+
+
+def _properties(keys, fit_one, **options):  # type: ignore[no-untyped-def]
+    options.setdefault("n_jobs", 2)
+    options.setdefault("checkpoint", None)
+    options.setdefault("draw", _draw)
+    return replication.fit_properties(
+        keys,
+        fit_one,
+        cells_of=options.pop("cells_of", lambda key: PROPERTY_CELLS[key[0]]),
+        cell_of=lambda key: key[0],
+        replicate_of=lambda key: key[1],
+        **options,
+    )
+
+
+class TestFitProperties:
+    def test_without_failure_the_values_are_map_parallels(self) -> None:
+        expected = map_parallel(
+            lambda key: _property_rows(key, _draw(key)), [(key,) for key in PROPERTY_KEYS], n_jobs=1
+        )
+        assert _properties(PROPERTY_KEYS, _property_rows) == expected
+
+    def test_a_multi_cell_record_names_every_cell_the_key_writes(self) -> None:
+        with replication.recording("subject") as recorded:
+            values = _properties(PROPERTY_KEYS, _property_singular_on({("a", 3)}))
+        assert len(values) == len(PROPERTY_KEYS) - 1
+        failures = recorded.failures
+        assert failures is not None and len(failures) == 1
+        record = failures.iloc[0]
+        assert record["implementation"] == "subject"
+        assert record["group_id"] == "properties/a/r000000003"
+        assert record["scenarios"] == "fam/a_left;fam/a_right"
+        assert record["replicates"] == "3"
+        assert record["class"] == "fitting_failure"
+        assert recorded.labels == ["properties"]
+
+    def test_p37_a_lost_key_s_witness_is_its_regenerated_draw_s_statistic(self) -> None:
+        """D3'f: every key of a cell that lost a replicate reports its draw's statistic."""
+        witness = replication.Witness("mean draw", _mean_of)
+        with replication.recording("subject", witness=witness) as recorded:
+            _properties(PROPERTY_KEYS, _property_singular_on({("a", 3)}))
+        values = recorded.witness_values
+        assert values is not None
+        assert list(values.columns) == list(replication.WITNESS_COLUMNS)
+        assert set(values["cell"]) == {"a_left", "a_right"}
+        assert len(values) == 2 * 25
+        lost = values.loc[values["replicate"] == 3, "value"]
+        assert set(lost) == {_mean_of(_draw(("a", 3)))}
+        assert set(values["statistic"]) == {"mean draw"}
+
+    def test_p37_a_loop_with_no_separate_draw_reports_nan_and_its_reason(self) -> None:
+        witness = replication.Witness("mean draw", _mean_of)
+        with replication.recording("subject", witness=witness) as recorded:
+            _properties(
+                PROPERTY_KEYS,
+                lambda key, drawn: _property_singular_on({("b", 4)})(key, _draw(key)),
+                draw=None,
+            )
+        values = recorded.witness_values
+        assert values is not None and values["value"].isna().all()
+        assert set(values["statistic"]) == {replication.DRAW_NOT_SEPARABLE}
+
+    def test_a_run_without_a_failure_has_no_witness_values(self) -> None:
+        witness = replication.Witness("mean draw", _mean_of)
+        with replication.recording("subject", witness=witness) as recorded:
+            _properties(PROPERTY_KEYS, _property_rows)
+        assert recorded.witness_values is None
+
+    def test_a_failure_with_no_collector_stops_the_run(self) -> None:
+        with pytest.raises(RuntimeError, match="outside the regeneration driver"):
+            _properties(PROPERTY_KEYS, _property_singular_on({("b", 4)}))
+
+    def test_rows_that_are_not_the_declared_cells_stop_the_run_at_once(self) -> None:
+        # A deliberate mutation of cells_of: the key writes two cells and declares one.
+        with pytest.raises(replication.CellsOfMismatch, match="a_right"):
+            _properties(PROPERTY_KEYS, _property_rows, cells_of=lambda key: ("fam/a_left",))
+
+    def test_a_derived_control_is_named_but_never_returned(self) -> None:
+        derived = {"fam/b": ("fam/b_control",)}
+
+        def cells(key):  # type: ignore[no-untyped-def]
+            return (*PROPERTY_CELLS[key[0]], *(derived["fam/b"] if key[0] == "b" else ()))
+
+        with replication.recording("subject") as recorded:
+            values = _properties(
+                PROPERTY_KEYS,
+                _property_singular_on({("b", 2)}),
+                cells_of=cells,
+                derived=derived,
+            )
+        assert len(values) == len(PROPERTY_KEYS) - 1
+        assert recorded.failures is not None
+        assert recorded.failures.iloc[0]["scenarios"] == "fam/b;fam/b_control"
+        # Without the declaration, the control is a cell the worker never wrote.
+        with pytest.raises(replication.CellsOfMismatch, match="b_control"):
+            _properties(PROPERTY_KEYS, _property_rows, cells_of=cells)
+        # A control named without its base is refused before any fit runs.
+        with pytest.raises(ValueError, match="without the base"):
+            _properties(
+                PROPERTY_KEYS,
+                _property_rows,
+                cells_of=lambda key: ("fam/b_control",),
+                derived=derived,
+            )
+
+    def test_rows_at_reads_a_tuple_return_and_its_rows_are_checked(self) -> None:
+        def fit(key, drawn):  # type: ignore[no-untyped-def]
+            rows = _property_rows(key, drawn)
+            if key == ("a", 7):
+                rows[1] = {**rows[1], "std_error": float("nan")}
+            return (rows, {"diagnostic": key[1]})
+
+        with replication.recording("subject") as recorded:
+            values = _properties(PROPERTY_KEYS, fit, rows_at=0)
+        assert len(values) == len(PROPERTY_KEYS) - 1
+        assert values[0][1] == {"diagnostic": 0}
+        failures = recorded.failures
+        assert failures is not None
+        record = failures.iloc[0]
+        assert (record["class"], record["stage"]) == ("invalid_result", "row check")
+        assert record["message"].startswith("non-finite std_error")
+
+    def test_an_extra_rule_is_an_invalid_result(self) -> None:
+        def lost_draws(rows: pd.DataFrame) -> str | None:
+            replicate = int(rows["replicate"].iloc[0])
+            return "the bootstrap lost 3 draws" if replicate == 11 else None
+
+        with replication.recording("subject") as recorded:
+            _properties(PROPERTY_KEYS, _property_rows, extra=lost_draws)
+        failures = recorded.failures
+        assert failures is not None
+        assert set(failures["message"]) == {"the bootstrap lost 3 draws"}
+        assert set(failures["class"]) == {"invalid_result"}
+        assert len(failures) == 2  # replicate 11 of each fit set
+
+    def test_a_recorded_replication_failure_keeps_its_own_call(self) -> None:
+        from cleverly.validation import ReplicationFailure
+
+        def fit(key, drawn):  # type: ignore[no-untyped-def]
+            if key == ("b", 5):
+                raise replication._Recorded(
+                    ReplicationFailure(5, 99, "LinAlgError", "Singular matrix", "numpy.linalg:inv")
+                )
+            return _property_rows(key, drawn)
+
+        with replication.recording("subject") as recorded:
+            _properties(PROPERTY_KEYS, fit, seed_of=lambda key: 99)
+        failures = recorded.failures
+        assert failures is not None
+        record = failures.iloc[0]
+        assert (record["class"], record["call"], record["message"], record["seed"]) == (
+            "fitting_failure",
+            "numpy.linalg:inv",
+            "LinAlgError: Singular matrix",
+            "99",
+        )
+
+    def test_the_systematic_prefix_reads_each_fit_set(self) -> None:
+        nineteen = {("a", replicate) for replicate in range(19)}
+        with replication.recording("subject") as recorded:
+            _properties(PROPERTY_KEYS, _property_singular_on(nineteen))
+        assert recorded.failures is not None and len(recorded.failures) == 19
+        twenty = {("a", replicate) for replicate in range(20)}
+        with replication.recording("subject"), pytest.raises(SystematicFailure, match="of a"):
+            _properties(PROPERTY_KEYS, _property_singular_on(twenty))
+
+    def test_an_error_in_the_sampler_stops_the_run(self) -> None:
+        # p17: a law defect that raises a recorded class is not a counted failure (F5).
+        def sampler(key):  # type: ignore[no-untyped-def]
+            if key == ("b", 6):
+                raise np.linalg.LinAlgError("a Cholesky in the sampler")
+            return _draw(key)
+
+        with replication.recording("subject"), pytest.raises(np.linalg.LinAlgError):
+            _properties(PROPERTY_KEYS, _property_rows, draw=sampler)
+
+    def test_a_label_is_used_once_per_recording(self) -> None:
+        with replication.recording("subject") as recorded:
+            _properties(PROPERTY_KEYS[:2], _property_rows)
+            _properties(PROPERTY_KEYS[:2], _property_rows, label="properties/side")
+            with pytest.raises(ValueError, match="used twice"):
+                _properties(PROPERTY_KEYS[:2], _property_rows, label="properties/side")
+        assert recorded.labels == ["properties", "properties/side"]
+        assert recorded.failures is None

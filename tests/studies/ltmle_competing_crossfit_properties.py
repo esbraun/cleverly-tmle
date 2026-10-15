@@ -10,18 +10,20 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from cleverly.datasets import make_longitudinal_survival
 from cleverly.longitudinal import LTMLE
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_ltmle_competing_crossfit as canonical
 from tests.studies import ltmle_competing_properties as base
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 STUDY = canonical.STUDY
 PROPERTY_LABELS = base.PROPERTY_LABELS
 CONTRASTS = base.CONTRASTS
 EFFICIENCY_SD = base.EFFICIENCY_SD
+DERIVED_CELLS = base.DERIVED_CELLS
 
 # The four acceptance margins, re-exported rather than delegated to.  ``claims.thresholds``
 # publishes each of these under a ``margin:`` name, and it reaches them through
@@ -94,9 +96,16 @@ def _overfit(frame: pd.DataFrame, *, cross_fit: bool) -> Any:
     )
 
 
-def _overfit_replication(payload: tuple[str, int, int, int, int]) -> list[dict[str, Any]]:
-    cell, replicate, n, requested, seed = payload
-    frame, truth = _balanced_competing_panel(n, seed)
+def _overfit_draw(payload: tuple[str, int, int, int, int]) -> tuple[pd.DataFrame, float]:
+    _, _, n, _, seed = payload
+    return _balanced_competing_panel(n, seed)
+
+
+def _overfit_replication(
+    payload: tuple[str, int, int, int, int], drawn: tuple[pd.DataFrame, float]
+) -> list[dict[str, Any]]:
+    cell, replicate, n, requested, _ = payload
+    frame, truth = drawn
     result = _overfit(frame, cross_fit=cell == OVERFIT_POSITIVE)
     # The relapse half of the split all-cause event.  ``_balanced_competing_panel`` returns
     # the matching truth, which is half the panel's own all-cause contrast.
@@ -132,11 +141,42 @@ def _overfit_payloads() -> list[tuple[tuple[str, int, int, int, int]]]:
     ]
 
 
+def _overfit_cells_of(key: tuple[tuple[str, int, int, int, int]]) -> list[str]:
+    return [f"crossfit_overfitting/{key[0][0]}"]
+
+
+def _overfit_cell_of(key: tuple[tuple[str, int, int, int, int]]) -> str:
+    return f"crossfit_overfitting/{key[0][0]}"
+
+
+def _overfit_replicate_of(key: tuple[tuple[str, int, int, int, int]]) -> int:
+    return int(key[0][1])
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     rows = base.generate_for(
         STUDY, lambda frame, configuration: fit(frame, configuration), n_jobs=n_jobs
     )
-    overfit = map_parallel(_overfit_replication, _overfit_payloads(), n_jobs=n_jobs)
+    overfit = fit_properties(
+        _overfit_payloads(),
+        splat_drawn(_overfit_replication),
+        draw=splat_draw(_overfit_draw),
+        cells_of=_overfit_cells_of,
+        cell_of=_overfit_cell_of,
+        replicate_of=_overfit_replicate_of,
+        n_jobs=n_jobs,
+        label="properties/overfit",
+    )
     combined = pd.concat(
         [rows, pd.DataFrame([row for result in overfit for row in result])], ignore_index=True
     )
@@ -147,3 +187,13 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     return base.summarize_for(rows, STUDY, crossfit_positive_cell=OVERFIT_POSITIVE)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(
+        base.TARGETING_NECESSITY, base.COMPETING_RISK_RECURSION_NECESSITY
+    ),
+)

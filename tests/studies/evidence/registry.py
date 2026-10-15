@@ -258,11 +258,14 @@ class StudyRecord:
     truth_varies_by_replicate: bool = False
     #: Implementation -> the share of replicates that may fail in one cell before the cell is
     #: red (RM39 part a2).  An absent implementation has bound 0, so one failure is a red cell.
+    #: Every registered study declares 0.01 for each implementation, for its next run (RM39b2).
     #:
     #: Declare a bound before the study's first run under it, and never raise it after a run
     #: has shown failures: a re-run draws the same seeds and meets the same failures, so a
     #: raised bound would buy the pass.  ``tests/studies/evidence/failures.py`` applies it, and
-    #: ``docs/development/method-benchmarking.md``, "Failed replicates", states the rule.
+    #: ``docs/development/method-benchmarking.md``, "Comparator fitting failures", states the
+    #: rule.  The manifest records the bound a run applied; the published claims quote it from
+    #: there (:func:`tests.studies.evidence.failures.applied_bounds`).
     failure_bound: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

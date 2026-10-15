@@ -581,15 +581,18 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                 f"{sorted(sizes)}, so one bound cannot be published"
             )
         declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(sizes.pop())
-    # Each side's declared fitting-failure bound, and the failed fits it allows per cell.
+    # Each side's fitting-failure bound that the committed run applied, and the failed fits it
+    # allows per cell.  A record declares its bound for the next run; the page describes the
+    # committed run, so it quotes the bound once a run's manifest records it.
+    applied = failures.applied_bounds(record.artifact("manifest.json"))
     for side, implementation in (
         ("reference", record.reference),
         ("subject", record.implementation),
     ):
-        if implementation is not None and implementation in record.failure_bound:
-            declared[f"margin:{side}_failure_bound"] = float(record.failure_bound[implementation])
+        if implementation is not None and implementation in applied:
+            declared[f"margin:{side}_failure_bound"] = applied[implementation]
             declared[f"margin:{side}_failures_allowed"] = float(
-                failures.allowed(record, implementation)
+                failures.allowance(applied[implementation], record.replicates)
             )
     return declared
 

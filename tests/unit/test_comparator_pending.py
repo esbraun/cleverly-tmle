@@ -19,11 +19,24 @@ import pytest
 from tests.canonical import regenerate
 from tests.studies import canonical_tmle
 from tests.studies.evidence.manifest import comparator_findings
+from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 
 COMPARED = canonical_tmle.STUDY
 REFERENCE = str(COMPARED.reference)
 REASON = "the R runs wait in the local queue; owner X99"
+
+
+def _uncompared() -> StudyRecord:
+    """``COMPARED`` with no comparator, so with no bound for one."""
+    bounds = {COMPARED.implementation: COMPARED.failure_bound[COMPARED.implementation]}
+    return dataclasses.replace(
+        COMPARED,
+        reference=None,
+        comparison=None,
+        comparison_overrides={},
+        failure_bound=bounds,
+    )
 
 
 def _pending(**changes: Any) -> Any:
@@ -49,12 +62,7 @@ class TestTheRecord:
     def test_the_three_states(self) -> None:
         assert COMPARED.comparator_state == "compared"
         assert _pending().comparator_state == "pending"
-        assert (
-            dataclasses.replace(
-                COMPARED, reference=None, comparison=None, comparison_overrides={}
-            ).comparator_state
-            == "none"
-        )
+        assert _uncompared().comparator_state == "none"
 
     def test_a_pending_record_pairs_no_rows(self) -> None:
         assert _pending().implementations == (COMPARED.implementation,)
@@ -134,9 +142,7 @@ class TestTheManifestCheck:
         assert any("records one as pending" in item for item in found)
 
     def test_a_record_without_a_comparator_publishing_paired_rows_is_caught(self) -> None:
-        record = dataclasses.replace(
-            COMPARED, reference=None, comparison=None, comparison_overrides={}
-        )
+        record = _uncompared()
         manifest = {"generated_with": {"reference": None}, "reference_sha256": {}}
         assert any(
             "paired row(s)" in item
@@ -221,7 +227,10 @@ def _run_pending(
         monkeypatch.setattr(
             regenerate,
             "_property_artifacts",
-            lambda *args, **kwargs: pd.DataFrame({"passed": [True], "property_passed": [True]}),
+            lambda *args, **kwargs: (
+                pd.DataFrame({"passed": [True], "property_passed": [True]}),
+                (),
+            ),
         )
 
     def manifest(path: Path, record: Any, artifacts: Any, **options: Any) -> None:
@@ -232,7 +241,8 @@ def _run_pending(
     reference = regenerate.Reference("image", "run_study.R")
     seen["declared"] = reference.files(tmp_path)
     properties = SimpleNamespace(
-        generate_property_rows=lambda **kwargs: pytest.fail("the property study ran")
+        FAILURE_BOUND=0.01,
+        generate_property_rows=lambda **kwargs: pytest.fail("the property study ran"),
     )
     regenerate.main(study, properties, here=tmp_path, reference=reference)
     seen["equivalence"] = pd.read_csv(tmp_path / "equivalence.csv")

@@ -275,6 +275,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-mtp-ltmle",
     reference="lmtp",
+    failure_bound={"cleverly-mtp-ltmle": 0.01, "lmtp": 0.01},
     comparison="matching implementation",
     comparison_overrides={
         "mtp_continuous_crossfit:*": "different estimator",
