@@ -1639,15 +1639,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The initial cause-specific hazards of a ``survival_model="hazard"`` fit, which the
     #: nuisance report and a truncation replay read.  ``None`` on an iterated-mean fit.
     initial_hazards: InitialHazards | None = None
+    #: On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
+    #: models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
+    #: ``None`` on every other fit.
+    simulation: GFormulaReport | None = field(default=None, kw_only=True)
     #: Each outer fold's own mechanism, fitted on its training rows, on a cross-fitted SDR
     #: fit.  Empty otherwise.  A truncation replay reuses them.
     fold_mechanisms: tuple[FoldMechanism, ...] = field(default=(), kw_only=True)
     #: Unfitted state for a complete bound-dependent recursion.
     replay_recipe: _LongitudinalReplayRecipe = field(kw_only=True)
-    #: On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
-    #: models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
-    #: ``None`` on every other fit.
-    simulation: GFormulaReport | None = field(default=None, kw_only=True)
 
     #: Which family of assessment declarations applies to this result.  See
     #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
