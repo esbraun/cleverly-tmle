@@ -725,6 +725,21 @@ previous reader had is not a citation; a page number is.
   [`SDR`](technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
   therefore runs a training-fold recursion, which is fold-measurable. With ratios that do not
   depend on the fold, it equals `lmtp::cf_sdr`.
+
+  Section 2, journal page 849, lets $A_t$ be a vector. The
+  [vector treatments](technical-reference/point-treatment-tmle.md#vector-treatments) section
+  and part (z) of the
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use that
+  locator. The classifier route of a vector rests on Theorem 1, Section 5.4 and Theorem 3. The
+  density route applies Equation (3) to each conditional factor of a dose, which part (z)
+  records as an extension.
+- Hoffman et al. (2024), [*Studying continuous, time-varying, and/or complex exposures using
+  longitudinal modified treatment policies*](https://arxiv.org/abs/2304.09460), *Epidemiology*
+  35(5). Read first-hand in the arXiv v3 text. The Introduction names interventions on several
+  exposures at once, and the eAppendix algorithms compute the ratio by classification at every
+  node. The text requires an exposure that is discrete or, if it is continuous, piecewise smooth
+  and invertible. The journal page numbers are not checked, so the docs cite the Introduction by
+  name.
 - Luedtke, Sofrygin, van der Laan & Carone (2017), [*Sequential double robustness in
   right-censored longitudinal models*](https://arxiv.org/abs/1705.02459), arXiv:1705.02459 v2,
   dated 2018-05-17. Read first-hand for the SDR plan. Section 2, Definitions 1 to 3, separates

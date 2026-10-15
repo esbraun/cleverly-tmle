@@ -76,8 +76,13 @@ from ..interventions.base import (
 from ..interventions.incremental import Incremental
 from ..interventions.policy import (
     POLICY_TYPES,
+    JointComponent,
+    JointPolicy,
     check_continuous_policy,
+    describe_policy,
     discrete_assignments,
+    joint_assignments,
+    joint_discrete_assignments,
     lazy_frame,
     policy_branches,
     refuse_policy_declarations,
@@ -607,10 +612,11 @@ class Plan:
         The nodes that hold a modified treatment policy.  At such a node ``values`` holds
         the observed code or dose, and ``policy`` holds the ``(n, J)`` weights of the
         predictions the node carries: the levels the policy sends a unit to at a
-        categorical node, and the randomizer's probabilities at a continuous one.
+        categorical node, and the randomizer's probabilities at a continuous or mixed one.
     policy_targets : tuple
-        Per node, the ``(n,)`` dose of each branch at a continuous policy node, and
-        ``None`` elsewhere.  Empty without one.
+        Per node, the ``(n,)`` dose of each branch at a continuous policy node, the
+        ``(n, d)`` component values of each branch at a mixed node, and ``None``
+        elsewhere.  Empty without one.
     mtp_assignments : tuple
         Per node, each branch of a categorical policy node as ``(probability, codes)``,
         with ``codes`` the ``(n, K)`` level map of the discrete formula, and ``None``
@@ -746,7 +752,7 @@ class Plan:
         return time in self.mtp_nodes
 
     def carry_targets(self, time: int) -> tuple[FloatArray, ...] | None:
-        """The doses a continuous policy node's regression is predicted at, one per branch.
+        """The values a continuous or mixed policy node's regression is predicted at, by branch.
 
         Parameters
         ----------
@@ -756,7 +762,8 @@ class Plan:
         Returns
         -------
         tuple of FloatArray or None
-            One ``(n,)`` dose per branch at a continuous policy node, ``None`` elsewhere.
+            One ``(n,)`` dose per branch at a continuous policy node, one ``(n, d)`` block of
+            component values per branch at a mixed node, and ``None`` elsewhere.
         """
         if not self.policy_targets:
             return None
@@ -847,7 +854,7 @@ class Plan:
         columns = []
         for time in range(1, data.n_times + 1):
             if self.is_mtp_node(time) or self.is_tilt_node(time):
-                columns.append(~np.isnan(data.treatment[:, time - 1]))
+                columns.append(data.node_present(time))
             else:
                 columns.append(_node_numerator(self, data, time) > 0.0)
         return np.column_stack(columns)
@@ -923,8 +930,7 @@ def _node_numerator(plan: Plan, data: LongitudinalData, time: int) -> FloatArray
     FloatArray
         One value per row.
     """
-    observed = data.treatment[:, time - 1]
-    present = ~np.isnan(observed)
+    present = data.node_present(time)
     if plan.is_mtp_node(time):
         numerator = plan.mtp_numerators[time - 1] if plan.mtp_numerators else None
         if numerator is None:
@@ -938,6 +944,7 @@ def _node_numerator(plan: Plan, data: LongitudinalData, time: int) -> FloatArray
             f"node {time} of regimen {plan.label!r} is an odds tilt, whose density reads the "
             "fitted mechanism; attach it first with Plan.with_tilts"
         )
+    observed = data.node_codes(time)
     if plan.is_policy_node(time):
         codes = np.nan_to_num(observed, nan=0.0).astype(np.int64)
         density = plan.policy_at(time)
@@ -1079,20 +1086,51 @@ def _resolve_mtp_node(
     r"""Evaluate a modified treatment policy at one node, once, before any learner.
 
     Returns the ``(n, J)`` carry weights, and either the ``(n,)`` dose of each branch at a
-    continuous node or each branch's ``(n, K)`` level map at a categorical one.  The policy
-    reads the policy frame, :math:`[W, L_1, \ldots, L_t]` and the earlier treatments, which
-    hold the observed values on which the regression conditions.  Rows that left the study
-    before the node hold zero weight and a zero dose.
+    continuous node, the ``(n, d)`` component values of each branch at a mixed node, or
+    each branch's ``(n, K)`` level map at a categorical one.  The policy reads the policy
+    frame, :math:`[W, L_1, \ldots, L_t]` and the earlier treatments, which hold the observed
+    values on which the regression conditions.  Rows that left the study before the node
+    hold zero weight and a zero dose.
     """
     node = regimen.plan[time - 1]
     name = data.treatment_names[time - 1]
     where = f"node {name!r} at time {time} of regimen {regimen.label!r}"
     reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+    if data.node_kind(time) == "mixed":
+        assert isinstance(node, JointPolicy)  # refuse_continuous_assignments refuses the rest
+        joint = joint_assignments(
+            node,
+            data.node_components(time),
+            np.nan_to_num(data.node_values(time), nan=0.0),
+            lambda extra: data.policy_frame(time, extra),
+            reachable,
+            where=where,
+        )
+        weights = np.array([probability for probability, _ in joint])
+        carry = np.where(reachable[:, None], np.tile(weights, (data.n, 1)), 0.0)
+        return carry, tuple(values for _, values in joint), None
+    if isinstance(node, JointPolicy):
+        # An all-categorical vector node: the joint policy is a map of the observed tuples,
+        # read by the discrete formula as a label map of the tuples is.
+        levels = data.treatment_levels[time - 1]
+        components = tuple(
+            JointComponent(column, _component_labels(levels, index))
+            for index, column in enumerate(data.component_names(time))
+        )
+        assigned_codes = joint_discrete_assignments(
+            node,
+            components,
+            levels,  # type: ignore[arg-type]
+            lambda extra: data.policy_frame(time, extra),
+            reachable,
+            where=where,
+        )
+        return _categorical_carry(data, time, reachable, assigned_codes)
     frame = lazy_frame(lambda: data.policy_frame(time))
     branches = policy_branches(node)
     probabilities = np.array([probability for probability, _ in branches])
     if data.is_continuous_node(time):
-        observed = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+        observed = np.nan_to_num(data.node_codes(time), nan=0.0)
         check_continuous_policy(node, observed, frame, reachable, where=where)
         doses = []
         for _, branch in branches:
@@ -1102,8 +1140,18 @@ def _resolve_mtp_node(
         return carry, tuple(doses), None
     levels = data.treatment_levels[time - 1]
     assigned_codes = discrete_assignments(node, levels, frame, reachable, where=where)
-    observed_codes = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
-    carry = np.zeros((data.n, len(levels)))
+    return _categorical_carry(data, time, reachable, assigned_codes)
+
+
+def _categorical_carry(
+    data: LongitudinalData,
+    time: int,
+    reachable: BoolArray,
+    assigned_codes: tuple[tuple[float, IntArray], ...],
+) -> tuple[FloatArray, None, tuple[tuple[float, IntArray], ...]]:
+    """The ``(n, K)`` carry weights of a categorical policy node, from its level maps."""
+    observed_codes = np.nan_to_num(data.node_codes(time), nan=0.0).astype(np.int64)
+    carry = np.zeros((data.n, len(data.treatment_levels[time - 1])))
     rows = np.arange(data.n)
     for probability, codes in assigned_codes:
         np.add.at(carry, (rows, codes[rows, observed_codes]), probability)
@@ -1111,12 +1159,23 @@ def _resolve_mtp_node(
     return carry, None, assigned_codes
 
 
+def _component_labels(levels: Sequence[Any], index: int) -> tuple[object, ...]:
+    """The observed labels of one component of a categorical vector node, sorted."""
+    values = {level[index] for level in levels}
+    try:
+        return tuple(sorted(values))
+    except TypeError:
+        return tuple(sorted(values, key=repr))
+
+
 def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) -> None:
-    """Refuse a label, rule or known density at a continuous node, before any learner.
+    """Refuse a plan node the treatment node it sits at cannot take, before any learner.
 
     A static dose on a continuous treatment is not pathwise differentiable (Díaz, Williams,
     Hoffman and Schenck 2023, Section 4), and neither is a rule that sets one, so a
-    continuous node takes a modified treatment policy only.
+    continuous node takes a modified treatment policy only.  A mixed node, a vector with a
+    continuous component, takes a :class:`~cleverly.interventions.JointPolicy` only, which
+    says what happens to each component.  A joint policy needs a vector node.
 
     Parameters
     ----------
@@ -1128,17 +1187,57 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
     Raises
     ------
     CapabilityError
-        If a continuous node holds anything other than a policy object.
+        If a continuous node holds anything other than a policy object, a mixed node holds
+        anything other than a joint policy, or a joint policy sits at a node of one column.
     """
-    if not data.has_continuous_node:
-        return
     nodes = regimen.values if isinstance(regimen, Regimen) else regimen.plan
     for time, node in enumerate(nodes, start=1):
-        if data.is_continuous_node(time) and _is_tilt(node):
+        kind = data.node_kind(time)
+        name = data.decision_name(time)
+        if isinstance(node, JointPolicy):
+            if kind == "mixed" or len(data.component_names(time)) > 1:
+                continue
+            raise CapabilityError(
+                f"regimen {regimen.label!r} declares the JointPolicy {node.name!r} at the "
+                f"node {name!r}, which is one column. A JointPolicy declares one policy per "
+                "component of a vector node.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Declare the component's policy itself.",
+            )
+        if kind == "mixed" and _is_tilt(node):
+            raise CapabilityError.from_refusal(tilt_mixed_refusal(regimen.label, name))
+        if kind == "continuous" and _is_tilt(node):
             raise CapabilityError.from_refusal(
                 tilt_continuous_refusal(regimen.label, data.treatment_names[time - 1])
             )
-        if data.is_continuous_node(time) and not _is_mtp(node):
+        if kind == "mixed":
+            doses = [
+                component.name for component in data.node_components(time) if component.continuous
+            ]
+            what = (
+                describe_policy(node)
+                if _is_mtp(node)
+                else "a known policy density"
+                if isinstance(node, Stochastic)
+                else "a rule"
+                if callable(node)
+                else f"the label {node!r}"
+            )
+            raise CapabilityError(
+                f"regimen {regimen.label!r} declares {what} at the vector node {name!r}, "
+                f"which holds the continuous component(s) {doses}. A vector node with a "
+                "continuous component takes a JointPolicy, one policy per component: a "
+                "static or dynamic value is not pathwise differentiable (Díaz et al. 2023, "
+                "Section 4), and a policy of one column does not say which component it "
+                "moves.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Declare JointPolicy(name, components={...}, policy_kind='known'). It "
+                    "answers a different question: the mean outcome when the policy moves "
+                    "each received component."
+                ),
+            )
+        if kind == "continuous" and not _is_mtp(node):
             raise CapabilityError(
                 f"regimen {regimen.label!r} sets the continuous node "
                 f"{data.treatment_names[time - 1]!r} to a fixed dose or rule. A static dose on "
@@ -1367,6 +1466,35 @@ def tilt_mix_refusal(label: str, node: str, kind: str) -> Refusal:
         "plan with such a node.",
         alternative="Fit that plan without an odds tilt by LTMLE or SDR.",
         roadmap="F33",
+    )
+
+
+def tilt_mixed_refusal(label: str, node: str) -> Refusal:
+    """The refusal of an odds tilt declared on a whole mixed vector node.
+
+    Parameters
+    ----------
+    label : str
+        The regimen label.
+    node : str
+        The decision name of the vector node.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"regimen {label!r} sets the vector node {node!r}, which holds a continuous "
+        "component, by an odds tilt. An odds tilt multiplies the odds of one categorical "
+        "node, Kennedy (2019), Equation (1), and a node with a continuous component is not "
+        "one categorical node: its joint density has no odds to multiply.",
+        alternative=(
+            "Declare the component's policy inside a JointPolicy at that node, with the "
+            "randomizer on the JointPolicy and a label map per branch for a randomized "
+            "categorical component, and fit it by LTMLE."
+        ),
     )
 
 

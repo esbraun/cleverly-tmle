@@ -124,7 +124,6 @@ not change the package version.
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
-| B2 | Continuous vector components at a node | published support; pending source read | shipped longitudinal modified treatment policies | [X31](#x31-continuous-vector-components-at-a-node) |
 | B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
 | B3 | Applied tutorials for offers and pricing | no new theory | X40; the shipped `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
@@ -1177,28 +1176,6 @@ Acceptance:
   stratum plug-ins;
 - an exact-law test of each stratum curve;
 - a registered calibration cell.
-
-### X31. Continuous vector components at a node
-
-`LTMLE` takes a vector of categorical columns as one node, and the discrete formula gives its
-ratio. `LongitudinalData.from_frame` refuses a vector node with a continuous component, before any
-learner. `CausalData` takes one treatment column, so a point treatment has no vector node at all.
-The pinned `lmtp` 1.5.4 accepts a list of columns as one node of `trt`, so this is a parity gap.
-
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) a point vector treatment | `CausalData(treatment=["A1", "A2"])` with a joint policy, on the routes the longitudinal vector node uses | Hoffman et al. (2024), *Epidemiology* 35(5). This locator is pending its source read | `lmtp` 1.5.4 with one node of two columns |
-| (b) a continuous component | the ratio of a joint policy when one column is a dose | the same source, and Section 5.4 of Díaz, Williams, Hoffman and Schenck (2023) for the classifier route | the same |
-
-The classifier route (`ratio="classifier"`) needs only the joint policy and the stacked fit, so it
-is the first route to build. A density route needs a joint conditional density, or declared
-per-component pieces whose Jacobian is the product of the component Jacobians.
-
-Acceptance:
-
-- exact-law Gateaux witnesses for each part on a coarse discrete law;
-- a mutation control that drops one component's ratio;
-- a registered study against the pinned `lmtp` 1.5.4, with the ratio supplied to both sides.
 
 ### X32b. Repeated outcomes for SDR and IPSI
 

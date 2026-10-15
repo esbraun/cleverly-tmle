@@ -140,6 +140,7 @@ Remove the row when you regenerate the study. No test parses this table.
 
 | study | source | recorded | current | judgement |
 | --- | --- | --- | --- | --- |
+| `vector-mtp` | `tests/studies/evidence/comparison.py` | `cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b` | `cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486` | result-neutral: the merge of #308 (X16) adds `DESCRIPTIVE_CONCLUSION`, `DESCRIPTIVE_COLUMNS`, `is_descriptive` and `describe_only` for a record with `paired_role="descriptive"`. This study does not declare that role, and its comparator is pending, so no paired row is computed |
 | `canonical-ltmle-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `d2ba645600b5aa9d77e12ab16737b9145e99d7d5d90960ba79a25fca0d4fc7b9` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. They described the SE-ratio breach that the pooled update removed. Python ignores comments, so every law, cell, margin, seed, and registry value is unchanged. Then this PR adds the keyword-only argument `simultaneous: bool = False` to `fit_cleverly` and passes it where the literal `simultaneous=False` stood. Every caller in this study omits it, so each fit is the one that ran. Only `default-simultaneous-bands` passes `True` |
 | `canonical-drtmle` | `tests/studies/canonical_drtmle.py` | `b57a22979cee022c56f47a67ac3040224f891b7fcc1d991e8c4f27e312ff2543` | `94be60bd719b23c86ab81b9ff71ed8889ad72f6a9816379c2e7e9be824f2869d` | result-neutral: only the `source_law` string of `CONFIGURATION` changed, from Section 4 to Section 5.1. No computation reads it, and "Descriptive manifest text" above records the correction. Then this PR adds the keyword-only argument `simultaneous: bool = False` to `fit_cleverly` and passes it where the literal `simultaneous=False` stood. Every caller in this study omits it, so each fit is the one that ran. Only `default-simultaneous-bands` passes `True` |
 | `weighted-ltmle-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `d2ba645600b5aa9d77e12ab16737b9145e99d7d5d90960ba79a25fca0d4fc7b9` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. Python ignores comments, so every name this study imports from the module is unchanged. Then this PR adds the keyword-only argument `simultaneous: bool = False` to `fit_cleverly` and passes it where the literal `simultaneous=False` stood. Every caller in this study omits it, so each fit is the one that ran. Only `default-simultaneous-bands` passes `True` |
@@ -220,3 +221,54 @@ framework from the required module list, so this is not a gap.
 | --- | --- | --- | --- |
 | stacked missing-outcome natural-course CV-TMLE | `tests/studies/point_study_helpers.py` | `f7fa94d4116739718c78000f7d51d506a7907af9c8c0a02bf5354eeab4738d5a` | result-neutral: the helper serialized the existing initial estimate and primary rows. Its bytes are identical at `f899841` and `df0b3cf` |
 | stacked missing-outcome natural-course CV-TMLE | `tests/conftest.py` | `6e991807afeae6a901f953040ab9080b86baed5e7a9a7ed043f7d6f4f6fb45ea` | result-neutral: the property study used its oracle outcome and response learners. Its bytes are identical at `f899841` and `df0b3cf` |
+
+## Property phases fitted outside the driver
+
+The `vector-mtp` property rows were not fitted by `tests.canonical.vector_mtp.regenerate`. Its
+manifest names the commit that wrote the primary rows and the manifest. The property phase ran
+earlier, at commit `8b0e5b9b`, and that commit does not appear in the manifest.
+
+A chunk driver fitted each fit set of `FIT_SETS` in replicate chunks of 1,200 (1,000 for a
+necessity pair) and wrote the `REPLICATE_COLUMNS` of each chunk to a file. Two machines ran the
+driver at `8b0e5b9b`: a Linux container and a Windows host. The head's own property contract
+assembled the 98 chunk files. That contract is `generate_property_rows` with its `fit_properties`
+replaced by a read of the chunk rows, then `tests.canonical.regenerate._property_artifacts`.
+The committed `properties.csv` and `property-replicates.csv.gz` are that assembly. The fitted rows come from `8b0e5b9b`. The derived controls, the summary and the verdicts come from the head's code. No property
+fit raised, so no property failure file is committed. The run then used
+`regenerate --skip-properties`, which copies the committed property files unchanged. That run
+writes no `property_failure_bound` key.
+
+The evidence that the head reproduces the `8b0e5b9b` rows is a run at a budget of two
+replications per fit set. The head's own property phase (`generate_property_rows(budget=2)`
+through `_property_artifacts`, one job) wrote the same `properties.csv` and
+`property-replicates.csv.gz` bytes as the chunk assembly of `8b0e5b9b` parts at that budget.
+The check ran again after the merges of `1dd77126` (X41) and `5a8b31c7` (X16, #308), and gave the same bytes each time.
+
+Thirteen chunks ran on both machines. In those 14,400 rows, every key column, `truth`, `n`,
+`requested_replicates`, `failed_replicates`, `covered` and `rejected` agree exactly. The largest
+absolute difference is 2.2e-15 in `estimate` and 9.7e-17 in `std_error`. Where both machines
+wrote a chunk, the committed rows use the Linux file.
+
+| fit set | chunks | machine |
+| --- | --- | --- |
+| `interval_calibration` `point_vector_density` | 20 | Linux |
+| `interval_calibration` `point_vector_classifier` | 9 | Linux |
+| `interval_calibration` `longitudinal_vector_density` | 8 | Linux |
+| `interval_calibration` `longitudinal_vector_classifier` | 9 | Linux |
+| `interval_calibration` `longitudinal_vector_ordered_density` | 16 | Linux. Replicates 16,800 to 19,200 also ran on Windows |
+| `interval_calibration` `longitudinal_vector_ordered_classifier` | 9 | Linux. Every chunk also ran on Windows |
+| `double_robustness` `point_vector_ordered_density__both_correct` | 2 | Linux. Both chunks also ran on Windows |
+| `double_robustness`, the other eleven cells | 22 | Windows |
+| `preimage_necessity`, `jacobian_necessity`, `image_necessity` | 3 | Windows |
+
+The manifest's `study_module_sha256` records the head's modules. Six of them differ from the
+bytes that fitted the property rows, and the package source under `src/` also changed. The budget-two check above covers each difference.
+
+| study | source | SHA-256 at `8b0e5b9b` | judgement |
+| --- | --- | --- | --- |
+| `vector-mtp` | `tests/studies/canonical_vector_mtp.py` | `c8e5d17447e167c58d1279e32b316702404807c275adfac47afbdbfcde7112b4` | result-neutral for the property rows: the budget-two output is byte-identical |
+| `vector-mtp` | `tests/studies/vector_mtp_properties.py` | `d5382fb5579133e43203a63b1f0fbf7018f89c592a2d1a584c0f64cf4621b431` | result-neutral for the property rows: the budget-two output is byte-identical |
+| `vector-mtp` | `tests/studies/canonical_categorical_ltmle.py` | `e41665c8b3337381f1077d5a036b9ba7f02e3527914c3ea6ac0816088af55331` | result-neutral for the property rows: the budget-two output is byte-identical |
+| `vector-mtp` | `tests/studies/canonical_ltmle.py` | `3f15ff47823c8ff791fca05d12511f53786e4d89ad7bac4f954e5d735656ad6c` | result-neutral for the property rows: the budget-two output is byte-identical |
+| `vector-mtp` | `tests/studies/evidence/properties.py` | `47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab` | result-neutral for the property rows: the budget-two output is byte-identical |
+| `vector-mtp` | `tests/studies/evidence/property_verdicts.py` | `5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef` | result-neutral for the property rows: the budget-two output is byte-identical |
