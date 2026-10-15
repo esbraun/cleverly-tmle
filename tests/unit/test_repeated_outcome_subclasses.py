@@ -93,13 +93,18 @@ def _fit(
     kind: type[_SequentialEstimator], learner: Any, roles: dict[str, Any] | None = None
 ) -> Any:
     regimens, reference = _plans(kind)
+    # IPW fits no outcome regression and refuses an outcome learner when it is built.
+    outcomes = (
+        {}
+        if getattr(kind, "_estimator", "tmle") == "ipw"
+        else {"outcome_learner": learner, "pseudo_learner": LinearRegression()}
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return kind(
             regimens,
             reference=reference,
-            outcome_learner=learner,
-            pseudo_learner=LinearRegression(),
+            **outcomes,
             treatment_learner=learner,
             censoring_learner=learner,
             n_folds=1,

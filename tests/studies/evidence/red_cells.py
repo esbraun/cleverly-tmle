@@ -466,6 +466,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "interval_calibration/boot_ate_crossfit__correctly_specified",
         "interval_calibration/boot_ate_clustered__correctly_specified",
     ),
+    # The declared negative control of ``sequential-baselines``: law ``X`` makes every
+    # main-terms ``GLM`` wrong, so the calibration rule must fail.  Nothing is owed.
+    "X41-negative-control": _keys(
+        "sequential-baselines",
+        "property",
+        "misspecification_control/hajek_x_contrast__main_terms",
+        "misspecification_control/ht_x_contrast__main_terms",
+        "misspecification_control/ice_x_contrast__main_terms",
+    ),
     # The smallest-composite arm of the composite study, red in both implementations alike.
     "composite-high-arm": _keys(
         "composite-missing-drtmle",

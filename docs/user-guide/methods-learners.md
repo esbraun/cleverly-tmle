@@ -184,6 +184,38 @@ Outcome regressions need predictions on the outcome's mean scale. Binary treatme
 mechanisms need probability predictions. Continuous treatment policies use a conditional density
 model. `cleverly` validates learner task compatibility and sample-weight support.
 
+## Use GLM for the sequential baselines
+
+`cleverly.learners.GLM` is an unpenalized maximum-likelihood fit with a canonical link. Its score
+and information are public, so `SequentialGComputation` and `SequentialIPW` stack them into an
+interval. See [Report the sequential baselines](longitudinal.md#report-the-sequential-baselines).
+
+| behavior | what `GLM` does |
+| --- | --- |
+| `family="binomial"` on a target with three or more labels | raises `ValueError`. Pass `family="multinomial"` or `"auto"` |
+| a design column that is constant, or a combination of other columns, on the fit rows | aliases the column. It gets no coefficient |
+| `alias_` | holds each aliased column as a combination of the active columns |
+| `outside_span(x)` | returns `True` for each row where an aliased column departs from that combination |
+
+A prediction through an aliased column assumes that the column has no effect. On a row that
+departs from the fit rows, the data cannot support that assumption. Sequential g-computation
+refuses such a fit with `DataError`, because no follower has that history. The technical page lists this refusal for
+g-computation only.
+
+```python
+import numpy as np
+
+from cleverly.learners import GLM
+
+x = np.array([[1.0, 1.0], [1.0, 0.0], [1.0, 1.0], [1.0, 0.0]])
+model = GLM().fit(x, np.array([0, 1, 1, 0]))
+print(model.active_)
+print(model.outside_span(np.array([[0.0, 1.0], [1.0, 1.0]])))
+```
+
+The first column is constant on the fit rows, so the fit aliases it with the intercept. The row
+`[0.0, 1.0]` departs from that relation.
+
 ## Two fold layers
 
 - `n_folds` defines the outer cross-fitting split used to keep each observation out of the nuisance

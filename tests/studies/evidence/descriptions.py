@@ -389,6 +389,41 @@ ARMS: dict[str, str] = {
     "survival_grid": "three plans by three horizons, the risks and six contrasts",
 }
 
+#: The labels of ``sequential-baselines``: an estimator, a law and a target.  Mirrored from
+#: ``tests.studies.canonical_sequential_baselines.CALIBRATION_LABELS``, which this module cannot
+#: import; ``tests/unit/test_sequential_baselines_design.py`` pins that every cell resolves.
+_BASELINE_ESTIMATORS = {
+    "ice": "sequential g-computation (ICE)",
+    "hajek": "sequential IPW, Hajek",
+    "ht": "sequential IPW, Horvitz-Thompson",
+}
+_BASELINE_TARGETS = {
+    "d2_static_12": "law D2, mean under arm 1 then arm 2",
+    "d2_static_00": "law D2, mean under arm 0 at both times",
+    "d2_rule": "law D2, mean under the rule A1 = L1, A2 = 2 L2",
+    "d2_policy": "law D2, mean under arm 1 then the known three-arm policy",
+    "d2_contrast": "law D2, arm 1 then arm 2 against arm 0 at both times",
+    "d2w_static_12": "law D2 weighted by 1 + 0.5 W, mean under arm 1 then arm 2",
+    "d2s_risk_h1": "law D2S, risk by t = 1 under arm 1",
+    "d2s_risk_h2": "law D2S, risk by t = 2 under arm 1 then arm 2",
+    "d2s_contrast_h2": "law D2S, risk difference by t = 2 against arm 0 at both times",
+    "d2c_relapse_h2": "law D2C, relapse incidence by t = 2 under arm 1 then arm 2",
+    "g_treat_all": "law G, mean under treatment at all three times",
+    "g_treat_none": "law G, mean under no treatment",
+    "g_rule": "law G, mean under the rule A_t = V",
+    "g_contrast": "law G, treatment at all three times against none",
+    "gm_down": "law GM, mean under the dose lowered by 0.5 where it stays in support",
+    "gm_contrast": "law GM, the lowered dose against the natural course",
+    "x_contrast": "law X, treatment at all three times against none",
+}
+ARMS.update(
+    {
+        f"{estimator}_{target}": f"{words}: {target_words}"
+        for estimator, words in _BASELINE_ESTIMATORS.items()
+        for target, target_words in _BASELINE_TARGETS.items()
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -2736,5 +2771,76 @@ CELLS.update(
             "a declared scale of independent noise is added to each estimate",
             "the SE-ratio interval must fall below the calibration band",
         ),
+    }
+)
+
+
+# ------------------------------------------------------------------ sequential-baselines
+IMPLEMENTATIONS["cleverly-sequential-baselines"] = (
+    "`cleverly` sequential g-computation (ICE) and sequential IPW, Hajek and Horvitz-Thompson, "
+    "with GLM nuisances"
+)
+SCENARIOS.update(
+    {
+        **{
+            f"d2_{estimator}": f"law D2: two nodes, a three-arm second node, censoring; {words}"
+            for estimator, words in _BASELINE_ESTIMATORS.items()
+        },
+        **{
+            f"g_{estimator}": f"law G: three nodes, a continuous outcome, censoring; {words}"
+            for estimator, words in _BASELINE_ESTIMATORS.items()
+        },
+    }
+)
+REGIMENS.update(
+    {
+        "static_12": "assign arm 1 first, then arm 2",
+        "static_00": "assign arm 0 at both times",
+        "policy": "assign arm 1 first, then draw the arm from the known policy (0.2, 0.3, 0.5)",
+        "treat_all": "treat at each of the three times",
+        "treat_none": "treat at none of the three times",
+        "down": "lower each dose by 0.5 where the result stays in its conditional support",
+    }
+)
+PROPERTIES.update(
+    {
+        "misspecification_control": (
+            "with every main-terms GLM wrong, the interval covers the misspecified limit, so the "
+            "calibration rule fails"
+        ),
+        "fixed_mechanism_se": (
+            "the IPW standard error that treats the fitted mechanism as known, against the "
+            "empirical spread"
+        ),
+        "first_node_se": (
+            "the ICE standard error of the first-node term alone, against the empirical spread"
+        ),
+        "adaptive_learners": (
+            "points with the default learner library, reported without an interval"
+        ),
+    }
+)
+CELLS.update(
+    {
+        ("misspecification_control", "main_terms"): (
+            "main-terms GLM outcome regressions and mechanisms on law X, where both are wrong",
+            "declared red: the calibration rule must fail",
+        ),
+        ("fixed_mechanism_se", "fixed_mechanism"): (
+            "the mechanism is fitted, and the standard error omits its estimation term",
+            "where gated, the SE-ratio interval must rise above the calibration band; "
+            "otherwise reported",
+        ),
+        ("first_node_se", "first_node"): (
+            "the spread of the first-node term alone, without the later chain terms",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        **{
+            ("adaptive_learners", f"n_{size}"): (
+                f"the default learner library on law X, at n = {size:,}",
+                "reported only",
+            )
+            for size in (1_000,)
+        },
     }
 )
