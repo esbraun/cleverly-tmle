@@ -134,6 +134,7 @@ STUDY = StudyRecord(
         "the npcausal R phase runs on the local study queue (TRACKER item 9a) and registers "
         "in a later change; the owner's rule merges the method on its Python evidence"
     ),
+    comparison="matching implementation",
     efficiency_bounds=EFFICIENCY_SD,
     modules=(
         "tests/studies/canonical_longitudinal_incremental.py",

@@ -64,6 +64,14 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="tmle3",
+    comparison="matching implementation",
+    comparison_overrides={
+        "binary:paf": "related target",
+        "binary:att": "different estimator",
+        "binary:atc": "different estimator",
+        "continuous:att": "different estimator",
+        "continuous:atc": "different estimator",
+    },
     # ``cleverly`` reports PAF on the identity scale from the PAF influence curve; ``tmle3``
     # reports a negative-log-complement (log-risk-ratio) quantity mapped through
     # ``1 - exp(-x)``.  The two have the same first-order delta-method limit but are not the

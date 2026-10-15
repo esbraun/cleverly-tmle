@@ -51,8 +51,19 @@ from tests.studies.evidence.seeds import replicate_seed
 STUDIES = registered()
 IDS = [study.slug for study in STUDIES]
 STUDY_BY_SLUG = {study.slug: study for study in STUDIES}
-#: The studies the validation grid lists: those that declare property cells.
-VALIDATION_STUDIES = tuple(study for study in STUDIES if study.property_cells)
+#: The words a comparator-backed row starts its `cleverly` vs canonical cell with.
+COMPARATOR_LABEL = "comparator-backed"
+#: What a comparator-backed row with no property cells says in its theory-properties cell.
+NO_PROPERTY_CELLS = "0/0 cells; the row rests on the comparison and the truth tests"
+
+
+def _on_the_grid(study: StudyRecord) -> bool:
+    """Whether the validation grid lists the study: it declares property cells or a reference."""
+    return bool(study.property_cells) or study.reference is not None
+
+
+#: The studies the validation grid lists.
+VALIDATION_STUDIES = tuple(study for study in STUDIES if _on_the_grid(study))
 
 #: Mutation controls only need a verdict to flip, not a published endpoint, so they run the
 #: resampling at a fraction of the published budget.
@@ -653,9 +664,10 @@ class TestPublishedVerdicts:
             assert verdicts(rows & ~control, "passed") == verdicts(
                 rows & ~control, "bias_equivalent"
             ), f"{family}: a positive row's verdict is not its own bias-equivalence endpoint"
-            assert verdicts(rows & control, "passed") == verdicts(
-                rows & control, "bias_discriminated"
-            ), f"{family}: a control's verdict is not its own discrimination endpoint"
+            assert verdicts(rows & control, "passed") == [
+                bool(_with_alternative(row, row.bias_discriminated))
+                for row in published.loc[rows & control].itertuples()
+            ], f"{family}: a control's verdict is not its own discrimination endpoint"
 
         # Two clauses, and the second is the one a bias-gated rule cannot state.  Each row
         # keeps its own direction on the bias, and every row of the family must also have
@@ -664,7 +676,11 @@ class TestPublishedVerdicts:
         low, high = property_verdicts.UNION_MODEL_SE_BAND
         union = published.loc[published["property"].isin(property_verdicts.UNION_MODEL_FAMILIES)]
         for row in union.itertuples():
-            endpoint = row.bias_discriminated if row.role == "control" else row.bias_equivalent
+            endpoint = (
+                _with_alternative(row, row.bias_discriminated)
+                if row.role == "control"
+                else row.bias_equivalent
+            )
             expected = bool(endpoint) and low <= row.se_ratio <= high
             assert bool(row.passed) is expected, (
                 f"{row.cell} publishes passed={row.passed} against its own union-model "
@@ -955,6 +971,7 @@ class TestPublishedVerdicts:
             assert targeting["property_passed"].nunique() == 1
             assert bool(targeting["property_passed"].iloc[0]) is bool(
                 targeting["passed"].all()
+                and _alternatives_hold(targeting)
                 and targeting["targeting_displacement"].iloc[0]
                 >= study.properties().TARGETING_DISPLACEMENT
             )
@@ -994,22 +1011,27 @@ class TestPublishedVerdicts:
         for family, threshold in (
             ("weight_necessity", "WEIGHT_DISPLACEMENT"),
             ("learner_weight_necessity", "LEARNER_WEIGHT_DISPLACEMENT"),
+            ("repeated_outcome_necessity", "NECESSITY_DISPLACEMENT"),
+            ("outcome_history_necessity", "NECESSITY_DISPLACEMENT"),
+            ("full_history_necessity", "NECESSITY_DISPLACEMENT"),
+            # The repeated study's reversed-rule control reads its own truth.  The other
+            # studies' ``rule_necessity`` families declare no displacement threshold.
+            *(
+                [("rule_necessity", "NECESSITY_DISPLACEMENT")]
+                if study.slug == "longitudinal-repeated-outcome"
+                else []
+            ),
         ):
             frame = published.loc[published["property"] == family]
             if not frame.empty:
                 control = frame.loc[frame["role"] == "control"]
                 assert len(control) >= 1
-                alternative_ok = True
-                if (
-                    "alternative_bias_equivalent" in control
-                    and control["alternative_bias_equivalent"].notna().any()
-                ):
-                    alternative_ok = bool(control["alternative_bias_equivalent"].all())
-                    assert alternative_ok
+                alternative_ok = _alternatives_hold(control)
+                assert alternative_ok
                 displacement_column = {
                     "weight_necessity": "weight_displacement",
                     "learner_weight_necessity": "learner_weight_displacement",
-                }[family]
+                }.get(family, "necessity_displacement")
                 if displacement_column not in frame or frame[displacement_column].isna().all():
                     displacement_column = "necessity_displacement"
                 assert frame["property_passed"].nunique() == 1
@@ -1153,6 +1175,27 @@ class TestPublishedVerdicts:
         )
 
 
+def _with_alternative(row: Any, endpoint: Any) -> bool:
+    """A control's discrimination endpoint, ANDed with its alternative-target verdict if any.
+
+    A control that also answers to an exact limit passes only when its bias interval clears
+    the margin around the truth **and** lies inside the margin around that limit.  A family
+    with no alternative target leaves the ``alternative_bias_equivalent`` column empty.
+    """
+    alternative = getattr(row, "alternative_bias_equivalent", None)
+    if alternative is None or pd.isna(alternative):
+        return bool(endpoint)
+    return bool(endpoint) and bool(alternative)
+
+
+def _alternatives_hold(frame: pd.DataFrame) -> bool:
+    """Whether every control row that declares an alternative target recovers it."""
+    if "alternative_bias_equivalent" not in frame:
+        return True
+    declared = frame["alternative_bias_equivalent"].dropna()
+    return bool(declared.astype(bool).all())
+
+
 #: Property families whose per-row verdict is the bias claim read in both directions: a
 #: positive row's equivalence interval inside the margin, a control's outside it.
 BIAS_GATED_PROPERTIES = frozenset(
@@ -1177,6 +1220,11 @@ BIAS_GATED_PROPERTIES = frozenset(
         "randomizer_projection",
         "ratio_necessity",
         "rule_necessity",
+        # The two negative controls of the repeated outcome: each control must also reach
+        # its declared alternative target, which the weight-necessity block checks the same way.
+        "repeated_outcome_necessity",
+        "outcome_history_necessity",
+        "full_history_necessity",
     }
 )
 
@@ -1260,6 +1308,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         property_verdicts.FOLD_POLICY_FAMILY,
         "cluster_aggregation_rule",
         "construction_diagnostic",
+        # The repeated outcome's in-sample arms at n = 2,000: few units follow the rule to
+        # the last node, so the pilot SE ratio sits below the band (X32 pilot).
+        "small_sample_calibration",
         "in_sample_agreement",
         "sdr_tmle_agreement",
         "variance_direction",
@@ -1422,6 +1473,40 @@ class TestNegativeControls:
         untouched = summary.index.drop(changed)
         assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
             "corrupting the union-model cells moved a verdict somewhere else"
+        )
+
+    def test_a_control_that_leaves_its_exact_limit_fails_alone(self, study: StudyRecord) -> None:
+        """A control that reaches an exact limit answers to it, and a displaced one fails.
+
+        A ``double_robustness`` ``both_wrong`` cell with a declared limit passes only when its
+        bias interval clears the margin around the truth **and** lies inside the margin around
+        the limit.  The second clause is invisible to every committed cell, because every
+        committed control sits on its limit.  Moving one control's estimates four of its own
+        spreads off the limit leaves the first clause satisfied and must flip the second, and
+        the mutation must reach no other cell.
+        """
+        published = _property_summary(study.slug).set_index(["property", "cell"])
+        if "alternative_bias_equivalent" not in published:
+            pytest.skip(f"{study.slug} declares no control with an exact limit")
+        declared = published.index[
+            published["alternative_bias_equivalent"].notna()
+            & (published["role"] == "control")
+            & (published.index.get_level_values(0) == "double_robustness")
+        ]
+        if len(declared) == 0:
+            pytest.skip(f"{study.slug} reads no exact limit for a double_robustness control")
+        property_name, cell = declared[0]
+        rows = _property_rows(study.slug)
+        mutated = rows.copy()
+        mask = (mutated["property"] == property_name) & (mutated["cell"] == cell)
+        spread = float(mutated.loc[mask, "estimate"].std(ddof=1))
+        mutated.loc[mask, "estimate"] += 4.0 * spread
+        summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
+        assert not bool(summary.loc[(property_name, cell), "alternative_bias_equivalent"])
+        assert not bool(summary.loc[(property_name, cell), "passed"])
+        untouched = summary.index.drop([(property_name, cell)])
+        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
+            "displacing one control from its limit moved a verdict somewhere else"
         )
 
     def test_a_material_subject_regression_fails_similarity_and_noninferiority(
@@ -1846,9 +1931,10 @@ class TestTheMethodEvidenceGrid:
     the wrong study.  These tests are what make it a gate instead, and they are written against
     the register rather than against any one row, so the next method to be added inherits them.
 
-    The grid lists validation rows only.  A study with no property cell is not one
-    (``method-benchmarking.md``, "Adding a method row"), so these tests read the studies that
-    declare property cells.
+    The grid lists validation rows only.  A study with no property cell and no reference is not
+    one (``method-benchmarking.md``, "Adding a method row"), so these tests read the studies
+    that declare property cells or a reference.  A comparator-backed study with no property
+    cell has a row that rests on the comparison and the truth tests.
     """
 
     @pytest.fixture(params=VALIDATION_STUDIES, ids=[study.slug for study in VALIDATION_STUDIES])
@@ -1891,6 +1977,12 @@ class TestTheMethodEvidenceGrid:
     ) -> None:
         """The 34/34 that counted a different study is why this is not read by eye."""
         cell = _grid()[study.name][column]
+        if column == "theory properties" and not study.property_cells:
+            assert NO_PROPERTY_CELLS in cell, (
+                f"{study.slug} declares no property cell, so its theory-properties cell reads "
+                f"{NO_PROPERTY_CELLS!r}"
+            )
+            return
         found = COUNT.findall(cell)
         assert len(found) == 1, f"{column!r} should carry exactly one count, found {found}"
         passed_name, total_name = COUNTED[column]
@@ -1970,6 +2062,9 @@ class TestTheMethodEvidenceGrid:
             assert "pass at 99%" not in cell
 
     def test_efficiency_claim_requires_an_independent_bound(self, study: StudyRecord) -> None:
+        if not study.property_cells:
+            assert not _mentions_efficiency(_grid()[study.name]["theory properties"])
+            return
         properties = load(study)["properties"]
         columns = [name for name in properties if name.startswith("efficiency_")]
         has_bound = bool(columns) and bool(properties[columns].notna().any().any())
@@ -2285,13 +2380,14 @@ class TestThePublishedTestTables:
     def test_a_study_without_property_cells_is_a_reporting_study_off_the_grid(
         self, study: StudyRecord
     ) -> None:
-        """A study with no property cell has no grid row until RM42 part (e) adds one.
+        """A study with no property cell and no reference has no grid row.
 
         Such a study still registers, publishes its verdicts under ``reporting`` and carries its
-        own page.
+        own page.  A comparator-backed study with no property cell has a row, which
+        ``test_a_comparator_backed_study_with_no_property_cells_has_a_row`` exercises.
         """
-        if study.property_cells:
-            pytest.skip("study declares property cells")
+        if study.property_cells or study.reference is not None:
+            pytest.skip("study is on the grid")
         assert study.publication_policy == "reporting", (
             f"{study.slug} declares no property cell, so it cannot gate a validation claim"
         )
@@ -2790,3 +2886,123 @@ class TestTheQuantityVocabulary:
             f"{sorted(unresolved)} resolve to no artefact family, so quoting one of them would "
             f"count towards nothing in test_the_table_reaches_every_family_of_result"
         )
+
+
+def _comparator_label_findings(
+    rows: dict[str, dict[str, str]], studies: tuple[StudyRecord, ...]
+) -> list[str]:
+    """The studies whose `cleverly` vs canonical cell disagrees with ``reference is not None``.
+
+    The cell starts with the label exactly when the study names a reference.  The label is a
+    registry fact, so it is checked against the registry rather than re-read.
+    """
+    findings = []
+    for study in studies:
+        cell = rows[study.name]["`cleverly` vs canonical"]
+        carries = COMPARATOR_LABEL in cell.casefold()
+        if carries != (study.reference is not None) or (
+            carries and not cell.startswith(COMPARATOR_LABEL)
+        ):
+            findings.append(study.slug)
+    return findings
+
+
+def _theory_cell_findings(
+    rows: dict[str, dict[str, str]], studies: tuple[StudyRecord, ...]
+) -> list[str]:
+    """The listed studies with no property cell whose theory-properties cell lacks the 0/0 text."""
+    return [
+        study.slug
+        for study in studies
+        if _on_the_grid(study)
+        and not study.property_cells
+        and NO_PROPERTY_CELLS not in rows[study.name]["theory properties"]
+    ]
+
+
+def test_the_comparator_label_appears_exactly_when_the_study_names_a_reference() -> None:
+    """Each grid row says "comparator-backed" when its study has a reference, and not otherwise."""
+    assert _comparator_label_findings(_grid(), VALIDATION_STUDIES) == []
+    assert any(study.reference is not None for study in VALIDATION_STUDIES)
+    assert any(study.reference is None for study in VALIDATION_STUDIES)
+
+
+@pytest.mark.parametrize("backed", [True, False], ids=["dropped-label", "added-label"])
+def test_the_comparator_label_check_fails_when_a_cell_is_edited(backed: bool) -> None:
+    """Mutation control: drop the label from one cell, or add it to a row with no comparator."""
+    target = next(study for study in VALIDATION_STUDIES if (study.reference is not None) == backed)
+    rows = {name: dict(row) for name, row in _grid().items()}
+    cell = rows[target.name]["`cleverly` vs canonical"]
+    rows[target.name]["`cleverly` vs canonical"] = (
+        cell.removeprefix(f"{COMPARATOR_LABEL}: ") if backed else f"{COMPARATOR_LABEL}: {cell}"
+    )
+    assert _comparator_label_findings(rows, VALIDATION_STUDIES) == [target.slug]
+
+
+def test_a_comparator_backed_study_with_no_property_cells_has_a_row() -> None:
+    """The grid branch no real study takes: a reference and no property cell.
+
+    The synthetic record keeps a real record's reference and comparison and drops its property
+    cells.  The grid lists it, and its row reads zero cells with the reason.
+    """
+    real = next(study for study in STUDIES if study.reference is not None)
+    synthetic = dataclasses.replace(
+        real, name="a synthetic comparator-only method", property_cells={}
+    )
+    unbacked = dataclasses.replace(
+        synthetic, reference=None, comparison=None, comparison_overrides={}
+    )
+    assert _on_the_grid(synthetic)
+    assert not _on_the_grid(unbacked)
+    row = {"theory properties": NO_PROPERTY_CELLS}
+    assert _theory_cell_findings({synthetic.name: row}, (synthetic,)) == []
+    stale = {"theory properties": "0/0 cells pass"}
+    assert _theory_cell_findings({synthetic.name: stale}, (synthetic,)) == [synthetic.slug]
+    assert _theory_cell_findings(_grid(), VALIDATION_STUDIES) == []
+
+
+@pytest.mark.parametrize("study", STUDIES, ids=IDS)
+def test_a_study_with_a_reference_declares_its_comparison_kind(study: StudyRecord) -> None:
+    """The kind is declared exactly with a reference, compared or pending, and each override names a real row."""
+    kinds = {"matching implementation", "different estimator", "related target"}
+    if study.reference is None and study.pending_reference is None:
+        assert study.comparison is None
+        assert not study.comparison_overrides
+        return
+    assert study.comparison in kinds
+    if study.reference is None:
+        assert not study.comparison_overrides
+        return
+    assert set(study.comparison_overrides.values()) <= kinds
+    frame = pd.read_csv(study.artifact("equivalence.csv"))
+    rows = set(zip(frame["scenario"], frame["estimand"], strict=True))
+    scenarios = {scenario for scenario, _ in rows}
+    unmatched = []
+    for key in study.comparison_overrides:
+        scenario, _, estimand = key.partition(":")
+        matched = scenario in scenarios if estimand == "*" else (scenario, estimand) in rows
+        if not matched:
+            unmatched.append(key)
+    assert unmatched == [], (
+        f"{study.slug}'s comparison_overrides keys match no equivalence row: {unmatched}"
+    )
+
+
+def test_a_record_requires_a_comparison_exactly_when_it_names_a_reference() -> None:
+    """The registry refuses a reference with no kind, a kind with no reference, and a bad key."""
+    backed = next(study for study in STUDIES if study.reference is not None)
+    plain = next(study for study in STUDIES if study.reference is None)
+    with pytest.raises(ValueError, match="comparison is required exactly when"):
+        dataclasses.replace(backed, comparison=None)
+    with pytest.raises(ValueError, match="comparison is required exactly when"):
+        dataclasses.replace(plain, comparison="related target")
+    with pytest.raises(ValueError, match="scenario:estimand"):
+        dataclasses.replace(backed, comparison_overrides={"no-colon": "related target"})
+    with pytest.raises(ValueError, match="comparison_overrides"):
+        dataclasses.replace(backed, comparison_overrides={"a:b": "same thing"})
+    one = dataclasses.replace(
+        backed, comparison_overrides={"a:b": "related target", "c:*": "different estimator"}
+    )
+    assert one.comparison_kind("a", "b") == "related target"
+    assert one.comparison_kind("c", "anything") == "different estimator"
+    assert one.comparison_kind("d", "e") == backed.comparison

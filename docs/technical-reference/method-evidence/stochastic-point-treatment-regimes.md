@@ -27,11 +27,13 @@ evaluates a counterfactual at one treatment value and integrates over no density
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with a known stochastic treatment density | `ate_regime[tilt vs never]` | difference in means under the regimes "draw from the known stochastic tilt" against "assign no treatment" | -0.000063 | 0.0403 | 0.9997 | -0.0050 | 0.0387 vs 0.0500 | equivalent |
-| binary-outcome law with a known stochastic treatment density | `ey_regime[never]` | mean under the regime assign no treatment | -0.000001 | 0.000471 | 0.9981 | 0.0012 | 0.0013 vs 0.0500 | equivalent |
-| binary-outcome law with a known stochastic treatment density | `ey_regime[tilt]` | mean under the regime draw from the known stochastic tilt | -0.000064 | 0.0348 | 0.9899 | -0.0037 | 0.0176 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law with a known stochastic treatment density | `ate_regime[tilt vs never]` | difference in means under the regimes "draw from the known stochastic tilt" against "assign no treatment" | -0.000063 | 0.0403 | 0.9997 | -0.0050 | different estimator | 0.0387 vs 0.0500 | equivalent |
+| binary-outcome law with a known stochastic treatment density | `ey_regime[never]` | mean under the regime assign no treatment | -0.000001 | 0.000471 | 0.9981 | 0.0012 | different estimator | 0.0013 vs 0.0500 | equivalent |
+| binary-outcome law with a known stochastic treatment density | `ey_regime[tilt]` | mean under the regime draw from the known stochastic tilt | -0.000064 | 0.0348 | 0.9899 | -0.0037 | different estimator | 0.0176 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

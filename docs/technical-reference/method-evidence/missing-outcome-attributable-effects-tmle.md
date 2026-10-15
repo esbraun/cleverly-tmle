@@ -104,39 +104,41 @@ gives every argument.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| L1: two-arm binary-outcome law with MAR outcomes, in sample | `ey0` | counterfactual mean under no treatment | -3.944e-10 | 1.068e-07 | 1.0000 | 0 | 2.374e-08 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes, in sample | `ey_obs` | observed outcome mean under the natural course | -4.449e-13 | 1.668e-10 | 1.0000 | 0 | 1.490e-11 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes, in sample | `paf` | population attributable fraction | 7.822e-10 | 1.602e-07 | 1.0000 | 0 | 3.213e-08 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes, in sample | `par` | population attributable risk | 3.940e-10 | 1.750e-07 | 1.0000 | 0 | 3.921e-09 vs 0.0500 | equivalent |
-| L1 rows in 100 clusters of 20 that share W, in sample with id= | `ey0` | counterfactual mean under no treatment | -4.499e-10 | 1.079e-07 | 1.0000 | 0 | 2.021e-08 vs 0.0500 | equivalent |
-| L1 rows in 100 clusters of 20 that share W, in sample with id= | `ey_obs` | observed outcome mean under the natural course | -4.917e-13 | 1.747e-10 | 1.0000 | 0 | 1.071e-10 vs 0.0500 | equivalent |
-| L1 rows in 100 clusters of 20 that share W, in sample with id= | `paf` | population attributable fraction | 9.013e-10 | 1.498e-07 | 1.0000 | 0 | 2.827e-08 vs 0.0500 | equivalent |
-| L1 rows in 100 clusters of 20 that share W, in sample with id= | `par` | population attributable risk | 4.494e-10 | 1.594e-07 | 1.0000 | 0 | 2.638e-08 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees | `ey0` | counterfactual mean under no treatment | -3.170e-10 | 8.565e-08 | 1.0000 | 0 | 6.937e-09 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees | `ey_obs` | observed outcome mean under the natural course | -2.225e-11 | 8.322e-09 | 1.0000 | 0 | 6.049e-10 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees | `paf` | population attributable fraction | 6.048e-10 | 1.235e-07 | 1.0000 | 0 | 1.337e-08 vs 0.0500 | equivalent |
-| L1: two-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees | `par` | population attributable risk | 2.948e-10 | 1.306e-07 | 1.0000 | 0 | 3.345e-09 vs 0.0500 | equivalent |
-| L1 with fixed analysis weights 0.6, 1.0 and 1.8 by level of W, in sample | `ey0` | counterfactual mean under no treatment | -1.203e-10 | 3.667e-08 | 1.0000 | 0 | 3.785e-09 vs 0.0500 | equivalent |
-| L1 with fixed analysis weights 0.6, 1.0 and 1.8 by level of W, in sample | `ey_obs` | observed outcome mean under the natural course | -1.277e-12 | 5.198e-10 | 1.0000 | 0 | 5.305e-11 vs 0.0500 | equivalent |
-| L1 with fixed analysis weights 0.6, 1.0 and 1.8 by level of W, in sample | `paf` | population attributable fraction | 2.556e-10 | 5.802e-08 | 1.0000 | 0 | 5.482e-09 vs 0.0500 | equivalent |
-| L1 with fixed analysis weights 0.6, 1.0 and 1.8 by level of W, in sample | `par` | population attributable risk | 1.190e-10 | 5.743e-08 | 1.0000 | 0 | 4.419e-09 vs 0.0500 | equivalent |
-| L1 tables with a bounded continuous Beta outcome and MAR outcomes, in sample | `ey0` | counterfactual mean under no treatment | -9.118e-14 | 1.109e-10 | 1.0000 | 0 | 1.819e-10 vs 0.0500 | equivalent |
-| L1 tables with a bounded continuous Beta outcome and MAR outcomes, in sample | `ey_obs` | observed outcome mean under the natural course | -4.240e-14 | 5.069e-11 | 1.0000 | 0 | 1.520e-11 vs 0.0500 | equivalent |
-| L1 tables with a bounded continuous Beta outcome and MAR outcomes, in sample | `par` | population attributable risk | 4.878e-14 | 5.670e-11 | 1.0000 | 0 | 4.609e-11 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `ey[high]` | counterfactual mean under treatment arm 'high' | 1.108e-09 | 2.718e-07 | 1.0000 | 0 | 2.044e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `ey[low]` | counterfactual mean under treatment arm 'low' | -3.087e-10 | 7.885e-08 | 1.0000 | 0 | 1.509e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 1.455e-11 | 4.095e-09 | 1.0000 | 0 | 1.244e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `ey_obs` | observed outcome mean under the natural course | -3.927e-12 | 1.786e-09 | 1.0000 | 0 | 7.039e-11 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `paf[low]` | population attributable fraction, natural course versus reference arm 'low' | 5.686e-10 | 9.558e-08 | 1.0000 | 0 | 1.801e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `par[low]` | population attributable risk, natural course versus reference arm 'low' | 3.048e-10 | 1.003e-07 | 1.0000 | 0 | 1.780e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `ey[high]` | counterfactual mean under treatment arm 'high' | 2.657e-10 | 6.481e-08 | 1.0000 | 0 | 1.290e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `ey[low]` | counterfactual mean under treatment arm 'low' | -1.729e-10 | 4.368e-08 | 1.0000 | 0 | 1.042e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 3.801e-11 | 1.066e-08 | 1.0000 | 0 | 3.196e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `ey_obs` | observed outcome mean under the natural course | -4.712e-11 | 2.132e-08 | 1.0000 | 0 | 8.612e-10 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `paf[low]` | population attributable fraction, natural course versus reference arm 'low' | 2.610e-10 | 4.340e-08 | 1.0000 | 0 | 1.383e-09 vs 0.0500 | equivalent |
-| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `par[low]` | population attributable risk, natural course versus reference arm 'low' | 1.258e-10 | 4.096e-08 | 1.0000 | 0 | 1.494e-09 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle-r-composed-attributable` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| L1: two-arm binary-outcome law with MAR outcomes, in sample | `ey0` | counterfactual mean under no treatment | -3.944e-10 | 1.068e-07 | 1.0000 | 0 | matching implementation | 2.374e-08 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes, in sample | `ey_obs` | observed outcome mean under the natural course | -4.449e-13 | 1.668e-10 | 1.0000 | 0 | matching implementation | 1.490e-11 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes, in sample | `paf` | population attributable fraction | 7.822e-10 | 1.602e-07 | 1.0000 | 0 | related target | 3.213e-08 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes, in sample | `par` | population attributable risk | 3.940e-10 | 1.750e-07 | 1.0000 | 0 | related target | 3.921e-09 vs 0.0500 | equivalent |
+| L1 rows in 100 clusters of 20 that share W, in sample with id= | `ey0` | counterfactual mean under no treatment | -4.499e-10 | 1.079e-07 | 1.0000 | 0 | matching implementation | 2.021e-08 vs 0.0500 | equivalent |
+| L1 rows in 100 clusters of 20 that share W, in sample with id= | `ey_obs` | observed outcome mean under the natural course | -4.917e-13 | 1.747e-10 | 1.0000 | 0 | matching implementation | 1.071e-10 vs 0.0500 | equivalent |
+| L1 rows in 100 clusters of 20 that share W, in sample with id= | `paf` | population attributable fraction | 9.013e-10 | 1.498e-07 | 1.0000 | 0 | related target | 2.827e-08 vs 0.0500 | equivalent |
+| L1 rows in 100 clusters of 20 that share W, in sample with id= | `par` | population attributable risk | 4.494e-10 | 1.594e-07 | 1.0000 | 0 | related target | 2.638e-08 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees | `ey0` | counterfactual mean under no treatment | -3.170e-10 | 8.565e-08 | 1.0000 | 0 | matching implementation | 6.937e-09 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees | `ey_obs` | observed outcome mean under the natural course | -2.225e-11 | 8.322e-09 | 1.0000 | 0 | matching implementation | 6.049e-10 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees | `paf` | population attributable fraction | 6.048e-10 | 1.235e-07 | 1.0000 | 0 | related target | 1.337e-08 vs 0.0500 | equivalent |
+| L1: two-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees | `par` | population attributable risk | 2.948e-10 | 1.306e-07 | 1.0000 | 0 | related target | 3.345e-09 vs 0.0500 | equivalent |
+| L1 with fixed analysis weights 0.6, 1.0 and 1.8 by level of W, in sample | `ey0` | counterfactual mean under no treatment | -1.203e-10 | 3.667e-08 | 1.0000 | 0 | matching implementation | 3.785e-09 vs 0.0500 | equivalent |
+| L1 with fixed analysis weights 0.6, 1.0 and 1.8 by level of W, in sample | `ey_obs` | observed outcome mean under the natural course | -1.277e-12 | 5.198e-10 | 1.0000 | 0 | matching implementation | 5.305e-11 vs 0.0500 | equivalent |
+| L1 with fixed analysis weights 0.6, 1.0 and 1.8 by level of W, in sample | `paf` | population attributable fraction | 2.556e-10 | 5.802e-08 | 1.0000 | 0 | related target | 5.482e-09 vs 0.0500 | equivalent |
+| L1 with fixed analysis weights 0.6, 1.0 and 1.8 by level of W, in sample | `par` | population attributable risk | 1.190e-10 | 5.743e-08 | 1.0000 | 0 | related target | 4.419e-09 vs 0.0500 | equivalent |
+| L1 tables with a bounded continuous Beta outcome and MAR outcomes, in sample | `ey0` | counterfactual mean under no treatment | -9.118e-14 | 1.109e-10 | 1.0000 | 0 | matching implementation | 1.819e-10 vs 0.0500 | equivalent |
+| L1 tables with a bounded continuous Beta outcome and MAR outcomes, in sample | `ey_obs` | observed outcome mean under the natural course | -4.240e-14 | 5.069e-11 | 1.0000 | 0 | matching implementation | 1.520e-11 vs 0.0500 | equivalent |
+| L1 tables with a bounded continuous Beta outcome and MAR outcomes, in sample | `par` | population attributable risk | 4.878e-14 | 5.670e-11 | 1.0000 | 0 | related target | 4.609e-11 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `ey[high]` | counterfactual mean under treatment arm 'high' | 1.108e-09 | 2.718e-07 | 1.0000 | 0 | matching implementation | 2.044e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `ey[low]` | counterfactual mean under treatment arm 'low' | -3.087e-10 | 7.885e-08 | 1.0000 | 0 | matching implementation | 1.509e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 1.455e-11 | 4.095e-09 | 1.0000 | 0 | matching implementation | 1.244e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `ey_obs` | observed outcome mean under the natural course | -3.927e-12 | 1.786e-09 | 1.0000 | 0 | matching implementation | 7.039e-11 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `paf[low]` | population attributable fraction, natural course versus reference arm 'low' | 5.686e-10 | 9.558e-08 | 1.0000 | 0 | related target | 1.801e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, in sample, reference arm low | `par[low]` | population attributable risk, natural course versus reference arm 'low' | 3.048e-10 | 1.003e-07 | 1.0000 | 0 | related target | 1.780e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `ey[high]` | counterfactual mean under treatment arm 'high' | 2.657e-10 | 6.481e-08 | 1.0000 | 0 | matching implementation | 1.290e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `ey[low]` | counterfactual mean under treatment arm 'low' | -1.729e-10 | 4.368e-08 | 1.0000 | 0 | matching implementation | 1.042e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `ey[mid]` | counterfactual mean under treatment arm 'mid' | 3.801e-11 | 1.066e-08 | 1.0000 | 0 | matching implementation | 3.196e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `ey_obs` | observed outcome mean under the natural course | -4.712e-11 | 2.132e-08 | 1.0000 | 0 | matching implementation | 8.612e-10 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `paf[low]` | population attributable fraction, natural course versus reference arm 'low' | 2.610e-10 | 4.340e-08 | 1.0000 | 0 | related target | 1.383e-09 vs 0.0500 | equivalent |
+| L3: three-arm binary-outcome law with MAR outcomes, stacked CV-TMLE with depth-five trees, reference arm low | `par[low]` | population attributable risk, natural course versus reference arm 'low' | 1.258e-10 | 4.096e-08 | 1.0000 | 0 | related target | 1.494e-09 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

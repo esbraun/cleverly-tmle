@@ -12,8 +12,8 @@ Record the identified parameter, estimator construction, governing source, suppo
 compositions, and inference rule before choosing a comparator. Agreement with an R package is
 acceptance evidence for the claims the comparison covers, as
 [Theory and comparators](../architecture-invariants.md#theory-and-comparators) states.
-[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) adds the comparator-backed
-label to the evidence pages. Agreement does not prove that the parameter, influence curve, or
+A study that names a reference is comparator-backed: its page and its grid row carry that label,
+and its `StudyRecord` declares a `comparison` kind. Agreement does not prove that the parameter, influence curve, or
 theorem is correct.
 
 Give materially different estimators separate evidence rows. Ordinary TMLE, stacked CV-TMLE,
@@ -465,12 +465,16 @@ artifacts, or provenance conventions for each comparison.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
 row rests on the other two columns. A comparison is acceptance evidence for the claims it covers.
-Today the validation grid lists only a study with property cells.
-[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) owns the label and the
-grid row for a comparator-backed study.
+A comparator-backed study starts that cell with "comparator-backed".
 
-A study with no property cells can still register as a reporting study. It declares
-`publication_policy="reporting"` and an empty `property_cells`. It keeps its own page, with no
-properties block, and the red-cell ledger reads its verdicts. The validation grid does not list
-it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
+The grid lists a study that declares property cells or a reference. A comparator-backed study with no property cells reads
+"0/0 cells; the row rests on the comparison and the truth tests" in its theory-properties cell.
+Each such study declares `comparison` and, where one equivalence row differs, `comparison_overrides`
+with the key `scenario:estimand` or `scenario:*`. The kind is one of three: matching implementation,
+different estimator, or related target. The agreement block of the page prints the kind of each row.
+
+A study with no property cells and no reference can still register as a reporting study. It
+declares `publication_policy="reporting"` and an empty `property_cells`. It keeps its own page,
+with no properties block, and the red-cell ledger reads its verdicts. The validation grid does not
+list it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
 study is the example.

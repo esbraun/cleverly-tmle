@@ -951,7 +951,7 @@ class TestMissingTreatment:
             )
 
     def test_a_continuous_treatment_cannot_be_declared_missing(self) -> None:
-        with pytest.raises(DataError, match="arm-coded treatment only"):
+        with pytest.raises(DataError, match="continuous-treatment target reads the law"):
             CausalData.from_arrays(
                 np.zeros(12),
                 np.linspace(0.0, 1.0, 12),

@@ -209,6 +209,64 @@ only happen at the last node reproduces the end-of-study fit **bit for bit**. A 
 single cause reproduces a single-event survival fit **bit for bit**. Stitelman, De Gruttola and van
 der Laan (2012) is the survival implementation reference.
 
+### Repeated outcomes
+
+A repeated outcome is measured at every node and is not absorbing. A unit with $Y_1 = 1$ can have
+$Y_2 = 0$. Declare it with `outcome=Repeated(["Y1", "Y2", "Y3"])`. The node order is
+
+$$
+W,\; L_1, A_1, C_1, Y_1,\; L_2, A_2, C_2, Y_2,\; \ldots,\; L_T, A_T, C_T, Y_T.
+$$
+
+The parameter is the curve of means $E[Y_h^d]$, one for each plan $d$ and horizon $h$. A fit
+reports `ey_regimen[d @ t=h]` and `ate_regimen[d vs ref @ t=h]`.
+
+The construction is a reduction to the end-of-study fit. The container puts $Y_s$ first in the
+covariate block of node $s + 1$, before the covariate screen. Each later treatment, censoring and
+outcome regression can then read it. At horizon $h$ the fit seeds the recursion with the observed
+$Y_h$ and runs the end-of-study recursion over nodes $1, \ldots, h$. That fit is the end-of-study
+fit of the panel truncated after $h$, with $Y_h$ as its outcome. The base for each horizon is the
+end-of-study derivation of Bang and Robins (2005) and van der Laan and Gruber (2012). Kim, Kennedy
+and Naimi (2021, arXiv v3 preprint) discuss the repeated-outcome setting. This implementation does
+not rely on that preprint.
+
+| item | value |
+| --- | --- |
+| history at node $t$ | $W, L_1, Y_1, L_2, \ldots, Y_{t-1}, L_t$ and the earlier treatments |
+| seed at horizon $h$ | the scaled $Y_h$ on the rows uncensored through $h$ |
+| missing $Y_t$ on a row uncensored through $t$ | refused. Encode it as $C_t = 0$ |
+| outcome scale | one scale over the observed values of every node, so a continuous curve has one scale |
+| family | resolved over the observed values of every node |
+| influence curve at $(d, h)$ | the end-of-study influence curve of the truncated panel |
+| joint band | the multiplier band over the stacked curves of every reported $(d, h)$ |
+| working model, `msm=` | a design over $(d, h)$ cells. Each cell seeds its own $Y_h$ |
+| full-refit bootstrap | a diagnostic. No result licenses its coverage on this outcome |
+
+The remainder at each horizon is the end-of-study product remainder. The stack over horizons adds
+no remainder term. The interval at $(d, h)$ is therefore the end-of-study interval of the truncated
+panel, under the same inference statuses.
+
+| composition | status |
+| --- | --- |
+| static, dynamic and known stochastic plans, modified treatment policies | fits. A rule may read $Y_{t-1}$ |
+| cross-fitting, clusters, weights, a held treatment, known mechanisms | fits |
+| `msm=` over $(d, h)$ cells | fits |
+| `SDR` and `IPSI` | refused before any learner, until [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) |
+| competing causes | not declarable. A cause mapping declares an absorbing outcome |
+| `rmst()`, `rmtl()`, `incidence_total()`, `ratio(view="survival")` | refused. A mean of a repeated outcome is not a cumulative risk |
+| `curve()` | `scale="mean"`, the default for this outcome. `"risk"` and `"survival"` are refused |
+
+This construction does not cover a recurrent-event count process or truncation by death. If death
+is encoded as censoring, the parameter is the mean in a population where death is prevented.
+
+`tests/unit/test_repeated_outcome.py` checks the reduction at every horizon for 13 compositions:
+the estimate, the influence curve, every node regression and the cumulative mechanism, at
+`rtol=1e-12`. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
+the complex-step Gateaux derivative of the g-formula on two exact laws in
+`tests/discrete_law_repeated.py`. One law is binary. The other has three values per node. Ten
+mutation controls fail these tests, among them the absorbing seed $\max_{s \le h} Y_s$, a history
+without $Y_{s}$, and one seed at $Y_T$ for every horizon.
+
 ### Known stochastic policies
 
 A plan node can hold a known policy density instead of a label or a rule. The unit then draws its
@@ -498,7 +556,7 @@ Each refusal of the input is raised before any learner.
 | a grid that is not strictly increasing, positive and finite | `ValueError` |
 | an event code that is missing, negative, not an integer, or not named by `causes=`; a cause with no event at or before $g_K$ | `DataError` |
 | a horizon or an RMST time off the grid, or past $g_K$ on a declared grid | `ValueError` |
-| `time_varying=` on `TimeToEvent` | `TypeError` |
+| `time_varying=` on `TimeToEvent` | `CapabilityError`, code `api_redirection` |
 | a censoring time between two grid times | `DataError` |
 
 `to_time_to_event()` returns each unit's grid time and event code. It is the inverse map on a law
@@ -567,7 +625,7 @@ applies to every outcome and pseudo-outcome node, on both layouts.
 | a pseudo-outcome that holds one value inside $(0, 1)$, such as an intercept-only regression carried back | not read by this rule. The learner fits it and the fluctuation moves it, so a fit that ran before the rule keeps its numbers |
 
 A node's term of the influence curve is identically zero when the node reads a constant. The
-true hazard there can still be positive, so the plug-in standard error leaves that node's variance
+true outcome variance there can still be positive, so the plug-in standard error leaves that node's variance
 out. A risk of zero would report a standard error of zero, and a contrast against it would carry
 the other arm's variance only. Each parameter whose recursion reads such a node therefore takes
 the `constant_node_plugin` status
@@ -843,26 +901,26 @@ by name, with its own reason. Some keywords redirect to the argument that does t
 [`IPSI`](#incremental-interventions-over-time), which fits the odds tilt over time. The table gives the
 refusals that are statements about the question, the construction, or coverage.
 
-| refused | kind | what it would need |
+| refused | code | what it would need |
 | --- | --- | --- |
-| eliminating the competing events | a different question | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions |
-| `intermediate=` | a different question | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
-| `mechanism=True` on `truncation_curve()` | a different question | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
-| a callable node that is not declared `"known"`, or that is declared `"estimated"` | wrong by construction | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
-| a callable written inline in a `regimens=` mapping | wrong by construction | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
-| an outcome missing for a reason other than censoring | wrong by construction | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
-| longitudinal sensitivity-bound estimation | not written yet | a sample estimator and sampling theory for its bound functionals. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) holds the stop |
-| a continuous outcome with `q_bounds=None` above one fold | not written yet | with `q_bounds=None` the scale comes from every observed outcome, held-out rows included, and no shipped result covers that scale |
+| eliminating the competing events | `different_estimand` | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions |
+| `intermediate=` | `different_estimand` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
+| `mechanism=True` on `truncation_curve()` | `invalid_declaration` | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
+| a callable node that is not declared `"known"`, or that is declared `"estimated"` | `invalid_declaration` when undeclared, `implementation_gap` when `"estimated"` | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
+| a callable written inline in a `regimens=` mapping | `invalid_declaration` | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
+| an outcome missing for a reason other than censoring | `api_redirection` | left as it is, the probability of observing it is silently taken to be one. Encode it as a final censoring column, so it is estimated and enters the cumulative product |
+| longitudinal sensitivity-bound estimation | `implementation_gap` | a sample estimator and sampling theory for its bound functionals. [F16](../roadmap.md#f16-longitudinal-sensitivity-bound-estimation) holds the stop |
+| a continuous outcome with `q_bounds=None` above one fold | `invalid_declaration` | with `q_bounds=None` the scale comes from every observed outcome, held-out rows included, and no shipped result covers that scale |
 
 Two plan shapes raise `DataError` before any learner. Each one is a statement about the input, so
-the table of kinds above does not list it.
+the table of codes above does not list it.
 
 | plan | what the refusal asks for |
 | --- | --- |
 | an iterator in `regimens=`, such as a generator | a tuple, or a `DynamicRegimen`, which reads its plan once and stores it as a tuple. The fit does not read the iterator: a fit reads `regimens=` at each call, and an iterator is empty after its first read |
 | a `DynamicRegimen` plan that is one label or one callable | one entry per node. Write one rule for every node as `(rule,) * T` |
 
-See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each `kind` means.
+See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each code means.
 
 ### Clusters
 
@@ -1049,7 +1107,7 @@ mechanism.
 
 | choice | `SDR` | reason |
 | --- | --- | --- |
-| fluctuation | none. `alpha=`, `max_iter=` and `tol=` raise `TypeError` | the transform replaces the targeting step |
+| fluctuation | none. `alpha=`, `max_iter=` and `tol=` raise `MethodConfigurationError` with code `invalid_declaration` | the transform replaces the targeting step |
 | regression clip | none. The default `pseudo_learner` is `SuperLearner(task="regression", clip=None)` | a transform can leave $[0, 1]$, and `lmtp` predicts it unbounded. A clipping pseudo learner is accepted and moves the estimate away from `lmtp_sdr` (`tests/unit/test_sdr_bounds_and_clipping.py`) |
 | `g_bounds=` | bounds each partial path probability $\prod_{k=t}^{s} p_k$ | at $t = 1$ this is the cumulative product that LTMLE divides by, equal to rounding. Where a bound binds, the bounded weight is a misspecified ratio on that path, and no SDR property is claimed there. `diagnostics.support()` reports the binding share per node, over the paths that the estimate reads. A cross-fitted fit counts the held-out rows of each fold |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of transforms can leave $[0, 1]$, or $[q_\text{lo}, q_\text{hi}]$ on a continuous outcome (page 854) |
@@ -1121,8 +1179,9 @@ with the natural course. The parameter names are the longitudinal ones, such as
 
 A mean of a non-absorbing outcome $Y_t$ under a tilt is the end-of-study estimand on the panel
 truncated after node $t$. $Y_t$ is the outcome, and earlier $Y_s$ are covariates (Kim et al.
-2021, Theorem 3.1 at that $t$). The panel has no declaration of a non-absorbing $Y_t$.
-[X32](../roadmap.md#x32-repeated-outcome-curves) owns that curve.
+2021, Theorem 3.1 at that $t$). `IPSI` refuses `outcome=Repeated([...])`, so a user truncates
+the panel by hand for each $t$. [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi)
+owns that curve.
 
 ### The tilt recursion and its influence function
 
@@ -1230,7 +1289,7 @@ cancelled tilt factor and needs no such bound.
 
 | choice | `IPSI` | reason |
 | --- | --- | --- |
-| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `targeting=` and `fluctuation=` raise `TypeError` | the estimator averages the influence function at the fitted nuisances |
+| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `targeting=` and `fluctuation=` raise `MethodConfigurationError` with code `invalid_declaration` | the estimator averages the influence function at the fitted nuisances |
 | `g_bounds=` | bounds the cumulative censoring, label, rule and policy product. The tilt product multiplies in after the bound | the tilt factor lies in $[\min(\delta, 1/\delta), \max(\delta, 1/\delta)]$ and divides by no mechanism |
 | regression clip | none. The default `pseudo_learner` is a regression Super Learner with `clip=None` | `npcausal` predicts the targets unbounded |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of $\varphi$ can leave $[0, 1]$, or the `q_bounds` range of a continuous outcome |
@@ -1335,18 +1394,18 @@ under refinement.
 
 | where to read the evidence | what is there |
 | --- | --- |
-| [ordinary end-of-study longitudinal TMLE](method-evidence/ordinary-end-of-study-longitudinal-tmle.md) | against R `ltmle` 1.3-0, including a targeted-versus-unfluctuated pair that measures what the paired comparison cannot |
-| [cross-fitted end-of-study longitudinal TMLE](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) | against R `lmtp` 1.5.4 on one exact five-fold assignment, with the mechanism supplied to both, plus held-out recursion checks and independent theory properties |
-| [ordinary weighted end-of-study longitudinal TMLE](method-evidence/ordinary-weighted-end-of-study-longitudinal-tmle.md) | reporting evidence against weighted R `ltmle` on exact-size selected samples, with target-weight and learner-weight controls |
-| [cross-fitted weighted end-of-study longitudinal TMLE](method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | reporting evidence against weighted R `lmtp` on identical five-fold assignments, with a dedicated weighted-learner adapter |
-| [ordinary survival-curve longitudinal TMLE](method-evidence/ordinary-survival-curve-longitudinal-tmle.md) | against R `ltmle` 1.3-0 with `survivalOutcome=TRUE`, across two horizons and with survival-recursion controls |
-| [cross-fitted survival-curve longitudinal TMLE](method-evidence/cross-fitted-survival-curve-longitudinal-tmle.md) | against R `lmtp` 1.5.4 across both horizons on one exact five-fold assignment, with held-out and survivor-only controls |
-| [ordinary categorical longitudinal TMLE](method-evidence/ordinary-categorical-longitudinal-tmle.md) | against R `lmtp` 1.5.4 with exact categorical mechanisms, for three treatment levels at two nodes |
-| [cross-fitted categorical longitudinal TMLE](method-evidence/cross-fitted-categorical-longitudinal-tmle.md) | against R `lmtp` 1.5.4 on the identical five-fold assignment, with a flexible-tree cross-fit control |
-| [ordinary competing-risk longitudinal TMLE](method-evidence/ordinary-competing-risk-longitudinal-tmle.md) | against R `lmtp` 1.5.4 with the other cause in `compete=` and exact mechanisms supplied to both |
-| [cross-fitted competing-risk longitudinal TMLE](method-evidence/cross-fitted-competing-risk-longitudinal-tmle.md) | against R `lmtp` 1.5.4 on the identical five-fold assignment, with a flexible-tree cross-fit pair |
+| [ordinary end-of-study longitudinal TMLE](method-evidence/ordinary-end-of-study-longitudinal-tmle.md) | comparator-backed, against R `ltmle` 1.3-0, including a targeted-versus-unfluctuated pair that measures what the paired comparison cannot |
+| [cross-fitted end-of-study longitudinal TMLE](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) | comparator-backed, against R `lmtp` 1.5.4 on one exact five-fold assignment, with the mechanism supplied to both, plus held-out recursion checks and independent theory properties |
+| [ordinary weighted end-of-study longitudinal TMLE](method-evidence/ordinary-weighted-end-of-study-longitudinal-tmle.md) | comparator-backed reporting evidence against weighted R `ltmle` on exact-size selected samples, with target-weight and learner-weight controls |
+| [cross-fitted weighted end-of-study longitudinal TMLE](method-evidence/cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | comparator-backed reporting evidence against weighted R `lmtp` on identical five-fold assignments, with a dedicated weighted-learner adapter |
+| [ordinary survival-curve longitudinal TMLE](method-evidence/ordinary-survival-curve-longitudinal-tmle.md) | comparator-backed, against R `ltmle` 1.3-0 with `survivalOutcome=TRUE`, across two horizons and with survival-recursion controls |
+| [cross-fitted survival-curve longitudinal TMLE](method-evidence/cross-fitted-survival-curve-longitudinal-tmle.md) | comparator-backed, against R `lmtp` 1.5.4 across both horizons on one exact five-fold assignment, with held-out and survivor-only controls |
+| [ordinary categorical longitudinal TMLE](method-evidence/ordinary-categorical-longitudinal-tmle.md) | comparator-backed, against R `lmtp` 1.5.4 with exact categorical mechanisms, for three treatment levels at two nodes |
+| [cross-fitted categorical longitudinal TMLE](method-evidence/cross-fitted-categorical-longitudinal-tmle.md) | comparator-backed, against R `lmtp` 1.5.4 on the identical five-fold assignment, with a flexible-tree cross-fit control |
+| [ordinary competing-risk longitudinal TMLE](method-evidence/ordinary-competing-risk-longitudinal-tmle.md) | comparator-backed, against R `lmtp` 1.5.4 with the other cause in `compete=` and exact mechanisms supplied to both |
+| [cross-fitted competing-risk longitudinal TMLE](method-evidence/cross-fitted-competing-risk-longitudinal-tmle.md) | comparator-backed, against R `lmtp` 1.5.4 on the identical five-fold assignment, with a flexible-tree cross-fit pair |
 | [longitudinal estimands outside the target registry](evidence.md#longitudinal-estimands-outside-the-target-registry) | the parameter and influence-curve oracle, the mutation witness, and the declared gaps, for each of the five longitudinal variants |
-| [clustered cross-fitted end-of-study longitudinal TMLE](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) | against R `lmtp` 1.5.4 with `ife` 0.2.3 at 100 clusters of 40 rows, on the realized whole-cluster folds, with four cluster-robust pairs and a cluster multiplier band |
+| [clustered cross-fitted end-of-study longitudinal TMLE](method-evidence/clustered-cross-fitted-longitudinal-tmle.md) | comparator-backed, against R `lmtp` 1.5.4 with `ife` 0.2.3 at 100 clusters of 40 rows, on the realized whole-cluster folds, with four cluster-robust pairs and a cluster multiplier band |
 | [cross-fitted clustered longitudinal TMLE at few clusters](method-evidence/few-cluster-cross-fitted-longitudinal-tmle.md) | the $t_{J-2}$ reference at 20 and 30 clusters of equal and unequal sizes, with an IID control |
 | [the implementation validation grid](method-evidence/validation-grid.md) | the twelve registered longitudinal TMLE rows and each row's declared limits |
 

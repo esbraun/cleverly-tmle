@@ -44,16 +44,18 @@ probabilities, so their tilted law is exactly the declared population law.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law sampled with unequal selection probabilities | `ate` | average treatment effect | -1.264e-12 | 3.000e-10 | 1.0000 | 0 | 3.590e-11 vs 0.0500 | equivalent |
-| binary-outcome law sampled with unequal selection probabilities | `ey0` | counterfactual mean under no treatment | 4.439e-14 | 2.025e-11 | 1.0000 | 0 | 1.208e-12 vs 0.0500 | equivalent |
-| binary-outcome law sampled with unequal selection probabilities | `ey1` | counterfactual mean under treatment | -1.220e-12 | 3.363e-10 | 1.0000 | 0 | 3.295e-12 vs 0.0500 | equivalent |
-| binary-outcome law sampled with unequal selection probabilities | `or` | marginal odds ratio, reported on the log scale | -2.211e-11 | 2.507e-10 | 1.0000 | 0.0037 | 0.0200 vs 0.0500 | equivalent |
-| binary-outcome law sampled with unequal selection probabilities | `rr` | marginal risk ratio, reported on the log scale | -6.396e-12 | 1.986e-10 | 1.0000 | 0 | 1.501e-11 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle-r-weighted` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law sampled with unequal selection probabilities | `ate` | average treatment effect | -1.264e-12 | 3.000e-10 | 1.0000 | 0 | matching implementation | 3.590e-11 vs 0.0500 | equivalent |
+| binary-outcome law sampled with unequal selection probabilities | `ey0` | counterfactual mean under no treatment | 4.439e-14 | 2.025e-11 | 1.0000 | 0 | matching implementation | 1.208e-12 vs 0.0500 | equivalent |
+| binary-outcome law sampled with unequal selection probabilities | `ey1` | counterfactual mean under treatment | -1.220e-12 | 3.363e-10 | 1.0000 | 0 | matching implementation | 3.295e-12 vs 0.0500 | equivalent |
+| binary-outcome law sampled with unequal selection probabilities | `or` | marginal odds ratio, reported on the log scale | -2.211e-11 | 2.507e-10 | 1.0000 | 0.0037 | matching implementation | 0.0200 vs 0.0500 | equivalent |
+| binary-outcome law sampled with unequal selection probabilities | `rr` | marginal risk ratio, reported on the log scale | -6.396e-12 | 1.986e-10 | 1.0000 | 0 | matching implementation | 1.501e-11 vs 0.0500 | equivalent |
 <!-- /generated -->
 
-The two implementations return the same point estimate for every parameter. Their standard
+The comparator-backed comparison shows the same point estimate for every parameter. The standard
 errors also agree for `ate`, `ey0`, `ey1` and `rr`, as the calibration-resolution column
 shows. They differ on `or`. The paired verdict stays `equivalent`, because that difference
 is inside the shared calibration margin.

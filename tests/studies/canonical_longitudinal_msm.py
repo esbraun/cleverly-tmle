@@ -59,6 +59,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="ltmle projected regimen fits",
+    comparison="related target",
     modules=(
         "tests/studies/canonical_longitudinal_msm.py",
         "tests/studies/longitudinal_msm_properties.py",

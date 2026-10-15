@@ -44,14 +44,16 @@ the law.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| two-node SMART with known factors, correct outcome regressions | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 1.932e-10 | 4.172e-08 | 1.0000 | 0 | 1.890e-09 vs 0.0500 | equivalent |
-| two-node SMART with known factors, correct outcome regressions | `ey_regimen[always]` | mean outcome under the plan treat at both times | 1.899e-10 | 6.390e-08 | 1.0000 | 0 | 8.035e-09 vs 0.0500 | equivalent |
-| two-node SMART with known factors, correct outcome regressions | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -3.305e-12 | 9.239e-10 | 1.0000 | 0 | 2.146e-10 vs 0.0500 | equivalent |
-| two-node SMART with known factors, outcome regressions without L1 | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 2.441e-10 | 5.203e-08 | 1.0000 | 0 | 9.728e-10 vs 0.0500 | equivalent |
-| two-node SMART with known factors, outcome regressions without L1 | `ey_regimen[always]` | mean outcome under the plan treat at both times | 1.859e-10 | 6.253e-08 | 1.0000 | 0 | 5.748e-09 vs 0.0500 | equivalent |
-| two-node SMART with known factors, outcome regressions without L1 | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -5.819e-11 | 1.596e-08 | 1.0000 | 0 | 4.328e-10 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `ltmle-known-gform` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two-node SMART with known factors, correct outcome regressions | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 1.932e-10 | 4.172e-08 | 1.0000 | 0 | matching implementation | 1.890e-09 vs 0.0500 | equivalent |
+| two-node SMART with known factors, correct outcome regressions | `ey_regimen[always]` | mean outcome under the plan treat at both times | 1.899e-10 | 6.390e-08 | 1.0000 | 0 | matching implementation | 8.035e-09 vs 0.0500 | equivalent |
+| two-node SMART with known factors, correct outcome regressions | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -3.305e-12 | 9.239e-10 | 1.0000 | 0 | matching implementation | 2.146e-10 vs 0.0500 | equivalent |
+| two-node SMART with known factors, outcome regressions without L1 | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 2.441e-10 | 5.203e-08 | 1.0000 | 0 | matching implementation | 9.728e-10 vs 0.0500 | equivalent |
+| two-node SMART with known factors, outcome regressions without L1 | `ey_regimen[always]` | mean outcome under the plan treat at both times | 1.859e-10 | 6.253e-08 | 1.0000 | 0 | matching implementation | 5.748e-09 vs 0.0500 | equivalent |
+| two-node SMART with known factors, outcome regressions without L1 | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -5.819e-11 | 1.596e-08 | 1.0000 | 0 | matching implementation | 4.328e-10 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
