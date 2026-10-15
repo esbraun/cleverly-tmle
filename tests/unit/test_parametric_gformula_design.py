@@ -49,7 +49,7 @@ from tests.studies.evidence import descriptions
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import Margins, registered
 
-gf = importlib.import_module("cleverly.longitudinal.gformula")
+gf: Any = importlib.import_module("cleverly.longitudinal.gformula")
 
 #: The bias tolerance is a quarter of a sampling SD (the shared ``bias_equivalent`` margin).
 BIAS_MARGIN = Margins().standardized_bias
@@ -178,7 +178,7 @@ def test_the_pending_comparator_declares_the_sources_the_manifest_records() -> N
 # ------------------------------------------------------------------- (a) specification
 
 
-def _fit_book(law: str, frame: pd.DataFrame, weights: str | None = None) -> gf.ModelBook:
+def _fit_book(law: str, frame: pd.DataFrame, weights: str | None = None) -> Any:
     """The fitted model book of the study's ``ParametricGFormula`` on ``frame``.
 
     The hook returns zero exact terms, so the call stops after the models are fitted and the
@@ -186,7 +186,7 @@ def _fit_book(law: str, frame: pd.DataFrame, weights: str | None = None) -> gf.M
     """
     store: dict[str, Any] = {}
 
-    def hook(book: gf.ModelBook, plan: Any, cells: Any) -> gf.ExactTerms:
+    def hook(book: Any, plan: Any, cells: Any) -> Any:
         store["book"] = book
         return gf.ExactTerms(
             np.zeros((book.data.n, len(cells))),
@@ -209,11 +209,10 @@ def _fit_book(law: str, frame: pd.DataFrame, weights: str | None = None) -> gf.M
     estimator._exact = hook
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        estimator.fit(
-            frame,
-            **({"weights": weights} if weights else {}),
-            **target.fit_columns(continuous_treatment=law in ("G4", "G4Q")),
-        )
+        columns: dict[str, Any] = target.fit_columns(continuous_treatment=law in ("G4", "G4Q"))
+        if weights:
+            columns["weights"] = weights
+        estimator.fit(frame, **columns)
     return store["book"]
 
 
@@ -229,7 +228,7 @@ def _variable(model: Any) -> str:
     return f"E{parts[1]}"
 
 
-def _original_scale(book: gf.ModelBook, model: Any, coef: np.ndarray) -> np.ndarray:
+def _original_scale(book: Any, model: Any, coef: np.ndarray) -> np.ndarray:
     """The outcome model's coefficients on the outcome's own scale (fitted on ``(Y - a) / r``)."""
     if model.role != "outcome":
         return coef
@@ -238,7 +237,7 @@ def _original_scale(book: gf.ModelBook, model: Any, coef: np.ndarray) -> np.ndar
     return out
 
 
-def _distance(target: laws.Law, book: gf.ModelBook) -> dict[str, float]:
+def _distance(target: laws.Law, book: Any) -> dict[str, float]:
     """The largest gap, per model, between the fitted coefficients and the law's.
 
     A Gaussian model also compares its variance with the law's squared SD.  A coefficient the

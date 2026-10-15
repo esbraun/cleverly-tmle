@@ -55,7 +55,7 @@ verdict is seen.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from functools import cache
 from typing import Any
 
@@ -312,6 +312,16 @@ def fit(
 # ------------------------------------------------------------------------------- truths
 
 
+def _own_covariate(node: int) -> Callable[[Mapping[str, np.ndarray]], np.ndarray]:
+    return lambda table: table[f"L{node}"]
+
+
+def _own_policy(
+    node: int, low: float, slope: float
+) -> Callable[[Mapping[str, np.ndarray]], np.ndarray]:
+    return lambda table: low + slope * table[f"B{node}"]
+
+
 def _node_plans(law: str, label: str) -> dict[int, laws.NodePlan]:
     nodes = range(1, law_of(law).n_times + 1)
     if label in ("treat_all", "treat_all_4"):
@@ -319,12 +329,12 @@ def _node_plans(law: str, label: str) -> dict[int, laws.NodePlan]:
     if label in ("treat_none", "treat_none_4"):
         return {t: laws.Fixed(0.0) for t in nodes}
     if label == "rule":
-        return {t: laws.Rule(lambda table, t=t: table[f"L{t}"]) for t in nodes}
+        return {t: laws.Rule(_own_covariate(t)) for t in nodes}
     if label == "odds x2":
         return {t: laws.Tilt(2.0) for t in nodes}
     if label == "policy_b":
         low, slope = laws.G2_POLICY
-        return {t: laws.Policy(lambda table, t=t: low + slope * table[f"B{t}"]) for t in nodes}
+        return {t: laws.Policy(_own_policy(t, low, slope)) for t in nodes}
     raise KeyError(label)
 
 
@@ -349,12 +359,11 @@ def truths(law: str) -> Mapping[str, float]:
     if law in ("G4", "G4Q"):
         levels = {label: laws.linear_means(target, _linear_plan(label)) for label in regimens(law)}
         out = {f"ey_regimen[{label}]": value for label, value in levels.items()}
-        if REFERENCES[law] is not None:
+        anchor = REFERENCES[law]
+        if anchor is not None:
             for label in levels:
-                if label != REFERENCES[law]:
-                    out[f"ate_regimen[{label} vs {REFERENCES[law]}]"] = (
-                        levels[label] - levels[REFERENCES[law]]
-                    )
+                if label != anchor:
+                    out[f"ate_regimen[{label} vs {anchor}]"] = levels[label] - levels[anchor]
         return out
     chunks = 12 if law == "G2" else 1
     if law == "G3":
@@ -376,11 +385,11 @@ def truths(law: str) -> Mapping[str, float]:
         label: target.g_formula(_node_plans(law, label), chunks=chunks) for label in regimens(law)
     }
     out = {f"ey_regimen[{label}]": value for label, value in levels.items()}
+    anchor = REFERENCES[law]
+    assert anchor is not None
     for label in levels:
-        if label != REFERENCES[law]:
-            out[f"ate_regimen[{label} vs {REFERENCES[law]}]"] = (
-                levels[label] - levels[REFERENCES[law]]
-            )
+        if label != anchor:
+            out[f"ate_regimen[{label} vs {anchor}]"] = levels[label] - levels[anchor]
     return out
 
 

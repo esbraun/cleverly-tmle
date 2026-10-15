@@ -301,11 +301,11 @@ class Law:
                 for i, parent in enumerate(parents):
                     out[j, 1 + i] = v.coef.get(parent, (0.0,) * k)[j]
             return out
-        out = np.zeros(1 + len(parents))
-        out[0] = float(v.intercept)
+        flat = np.zeros(1 + len(parents))
+        flat[0] = float(v.intercept)
         for i, parent in enumerate(parents):
-            out[1 + i] = float(v.coef.get(parent, 0.0))
-        return out
+            flat[1 + i] = float(v.coef.get(parent, 0.0))
+        return flat
 
     def prefix_names(self, name: str) -> tuple[str, ...]:
         """The design columns the estimator's model of ``name`` reads."""
