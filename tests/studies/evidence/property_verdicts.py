@@ -1005,6 +1005,14 @@ SE_CONTROL_SIDES: dict[str, Literal["below", "above"]] = {
 }
 
 
+def _se_control_clause(control: str, side: Literal["below", "above"]) -> str:
+    # The two generic controls keep the short names that clause-bindings.csv binds; a
+    # study-specific control names itself, because a family rule names each clause once.
+    if control in ("shrunken_se_control", "inflated_se_control"):
+        return f"se ratio {side} band"
+    return f"{control.removesuffix('_control').replace('_', ' ')} se ratio {side} band"
+
+
 def se_ratio_leaves_band(
     ratio: Interval, band: tuple[float, float], side: Literal["below", "above"]
 ) -> bool:
@@ -2213,7 +2221,7 @@ def calibration_rule(*, efficiency_band: tuple[float, float] | None) -> pf.Famil
         ),
         *(
             pf.se_interval_clause(
-                f"se ratio {side} band",
+                _se_control_clause(control, side),
                 which="se_ratio",
                 judge=leaves(side),
                 seed=seed,
