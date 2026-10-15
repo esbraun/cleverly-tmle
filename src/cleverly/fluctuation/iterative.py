@@ -407,6 +407,10 @@ class Fluctuation:
         most one.  The outer exits of the alternating engines read it.  A ratio is valid
         only at the pair it was computed at, so an engine that moves the fit after a solve
         restates it.  ``None`` under ``"relative"``.
+    best_iterate : int or None
+        Under ``iterate="best"``, the index of the iterate the fit reports (``0`` is the
+        initial fit, taken only when the walk took no step).  ``n_iter`` and ``trace`` describe
+        the whole walk.  ``None`` under ``iterate="last"``.
 
     Attributes
     ----------

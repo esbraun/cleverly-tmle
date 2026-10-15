@@ -370,8 +370,13 @@ class ScoreCheck:
     def rule_failure_line(self) -> str:
         """The pinned line when the targeting did not meet the rule, else ``""``.
 
-        The detail names each equation that missed its rule and how many times its threshold
-        its largest score is.
+        Returns
+        -------
+        str
+            The line ``RULE_FAILURE_LINE`` of ``cleverly.fluctuation._score``.  Its detail
+            names each equation that missed its rule and how many times its threshold its
+            largest score is.  An empty string means the targeting met the rule, or the fit
+            declared none.
         """
         failures = self.rule_failures
         if not failures:

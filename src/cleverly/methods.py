@@ -266,6 +266,11 @@ class ModelSpec:
     >>> models = ModelSpec(outcome_learner=LinearRegression())
     >>> type(models.outcome_learner).__name__
     'LinearRegression'
+
+    Fit one outcome regression for each treatment arm, as ``drtmle(stratify=TRUE)`` does:
+
+    >>> ModelSpec(outcome_learner=LinearRegression(), outcome_by_arm=True).outcome_by_arm
+    True
     """
 
     outcome_learner: Any = None

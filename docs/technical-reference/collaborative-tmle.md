@@ -102,6 +102,7 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 | `oat_design=` | the design of `strategy="oat"`. `"per_arm"` (the default) fits one binary mechanism per arm on that arm's own prediction. `"shared"` fits the one categorical mechanism of the archived `ctmle3`. See [the per-arm outcome-adaptive design](#the-per-arm-outcome-adaptive-design) |
 | `candidates=`, `ordering=` | supply the candidate sets or the preorder explicitly. A refit that adds a covariate, such as the `random_common_cause` refutation, places it after the declared ordering. Independent noise has no prior relevance, so it ranks last |
 | `selection_folds=` | folds for the stopping-index cross-validation. Default 5. The draw is unstratified, and it reads the row count and the seed |
+| `patience=` | stop the cross-validated scoring of the candidate path after `patience` candidates that score worse than the best so far. `None`, the default, reads the whole path. See [patience](#patience) |
 | `selection_inner_folds=` | the explicit cost control. Default 2, so a selection path uses three fits per nuisance or candidate rather than silently borrowing the outer nuisance fold count. This draw is unstratified as well |
 | `loss=`, `penalty=` | the selection loss, and whether the variance-plus-squared-mean penalty is applied |
 | `selection_estimand=` | which parameter vector the selection optimizes |
@@ -155,6 +156,104 @@ This fixed-weight surface claims no numerical parity with either implementation.
 **`CTMLE` on an `incremental=` fit is wrong by construction**, not a gap. Each candidate mechanism
 defines a different estimand, so the search would select between estimands rather than between
 estimators.
+
+### Patience
+
+`patience=p` is the `patience` argument of R `ctmleDiscrete`. It applies to every strategy that
+selects a path position by cross-validated risk: `"greedy"`, `"ordered"`, `"discrete"`, `"lasso"`
+and `"learners"`. With the default `None`, the fit builds every fold's whole path first, as before.
+
+The fit scores each position `k` by the summed held-out loss plus the penalty from the pooled
+influence. The counter then reads the risk of `k`.
+
+| step | rule |
+| --- | --- |
+| pointer | the smallest risk seen so far |
+| a risk above the pointer | the count rises by one. The search stops when the count reaches `p` |
+| a risk at or below the pointer | the pointer takes that risk, and the count returns to zero. A tie resets |
+| a risk that is not finite | counts as worse |
+| selection | the position of the smallest scored risk, the first of ties |
+
+The count is not a run length. A worse risk after a reset adds one, and a later worse risk adds
+another. This matches the counter in `functions_discrete.R` of R `ctmle`.
+
+The path is lazy under `patience`. The fit builds each fold's path one position at a time, in step
+over the folds. So the stop is a function of the summed fold risk. No position after the stop is
+fitted or scored, and one stop position applies to the full-sample path too. Every stored array
+ends at the stop. `CTMLESelection.patience` records the setting. `CTMLESelection.stopped_at`
+records the index where the counter fired. The summary prints one line that states which case
+occurred.
+
+Two differences from R are declared.
+
+| id | R `ctmle` | `cleverly` |
+| --- | --- | --- |
+| D7 | takes the last tied minimum of the scored risks | takes the first tied minimum |
+| D7b | scores the rest of its batch after the counter fires | stops at the counter |
+
+With `preOrder = TRUE` a batch holds one covariate, so neither difference shows in the R fixture
+`ctmle_patience.json`. That fixture is pending: exact tests, with comparator runs pending.
+
+The inference status does not change. A fit with `patience=` keeps `working_mechanism_plugin`.
+
+| check | what `tests/unit/test_patience.py` asserts |
+| --- | --- |
+| the counter | it equals a transcription of the R loop on nine risk sequences, ties and non-finite risks included, for four values of `p` |
+| the lazy path | it equals the eager path at every position when `p` exceeds the path, for every strategy |
+| the witness | a law whose global minimum lies past the stop changes `selected` and the estimate |
+| mutation controls | `>=` for `>`, and no reset on a tie. Each fails the counter test |
+| refusals | R-g1 refuses a malformed `patience`. R-g2 refuses a strategy that scores no path |
+
+### Treatment-mechanism covariates and the candidate pool
+
+A design with `PointTreatment(treatment_adjustment=...)` fixes the candidate pool of every
+selector strategy to the declared subset $W_g$. The outcome regression keeps the full set.
+
+| part of the search | reads |
+| --- | --- |
+| the pool of `"greedy"` | $W_g$ |
+| the preorders of `"ordered"`, both `"logistic"` and `"partial_correlation"` | $W_g$. An explicit `ordering=` or `candidates=` must lie inside $W_g$ (R-h5) |
+| the candidates of `"discrete"` | $W_g$ |
+| the design and default penalty grid of `"lasso"`, and the learners of `"learners"` | $W_g$ |
+| `strategy="derivative"` | the mechanism and its partner read $W_g$ |
+| `strategy="oat"` | refused (R-h2). The mechanism is fitted on the outcome predictions, so it has no covariates to restrict |
+| the outcome regression, the missingness mechanisms | the full set |
+
+`CTMLESelection.covariates` is the pool. `CTMLESelection.restricted_pool` is set only when the
+design declares a subset, and the summary then prints "collaborative candidate pool: {Wg}".
+
+A fit that selects nothing takes the status of the ordinary TMLE. These are a `"discrete"` fit with
+one candidate equal to the pool and a `"learners"` fit with an empty declared list. The test
+`declares_no_selection` compares the candidate with $W_g$, and not with the full adjustment set.
+Such a fit prints the restriction text of the design and claims its interval under that
+restriction. Every other collaborative fit prints the same text and keeps
+`working_mechanism_plugin`.
+
+[Treatment-mechanism covariates](point-treatment-tmle.md#treatment-mechanism-covariates) gives the
+text, the remainder when the restriction fails, and the exact-law witnesses.
+`tests/unit/test_treatment_covariates_collaborative.py` checks the pool in three ways.
+
+| strategy | check |
+| --- | --- |
+| greedy, ordered, discrete | a spy learner sees $W_g$ only |
+| lasso, learners | the propensity of the $W_g$ fit equals that of a fit that omits the other covariates, to $10^{-12}$. A control shows that the full set moves it |
+| every strategy | a mutation control fails when the pool, the preorder, the lasso design or the learners names read the full set |
+
+The R fixture `ctmle_wg.json` is pending: exact tests, with comparator runs pending.
+
+### The X22 targeting options on a collaborative fit
+
+`CTMLE` inherits `stopping=`, `step_bound=`, `step_search=`, `iterate=` and `outcome_by_arm=` from
+`TMLE`.
+
+| item | rule |
+| --- | --- |
+| a candidate solve | it gets the stop context of its training rows, so $n_u$ counts the units of those rows |
+| `outcome_by_arm=True` | it applies at the selection base and at the honest base of `oat` |
+| `strategy="derivative"` | it passes the stop context to its update and reads $W_g$. It raises when a step bound stops short of the derivative equation |
+
+`tests/unit/test_x22_derivative_strategy.py` covers these cases. It has mutation controls for the
+stop context and the $W_g$ design.
 
 ## Candidate sequences
 
