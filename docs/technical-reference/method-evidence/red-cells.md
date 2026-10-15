@@ -96,7 +96,6 @@ The test fails on four states.
 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE with baseline strata |
 | [`X16-plugin-variance`](../../roadmap.md#red-cell-owners) | 1 | C-TMLE candidate sequences |
 | [`F1-power-design`](../../roadmap.md#red-cell-owners) | 1 | ordinary known stochastic categorical longitudinal TMLE |
-| [`X30-derivative-reading`](../../roadmap.md#red-cell-owners) | 1 | C-TMLE0 derivative covariate |
 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) | 1 | longitudinal modified treatment policies |
 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) | 1 | ordinary point modified treatment policies |
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
@@ -295,6 +294,7 @@ row. A move to `gated` is a separate registry decision.
 | --- | --- | --- |
 | [cross-fitted clustered longitudinal TMLE on a t reference at few clusters](few-cluster-cross-fitted-longitudinal-tmle.md) | 13 | 0 |
 | [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 31 | 0 |
+| [C-TMLE0 derivative covariate](ctmle-derivative.md) | 24 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
