@@ -1509,6 +1509,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "omits a confounder",
         "bias interval inside the equivalence margin, with the reported standard error "
         "on the scale of the empirical spread",
+    ),
     ("double_robustness", "both_wrong_lasso"): (
         "the lasso sequence with a constant outcome regression, so both nuisances are misspecified",
         "bias interval must fall entirely outside the margin",
