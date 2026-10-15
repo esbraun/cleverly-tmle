@@ -50,8 +50,14 @@ OFFER_LEVELS = ("none", "discount", "shipping")
 OFFER_WEEKS = 3
 
 #: The logged probabilities of ``(none, discount, shipping)``, by the engagement of that week.
-#: The smallest is 0.25, so the cumulative product over three weeks is at least 0.0156, above the
-#: default ``g_bounds`` lower bound of 0.01.
+#: The smallest is 0.25, so the product of the three offer probabilities is at least
+#: 0.25 ** 3 = 0.015625, above the default ``g_bounds`` lower bound of 0.01.  The cumulative
+#: probability of following a plan and staying consenting also holds the consent probabilities
+#: ``expit(2.6 + 0.8 * engaged + 0.3 * tenure)``, which fall with tenure, so that product has no
+#: fixed lower bound.  It falls below 0.01 for a customer who is not engaged in any week, receives
+#: free shipping each week (probability 0.25 for a customer who is not engaged), and has tenure
+#: below -2.566, where the three consent probabilities multiply to 0.64.  About 0.5% of customers
+#: have that tenure, and the bound then caps the weight at 100.
 _LOGGED = {
     1: (0.40, 0.25, 0.35),
     0: (0.30, 0.45, 0.25),

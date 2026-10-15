@@ -1,14 +1,16 @@
 """Seed sweep of the fits that docs/examples/sequential-offers.ipynb shows.
 
 Each seed ``s`` draws ``make_sequential_offers(20_000, seed=s)`` and runs the notebook's code: the
-declared-mechanism cross-fitted LTMLE, SDR, g-computation and IPW fits; the three paired
-comparisons; the synthetic deployment check with a pilot drawn at seed ``s + 100_000``; the
-stagewise support; the "logs unavailable" fit with its truncation curve; and the benchmark that
+in-sample LTMLE of the four contrasts with the declared offer mechanism; the crude follower
+contrasts of the association step; the blind-outcome comparison (LTMLE and g-computation with
+outcome regressions that read no history); the three paired comparisons; the synthetic deployment
+check with a pilot drawn at seed ``s + 100_000``; the stagewise support; and the benchmark that
 drops engagement from the history of the static plans. Truths come from ``offers_truth()``.
 
 Usage: ``python sweep.py <first seed> <count> <workers>``. The page cites
 ``python sweep.py 1000 100 3``. The notebook draws seed 1000, the first of that range, by a
-rule fixed before the page ran with it, so its fits are the first row of ``sweep.csv``. Outputs: ``sweep.csv`` (one row per seed) and ``sweep.log``.
+rule fixed before the page ran with it, so its fits are the first row of ``sweep.csv``. Outputs:
+``sweep.csv`` (one row per seed) and ``sweep.log``.
 Every worker is single-threaded (``OMP_NUM_THREADS=1``, ``n_jobs=1``).
 """
 
@@ -33,22 +35,22 @@ STATIC = ("none", "discount", "shipping")
 def one_seed(seed: int) -> dict:
     warnings.filterwarnings("ignore")
     import numpy as np
+    from sklearn.dummy import DummyClassifier, DummyRegressor
     from sklearn.linear_model import LinearRegression, LogisticRegression
 
     from cleverly import (
         CausalStudy,
         CrossFitting,
         GComputationMethod,
-        IPWMethod,
         LongPanel,
         ModelSpec,
         RegimeContrast,
         RegimeMean,
         Runtime,
-        SDRMethod,
         TMLEMethod,
     )
     from cleverly.datasets import (
+        OFFER_PLANS,
         OFFER_WEEKS,
         make_sequential_offers,
         offers_protocol,
@@ -56,7 +58,6 @@ def one_seed(seed: int) -> dict:
         win_back,
         win_back_then_ship,
     )
-    from cleverly.learners import GLM
     from cleverly.longitudinal import DynamicRegimen, each_node
 
     truth = offers_truth()
@@ -64,7 +65,7 @@ def one_seed(seed: int) -> dict:
     protocol = offers_protocol()
     logged = {"none": "p_none", "discount": "p_discount", "shipping": "p_shipping"}
 
-    def design(*, declared=True, time_varying=("engaged",)):
+    def design(*, time_varying=("engaged",)):
         return LongPanel(
             unit="customer",
             time="week",
@@ -73,7 +74,7 @@ def one_seed(seed: int) -> dict:
             time_varying=list(time_varying),
             censoring="consent",
             outcome="full_price",
-            treatment_probabilities=logged if declared else None,
+            treatment_probabilities=logged,
         )
 
     def rule(label, offer_for):
@@ -97,39 +98,56 @@ def one_seed(seed: int) -> dict:
             pseudo_learner=LinearRegression(),
             censoring_learner=logistic,
         ),
-        cross_fitting=CrossFitting(n_folds=2),
+        cross_fitting=CrossFitting(enabled=False),
         runtime=Runtime(random_state=42, n_jobs=1),
     )
     study = CausalStudy(panel, design=design(), protocol=protocol)
     effect = study.identify(RegimeContrast(plans, reference="none"))
-    fits = {
-        "ltmle": effect.estimate(method=ltmle),
-        "sdr": effect.estimate(
-            method=SDRMethod(
-                models=ltmle.models, cross_fitting=ltmle.cross_fitting, runtime=ltmle.runtime
-            )
-        ),
-        "gcomp": effect.estimate(
-            method=GComputationMethod(
-                models=ModelSpec(
-                    outcome_learner=GLM(), pseudo_learner=GLM(), censoring_learner=GLM()
-                ),
-                runtime=ltmle.runtime,
-            )
-        ),
-        "ipw": effect.estimate(
-            method=IPWMethod(models=ModelSpec(censoring_learner=GLM()), runtime=ltmle.runtime)
-        ),
-    }
+    result = effect.estimate(method=ltmle)
     row: dict = {"seed": seed}
-    for name, fit in fits.items():
-        for contrast in CONTRASTS:
-            estimate = fit[f"ate_regimen[{contrast} vs none]"]
-            row[f"{name}_{contrast}_psi"] = estimate.psi
-            row[f"{name}_{contrast}_se"] = estimate.std_error
-            row[f"{name}_{contrast}_lo"] = estimate.ci[0]
-            row[f"{name}_{contrast}_hi"] = estimate.ci[1]
-    result = fits["ltmle"]
+    for contrast in CONTRASTS:
+        estimate = result[f"ate_regimen[{contrast} vs none]"]
+        row[f"ltmle_{contrast}_psi"] = estimate.psi
+        row[f"ltmle_{contrast}_se"] = estimate.std_error
+        row[f"ltmle_{contrast}_lo"], row[f"ltmle_{contrast}_hi"] = estimate.ci
+
+    # The association step: the crude contrasts of the customers who followed each plan in all
+    # three weeks and still consented after week 3.
+    wide = panel.pivot(index="customer", columns="week")
+    kept = wide[wide[("consent", OFFER_WEEKS)] == 1]
+    engaged_first = kept[("engaged", 1)].astype(int).to_numpy()
+    row["kept_engaged_week1_share"] = float(engaged_first.mean())
+    crude = {}
+    for name, plan_rule in OFFER_PLANS.items():
+        followed = np.ones(len(kept), dtype=bool)
+        for week in range(1, OFFER_WEEKS + 1):
+            engaged = kept[("engaged", week)].astype(int).to_numpy()
+            followed &= kept[("offer", week)].to_numpy() == np.asarray(
+                plan_rule(engaged), dtype=object
+            )
+        crude[name] = float(kept[("full_price", 1)][followed].mean())
+        row[f"crude_{name}_followers"] = int(followed.sum())
+        row[f"crude_{name}_engaged_week1_share"] = float(engaged_first[followed].mean())
+    for contrast in CONTRASTS:
+        row[f"crude_{contrast}_psi"] = crude[contrast] - crude["none"]
+
+    # The blind-outcome comparison: outcome regressions that read no history.
+    blind = ModelSpec(
+        outcome_learner=DummyClassifier(strategy="prior"),
+        pseudo_learner=DummyRegressor(),
+        censoring_learner=logistic,
+    )
+    blind_ltmle = effect.estimate(
+        method=TMLEMethod(models=blind, cross_fitting=ltmle.cross_fitting, runtime=ltmle.runtime)
+    )
+    blind_gcomp = effect.estimate(method=GComputationMethod(models=blind, runtime=ltmle.runtime))
+    for contrast in CONTRASTS:
+        key = f"ate_regimen[{contrast} vs none]"
+        row[f"blind_{contrast}_psi"] = blind_ltmle[key].psi
+        row[f"blind_{contrast}_se"] = blind_ltmle[key].std_error
+        row[f"blind_{contrast}_lo"], row[f"blind_{contrast}_hi"] = blind_ltmle[key].ci
+        row[f"blindg_{contrast}_psi"] = blind_gcomp[key].psi
+
     for better, other in PAIRS:
         keys = [f"ate_regimen[{better} vs none]", f"ate_regimen[{other} vs none]"]
         paired = result.contrast(lambda values: values[0] - values[1], keys)
@@ -153,34 +171,9 @@ def one_seed(seed: int) -> dict:
     row["min_followed"] = int(support["n_followed"].min())
     row["max_weight"] = float(support["max_weight"].max())
     row["max_truncated"] = float(support["share_truncated"].max())
-    followed = support[support["time"] == OFFER_WEEKS].set_index("regimen")["n_followed"]
+    followed_at_end = support[support["time"] == OFFER_WEEKS].set_index("regimen")["n_followed"]
     for name in plans:
-        row[f"followed_{name}"] = int(followed[name])
-
-    logs_missing = CausalStudy(panel, design=design(declared=False), protocol=protocol)
-    estimated = TMLEMethod(
-        models=ModelSpec(
-            outcome_learner=logistic,
-            pseudo_learner=LinearRegression(),
-            treatment_learner=LogisticRegression(max_iter=1000, random_state=42),
-            censoring_learner=logistic,
-        ),
-        cross_fitting=ltmle.cross_fitting,
-        runtime=ltmle.runtime,
-    )
-    no_logs = logs_missing.identify(RegimeContrast(plans, reference="none")).estimate(
-        method=estimated
-    )
-    curve = no_logs.diagnostics.truncation_curve(bounds=[0.01, 0.02, 0.05, 0.10])
-    for contrast in CONTRASTS:
-        key = f"ate_regimen[{contrast} vs none]"
-        row[f"nologs_{contrast}_psi"] = no_logs[key].psi
-        row[f"nologs_{contrast}_se"] = no_logs[key].std_error
-        row[f"nologs_{contrast}_lo"], row[f"nologs_{contrast}_hi"] = no_logs[key].ci
-        part = curve[curve["estimand"] == key].set_index("lower_bound")
-        for bound in (0.02, 0.05, 0.10):
-            row[f"trunc_{contrast}_{bound}"] = float(part.loc[bound, "delta_from_fitted"])
-            row[f"cells_{contrast}_{bound}"] = int(part.loc[bound, "truncated_score_cells"])
+        row[f"followed_{name}"] = int(followed_at_end[name])
 
     static = {name: plans[name] for name in STATIC}
     full = study.identify(RegimeContrast(static, reference="none")).estimate(method=ltmle)
