@@ -16,7 +16,7 @@ a function is a declaration with three states:
 
 The declaration is a three-state ``Literal`` and not a bool, because an undeclared function
 has to refuse and a bool default would declare it silently. :class:`FunctionDeclaration`
-holds the check and the texts of the refusals for one field, so each user refuses the same way.
+holds the check and the records of the refusals for one field, so each user refuses the same way.
 The MSM projection weight is the first user. The stochastic regime
 density is the second, and the MSM design is the third.
 Two further users follow: the rule declaration that :class:`~cleverly.interventions.Rule` and
@@ -37,7 +37,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
-from .exceptions import CapabilityError, DataError
+from .exceptions import CapabilityError, DataError, Refusal
 
 __all__ = ["FunctionDeclaration", "FunctionKind", "declarations_pass"]
 
@@ -60,16 +60,16 @@ class FunctionDeclaration:
     meaning : str
         The sentence that the refusal of an unknown value appends. It says what the field
         declares.
-    undeclared : str
-        The text of the :class:`~cleverly.exceptions.CapabilityError` for ``None``.
-    estimated : str
-        The text of the :class:`~cleverly.exceptions.CapabilityError` for ``"estimated"``.
+    undeclared : Refusal
+        The record of the :class:`~cleverly.exceptions.CapabilityError` for ``None``.
+    estimated : Refusal
+        The record of the :class:`~cleverly.exceptions.CapabilityError` for ``"estimated"``.
     """
 
     field: str
     meaning: str
-    undeclared: str
-    estimated: str
+    undeclared: Refusal
+    estimated: Refusal
 
     def check(self, kind: object) -> None:
         """Raise unless ``kind`` is ``"known"``, ``"estimated"``, or ``None``.
@@ -111,14 +111,14 @@ class FunctionDeclaration:
         DataError
             If ``kind`` is not one of the three states, from :meth:`check`.
         CapabilityError
-            If ``kind`` is ``None``, with the ``undeclared`` text, or ``"estimated"``, with
-            the ``estimated`` text.
+            If ``kind`` is ``None``, with the ``undeclared`` record, or ``"estimated"``, with
+            the ``estimated`` record.
         """
         self.check(kind)
         if kind is None:
-            raise CapabilityError(self.undeclared)
+            raise CapabilityError.from_refusal(self.undeclared)
         if kind == "estimated":
-            raise CapabilityError(self.estimated)
+            raise CapabilityError.from_refusal(self.estimated)
 
 
 def declarations_pass(refuse: Callable[[], None]) -> bool:

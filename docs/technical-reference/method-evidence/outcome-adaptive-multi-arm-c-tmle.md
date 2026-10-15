@@ -50,17 +50,19 @@ outcome scaler is already the identity.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| three-arm binary-outcome law, outcome-adaptive selector | `ate[low vs high]` | difference in counterfactual means, low versus high | -0.000020 | 0.0043 | 1.0031 | 0 | 0.000452 vs 0.0500 | equivalent |
-| three-arm binary-outcome law, outcome-adaptive selector | `ate[medium vs high]` | difference in counterfactual means, medium versus high | -0.000056 | 0.0125 | 1.0005 | 0 | 0.000446 vs 0.0500 | equivalent |
-| three-arm binary-outcome law, outcome-adaptive selector | `ey[high]` | counterfactual mean under treatment arm 'high' | 0.000025 | 0.0080 | 1.0010 | -0.0013 | 0.000390 vs 0.0500 | equivalent |
-| three-arm binary-outcome law, outcome-adaptive selector | `ey[low]` | counterfactual mean under treatment arm 'low' | 0.000006 | 0.0017 | 1.0025 | 0 | 0.000227 vs 0.0500 | equivalent |
-| three-arm binary-outcome law, outcome-adaptive selector | `ey[medium]` | counterfactual mean under treatment arm 'medium' | -0.000030 | 0.0094 | 1.0010 | -0.0037 | 0.000366 vs 0.0500 | equivalent |
-| three-arm binary-outcome law, outcome-adaptive selector | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | -0.000074 | 0.0023 | 1.0030 | 0 | 0.000454 vs 0.0500 | equivalent |
-| three-arm binary-outcome law, outcome-adaptive selector | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | -0.000709 | 0.0124 | 1.0002 | 0 | 0.000438 vs 0.0500 | equivalent |
-| three-arm binary-outcome law, outcome-adaptive selector | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | -0.000063 | 0.0045 | 1.0027 | 0 | 0.000477 vs 0.0500 | equivalent |
-| three-arm binary-outcome law, outcome-adaptive selector | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | -0.000186 | 0.0117 | 1.0004 | 0 | 0.000456 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `ctmle3-multi-arm-oat` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| three-arm binary-outcome law, outcome-adaptive selector | `ate[low vs high]` | difference in counterfactual means, low versus high | -0.000020 | 0.0043 | 1.0031 | 0 | matching implementation | 0.000452 vs 0.0500 | equivalent |
+| three-arm binary-outcome law, outcome-adaptive selector | `ate[medium vs high]` | difference in counterfactual means, medium versus high | -0.000056 | 0.0125 | 1.0005 | 0 | matching implementation | 0.000446 vs 0.0500 | equivalent |
+| three-arm binary-outcome law, outcome-adaptive selector | `ey[high]` | counterfactual mean under treatment arm 'high' | 0.000025 | 0.0080 | 1.0010 | -0.0013 | matching implementation | 0.000390 vs 0.0500 | equivalent |
+| three-arm binary-outcome law, outcome-adaptive selector | `ey[low]` | counterfactual mean under treatment arm 'low' | 0.000006 | 0.0017 | 1.0025 | 0 | matching implementation | 0.000227 vs 0.0500 | equivalent |
+| three-arm binary-outcome law, outcome-adaptive selector | `ey[medium]` | counterfactual mean under treatment arm 'medium' | -0.000030 | 0.0094 | 1.0010 | -0.0037 | matching implementation | 0.000366 vs 0.0500 | equivalent |
+| three-arm binary-outcome law, outcome-adaptive selector | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | -0.000074 | 0.0023 | 1.0030 | 0 | matching implementation | 0.000454 vs 0.0500 | equivalent |
+| three-arm binary-outcome law, outcome-adaptive selector | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | -0.000709 | 0.0124 | 1.0002 | 0 | matching implementation | 0.000438 vs 0.0500 | equivalent |
+| three-arm binary-outcome law, outcome-adaptive selector | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | -0.000063 | 0.0045 | 1.0027 | 0 | matching implementation | 0.000477 vs 0.0500 | equivalent |
+| three-arm binary-outcome law, outcome-adaptive selector | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | -0.000186 | 0.0117 | 1.0004 | 0 | matching implementation | 0.000456 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

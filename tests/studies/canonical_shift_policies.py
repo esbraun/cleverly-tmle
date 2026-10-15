@@ -143,6 +143,7 @@ STUDY = StudyRecord(
     publication_policy="reporting",
     implementation="cleverly",
     reference="lmtp",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_shift_policies.py",
         "tests/studies/shift_policy_properties.py",

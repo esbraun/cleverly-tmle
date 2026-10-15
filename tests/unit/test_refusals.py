@@ -1,23 +1,17 @@
-r"""The refusals, their taxonomy, and the fact that all three still agree.
+r"""The refusals, their reason codes, and the fact that the source and the ledger agree.
 
-``docs/technical-reference/scope-and-refusals.md``'s *How to read a refusal* is one of the
-most load-bearing pages in the documentation set, because it tells a reader **where the
-problem is** -- in this package, in the question, or in the method -- and therefore what
-to do about it.  It is
-also, until this module, three tables of prose that nothing checked.  A refusal can be
-reworded, lifted, or quietly start working, and those tables would go on saying otherwise
-in a register that reads as authoritative.
+Every refusal carries a reason code, a :class:`~cleverly.exceptions.RefusalReason`, because the
+code tells a reader **where the problem is** and therefore what to do about it: ask for the
+feature, re-ask the question, or reconsider the declaration. The message and the code are one
+record, ``error.refusal``. This module holds a ledger of *which refusal has which code*, reads
+the message out of the live source table, and checks the code on the error a user receives.
 
-Three artefacts have to agree and each can move without the others:
+So this module does not restate the messages, because restating them is how a copy drifts. It
+checks three things:
 
-* the **message** raised in ``src``, which is what a user actually reads;
-* the **kind** it is filed under, which is what tells them whether to ask for the feature,
-  re-ask their question, or reconsider their analysis;
-* the **section** in ``docs/technical-reference/scope-and-refusals.md`` that defines that kind.
-
-So this module does not restate the messages -- restating them is how a copy drifts.  It
-holds a ledger of *which refusal is which kind*, reads the message out of the live source
-table, and checks the kinds against the headings the documentation really defines.
+* the **code** on the raised error is the one the ledger records;
+* every **kind** the ledger uses is a value of :class:`~cleverly.exceptions.RefusalReason`;
+* the **set** of refusals and the set of rows are the same set.
 
 **The bidirectional half is exact**, and it is exact because ``src`` carries a
 machine-readable registry to check against:
@@ -25,77 +19,36 @@ machine-readable registry to check against:
 not a ``raise`` site.  Every key there needs a row here and every row naming a keyword needs
 a live key, so lifting a refusal without reclassifying it fails, and classifying one that no
 longer exists fails too.  Refusals raised inline elsewhere are covered by the 200-odd
-``pytest.raises`` tests already in this suite; what none of those pin is the taxonomy, which
-is what this is for.
+``pytest.raises`` tests already in this suite.
 
-**Verified by mutation**: deleting the ``eliminate`` row turned the forward direction red;
-adding a row for ``n_folds``, which ``LTMLE`` accepts, turned the reverse red *and* the
-source-string check with it; and renaming the *Wrong by construction* heading turned
-:func:`test_every_kind_is_one_the_documentation_defines` red.
-
-**What no mutation here catches is a row filed under the wrong kind** -- moving
-``cross_fit`` from a redirection to *wrong by construction* leaves every test green, since
-both are things a row is allowed to be.  That is not an oversight to fix later: which of
-the three a refusal *is* is a judgement about where the problem lies, and there is nothing
-in the code to check it against.  What this module can do, and does, is make sure the kind
-is one the documentation defines, that the message the user reads is the one ``src`` holds,
-and that the set of refusals and the set of rows are the same set.  The judgement itself
-stays a review question, and saying so is better than a check that appears to make it one.
+**What no mutation here catches is a row filed under the wrong code**: moving ``cross_fit``
+from a redirection to a different estimand leaves the source-string checks green, since both
+are things a row is allowed to be. The code follows
+``docs/technical-reference/scope-and-refusals.md``, and which code a refusal has is a judgement
+about where the problem lies. This module makes sure the raised error carries the code the
+ledger states, and that the ledger and the source hold the same keywords.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import re
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
 from cleverly.datasets import make_longitudinal
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.longitudinal import LTMLE
 from cleverly.longitudinal.estimator import _REFUSED
 from tests.unit.test_pooled_longitudinal_targeting import _linear_settings
 from tests.unit.test_sequential_design import multivalue_panel
 
-ROOT = Path(__file__).resolve().parents[2]
-REFUSALS = ROOT / "docs" / "technical-reference" / "scope-and-refusals.md"
-
-#: The kind for a keyword that is accepted and rejected only because it is declared
-#: somewhere *else* -- ``weights=`` is a column of the data, a survival outcome is the shape
-#: of ``outcome=``.  ``docs/technical-reference/scope-and-refusals.md`` names three kinds
-#: and this is not one of them, deliberately: it is not a refusal at all but a
-#: redirection, and filing it under one of the three would tell a reader the feature is
-#: missing when it is one argument away.  It is
-#: named here rather than added to the page because the page is about what a refusal *means*,
-#: and a redirection means nothing except "you are holding it wrong".
-REDIRECTION = "declared elsewhere"
-
-
-def documented_kinds() -> set[str]:
-    """The kinds the scope-and-refusals page defines, read off its taxonomy table.
-
-    Read rather than written down for the usual reason: a heading renamed in the document
-    and copied here by hand would leave the two agreeing about a word and disagreeing about
-    which section it points at.  The taxonomy table's first column is a link per kind, so
-    the link text *is* the kind and the anchor is checkable.
-    """
-    text = REFUSALS.read_text(encoding="utf-8")
-    section = text.split("## How to read a refusal", 1)
-    assert len(section) == 2, (
-        "docs/technical-reference/scope-and-refusals.md has no 'How to read a refusal' section"
-    )
-    kinds = {
-        label.strip().lower(): anchor
-        for label, anchor in re.findall(r"\|\s*\[([^\]]+)\]\(#([\w-]+)\)", section[1][:2000])
-    }
-    assert kinds, "the taxonomy table names no kinds"
-    for label, anchor in kinds.items():
-        assert f"\n### {label.title().replace(' A ', ' a ')}" in text or any(
-            heading.strip().lower() == label for heading in re.findall(r"\n### (.+)", text)
-        ), f"the taxonomy links to #{anchor} but no '### {label}' heading exists"
-    return set(kinds)
+#: The code of a keyword that is accepted and rejected only because it is declared somewhere
+#: *else*: ``weights=`` is a column of the data, a survival outcome is the shape of
+#: ``outcome=``. It is not a missing feature but a redirection, and the message has to name the
+#: route.
+REDIRECTION = RefusalReason.API_REDIRECTION.value
 
 
 @dataclasses.dataclass(frozen=True)
@@ -105,12 +58,13 @@ class Row:
     #: The keyword, as the user writes it.  For a longitudinal row this is a key of
     #: ``_REFUSED``, which is what makes the coverage check exact.
     keyword: str
+    #: The expected :class:`~cleverly.exceptions.RefusalReason` value of the raised error.
     kind: str
     #: What triggers it.  Kept as a callable rather than as a settings dict so a row for a
     #: refusal that is not a keyword of ``LTMLE`` can join the ledger unchanged.
     call: Any
     #: The exception the user sees.
-    error: type[BaseException] = TypeError
+    error: type[BaseException] = CapabilityError
     #: For a redirection, the thing that *does* work -- checked to be mentioned in the
     #: message, so a redirection cannot point nowhere.
     instead: str | None = None
@@ -148,7 +102,12 @@ LEDGER: tuple[Row, ...] = (
     Row("msm", REDIRECTION, lambda: _ltmle_fit(msm=1), instead="MSM"),
     Row("event", REDIRECTION, lambda: _ltmle(event=1), instead="outcome"),
     Row("competing", REDIRECTION, lambda: _ltmle(competing=1), instead="outcome"),
-    Row("intermediate", "a different question", lambda: _ltmle(intermediate=1)),
+    Row(
+        "intermediate",
+        RefusalReason.DIFFERENT_ESTIMAND.value,
+        lambda: _ltmle(intermediate=1),
+        instead="TMLE",
+    ),
     Row(
         "interventions",
         REDIRECTION,
@@ -156,9 +115,14 @@ LEDGER: tuple[Row, ...] = (
         instead="regimens=",
     ),
     Row("policies", REDIRECTION, lambda: _ltmle(policies=1), instead="regimens="),
-    Row("incremental", "not written yet", lambda: _ltmle(incremental=1)),
-    Row("delta", "wrong by construction", lambda: _ltmle(delta=1)),
-    Row("eliminate", "a different question", lambda: _ltmle(eliminate=1)),
+    Row("incremental", REDIRECTION, lambda: _ltmle(incremental=1), instead="IPSI"),
+    Row("delta", REDIRECTION, lambda: _ltmle(delta=1), instead="censoring"),
+    Row(
+        "eliminate",
+        RefusalReason.DIFFERENT_ESTIMAND.value,
+        lambda: _ltmle(eliminate=1),
+        instead="cause-specific",
+    ),
     Row("cross_fit", REDIRECTION, lambda: _ltmle(cross_fit=1), instead="n_folds"),
 )
 
@@ -188,14 +152,12 @@ def test_every_row_names_a_live_keyword() -> None:
     )
 
 
-def test_every_kind_is_one_the_documentation_defines() -> None:
-    documented = documented_kinds()
-    allowed = documented | {REDIRECTION}
+def test_every_kind_is_a_refusal_reason() -> None:
+    allowed = {reason.value for reason in RefusalReason}
     wrong = sorted({row.kind for row in LEDGER} - allowed)
     assert wrong == [], (
-        f"rows filed under kinds scope-and-refusals.md does not define: {wrong}; it defines "
-        f"{sorted(documented)}, and this module adds {REDIRECTION!r} for a keyword that is "
-        f"not refused at all but declared elsewhere"
+        f"rows filed under kinds that are not a RefusalReason value: {wrong}; "
+        f"the values are {sorted(allowed)}"
     )
 
 
@@ -209,12 +171,21 @@ def test_every_row_raises_the_reason_the_source_states(row: Row) -> None:
     with pytest.raises(row.error) as raised:
         row.call()
     message = str(raised.value)
-    reason = _REFUSED[row.keyword]
-    assert reason[:40] in message, (
+    refusal = _REFUSED[row.keyword]
+    assert refusal.condition[:40] in message, (
         f"{row.keyword}= raises a message that is not the reason _REFUSED states:\n"
-        f"  raised: {message}\n  table:  {reason}"
+        f"  raised: {message}\n  table:  {refusal.condition}"
     )
     assert row.keyword in message, f"{row.keyword}= refuses without naming itself: {message}"
+    assert isinstance(raised.value, CapabilityError), type(raised.value)
+    assert raised.value.refusal.reason.value == row.kind, (
+        f"{row.keyword}= raises code {raised.value.refusal.reason.value!r}, "
+        f"and the ledger files it under {row.kind!r}"
+    )
+    assert refusal.reason.value == row.kind, (
+        f"_REFUSED[{row.keyword!r}] holds code {refusal.reason.value!r}, and the ledger files "
+        f"it under {row.kind!r}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -246,10 +217,10 @@ def test_a_real_refusal_says_what_the_derivation_would_need(row: Row) -> None:
     # to change, and every reason in the table runs well past the floor. A floor near
     # their length would ask for words rather than for content, which is the failure
     # mode of a length check.
-    reason = _REFUSED[row.keyword]
-    assert len(reason) > 60, (
-        f"{row.keyword}= is refused in {len(reason)} characters. Filed as {row.kind!r}, so "
-        f"the message has to leave a reader able to tell that from the other two kinds"
+    text = _REFUSED[row.keyword].message()
+    assert len(text) > 60, (
+        f"{row.keyword}= is refused in {len(text)} characters. Filed as {row.kind!r}, so "
+        f"the message has to leave a reader able to tell that from the other codes"
     )
 
 
@@ -259,7 +230,7 @@ def test_the_policies_redirection_names_the_plan_node_form() -> None:
     A longitudinal modified treatment policy is a node of a regimen, so the keyword the
     point-treatment fit takes is a redirection here, not a missing feature.
     """
-    with pytest.raises(TypeError) as raised:
+    with pytest.raises(CapabilityError) as raised:
         LTMLE({"always": 1, "never": 0}, policies=1)
     message = str(raised.value)
     for needed in ("node of a regimen", "DynamicRegimen", "continuous_treatment="):

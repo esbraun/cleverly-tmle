@@ -66,6 +66,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-mar-natural-course-tmle",
     reference="tmle-r-population-mean",
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_mar_natural_course.py",
         "tests/studies/mar_natural_course_properties.py",

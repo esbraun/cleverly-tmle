@@ -39,7 +39,7 @@ def test_wc_the_listing_withholds_every_kind_outside_the_allowlist() -> None:
     assert methods["tmle"].available and methods["tmle"].reason is None
     for name in ("sdr", "ipsi"):
         assert not methods[name].available
-        assert methods[name].reason == sequential.repeated_outcome_refusal(TITLES[name])
+        assert methods[name].refusal == sequential.repeated_outcome_refusal(TITLES[name])
     assert "LTMLE fits one" in methods["sdr"].reason
 
 
@@ -55,7 +55,7 @@ def test_wc_the_listing_follows_the_allowlist(
         if name in kinds:
             assert methods[name].reason is None
         else:
-            assert methods[name].reason == sequential.repeated_outcome_refusal(TITLES[name])
+            assert methods[name].refusal == sequential.repeated_outcome_refusal(TITLES[name])
 
 
 def test_wc_the_fit_refuses_with_the_reason_of_the_listing() -> None:
