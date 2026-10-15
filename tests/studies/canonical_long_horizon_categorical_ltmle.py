@@ -114,6 +114,8 @@ STUDY = StudyRecord(
     pending_reason=(
         "X59: R lmtp comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence"
     ),
+    comparison="matching implementation",
+    comparison_overrides={"categorical_k5_crossfit:*": "different estimator"},
     modules=(
         "tests/studies/canonical_long_horizon_categorical_ltmle.py",
         "tests/studies/long_horizon_categorical_ltmle_properties.py",

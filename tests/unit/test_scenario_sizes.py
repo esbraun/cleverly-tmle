@@ -25,7 +25,9 @@ from tests.studies.evidence import claims
 from tests.studies.evidence.manifest import write_manifest
 from tests.studies.evidence.schema import validate_replicates
 
-SINGLE = dataclasses.replace(canonical_longitudinal_sdr.STUDY, reference=None)
+SINGLE = dataclasses.replace(
+    canonical_longitudinal_sdr.STUDY, reference=None, comparison=None, comparison_overrides={}
+)
 SCENARIOS = tuple(SINGLE.scenarios)
 
 

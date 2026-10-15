@@ -912,7 +912,7 @@ class TestPreflightRefusals:
             (
                 ("group__b",),
                 r"'group__b' is a generated indicator for original categorical variable "
-                r"'group'; select the original variable",
+                r"'group'\. Select the original variable 'group'\.",
             ),
         ],
     )

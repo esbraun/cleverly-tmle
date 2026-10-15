@@ -109,6 +109,7 @@ STUDY = StudyRecord(
     pending_reason=(
         "X59: R lmtp comparator runs deferred by the owner on 2026-10-14; X39 accepted on Python property evidence"
     ),
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_long_horizon_sdr.py",
         "tests/studies/long_horizon_sdr_properties.py",

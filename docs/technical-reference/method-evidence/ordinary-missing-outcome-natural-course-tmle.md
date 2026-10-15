@@ -109,13 +109,15 @@ gap. Commit `0605650` declared every bound except the witness bound before the r
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | -4.741e-13 | 1.734e-10 | 1.0000 | 0 | 2.429e-11 vs 0.0500 | equivalent |
-| bounded continuous-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | -6.072e-14 | 7.158e-11 | 1.0000 | 0 | 7.497e-12 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle-r-population-mean` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | -4.741e-13 | 1.734e-10 | 1.0000 | 0 | matching implementation | 2.429e-11 vs 0.0500 | equivalent |
+| bounded continuous-outcome observational natural-course law with MAR outcomes | `ey_obs` | observed outcome mean under the natural course | -6.072e-14 | 7.158e-11 | 1.0000 | 0 | matching implementation | 7.497e-12 vs 0.0500 | equivalent |
 <!-- /generated -->
 
-Both implementations use the centered, `n - 1` divisor variance `var(IC) / n`. A non-cross-fitted
+In this comparator-backed study, both implementations use the centered, `n - 1` divisor variance `var(IC) / n`. A non-cross-fitted
 natural-course fit in `cleverly` declares that rule (`covariance_rule` in
 `src/cleverly/estimators/tmle.py`). R bounds a binary-outcome interval to `[0, 1]`, and `cleverly`
 reports an unbounded Wald interval. No committed interval reaches either bound.

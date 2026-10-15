@@ -56,6 +56,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="tmle3",
+    comparison="related target",
     modules=(
         "tests/studies/canonical_point_msm.py",
         "tests/studies/point_msm_properties.py",

@@ -123,6 +123,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-ipsi",
     reference="npcausal",
+    comparison="matching implementation",
     efficiency_bounds=EFFICIENCY_SD,
     modules=(
         "tests/studies/canonical_longitudinal_incremental.py",

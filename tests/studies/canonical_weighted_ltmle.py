@@ -34,6 +34,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-weighted-ltmle",
     reference="ltmle-weighted",
+    comparison="matching implementation",
     publication_policy="reporting",
     modules=(
         "tests/studies/canonical_weighted_ltmle.py",

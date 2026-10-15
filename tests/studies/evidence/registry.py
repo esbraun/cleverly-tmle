@@ -114,6 +114,9 @@ class Margins:
         }
 
 
+COMPARISON_KINDS = ("matching implementation", "different estimator", "related target")
+
+
 @dataclass(frozen=True)
 class StudyRecord:
     """One row of the implementation validation grid, and all the machinery needs to check it."""
@@ -152,6 +155,15 @@ class StudyRecord:
     implementation: str = "cleverly"
     #: The comparison implementation, or ``None`` for a study with no canonical comparator.
     reference: str | None = None
+    #: What the comparison supports, from the roadmap's "Comparisons" table.  Required exactly
+    #: when ``reference`` or ``pending_reference`` is set.  ``docs/roadmap.md`` defines the three kinds, and the
+    #: decision rule is the one in ``docs/development/method-benchmarking.md``.
+    comparison: (
+        Literal["matching implementation", "different estimator", "related target"] | None
+    ) = None
+    #: Rows whose kind differs from ``comparison``, keyed ``scenario:estimand`` or
+    #: ``scenario:*`` for every estimand of one scenario, as ``equivalence.csv`` names them.
+    comparison_overrides: Mapping[str, str] = field(default_factory=dict)
     #: Why this study keeps a comparator that fails its *own* independent truth gates.
     #:
     #: :mod:`tests.studies.evidence.comparison` already separates the two questions: whether
@@ -264,6 +276,29 @@ class StudyRecord:
                 "a record whose truth varies by replication cannot declare a reference: the "
                 "paired comparison reads one truth per cell"
             )
+        named = self.reference or self.pending_reference
+        if (self.comparison is None) != (named is None):
+            raise ValueError(
+                "comparison is required exactly when reference or pending_reference is set; "
+                f"got reference={self.reference!r}, pending_reference="
+                f"{self.pending_reference!r}, comparison={self.comparison!r}"
+            )
+        if self.comparison is not None and self.comparison not in COMPARISON_KINDS:
+            raise ValueError(
+                f"comparison must be one of {COMPARISON_KINDS}; got {self.comparison!r}"
+            )
+        for key, kind in self.comparison_overrides.items():
+            scenario, _, estimand = key.partition(":")
+            if not scenario or not estimand:
+                raise ValueError(
+                    f"comparison_overrides key must be 'scenario:estimand'; got {key!r}"
+                )
+            if kind not in COMPARISON_KINDS:
+                raise ValueError(
+                    f"comparison_overrides[{key!r}] must be one of {COMPARISON_KINDS}; got {kind!r}"
+                )
+        if self.comparison_overrides and self.comparison is None:
+            raise ValueError("comparison_overrides needs a comparison default")
         if self.pending_reference is not None:
             if self.reference is not None:
                 raise ValueError(
@@ -352,6 +387,13 @@ class StudyRecord:
         if n == self.n:
             return {scenario: self.n_of(scenario) for scenario in self.scenarios}
         return {scenario: int(n) for scenario in self.scenarios}
+
+    def comparison_kind(self, scenario: str, estimand: str) -> str | None:
+        """The kind of one equivalence row: an exact override, a scenario override, or the default."""
+        return self.comparison_overrides.get(
+            f"{scenario}:{estimand}",
+            self.comparison_overrides.get(f"{scenario}:*", self.comparison),
+        )
 
     @property
     def implementations(self) -> tuple[str, ...]:

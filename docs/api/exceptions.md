@@ -17,7 +17,12 @@ or lifecycle use. Treat warnings as requests to inspect convergence, overlap, or
    cleverly.PositivityWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
+   cleverly.exceptions.RefusalReason
+   cleverly.exceptions.Refusal
 ```
+
+Each `CleverlyError` carries its refusal in `error.refusal`. A `Refusal` holds a `RefusalReason` code,
+the failed condition, an alternative, and a roadmap id.
 
 ## Package version
 

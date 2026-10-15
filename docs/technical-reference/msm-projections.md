@@ -137,7 +137,7 @@ realized design. With `id=`, the [cluster rules](longitudinal-tmle.md#clusters) 
 | --- | --- |
 | `tests/unit/test_cross_fitted_longitudinal_msm.py` | a saturated model reproduces the cross-fitted per-regimen report on survival, competing-risk, dynamic and three-level grids. The coefficient curve is the stacked delta-method curve. Every node's stacked score is solved. Eight mutations fail, including a fold-local fluctuation |
 | `tests/e2e/test_ltmle_msm.py` | the saturated reduction at one and five folds, under the identity and the logit link |
-| [cross-fitted longitudinal MSM projection](method-evidence/cross-fitted-longitudinal-msm-projection.md) | repeated-sampling properties on the projection law of the ordinary study, paired with a projection of four cross-fitted R `lmtp` regimen fits |
+| [cross-fitted longitudinal MSM projection](method-evidence/cross-fitted-longitudinal-msm-projection.md) | repeated-sampling properties on the projection law of the ordinary study, comparator-backed and paired with a projection of four cross-fitted R `lmtp` regimen fits |
 
 Survival, competing-risk, weighted and clustered projections have the fast-tier exact identities
 only. A cross-fitted `lmtp` 1.5.4 regimen fit differs from this construction twice. It fluctuates
@@ -234,16 +234,16 @@ projection weight. The table gives each place that checks both declarations.
 | `MSMSet.evaluate` and `evaluate_regimen_msm` | before they call the design or the weight. A direct call and the simulated-confounding replay both meet this check |
 
 Each refusal raises `CapabilityError`. The
-[scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) page defines its kind.
+[scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) page defines each reason code.
 
-| refused | kind | reason |
+| refused | code | reason |
 | --- | --- | --- |
-| a `design=` callable with no `design_kind` | wrong by construction | the package cannot tell a fixed design from a design computed from the sample. The message asks for `design_kind="known"` |
-| `design_kind="estimated"`, for example a covariate centred at its sample mean | wrong by construction | for a population-law target that centres at $E_P[W]$, the curve needs the derivative through that mean. The reported curve omits it. Conditioning on a centre learned from these same rows defines a different target, with no validated interval here |
-| a `weights=` callable with no `weights_kind` | wrong by construction | the package cannot tell a fixed weight from a weight computed from the sample. The message asks for `weights_kind="known"` |
-| `weights_kind="estimated"`, a "stabilised" MSM | wrong by construction | the weight is a functional of $P$, so the influence curve needs a further term for the pathwise derivative through the estimated mechanism. The reported curve does not have it. This is the same argument that gives an incremental intervention its own axis |
-| an array in place of a `weights=` callable | wrong by construction | an array is one evaluation of the weight, and nothing shows that the sample did not set it |
-| a continuous dose with missing outcomes (`delta=`, or `PointTreatment(missingness=...)`) or with `intermediate=`, in sample or cross-fitted | [not written yet](scope-and-refusals.md#not-written-yet) | the continuous-dose covariate that the package builds must then also divide by the response or intermediate mechanism at each grid dose. The package does not predict either mechanism at a grid dose. `TMLE` refuses before any learner, and `CausalStudy.identify` refuses `MSMProjection` with a missing outcome. `tests/unit/test_continuous_msm_mechanism_refusals.py` checks both. [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) tracks the construction |
+| a `design=` callable with no `design_kind` | `invalid_declaration` | the package cannot tell a fixed design from a design computed from the sample. The message asks for `design_kind="known"` |
+| `design_kind="estimated"`, for example a covariate centred at its sample mean | `implementation_gap` | for a population-law target that centres at $E_P[W]$, the curve needs the derivative through that mean. The reported curve omits it. Conditioning on a centre learned from these same rows defines a different target, with no validated interval here |
+| a `weights=` callable with no `weights_kind` | `invalid_declaration` | the package cannot tell a fixed weight from a weight computed from the sample. The message asks for `weights_kind="known"` |
+| `weights_kind="estimated"`, a "stabilised" MSM | `implementation_gap` | the weight is a functional of $P$, so the influence curve needs a further term for the pathwise derivative through the estimated mechanism. The reported curve does not have it. This is the same argument that gives an incremental intervention its own axis |
+| an array in place of a `weights=` callable | `invalid_declaration` | an array is one evaluation of the weight, and nothing shows that the sample did not set it |
+| a continuous dose with missing outcomes (`delta=`, or `PointTreatment(missingness=...)`) or with `intermediate=`, in sample or cross-fitted | `implementation_gap` | the continuous-dose covariate that the package builds must then also divide by the response or intermediate mechanism at each grid dose. The package does not predict either mechanism at a grid dose. `TMLE` refuses before any learner, and `CausalStudy.identify` refuses `MSMProjection` with a missing outcome. `tests/unit/test_continuous_msm_mechanism_refusals.py` checks both. [X10](../roadmap.md#x10-continuous-dose-msm-with-a-second-mechanism) tracks the construction |
 
 A malformed input raises `DataError`. The table gives the four cases.
 

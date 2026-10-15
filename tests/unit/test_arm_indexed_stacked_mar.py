@@ -60,7 +60,7 @@ from tests.unit._natural_course_support import NeverFit, never_fit_learners
 #: The first clause of every contract refusal.
 CONTRACT = (
     "Cross-fitted TMLE of arm-indexed means and contrasts with missing outcomes supports "
-    "one audited stacked CV-TMLE contract; "
+    "one audited stacked CV-TMLE contract. "
 )
 
 #: Rows in the refusal frames, and the outer folds every admitted setting declares.
@@ -174,13 +174,13 @@ ROWS: tuple[Row, ...] = (
     ),
     Row(
         "repeats",
-        "(X53 in docs/roadmap.md). Set repeats=1 (CrossFitting(repeats=1))",
+        "X53 in docs/roadmap.md tracks this. Set repeats=1 (CrossFitting(repeats=1))",
         engine={"repeats": 2},
         public={"cross_fitting": {"repeats": 2}},
     ),
     Row(
         "fold-targeting",
-        "with missing outcomes (X53 in docs/roadmap.md). Set "
+        "with missing outcomes. X53 in docs/roadmap.md tracks this. Set "
         "targeting_scheme='pooled' (CrossFitting(targeting_scheme='pooled'))",
         engine={"targeting_scheme": "fold"},
         public={"cross_fitting": {"targeting_scheme": "fold"}},
@@ -307,7 +307,7 @@ def test_att_and_atc_are_refused_by_name_in_every_request_form() -> None:
             in message
         )
         requested = "['att']" if estimands == ("att",) else "['att', 'atc']"
-        assert f"no audited result covers {requested}" in message
+        assert f"No audited result covers {requested}" in message
         assert NeverFit.calls == 0
 
 

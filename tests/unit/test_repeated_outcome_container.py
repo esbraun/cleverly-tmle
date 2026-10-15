@@ -270,7 +270,7 @@ def test_w10_the_study_lists_only_ltmle_on_a_repeated_outcome() -> None:
     assert methods["tmle"].available
     for name, title in (("sdr", "SDR"), ("ipsi", "IPSI")):
         assert not methods[name].available
-        assert methods[name].reason == sequential.repeated_outcome_refusal(title)
+        assert methods[name].refusal == sequential.repeated_outcome_refusal(title)
 
 
 # ---------------------------------------------------------------- W11 and W12

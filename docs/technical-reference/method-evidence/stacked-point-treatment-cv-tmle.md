@@ -78,25 +78,27 @@ binary outcome on the unit interval.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law | `atc` | average effect on the untreated | -0.000028 | 0.0061 | 1.0072 | -0.000625 | 0.0124 vs 0.0500 | equivalent |
-| binary-outcome law | `ate` | average treatment effect | 0.000002 | 0.000381 | 1.0001 | 0 | 0.000275 vs 0.0500 | equivalent |
-| binary-outcome law | `att` | average effect on the treated | 0.000007 | 0.0015 | 1.0055 | 0.000625 | 0.0089 vs 0.0500 | equivalent |
-| binary-outcome law | `ey0` | counterfactual mean under no treatment | -7.683e-08 | 0.000023 | 1.0000 | 0 | 0.000013 vs 0.0500 | equivalent |
-| binary-outcome law | `ey1` | counterfactual mean under treatment | 4.784e-09 | 0.000001 | 1.0000 | 0 | 0.000077 vs 0.0500 | equivalent |
-| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | -6.048e-12 | 2.508e-09 | 1.0000 | 0 | 1.267e-10 vs 0.0500 | equivalent |
-| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 0.000001 | 0.000030 | 1.0000 | 0 | 0.000013 vs 0.0500 | equivalent |
-| binary-outcome law | `paf` | population attributable fraction | 4.002e-07 | 0.000079 | 1.0009 | -0.000625 | n/a | equivalent |
-| binary-outcome law | `par` | population attributable risk | 2.046e-07 | 0.000087 | 1.0009 | 0.0013 | 0.000961 vs 0.0500 | equivalent |
-| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | 4.883e-07 | 0.000032 | 1.0000 | 0 | 0.000014 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | -0.000726 | 0.6935 | 1.0024 | 0.000625 | 0.0031 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | -0.000010 | 0.0098 | 1.0005 | -0.0019 | 0.0176 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000714 | 0.6785 | 0.9994 | 0.0012 | 0.0039 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -0.000001 | 0.0013 | 1.0002 | 0 | 0.000124 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -0.000002 | 0.0019 | 1.0002 | 0 | 0.000221 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -7.127e-13 | 6.017e-10 | 1.0000 | 0 | 4.062e-11 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with effect modification | `par` | population attributable risk | 0.000030 | 0.0441 | 1.0025 | -0.000625 | 0.000680 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle3-cvtmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law | `atc` | average effect on the untreated | -0.000028 | 0.0061 | 1.0072 | -0.000625 | matching implementation | 0.0124 vs 0.0500 | equivalent |
+| binary-outcome law | `ate` | average treatment effect | 0.000002 | 0.000381 | 1.0001 | 0 | matching implementation | 0.000275 vs 0.0500 | equivalent |
+| binary-outcome law | `att` | average effect on the treated | 0.000007 | 0.0015 | 1.0055 | 0.000625 | matching implementation | 0.0089 vs 0.0500 | equivalent |
+| binary-outcome law | `ey0` | counterfactual mean under no treatment | -7.683e-08 | 0.000023 | 1.0000 | 0 | matching implementation | 0.000013 vs 0.0500 | equivalent |
+| binary-outcome law | `ey1` | counterfactual mean under treatment | 4.784e-09 | 0.000001 | 1.0000 | 0 | matching implementation | 0.000077 vs 0.0500 | equivalent |
+| binary-outcome law | `ey_obs` | observed outcome mean under the natural course | -6.048e-12 | 2.508e-09 | 1.0000 | 0 | matching implementation | 1.267e-10 vs 0.0500 | equivalent |
+| binary-outcome law | `or` | marginal odds ratio, reported on the log scale | 0.000001 | 0.000030 | 1.0000 | 0 | matching implementation | 0.000013 vs 0.0500 | equivalent |
+| binary-outcome law | `paf` | population attributable fraction | 4.002e-07 | 0.000079 | 1.0009 | -0.000625 | related target | n/a | equivalent |
+| binary-outcome law | `par` | population attributable risk | 2.046e-07 | 0.000087 | 1.0009 | 0.0013 | matching implementation | 0.000961 vs 0.0500 | equivalent |
+| binary-outcome law | `rr` | marginal risk ratio, reported on the log scale | 4.883e-07 | 0.000032 | 1.0000 | 0 | matching implementation | 0.000014 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `atc` | average effect on the untreated | -0.000726 | 0.6935 | 1.0024 | 0.000625 | matching implementation | 0.0031 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ate` | average treatment effect | -0.000010 | 0.0098 | 1.0005 | -0.0019 | matching implementation | 0.0176 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `att` | average effect on the treated | 0.000714 | 0.6785 | 0.9994 | 0.0012 | matching implementation | 0.0039 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey0` | counterfactual mean under no treatment | -0.000001 | 0.0013 | 1.0002 | 0 | matching implementation | 0.000124 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey1` | counterfactual mean under treatment | -0.000002 | 0.0019 | 1.0002 | 0 | matching implementation | 0.000221 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `ey_obs` | observed outcome mean under the natural course | -7.127e-13 | 6.017e-10 | 1.0000 | 0 | matching implementation | 4.062e-11 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with effect modification | `par` | population attributable risk | 0.000030 | 0.0441 | 1.0025 | -0.000625 | matching implementation | 0.000680 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

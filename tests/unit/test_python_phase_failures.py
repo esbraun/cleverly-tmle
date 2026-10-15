@@ -38,6 +38,7 @@ def _record(here: Path) -> StudyRecord:
         n=50,
         seed=5,
         reference=REFERENCE,
+        comparison="matching implementation",
         failure_bound={SUBJECT: 0.05, REFERENCE: 0.05},
         margins=Margins(bootstrap_replicates=200),
         publication_policy="reporting",

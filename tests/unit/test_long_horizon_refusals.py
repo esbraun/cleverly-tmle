@@ -59,7 +59,7 @@ def test_sdr_tilt_at_node_five_refuses_before_any_learner(frame: Any) -> None:
     plan = DynamicRegimen("tilt at five", (1, 1, 1, 1, Incremental(2.0)))
     with pytest.raises(CapabilityError) as raised:
         SDR({"always": 1, "tilt at five": plan}, **_settings()).fit(frame, **H.roles(5, 2))
-    assert str(raised.value) == SDR_TILT_REFUSAL
+    assert str(raised.value) == SDR_TILT_REFUSAL.message()
 
 
 def test_an_undeclared_rule_at_node_four_refuses(frame: Any) -> None:
@@ -67,10 +67,10 @@ def test_an_undeclared_rule_at_node_four_refuses(frame: Any) -> None:
     spec = (1, 1, 1, _rule, 1)
     with pytest.raises(CapabilityError) as built:
         DynamicRegimen("rule at four", spec)
-    assert str(built.value) == _RULE_DECLARATION.undeclared
+    assert str(built.value) == _RULE_DECLARATION.undeclared.message()
     with pytest.raises(CapabilityError) as fitted:
         LTMLE({"always": 1, "rule at four": spec}, **_settings()).fit(frame, **H.roles(5, 2))
-    assert str(fitted.value) == _RULE_DECLARATION.undeclared
+    assert str(fitted.value) == _RULE_DECLARATION.undeclared.message()
 
 
 def test_the_declared_rule_at_node_four_fits(frame: Any) -> None:
