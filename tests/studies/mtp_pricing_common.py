@@ -480,9 +480,7 @@ class SplinePseudo(BaseEstimator):
         index = node_columns(t, t)
         names = [f"A{t}", "W1"] + ([f"A{t - 1}"] if t > 1 else [])
         if fit:
-            self.knots_ = {
-                name: np.quantile(x[:, index[name]], SPLINE_QUANTILES) for name in names
-            }
+            self.knots_ = {name: np.quantile(x[:, index[name]], SPLINE_QUANTILES) for name in names}
         splines = {name: restricted_cubic(x[:, index[name]], self.knots_[name]) for name in names}
         engaged = [x[:, index[f"L{t}"]]] + ([x[:, index[f"L{t - 1}"]]] if t > 1 else [])
         blocks = [*splines.values(), *(e[:, None] for e in engaged)]
@@ -587,26 +585,27 @@ class SplineHazard(BaseEstimator):
     The density layer hands this the history followed by the bin index (``bin_design =
     "index"``).  The hazard's log-odds is a B-spline basis of the bin position (8 degrees of
     freedom), the history, and the products of the two, fitted by an unpenalized-in-effect
-    logistic regression (``C = 1e6``).
+    logistic regression (``C = 1e6``).  The position is the bin index over the largest index
+    in the training design, so the basis spans the bins at any bin count.
     """
 
     bin_design = "index"
 
-    def __init__(self, n_bins: int = 320, df: int = 8) -> None:
-        self.n_bins = n_bins
+    def __init__(self, df: int = 8) -> None:
         self.df = df
 
     def _design(self, X: Any) -> np.ndarray:
         x = np.asarray(X, dtype=float)
-        history, position = x[:, :-1], x[:, -1:] / max(self.n_bins - 1, 1)
+        history, position = x[:, :-1], x[:, -1:] / self.top_
         basis = self.spline_.transform(np.clip(position, 0.0, 1.0))
         products = (basis[:, :, None] * history[:, None, :]).reshape(len(x), -1)
         return np.column_stack([basis, history, products])
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> SplineHazard:
-        self.spline_ = SplineTransformer(
-            n_knots=self.df - 2, degree=3, include_bias=False
-        ).fit(np.array([[0.0], [1.0]]))
+        self.top_ = max(float(np.max(np.asarray(X, dtype=float)[:, -1])), 1.0)
+        self.spline_ = SplineTransformer(n_knots=self.df - 2, degree=3, include_bias=False).fit(
+            np.array([[0.0], [1.0]])
+        )
         self.model_ = LogisticRegression(C=1e6, max_iter=2_000).fit(
             self._design(X), np.asarray(y), sample_weight=sample_weight
         )

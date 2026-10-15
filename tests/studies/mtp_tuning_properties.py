@@ -99,6 +99,17 @@ CALIBRATION_REPLICATES: dict[str, int] = dict.fromkeys(CELLS, 6_400)
 #: checks against the oracle's curves.
 EXPECTED_CONTROL_RATIO = {"dose_quantile": 0.612, "quantile_regression": 0.832}
 
+#: The noise scale of each ``noise_control``, sizing only: the reported SE at n = 2,000 in the
+#: one-replicate smoke times sqrt(2,000).  The pilot replaces it with the arm's mean SE.
+NOISE_SD: dict[str, float] = {
+    "population_dose_quantile_tau2": 0.555,
+    "population_quantile_regression_tau2": 0.456,
+    "population_dose_quantile_crossfit_tau2": 0.555,
+    "population_dose_quantile_crossfit_classifier_tau2": 0.555,
+    "fold_average_dose_quantile_tau2": 0.34,
+    "fold_average_quantile_regression_tau2": 0.367,
+}
+
 ESTIMAND = study.ESTIMAND
 #: The name a fit reports the fold-average target under.
 FOLD_ESTIMAND = f"ey_regimen[{study.LABEL}, fold average]"
@@ -111,9 +122,7 @@ def estimand(target: str) -> str:
 def calibration_fit(label: str, frame: pd.DataFrame) -> Any:
     kind, target, folds, route = CELLS[label]
     learner = study.classifier() if route == "classifier" else None
-    return study.fit(
-        frame, kind, target, n_folds=folds, ratio=route, treatment_learner=learner
-    )
+    return study.fit(frame, kind, target, n_folds=folds, ratio=route, treatment_learner=learner)
 
 
 def term_dropped_se(result: Any) -> float:
@@ -146,8 +155,7 @@ class DeclaredLaw:
 
 
 FIT_SETS: tuple[tuple[str, str, int, int], ...] = tuple(
-    ("interval_calibration", label, CALIBRATION_N, CALIBRATION_REPLICATES[label])
-    for label in CELLS
+    ("interval_calibration", label, CALIBRATION_N, CALIBRATION_REPLICATES[label]) for label in CELLS
 )
 
 
@@ -234,7 +242,10 @@ def generate_property_rows(
         keys = [(family, label, r, n, requested) for r in range(requested)]
         frames.append(
             tools.run_in_parts(
-                fit_set_rows, keys, label=f"{family}__{label}__{requested}", root=root,
+                fit_set_rows,
+                keys,
+                label=f"{family}__{label}__{requested}",
+                root=root,
                 n_jobs=jobs,
             )
         )
@@ -246,7 +257,7 @@ def generate_property_rows(
                 rows,
                 STUDY,
                 labels=tuple(CELLS),
-                efficiency_bounds=None,
+                efficiency_bounds=NOISE_SD,
                 calibration_n=CALIBRATION_N,
                 shrunken_se_factor=SHRUNKEN_SE_FACTOR,
                 critical=CRITICAL,
@@ -299,7 +310,7 @@ def calibration_pilot(
         error = own["estimate"] - own["truth"]
         spread = float(error.std(ddof=1))
         out["arms"][label] = {
-            "draws": int(len(own)),
+            "draws": len(own),
             "se_ratio": float(own["std_error"].mean() / spread),
             "standardized_bias": float(error.mean() / spread),
             "coverage": float(own["covered"].mean()),
@@ -312,8 +323,39 @@ def calibration_pilot(
     return out
 
 
-#: Per-fit seconds and peak memory from the one-replicate smoke.
-BUDGET: dict[str, Any] = {}
+#: Per-fit seconds and peak memory from the one-replicate smoke (warm process, one core,
+#: n = 2,000, 2026-10-15), and the CPU-hours they imply.  The fold-average seconds hold the
+#: fold-average truth's quadrature (0.3 s).
+_CALIBRATION_SECONDS = {
+    "population_dose_quantile_tau2": 0.66,
+    "population_quantile_regression_tau2": 0.99,
+    "population_dose_quantile_crossfit_tau2": 1.74,
+    "population_dose_quantile_crossfit_classifier_tau2": 2.61,
+    "fold_average_dose_quantile_tau2": 1.86,
+    "fold_average_quantile_regression_tau2": 3.24,
+}
+_PRIMARY_SECONDS = 1.38  # the two scenarios of one replicate
+_HOUR = 3600.0
+
+
+def _calibration_hours(replicates: int) -> float:
+    return sum(_CALIBRATION_SECONDS.values()) * replicates / _HOUR
+
+
+BUDGET: dict[str, Any] = {
+    "seconds": {"primary_replicate": _PRIMARY_SECONDS, "calibration_fit": _CALIBRATION_SECONDS},
+    "peak_gib": 0.27,
+    "cpu_hours": {
+        "calibration_pilot": _calibration_hours(PILOT_DRAWS),
+        "calibration": {r: _calibration_hours(r) for r in (6_000, 6_400, 8_000)},
+        "primary": study.PRIMARY_REPLICATES * _PRIMARY_SECONDS / _HOUR,
+    },
+}
+BUDGET["cpu_hours"]["python_total"] = (
+    BUDGET["cpu_hours"]["calibration_pilot"]
+    + BUDGET["cpu_hours"]["calibration"][6_400]
+    + BUDGET["cpu_hours"]["primary"]
+)
 
 
 def main(argv: list[str] | None = None) -> None:

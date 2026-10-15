@@ -19,8 +19,8 @@ family                      cells, replications and size
                             (positive) against the wrong GLM with a ratio of one
                             (``both_wrong_control``); 1,000 at n = 2,000
 ``ratio_necessity``         ``up_tau3`` and ``up_tau5``, wrong GLM: the screened classifier
-                            against a ratio of one; 1,000 at n = 2,000.  At ``tau = 3`` the
-                            pair reads the same fits as ``double_robustness``
+                            against a ratio of one; 1,000 at n = 2,000, on a stream of
+                            its own
 ``classifier_split``        ``up_tau3``, wrong GLM, five folds: the shipped unit folds
                             against outer folds drawn over stacked rows
                             (``row_folds_control``, :func:`row_folds`); 1,000 at n = 2,000.
@@ -127,6 +127,15 @@ SCREEN_DRAWS = 2_000
 POOLED_ARMS = 18
 #: Provisional: the expected ``R`` at a pilot mean of 1.005 for 18 arms at 2,000 draws.
 CALIBRATION_REPLICATES: dict[str, int] = dict.fromkeys(CELLS, 6_400)
+#: The noise scale of each ``noise_control``: an influence-curve SD, sizing only.  Law P has no
+#: closed-form efficiency bound, so this is the oracle cell's reported SE at n = 2,000 in the
+#: one-replicate smoke, times sqrt(2,000), at each ``tau`` (the revenue cell's own).  The
+#: calibration pilot replaces it with the oracle arm's mean reported SE.
+_ORACLE_SD = {2: 0.69, 3: 0.89, 5: 1.58}
+NOISE_SD: dict[str, float] = {
+    label: (7.58 if revenue else _ORACLE_SD[tau])
+    for label, (tau, _, _, _, revenue) in CELLS.items()
+}
 #: The screen's winner per ``tau``.  Provisional until :func:`learner_screen` runs; the
 #: declaration commit records the winner and the screen's numbers.
 SCREENED_CLASSIFIER: dict[int, str] = dict.fromkeys(common.HORIZONS, "quadratic_logistic")
@@ -134,10 +143,12 @@ SCREENED_CLASSIFIER: dict[int, str] = dict.fromkeys(common.HORIZONS, "quadratic_
 SPLIT_ALTERNATIVE = "boosted_depth4"
 CLASSIFIER_SPLIT_PILOT_DRAWS = 400
 
-#: Each fit set of pairs: ``(tau, families)``.  One fit of the declared and the control arm
-#: serves every family listed.
+#: Each fit set of pairs: ``(tau, families)``.  Each family draws its own stream, so
+#: ``double_robustness`` and ``ratio_necessity`` at ``tau = 3`` fit the same pair on
+#: different samples.
 PAIR_SETS: dict[str, tuple[int, tuple[str, ...]]] = {
-    "wrong_tau3": (3, ("double_robustness", "ratio_necessity")),
+    "dr_tau3": (3, ("double_robustness",)),
+    "wrong_tau3": (3, ("ratio_necessity",)),
     "wrong_tau5": (5, ("ratio_necessity",)),
     "split_tau3": (3, ("classifier_split",)),
 }
@@ -184,7 +195,7 @@ def ratio_settings(route: str, tau: int, name: str | None = None) -> dict[str, A
     if route == "density":
         return {
             "ratio": "density",
-            "treatment_learner": common.SplineHazard(n_bins=DENSITY_BINS),
+            "treatment_learner": common.SplineHazard(),
             "density_bins": DENSITY_BINS,
         }
     if route == "classifier":
@@ -241,7 +252,11 @@ def _row_fold_ratio(
     for train, test in random_partition(design.shape[0], folds.n_folds, seed=5):
         train = train[keep[train]]
         model = density_ratio.fit_learner(
-            learner, design[train], target[train], weight[train], groups=unit[train],
+            learner,
+            design[train],
+            target[train],
+            weight[train],
+            groups=unit[train],
             warn_unweighted=False,
         )
         rows = test[test < n]
@@ -361,7 +376,11 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 treatment_learner=lambda: None,
                 n=n,
                 replicates=reps,
-                seed=_seed("interval_calibration" if family == "interval_calibration" else "pairs", stream, 0),
+                seed=_seed(
+                    "interval_calibration" if family == "interval_calibration" else "pairs",
+                    stream,
+                    0,
+                ),
                 role=role,
                 estimand=estimand(law.revenue),
             )
@@ -491,7 +510,10 @@ def generate_property_rows(
         keys = [(family, label, r, n, requested) for r in range(requested)]
         frames.append(
             tools.run_in_parts(
-                fit_set_rows, keys, label=f"{family}__{label}__{requested}", root=root,
+                fit_set_rows,
+                keys,
+                label=f"{family}__{label}__{requested}",
+                root=root,
                 n_jobs=jobs,
             )
         )
@@ -503,7 +525,7 @@ def generate_property_rows(
                 rows,
                 STUDY,
                 labels=tuple(CELLS),
-                efficiency_bounds=None,
+                efficiency_bounds=NOISE_SD,
                 calibration_n=CALIBRATION_N,
                 shrunken_se_factor=SHRUNKEN_SE_FACTOR,
                 critical=CRITICAL,
@@ -523,9 +545,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     calibration_verdicts(summary, margins=STUDY.margins)
     for family in ("ratio_necessity", "classifier_split"):
-        labels = tuple(
-            f"up_tau{tau}" for tau, families in PAIR_SETS.values() if family in families
-        )
+        labels = tuple(f"up_tau{tau}" for tau, families in PAIR_SETS.values() if family in families)
         necessity_verdicts(
             summary,
             rows,
@@ -570,7 +590,7 @@ def arm_summary(rows: pd.DataFrame) -> dict[str, Any]:
     error = rows["estimate"] - rows["truth"]
     spread = float(rows["estimate"].std(ddof=1))
     return {
-        "draws": int(len(rows)),
+        "draws": len(rows),
         "se_ratio": float(rows["std_error"].mean() / spread),
         "standardized_bias": float(error.mean() / spread),
         "coverage": float(rows["covered"].mean()),
@@ -601,15 +621,16 @@ def learner_screen(
         arms = {}
         for name in common.CLASSIFIER_CANDIDATES:
             keys = [
-                ("interval_calibration", label, r, CALIBRATION_N, draws, name)
-                for r in range(draws)
+                ("interval_calibration", label, r, CALIBRATION_N, draws, name) for r in range(draws)
             ]
             rows = tools.run_in_parts(
                 _pilot_rows, keys, label=f"screen__{label}__{name}", root=parts, n_jobs=n_jobs
             )
             arms[name] = arm_summary(rows)
         density_label = f"up_learned_density_tau{tau}"
-        keys = [("interval_calibration", density_label, r, CALIBRATION_N, draws) for r in range(draws)]
+        keys = [
+            ("interval_calibration", density_label, r, CALIBRATION_N, draws) for r in range(draws)
+        ]
         density = arm_summary(
             tools.run_in_parts(
                 _pilot_rows, keys, label=f"pilot__{density_label}", root=parts, n_jobs=n_jobs
@@ -641,8 +662,7 @@ def calibration_pilot(
         if label == f"up_learned_classifier_tau{tau}":
             name = SCREENED_CLASSIFIER[tau]
             keys = [
-                ("interval_calibration", label, r, CALIBRATION_N, draws, name)
-                for r in range(draws)
+                ("interval_calibration", label, r, CALIBRATION_N, draws, name) for r in range(draws)
             ]
             part = f"screen__{label}__{name}"
         else:
@@ -710,7 +730,7 @@ def _default_density_row(replicate: int, n: int, requested: int) -> list[dict[st
         tau,
         (study.REFERENCE, PLAN),
         ratio="density",
-        treatment_learner=common.SplineHazard(n_bins=DENSITY_BINS),
+        treatment_learner=common.SplineHazard(),
         **declared_learners(),
     )
     row = replicate_row(
@@ -734,15 +754,82 @@ def default_density_rows(
     """The ``reporting`` row of the default density (``density_bins=None``) at ``tau = 2``."""
     keys = [(r, PAIR_N, replicates) for r in range(replicates)]
     rows = tools.run_in_parts(
-        _default_density_row, keys, label="reporting__default_density_tau2", root=parts,
+        _default_density_row,
+        keys,
+        label="reporting__default_density_tau2",
+        root=parts,
         n_jobs=n_jobs,
     )
     return arm_summary(rows)
 
 
-#: Per-fit seconds and peak memory from the one-replicate smoke, and the CPU-hours they
-#: imply.  Filled by the smoke; the pilots replace the calibration figures.
-BUDGET: dict[str, Any] = {}
+#: Per-fit seconds and peak memory from the one-replicate smoke (warm process, one core,
+#: n = 2,000, 2026-10-15), and the CPU-hours they imply.  The pilots replace the calibration
+#: figures with their own mean seconds a fit.
+_CALIBRATION_SECONDS = {
+    "up_oracle_tau2": 0.06,
+    "up_oracle_tau3": 0.09,
+    "up_oracle_tau5": 0.16,
+    "up_learned_density_tau2": 4.3,
+    "up_learned_density_tau3": 10.0,
+    "up_learned_density_tau5": 20.2,
+    "up_learned_classifier_tau2": 0.55,
+    "up_learned_classifier_tau3": 1.35,
+    "up_learned_classifier_tau5": 2.78,
+    "revenue_learned_classifier_tau3": 1.39,
+    "crossfit_ltmle_learned_classifier_tau3": 6.2,
+    "crossfit_sdr_learned_classifier_tau3": 11.8,
+}
+#: The two candidates at each ``tau``: the quadratic logistic as the classifier cell, the
+#: boosted model 1.3 times it (1.61 s against 2.07 s at ``tau = 3``).
+_SCREEN_SECONDS = {
+    tau: 2.3 * _CALIBRATION_SECONDS[f"up_learned_classifier_tau{tau}"] for tau in common.HORIZONS
+}
+_PAIR_SECONDS = {"dr_tau3": 1.52, "wrong_tau3": 1.52, "wrong_tau5": 2.74, "split_tau3": 13.6}
+_DEFAULT_DENSITY_SECONDS = 0.6
+_PRIMARY_SECONDS = 0.71  # the six scenarios of one replicate
+_HOUR = 3600.0
+_UNSCREENED = [
+    label
+    for label in CELLS
+    if not label.startswith(("up_learned_classifier", "up_learned_density"))
+]
+
+
+def _calibration_hours(replicates: int) -> float:
+    return sum(_CALIBRATION_SECONDS.values()) * replicates / _HOUR
+
+
+BUDGET: dict[str, Any] = {
+    "seconds": {
+        "primary_replicate": _PRIMARY_SECONDS,
+        "calibration_fit": _CALIBRATION_SECONDS,
+        "pair": _PAIR_SECONDS,
+        "default_density": _DEFAULT_DENSITY_SECONDS,
+    },
+    "peak_gib": 0.72,
+    "cpu_hours": {
+        "learner_screen": SCREEN_DRAWS
+        * (
+            sum(_SCREEN_SECONDS.values())
+            + sum(_CALIBRATION_SECONDS[f"up_learned_density_tau{t}"] for t in common.HORIZONS)
+        )
+        / _HOUR,
+        "calibration_pilot": PILOT_DRAWS
+        * sum(_CALIBRATION_SECONDS[label] for label in _UNSCREENED)
+        / _HOUR,
+        "classifier_split_pilot": CLASSIFIER_SPLIT_PILOT_DRAWS
+        * _PAIR_SECONDS["split_tau3"]
+        / _HOUR,
+        "calibration": {r: _calibration_hours(r) for r in (6_000, 6_400, 8_000)},
+        "pairs": PAIR_REPLICATES * sum(_PAIR_SECONDS.values()) / _HOUR,
+        "default_density": PAIR_REPLICATES * _DEFAULT_DENSITY_SECONDS / _HOUR,
+        "primary": study.PRIMARY_REPLICATES * _PRIMARY_SECONDS / _HOUR,
+    },
+}
+BUDGET["cpu_hours"]["python_total"] = sum(
+    value if not isinstance(value, dict) else value[6_400] for value in BUDGET["cpu_hours"].values()
+)
 
 PILOTS = ("screen", "calibration", "classifier_split", "default_density")
 
@@ -760,17 +847,23 @@ def main(argv: list[str] | None = None) -> None:
     jobs = arguments.jobs
     if arguments.pilot == "screen":
         result = learner_screen(
-            arguments.parts, draws=arguments.draws or SCREEN_DRAWS, n_jobs=jobs,
+            arguments.parts,
+            draws=arguments.draws or SCREEN_DRAWS,
+            n_jobs=jobs,
             taus=tuple(arguments.taus),
         )
     elif arguments.pilot == "calibration":
         result = calibration_pilot(
-            arguments.parts, draws=arguments.draws or PILOT_DRAWS, n_jobs=jobs,
+            arguments.parts,
+            draws=arguments.draws or PILOT_DRAWS,
+            n_jobs=jobs,
             labels=tuple(arguments.labels),
         )
     elif arguments.pilot == "classifier_split":
         result = classifier_split_pilot(
-            arguments.parts, draws=arguments.draws or CLASSIFIER_SPLIT_PILOT_DRAWS, n_jobs=jobs,
+            arguments.parts,
+            draws=arguments.draws or CLASSIFIER_SPLIT_PILOT_DRAWS,
+            n_jobs=jobs,
             alternative=arguments.alternative,
         )
     else:

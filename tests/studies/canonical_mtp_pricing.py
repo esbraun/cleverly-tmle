@@ -248,7 +248,9 @@ def fit(
     """``LTMLE`` or ``SDR`` over ``labels`` on law P at ``tau``; the primary learners by default."""
     settings: dict[str, Any] = {
         "reference": REFERENCE,
-        "outcome_learner": clone(QuasiBinomialGLM() if outcome_learner is None else outcome_learner),
+        "outcome_learner": clone(
+            QuasiBinomialGLM() if outcome_learner is None else outcome_learner
+        ),
         "pseudo_learner": clone(LinearRegression() if pseudo_learner is None else pseudo_learner),
         "treatment_learner": clone(
             common.OracleRatio() if treatment_learner is None else treatment_learner

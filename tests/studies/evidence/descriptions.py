@@ -1888,8 +1888,7 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "error still on the scale of the empirical spread",
     ),
     ("classifier_split", "unit_folds"): (
-        "each unit's natural and assigned rows share an outer fold, with the outcome "
-        "misspecified",
+        "each unit's natural and assigned rows share an outer fold, with the outcome misspecified",
         "bias interval inside the equivalence margin",
     ),
     ("classifier_split", "row_folds_control"): (

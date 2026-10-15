@@ -189,9 +189,7 @@ class SplineFirst(BaseEstimator):
     def _basis(self, X: Any, fit: bool) -> np.ndarray:
         x = np.asarray(X, dtype=float)
         if fit:
-            self.knots_ = [
-                np.quantile(x[:, j], (0.05, 0.275, 0.5, 0.725, 0.95)) for j in range(2)
-            ]
+            self.knots_ = [np.quantile(x[:, j], (0.05, 0.275, 0.5, 0.725, 0.95)) for j in range(2)]
         splines = [restricted_cubic(x[:, j], self.knots_[j]) for j in range(2)]
         return np.column_stack([*splines, x[:, 0] * x[:, 1]])
 
@@ -386,8 +384,14 @@ def _replicate(
     scenario, replicate, _ = key
     frame, truth = drawn
     result = fit(frame, "dose_quantile", "population", estimator=SCENARIOS[scenario])
-    truths = [{"scenario": scenario, "replicate": replicate, "estimand": ESTIMAND,
-               "truth": truth[ESTIMAND]}]
+    truths = [
+        {
+            "scenario": scenario,
+            "replicate": replicate,
+            "estimand": ESTIMAND,
+            "truth": truth[ESTIMAND],
+        }
+    ]
     return truths, result_rows(result, truth, scenario, replicate)
 
 
@@ -403,9 +407,7 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
     )
     truths = pd.DataFrame([row for rows, _ in outcomes.kept for row in rows])
     estimates = pd.DataFrame([row for _, rows in outcomes.kept for row in rows])
-    return replication.result(
-        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], truths=truths
-    )
+    return replication.result(outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], truths=truths)
 
 
 __all__ = ["STUDY", "draw_and_fit", "fit"]
