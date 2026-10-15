@@ -803,7 +803,7 @@ def tuned_cap_at_atoms(where: str, atoms: Sequence[float]) -> Refusal:
         alternative=(
             "Declare the cap as a number, or tune the cap at a node with no declared atoms."
         ),
-        roadmap="X40",
+        roadmap="X75",
     )
 
 

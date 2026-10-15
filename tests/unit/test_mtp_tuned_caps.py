@@ -1280,7 +1280,7 @@ def _atom_refusal(where: str) -> str:
         "quantile does not move with the law while its level stays inside the atom's jump, "
         "and it is not pathwise differentiable at the jump's edge. The influence function of "
         "the tuner and the derivative of the mean in the cap both need a density of the dose "
-        "at the cap, and this release does not derive them at an atom. X40 in "
+        "at the cap, and this release does not derive them at an atom. X75 in "
         "docs/roadmap.md tracks this. Declare the cap as a number, or tune the cap at a node "
         "with no declared atoms."
     )

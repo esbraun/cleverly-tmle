@@ -180,7 +180,7 @@ def refuse_tuned_compositions(estimator: Any, data: CausalData) -> None:
             "A stratum mean would need the tuner's influence function within each stratum.",
             code=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit without strata=.",
-            roadmap="X40",
+            roadmap="X75",
         )
     if data.has_missing_treatment or data.has_missing_outcome:
         raise _composition(
@@ -189,7 +189,7 @@ def refuse_tuned_compositions(estimator: Any, data: CausalData) -> None:
             "for complete data.",
             code=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit the complete rows.",
-            roadmap="X40",
+            roadmap="X75",
         )
     if data.has_intermediate:
         raise _composition(
@@ -197,7 +197,7 @@ def refuse_tuned_compositions(estimator: Any, data: CausalData) -> None:
             "",
             code=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit the policy without intermediate=.",
-            roadmap="X40",
+            roadmap="X75",
         )
     if data.treatment_kind == "vector":
         _refuse_vector_tunings(estimator.policies, data)

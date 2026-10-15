@@ -124,8 +124,7 @@ not change the package version.
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
-| B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
-| B3 | Applied tutorials for offers and pricing | no new theory | X40; the shipped `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
+| B3 | Applied tutorials for offers and pricing | no new theory | the shipped longitudinal modified treatment policies, `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
@@ -166,6 +165,7 @@ not change the package version.
 | after beta | Simulated confounding beyond X47 and X48 | natural extension | X47; X57 for part (c); X50, X51 and X62 for part (h); F5 for a continuous fit in part (f) | [X66](#x66-simulated-confounding-beyond-x47-and-x48) |
 | after beta | Refutation and assessment adapters | no new theory | the shipped `refute` catalog | [X67](#x67-refutation-and-assessment-adapters) |
 | after beta | Repeated outcomes for the sequential baselines | no new theory | the shipped `LTMLE` repeated outcome; X41 | [X71](#x71-repeated-outcomes-for-the-sequential-baselines) |
+| after beta | Data-tuned policies beyond the shipped tuned caps | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -259,6 +259,7 @@ It moved each part that an established method or a natural extension carries to 
 | Other intervention and design compositions | the composite missing-treatment indicator with a controlled direct effect; an `IPSI` plan with a modified-policy or risk-ratio-tilt node; an MSM weight from a learned mechanism; automatic cumulative-bound selection for `LTMLE` | identification; regularity; adaptive-optimum inference | named pre-fit refusals. [X63](#x63-missing-data-intermediates-and-designs) and [X64](#x64-intervention-and-policy-declarations) hold the declarations that a natural extension carries | [F33](#f33-other-intervention-and-design-compositions) |
 | E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, and the standardized ATT and ATC E-value on a gaussian outcome. [X49](#x49-e-value-for-a-controlled-direct-effect) holds the controlled direct effect, and [X65](#x65-sensitivity-analyses-beyond-the-shipped-scope) the other sensitivity requests | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
 | Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | asymptotic | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F35](#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
+| SDR intervals under heavy cumulative density ratios | an interval for `SDR` whose coverage holds when the cumulative density ratios are heavy | asymptotic | the point estimate stands. The study cell `p4_sdr` of the boundaries study reads a standard-error ratio near 0.93 at n = 4,000 with a [0, 1]-projected pseudo-outcome learner. The interval is published as `reporting` | [F37](#f37-sdr-intervals-under-heavy-cumulative-density-ratios) |
 
 ## Eligibility
 
@@ -559,40 +560,6 @@ second comparator option.
 
 Acceptance: a registered study for each estimator, with the controls above and a pre-queue design
 review.
-
-### X40. Continuous-policy validation and support checks
-
-`LTMLE` and `SDR` fit modified treatment policies at a continuous node through `Shift`, `Scale`,
-`Piecewise`, and `ModifiedPolicy`. `check_continuous_policy` already refuses a map without a
-density ratio before any learner. The support report is a diagnostic, and the classifier route
-reports no unsupported mass. This row adds a declared-support check and the evidence that a
-pricing analysis needs. Díaz et al. (2023), *Journal of the American Statistical Association*, give the
-identification, density-ratio estimation, TMLE, and SDR. The 2025 erratum of Williams and Díaz in
-*Observational Studies* corrects the identification assumptions.
-
-| part | what it delivers |
-| --- | --- |
-| (a) transformed-law support | a declared conditional support at each node, and a pre-fit refusal that names the node and the count of rows whose assigned dose falls outside it. The post-fit support report keeps the estimated unsupported mass |
-| (b) map structure | `check_continuous_policy` already refuses a map that sends an interval to one dose, such as `max(floor, 0.95 * price)`. This part adds an explicit mixed-law contract for such a map, or records that it stays refused |
-| (c) classifier ratio | the classifier route already splits by unit and balances the two copies (`cleverly.learners.density_ratio`). This part adds a mutation control that splits the copies across folds, and a witness with unequal copy weights |
-| (d) assumptions | the corrected identification assumptions in the causal metadata. The MTP effect and its stochastic-intervention representation are separate interpretations, each with its own stated assumptions |
-| (e) data-tuned maps | an estimated support boundary or a data-tuned modification, built on training rows only. The contract states the target: the average of the fold-specific parameters, as the learned-rule value does, or the population parameter with the derivative term of the estimated map |
-| (f) outcomes | bounded binary and continuous outcomes first. A revenue outcome declares its support, and the package does not winsorize it silently |
-
-A policy that reads the counterfactual natural treatment history needs an audit first. A fixed
-continuous path, such as prices of exactly $10, $12, and $11, is a different target. It does not
-inherit regular root-n inference. Offer an observed categorical grid, a supported stochastic price
-distribution, or a separately labelled model-based analysis. Never replace the requested path with
-a shift silently.
-
-Acceptance:
-
-- means and contrasts under analytic continuous laws, with nonbinding and binding policy
-  boundaries;
-- identity policies, non-unit Jacobians, several inverse branches, ratio normalization, and
-  wrong-ratio controls;
-- learned-ratio studies beside oracle-ratio parity, with price-feedback confounding and several
-  follow-up lengths.
 
 ### X42. Applied tutorials for offers and pricing
 
@@ -1630,6 +1597,22 @@ as it covers several plans.
 Acceptance: the exact reduction test for both baselines, and a registered property study of the
 repeated-outcome cells.
 
+### X75. Data-tuned policies beyond the shipped tuned caps
+
+The shipped data-tuned caps tune one cap at a continuous node on training rows. Each fit refuses
+the compositions in the table below before any learner. The refusals name this item.
+
+| part | request that stays refused | what it needs |
+| --- | --- | --- |
+| (a) | a tuned cap at a node with dose atoms | the mixed-law ratio at the cap, and the derivative term of the tuned cap at an atom |
+| (b) | a tuned cap with baseline strata | a cap fitted within each stratum, and the target that averages the stratum parameters |
+| (c) | a tuned cap with a missing treatment or a missing outcome | the observation weights in the tuning loss, and the influence curve with the tuned cap |
+| (d) | a tuned cap with an intermediate | the tuned cap in the controlled direct effect, and its derivative term |
+| (e) | a policy fitted to the analysis sample other than a declared tuned cap | a declared target for the fitted policy, and its derivative term |
+
+Acceptance: a pre-fit refusal test for each request that stays refused until its part ships. Each
+part that ships needs an exact-law check with a nonzero witness for the derivative term.
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
@@ -2374,6 +2357,17 @@ bias is then of the order of the learner's error.
 | an interval for sequential g-computation with a data-adaptive outcome learner | asymptotic | an asymptotic-linearity theorem for the iterated conditional expectation plug-in over several time points, such as an undersmoothing result. No source read here derives one |
 | an interval for longitudinal IPW with a data-adaptive mechanism learner | asymptotic | the same result for the cumulative weights. Ertefaie, Hejazi and van der Laan (2023), Section 3, Theorem 1, cover IPW with an undersmoothed highly adaptive lasso propensity at a single time point only |
 | a cross-fitted baseline, `n_folds` above 1 | asymptotic | the same result for cross-fitted nuisances. Cross-fitting does not remove the first-order bias of a plug-in or IPW estimate, so the in-sample result does not carry over |
+
+### F37. SDR intervals under heavy cumulative density ratios
+
+`SDR` regresses a pseudo-outcome at each node. With heavy cumulative density ratios, the pseudo-outcome
+has a heavy tail. The study cell `p4_sdr` reads a standard-error ratio near 0.93 at n = 4,000
+with a pseudo-outcome learner that projects onto [0, 1]. The interval runs short of nominal, so
+the package publishes it as `reporting`.
+
+| kept claim | kind | missing argument |
+| --- | --- | --- |
+| an `SDR` interval at nominal coverage under heavy cumulative density ratios | asymptotic | a cause of the short standard error, and a result that says which pseudo-outcome learner and which ratio truncation restore it. No source read here derives one |
 
 ## Reading a gap correctly
 

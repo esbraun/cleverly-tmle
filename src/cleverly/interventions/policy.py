@@ -231,8 +231,8 @@ _POLICY_DECLARATION = FunctionDeclaration(
             "For an odds tilt of the fitted mechanism, put Incremental nodes in "
             "IPSI(regimens=...) from cleverly.longitudinal."
         ),
-        # X40 part (e) holds a data-tuned modification built on training rows.
-        roadmap="X40",
+        # X75 holds a data-tuned modification built on training rows.
+        roadmap="X75",
     ),
 )
 

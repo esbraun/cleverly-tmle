@@ -482,6 +482,18 @@ refusals. The registered study is
 mechanism-only cells read oracle bins that grow as $n^{2/3}$, 320 at n = 2,000, for the reason
 above. So they test the targeting with a nearly exact ratio and not the default density.
 
+### Limits of the continuous-policy evidence
+
+The registered studies `mtp-boundaries` and `mtp-pricing` test the continuous policies of this
+section. Each row below states a limit that the studies publish.
+
+| limit | what it means for use |
+| --- | --- |
+| a continuous outcome needs `Targeting(q_bounds=(lower, upper))` | a longitudinal fit with a modified treatment policy refuses a continuous outcome with `q_bounds=None`. A revenue outcome is unbounded and positive, so declare its known support. The fit never clips an outcome |
+| the learned-density ratio arms of `mtp-pricing` publish as `reporting` | the screen read SE ratios above 1.05: 1.052, 1.105 and 1.079 at tau 2, 3 and 5 |
+| the screened ratio learner is the quadratic logistic classifier | the study uses it at every tau, with `ratio="classifier"` |
+| the cross-fold leak pair `classifier_split` is not registered | the pilot read a necessity power of 0.0002, so the pair cannot discriminate. The fast tier shows the effect of the leak only. In `tests/unit/test_classifier_ratio_controls.py`, `test_t_c1_no_unit_trains_the_model_that_predicts_it` shows no leak under unit folds. `test_m_c1_folds_over_stacked_rows_leak` shows a leak under row folds |
+
 ### Vector nodes with a continuous component
 
 A node can hold several treatment columns. A list of columns is one entry of `treatment=`, and
@@ -1380,6 +1392,14 @@ in-fold transform's regression open. Theorem 4 assumes that rate, as the LTMLE c
 its own. `tests/unit/test_sdr_construction.py` carries two mutation controls. The stitched Step 2
 moves the estimate by more than `1e-4`, and so does a training row that reads the out-of-fold
 mechanism.
+
+### The interval under heavy cumulative density ratios
+
+The `SDR` interval runs short of nominal when the cumulative density ratios are heavy. The study
+cell `p4_sdr` of `mtp-boundaries` reads a standard-error ratio near 0.93 at n = 4,000. The cell
+uses a pseudo-outcome learner that projects onto [0, 1]. The package publishes this cell as
+`reporting`. [F37](../roadmap.md#f37-sdr-intervals-under-heavy-cumulative-density-ratios) owns
+the open question.
 
 ### Choices that differ from LTMLE
 
