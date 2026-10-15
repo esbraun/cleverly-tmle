@@ -1491,7 +1491,7 @@ refuse the other parts before any learner.
 | (b) | `evaluation=` on the randomized missing-outcome `DRTMLE` | a diagnostic only, as X50 part (d). No new theory is needed |
 | (c) | the composite missing-data route for a method other than `TMLE`, `DRTMLE` and `CTMLE` | the indicator reduction to $\Delta_A \cdot \Delta \cdot 1\{A = a\}$ for each method whose binary-treatment result ships. No shipped method reaches this refusal |
 | (d) | `NaturalCourseMean`, PAR and PAF with complete outcomes under `CTMLE` or `DRTMLE` | the $\Delta \equiv 1$ case of X50 part (c) and X51 part (a). With complete outcomes the natural-course TMLE returns the sample mean and the curve $Y - E[Y]$, as the `ey_obs` row of the [evidence map](technical-reference/evidence.md) records. C-TMLE gives points only, as X51 states |
-| (e) | baseline strata (`strata=`) under `CTMLE(strategy="derivative")` | one derivative fit within each stratum, as the ordinary TMLE fits its stratum estimates. `estimators/ctmle.py` refuses `strata=` before any learner and names this item |
+| (e) | baseline strata (`strata=`), and a declared missing treatment, under `CTMLE(strategy="derivative")` | one derivative fit within each stratum, as the ordinary TMLE fits its stratum estimates; a partner mechanism for the composite indicator $\Delta_A \cdot 1\{A = a\}$. `estimators/ctmle.py` and `estimators/composite.py` refuse both before any learner and name this item |
 
 Acceptance needs each check below.
 

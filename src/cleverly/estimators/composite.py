@@ -519,6 +519,8 @@ def missing_treatment_refusal(
             "strategy='derivative' builds its derivative columns from the treatment mechanism "
             "and a partner mechanism, and no partner is defined for the composite indicator.",
             "Fit TMLE or DRTMLE.",
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="X62",
         )
     per_arm_oat = is_per_arm_oat(estimator)
     if method == "collaborative_tmle" and not per_arm_oat:
