@@ -206,3 +206,8 @@ categorized API tables.
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
+   cleverly.datasets.make_sequential_offers
+   cleverly.datasets.offers_truth
+   cleverly.datasets.offers_protocol
+   cleverly.datasets.win_back
+   cleverly.datasets.win_back_then_ship

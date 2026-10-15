@@ -597,20 +597,22 @@ Acceptance:
 
 ### X42. Applied tutorials for offers and pricing
 
-Publish two tutorials that run through the public API.
+Publish one tutorial that runs through the public API. The
+[sequential offers tutorial](examples/sequential-offers.ipynb) covers categorical and dynamic
+rules, randomized offers, treatment-confounder feedback, censoring, and paired policy comparisons.
+The pricing tutorial remains.
 
 | tutorial | required content |
 | --- | --- |
-| sequential customer offers | categorical and dynamic rules, randomized offers, treatment-confounder feedback, censoring, and paired policy comparisons |
 | sequential pricing | continuous modified treatment policies, support boundaries, price-induced engagement changes, and contrasts against a declared reference policy |
 
-Each tutorial states time zero, eligibility, treatment versions, available history, confounders,
+The tutorial states time zero, eligibility, treatment versions, available history, confounders,
 outcome horizon, and interference assumptions. Use synthetic laws with known truth, and a held-out
 applied pilot where data access permits. Explain when TMLE, `SDR`, g-computation, or IPW is
 appropriate, and why their answers can differ. Keep the stagewise support and truncation
 diagnostics, and label a truncation curve as a descriptive estimator change.
 
-Acceptance: both notebooks execute in the documentation build.
+Acceptance: the notebook executes in the documentation build.
 
 ### X43. Categorical incremental policies
 
