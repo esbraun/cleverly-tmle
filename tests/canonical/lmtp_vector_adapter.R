@@ -89,9 +89,12 @@ VECTOR_RATIO_SCREEN <- 0.999 / (1 - 0.999)
 lmtp_vector_density_ratios <- function(task, learners_trt, control) {
   # lmtp's stacked classifier ratios of a vector modified treatment policy: mtp = TRUE.
   progress <- function(...) invisible(NULL)
-  density <- study_stage("lmtp density ratios", lmtp_internal("cf_density_ratios")(
-    task, learners_trt, TRUE, control, progress
-  ))
+  # Resolved outside the stage, so a missing internal is a harness error and not a recorded
+  # comparator failure.
+  cf_density_ratios <- lmtp_internal("cf_density_ratios")
+  density <- study_stage(
+    "lmtp density ratios", cf_density_ratios(task, learners_trt, TRUE, control, progress)
+  )
   ratios <- density$density_ratios
   if (anyNA(ratios) || any(ratios < 0)) stop("lmtp returned a missing or negative ratio")
   if (any(ratios >= VECTOR_RATIO_SCREEN)) {
