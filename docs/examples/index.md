@@ -1,8 +1,9 @@
 # Examples
 
-These tutorials follow one program. A regional health plan offers **care-transition navigation**
-to adults who leave participating hospitals for home. Each tutorial answers one evaluation
-question in that program with one method, and the table below lists them.
+These tutorials follow two programs. A regional health plan offers **care-transition navigation**
+to adults who leave participating hospitals for home. Each of its tutorials answers one evaluation
+question with one method, and the table below lists them. A subscription retailer sends weekly
+offers. [The retailer program](#the-retailer-program) has its own section.
 
 ## The program
 
@@ -20,8 +21,8 @@ Start with [Point-treatment TMLE](point-treatment-tmle.ipynb).
 | [Time-to-event outcomes](longitudinal-survival.ipynb) | plan exit, then readmission and death under repeated navigation | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | coding death as censoring estimates the readmission risk under a hypothetical removal of death. Its arm contrast is a controlled direct effect only under exchangeability and positivity for death given the recorded history. It is not the reported total effect, which leaves death alone |
 | [MSM projections](msm-projections.ipynb) | three navigation cadences summarized as one trend | [entry](../technical-reference/msm-projections.md) | a linear working model that misses the arm means still defines the parameter it reports |
 
-The tutorials use observational assignment. A randomized offer would identify the assignment
-effect with fewer assumptions. Use one when the program can still control assignment.
+The health-program tutorials use observational assignment. A randomized offer would identify the
+assignment effect with fewer assumptions. Use one when the program can still control assignment.
 
 The synthetic laws make the causal assumptions true by construction. A real analysis must defend
 them from its protocol and operational records. The relevant assumptions are consistency,
@@ -77,6 +78,29 @@ them can weaken consistency or no interference.
 The day-seven engagement score in [longitudinal TMLE](longitudinal-tmle.ipynb) is a time-varying
 confounder, not an outcome.
 
+## The retailer program
+
+A subscription retailer sends one offer to each customer in each of three weeks: no code, a 15%
+discount code, or a free-shipping code. The CRM draws each offer at random, with logged
+probabilities that depend on the customer's engagement that week. Engagement responds to earlier
+offers and drives later ones. Customers who withdraw tracking consent are lost to follow-up.
+
+This program differs from the health program in four ways.
+
+| element | the retailer program |
+| --- | --- |
+| assignment | randomized with logged probabilities, so the offer mechanism is known |
+| treatment | a three-level offer at each of three weekly nodes |
+| data layout | a long panel with one row per customer and week |
+| data | synthetic only. No applied data access exists, so the pilot is a synthetic deployment check |
+
+`offers_protocol()` in `cleverly.datasets` returns the `StudyProtocol` of the program. The
+[datasets reference](../api/datasets.md) lists the generator and the truth.
+
+| tutorial | the evaluation question | method entry | the failure mode it demonstrates |
+| --- | --- | --- | --- |
+| [Sequential offers](sequential-offers.ipynb) | which of five weekly offer policies gives the most full-price orders in week 4, and which policy beats which | [entry](../technical-reference/longitudinal-tmle.md#known-node-mechanisms) and [sequential baselines](../technical-reference/sequential-baselines.md) | a paired comparison that ignores the shared sample overstates the standard error of a difference between policies |
+
 ## Real data
 
 The [TWINS analysis](twins-causal-inference.ipynb) sits outside the program and is the only
@@ -95,5 +119,6 @@ survey-nonresponse
 longitudinal-tmle
 longitudinal-survival
 msm-projections
+sequential-offers
 twins-causal-inference
 ```

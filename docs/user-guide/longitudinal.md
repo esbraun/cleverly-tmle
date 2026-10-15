@@ -128,7 +128,8 @@ print(long_study.data.history_names(2), long_study.data.panel.decision_times)
 The panel holds 400 customers over weeks 10, 20 and 30. A customer who leaves has `active` equal to
 0 on its last row, and no outcome. `history_names(2)` returns `('age', 'eng@1', 'eng@2')`. The
 design hands the frame to `CausalStudy`, and `from_long_panel` takes the same arguments if you
-want the container first.
+want the container first. The [sequential offers tutorial](../examples/sequential-offers.ipynb)
+reads a long panel with a three-level offer and declared offer probabilities.
 
 ### Put each measurement on the right row
 
@@ -603,7 +604,9 @@ The answers can differ from `LTMLE` for three reasons.
 
 With the same outcome learner, the g-computation estimate equals the untargeted first step of
 `LTMLE`. [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md) gives
-the estimators, the stacked influence curve, the settings, and the refusals.
+the estimators, the stacked influence curve, the settings, and the refusals. The
+[sequential offers tutorial](../examples/sequential-offers.ipynb) fits both baselines beside
+`LTMLE` and `SDR` on one campaign.
 
 ## Estimate an incremental intervention over time
 

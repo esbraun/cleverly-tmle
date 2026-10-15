@@ -14,7 +14,7 @@ Three functions serve the navigation program that the [examples](../examples/ind
 | `navigation_protocol` | the `StudyProtocol` of the one-decision program |
 | `longitudinal_navigation_protocol` | the `StudyProtocol` of the two-decision program |
 
-Five names serve the subscription-retailer program of the offers tutorial.
+Eight names serve the subscription-retailer program of the [offers tutorial](../examples/sequential-offers.ipynb).
 
 | name | what it holds |
 | --- | --- |
