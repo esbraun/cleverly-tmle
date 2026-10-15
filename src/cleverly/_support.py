@@ -38,6 +38,7 @@ from ._refusal import Refusal
 __all__ = [
     "KEY_AXES",
     "RECORD_ENVIRONMENT_VARIABLE",
+    "REGIMEN_KINDS",
     "UNCLASSIFIED",
     "Classification",
     "Kind",
@@ -53,6 +54,7 @@ __all__ = [
     "record_fit",
     "record_refusal_site",
     "recording_directory",
+    "regimen_kinds",
     "registered_rows",
     "start_longitudinal_record",
     "start_point_record",
@@ -202,7 +204,8 @@ class SupportKey:
         The missing-data structure: ``"complete"`` or the names of what is missing, and
         ``"intermediate"`` for a declared intermediate.
     treatment : tuple of str
-        The treatment kind and arm count. A longitudinal key holds the level count of each node.
+        The treatment kind and arm count. A longitudinal key holds the level count of each node,
+        led by ``held`` when one baseline treatment is held over every node.
     weighting : {"none", "fixed", "estimated"}
         How the observation weights are read.
     splitting : tuple of str
@@ -216,7 +219,9 @@ class SupportKey:
     qualifiers : frozenset of str
         ``strata`` and ``known_mechanism``. A longitudinal key holds the known factors.
     options : tuple of tuple
-        Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic.
+        Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
+        longitudinal key holds ``multiplier_kind``, the inverse-probability ``normalization`` and
+        the policy density ``ratio``.
     """
 
     kind: str
@@ -487,6 +492,37 @@ def point_key(
     return key, learners
 
 
+#: The regimen kinds of a longitudinal key: a static or dynamic regimen, a known stochastic
+#: policy, a modified treatment policy and an odds tilt.
+REGIMEN_KINDS: Final[tuple[str, ...]] = ("static", "stochastic", "mtp", "tilt")
+
+
+def regimen_kinds(plans: Iterable[Any]) -> frozenset[str]:
+    """The kinds of regimen in resolved longitudinal plans.
+
+    Parameters
+    ----------
+    plans : iterable of RegimenPlan
+        The resolved plans. Each one is read for ``has_mtp``, ``has_tilt`` and ``has_policy``.
+
+    Returns
+    -------
+    frozenset of str
+        Members of :data:`REGIMEN_KINDS`. A plan with no policy node is ``static``. A plan
+        with a policy node and no modified treatment policy or tilt is ``stochastic``.
+    """
+    kinds: set[str] = set()
+    for plan in plans:
+        mtp, tilt = bool(plan.has_mtp), bool(plan.has_tilt)
+        if mtp:
+            kinds.add("mtp")
+        if tilt:
+            kinds.add("tilt")
+        if not (mtp or tilt):
+            kinds.add("stochastic" if plan.has_policy else "static")
+    return frozenset(kinds)
+
+
 def longitudinal_key(
     estimator: Any,
     data: Any,
@@ -495,7 +531,7 @@ def longitudinal_key(
     cross_fitted: bool,
     known_factors: Iterable[str],
     has_msm: bool,
-    has_policy: bool,
+    regimen_kinds: Iterable[str],
 ) -> tuple[SupportKey, dict[str, type | None]]:
     """The key and the learner classes of a longitudinal fit.
 
@@ -513,8 +549,8 @@ def longitudinal_key(
         The treatment and censoring columns whose factor the data declares known.
     has_msm : bool
         Whether the fit reports working-model coefficients.
-    has_policy : bool
-        Whether any regimen is a modified treatment policy.
+    regimen_kinds : iterable of str
+        The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
 
     Returns
     -------
@@ -530,18 +566,26 @@ def longitudinal_key(
         kind="longitudinal",
         engine=(str(estimator._estimator),),
         family=frozenset(
-            (outcome_kind, "msm" if has_msm else "regimens", "mtp" if has_policy else "static")
+            (
+                outcome_kind,
+                "msm" if has_msm else "regimens",
+                *regimen_kinds,
+            )
         ),
         outcome=_outcome(data, estimator.q_bounds),
         missing=("censoring",) if data.has_censoring else ("complete",),
-        treatment=levels,
+        treatment=("held", *levels) if data.treatment_held else levels,
         weighting=_weighting(data),
         splitting=("cross_fitted",) if cross_fitted else ("in_sample",),
         dependence=_dependence(
             _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
         ),
         qualifiers=frozenset(known_factors),
-        options=(("multiplier_kind", _option(estimator.multiplier_kind)),),
+        options=(
+            ("multiplier_kind", _option(estimator.multiplier_kind)),
+            ("normalization", _option(estimator._normalization())),
+            ("ratio", _option(getattr(estimator, "ratio", "density"))),
+        ),
     )
     learners = {
         "outcome": _learner_type(estimator.outcome_learner),
@@ -611,12 +655,11 @@ def registered_rows() -> tuple[SupportRow, ...]:
     Returns
     -------
     tuple of SupportRow
-        The point-treatment rows of :mod:`cleverly._support_rows`. The longitudinal rows join
-        them in a later change.
+        The point-treatment and longitudinal rows of :mod:`cleverly._support_rows`.
     """
-    from ._support_rows import POINT_ROWS
+    from ._support_rows import LONGITUDINAL_ROWS, POINT_ROWS
 
-    return POINT_ROWS
+    return (*POINT_ROWS, *LONGITUDINAL_ROWS)
 
 
 @dataclass(frozen=True)
@@ -937,7 +980,7 @@ def start_longitudinal_record(
     cross_fitted: bool,
     known_factors: Iterable[str],
     has_msm: bool,
-    has_policy: bool,
+    regimen_kinds: Iterable[str],
 ) -> Classification | None:
     """Classify a longitudinal fit and record it. Returns ``None`` with the switch off.
 
@@ -957,8 +1000,8 @@ def start_longitudinal_record(
         The known treatment and censoring factors.
     has_msm : bool
         Whether the fit reports working-model coefficients.
-    has_policy : bool
-        Whether any regimen is a modified treatment policy.
+    regimen_kinds : iterable of str
+        The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
 
     Returns
     -------
@@ -976,7 +1019,7 @@ def start_longitudinal_record(
             cross_fitted=cross_fitted,
             known_factors=known_factors,
             has_msm=has_msm,
-            has_policy=has_policy,
+            regimen_kinds=regimen_kinds,
         )
         classification = classify_key(key, learners)
     except Exception as error:

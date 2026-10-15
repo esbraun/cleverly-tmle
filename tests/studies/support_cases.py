@@ -14,19 +14,33 @@ classifies as the study's fit does. The cluster counts follow the cell: a cell a
 clusters uses its own count, so it lands in the ``t`` tier. Each case names in ``source`` the
 file and line of the runner or property function whose estimator settings it copies.
 
-Longitudinal cases join in a later change.
+A point case builds its estimator and data and classifies them. A longitudinal case, and a
+point case that copies a study's own fit function, runs that function with the record switch's
+entry points replaced: the fit stops where the classifier reads its key, before any learner
+runs. The case then holds the key and the learner classes the study's real fit produces, with
+no second copy of the study's settings.
 """
 
 from __future__ import annotations
 
+import importlib
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+from unittest import mock
 
 import numpy as np
 import pandas as pd
 
+from cleverly._support import (
+    Classification,
+    SupportKey,
+    classify,
+    classify_key,
+    longitudinal_key,
+    point_key,
+)
 from cleverly.data.causal_data import CausalData
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.interventions import Incremental, Rule, Scale, Shift, Static, Stochastic
@@ -34,9 +48,25 @@ from cleverly.interventions.learned import LearnedRule
 from cleverly.msm import MSM
 from cleverly.targets import resolve_estimands
 
-__all__ = ["CASES", "RowCase", "frame"]
+__all__ = ["CASES", "Observed", "RowCase", "capture", "case_key", "classification", "frame"]
 
 Built = tuple[Any, CausalData, tuple[str, ...]]
+
+
+@dataclass(frozen=True)
+class Observed:
+    """The key and learner classes of a study's own fit, read where the classifier reads them.
+
+    Parameters
+    ----------
+    key : SupportKey
+        The key of the fit.
+    learners : mapping of str to type or None
+        The learner class per nuisance role.
+    """
+
+    key: SupportKey
+    learners: Mapping[str, type | None]
 
 
 @dataclass(frozen=True)
@@ -54,14 +84,104 @@ class RowCase:
     source : str
         ``file:line`` of the runner or property function whose settings the case copies.
     build : callable
-        Builds the unfitted estimator, the prepared data and the resolved estimands.
+        Builds the unfitted estimator, the prepared data and the resolved estimands, or returns
+        the :class:`Observed` key of a study's own fit.
     """
 
     row: str
     slug: str
     cell: str
     source: str
-    build: Callable[[], Built]
+    build: Callable[[], Built | Observed]
+
+
+def classification(case: RowCase) -> Classification:
+    """Classify a case against the registered rows.
+
+    Parameters
+    ----------
+    case : RowCase
+        The case.
+
+    Returns
+    -------
+    Classification
+        The row the case lands on, or the nearest row.
+    """
+    built = case.build()
+    if isinstance(built, Observed):
+        return classify_key(built.key, built.learners)
+    estimator, data, estimands = built
+    return classify(estimator, data, estimands)
+
+
+def case_key(case: RowCase) -> SupportKey:
+    """The key a case's fit produces.
+
+    Parameters
+    ----------
+    case : RowCase
+        The case.
+
+    Returns
+    -------
+    SupportKey
+        The key the classifier reads for the case.
+    """
+    built = case.build()
+    if isinstance(built, Observed):
+        return built.key
+    estimator, data, estimands = built
+    return point_key(estimator, data, estimands)[0]
+
+
+class _Reached(BaseException):
+    """Raised by the replaced entry points, so no fit goes past its classifier."""
+
+    def __init__(self, observed: Observed) -> None:
+        super().__init__()
+        self.observed = observed
+
+
+def capture(run: Callable[[], Any]) -> Observed:
+    """Run a study's fit until the support classifier reads its key.
+
+    Parameters
+    ----------
+    run : callable
+        Calls the study's own fit function on a drawn sample.
+
+    Returns
+    -------
+    Observed
+        The key and the learner classes of the fit.
+
+    Raises
+    ------
+    RuntimeError
+        When the call returns without reaching a classifier.
+    """
+    longitudinal = importlib.import_module("cleverly.longitudinal.estimator")
+    point = importlib.import_module("cleverly.estimators.tmle")
+
+    def at_longitudinal(estimator: Any, data: Any, **settings: Any) -> None:
+        settings.pop("source", None)
+        raise _Reached(Observed(*longitudinal_key(estimator, data, **settings)))
+
+    def at_point(estimator: Any, data: Any, estimands: Any, *, source: str = "") -> None:
+        raise _Reached(Observed(*point_key(estimator, data, tuple(estimands))))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with (
+            mock.patch.object(longitudinal, "start_longitudinal_record", at_longitudinal),
+            mock.patch.object(point, "start_point_record", at_point),
+        ):
+            try:
+                run()
+            except _Reached as reached:
+                return reached.observed
+    raise RuntimeError("the study's fit returned without reaching the support classifier")
 
 
 # ----------------------------------------------------------------------------- data
@@ -1176,5 +1296,417 @@ def _c_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+# ----------------------------------------------------------------- studies' own fits
+
+
+def _study(name: str) -> Any:
+    return importlib.import_module(f"tests.studies.{name}")
+
+
+def _observed(
+    row: str,
+    slug: str,
+    cell: str,
+    where: str,
+    module: str,
+    draw: Callable[[Any], Any],
+    fit: Callable[[Any, Any], Any],
+) -> RowCase:
+    """A case that runs the study's own ``fit`` on ``draw(study)`` up to the classifier.
+
+    ``where`` is ``<file>:<line>`` of the fit function, relative to ``tests/studies``.
+    """
+
+    def build() -> Observed:
+        study = _study(module)
+        frame = draw(study)
+        return capture(lambda: fit(study, frame))
+
+    return RowCase(row, slug, cell, _ST + where, build)
+
+
+def _seeded(
+    row: str,
+    slug: str,
+    cell: str,
+    where: str,
+    module: str,
+    scenario: str,
+    n: int,
+    fit: Callable[[Any, Any], Any] | None = None,
+) -> RowCase:
+    """A case that draws ``n`` rows of ``scenario`` and runs the study's ``fit_cleverly``."""
+    return _observed(
+        row,
+        slug,
+        cell,
+        where,
+        module,
+        lambda study: study.draw_from_seed(scenario, n, 0)[0],
+        fit or (lambda study, frame: study.fit_cleverly(frame)),
+    )
+
+
+def _crossfit_properties(name: str) -> Callable[[Any], Any]:
+    """The calibration draw of an SDR property law, at the size its fits read."""
+    return lambda study: study._calibration_frame(name, 2000, 0)[0]
+
+
+def _long_cases() -> tuple[RowCase, ...]:
+    """The longitudinal cases: each one runs the study's own fit to its classifier."""
+    cases: list[RowCase] = []
+
+    def seeded(
+        row: str,
+        slug: str,
+        cell: str,
+        where: str,
+        scenario: str,
+        n: int,
+        fit: Callable[[Any, Any], Any] | None = None,
+    ) -> None:
+        module = where.partition(".py")[0]
+        cases.append(_seeded(row, slug, cell, where, module, scenario, n, fit))
+
+    def observed(
+        row: str,
+        slug: str,
+        cell: str,
+        where: str,
+        draw: Callable[[Any], Any],
+        fit: Callable[[Any, Any], Any],
+    ) -> None:
+        cases.append(_observed(row, slug, cell, where, where.partition(".py")[0], draw, fit))
+
+    # Study primary fits, one sample of the runner's scenario at a size that keeps its structure.
+    end = "censored_end_of_study"
+    seeded("G01", "canonical-ltmle", end, "canonical_ltmle.py:238", end, 400)
+    seeded("G02", "canonical-ltmle-crossfit", end, "canonical_ltmle_crossfit.py:194", end, 400)
+    selected = "selected_censored_end_of_study"
+    seeded("G03", "weighted-ltmle", selected, "canonical_weighted_ltmle.py:99", selected, 400)
+    seeded(
+        "G04",
+        "weighted-ltmle-crossfit",
+        selected,
+        "canonical_weighted_ltmle_crossfit.py:121",
+        selected,
+        400,
+    )
+    clustered = "clustered_end_of_study"
+    seeded(
+        "G05.cross_fitted",
+        "clustered-cross-fitted-ltmle",
+        clustered,
+        "clustered_crossfit_ltmle.py:224",
+        clustered,
+        4000,
+    )
+    few = "few_unequal_informative_j20"
+    seeded("G06", "clustered-few-cluster-tmle", few, "clustered_few_cluster_tmle.py:250", few, 250)
+    few = "few_equal_j20"
+    seeded(
+        "G07", "few-cluster-cross-fitted-ltmle", few, "few_cluster_crossfit_ltmle.py:192", few, 800
+    )
+    cat = "categorical_end_of_study"
+    seeded(
+        "G08.in_sample",
+        "canonical-categorical-ltmle",
+        cat,
+        "canonical_categorical_ltmle.py:97",
+        cat,
+        400,
+    )
+    seeded(
+        "G08.cross_fitted",
+        "canonical-categorical-ltmle-crossfit",
+        cat,
+        "canonical_categorical_ltmle_crossfit.py:107",
+        cat,
+        400,
+    )
+    policy = "categorical_policy_end_of_study"
+    stochastic = "canonical_stochastic_categorical_ltmle.py:238"
+    seeded("G08.in_sample", "stochastic-categorical-ltmle", policy, stochastic, policy, 400)
+    seeded(
+        "G08.cross_fitted",
+        "stochastic-categorical-ltmle",
+        "crossfit",
+        stochastic,
+        policy,
+        400,
+        lambda study, frame: study.fit(frame, n_folds=5),
+    )
+    for suffix, scenario in (
+        ("continuous", "mtp_continuous"),
+        ("continuous_cross_fitted", "mtp_continuous_crossfit"),
+        ("categorical", "mtp_categorical"),
+        ("rr_tilt", "rr_tilt"),
+    ):
+        seeded(
+            f"G10.{suffix}",
+            "longitudinal-mtp",
+            scenario,
+            "canonical_longitudinal_mtp.py:382",
+            scenario,
+            400,
+            lambda study, frame, scenario=scenario: study.fit(frame, scenario),
+        )
+    survival = "censored_survival_curve"
+    seeded(
+        "G11",
+        "canonical-ltmle-survival",
+        survival,
+        "canonical_ltmle_survival.py:246",
+        survival,
+        400,
+    )
+    seeded(
+        "G12",
+        "canonical-ltmle-survival-crossfit",
+        survival,
+        "canonical_ltmle_survival_crossfit.py:217",
+        survival,
+        400,
+    )
+    competing = "censored_competing_risk_curve"
+    seeded(
+        "G13.in_sample",
+        "canonical-ltmle-competing",
+        competing,
+        "canonical_ltmle_competing.py:266",
+        competing,
+        400,
+    )
+    seeded(
+        "G13.cross_fitted",
+        "canonical-ltmle-competing-crossfit",
+        competing,
+        "canonical_ltmle_competing_crossfit.py:87",
+        competing,
+        400,
+    )
+
+    # Point-treatment survival: a held baseline treatment.
+    def held(file: str, line: int, scenario: str) -> tuple[str, str, Callable[[Any, Any], Any]]:
+        return (
+            f"{file}.py:{line}",
+            scenario,
+            lambda study, frame: study.fit(scenario, frame),
+        )
+
+    for row, slug, file, line, scenario in (
+        ("G14.survival", "point-treatment-survival", "canonical_point_survival", 240, "survival"),
+        ("G14.competing", "point-treatment-survival", "canonical_point_survival", 240, "competing"),
+        (
+            "G17.survival",
+            "point-treatment-survival-crossfit",
+            "canonical_point_survival_crossfit",
+            150,
+            "survival",
+        ),
+        (
+            "G17.three_arm",
+            "point-treatment-survival-crossfit",
+            "canonical_point_survival_crossfit",
+            150,
+            "three_arm",
+        ),
+        (
+            "G18.stochastic",
+            "point-treatment-survival-policies",
+            "canonical_point_survival_policies",
+            238,
+            "policy",
+        ),
+        (
+            "G18.policy",
+            "point-treatment-survival-policies",
+            "canonical_point_survival_policies",
+            238,
+            "mtp",
+        ),
+    ):
+        where, name, fit = held(file, line, scenario)
+        observed(
+            row,
+            slug,
+            name,
+            where,
+            lambda study, name=name: study.draw_from_seed(name, 400, 0)[0],
+            fit,
+        )
+    held_properties = "point_survival_properties.py:262"
+    for row, label in (
+        ("G14.three_arm", "three_arm_t3"),
+        ("G14.continuous_time", "continuous_t4"),
+        ("G14.end_of_study", "end_of_study"),
+        ("G15", "weighted_t5"),
+        ("G16", "clustered_t5"),
+    ):
+        observed(
+            row,
+            "point-treatment-survival",
+            label,
+            held_properties,
+            lambda study, label=label: study.draw(label, 2000, 0),
+            lambda study, frame, label=label: study.fit_label(label, frame),
+        )
+
+    seeded(
+        "G19",
+        "longitudinal-msm",
+        "censored_regimen_projection",
+        "canonical_longitudinal_msm.py:184",
+        "censored_regimen_projection",
+        400,
+    )
+    seeded(
+        "G20",
+        "cross-fitted-longitudinal-msm",
+        "cross_fitted_regimen_projection",
+        "canonical_crossfit_longitudinal_msm.py:207",
+        "cross_fitted_regimen_projection",
+        400,
+    )
+    seeded(
+        "G21",
+        "known-node-mechanisms",
+        "smart_q_correct",
+        "canonical_known_node_mechanisms.py:194",
+        "smart_q_correct",
+        400,
+    )
+    seeded(
+        "G27",
+        "longitudinal-repeated-outcome",
+        "censored_repeated_outcome",
+        "canonical_ltmle_repeated.py:460",
+        "censored_repeated_outcome",
+        400,
+    )
+
+    # The IS and cross-fitted fits of ``SDR``: the runner's scenarios and the property cells.
+    sdr = "canonical_longitudinal_sdr.py:362"
+    sdr_slug = "longitudinal-sdr"
+    for row, scenario in (
+        ("G23.in_sample", "sdr_end_of_study"),
+        ("G23.cross_fitted", "sdr_end_of_study_crossfit"),
+        ("G24.survival.in_sample", "sdr_survival"),
+        ("G24.mtp.in_sample", "sdr_mtp"),
+        ("G24.policy.in_sample", "sdr_policy"),
+    ):
+        seeded(
+            row,
+            sdr_slug,
+            scenario,
+            sdr,
+            scenario,
+            400,
+            lambda study, frame, scenario=scenario: study.fit(frame, scenario),
+        )
+    properties = "longitudinal_sdr_properties.py"
+    for row, law, fit_name, line, n in (
+        ("G24.survival.cross_fitted", "survival", "survival_fit", 406, 2000),
+        ("G24.competing", "competing", "competing_fit", 425, 2000),
+        ("G24.policy.cross_fitted", "policy", "policy_fit", 445, 2000),
+        ("G24.mtp.cross_fitted", "mtp", "mtp_fit", 456, 2000),
+        ("G24.msm", "msm", "msm_fit", 475, 2000),
+        ("G25", "weighted", "weighted_fit", 487, 2000),
+        ("G26.clusters_200", "clusters_200", "clustered_fit", 505, 2000),
+        ("G26.clusters_20", "clusters_20", "clustered_fit", 505, 2000),
+    ):
+        observed(
+            row,
+            sdr_slug,
+            law,
+            f"{properties}:{line}",
+            lambda study, law=law, n=n: study._calibration_frame(law, n, 0)[0],
+            lambda study, frame, fit_name=fit_name: getattr(study, fit_name)(frame),
+        )
+
+    # The sequential baselines: g-computation and inverse-probability weighting.
+    baselines = "canonical_sequential_baselines.py:275"
+    for scenario in ("d2_ice", "d2_hajek", "d2_ht", "g_ice", "g_hajek", "g_ht"):
+        law, _, engine = scenario.partition("_")
+        row = {"ice": "gcomp", "hajek": "ipw.hajek", "ht": "ipw.horvitz_thompson"}[engine]
+        observed(
+            f"G28.{law}.{row}",
+            "sequential-baselines",
+            scenario,
+            baselines,
+            lambda study, scenario=scenario: study.draw_from_seed(scenario, 600, 0)[0],
+            lambda study, frame, law=law, engine=engine: study.fit(engine, law.upper(), frame),
+        )
+
+    # The full-refit bootstrap study fits one sample per group, with its own folds and bootstrap.
+    boot = "full_refit_bootstrap_properties.py:277"
+    for row, label in (
+        ("G01", "ratio_end_of_study"),
+        ("G02", "boot_crossfit"),
+        ("G05.in_sample", "boot_clustered"),
+        ("G11.nodes4", "derived_survival"),
+        ("G12.nodes4", "derived_crossfit"),
+    ):
+        observed(
+            row,
+            "full-refit-bootstrap-and-derived-contrasts",
+            label,
+            boot,
+            lambda study, label=label: study._sample(label, study.GROUPS[label][0], 0),
+            lambda study, frame, label=label: study._fit(label, study.GROUPS[label][0], 0, frame),
+        )
+    return tuple(cases)
+
+
+def _gap_cases() -> tuple[RowCase, ...]:
+    """Point cases that run a study's own fit: the C-TMLE sequences, C06 cells and default bands."""
+    cases: list[RowCase] = []
+    slug = "ctmle-oat-per-arm-strata-missing"
+    where = "ctmle_oat_per_arm_strata_missing_properties.py:249"
+    for row, name in (
+        ("C06.missing_outcome", "natural_course_insample"),
+        ("C06.missing_outcome_stacked", "missing_outcome_crossfit"),
+        ("C06.strata_missing_stacked", "strata_missing"),
+        ("C06.weighted_strata_missing_stacked", "weighted_strata_missing"),
+    ):
+        cases.append(
+            _observed(
+                row,
+                slug,
+                name,
+                where,
+                "ctmle_oat_per_arm_strata_missing_properties",
+                lambda study, name=name: study.CONFIGURATION_BY_NAME[name].law.sample(600, 0)[0],
+                lambda study, frame, name=name: study.fit(study.CONFIGURATION_BY_NAME[name], frame),
+            )
+        )
+    sequences = "canonical_ctmle_sequences.py:903"
+    for scenario, size in (("binary_lasso", 400), ("binary_learners", 2000)):
+        cases.append(
+            _seeded(
+                f"C09.{scenario.removeprefix('binary_')}",
+                "canonical-ctmle-sequences",
+                scenario,
+                sequences,
+                "canonical_ctmle_sequences",
+                scenario,
+                size,
+                lambda study, frame, scenario=scenario: study.fit_cleverly(frame, scenario, 1),
+            )
+        )
+    cases.append(
+        _seeded(
+            "T02.binary",
+            "default-simultaneous-bands",
+            "default_fit",
+            "default_bands.py:343",
+            "default_bands",
+            "default_fit",
+            400,
+        )
+    )
+    return tuple(cases)
+
+
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
-CASES: tuple[RowCase, ...] = (*_t_cases(), *_d_cases(), *_c_cases())
+CASES: tuple[RowCase, ...] = (*_t_cases(), *_d_cases(), *_c_cases(), *_gap_cases(), *_long_cases())

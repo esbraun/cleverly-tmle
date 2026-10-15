@@ -15,12 +15,24 @@ A leaf module: it imports :mod:`cleverly._support` only.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any, Final
 
 from ._support import KEY_AXES, Kind, SupportKey, SupportRow
 
-__all__ = ["POINT_ROWS", "default_options", "merge_rows", "point_row", "rows_over"]
+__all__ = [
+    "EXEMPT_STUDIES",
+    "FAMILY_THEORY",
+    "LONGITUDINAL_ROWS",
+    "OPTION_ALLOWLIST",
+    "POINT_ROWS",
+    "TheoryAnchor",
+    "default_options",
+    "long_row",
+    "merge_rows",
+    "point_row",
+    "rows_over",
+]
 
 BINARY: Final[tuple[str, ...]] = ("binomial",)
 CONTINUOUS: Final[tuple[str, ...]] = ("gaussian", "unbounded")
@@ -262,6 +274,14 @@ def _t_rows() -> tuple[SupportRow, ...]:
         ),
         "outcome",
         {"binary": BINARY, "continuous": BOUNDED},
+    )
+    # The default-band study fits ``TMLE()`` with its default splitting on the binary law, and
+    # reads the band that fit publishes.
+    rows[-2] = replace(
+        rows[-2],
+        evidence=(*rows[-2].evidence, "default-simultaneous-bands"),
+        kinds=rows[-2].kinds | {"band"},
+        cells=(*rows[-2].cells, "default_fit"),
     )
     rows += rows_over(
         point_row(
@@ -929,11 +949,44 @@ def _c_rows() -> tuple[SupportRow, ...]:
         point_row(
             "C06.missing_outcome",
             ["ctmle-oat-per-arm-strata-missing"],
-            families=("P1", "P2"),
+            families=("P1", "P2", "P4"),
             engine=per_arm,
             missing=("outcome",),
             kinds=_POINT,
-            cells=["missing_outcome"],
+            cells=["missing_outcome", "natural_course_insample"],
+        ),
+        point_row(
+            "C06.missing_outcome_stacked",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1", "P2", "P4"),
+            engine=per_arm,
+            missing=("outcome",),
+            splitting=("stacked",),
+            kinds=_POINT,
+            cells=["missing_outcome_crossfit"],
+        ),
+        point_row(
+            "C06.strata_missing_stacked",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1", "P4"),
+            engine=per_arm,
+            missing=("outcome",),
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            kinds=_POINT,
+            cells=["strata_missing"],
+        ),
+        point_row(
+            "C06.weighted_strata_missing_stacked",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1",),
+            engine=per_arm,
+            missing=("outcome",),
+            weighting="fixed",
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            kinds=_POINT,
+            cells=["weighted_strata_missing"],
         ),
         point_row(
             "C06.three_arm_missing",
@@ -955,8 +1008,685 @@ def _c_rows() -> tuple[SupportRow, ...]:
             cells=["missing_treatment"],
         ),
     ]
+    rows += [
+        point_row(
+            f"C09.{strategy}",
+            ["canonical-ctmle-sequences"],
+            families=("P1",),
+            engine=_ctmle(strategy),
+            kinds=_POINT,
+            cells=[f"binary_{strategy}"],
+            limits=["The C-TMLE plug-in interval is withheld."],
+        )
+        for strategy in ("lasso", "learners")
+    ]
     return tuple(rows)
 
 
 #: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``) and C-TMLE (``C``).
 POINT_ROWS: Final[tuple[SupportRow, ...]] = (*_t_rows(), *_d_rows(), *_c_rows())
+
+
+# --------------------------------------------------------------------------- longitudinal
+
+_LONG_WALD: Final[frozenset[Kind]] = frozenset({"point", "wald"})
+_LONG_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "band"})
+_LONG_T: Final[frozenset[Kind]] = frozenset({"point", "wald_t"})
+_LONG_DERIVED: Final[frozenset[Kind]] = frozenset({"point", "wald", "band", "derived"})
+_LONG_BOOTSTRAP: Final[frozenset[Kind]] = frozenset(
+    {"point", "wald", "band", "bootstrap", "derived"}
+)
+_TWO: Final[tuple[str, ...]] = ("2", "2")
+_OUTCOME_KINDS: Final[frozenset[str]] = frozenset(
+    {"end_of_study", "survival", "competing", "repeated"}
+)
+
+
+def long_row(
+    row_id: str,
+    evidence: Sequence[str],
+    *,
+    outcome_kind: str = "end_of_study",
+    regimens: Iterable[str] = ("static",),
+    msm: bool = False,
+    held: bool = False,
+    outcome: tuple[str, ...] = BINARY,
+    missing: tuple[str, ...] = ("censoring",),
+    treatment: tuple[str, ...] = _TWO,
+    weighting: str = "none",
+    splitting: tuple[str, ...] = ("in_sample",),
+    dependence: str = "iid",
+    qualifiers: Iterable[str] = (),
+    engine: str = "tmle",
+    normalization: str | None = None,
+    kinds: frozenset[Kind] = _LONG_WALD,
+    cells: Sequence[str] = (),
+    limits: Sequence[str] = (),
+) -> SupportRow:
+    """One support row of a longitudinal estimator, with the defaults of a censored two-node fit.
+
+    Parameters
+    ----------
+    row_id : str
+        The row id.
+    evidence : sequence of str
+        The registered study slugs.
+    outcome_kind : str, default "end_of_study"
+        ``end_of_study``, ``survival``, ``competing`` or ``repeated``.
+    regimens : iterable of str, default ("static",)
+        The regimen kinds of :data:`cleverly._support.REGIMEN_KINDS` the row covers.
+    msm : bool, default False
+        Whether the row reports working-model coefficients.
+    held : bool, default False
+        Whether one baseline treatment is held over every node.
+    outcome, missing, treatment, splitting : tuple of str
+        The axis values of :class:`~cleverly._support.SupportKey`. A node count is the length of
+        ``treatment``.
+    weighting, dependence : str
+        The axis values.
+    qualifiers : iterable of str, default ()
+        The known treatment and censoring factors.
+    engine : str, default "tmle"
+        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``.
+    normalization : str or None, default None
+        The inverse-probability normalization of an ``ipw`` row.
+    kinds : frozenset of str, default Wald
+        What the row licenses.
+    cells : sequence of str, default ()
+        The licensing study cells.
+    limits : sequence of str, default ()
+        The stated limits of the row.
+
+    Returns
+    -------
+    SupportRow
+        The row.
+    """
+    key = SupportKey(
+        kind="longitudinal",
+        engine=(engine,),
+        family=frozenset(
+            (
+                outcome_kind,
+                "msm" if msm else "regimens",
+                *regimens,
+            )
+        ),
+        outcome=outcome,
+        missing=missing,
+        treatment=("held", *treatment) if held else treatment,
+        weighting=weighting,
+        splitting=splitting,
+        dependence=dependence,
+        qualifiers=frozenset(qualifiers),
+        options=(
+            ("multiplier_kind", "rademacher"),
+            ("normalization", normalization),
+            ("ratio", "density"),
+        ),
+    )
+    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), None, tuple(limits))
+
+
+def _long_rows() -> tuple[SupportRow, ...]:
+    """The longitudinal rows (``G``): ``LTMLE``, ``SDR`` and the sequential baselines."""
+    xf = ("cross_fitted",)
+    boot = "full-refit-bootstrap-and-derived-contrasts"
+    rows: list[SupportRow] = [
+        long_row(
+            "G01",
+            ["canonical-ltmle", boot],
+            kinds=_LONG_BOOTSTRAP,
+            cells=["interval_calibration", "simultaneous_coverage", "boot_ey_end_of_study"],
+        ),
+        long_row(
+            "G02",
+            ["canonical-ltmle-crossfit", boot],
+            splitting=xf,
+            kinds=_LONG_DERIVED,
+            cells=["interval_calibration", "simultaneous_coverage"],
+            limits=["The full-refit bootstrap reads an SE ratio of 1.17 to 1.33 here (X20)."],
+        ),
+        long_row(
+            "G03",
+            ["weighted-ltmle"],
+            weighting="fixed",
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G04",
+            ["weighted-ltmle-crossfit"],
+            weighting="fixed",
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G05.cross_fitted",
+            ["clustered-cross-fitted-ltmle"],
+            splitting=xf,
+            dependence="clustered",
+            kinds=_LONG_BAND,
+            cells=["interval_calibration", "simultaneous_coverage"],
+        ),
+        long_row(
+            "G05.in_sample",
+            [boot],
+            dependence="clustered",
+            kinds=_POINT,
+            cells=["boot_ey_clustered"],
+            limits=["Only the full-refit bootstrap measures this configuration (X20)."],
+        ),
+        long_row(
+            "G06",
+            ["clustered-few-cluster-tmle"],
+            missing=("complete",),
+            treatment=("2",),
+            dependence="t",
+            kinds=_LONG_T,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G07",
+            ["few-cluster-cross-fitted-ltmle"],
+            splitting=xf,
+            dependence="t",
+            kinds=_LONG_T,
+            cells=["interval_calibration"],
+        ),
+    ]
+    # Static and known stochastic categorical regimens share one key, so they are one row.
+    for suffix, splitting in (("in_sample", ("in_sample",)), ("cross_fitted", xf)):
+        categorical = long_row(
+            f"G08.{suffix}",
+            ["canonical-categorical-ltmle" + ("-crossfit" if suffix == "cross_fitted" else "")],
+            missing=("complete",),
+            treatment=("3", "3"),
+            splitting=splitting,
+            cells=["interval_calibration"],
+        )
+        policy = long_row(
+            f"G09.{suffix}",
+            ["stochastic-categorical-ltmle"],
+            regimens=("static", "stochastic"),
+            missing=("complete",),
+            treatment=("3", "3"),
+            splitting=splitting,
+            kinds=_LONG_BAND if suffix == "in_sample" else _LONG_WALD,
+            cells=["interval_calibration"],
+        )
+        rows.append(merge_rows(categorical.id, categorical, policy))
+    for suffix, treatment, splitting in (
+        ("continuous", ("continuous", "continuous"), ("in_sample",)),
+        ("continuous_cross_fitted", ("continuous", "continuous"), xf),
+        ("categorical", ("6", "6"), ("in_sample",)),
+        ("rr_tilt", _TWO, ("in_sample",)),
+    ):
+        rows.append(
+            long_row(
+                f"G10.{suffix}",
+                ["longitudinal-mtp"],
+                regimens=("mtp",),
+                missing=("complete",),
+                treatment=treatment,
+                splitting=splitting,
+                kinds=_LONG_BAND,
+                cells=["interval_calibration"],
+            )
+        )
+    rows += [
+        long_row(
+            "G11",
+            ["canonical-ltmle-survival"],
+            outcome_kind="survival",
+            kinds=_LONG_BAND,
+            cells=["interval_calibration", "simultaneous_coverage"],
+        ),
+        long_row(
+            "G11.nodes4",
+            [boot],
+            outcome_kind="survival",
+            treatment=("2",) * 4,
+            kinds=_LONG_BOOTSTRAP,
+            cells=["boot_risk2_survival", "boot_risk4_survival", "rmst_survival"],
+        ),
+        long_row(
+            "G12",
+            ["canonical-ltmle-survival-crossfit"],
+            outcome_kind="survival",
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G12.nodes4",
+            [boot],
+            outcome_kind="survival",
+            treatment=("2",) * 4,
+            splitting=xf,
+            kinds=_LONG_DERIVED,
+            cells=["rmst_crossfit"],
+        ),
+        long_row(
+            "G13.in_sample",
+            ["canonical-ltmle-competing"],
+            outcome_kind="competing",
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G13.cross_fitted",
+            ["canonical-ltmle-competing-crossfit"],
+            outcome_kind="competing",
+            splitting=xf,
+            cells=["interval_calibration"],
+        ),
+    ]
+    survival = "point-treatment-survival"
+    rows += [
+        long_row(
+            "G14.survival",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            kinds=_LONG_BAND,
+            cells=["survival_t5", "rmst_5"],
+        ),
+        long_row(
+            "G14.competing",
+            [survival],
+            outcome_kind="competing",
+            held=True,
+            treatment=("2",) * 4,
+            kinds=_LONG_BAND,
+            cells=["competing_t4"],
+        ),
+        long_row(
+            "G14.three_arm",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("3",) * 3,
+            kinds=_LONG_BAND,
+            cells=["three_arm_t3"],
+        ),
+        long_row(
+            "G14.continuous_time",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 4,
+            kinds=_LONG_BAND,
+            cells=["continuous_t4"],
+        ),
+        long_row(
+            "G14.end_of_study",
+            [survival],
+            held=True,
+            kinds=_LONG_BAND,
+            cells=["end_of_study"],
+        ),
+        long_row(
+            "G15",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            weighting="fixed",
+            cells=["weighted_t5"],
+            limits=["The fixed-weight cell reads a finite-sample shortfall (X13)."],
+        ),
+        long_row(
+            "G16",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            dependence="t",
+            kinds=_LONG_T,
+            cells=["clustered_t5"],
+        ),
+        long_row(
+            "G17.survival",
+            ["point-treatment-survival-crossfit"],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["survival_t5"],
+        ),
+        long_row(
+            "G17.three_arm",
+            ["point-treatment-survival-crossfit"],
+            outcome_kind="survival",
+            held=True,
+            treatment=("3",) * 3,
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["three_arm_t3"],
+            limits=["The three-arm cell reads a finite-sample shortfall (X13)."],
+        ),
+        long_row(
+            "G18.stochastic",
+            ["point-treatment-survival-policies"],
+            outcome_kind="survival",
+            regimens=("stochastic", "mtp"),
+            held=True,
+            treatment=("2",) * 5,
+            cells=["policy_t5"],
+        ),
+        long_row(
+            "G18.policy",
+            ["point-treatment-survival-policies"],
+            outcome_kind="survival",
+            regimens=("mtp",),
+            held=True,
+            treatment=("6",) * 5,
+            cells=["mtp_t5"],
+        ),
+    ]
+    rows += [
+        long_row(
+            "G19",
+            ["longitudinal-msm"],
+            msm=True,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G20",
+            ["cross-fitted-longitudinal-msm"],
+            msm=True,
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G21",
+            ["known-node-mechanisms"],
+            qualifiers=("A1", "A2", "C1", "C2"),
+            cells=["smart_q_correct"],
+        ),
+        long_row(
+            "G27",
+            ["longitudinal-repeated-outcome"],
+            outcome_kind="repeated",
+            treatment=("2",) * 3,
+            cells=["interval_calibration"],
+        ),
+    ]
+    sdr = ["longitudinal-sdr"]
+    rows += [
+        long_row("G23.in_sample", sdr, engine="sdr", kinds=_LONG_BAND, cells=["static"]),
+        long_row(
+            "G23.cross_fitted", sdr, engine="sdr", splitting=xf, kinds=_LONG_BAND, cells=["static"]
+        ),
+        long_row(
+            "G24.survival.in_sample",
+            sdr,
+            outcome_kind="survival",
+            engine="sdr",
+            cells=["survival"],
+        ),
+        long_row(
+            "G24.survival.cross_fitted",
+            sdr,
+            outcome_kind="survival",
+            engine="sdr",
+            splitting=xf,
+            cells=["survival"],
+        ),
+        long_row(
+            "G24.competing",
+            sdr,
+            outcome_kind="competing",
+            engine="sdr",
+            splitting=xf,
+            cells=["competing"],
+        ),
+        long_row(
+            "G24.mtp.in_sample",
+            sdr,
+            regimens=("mtp",),
+            engine="sdr",
+            missing=("complete",),
+            treatment=("continuous", "continuous"),
+            cells=["mtp"],
+        ),
+        long_row(
+            "G24.mtp.cross_fitted",
+            sdr,
+            regimens=("mtp",),
+            engine="sdr",
+            missing=("complete",),
+            treatment=("continuous", "continuous"),
+            splitting=xf,
+            cells=["mtp"],
+        ),
+        long_row(
+            "G24.policy.in_sample",
+            sdr,
+            regimens=("static", "stochastic"),
+            engine="sdr",
+            missing=("complete",),
+            treatment=("3", "3"),
+            cells=["policy"],
+        ),
+        long_row(
+            "G24.policy.cross_fitted",
+            sdr,
+            regimens=("static", "stochastic"),
+            engine="sdr",
+            missing=("complete",),
+            treatment=("3", "3"),
+            splitting=xf,
+            cells=["policy"],
+        ),
+        long_row("G24.msm", sdr, msm=True, engine="sdr", splitting=xf, cells=["msm"]),
+        long_row(
+            "G25", sdr, engine="sdr", weighting="fixed", splitting=xf, cells=["selection_weighted"]
+        ),
+        long_row(
+            "G26.clusters_200",
+            sdr,
+            engine="sdr",
+            splitting=xf,
+            dependence="clustered",
+            cells=["clusters_200"],
+        ),
+        long_row(
+            "G26.clusters_20",
+            sdr,
+            engine="sdr",
+            splitting=xf,
+            dependence="t",
+            kinds=_LONG_T,
+            cells=["clusters_20"],
+        ),
+    ]
+    baselines = ["sequential-baselines"]
+    for law, regimens, treatment, outcome in (
+        ("d2", ("static", "stochastic"), ("2", "3"), BINARY),
+        ("g", ("static",), ("2", "2", "2"), BOUNDED),
+    ):
+        rows.append(
+            long_row(
+                f"G28.{law}.gcomp",
+                baselines,
+                regimens=regimens,
+                treatment=treatment,
+                outcome=outcome,
+                engine="gcomp",
+                cells=[f"{law}_ice"],
+            )
+        )
+        ipw = long_row(
+            f"G28.{law}.ipw",
+            baselines,
+            regimens=regimens,
+            treatment=treatment,
+            outcome=outcome,
+            engine="ipw",
+        )
+        rows += rows_over(
+            ipw,
+            "options",
+            {
+                "hajek": _long_options("hajek"),
+                "horvitz_thompson": _long_options("horvitz_thompson"),
+            },
+        )
+        rows[-2] = replace(rows[-2], cells=(f"{law}_hajek",))
+        rows[-1] = replace(rows[-1], cells=(f"{law}_ht",))
+    return tuple(rows)
+
+
+def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
+    return (
+        ("multiplier_kind", "rademacher"),
+        ("normalization", normalization),
+        ("ratio", "density"),
+    )
+
+
+#: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``) and
+#: the sequential baselines (``G28``).
+LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _long_rows()
+
+
+# ------------------------------------------------------------------ exemptions and anchors
+
+#: The registered studies that no row names, each with the reason. A study that measures no
+#: estimate cannot license a configuration, so it is not the evidence of a row.
+EXEMPT_STUDIES: Final[Mapping[str, str]] = {
+    "omitted-variable-bound-se": (
+        "It measures the standard error of a sensitivity bound. The bound carries its own "
+        "status and is no fit of a row."
+    ),
+    "calibration-slope-warning": (
+        "It measures the rate of a diagnostic warning. The warning is no estimate."
+    ),
+    "learned-rule-cvtmle-boundary": (
+        "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "
+        "and licenses no configuration (F27)."
+    ),
+}
+
+#: The constructor options that stay out of a key, each with a file that states the option. An
+#: option here changes how a nuisance is fitted or how a run is seeded and scheduled, and a
+#: study covers the target at every value. A row names a learner class only where it sets
+#: ``learners``.
+OPTION_ALLOWLIST: Final[Mapping[str, str]] = {
+    "outcome_learner": "src/cleverly/estimators/tmle.py",
+    "treatment_learner": "src/cleverly/estimators/tmle.py",
+    "missingness_learner": "src/cleverly/estimators/tmle.py",
+    "intermediate_learner": "src/cleverly/estimators/tmle.py",
+    "pseudo_learner": "docs/technical-reference/longitudinal-tmle.md",
+    "censoring_learner": "docs/technical-reference/longitudinal-tmle.md",
+    "g_bounds": "docs/technical-reference/point-treatment-tmle.md",
+    "n_folds": "docs/technical-reference/cv-tmle.md",
+    "learner_folds": "docs/technical-reference/longitudinal-tmle.md",
+    "random_state": "src/cleverly/estimators/tmle.py",
+    "n_jobs": "src/cleverly/estimators/tmle.py",
+    "run_id": "src/cleverly/estimators/tmle.py",
+}
+
+
+@dataclass(frozen=True)
+class TheoryAnchor:
+    """Where the theory of one target family is checked.
+
+    Parameters
+    ----------
+    row : str
+        The first cell of the row of ``docs/technical-reference/evidence.md`` that covers the
+        family. Empty when that page has no row for the family yet.
+    instruments : tuple of str
+        The exact-law and Gateaux files of the family, relative to the repository root.
+    """
+
+    row: str
+    instruments: tuple[str, ...]
+
+
+def _anchor(row: str, *instruments: str) -> TheoryAnchor:
+    return TheoryAnchor(row, instruments)
+
+
+#: The theory anchor of each family a key can hold. A family with no anchor has no exact-law or
+#: theory row, and a fit that reports it is experimental.
+FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
+    "P1": _anchor("`ate`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux.py"),
+    "P2": _anchor("`rr`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux.py"),
+    "P3": _anchor("`att`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux.py"),
+    "P4": _anchor("`par`", "tests/discrete_law.py", "tests/discrete_law_mar.py"),
+    "P5": _anchor(
+        "`ey_regime`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_regime.py"
+    ),
+    "P6": _anchor(
+        "`ey_regime`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_regime.py"
+    ),
+    "P7": _anchor(
+        "`ey_policy`", "tests/discrete_law_shift.py", "tests/unit/test_influence_gateaux_shift.py"
+    ),
+    "P8": _anchor(
+        "`ey_rr_tilt`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_rr_tilt.py"
+    ),
+    "P9": _anchor(
+        "`ey_ipsi`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_ipsi.py"
+    ),
+    "P10": _anchor("`msm`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_msm.py"),
+    "P11": _anchor("`ey_learned_rule`", "tests/discrete_law.py"),
+    "end_of_study": _anchor(
+        "end-of-study, static and dynamic regimens",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal.py",
+    ),
+    "survival": _anchor(
+        "absorbing survival curve",
+        "tests/discrete_law_survival.py",
+        "tests/unit/test_influence_gateaux_survival.py",
+    ),
+    "competing": _anchor(
+        "competing-risks cumulative incidence",
+        "tests/discrete_law_competing.py",
+        "tests/unit/test_influence_gateaux_competing.py",
+    ),
+    "repeated": _anchor(
+        "repeated outcome means over horizons",
+        "tests/discrete_law_repeated.py",
+        "tests/unit/test_influence_gateaux_repeated.py",
+    ),
+    "regimens": _anchor(
+        "end-of-study, static and dynamic regimens",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal.py",
+    ),
+    "static": _anchor(
+        "end-of-study, static and dynamic regimens",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal.py",
+    ),
+    "msm": _anchor(
+        "working model over regimen/horizon cells",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal_msm.py",
+    ),
+    "stochastic": _anchor(
+        "known stochastic categorical policies",
+        "tests/discrete_law_longitudinal_policy.py",
+        "tests/unit/test_influence_gateaux_longitudinal_policy.py",
+    ),
+    "mtp": _anchor(
+        "",
+        "tests/discrete_law_longitudinal_mtp.py",
+        "tests/unit/test_influence_gateaux_longitudinal_mtp.py",
+    ),
+    "tilt": _anchor(
+        "",
+        "tests/discrete_law_longitudinal_ipsi.py",
+        "tests/unit/test_influence_gateaux_ipsi.py",
+    ),
+}

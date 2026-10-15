@@ -84,7 +84,7 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
-from .._support import record_fit, start_longitudinal_record
+from .._support import record_fit, regimen_kinds, start_longitudinal_record
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..exceptions import (
     CapabilityError,
@@ -4036,7 +4036,7 @@ class _SequentialEstimator:
                 cross_fitted=not folds.is_single,
                 known_factors=_known_factors(prepared),
                 has_msm=self.msm is not None,
-                has_policy=any(plan.has_mtp for plan in plans),
+                regimen_kinds=regimen_kinds(plans),
             )
             if self._record_support
             else None
