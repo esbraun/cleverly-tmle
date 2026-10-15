@@ -830,13 +830,16 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
         if not admits_data(data):
             return SupportVerdict(False, name, f"the stacked interval needs {text}")
     arm_columns = data.n_arms - 1
-    if estimator.outcome_learner.arm_columns != arm_columns:
+    outcome = estimator.outcome_learner
+    # The option allow-list above admits exactly ParametricOutcome; the type check keeps this
+    # data check independent of that list.
+    if isinstance(outcome, ParametricOutcome) and outcome.arm_columns != arm_columns:
         return SupportVerdict(
             False,
             "outcome_learner",
             f"the stacked interval needs ParametricOutcome(arm_columns={arm_columns}), the "
             f"{arm_columns} arm indicator column(s) of the design; got arm_columns="
-            f"{estimator.outcome_learner.arm_columns!r}",
+            f"{outcome.arm_columns!r}",
         )
     if data.family != "binomial" and estimator.q_bounds is None:
         return SupportVerdict(

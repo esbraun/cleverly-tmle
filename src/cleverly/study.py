@@ -460,7 +460,8 @@ class PointTreatment:
         in-sample per-arm outcome-adaptive CTMLE. It also identifies regime means and arm
         MSMs on in-sample TMLE fits.
     treatment_probabilities : mapping of level to str, or None
-        The known treatment mechanism of a randomized design: each treatment level mapped to
+        The known treatment mechanism of a randomized design (a tuple of ``(level, column)``
+        pairs, the form the design stores, is also accepted): each treatment level mapped to
         the column that holds ``P(A = level | W)``.  Every method then divides by these
         probabilities in place of an estimate, and the columns are not adjustment
         covariates.  A design names columns, so the array forms of
@@ -539,7 +540,7 @@ class PointTreatment:
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         object.__setattr__(self, "strata", tuple(self.strata))
         if self.treatment_probabilities is not None:
-            columns = probability_columns(self.treatment_probabilities)
+            columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
                 raise DataError(
                     "PointTreatment(treatment_probabilities=) maps each treatment level to "
@@ -702,12 +703,43 @@ class PointTreatment:
             )
 
 
+def _stored_pairs(supplied: Any) -> Any:
+    """Read the stored form of a mapping field, a tuple of key and value pairs, as a mapping.
+
+    A frozen design stores each declared mapping as a tuple of pairs, so that the design is
+    hashable.  ``dataclasses.replace`` hands every stored field back to ``__init__``, so each
+    normalizer has to read the form it stores.  Any other value is returned unchanged.  Pairs
+    that repeat a key, or hold an unhashable key, say what a mapping cannot say, so they raise
+    :class:`~cleverly.exceptions.DataError`.
+    """
+    if isinstance(supplied, tuple) and all(
+        isinstance(pair, tuple) and len(pair) == 2 for pair in supplied
+    ):
+        keys = [key for key, _ in supplied]
+        try:
+            distinct = len(set(keys))
+        except TypeError:
+            raise DataError(
+                f"a mechanism declared as pairs needs hashable keys; got {keys!r}"
+            ) from None
+        if distinct != len(keys):
+            repeated = next(key for key in keys if keys.count(key) > 1)
+            raise DataError(
+                f"a mechanism declared as pairs repeats the key {repeated!r}; a mapping "
+                "holds one column for each key"
+            )
+        return dict(supplied)
+    return supplied
+
+
 def _node_probability_columns(supplied: Any) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...]:
     """A longitudinal design's treatment declaration, as hashable column pairs by node."""
     pairs = None
+    supplied = _stored_pairs(supplied)
     if isinstance(supplied, Mapping):
         pairs = tuple(
-            (str(node), probability_columns(per_node)) for node, per_node in supplied.items()
+            (str(node), probability_columns(_stored_pairs(per_node)))
+            for node, per_node in supplied.items()
         )
     if pairs is None or any(columns is None for _, columns in pairs):
         raise DataError(
@@ -721,6 +753,7 @@ def _node_probability_columns(supplied: Any) -> tuple[tuple[str, tuple[tuple[Any
 
 def _censoring_probability_columns(supplied: Any) -> tuple[tuple[str, str], ...]:
     """A longitudinal design's censoring declaration, as hashable column pairs."""
+    supplied = _stored_pairs(supplied)
     if not isinstance(supplied, Mapping) or not all(
         isinstance(column, str) for column in supplied.values()
     ):
@@ -772,7 +805,7 @@ class LongitudinalTreatment:
         held over every node.  The node count then comes from a survival or repeated
         outcome, else from ``censoring``, else from ``time_varying``, else it is one.
     baseline : sequence of str
-        Covariates observed before the first treatment.
+        Covariates observed before the first treatment.  The list names at least one column.
     time_varying : sequence of sequence of str or None
         Covariate blocks observed before each treatment node.
     censoring : sequence of str or None
@@ -791,12 +824,14 @@ class LongitudinalTreatment:
         The treatment nodes that hold a continuous dose.  Each such node takes a modified
         treatment policy, such as :class:`~cleverly.interventions.Shift`.
     treatment_probabilities : mapping or None
-        The known treatment mechanism of a sequentially randomized design: each treatment
+        The known treatment mechanism (a tuple of pairs, the form the design stores, is also
+        accepted) of a sequentially randomized design: each treatment
         node mapped to a mapping of its levels to the column of
         ``P(A_t = level | observed past)``.  A declared node fits no treatment learner.
     censoring_probabilities : mapping or None
-        The known retention probabilities: each censoring column mapped to the column of
-        ``P(C_t = 1 | observed past)``.  A declared node fits no censoring learner.
+        The known retention probabilities (a tuple of pairs is also accepted): each censoring
+        column mapped to the column of ``P(C_t = 1 | observed past)``.  A declared node fits no
+        censoring learner.
 
     See Also
     --------
@@ -1023,7 +1058,7 @@ class TimeToEvent:
     treatment : str
         The baseline treatment column.
     baseline : sequence of str
-        Covariates measured before the treatment.
+        Covariates measured before the treatment.  The list names at least one column.
     grid : sequence of float or None
         The grid times, which are the visit times.  ``None`` needs integer times and uses
         :math:`g_k = k` up to the largest event time.  The fit costs :math:`K(K+1)/2`
@@ -1048,7 +1083,8 @@ class TimeToEvent:
         Whether the treatment is a continuous dose.  A regimen is then a modified treatment
         policy at baseline.
     treatment_probabilities : mapping of level to str, or None
-        The known baseline treatment mechanism of a randomized design: each treatment level
+        The known baseline treatment mechanism (a tuple of ``(level, column)`` pairs is also
+        accepted) of a randomized design: each treatment level
         mapped to the column that holds :math:`P(A = \text{level} \mid W)`.  The fit then
         divides by these probabilities and fits no treatment learner.  A design names
         columns, so the array forms of :meth:`cleverly.longitudinal.LTMLE.fit` are refused
@@ -1090,7 +1126,7 @@ class TimeToEvent:
 
     def __post_init__(self) -> None:
         if self.treatment_probabilities is not None:
-            columns = probability_columns(self.treatment_probabilities)
+            columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
                 raise DataError(
                     "TimeToEvent(treatment_probabilities=) maps each treatment level to the "
@@ -1227,7 +1263,8 @@ class LongPanel:
     treatment : str or sequence of str
         The decision at each row.  A list of columns is one vector node per time.
     baseline : sequence of str
-        Unit-level covariates measured before the first decision.
+        Unit-level covariates measured before the first decision.  The list names at least one
+        column.
     time_varying : sequence of str
         Covariates measured at each row before that row's decision.
     censoring : str or None
@@ -1254,7 +1291,8 @@ class LongPanel:
         Whether the treatment holds a continuous dose at every node.
     treatment_probabilities : mapping of level to str, or None
         The known treatment mechanism: each level mapped to the column that holds
-        ``P(A_t = level | past)`` on each row.
+        ``P(A_t = level | past)`` on each row.  A tuple of ``(level, column)`` pairs, the form
+        the design stores, is also accepted.
     censoring_probabilities : str or None
         The column that holds ``P(C_t = 1 | past)`` on each row.
 
@@ -1313,9 +1351,8 @@ class LongPanel:
         if self.times is not None:
             object.__setattr__(self, "times", tuple(self.times))
         if self.treatment_probabilities is not None:
-            object.__setattr__(
-                self, "treatment_probabilities", tuple(self.treatment_probabilities.items())
-            )
+            declared = _stored_pairs(self.treatment_probabilities)
+            object.__setattr__(self, "treatment_probabilities", tuple(declared.items()))
 
     @property
     def outcome_role(self) -> Any:

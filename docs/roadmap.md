@@ -1524,10 +1524,11 @@ Acceptance needs each check below.
 
 ### X63. Missing data, intermediates and designs
 
-`CausalData`, the declarations of `data/validate.py` and `data/known_mechanism.py`, and the
-natural-course support report refuse the requests below. A missing treatment beside a continuous
-treatment or a categorical modified treatment policy is an `invalid_declaration`, not a gap. The
-recording may depend on the treatment, so the law of $A$ given $W$ is not identified.
+`CausalData`, `LongitudinalData`, the declarations of `data/validate.py` and
+`data/known_mechanism.py`, and the natural-course support report refuse the requests below. A
+missing treatment beside a continuous treatment or a categorical modified treatment policy is an
+`invalid_declaration`, not a gap. The recording may depend on the treatment, so the law of $A$
+given $W$ is not identified.
 [F33](#f33-other-intervention-and-design-compositions) keeps the composite indicator with a
 controlled direct effect.
 
@@ -1535,13 +1536,14 @@ controlled direct effect.
 | --- | --- | --- |
 | (a) | a declared known density for a continuous treatment | a declared conditional density in place of the fitted one in the density ratio, for a policy whose definition does not read $g$. Base: Díaz, Williams, Hoffman and Schenck (2023), Theorem 3, whose remainder is a product of the ratio error and the outcome error. A declared $g_0$ makes the ratio error zero, as the [known treatment mechanism](technical-reference/point-treatment-tmle.md#known-treatment-mechanism) section states for discrete policies. The curve stays valid at $g_0$. The part claims no efficiency in the known-$g$ model, as that section states for the ATT |
 | (b) | a multi-valued intermediate variable | the controlled direct effect at each level $z$, through the indicator $1\{Z = z\}$. The step is an indicator reduction |
-| (c) | a fit with no covariates | an intercept-only nuisance design. The arm mean then reduces to the unadjusted mean. No new theory is needed |
+| (c) | a fit with no covariates, which includes `baseline=()` on `LongitudinalTreatment`, `LongPanel` and `TimeToEvent` | an intercept-only nuisance design. The arm mean then reduces to the unadjusted mean. No new theory is needed. The three longitudinal layouts share one container, so one refusal in `LongitudinalData` covers them |
 | (d) | a support report of the response mechanism for the natural course with missing outcomes | a diagnostic over the fitted response probabilities. It makes no estimator claim |
 
 Acceptance needs each check below.
 
 - a two-level intermediate equals the shipped binary controlled direct effect;
 - a fit with no covariates equals the unadjusted arm means exactly;
+- a long panel with no baseline covariate equals the equivalent wide frame exactly;
 - a declared density equal to the fitted one reproduces the fitted-density fit;
 - a nonzero witness for each changed term;
 - a pre-fit refusal test for each request that stays refused;

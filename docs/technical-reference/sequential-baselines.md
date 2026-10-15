@@ -144,6 +144,16 @@ unchanged. No study measures that floor for the baselines.
 The default `GLM()` follows the `SL.library="glm"` default of R `ltmle`. `GLM(interactions=k)`
 adds products of distinct columns.
 
+## Diagnostics
+
+`result.diagnostics.support().to_frame()` reports one row per regimen and node. The row holds the
+follower count, the assignment share, the largest weight, the effective sample size and the share
+of truncated rows. Neither baseline fits a fluctuation. The frame therefore has no `epsilon` column
+and no `converged` column, as for `SDR`, and `LTMLE` keeps both. The `rows` of the report hold
+`epsilon=()` and `converged=None` for a baseline node.
+`tests/unit/test_longitudinal_support_frame.py` checks both baselines on a binary and a categorical
+treatment.
+
 ## Refusals
 
 | request | estimator | error |
