@@ -109,6 +109,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_known_node_mechanisms.py",
         "tests/studies/known_node_mechanisms_properties.py",

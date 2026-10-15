@@ -342,9 +342,9 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 
 | where to read the evidence | what is there |
 | --- | --- |
-| [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
-| [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
-| [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
+| [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors, comparator-backed against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
+| [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design, comparator-backed against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
+| [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
 | `tests/diagnostics/x17_generated_design/` | the generated-design term $c^\top \mathrm{IF}_\beta$ restores the standard-error ratio on the binary law |
 | `tests/unit/test_outcome_adaptive_per_arm.py` | an exact law on which the two designs differ, the curve of Theorem 1 row by row, in-sample and cross-fitted longhands to `1e-8`, the joint covariance, and fixed weights against duplicated rows. Its class `TestEachMutationFailsItsCheck` applies 13 mutations by `monkeypatch`, and each one fails its check |
 | `tests/unit/test_shared_oat_replay.py` | the shared design refits replication 0 of each registered `ctmle3` study to its committed rows |
@@ -373,8 +373,8 @@ that the flag reads. Before the run, it declared that a red cell with no defect 
 The shipped fit builds no band. The study's band cell sets the flag for its own fit only, so it
 measures the band that the per-arm design would build from its stacked curves.
 
-The deficit does not shrink with $n$. R `drtmle` 1.1.2, with `adapt_g = TRUE`, agrees with
-`cleverly` to `1e-8` in each estimate and standard error. The bias is equivalent to zero in each
+The deficit does not shrink with $n$. The comparator-backed comparison with R `drtmle` 1.1.2, with
+`adapt_g = TRUE`, shows agreement with `cleverly` to `1e-8` in each estimate and standard error. The bias is equivalent to zero in each
 cell. So the code computes the curve that the paper states, and that curve omits a term.
 
 The cause is condition (v). For a root-$n$ outcome regression on a continuous $W$, the

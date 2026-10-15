@@ -243,7 +243,7 @@ def _recursion(
     cumulative_numerator = plan.cumulative_numerator(data)
     carry_numerator = None if carry_plan is None else carry_plan.intervention_density(data)
     horizon = cell.horizon
-    seed = seed_carried(data, scaler)
+    seed = seed_carried(data, scaler, horizon=horizon)
     values: dict[int, FloatArray] = {horizon + 1: seed}
     carry_values: dict[int, FloatArray] = {horizon + 1: seed}
     observed: dict[int, FloatArray] = {}

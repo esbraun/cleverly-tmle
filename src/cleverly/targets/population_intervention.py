@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .._refusal import Refusal, RefusalReason
+
 __all__ = [
     "NATURAL_COURSE_SUPPORT_REFUSAL",
     "NATURAL_COURSE_TARGET",
@@ -49,10 +51,15 @@ NATURAL_COURSE_TILT_REFUSAL = (
 #: response-only overlap report could be written and has not been.
 #: ``docs/architecture-invariants.md`` separates the two words, and the capability row
 #: this sentence fills carries ``UNAVAILABLE``.
-NATURAL_COURSE_SUPPORT_REFUSAL = (
+NATURAL_COURSE_SUPPORT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "NaturalCourseMean with missing outcomes fits no treatment propensity, and a "
-    "response-only support report is not implemented; inspect the missingness row from "
-    "diagnostics.nuisance_models() and the targeting score instead"
+    "response-only support report is not implemented.",
+    alternative=(
+        "Inspect the missingness row from diagnostics.nuisance_models() and the targeting "
+        "score instead."
+    ),
+    roadmap="X63",
 )
 
 

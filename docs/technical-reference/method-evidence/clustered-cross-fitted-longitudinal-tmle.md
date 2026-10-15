@@ -54,13 +54,15 @@ to $10^{-10}$ on every fit. The two constructions differ by the fold of the fluc
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -0.000052 | 0.0084 | 1.0052 | 0.000625 | 0.0022 vs 0.0500 | equivalent |
-| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000005 | 0.000812 | 1.0067 | -0.000625 | 0.0030 vs 0.0500 | equivalent |
-| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ey_regimen[always]` | mean outcome under the plan treat at both times | -0.000071 | 0.0202 | 1.0053 | -0.0012 | 0.0023 vs 0.0500 | equivalent |
-| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -0.000019 | 0.0037 | 1.0048 | -0.0025 | 0.0023 vs 0.0500 | equivalent |
-| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | -0.000014 | 0.0041 | 1.0111 | -0.0012 | 0.0046 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | -0.000052 | 0.0084 | 1.0052 | 0.000625 | different estimator | 0.0022 vs 0.0500 | equivalent |
+| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000005 | 0.000812 | 1.0067 | -0.000625 | different estimator | 0.0030 vs 0.0500 | equivalent |
+| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ey_regimen[always]` | mean outcome under the plan treat at both times | -0.000071 | 0.0202 | 1.0053 | -0.0012 | different estimator | 0.0023 vs 0.0500 | equivalent |
+| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -0.000019 | 0.0037 | 1.0048 | -0.0025 | different estimator | 0.0023 vs 0.0500 | equivalent |
+| 100 clusters of 40 rows, a mean-zero cluster component on the final outcome, censored two-node panel | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | -0.000014 | 0.0041 | 1.0111 | -0.0012 | different estimator | 0.0046 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Repeated-sampling properties

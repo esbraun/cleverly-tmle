@@ -342,6 +342,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-policy-tmle",
     reference="lmtp",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_policy_point_mtp.py",
         "tests/studies/policy_point_mtp_properties.py",

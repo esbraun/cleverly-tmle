@@ -202,6 +202,14 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stratified-incremental",
     reference="npcausal-stratified",
+    comparison="related target",
+    comparison_overrides={
+        "stratified_incremental:ey_ipsi[natural course]": "different estimator",
+        "stratified_incremental:ey_ipsi[odds x0.5]": "different estimator",
+        "stratified_incremental:ey_ipsi[odds x2]": "different estimator",
+        "stratified_incremental:ate_ipsi[odds x0.5 vs natural course]": "different estimator",
+        "stratified_incremental:ate_ipsi[odds x2 vs natural course]": "different estimator",
+    },
     modules=(
         "tests/studies/canonical_stratified_incremental_msm.py",
         "tests/studies/stratified_incremental_msm_properties.py",

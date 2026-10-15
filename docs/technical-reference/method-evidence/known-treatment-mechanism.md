@@ -62,20 +62,22 @@ the ATT and the ATC at `binary_q_correct` only.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| randomized by W2 with a known mechanism, correct outcome regression | `atc` | average effect on the untreated | 0.000049 | 0.0130 | 1.0002 | -0.0010 | 0.0025 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, correct outcome regression | `ate` | average treatment effect | 6.679e-11 | 1.963e-08 | 1.0000 | 0 | 3.417e-09 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, correct outcome regression | `att` | average effect on the treated | -0.000053 | 0.0143 | 1.0004 | 0.0020 | 0.0037 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, correct outcome regression | `ey0` | counterfactual mean under no treatment | -4.906e-11 | 2.062e-08 | 1.0000 | 0 | 8.523e-10 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, correct outcome regression | `ey1` | counterfactual mean under treatment | 1.773e-11 | 7.083e-09 | 1.0000 | 0 | 1.911e-09 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, correct outcome regression | `or` | marginal odds ratio, reported on the log scale | 7.194e-10 | 1.893e-08 | 1.0000 | 0 | 3.535e-09 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, correct outcome regression | `rr` | marginal risk ratio, reported on the log scale | 2.659e-10 | 2.025e-08 | 1.0000 | 0 | 4.669e-09 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, outcome regression without W2 | `ate` | average treatment effect | 8.830e-10 | 2.463e-07 | 1.0000 | 0 | 1.168e-08 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, outcome regression without W2 | `ey0` | counterfactual mean under no treatment | -8.081e-10 | 3.285e-07 | 1.0000 | 0 | 9.502e-09 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, outcome regression without W2 | `ey1` | counterfactual mean under treatment | 7.485e-11 | 2.896e-08 | 1.0000 | 0 | 7.739e-09 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, outcome regression without W2 | `or` | marginal odds ratio, reported on the log scale | 1.006e-08 | 2.514e-07 | 1.0000 | 0 | 1.209e-08 vs 0.0500 | equivalent |
-| randomized by W2 with a known mechanism, outcome regression without W2 | `rr` | marginal risk ratio, reported on the log scale | 4.010e-09 | 2.907e-07 | 1.0000 | 0 | 1.348e-08 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle-r-known-g` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| randomized by W2 with a known mechanism, correct outcome regression | `atc` | average effect on the untreated | 0.000049 | 0.0130 | 1.0002 | -0.0010 | different estimator | 0.0025 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, correct outcome regression | `ate` | average treatment effect | 6.679e-11 | 1.963e-08 | 1.0000 | 0 | matching implementation | 3.417e-09 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, correct outcome regression | `att` | average effect on the treated | -0.000053 | 0.0143 | 1.0004 | 0.0020 | different estimator | 0.0037 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, correct outcome regression | `ey0` | counterfactual mean under no treatment | -4.906e-11 | 2.062e-08 | 1.0000 | 0 | matching implementation | 8.523e-10 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, correct outcome regression | `ey1` | counterfactual mean under treatment | 1.773e-11 | 7.083e-09 | 1.0000 | 0 | matching implementation | 1.911e-09 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, correct outcome regression | `or` | marginal odds ratio, reported on the log scale | 7.194e-10 | 1.893e-08 | 1.0000 | 0 | matching implementation | 3.535e-09 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, correct outcome regression | `rr` | marginal risk ratio, reported on the log scale | 2.659e-10 | 2.025e-08 | 1.0000 | 0 | matching implementation | 4.669e-09 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, outcome regression without W2 | `ate` | average treatment effect | 8.830e-10 | 2.463e-07 | 1.0000 | 0 | matching implementation | 1.168e-08 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, outcome regression without W2 | `ey0` | counterfactual mean under no treatment | -8.081e-10 | 3.285e-07 | 1.0000 | 0 | matching implementation | 9.502e-09 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, outcome regression without W2 | `ey1` | counterfactual mean under treatment | 7.485e-11 | 2.896e-08 | 1.0000 | 0 | matching implementation | 7.739e-09 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, outcome regression without W2 | `or` | marginal odds ratio, reported on the log scale | 1.006e-08 | 2.514e-07 | 1.0000 | 0 | matching implementation | 1.209e-08 vs 0.0500 | equivalent |
+| randomized by W2 with a known mechanism, outcome regression without W2 | `rr` | marginal risk ratio, reported on the log scale | 4.010e-09 | 2.907e-07 | 1.0000 | 0 | matching implementation | 1.348e-08 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

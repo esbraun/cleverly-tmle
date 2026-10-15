@@ -119,7 +119,13 @@ from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.causal_data import CausalData
 from ..data.weighting import effective_sample_size, format_score_load
-from ..exceptions import CapabilityError, DataError, PositivityWarning
+from ..exceptions import (
+    CapabilityError,
+    DataError,
+    PositivityWarning,
+    Refusal,
+    RefusalReason,
+)
 from ..learners.crossfit import Folds
 from ..learners.density import ConditionalDensity, MixedDensity, warn_if_unresolved
 from .support import _intervention_loads, _InterventionLoadRow
@@ -208,16 +214,25 @@ _ATOM_TOLERANCE = 1e-12
 _POLICY_DECLARATION = FunctionDeclaration(
     field="policy_kind",
     meaning="It declares whether the modified treatment policy d(a, h) is a known function.",
-    undeclared=(
+    undeclared=Refusal(
+        RefusalReason.INVALID_DECLARATION,
         "a modified treatment policy d(a, h) can close over any estimate, and no code can "
-        "inspect a closure, so its status is a declaration. Declare "
-        "ModifiedPolicy(..., policy_kind='known') when d is fixed before the fit and chosen "
-        "without reading the analysis sample"
+        "inspect a closure, so its status is a declaration.",
+        alternative=(
+            "Declare ModifiedPolicy(..., policy_kind='known') when d is fixed before the fit "
+            "and chosen without reading the analysis sample."
+        ),
     ),
-    estimated=(
-        "A policy fitted to the analysis sample makes the estimand data-dependent; Díaz et "
-        "al. (2023) Theorem 2 assumes d does not depend on P. For an odds tilt of the fitted "
-        "mechanism, put Incremental nodes in IPSI(regimens=...) from cleverly.longitudinal"
+    estimated=Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        "A policy fitted to the analysis sample makes the estimand data-dependent. Díaz et "
+        "al. (2023) Theorem 2 assumes d does not depend on P.",
+        alternative=(
+            "For an odds tilt of the fitted mechanism, put Incremental nodes in "
+            "IPSI(regimens=...) from cleverly.longitudinal."
+        ),
+        # X40 part (e) holds a data-tuned modification built on training rows.
+        roadmap="X40",
     ),
 )
 
@@ -720,9 +735,13 @@ class ModifiedPolicy:
         if self.randomizer is not None and not isinstance(self.randomizer, Randomizer):
             raise CapabilityError(
                 f"policy {self.name!r} draws a continuous randomizer. The estimator "
-                "integrates a randomizer with finitely many values of known probability; "
-                "discretize it. runif() < delta is a two-point randomizer and is accepted: "
-                "Randomizer((True, False), (delta, 1 - delta))"
+                "integrates a randomizer with finitely many values of known probability.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Discretize it. runif() < delta is a two-point randomizer and is "
+                    "accepted: Randomizer((True, False), (delta, 1 - delta))."
+                ),
+                roadmap="X64",
             )
         if (self.pieces is None) == (self.apply is None):
             raise DataError(
@@ -898,8 +917,10 @@ class JointPolicy:
         if self.randomizer is not None and not isinstance(self.randomizer, Randomizer):
             raise CapabilityError(
                 f"policy {self.name!r} draws a continuous randomizer. The estimator "
-                "integrates a randomizer with finitely many values of known probability; "
-                "discretize it as Randomizer(values, probabilities)"
+                "integrates a randomizer with finitely many values of known probability.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Discretize it as Randomizer(values, probabilities).",
+                roadmap="X64",
             )
         if not isinstance(self.components, Mapping):
             raise DataError(
@@ -999,11 +1020,20 @@ def refuse_policy_declarations(policies: Iterable[object]) -> None:
         kind: object = policy.policy_kind
         _POLICY_DECLARATION.check(kind)
         if kind is None:
-            raise CapabilityError(f"policy {policy.name!r}: {_POLICY_DECLARATION.undeclared}")
+            undeclared = _POLICY_DECLARATION.undeclared
+            raise CapabilityError.from_refusal(
+                replace(undeclared, condition=f"policy {policy.name!r}: {undeclared.condition}")
+            )
         if kind == "estimated":
-            raise CapabilityError(
-                f"policy {policy.name!r} is declared as estimated from the sample. "
-                + _POLICY_DECLARATION.estimated
+            estimated = _POLICY_DECLARATION.estimated
+            raise CapabilityError.from_refusal(
+                replace(
+                    estimated,
+                    condition=(
+                        f"policy {policy.name!r} is declared as estimated from the sample. "
+                        f"{estimated.condition}"
+                    ),
+                )
             )
 
 
@@ -2066,7 +2096,8 @@ def policy_branches(policy: object) -> tuple[tuple[float, _Branch], ...]:
             f"policy {policy.name!r} is a JointPolicy, which declares one policy per component "
             "of a vector treatment. This route reads a treatment of one column. A "
             "JointPolicy applies at a vector node of a longitudinal fit, or at a point "
-            "treatment=[...] of several columns"
+            "treatment=[...] of several columns.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     raise DataError(
         f"{policy!r} is not a modified treatment policy. Declare Shift, Scale, Piecewise, "
@@ -2298,15 +2329,17 @@ def check_continuous_policy(
     if isinstance(policy, RiskRatioTilt):
         raise CapabilityError(
             f"policy {name!r} at {where} is a risk-ratio tilt, which sets a binary treatment. "
-            "It has no density ratio on a continuous dose"
+            "It has no density ratio on a continuous dose.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if isinstance(policy, ModifiedPolicy) and policy.pieces is None:
         raise CapabilityError(
             f"policy {name!r} at {where} declares apply= on a continuous treatment. A policy on "
             "a continuous dose declares pieces (Díaz et al. 2023, Assumption 4): an apply= "
             "that maps an interval to one dose is not pathwise differentiable (Section 4, "
-            "journal page 850), and no ratio route can tell that it does not. Declare "
-            "pieces=(Piece(...), ...)"
+            "journal page 850), and no ratio route can tell that it does not.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Declare pieces=(Piece(...), ...).",
         )
     if not isinstance(policy, (Shift, Scale, Piecewise, ModifiedPolicy)):
         return
@@ -3101,7 +3134,8 @@ def _check_monotone(
                 f"{stop[row]:g}) of a continuous treatment by a map that is not strictly "
                 "monotone there. Equation (3) of Díaz et al. (2023) needs a strictly monotone "
                 "smooth map on each piece (Assumption 4). Split the interval into pieces on "
-                "which the map is strictly monotone" + note
+                "which the map is strictly monotone" + (note or "."),
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         for point, image in zip(grid, mapped, strict=True):
             with np.errstate(all="ignore"):
@@ -5061,7 +5095,7 @@ def _vector_setup(declared: tuple[object, ...], data: CausalData) -> _VectorSetu
     assert data.treatment_components is not None
     for policy in declared:
         if not isinstance(policy, JointPolicy):
-            raise CapabilityError(whole_vector_refusal(policy, data.treatment_name))
+            raise CapabilityError.from_refusal(whole_vector_refusal(policy, data.treatment_name))
     components = tuple(
         JointComponent(name, levels)
         for name, levels in zip(data.component_names, data.component_levels, strict=True)
@@ -5187,9 +5221,15 @@ def _discrete_components(
     """The component arrays on a categorical treatment, by the discrete formula."""
     if data.has_missing_treatment:
         raise CapabilityError(
-            "a modified treatment policy on a categorical treatment reads the level each unit "
-            "received, and this fit declares a missing treatment. The policy mean with an "
-            "unrecorded treatment is a parameter this package has not derived"
+            f"When the missingness of {data.treatment_name} may depend on "
+            f"{data.treatment_name}, P({data.treatment_name} = a | W) is not identified; only "
+            f"P({data.treatment_name} = a | Delta_A = 1, W) is. policies= reads "
+            f"P({data.treatment_name} | W).",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Drop the rows with a missing treatment, which assumes the treatment is "
+                "missing completely at random, and fit TMLE(policies=)."
+            ),
         )
     levels = tuple(data.arm_label(code) for code in data.arm_codes)
     observed = np.asarray(data.treatment, dtype=float).astype(np.int64)
@@ -5220,39 +5260,81 @@ def _same(values: FloatArray) -> FloatArray:
     return values
 
 
-def vector_route_refusal(treatment: str) -> str:
+def vector_route_refusal(treatment: str) -> Refusal:
     """Why a vector treatment with a continuous component needs ``policies=``.
 
     It is the reason a continuous dose has: no arms, so no arm-indexed estimand names a
     parameter of it.
+
+    Parameters
+    ----------
+    treatment : str
+        The treatment name.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
     """
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"treatment {treatment!r} is a vector with a continuous component, so it has no arms "
-        "and none of the arm-indexed estimands name a parameter it has. Say which values to "
-        "compare with policies=[JointPolicy(name, components={column: policy, ...}, "
-        "policy_kind='known'), ...]; JointPolicy(name, components={}, policy_kind='known') "
-        "is the natural course, whose mean is E[Y]"
+        "and none of the arm-indexed estimands name a parameter it has.",
+        alternative=(
+            "Say which values to compare with policies=[JointPolicy(name, "
+            "components={column: policy, ...}, policy_kind='known'), ...]. "
+            "JointPolicy(name, components={}, policy_kind='known') is the natural course, "
+            "whose mean is E[Y]."
+        ),
     )
 
 
-def vector_msm_refusal(treatment: str) -> str:
-    """Why ``msm=`` refuses a vector treatment with a continuous component."""
-    return (
+def vector_msm_refusal(treatment: str) -> Refusal:
+    """Why ``msm=`` refuses a vector treatment with a continuous component.
+
+    Parameters
+    ----------
+    treatment : str
+        The treatment name.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"treatment {treatment!r} is a vector with a continuous component, and msm= projects "
         "the dose-response curve of one dose: MSM(doses=...) declares a grid on one dose "
         "axis, and the clever covariate integrates over it by the trapezoid rule. A vector "
         "has no one dose axis, and this package defines no integration grid or cubature "
-        "over a vector. Fit the policy means and contrasts with "
-        "policies=[JointPolicy(...), ...]"
+        "over a vector.",
+        alternative="Fit the policy means and contrasts with policies=[JointPolicy(...), ...].",
     )
 
 
-def whole_vector_refusal(policy: object, treatment: str) -> str:
-    """The refusal of a policy declared on a vector treatment with a dose as a whole."""
-    return (
+def whole_vector_refusal(policy: object, treatment: str) -> Refusal:
+    """The refusal of a policy declared on a vector treatment with a dose as a whole.
+
+    Parameters
+    ----------
+    policy : object
+        The declared policy.
+    treatment : str
+        The treatment name.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"policy {describe_policy(policy)} is declared on the vector treatment {treatment!r} "
-        "as a whole. A vector with a continuous component takes one policy per component: "
-        "declare JointPolicy(name, components={column: policy, ...}, policy_kind='known')"
+        "as a whole. A vector with a continuous component takes one policy per component.",
+        alternative=(
+            "Declare JointPolicy(name, components={column: policy, ...}, policy_kind='known')."
+        ),
     )
 
 

@@ -15,6 +15,7 @@ from typing import cast
 import numpy as np
 
 from .._typing import CumulativeGBounds, FloatArray, GBounds
+from ..exceptions import MethodConfigurationError, RefusalReason
 
 __all__ = [
     "DEFAULT_LTMLE_G_BOUNDS",
@@ -175,10 +176,12 @@ def resolve_cumulative_g_bounds(spec: CumulativeGBounds) -> tuple[float, float]:
     that pair as its default).
     """
     if isinstance(spec, str):
-        raise ValueError(
+        raise MethodConfigurationError(
             "LTMLE has no automatic cumulative-bound selection procedure; its package "
-            "default is the fixed heuristic (0.01, 1.0). Pass a scalar lower bound or "
-            "an explicit (lower, upper) pair."
+            "default is the fixed heuristic (0.01, 1.0).",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Pass a scalar lower bound or an explicit (lower, upper) pair.",
+            roadmap="F33",
         )
 
     if isinstance(spec, (int, float)) and not isinstance(spec, bool):

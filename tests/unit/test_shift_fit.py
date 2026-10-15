@@ -211,7 +211,7 @@ class TestTheRefusals:
         )
         with pytest.raises(
             DataError,
-            match=r"with every outcome observed and no intermediate=, declare an MSM",
+            match=r"With every outcome observed and no intermediate=, msm=MSM\.linear",
         ):
             estimator().fit(data)
 

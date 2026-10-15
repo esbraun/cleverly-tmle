@@ -248,7 +248,9 @@ def test_a_continuous_node_cannot_be_declared() -> None:
             continuous_treatment=["D"],
             treatment_probabilities={"D": {0.0: "g1_0", 1.0: "g1_1"}},
         )
-    assert CONTINUOUS_REFUSAL.startswith("treatment_probabilities= gives arm probabilities")
+    assert CONTINUOUS_REFUSAL.condition.startswith(
+        "treatment_probabilities= gives arm probabilities"
+    )
 
 
 def test_a_declaration_on_a_container_and_at_fit_is_refused() -> None:

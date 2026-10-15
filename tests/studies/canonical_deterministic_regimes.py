@@ -66,6 +66,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="lmtp",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_deterministic_regimes.py",
         "tests/studies/deterministic_regime_properties.py",

@@ -23,7 +23,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CausalStudy, RegimeContrast, TimeToEvent
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import Shift
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal import data as data_module
@@ -300,8 +300,9 @@ def test_r7_a_horizon_or_tau_off_the_grid() -> None:
 
 
 def test_r8_time_to_event_has_no_time_varying_covariate() -> None:
-    with pytest.raises(TypeError, match="no covariate measured after baseline"):
+    with pytest.raises(CapabilityError, match="no covariate measured after baseline") as raised:
         TimeToEvent(time="time", event="event", treatment="A", baseline=["W"], time_varying=[["L"]])  # type: ignore[arg-type]
+    assert raised.value.refusal.reason is RefusalReason.API_REDIRECTION
 
 
 def test_r10_a_container_from_the_other_path() -> None:

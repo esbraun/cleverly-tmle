@@ -95,7 +95,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import MAX_TREATMENT_LEVELS, arm_indicators, atom_block
-from ..exceptions import CapabilityError, DataError, PositivityWarning
+from ..exceptions import CapabilityError, DataError, PositivityWarning, RefusalReason
 from ..learners.crossfit import Folds
 from ..learners.density import (
     ConditionalDensity,
@@ -326,7 +326,8 @@ def explicit_pieces(policy: object | None) -> tuple[ExplicitPiece, ...]:
         return tuple(_declared_piece(branch, index) for index in range(len(branch.pieces)))
     raise CapabilityError(
         f"policy {getattr(policy, 'name', policy)!r} has no density ratio on a dose: declare "
-        "a Shift, Scale, Piecewise or ModifiedPolicy with pieces"
+        "a Shift, Scale, Piecewise or ModifiedPolicy with pieces.",
+        reason=RefusalReason.INVALID_DECLARATION,
     )
 
 
@@ -446,7 +447,8 @@ class NodeLayout:
                 f"{self.where} holds {len(cells)} observed cells of its categorical "
                 f"components, and a categorical treatment holds at most "
                 f"{MAX_TREATMENT_LEVELS} levels. The density of the node sums over these "
-                "cells; collapse a categorical component"
+                "cells; collapse a categorical component.",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         return cells
 

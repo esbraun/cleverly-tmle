@@ -49,6 +49,7 @@ AGREEMENT_COLUMNS = (
     "share of margin used",
     "RMSE ratio bound",
     "coverage difference",
+    "comparison kind",
     # The smallest calibration margin the design could have cleared, beside the declared one.
     # A reader cannot tell an unmet claim from an unmeetable one without it.
     "calibration resolution",
@@ -168,7 +169,7 @@ def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
         (
             descriptions.scenario(str(row.scenario)),
             f"`{row.estimand}`",
-            descriptions.estimand(str(row.estimand)),
+            descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
             descriptions.implementation(str(row.implementation)),
             _interval(row.bias_ci_lower, row.bias_ci_upper),
             render(float(row.coverage)),
@@ -181,23 +182,29 @@ def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
 
 
 def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[str]:
-    """One row per paired comparison with the canonical implementation."""
+    """One row per paired comparison with the canonical implementation, led by a line that names it."""
     frame = data["equivalence"].sort_values(["scenario", "estimand"])
     rows = [
         (
             descriptions.scenario(str(row.scenario)),
             f"`{row.estimand}`",
-            descriptions.estimand(str(row.estimand)),
+            descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
             render(float(row.mean_difference)),
             render(float(row.margin_utilization)),
             render(float(row.rmse_ratio_upper)),
             render(float(row.coverage_difference)),
+            str(record.comparison_kind(str(row.scenario), str(row.estimand))),
             _resolution(row),
             _comparison_result(row),
         )
         for row in frame.itertuples()
     ]
-    return _table(AGREEMENT_COLUMNS, rows)
+    lead = (
+        f"Comparator-backed: a paired comparison with `{record.reference}` on the same samples. "
+        "Each row reports estimate equivalence within the declared margin, the RMSE ratio "
+        "and the coverage difference, and names its comparison kind."
+    )
+    return [lead, "", *_table(AGREEMENT_COLUMNS, rows)]
 
 
 def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[str]:
@@ -296,6 +303,14 @@ def measured(row: Any) -> str:
         ):
             measured += (
                 ", selected-target bias "
+                f"{_interval(row.alternative_bias_ci_lower, row.alternative_bias_ci_upper)}, "
+                f"margin {render(float(row.alternative_bias_margin))}"
+            )
+        elif str(row.role) == "control" and pd.notna(getattr(row, "alternative_truth", None)):
+            # A control that also answers to an exact limit: its own bias interval says it
+            # misses the truth, and this one says it reaches the limit it claims.
+            measured += (
+                ", bias around its limit "
                 f"{_interval(row.alternative_bias_ci_lower, row.alternative_bias_ci_upper)}, "
                 f"margin {render(float(row.alternative_bias_margin))}"
             )
@@ -511,10 +526,13 @@ _BIAS_GATED = frozenset(
         "competing_risk_recursion_necessity",
         "density_necessity",
         "fold_locality",
+        "full_history_necessity",
         "inverse_necessity",
         "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
+        "outcome_history_necessity",
+        "repeated_outcome_necessity",
         "robustness_contract",
         "policy_necessity",
         "preimage_necessity",

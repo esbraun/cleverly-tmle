@@ -993,7 +993,7 @@ class TestItRefusesByName:
     def test_a_point_treatment_keyword_says_what_it_would_need(
         self, keyword: str, expected: str
     ) -> None:
-        with pytest.raises(TypeError, match=expected):
+        with pytest.raises(CapabilityError, match=expected):
             LTMLE({"always": 1}, **{keyword: 1})
 
     def test_a_working_model_passed_to_fit_points_at_the_constructor(self) -> None:
@@ -1001,7 +1001,7 @@ class TestItRefusesByName:
         ``weights`` and ``event`` do: it is declared somewhere, and falling through to
         "unexpected keyword argument" would read as a misspelling."""
         frame, _ = make_longitudinal(n=200, seed=0)
-        with pytest.raises(TypeError, match="declared where the regimens are"):
+        with pytest.raises(CapabilityError, match="where the regimens are"):
             LTMLE({"always": 1}, **FAST).fit(frame, msm=1, **COLUMNS)
 
     def test_a_genuine_typo_still_says_so(self) -> None:
@@ -1010,7 +1010,7 @@ class TestItRefusesByName:
 
     def test_delta_points_at_the_censoring_column(self) -> None:
         frame, _ = make_longitudinal(n=200, seed=1)
-        with pytest.raises(TypeError, match="final censoring column"):
+        with pytest.raises(CapabilityError, match="final censoring column"):
             LTMLE({"always": 1}, **FAST).fit(frame, delta="observed", **COLUMNS)
 
     def test_column_names_cannot_be_combined_with_a_container(self) -> None:
@@ -1524,7 +1524,7 @@ class TestCompetingRisks:
         """
         with pytest.raises(ValueError, match="1 - one cause's incidence is not all-cause survival"):
             fitted.curve(scale="survival")
-        with pytest.raises(ValueError, match=r"use incidence_total\(\) to inspect that sum"):
+        with pytest.raises(ValueError, match=r"Use incidence_total\(\) to inspect that sum"):
             fitted.curve(scale="survival")
 
     def test_one_declared_cause_reports_the_survival_view(self) -> None:
