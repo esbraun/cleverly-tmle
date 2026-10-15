@@ -1,23 +1,31 @@
 """The pilot driver of the long-horizon design: exact scans and sample pilots, in parts.
 
 The work is a fixed, ordered list of *parts*.  A part is one exact scan of the design (a law of
-a candidate scan, one quantity's fallback scan) or one block of :data:`BLOCK` replicates of one
-pilot stream (:func:`tests.long_horizon_design.streams`).  Each part writes its own result file
-under ``<root>/parts``, and its content depends on the part alone: every replicate draws from
-its own seed (:func:`~tests.long_horizon_design.stream_seed`), so any machine may compute any
-part and two machines write the same bytes for it.
+a candidate scan, one quantity's fallback scan), one per-node targeting witness on a fallback
+law, or one block of :data:`BLOCK` replicates of one pilot stream
+(:func:`tests.long_horizon_design.streams`).  Each part writes its own result file under
+``<root>/parts``, and its content depends on the part alone: every replicate draws from its own
+seed (:func:`~tests.long_horizon_design.stream_seed`), so any machine may compute any part and
+two machines write the same bytes for it.
+
+Rev 4.2 appends parts and moves none: the first :data:`REV_41_PARTS` idents, their order and
+their seeds are those of rev 4.1 (``tests/unit/test_long_horizon_pilots.py`` pins them).  The
+new parts are the band pilots, the root-n rung pilots and the per-node witness on each fallback
+law.
 
 The root is ``<scratch>/x39-pilots/<key>``.  The key is a digest of the declared parts, the bytes
 of the code that runs them and the Python package versions, so a changed declaration, estimator
-or package never reuses a stale part.  A root stamped with another key is refused.
+or package never reuses a stale part.  A root stamped with another key is refused, unless the
+caller accepts that key and the equivalence records cover it (below).
 
 Commands (run from the repository root with ``PYTHONPATH=.``)::
 
     python -m tests.long_horizon_pilots list [--family F]
     python -m tests.long_horizon_pilots split --share S
     python -m tests.long_horizon_pilots run [--jobs N] [--from I] [--to J | --down-to I] [--family F]
-    python -m tests.long_horizon_pilots check I
-    python -m tests.long_horizon_pilots merge
+    python -m tests.long_horizon_pilots kinds [--from I] [--to J] [--root R]
+    python -m tests.long_horizon_pilots check I [I ...] [--root R] [--rtol T]
+    python -m tests.long_horizon_pilots merge [--root R] [--source R2 ...] [--accept-key K ...]
     python -m tests.long_horizon_pilots scans
 
 ``list`` prints each part's index, family, name and estimated CPU hours, with the running total.
@@ -25,12 +33,25 @@ Commands (run from the repository root with ``PYTHONPATH=.``)::
 ``run`` computes the parts ``[I, J)`` in ascending order, or with ``--down-to I`` from the last
 part down to ``I``; a part whose file exists is skipped, and a sample part resumes from the
 per-replicate checkpoints of :func:`tests.studies.evidence.replication.fit_replicates` under
-``<root>/checkpoints``.  ``check I`` recomputes part ``I`` in a temporary root and compares its
-bytes with the stored file.  ``merge`` refuses a missing part or a replicate whose seed is not
-its declared seed, writes ``<root>/merged/<family>.csv.gz``, and prints each family's reading:
-the Monte Carlo check, the F2 and bias floors, the truth-row floor, the overfitting pilot and
-every exact scan's pick against the declared one.  ``scans`` prints the exact scans' picks
-from the parts that exist.
+``<root>/checkpoints``.
+
+**Equivalence.**  Parts computed at different code states carry different keys.  ``kinds``
+prints, for the indices in ``[I, J)``, the cheapest part of each configuration kind
+(:data:`KINDS`).  ``check I ...`` recomputes each part in a temporary root and compares it with
+the stored file: numeric floating-point columns with ``numpy.isclose(rtol, atol=0)``, and
+integer, boolean and text columns exactly.  A JSON part compares the same way, value by value.
+Each check writes a record under ``<root>/equivalence/`` with the part index, the stored and the
+current key, the kind, the result and the largest relative difference.  ``merge`` takes
+``--source R2`` (repeatable) for the parts of other roots, such as an unzipped local share, and
+``--accept-key K`` (repeatable) for the stamped keys it may read.  It reads a part from a root
+stamped with an accepted key only when that root's records, written at the current key, cover
+every kind of the parts it contributes at ``--rtol``.  Otherwise it refuses and names the kinds.
+
+``merge`` refuses a missing part or a replicate whose seed is not its declared seed, writes
+``<root>/merged/<family>.csv.gz``, and prints each family's reading: the Monte Carlo check, the
+F2 and bias floors, the truth-row floor, the overfitting pilot, the band and root-n readings and
+every exact scan's pick against the declared one.  It exits with status 1 after printing when a
+reading stops (``-> stop``).  ``scans`` prints the exact scans' picks from the parts that exist.
 
 A pilot above n = 8,000 runs only when no study runs on the same machine, after a one-fit memory
 check.  Step 4b's property cells use the same machinery: a property family adds its parts to
@@ -42,6 +63,7 @@ from __future__ import annotations
 import argparse
 import functools
 import hashlib
+import io
 import json
 import math
 import os
@@ -61,6 +83,7 @@ from tests import discrete_law_longitudinal_horizon as law_
 from tests import long_horizon_design as D
 from tests import long_horizon_sampling_sd as sampling
 from tests.discrete_law_longitudinal_horizon import Law
+from tests.studies import long_horizon_mutations as mutations
 from tests.studies import long_horizon_primary as primary
 from tests.studies.evidence import replication
 
@@ -84,10 +107,33 @@ CODE = (
     "tests/studies/evidence/replication.py",
 )
 ROOT = Path(__file__).resolve().parents[1]
-SAMPLE_FAMILIES = ("mc", "f2", "bias", "truth", "overfit")
+SAMPLE_FAMILIES = ("mc", "f2", "bias", "truth", "overfit", "band", "rung")
+#: The parts of rev 4.1.  Rev 4.2 appends after them; none of their idents, order or seeds moves.
+REV_41_PARTS = 3_288
+#: The configuration kinds of a part.  An equivalence record covers the kind of the part it
+#: checks, and ``merge`` needs a record for every kind a foreign root contributes.
+KINDS = (
+    "ltmle",
+    "sdr",
+    "ltmle_fivefold",
+    "sdr_fivefold",
+    "trees",
+    "msm",
+    "plugin",
+    "complement",
+    "band",
+    "exact_scan",
+    "law_scan",
+)
+#: The default relative tolerance of ``check`` and ``merge``.
+RTOL = 1e-9
+#: The columns of a sample part that are text.
+TEXT_COLUMNS = ("stream", "estimand", "failure")
 #: The bias-family replicate ladder and the truth-row ladder of section 5.3.
 BIAS_LADDER = (1_000, 1_200, 2_000, 3_000, 4_000)
 TRUTH_LADDER = (1_200, 2_000, 3_000)
+#: The seed of the slope rows' resampling.
+SLOPE_SEED = 20263932
 
 
 # ----------------------------------------------------------------------------- exact scans
@@ -559,7 +605,7 @@ class Part:
     Parameters
     ----------
     family : str
-        ``lawscan``, ``scan``, ``patterns`` or a sample family.
+        ``lawscan``, ``scan``, ``patterns``, ``witness`` or a sample family.
     name : str
         The stream, scan or quantity.
     detail : tuple
@@ -613,7 +659,62 @@ def parts() -> tuple[Part, ...]:
             out.append(
                 Part(stream.family, stream.ident, (start, stop), per * (stop - start) / 3600)
             )
+    # Rev 4.2: one per-node targeting witness per fallback law, after every earlier part.
+    for law, settings in witness_laws():
+        out.append(
+            Part(
+                "witness",
+                f"witness:{D.law_name(law)}",
+                (law.key, settings),
+                _witness_hours(settings),
+            )
+        )
     return tuple(out)
+
+
+def witness_laws() -> list[tuple[Law, tuple[tuple[int, int], ...]]]:
+    """Each distinct fallback law with the ``(K, m)`` settings of the quantities assigned to it."""
+    seen: dict[Law, set[tuple[int, int]]] = {}
+    for q, law in D.FALLBACKS.items():
+        seen.setdefault(law, set()).add((q.K, q.m))
+    return [(law, tuple(sorted(settings))) for law, settings in seen.items()]
+
+
+def _witness_hours(settings: Sequence[tuple[int, int]]) -> float:
+    """CPU hours of one witness part, from the measured seconds per plan (K = 5: 9, K = 4: 1.2)."""
+    seconds = {(5, 3): 9.0, (4, 3): 1.2, (3, 3): 0.3}
+    return (
+        sum(len(mutations.WITNESS_PLANS[m]) * seconds.get((K, m), 1.0) for K, m in settings) / 3600
+    )
+
+
+def kind_of(part: Part) -> str:
+    """The configuration kind of ``part`` (:data:`KINDS`)."""
+    if part.family == "lawscan":
+        return "law_scan"
+    if part.family in ("scan", "patterns", "witness"):
+        return "exact_scan"
+    stream = _stream(part.name)
+    if stream.family == "band":
+        return "band"
+    if stream.config is None:
+        study, name = stream.scenario
+        scenario = next(s for s in D.scenarios(study) if s.name == name)
+        if scenario.msm:
+            return "msm"
+        estimator, folds = ("SDR" if study == "S3" else "LTMLE"), scenario.n_folds
+    else:
+        config = stream.config
+        if config.msm:
+            return "msm"
+        if config.estimator == "plugin":
+            return "plugin"
+        if config.trees:
+            return "trees"
+        if config.complement_nodes:
+            return "complement"
+        estimator, folds = config.estimator, config.n_folds
+    return f"{estimator.lower()}{'_fivefold' if folds > 1 else ''}"
 
 
 def _stream(ident: str) -> D.Stream:
@@ -704,6 +805,8 @@ def _sample_fit(
             }
             for row in rows
         ]
+    if stream.family == "band":
+        return [{**base, **_band_fit(stream, drawn)}]
     fitted = stream.config.fit_sample(drawn)
     truth = stream.config.truth
     covered = (
@@ -712,6 +815,43 @@ def _sample_fit(
         else -1
     )
     return [{**base, "estimand": "", "truth": truth, **fitted, "covered": covered}]
+
+
+def _band_fit(stream: D.Stream, drawn: pd.DataFrame) -> dict[str, Any]:
+    """One replicate of the simultaneous band: the property phase's fit and its joint rows.
+
+    ``covered`` is the band's joint coverage (every truth inside the band) and
+    ``pointwise_covered`` the pointwise control's.  ``estimate`` is the max-t statistic and
+    ``std_error`` the band's critical value, as in :mod:`tests.studies.evidence.simultaneous`.
+    """
+    from tests.studies import long_horizon_properties as properties
+    from tests.studies.evidence.simultaneous import joint_coverage_rows
+
+    config = stream.config
+    assert config is not None
+    arm = properties.Arm("k5", "positive", config, read="band", plans=stream.plans)
+    result = properties._call(arm, drawn, stream.plans, simultaneous=True, reference=None)
+    names = sorted(result.simultaneous.bands)
+    band, pointwise = joint_coverage_rows(
+        result,
+        properties._band_truths(config.K, config.m, config.law, names),
+        names,
+        label="k5",
+        replicate=0,
+        n=stream.n,
+        requested=0,
+        pointwise_critical=properties.CRITICAL,
+    )
+    return {
+        "estimand": "",
+        "truth": 0.0,
+        "estimate": band["estimate"],
+        "std_error": band["std_error"],
+        "ci_lower": math.nan,
+        "ci_upper": math.nan,
+        "covered": int(band["covered"]),
+        "pointwise_covered": int(pointwise["covered"]),
+    }
 
 
 def _draw(stream: D.Stream, key_: tuple[int, int]) -> pd.DataFrame:
@@ -780,6 +920,16 @@ def compute(part: Part, root: Path, jobs: int) -> bytes:
         payload = _scan_part(_scan(part.name), K, Law(*law_key), jobs)
     elif part.family == "patterns":
         payload = _patterns_part(jobs)
+    elif part.family == "witness":
+        law_key, settings = part.detail
+        law = Law(*law_key)
+        rows = [
+            reading
+            for K, m in settings
+            for plan in mutations.WITNESS_PLANS[m]
+            for reading in mutations.per_node_witness(K, m, plan, law)
+        ]
+        payload = {"witness": part.name, "law": list(law_key), "rows": rows}
     else:
         raise ValueError(f"unknown part family {part.family!r}")
     return (json.dumps(payload, indent=1, sort_keys=True, default=float) + "\n").encode()
@@ -808,29 +958,223 @@ def run(root: Path, indices: Sequence[int], jobs: int) -> None:
     print("complete", flush=True)
 
 
-def check(root: Path, index: int, jobs: int) -> bool:
-    """Recompute part ``index`` in a temporary root and compare its bytes with the stored file."""
+@dataclass(frozen=True)
+class Comparison:
+    """The result of comparing a recomputed part with its stored file.
+
+    Parameters
+    ----------
+    same : bool
+        Whether every numeric floating-point value agrees at ``rtol`` and everything else agrees
+        exactly.
+    max_relative_difference : float
+        The largest ``|fresh - stored| / |stored|`` over the floating-point values (infinite
+        where the stored value is zero and the fresh one is not); 0 when none differs.
+    detail : str
+        The first difference, or empty.
+    """
+
+    same: bool
+    max_relative_difference: float
+    detail: str = ""
+
+
+def _close(fresh: np.ndarray, stored: np.ndarray, rtol: float) -> tuple[bool, float]:
+    """``isclose(rtol, atol=0)`` with equal NaNs, and the largest relative difference."""
+    fresh, stored = np.asarray(fresh, float), np.asarray(stored, float)
+    same = np.isclose(fresh, stored, rtol=rtol, atol=0.0, equal_nan=True)
+    both_nan = np.isnan(fresh) & np.isnan(stored)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        relative = np.abs(fresh - stored) / np.abs(stored)
+    relative = np.where((fresh == stored) | both_nan, 0.0, relative)
+    relative = np.where(np.isnan(relative), np.inf, relative)
+    return bool(same.all()), float(np.max(relative)) if relative.size else 0.0
+
+
+def _compare_json(fresh: Any, stored: Any, rtol: float, where: str = "") -> Comparison:
+    """Compare two parsed JSON values: floats at ``rtol``, everything else exactly."""
+    if isinstance(fresh, dict) and isinstance(stored, dict):
+        if fresh.keys() != stored.keys():
+            return Comparison(False, math.inf, f"{where}: keys differ")
+        worst = Comparison(True, 0.0)
+        for name in stored:
+            found = _compare_json(fresh[name], stored[name], rtol, f"{where}/{name}")
+            if not found.same:
+                return found
+            worst = Comparison(
+                True, max(worst.max_relative_difference, found.max_relative_difference)
+            )
+        return worst
+    if isinstance(fresh, list) and isinstance(stored, list):
+        if len(fresh) != len(stored):
+            return Comparison(False, math.inf, f"{where}: lengths differ")
+        worst = Comparison(True, 0.0)
+        for index, (a, b) in enumerate(zip(fresh, stored, strict=True)):
+            found = _compare_json(a, b, rtol, f"{where}[{index}]")
+            if not found.same:
+                return found
+            worst = Comparison(
+                True, max(worst.max_relative_difference, found.max_relative_difference)
+            )
+        return worst
+    is_float = isinstance(fresh, float) or isinstance(stored, float)
+    numeric = isinstance(fresh, int | float) and isinstance(stored, int | float)
+    if is_float and numeric and not isinstance(fresh, bool) and not isinstance(stored, bool):
+        same, relative = _close(np.array([fresh]), np.array([stored]), rtol)
+        return Comparison(same, relative, "" if same else f"{where}: {fresh!r} against {stored!r}")
+    same = type(fresh) is type(stored) and fresh == stored
+    return Comparison(
+        same, 0.0 if same else math.inf, "" if same else f"{where}: {fresh!r} != {stored!r}"
+    )
+
+
+def _compare_csv(fresh: bytes, stored: bytes, rtol: float) -> Comparison:
+    """Compare two sample parts: floating-point columns at ``rtol``, all others exactly."""
+
+    def load(data: bytes) -> pd.DataFrame:
+        return pd.read_csv(
+            io.BytesIO(data),
+            float_precision="round_trip",
+            dtype=dict.fromkeys(TEXT_COLUMNS, str),
+            keep_default_na=False,
+        )
+
+    a, b = load(fresh), load(stored)
+    if list(a.columns) != list(b.columns) or len(a) != len(b):
+        return Comparison(False, math.inf, "columns or row count differ")
+    worst = 0.0
+    for column in b.columns:
+        if column in TEXT_COLUMNS:
+            if not (a[column] == b[column]).all():
+                return Comparison(False, math.inf, f"{column}: text differs")
+            continue
+        x, y = pd.to_numeric(a[column], errors="coerce"), pd.to_numeric(b[column], errors="coerce")
+        if pd.api.types.is_integer_dtype(y) and pd.api.types.is_integer_dtype(x):
+            if not (x == y).all():
+                return Comparison(False, math.inf, f"{column}: integers differ")
+            continue
+        same, relative = _close(x.to_numpy(float), y.to_numpy(float), rtol)
+        worst = max(worst, relative)
+        if not same:
+            return Comparison(False, relative, f"{column}: relative difference {relative:.3g}")
+    return Comparison(True, worst)
+
+
+def compare_part(part: Part, fresh: bytes, stored: bytes, rtol: float) -> Comparison:
+    """Compare a recomputed part with the stored file.
+
+    Floating-point columns of a sample part, and floating-point values of a JSON part, agree when
+    ``numpy.isclose(fresh, stored, rtol=rtol, atol=0)``.  Integer, boolean and text values agree
+    only when equal, so a changed seed, replicate number or coverage flag never passes as noise.
+    """
+    if part.family in SAMPLE_FAMILIES:
+        return _compare_csv(fresh, stored, rtol)
+    return _compare_json(json.loads(fresh), json.loads(stored), rtol)
+
+
+def stamped_key(root: Path) -> str | None:
+    """The key a root is stamped with, or ``None`` for a root without ``KEY.json``."""
+    stamp = root / "KEY.json"
+    if not stamp.exists():
+        return None
+    return str(json.loads(stamp.read_text(encoding="utf-8"))["key"])
+
+
+def check(root: Path, index: int, jobs: int, rtol: float = RTOL) -> bool:
+    """Recompute part ``index`` in a temporary root and compare it with the stored file.
+
+    The comparison is :func:`compare_part` at ``rtol``.  The result is recorded under
+    ``<root>/equivalence/`` (:func:`write_record`), whether it passes or not.
+    """
     part = parts()[index]
     stored = (root / "parts" / part.filename).read_bytes()
     with tempfile.TemporaryDirectory() as scratch:
         fresh = compute(part, Path(scratch), jobs)
-    same = fresh == stored
-    print(f"[{index}] {part.family} {part.name}: {'identical' if same else 'DIFFERENT'}")
-    return same
+    found = compare_part(part, fresh, stored, rtol)
+    byte_identical = fresh == stored
+    write_record(root, index, part, found, rtol, stored)
+    if byte_identical:
+        outcome = "identical"
+    elif found.same:
+        outcome = f"equivalent at rtol {rtol:g} (max relative difference {found.max_relative_difference:.3g})"
+    else:
+        outcome = f"DIFFERENT ({found.detail})"
+    print(f"[{index}] {part.family} {part.name} [{kind_of(part)}]: {outcome}")
+    return found.same
+
+
+def write_record(
+    root: Path, index: int, part: Part, found: Comparison, rtol: float, stored: bytes
+) -> Path:
+    """Write the equivalence record of one check under ``<root>/equivalence/``."""
+    record = {
+        "part": index,
+        "ident": part.ident,
+        "kind": kind_of(part),
+        "stored_key": stamped_key(root),
+        "current_key": key(),
+        "rtol": rtol,
+        "result": "pass" if found.same else "fail",
+        "max_relative_difference": found.max_relative_difference,
+        "detail": found.detail,
+        "stored_sha256": hashlib.sha256(stored).hexdigest(),
+    }
+    path = root / "equivalence" / f"{index:05d}-{record['current_key']}.json"
+    _write(path, (json.dumps(record, indent=1, sort_keys=True) + "\n").encode())
+    return path
+
+
+def pick_kinds(start: int = 0, stop: int | None = None, root: Path | None = None) -> dict[str, int]:
+    """The cheapest part of each kind in ``[start, stop)``; with ``root``, only stored parts.
+
+    Ties go to the lowest index.  A kind with no part in the range is absent.
+    """
+    every = parts()
+    stop = len(every) if stop is None else stop
+    best: dict[str, tuple[float, int]] = {}
+    for index in range(start, min(stop, len(every))):
+        part = every[index]
+        if root is not None and not (root / "parts" / part.filename).exists():
+            continue
+        kind = kind_of(part)
+        if kind not in best or (part.hours, index) < best[kind]:
+            best[kind] = (part.hours, index)
+    return {kind: best[kind][1] for kind in KINDS if kind in best}
 
 
 # ----------------------------------------------------------------------------- merging
-def _load_json(root: Path, part: Part) -> dict[str, Any]:
-    return dict(json.loads((root / "parts" / part.filename).read_text(encoding="utf-8")))
+#: One root, or the roots a merge reads, the first one holding a part winning.
+Roots = Path | Sequence[Path]
 
 
-def _read_sample(root: Path, family: str) -> pd.DataFrame:
+def _roots(root: Roots) -> tuple[Path, ...]:
+    return (root,) if isinstance(root, Path) else tuple(root)
+
+
+def part_path(root: Roots, part: Part) -> Path | None:
+    """The file of ``part`` in the first of ``root``'s roots that holds it, else ``None``."""
+    for each in _roots(root):
+        path = each / "parts" / part.filename
+        if path.exists():
+            return path
+    return None
+
+
+def _load_json(root: Roots, part: Part) -> dict[str, Any]:
+    path = part_path(root, part)
+    assert path is not None
+    return dict(json.loads(path.read_text(encoding="utf-8")))
+
+
+def _read_sample(root: Roots, family: str) -> pd.DataFrame:
     frames = []
     for part in parts():
         if part.family != family:
             continue
+        path = part_path(root, part)
+        assert path is not None, part.ident
         frame = pd.read_csv(
-            root / "parts" / part.filename,
+            path,
             float_precision="round_trip",
             dtype={"estimand": str, "failure": str},
             keep_default_na=False,
@@ -895,26 +1239,36 @@ def read_mc(frame: pd.DataFrame) -> list[str]:
 
 def read_f2(frame: pd.DataFrame) -> list[str]:
     lines = []
-    by_study: dict[str, list[tuple[float, float]]] = {}
+    by_study: dict[str, list[tuple[float, float, float, float]]] = {}
     for index, (stream, rows) in enumerate(frame.groupby("stream", sort=False)):
         kept = rows[rows["failure"] == ""]
         ratio, variance = _bootstrap_ratio(
             kept["estimate"].to_numpy(float), kept["std_error"].to_numpy(float), index
         )
         study = str(stream).split("|")[1].split(":")[0]
-        by_study.setdefault(study, []).append((ratio, variance))
         coverage = float(np.mean(kept["covered"]))
+        error = math.sqrt(coverage * (1 - coverage) / len(kept))
+        by_study.setdefault(study, []).append((ratio, variance, coverage, error))
         lines.append(
             f"{stream.split('|')[1]}: SE ratio {ratio:.4f} (SD {math.sqrt(variance):.4f}) "
-            f"coverage {coverage:.4f}"
+            f"coverage {coverage:.4f} (binomial error {error:.4f})"
         )
     for study, arms in by_study.items():
-        ratios, variances = zip(*arms, strict=True)
+        ratios, variances, coverages, errors = zip(*arms, strict=True)
         chosen = None
         for replicates in range(400, 16_001, 400):
             if D.calibration_pass(1.0, replicates) ** len(arms) < 0.95:
                 continue
-            if D.f2_family_pass(ratios, variances, replicates) >= 0.95:
+            if (
+                D.f2_family_pass(
+                    ratios,
+                    variances,
+                    replicates,
+                    coverages=coverages,
+                    coverage_errors=errors,
+                )
+                >= 0.95
+            ):
                 chosen = replicates
                 break
         lines.append(f"{study}: k {len(arms)} F2 R {chosen if chosen else 'none -> stop'}")
@@ -948,14 +1302,24 @@ def read_bias(frame: pd.DataFrame) -> list[str]:
 
 
 def read_truth(frame: pd.DataFrame) -> list[str]:
+    """The truth-row floor over the gated rows only (:data:`tests.long_horizon_design.GATED_ROWS`).
+
+    A primary row is gated only in its gating scenario.  A row that reports in another scenario,
+    possibly below its tail regime, would under-cover by design and must not set R.
+    """
     lines = []
     rows_by_study: dict[str, list[tuple[float, float]]] = {}
+    gated = set(D.gated_rows())
     kept = frame[frame["failure"] == ""]
-    for (stream, _), rows in kept.groupby(["stream", "estimand"], sort=False):
+    skipped = 0
+    for (stream, estimand), rows in kept.groupby(["stream", "estimand"], sort=False):
+        study, scenario = str(stream).split("|")[1].split(":", 1)
+        if (study, scenario, str(estimand)) not in gated:
+            skipped += 1
+            continue
         errors = rows["estimate"].to_numpy(float) - rows["truth"].to_numpy(float)
         coverage = float(np.mean(rows["covered"]))
         bias = float(np.mean(errors) / np.std(errors, ddof=1))
-        study = str(stream).split("|")[1].split(":")[0]
         rows_by_study.setdefault(study, []).append((coverage, bias))
     for study, values in rows_by_study.items():
         chosen = _ladder_pick(
@@ -964,7 +1328,10 @@ def read_truth(frame: pd.DataFrame) -> list[str]:
             ),
             TRUTH_LADDER,
         )
-        lines.append(f"{study}: {len(values)} truth rows, R {chosen if chosen else 'none -> stop'}")
+        lines.append(
+            f"{study}: {len(values)} gated truth rows, R {chosen if chosen else 'none -> stop'}"
+        )
+    lines.append(f"{skipped} non-gating (stream, estimand) pairs report and set no R")
     return lines
 
 
@@ -987,20 +1354,123 @@ def read_overfit(frame: pd.DataFrame) -> list[str]:
     return lines
 
 
+def read_band(frame: pd.DataFrame) -> list[str]:
+    """The band's joint coverage and its pass probability under the shipped two-sided rule.
+
+    The rule is ``simultaneous_coverage_verdicts``: the 99 percent exact interval of the joint
+    coverage must lie inside ``calibration_coverage`` = (0.92, 0.98).  R is the first rung of
+    :data:`tests.long_horizon_design.BAND_LADDER` at which the pass probability, at the measured
+    joint coverage, reaches :data:`~tests.long_horizon_design.BAND_TARGET`.  No rung reaching it
+    prints ``none -> stop``: the band is diagnosed before the declaration (plan section 5.3).
+    """
+    from tests.studies.evidence.inference import clopper_pearson
+
+    lines = []
+    for stream, rows in frame.groupby("stream", sort=False):
+        kept = rows[rows["failure"] == ""]
+        study = str(stream).split("|")[1].split(":")[0]
+        count, trials = int(kept["covered"].sum()), len(kept)
+        coverage = count / trials
+        interval = clopper_pearson(count, trials, confidence_level=0.99)
+        pointwise = float(np.mean(kept["pointwise_covered"]))
+        error = math.sqrt(coverage * (1 - coverage) / trials)
+        passes = {R: D.band_pass(coverage, R) for R in D.BAND_LADDER}
+        chosen = D.band_replicates(coverage)
+        lines.append(
+            f"{study} band: joint coverage {coverage:.4f} (99% exact [{interval.low:.4f}, "
+            f"{interval.high:.4f}]); pointwise control {pointwise:.4f}"
+        )
+        lines.append(
+            "  pass probability by R: "
+            + ", ".join(f"{R:,}: {value:.3f}" for R, value in passes.items())
+            + f"; at coverage -/+ one error: R "
+            f"{D.band_replicates(coverage - error) or 'none'} / "
+            f"{D.band_replicates(coverage + error) or 'none'}"
+        )
+        lines.append(
+            f"{study} band: R {chosen if chosen else 'none -> stop (diagnose per plan section 5.3)'}"
+        )
+    return lines
+
+
+def read_rung(frame: pd.DataFrame) -> list[str]:
+    """The root-n rungs: each rung's coverage clause and the two slope rows' pass probability.
+
+    The 4,000 rung is the control rung: it carries no claim at R = 1,000, and its row prints the
+    shipped rule's pass probability for the record.  The 12,000 and 48,000 rungs are positive:
+    their coverage clause reads the exact lower limit at the floor.  The slope rows are fitted
+    over the three rungs by ``property_verdicts``; their pass probability resamples the pilots.
+    """
+    lines = []
+    by_study: dict[str, dict[int, pd.DataFrame]] = {}
+    for stream, rows in frame.groupby("stream", sort=False):
+        kept = rows[rows["failure"] == ""]
+        study, rest = str(stream).split("|")[1].split(":", 1)
+        n = int(rest.rsplit("_", 1)[1])
+        by_study.setdefault(study, {})[n] = kept
+        ratio = float(np.mean(kept["std_error"]) / np.std(kept["estimate"], ddof=1))
+        coverage = float(np.mean(kept["covered"]))
+        errors = kept["estimate"].to_numpy(float) - kept["truth"].to_numpy(float)
+        bias = float(np.mean(errors) / np.std(errors, ddof=1))
+        if n == min(D.ROOT_N_SIZES):
+            reading = (
+                f"control rung, no claim at R = {D.ROOT_N_REPLICATES:,}; shipped-rule pass "
+                f"probability {D.control_rung_pass(coverage, D.ROOT_N_REPLICATES):.3f}"
+            )
+        else:
+            reading = (
+                f"coverage clause pass probability "
+                f"{D.positive_rung_pass(coverage, D.ROOT_N_REPLICATES):.3f}"
+            )
+        lines.append(
+            f"{study} {rest}: SE ratio {ratio:.4f}, coverage {coverage:.4f}, standardized bias "
+            f"{bias:+.4f}; {reading}"
+        )
+    for study, rungs in by_study.items():
+        for statistic, name in (("spread", "empirical_sd"), ("reported", "reported_se")):
+            value = D.slope_pass(rungs, statistic, D.ROOT_N_REPLICATES, seed=SLOPE_SEED)
+            verdict = "" if value >= 0.99 else " -> diagnose before declaration"
+            lines.append(f"{study} root_n_rate {name}: pass probability {value:.3f}{verdict}")
+    return lines
+
+
 READERS: dict[str, Callable[[pd.DataFrame], list[str]]] = {
     "mc": read_mc,
     "f2": read_f2,
     "bias": read_bias,
     "truth": read_truth,
     "overfit": read_overfit,
+    "band": read_band,
+    "rung": read_rung,
 }
 
 
-def _exists(root: Path, part: Part) -> bool:
-    return (root / "parts" / part.filename).exists()
+def _exists(root: Roots, part: Part) -> bool:
+    return part_path(root, part) is not None
 
 
-def read_scans(root: Path) -> list[str]:
+def read_witness_text(payload: dict[str, Any]) -> str:
+    """One witness part's reading: nodes at five times the floors, nodes at one tenth, invalid."""
+    rows = payload["rows"]
+    full = sum(bool(r["floors_met"]) for r in rows)
+    invalid = [f"K{r['K']} {r['plan']} node {r['node']}" for r in rows if not r["valid"]]
+    return (
+        f"{payload['witness']}: {len(rows)} (plan, node) witnesses, {full} reach five times every "
+        f"floor, {len(rows) - full} fall back to one tenth of the record"
+        + (f"; INVALID {invalid} -> stop" if invalid else "")
+    )
+
+
+def read_witness(root: Roots) -> list[str]:
+    """The per-node targeting witness on each fallback law."""
+    return [
+        read_witness_text(_load_json(root, part))
+        for part in parts()
+        if part.family == "witness" and _exists(root, part)
+    ]
+
+
+def read_scans(root: Roots) -> list[str]:
     """Each exact scan's pick against the declared one; a scan with a missing part says so."""
     lines = []
     declared = {(c.study, c.cell): c for c in D.controls()}
@@ -1021,9 +1491,10 @@ def read_scans(root: Path) -> list[str]:
         )
         if scan.cap == D.NMAX_Q14 and not missing:
             lines.append(f"  smallest n_min: {_n_min_table(scan, results)[:5]}")
-    patterns = next(p for p in parts() if p.family == "patterns")
-    if _exists(root, patterns):
+    patterns = next((p for p in parts() if p.family == "patterns"), None)
+    if patterns is not None and _exists(root, patterns):
         lines.append(f"S3 patterns: pick {pattern_pick(_load_json(root, patterns)['rows'])}")
+    lines += read_witness(root)
     for part in parts():
         if part.family == "lawscan" and _exists(root, part):
             found = _load_json(root, part)
@@ -1034,16 +1505,109 @@ def read_scans(root: Path) -> list[str]:
     return lines
 
 
-def merge(root: Path) -> None:
-    claim(root)
-    missing = [i for i, part in enumerate(parts()) if not (root / "parts" / part.filename).exists()]
+def covered_kinds(root: Path, rtol: float) -> set[str]:
+    """The kinds ``root``'s records cover at the current key and ``rtol``.
+
+    A record counts when it passed at a tolerance no looser than ``rtol``, names the current key
+    and this root's stamped key, carries the kind of its own part index, and describes the file
+    the root still holds.
+    """
+    folder = root / "equivalence"
+    if not folder.is_dir():
+        return set()
+    current, stamped = key(), stamped_key(root)
+    every = parts()
+    out: set[str] = set()
+    for path in sorted(folder.glob("*.json")):
+        record = json.loads(path.read_text(encoding="utf-8"))
+        index = record["part"]
+        if (
+            record["result"] != "pass"
+            or record["rtol"] > rtol
+            or record["current_key"] != current
+            or record["stored_key"] != stamped
+            or not 0 <= index < len(every)
+            or record["ident"] != every[index].ident
+            or record["kind"] != kind_of(every[index])
+        ):
+            continue
+        held = root / "parts" / every[index].filename
+        if (
+            held.exists()
+            and hashlib.sha256(held.read_bytes()).hexdigest() == record["stored_sha256"]
+        ):
+            out.add(record["kind"])
+    return out
+
+
+def admit(roots: Sequence[Path], accepted: Sequence[str], rtol: float) -> dict[Path, str]:
+    """Refuse a root the merge may not read; return each root's stamped key.
+
+    A root stamped with the current key is read as it is.  A root stamped with another key must
+    be named in ``accepted`` and must hold equivalence records, written at the current key, for
+    every kind of the parts it contributes.
+    """
+    current = key()
+    every = parts()
+    chosen: dict[int, Path] = {}
+    for index, part in enumerate(every):
+        for root in roots:
+            if (root / "parts" / part.filename).exists():
+                chosen[index] = root
+                break
+    missing = [i for i in range(len(every)) if i not in chosen]
     if missing:
         raise SystemExit(f"{len(missing)} parts missing; first {missing[:10]}")
+    stamps: dict[Path, str] = {}
+    for root in roots:
+        stamp = stamped_key(root)
+        if stamp is None:
+            raise SystemExit(f"{root} holds no KEY.json: it is not a pilot root")
+        stamps[root] = stamp
+        if stamp == current:
+            continue
+        needed = {kind_of(every[i]) for i, owner in chosen.items() if owner == root}
+        if not needed:
+            continue
+        if stamp not in accepted:
+            raise SystemExit(
+                f"{root} holds parts of key {stamp}, not {current}: pass --accept-key {stamp} "
+                "after `check` has written equivalence records for it"
+            )
+        absent = sorted(needed - covered_kinds(root, rtol))
+        if absent:
+            raise SystemExit(
+                f"{root} (key {stamp}) contributes parts of kinds {absent} with no passing "
+                f"equivalence record at rtol {rtol:g} for key {current}: run "
+                f"`kinds --root {root}` and `check` on the printed indices at this head"
+            )
+    return stamps
+
+
+def merge(
+    root: Path,
+    sources: Sequence[Path] = (),
+    accepted: Sequence[str] = (),
+    rtol: float = RTOL,
+) -> bool:
+    """Merge the parts of ``root`` and ``sources`` into ``<root>/merged``; ``False`` on a stop.
+
+    Parts come from ``root`` first, then from each source in order.  A root stamped with another
+    key is read only under :func:`admit`.  The merged files and the report are written to
+    ``root``, which is stamped when it is new.
+    """
+    roots = [root, *sources]
+    if stamped_key(root) is None:
+        claim(root)
+    admit(roots, accepted, rtol)
     out = root / "merged"
     out.mkdir(exist_ok=True)
-    report = read_scans(root)
+    report = read_scans(roots)
     for family in SAMPLE_FAMILIES:
-        frame = _read_sample(root, family)
+        frame = _read_sample(roots, family)
+        if frame.empty:
+            report.append(f"== {family}: no parts")
+            continue
         frame.to_csv(
             out / f"{family}.csv.gz",
             index=False,
@@ -1054,9 +1618,11 @@ def merge(root: Path) -> None:
         failures = int((frame["failure"] != "").sum())
         report.append(f"== {family}: {len(frame)} rows, {failures} recorded failures")
         report += READERS[family](frame)
+    stopped = [line for line in report if "-> stop" in line.lower()]
     text = "\n".join(report) + "\n"
     (out / "report.txt").write_text(text, encoding="utf-8")
     print(text, end="")
+    return not stopped
 
 
 # ----------------------------------------------------------------------------- the command line
@@ -1076,10 +1642,24 @@ def _indices(arguments: argparse.Namespace) -> list[int]:
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m tests.long_horizon_pilots")
     parser.add_argument(
-        "command", choices=("list", "split", "run", "check", "merge", "key", "scans")
+        "command", choices=("list", "split", "run", "check", "kinds", "merge", "key", "scans")
     )
-    parser.add_argument("index", nargs="?", type=int)
+    parser.add_argument("index", nargs="*", type=int)
     parser.add_argument("--root", type=Path)
+    parser.add_argument(
+        "--source",
+        type=Path,
+        action="append",
+        default=[],
+        help="another root to merge (repeatable)",
+    )
+    parser.add_argument(
+        "--accept-key",
+        action="append",
+        default=[],
+        help="a stamped key merge may read (repeatable)",
+    )
+    parser.add_argument("--rtol", type=float, default=RTOL)
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--from", dest="start", type=int, default=0)
     parser.add_argument("--to", type=int)
@@ -1117,15 +1697,29 @@ def main(argv: Sequence[str] | None = None) -> None:
     print(f"root {root}", flush=True)
     if arguments.command == "run":
         run(root, _indices(arguments), arguments.jobs)
+    elif arguments.command == "kinds":
+        chosen = pick_kinds(
+            arguments.start,
+            arguments.to,
+            arguments.root if arguments.root is not None else None,
+        )
+        missing = [kind for kind in KINDS if kind not in chosen]
+        for kind, index in chosen.items():
+            part = parts()[index]
+            print(f"{index:5d} {kind:16s} {part.hours:7.3f} CPU-h  {part.name[:70]}")
+        print("check " + " ".join(str(i) for i in chosen.values()))
+        if missing:
+            print(f"no part in the range for kinds {missing}")
     elif arguments.command == "check":
-        if arguments.index is None:
-            parser.error("check takes a part index")
-        if not check(root, arguments.index, arguments.jobs):
+        if not arguments.index:
+            parser.error("check takes one or more part indices")
+        results = [check(root, i, arguments.jobs, arguments.rtol) for i in arguments.index]
+        if not all(results):
             raise SystemExit(1)
     elif arguments.command == "scans":
-        print("\n".join(read_scans(root)))
-    else:
-        merge(root)
+        print("\n".join(read_scans([root, *arguments.source])))
+    elif not merge(root, arguments.source, arguments.accept_key, arguments.rtol):
+        raise SystemExit("a reading stopped (-> stop): diagnose before the declaration")
 
 
 if __name__ == "__main__":

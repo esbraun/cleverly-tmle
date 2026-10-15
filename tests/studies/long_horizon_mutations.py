@@ -246,3 +246,85 @@ def eif_departure(result: Any, plan: str, K: int, m: int, law: Law, weight: np.n
     curve = np.asarray(result[name].influence_curve, dtype=float)
     per_unit = curve / (len(weight) * weight / np.sum(weight))
     return float(np.max(np.abs(per_unit - law_.eif(K, m, plan, law))))
+
+
+# ----------------------------------------------------------------------------- per-node witness
+#: The plans of the per-node targeting witness, per arm count.
+WITNESS_PLANS = {2: ("never", "always", "respond", "coin"), 3: ("low", "high", "respond", "mix")}
+#: The rungs tried at a node, in order: the W-blind GLM, the intercept, the fixed-offset GLM.
+WITNESS_RUNGS = ("D1", "D2", "D3")
+#: The floors of the witness: ``|epsilon_t|``, the move of the estimate when the update is
+#: skipped, and the skipped node's score.  Each is met when the reading exceeds five times it.
+WITNESS_FLOORS = (1e-3, 1e-4, 1e-6)
+#: The least reading any component may have, even where no rung reaches five times its floor.
+WITNESS_TENTH_FLOOR = 1e-8
+
+
+def witness_learner(rung: str, plan: str, K: int, m: int) -> Any:
+    """The learner of a witness rung for ``plan``: D1 W-blind GLM, D2 intercept, D3 offset GLM."""
+    from tests.studies import long_horizon_common as common
+
+    policy = tuple(sorted(law_.policy_nodes(plan, K)))
+    return {
+        "D1": common.ColumnSubsetGLM("W", m, K, policy),
+        "D2": common.InterceptOnly(),
+        "D3": common.FixedOffsetLearner(),
+    }[rung]
+
+
+def per_node_witness(K: int, m: int, plan: str, law: Law) -> list[dict[str, Any]]:
+    """The per-node targeting witness of one plan on one law (plan section 4.2).
+
+    At each node ``t`` the first rung of :data:`WITNESS_RUNGS` whose readings all exceed five
+    times :data:`WITNESS_FLOORS` is used, with the known mechanism and the declared GLM at every
+    other node.  Where no rung does, the rung with the largest least ratio is kept and the node
+    is marked ``tenth``: its readings must exceed one tenth of the record, and never fall below
+    :data:`WITNESS_TENTH_FLOOR`.  Each record holds the unmutated estimate's departure from the
+    truth, ``|epsilon_t|``, the move of the estimate when node ``t``'s update is skipped, the
+    skipped node's score and the unmutated node's score.
+    """
+    from tests.studies import long_horizon_common as common
+
+    frame = law_.weighted_frame(K, m, law)
+    truth = law_.truth(K, m, plan, law)
+    policy = tuple(sorted(law_.policy_nodes(plan, K)))
+    out: list[dict[str, Any]] = []
+    for t in range(1, K + 1):
+        best: dict[str, Any] | None = None
+        for rung in WITNESS_RUNGS:
+            learner = common.NodePattern({t: witness_learner(rung, plan, K, m)}, None, m, K, policy)
+            base = common.fit(frame, K, m, (plan,), weights="w", outcome_learner=learner)
+            with skip_update({t}):
+                skipped = common.fit(frame, K, m, (plan,), weights="w", outcome_learner=learner)
+            reading = {
+                "K": K,
+                "m": m,
+                "plan": plan,
+                "node": t,
+                "rung": rung,
+                "truth_error": abs(estimate(base, plan) - truth),
+                "epsilon": abs(epsilon(base, plan, t)),
+                "move": abs(estimate(skipped, plan) - estimate(base, plan)),
+                "skipped_score": abs(node_score(skipped, plan, t)),
+                "base_score": abs(node_score(base, plan, t)),
+            }
+            ratios = [
+                reading[name] / (5 * floor)
+                for name, floor in zip(
+                    ("epsilon", "move", "skipped_score"), WITNESS_FLOORS, strict=True
+                )
+            ]
+            reading["least_ratio"] = min(ratios)
+            reading["floors_met"] = min(ratios) > 1.0
+            if best is None or reading["least_ratio"] > best["least_ratio"]:
+                best = reading
+            if reading["floors_met"]:
+                break
+        assert best is not None
+        best["valid"] = bool(
+            best["truth_error"] < 1e-8
+            and best["base_score"] < 1e-9
+            and min(best["epsilon"], best["move"], best["skipped_score"]) > WITNESS_TENTH_FLOOR
+        )
+        out.append(best)
+    return out

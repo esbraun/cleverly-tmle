@@ -6,6 +6,7 @@ import itertools
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -129,3 +130,541 @@ def test_merge_refuses_a_missing_part_or_a_wrong_seed(
     frame.loc[3, "seed"] = D.stream_seed(part.name, 3)
     frame.to_csv(tmp_path / "parts" / part.filename, index=False)
     assert len(P._read_sample(tmp_path, "mc")) == stop - start
+
+
+# ----------------------------------------------------------------------------- rev 4.2: stability
+#: The digest of the first ``REV_41_PARTS`` idents with their file names, and of the seeds of the
+#: first and last replicate of each of their sample parts, at rev 4.1 (``ef4d7a52``).
+REV_41_IDENTS = "30896f39c2de7b5e2f494f3ae94197afd3a3f401e69376aa1325e36a4369b5a2"
+REV_41_SEEDS = "ea730f5068948dd787f193dce4157282f43fd8dcc7a35312c8c61a0847a86f16"
+
+
+def test_the_rev_41_parts_keep_their_idents_order_and_seeds() -> None:
+    """Rev 4.2 appends parts.  The first 3,288 idents, their order and their seeds are rev 4.1's."""
+    import hashlib
+
+    every = P.parts()
+    assert P.REV_41_PARTS == 3_288
+    first = every[: P.REV_41_PARTS]
+    idents = hashlib.sha256()
+    for part in first:
+        idents.update(f"{part.ident}\n{part.filename}\n".encode())
+    assert idents.hexdigest() == REV_41_IDENTS
+    seeds = hashlib.sha256()
+    for part in first:
+        if part.family in P.SAMPLE_FAMILIES:
+            start, stop = part.detail
+            for replicate in (start, stop - 1):
+                seeds.update(
+                    f"{part.name}|{replicate}|{D.stream_seed(part.name, replicate)}\n".encode()
+                )
+    assert seeds.hexdigest() == REV_41_SEEDS
+    assert {part.family for part in every[P.REV_41_PARTS :]} == {"band", "rung", "witness"}
+    # Exact parts of the new family come last, after every sample part.
+    appended = [part.family for part in every[P.REV_41_PARTS :]]
+    assert appended.index("witness") > max(i for i, f in enumerate(appended) if f != "witness")
+
+
+def test_the_new_families_are_the_declared_pilots() -> None:
+    streams = {s.ident: s for s in D.streams() if s.family in ("band", "rung")}
+    band = [s for s in streams.values() if s.family == "band"]
+    assert [(s.name, s.n, s.replicates) for s in band] == [
+        ("S1:band_k5", 76_000, 3_200),
+        ("S2:band_k5", 64_000, 3_200),
+    ]
+    assert all(len(s.plans) == 6 for s in band)
+    rung = [s for s in streams.values() if s.family == "rung"]
+    assert len(rung) == 9
+    assert {s.n for s in rung} == set(D.ROOT_N_SIZES)
+    assert {s.replicates for s in rung} == {1_000}
+    witnesses = [p for p in P.parts() if p.family == "witness"]
+    assert len(witnesses) == len(set(D.FALLBACKS.values())) == 7
+
+
+# ----------------------------------------------------------------------------- rev 4.2: equivalence
+def _csv(rows: pd.DataFrame) -> bytes:
+    return rows.to_csv(index=False, lineterminator="\n", float_format="%.17g").encode()
+
+
+def _sample_rows(part: P.Part) -> pd.DataFrame:
+    start, stop = part.detail
+    rng = pd.Series(range(start, stop), dtype=float)
+    return pd.DataFrame(
+        {
+            "stream": part.name,
+            "replicate": list(range(start, stop)),
+            "seed": [D.stream_seed(part.name, r) for r in range(start, stop)],
+            "n": 4_000,
+            "estimand": "",
+            "truth": 0.25,
+            "estimate": 0.25 + 0.01 * ((rng * 7) % 11 - 5) / 5,
+            "std_error": 0.01 + 0.0001 * rng,
+            "ci_lower": 0.2,
+            "ci_upper": 0.3,
+            "covered": 1,
+            "failure": "",
+        }
+    )
+
+
+def _mc_part() -> P.Part:
+    return next(p for p in P.parts() if p.family == "mc")
+
+
+def test_check_rtol_passes_ulp_noise_and_fails_a_change_of_1e_6() -> None:
+    part = _mc_part()
+    frame = _sample_rows(part)
+    stored = _csv(frame)
+    noisy = frame.copy()
+    noisy.loc[3, "estimate"] = np.nextafter(noisy.loc[3, "estimate"], 1.0)
+    noisy.loc[5, "std_error"] = np.nextafter(noisy.loc[5, "std_error"], 1.0)
+    assert _csv(noisy) != stored
+    found = P.compare_part(part, _csv(noisy), stored, 1e-9)
+    assert found.same
+    assert 0 < found.max_relative_difference < 1e-15
+    moved = frame.copy()
+    moved.loc[3, "estimate"] *= 1 + 1e-6
+    found = P.compare_part(part, _csv(moved), stored, 1e-9)
+    assert not found.same
+    assert found.max_relative_difference == pytest.approx(1e-6, rel=1e-3)
+    assert "estimate" in found.detail
+    # The same change passes at a looser tolerance: the tolerance is the only difference.
+    assert P.compare_part(part, _csv(moved), stored, 1e-5).same
+
+
+def test_check_rtol_reads_integers_text_and_zero_exactly() -> None:
+    """A seed one off is 2e-10 of a 32-bit seed: it must not pass as noise.  atol is zero."""
+    part = _mc_part()
+    frame = _sample_rows(part)
+    stored = _csv(frame)
+    for column, value in (("seed", frame.loc[2, "seed"] + 1), ("covered", 0), ("stream", "x")):
+        changed = frame.copy()
+        changed.loc[2, column] = value
+        assert not P.compare_part(part, _csv(changed), stored, 1e-9).same, column
+    zero = frame.copy()
+    zero["truth"] = 0.0
+    zeroed = zero.copy()
+    zeroed.loc[1, "truth"] = 1e-300
+    assert not P.compare_part(part, _csv(zeroed), _csv(zero), 1e-9).same
+    assert P.compare_part(part, _csv(zero), _csv(zero), 1e-9).same
+    short = frame.iloc[:-1]
+    assert not P.compare_part(part, _csv(short), stored, 1e-9).same
+
+
+def test_check_rtol_compares_a_json_part_value_by_value() -> None:
+    part = next(p for p in P.parts() if p.family == "witness")
+    stored = {"rows": [{"node": 1, "epsilon": 0.0102, "valid": True, "rung": "D1"}], "law": [1.0]}
+
+    def dump(payload: dict[str, object]) -> bytes:
+        return json.dumps(payload, sort_keys=True).encode()
+
+    noisy = {"rows": [{**stored["rows"][0], "epsilon": 0.0102 * (1 + 1e-12)}], "law": [1.0]}  # type: ignore[index]
+    assert P.compare_part(part, dump(noisy), dump(stored), 1e-9).same
+    moved = {"rows": [{**stored["rows"][0], "epsilon": 0.0102 * (1 + 1e-6)}], "law": [1.0]}  # type: ignore[index]
+    assert not P.compare_part(part, dump(moved), dump(stored), 1e-9).same
+    for field, value in (("node", 2), ("valid", False), ("rung", "D2")):
+        other = {"rows": [{**stored["rows"][0], field: value}], "law": [1.0]}  # type: ignore[index]
+        assert not P.compare_part(part, dump(other), dump(stored), 1e-9).same, field
+
+
+def test_every_kind_has_a_part_and_the_picker_takes_the_cheapest() -> None:
+    chosen = P.pick_kinds()
+    assert tuple(chosen) == P.KINDS
+    for kind, index in chosen.items():
+        assert P.kind_of(P.parts()[index]) == kind
+        same = [p.hours for p in P.parts() if P.kind_of(p) == kind]
+        assert P.parts()[index].hours == min(same), kind
+    inside = P.pick_kinds(0, P.REV_41_PARTS)
+    assert set(inside) == set(P.KINDS) - {"band"}
+    assert all(index < P.REV_41_PARTS for index in inside.values())
+    assert P.pick_kinds(3_300, 3_310).keys() <= {"band", "ltmle"}
+
+
+def test_the_kinds_command_prints_the_indices(capsys: pytest.CaptureFixture[str]) -> None:
+    P.main(["kinds", "--from", "0", "--to", "20"])
+    out = capsys.readouterr().out
+    assert "check " in out
+    assert "exact_scan" in out
+    assert "no part in the range for kinds" in out
+
+
+# ----------------------------------------------------------------------------- rev 4.2: merge
+@pytest.fixture
+def small_list(monkeypatch: pytest.MonkeyPatch) -> tuple[P.Part, P.Part]:
+    """A part list of one sample part and one exact part; one family is read."""
+    sample = _mc_part()
+    lawscan = next(p for p in P.parts() if p.family == "lawscan")
+    monkeypatch.setattr(P, "parts", lambda: (lawscan, sample))
+    monkeypatch.setattr(P, "SAMPLE_FAMILIES", ("mc",))
+    monkeypatch.setattr(P, "READERS", {"mc": lambda frame: []})
+    return lawscan, sample
+
+
+def _lawscan_bytes(part: P.Part) -> bytes:
+    q = next(q for q in D.FALLBACKS if str(q) == part.name)
+    payload = {"quantity": part.name, "pick": list(D.FALLBACKS[q].key), "rows": []}
+    return (json.dumps(payload, indent=1, sort_keys=True) + "\n").encode()
+
+
+def _stamp(root: Path, stamped: str) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "KEY.json").write_text(json.dumps({"key": stamped}))
+
+
+def _fill(root: Path, parts: tuple[P.Part, ...]) -> None:
+    for part in parts:
+        data = _csv(_sample_rows(part)) if part.family == "mc" else _lawscan_bytes(part)
+        P._write(root / "parts" / part.filename, data)
+
+
+def _check_into(
+    root: Path, monkeypatch: pytest.MonkeyPatch, factor: float, indices: tuple[int, ...]
+) -> list[bool]:
+    """Run ``check`` on ``indices`` with a recompute that scales every estimate by ``factor``."""
+    every = P.parts()
+
+    def compute(part: P.Part, scratch: Path, jobs: int) -> bytes:
+        if part.family != "mc":
+            return _lawscan_bytes(part)
+        frame = _sample_rows(part)
+        frame["estimate"] = frame["estimate"] * factor
+        return _csv(frame)
+
+    monkeypatch.setattr(P, "compute", compute)
+    assert all(0 <= i < len(every) for i in indices)
+    return [P.check(root, i, 1, 1e-9) for i in indices]
+
+
+def test_check_writes_an_equivalence_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, small_list: tuple[P.Part, P.Part]
+) -> None:
+    root = tmp_path / "cloud"
+    _stamp(root, "oldkey")
+    _fill(root, small_list)
+    assert _check_into(root, monkeypatch, 1 + 1e-13, (1,)) == [True]
+    (path,) = sorted((root / "equivalence").glob("*.json"))
+    record = json.loads(path.read_text())
+    assert record["part"] == 1
+    assert (record["stored_key"], record["current_key"]) == ("oldkey", P.key())
+    assert (record["kind"], record["result"], record["rtol"]) == ("plugin", "pass", 1e-9)
+    assert 0 < record["max_relative_difference"] < 1e-12
+    assert _check_into(root, monkeypatch, 1 + 1e-6, (1,)) == [False]
+    failed = json.loads(next((root / "equivalence").glob("*.json")).read_text())
+    assert failed["result"] == "fail"
+    assert failed["max_relative_difference"] == pytest.approx(1e-6, rel=1e-2)
+
+
+def test_merge_refuses_a_foreign_root_without_an_accepted_key_or_records(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, small_list: tuple[P.Part, P.Part]
+) -> None:
+    target, cloud = tmp_path / "target", tmp_path / "cloud"
+    _stamp(cloud, "oldkey")
+    _fill(cloud, small_list)
+    with pytest.raises(SystemExit, match="pass --accept-key oldkey"):
+        P.merge(target, [cloud])
+    with pytest.raises(SystemExit, match="no passing equivalence record"):
+        P.merge(target, [cloud], ["oldkey"])
+    # A record of a failed check covers nothing.
+    _check_into(cloud, monkeypatch, 1 + 1e-6, (1,))
+    with pytest.raises(SystemExit, match="no passing equivalence record"):
+        P.merge(target, [cloud], ["oldkey"])
+
+
+def test_merge_accepts_a_foreign_root_whose_records_cover_every_kind(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    small_list: tuple[P.Part, P.Part],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    target, cloud = tmp_path / "target", tmp_path / "cloud"
+    _stamp(cloud, "oldkey")
+    _fill(cloud, small_list)
+    # One kind covered: the other kind still refuses, and names itself.
+    _check_into(cloud, monkeypatch, 1 + 1e-13, (1,))
+    with pytest.raises(SystemExit, match="law_scan"):
+        P.merge(target, [cloud], ["oldkey"])
+    _check_into(cloud, monkeypatch, 1 + 1e-13, (0,))
+    assert P.merge(target, [cloud], ["oldkey"]) is True
+    assert (target / "merged" / "mc.csv.gz").exists()
+    assert P.stamped_key(target) == P.key()
+    assert "== mc:" in capsys.readouterr().out
+    # The target keeps only its own key: no part moved into it by hand.
+    assert not list((target / "parts").glob("*"))
+
+
+def test_merge_reads_a_part_from_the_current_key_target_before_a_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, small_list: tuple[P.Part, P.Part]
+) -> None:
+    target, share = tmp_path / "target", tmp_path / "share"
+    lawscan, sample = small_list
+    P.claim(target)
+    P.claim(share)
+    _fill(target, (lawscan,))
+    _fill(share, (sample,))
+    assert P.merge(target, [share]) is True
+    with pytest.raises(SystemExit, match="1 parts missing"):
+        P.merge(tmp_path / "empty", [target])
+
+
+def test_merge_refuses_a_record_for_a_part_that_changed_since(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, small_list: tuple[P.Part, P.Part]
+) -> None:
+    target, cloud = tmp_path / "target", tmp_path / "cloud"
+    _stamp(cloud, "oldkey")
+    _fill(cloud, small_list)
+    _check_into(cloud, monkeypatch, 1 + 1e-13, (0, 1))
+    assert P.merge(target, [cloud], ["oldkey"]) is True
+    # A hand edit of the stored part voids its record.
+    sample = small_list[1]
+    path = cloud / "parts" / sample.filename
+    path.write_bytes(path.read_bytes().replace(b"0.25", b"0.26", 1))
+    with pytest.raises(SystemExit, match="no passing equivalence record"):
+        P.merge(target, [cloud], ["oldkey"])
+
+
+def test_merge_reports_a_stopped_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, small_list: tuple[P.Part, P.Part]
+) -> None:
+    monkeypatch.setattr(P, "READERS", {"mc": lambda frame: ["S1 band: R none -> stop"]})
+    P.claim(tmp_path)
+    _fill(tmp_path, small_list)
+    assert P.merge(tmp_path) is False
+
+
+# ----------------------------------------------------------------------------- rev 4.2: readings
+def test_the_band_pilot_is_the_property_phases_fit() -> None:
+    """A band pilot replicate equals the property phase's band row on the same sample."""
+    import dataclasses
+    import warnings
+
+    from tests.studies import long_horizon_properties as properties
+    from tests.studies.evidence.simultaneous import joint_cells
+
+    stream = next(s for s in D.streams() if s.family == "band" and s.name.startswith("S1"))
+    small = dataclasses.replace(stream, n=2_000)
+    drawn = P._draw(small, (0, 11))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pilot = P._sample_fit(small, (0, 11), drawn)
+        fit_set = properties.fit_sets("S1")[
+            [f.family for f in properties.fit_sets("S1")].index("simultaneous_coverage")
+        ]
+        rows = properties.fit_key(("S1", fit_set.name, 0, 1, 2_000), drawn)
+    band_cell, control_cell = joint_cells("k5")
+    by_cell = {row["cell"]: row for row in rows}
+    assert stream.config is not None
+    assert (stream.config.law, stream.n, stream.plans) == (
+        fit_set.law,
+        fit_set.n,
+        fit_set.arms[0].plans,
+    )
+    (row,) = pilot
+    assert row["covered"] == by_cell[band_cell]["covered"]
+    assert row["pointwise_covered"] == by_cell[control_cell]["covered"]
+    assert row["estimate"] == pytest.approx(by_cell[band_cell]["estimate"])
+    assert row["std_error"] == pytest.approx(by_cell[band_cell]["std_error"])
+
+
+def _band_frame(study: str, coverage: float, replicates: int = 3_200) -> pd.DataFrame:
+    stream = next(s for s in D.streams() if s.family == "band" and s.name.startswith(study))
+    covered = np.zeros(replicates, dtype=int)
+    covered[: round(coverage * replicates)] = 1
+    return pd.DataFrame(
+        {
+            "stream": stream.ident,
+            "replicate": range(replicates),
+            "seed": 0,
+            "n": stream.n,
+            "estimand": "",
+            "truth": 0.0,
+            "estimate": 1.0,
+            "std_error": 2.0,
+            "ci_lower": np.nan,
+            "ci_upper": np.nan,
+            "covered": covered,
+            "pointwise_covered": covered,
+            "failure": "",
+        }
+    )
+
+
+def test_the_band_reading_sizes_r_under_the_two_sided_rule_and_stops_without_a_rung() -> None:
+    ladder = D.BAND_LADDER
+    # Joint coverage 0.95 passes with probability above 0.99 at the smallest rung.
+    reading = P.read_band(_band_frame("S1", 0.95))
+    assert any(line.startswith("S1 band: R 2000") for line in reading), reading
+    # 0.94 needs a larger R; the two-sided rule, not the one-sided floor, sets it.
+    assert D.band_pass(0.94, 2_000) < D.BAND_TARGET <= D.band_pass(0.94, 4_000)
+    assert any(line.startswith("S1 band: R 4000") for line in P.read_band(_band_frame("S1", 0.94)))
+    # 0.91 never reaches the target: the reading stops.
+    assert max(D.band_pass(0.91, R) for R in ladder) < D.BAND_TARGET
+    stopped = P.read_band(_band_frame("S2", 0.91))
+    assert any("none -> stop" in line for line in stopped)
+
+
+def test_the_band_pass_probability_is_the_two_sided_rule() -> None:
+    """Not the one-sided floor: 0.9293 passes the floor rule at R = 2,000, and fails this one."""
+    assert D.band_pass(0.9293, 2_000) < 0.5
+    # At 0.95 the exact interval is inside (0.92, 0.98) at R = 2,000 with high probability;
+    # at 0.97 the upper limit leaves the band.
+    assert D.band_pass(0.95, 2_000) > 0.99
+    assert D.band_pass(0.975, 2_000) < 0.5
+    # It agrees with the shipped interval count by count.
+    from tests.studies.evidence.inference import clopper_pearson
+
+    low, high = D._clopper_pearson(np.arange(0, 41), 40, 0.99)
+    for k in range(41):
+        shipped = clopper_pearson(k, 40, confidence_level=0.99)
+        assert (low[k], high[k]) == pytest.approx((shipped.low, shipped.high))
+
+
+def _rung_frame(study: str, scale: float) -> pd.DataFrame:
+    rng = np.random.default_rng(3)
+    frames = []
+    for stream in (s for s in D.streams() if s.family == "rung" and s.name.startswith(study)):
+        sd = scale / np.sqrt(stream.n)
+        estimate = 0.3 + rng.normal(0, sd, 1_000)
+        frames.append(
+            pd.DataFrame(
+                {
+                    "stream": stream.ident,
+                    "replicate": range(1_000),
+                    "seed": 0,
+                    "n": stream.n,
+                    "estimand": "",
+                    "truth": 0.3,
+                    "estimate": estimate,
+                    "std_error": sd,
+                    "ci_lower": estimate - 1.96 * sd,
+                    "ci_upper": estimate + 1.96 * sd,
+                    "covered": (np.abs(estimate - 0.3) <= 1.96 * sd).astype(int),
+                    "failure": "",
+                }
+            )
+        )
+    return pd.concat(frames, ignore_index=True)
+
+
+def test_the_rung_reading_names_the_control_rung_and_the_slope_rows() -> None:
+    lines = P.read_rung(_rung_frame("S1", 1.2))
+    control = next(line for line in lines if "n_4000" in line)
+    assert "control rung, no claim at R = 1,000" in control
+    positive = [line for line in lines if "n_12000" in line or "n_48000" in line]
+    assert len(positive) == 2
+    assert all("coverage clause pass probability" in line for line in positive)
+    slopes = [line for line in lines if "root_n_rate" in line]
+    assert len(slopes) == 2
+    assert all("pass probability 1.000" in line for line in slopes), slopes
+
+
+def test_the_slope_pass_probability_fails_a_flat_ladder() -> None:
+    rng = np.random.default_rng(5)
+    rungs = {
+        n: pd.DataFrame(
+            {
+                "estimate": 0.3 + rng.normal(0, 0.01, 1_000),
+                "std_error": 0.01,
+                "truth": 0.3,
+            }
+        )
+        for n in D.ROOT_N_SIZES
+    }
+    assert D.slope_pass(rungs, "spread", 1_000, draws=10, bootstrap=500) == 0.0
+
+
+def _truth_frame(estimands: dict[str, float]) -> pd.DataFrame:
+    """Truth-row pilots of S3 ``sdr_policy_k5``: each estimand with its coverage."""
+    stream = next(s for s in D.streams() if s.family == "truth" and s.name == "S3:sdr_policy_k5")
+    rng = np.random.default_rng(2)
+    frames = []
+    for estimand, coverage in estimands.items():
+        covered = (rng.random(400) < coverage).astype(int)
+        frames.append(
+            pd.DataFrame(
+                {
+                    "stream": stream.ident,
+                    "replicate": range(400),
+                    "seed": 0,
+                    "n": stream.n,
+                    "estimand": estimand,
+                    "truth": 0.3,
+                    "estimate": 0.3 + rng.normal(0, 0.01, 400),
+                    "std_error": 0.01,
+                    "ci_lower": 0.0,
+                    "ci_upper": 1.0,
+                    "covered": covered,
+                    "failure": "",
+                }
+            )
+        )
+    return pd.concat(frames, ignore_index=True)
+
+
+def test_the_truth_reading_uses_only_the_gated_rows() -> None:
+    """Review major 2: a row below its own tail regime reports and must not set R.
+
+    ``ey_regimen[taper]`` runs at 44,000 in ``sdr_policy_k5`` against an n_kappa of 246,603.  It
+    under-covers by design.  With it counted, the truth rows stop; without it they reach 1,200.
+    """
+    assert ("S3", "sdr_policy_k5", "ey_regimen[taper]") not in D.GATED_ROWS
+    assert ("S3", "sdr_policy_k5", "ate_regimen[taper vs low]") in D.GATED_ROWS
+    frame = _truth_frame({"ate_regimen[taper vs low]": 0.95, "ey_regimen[taper]": 0.60})
+    lines = P.read_truth(frame)
+    assert "S3: 1 gated truth rows, R 1200" in lines
+    assert "1 non-gating (stream, estimand) pairs report and set no R" in lines
+    # A gated row at the same low coverage does stop the study.
+    stopped = P.read_truth(_truth_frame({"ate_regimen[taper vs low]": 0.60}))
+    assert "S3: 1 gated truth rows, R none -> stop" in stopped
+
+
+def test_the_f2_reading_prints_each_arms_coverage_and_its_error() -> None:
+    cell = next(c for c in D.calibration_cells() if c.study == "S1")
+    stream = next(s for s in D.streams() if s.family == "f2" and s.name == f"S1:{cell.name}")
+    rng = np.random.default_rng(4)
+    estimate = rng.normal(0.3, 0.01, 800)
+    frame = pd.DataFrame(
+        {
+            "stream": stream.ident,
+            "replicate": range(800),
+            "seed": 0,
+            "n": stream.n,
+            "estimand": "",
+            "truth": 0.3,
+            "estimate": estimate,
+            "std_error": 0.0101,
+            "ci_lower": 0.0,
+            "ci_upper": 1.0,
+            "covered": (rng.random(800) < 0.94).astype(int),
+            "failure": "",
+        }
+    )
+    lines = P.read_f2(frame)
+    assert "binomial error" in lines[0]
+    assert lines[-1].startswith("S1: k 1 F2 R")
+
+
+def test_a_per_node_witness_part_reports_the_floors_and_the_fallback() -> None:
+    """The witness of a fallback law: every node valid, with its rung and its ratio to the floor."""
+    from tests.studies import long_horizon_mutations as M
+
+    rows = M.per_node_witness(3, 3, "low", L_R)
+    assert [r["node"] for r in rows] == [1, 2, 3]
+    assert all(r["valid"] for r in rows)
+    assert rows[0]["rung"] == "D3"
+    assert all(r["truth_error"] < 1e-8 and r["base_score"] < 1e-9 for r in rows)
+    assert all(r["floors_met"] for r in rows)
+    # The mutation is the one the fast tier runs: an update skipped at node t moves the estimate.
+    assert all(r["move"] > 5e-4 and r["skipped_score"] > 5e-6 for r in rows)
+
+
+def test_the_witness_part_of_a_fallback_law_is_valid_at_every_node() -> None:
+    """Plan section 4.2 runs the per-node witness on every fallback law, not on ``L_R`` alone."""
+    part = next(p for p in P.parts() if p.family == "witness" and "(1, 0, 4.5)" in p.name)
+    payload = json.loads(P.compute(part, Path("."), 1))
+    rows = payload["rows"]
+    assert payload["law"] == [1.0, 0.0, 4.5, 1.0]
+    assert {(r["K"], r["m"], r["plan"]) for r in rows} == {
+        (4, 3, plan) for plan in ("low", "high", "respond", "mix")
+    }
+    assert len(rows) == 16 and all(r["valid"] for r in rows)
+    assert "16 (plan, node) witnesses" in P.read_witness_text(payload)
