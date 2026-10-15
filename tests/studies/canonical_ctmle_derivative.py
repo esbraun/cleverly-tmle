@@ -162,6 +162,7 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation=IMPLEMENTATION,
+    failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
     pending_reference=REFERENCE,
     pending_reason=PENDING_REASON,
     comparison="matching implementation",

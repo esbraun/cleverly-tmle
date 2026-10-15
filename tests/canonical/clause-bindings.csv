@@ -466,6 +466,25 @@ cross-fitted-longitudinal-msm,targeting_necessity,bias equivalent,bias
 cross-fitted-longitudinal-msm,targeting_necessity,least displacement over labels,control_concentrated
 cross-fitted-longitudinal-msm,type_i_error,coverage floor,coverage/0.5
 cross-fitted-longitudinal-msm,type_i_error,rejection ceiling,rejection/0.1
+ctmle-derivative,clustered_inference,control se ratio under its ceiling,se_high
+ctmle-derivative,clustered_inference,coverage gain,coverage/0.94
+ctmle-derivative,clustered_inference,coverage in calibration band,bias
+ctmle-derivative,clustered_inference,se ratio in calibration band,affine
+ctmle-derivative,double_robustness,bias discriminated,pair_collapse
+ctmle-derivative,double_robustness,bias equivalent,bias
+ctmle-derivative,double_robustness,se ratio in union band,se/0.05
+ctmle-derivative,interval_calibration,coverage in calibration band,bias
+ctmle-derivative,interval_calibration,se ratio in calibration band,affine
+ctmle-derivative,power,rejection floor,se_high
+ctmle-derivative,root_n_and_efficiency,bias equivalent,bias
+ctmle-derivative,root_n_and_efficiency,coverage floor,coverage/0.5
+ctmle-derivative,root_n_and_efficiency,se ratio sanity,se_high
+ctmle-derivative,root_n_rate,slope in root-n band,contract
+ctmle-derivative,targeting_necessity,bias discriminated,pair_collapse
+ctmle-derivative,targeting_necessity,bias equivalent,bias
+ctmle-derivative,targeting_necessity,least displacement over labels,control_concentrated
+ctmle-derivative,type_i_error,coverage floor,coverage/0.5
+ctmle-derivative,type_i_error,rejection ceiling,rejection/0.1
 ctmle-oat-per-arm,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
 ctmle-oat-per-arm,crossfit_overfitting,coverage gain,bias
 ctmle-oat-per-arm,crossfit_overfitting,cross-fit se ratio honest,se_low

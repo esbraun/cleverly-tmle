@@ -92,7 +92,6 @@ from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.inference import influence_variance
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import ctmle_derivative_laws as laws
 from tests.studies.canonical_ctmle_derivative import (
@@ -102,6 +101,7 @@ from tests.studies.canonical_ctmle_derivative import (
     omitted_confounder_learner,
     paired_tmle,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -114,6 +114,7 @@ from tests.studies.evidence.property_verdicts import (
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 #: Sizes and budgets, declared before any run.
@@ -357,9 +358,37 @@ def fit_cell(cell: Cell, frame: pd.DataFrame) -> Any:
     return model.fit(frame, **kwargs).single()
 
 
-def _replication(payload: tuple[Cell, int]) -> list[dict[str, Any]]:
-    cell, replicate = payload
-    frame = cell.law.sample(cell.n, _sample_seed(cell, replicate))
+def _draw(key: tuple[Cell, int]) -> pd.DataFrame:
+    cell, replicate = key
+    return cell.law.sample(cell.n, _sample_seed(cell, replicate))
+
+
+#: The control cell each key writes beside its own, by family.
+_SECOND_CELL = {"clustered_inference": "iid_control", "targeting_necessity": "ate__untargeted"}
+
+
+def _cells_of(key: tuple[Cell, int]) -> list[str]:
+    cell = key[0]
+    names = [f"{cell.family}/{cell.cell}"]
+    if cell.family in _SECOND_CELL:
+        names.append(f"{cell.family}/{_SECOND_CELL[cell.family]}")
+    return names
+
+
+def _cell_of(key: tuple[Cell, int]) -> str:
+    return f"{key[0].family}/{key[0].cell}"
+
+
+def _replicate_of(key: tuple[Cell, int]) -> int:
+    return key[1]
+
+
+def _seed_of(key: tuple[Cell, int]) -> int:
+    return _sample_seed(*key)
+
+
+def _replication(key: tuple[Cell, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
+    cell, replicate = key
     truth = float(cell.law.truth()[cell.estimand])
     result = fit_cell(cell, frame)
     estimate = result[cell.estimand]
@@ -434,14 +463,23 @@ def generate_property_rows(
     DataFrame
         The shared schema, then :data:`PAIRED_COLUMNS` (empty off the paired families).
     """
-    payloads = [
-        ((cell, replicate),)
+    keys = [
+        (cell, replicate)
         for cell in cells()
         for replicate in range(
             cell.replicates if replicates is None else min(replicates, cell.replicates)
         )
     ]
-    outcomes = map_parallel(_replication, payloads, n_jobs=n_jobs)
+    outcomes = fit_properties(
+        keys,
+        _replication,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        seed_of=_seed_of,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     if replicates is not None:
         rows["requested_replicates"] = rows["requested_replicates"].clip(upper=replicates)
@@ -449,6 +487,27 @@ def generate_property_rows(
         if column not in rows:
             rows[column] = np.nan
     return rows.loc[:, [*REPLICATE_COLUMNS, *PAIRED_COLUMNS]]
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
+#: The targeted arm against its initial plug-in, displaced by at least
+#: :data:`TARGETING_DISPLACEMENT` spreads.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("ate",),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -459,16 +518,12 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         extra_columns=("targeting_displacement",),
     )
     clustered_inference_verdicts(summary, shared, STUDY)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("ate",),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (*property_verdicts.necessity_rules(TARGETING_NECESSITY),)
 
 
 def _paired_se_ratio_difference(
