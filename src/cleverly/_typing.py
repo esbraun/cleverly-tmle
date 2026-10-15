@@ -23,6 +23,7 @@ __all__ = [
     "IntArray",
     "Learner",
     "ParameterAxis",
+    "SurvivalModel",
     "TargetingMethod",
     "TargetingScheme",
 ]
@@ -42,6 +43,8 @@ Backend = Literal["pandas", "polars"]
 Family = Literal["gaussian", "binomial", "auto"]
 FluctuationKind = Literal["logistic", "linear"]
 TargetingMethod = Literal["iterative", "one_step"]
+#: How a longitudinal fit models a survival curve.
+SurvivalModel = Literal["iterated_mean", "hazard"]
 TargetingScheme = Literal["pooled", "fold"]
 
 #: What the outer cross-fitting folds are balanced on.  ``"none"`` draws a split that
