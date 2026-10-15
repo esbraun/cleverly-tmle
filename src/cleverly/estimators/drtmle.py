@@ -287,6 +287,40 @@ class ReducedFit:
         return None if reduction is None else reduction.evaluation
 
 
+def drtmle_axis_refusal(keyword: str) -> Refusal:
+    """Why DRTMLE refuses a parameter axis other than the static arms.
+
+    Parameters
+    ----------
+    keyword : str
+        The declared axis keyword, such as ``"policies"``.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.IMPLEMENTATION_GAP` record that names the
+        roadmap row of the axis.
+    """
+    if keyword in ("interventions", "msm"):
+        open_row = "X50"
+        status = (
+            "The indicator reduction for a regime and the projection of the arm "
+            "or regime means follow from that theorem, but they are not "
+            "implemented (docs/roadmap.md X50)."
+        )
+    else:
+        open_row = "F5"
+        status = "No theorem read here says what its reductions would be (docs/roadmap.md F5)."
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
+        "regressions are derived for counterfactual means under a static "
+        f"treatment, and {keyword}= is a different score equation. {status}",
+        alternative="Fit a plain TMLE, which is derived there.",
+        roadmap=open_row,
+    )
+
+
 class DRTMLE(TMLE):
     r"""TMLE with the doubly-robust inference corrections, for a discrete point treatment.
 
@@ -785,27 +819,7 @@ class DRTMLE(TMLE):
             )
         for keyword in ("interventions", "policies", "incremental", "msm"):
             if getattr(self, keyword, None):
-                if keyword in ("interventions", "msm"):
-                    open_row = "X50"
-                    status = (
-                        "The indicator reduction for a regime and the projection of the arm "
-                        "or regime means follow from that theorem, but they are not "
-                        "implemented (docs/roadmap.md X50)."
-                    )
-                else:
-                    open_row = "F5"
-                    status = (
-                        "No theorem read here says what its reductions would be "
-                        "(docs/roadmap.md F5)."
-                    )
-                raise CapabilityError(
-                    f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
-                    "regressions are derived for counterfactual means under a static "
-                    f"treatment, and {keyword}= is a different score equation. {status}",
-                    reason=RefusalReason.IMPLEMENTATION_GAP,
-                    alternative="Fit a plain TMLE, which is derived there.",
-                    roadmap=open_row,
-                )
+                raise CapabilityError.from_refusal(drtmle_axis_refusal(keyword))
 
     # --------------------------------------------------------------- the hook
 
@@ -1161,7 +1175,7 @@ class DRTMLE(TMLE):
         ``TMLE._check_policies`` runs first in the preflight, and it answers a dose with no
         ``policies=`` by suggesting one, which DRTMLE does not fit.
         """
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             refuse_unsupported("continuous")
         super()._check_policies(data)
 
@@ -1181,7 +1195,7 @@ class DRTMLE(TMLE):
                 roadmap="F5",
             )
         self._refuse_one_step_nested()
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             refuse_unsupported("continuous")
         if data.has_intermediate:
             raise CapabilityError(

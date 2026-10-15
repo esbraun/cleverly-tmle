@@ -1,92 +1,74 @@
 draws 100, seeds 1000 to 1099
 
 Coverage, bias, and SE ratio of each method and contrast
-  ltmle  discount       coverage 94 of 100 (0.940); bias +0.0002 (MC SE 0.0030); SD 0.0304; mean SE 0.0303; ratio 0.999
-  ltmle  shipping       coverage 95 of 100 (0.950); bias -0.0058 (MC SE 0.0029); SD 0.0294; mean SE 0.0286; ratio 0.973
-  ltmle  win_back       coverage 93 of 100 (0.930); bias -0.0063 (MC SE 0.0020); SD 0.0196; mean SE 0.0205; ratio 1.048
-  ltmle  win_back_ship  coverage 95 of 100 (0.950); bias -0.0056 (MC SE 0.0023); SD 0.0228; mean SE 0.0237; ratio 1.039
-  sdr    discount       coverage 94 of 100 (0.940); bias +0.0002 (MC SE 0.0030); SD 0.0305; mean SE 0.0303; ratio 0.996
-  sdr    shipping       coverage 95 of 100 (0.950); bias -0.0058 (MC SE 0.0029); SD 0.0294; mean SE 0.0286; ratio 0.972
-  sdr    win_back       coverage 93 of 100 (0.930); bias -0.0063 (MC SE 0.0020); SD 0.0196; mean SE 0.0205; ratio 1.049
-  sdr    win_back_ship  coverage 95 of 100 (0.950); bias -0.0056 (MC SE 0.0023); SD 0.0228; mean SE 0.0237; ratio 1.038
-  gcomp  discount       coverage 93 of 100 (0.930); bias +0.0004 (MC SE 0.0031); SD 0.0311; mean SE 0.0299; ratio 0.962
-  gcomp  shipping       coverage 97 of 100 (0.970); bias -0.0058 (MC SE 0.0029); SD 0.0290; mean SE 0.0282; ratio 0.973
-  gcomp  win_back       coverage 92 of 100 (0.920); bias -0.0062 (MC SE 0.0020); SD 0.0197; mean SE 0.0205; ratio 1.041
-  gcomp  win_back_ship  coverage 94 of 100 (0.940); bias -0.0053 (MC SE 0.0023); SD 0.0230; mean SE 0.0235; ratio 1.021
-  ipw    discount       coverage 95 of 100 (0.950); bias +0.0013 (MC SE 0.0031); SD 0.0310; mean SE 0.0321; ratio 1.035
-  ipw    shipping       coverage 95 of 100 (0.950); bias -0.0062 (MC SE 0.0032); SD 0.0318; mean SE 0.0300; ratio 0.944
-  ipw    win_back       coverage 94 of 100 (0.940); bias -0.0060 (MC SE 0.0022); SD 0.0217; mean SE 0.0216; ratio 0.995
-  ipw    win_back_ship  coverage 95 of 100 (0.950); bias -0.0055 (MC SE 0.0025); SD 0.0248; mean SE 0.0249; ratio 1.005
+  ltmle  discount       coverage 95 of 100 (0.950); bias +0.0002 (MC SE 0.0031); SD 0.0305; mean SE 0.0300; ratio 0.982
+  ltmle  shipping       coverage 95 of 100 (0.950); bias -0.0059 (MC SE 0.0029); SD 0.0290; mean SE 0.0282; ratio 0.972
+  ltmle  win_back       coverage 92 of 100 (0.920); bias -0.0065 (MC SE 0.0019); SD 0.0194; mean SE 0.0203; ratio 1.049
+  ltmle  win_back_ship  coverage 94 of 100 (0.940); bias -0.0056 (MC SE 0.0023); SD 0.0229; mean SE 0.0235; ratio 1.028
 
-Largest distance from the LTMLE estimate over the four contrasts
-  sdr    mean 0.0005, median 0.0005, 5% 0.0002, 95% 0.0010, min 0.0001, max 0.0015
-  gcomp  mean 0.0041, median 0.0036, 5% 0.0015, 95% 0.0077, min 0.0012, max 0.0101
-  ipw    mean 0.0138, median 0.0126, 5% 0.0055, 95% 0.0252, min 0.0022, max 0.0364
+Crude follower contrasts of the association step, against the truth
+  crude  discount       bias -0.0140 (MC SE 0.0030); SD 0.0303; below the truth on 66 of 100 (0.660)
+  crude  shipping       bias -0.0061 (MC SE 0.0029); SD 0.0291; below the truth on 53 of 100 (0.530)
+  crude  win_back       bias -0.0314 (MC SE 0.0019); SD 0.0193; below the truth on 96 of 100 (0.960)
+  crude  win_back_ship  bias -0.0345 (MC SE 0.0023); SD 0.0234; below the truth on 96 of 100 (0.960)
+Share engaged in week 1 among the followers of each plan, and among all kept customers
+  kept customers: mean 0.5636, median 0.5633, 5% 0.5578, 95% 0.5703, min 0.5541, max 0.5766
+  followers of none: mean 0.6573, median 0.6567, 5% 0.6300, 95% 0.6818, min 0.6201, max 0.6938
+  followers of discount: mean 0.3960, median 0.3947, 5% 0.3577, 95% 0.4339, min 0.3416, max 0.4452
+  followers of shipping: mean 0.6676, median 0.6673, 5% 0.6330, 95% 0.6976, min 0.6161, max 0.7198
+  followers of win_back: mean 0.5327, median 0.5315, 5% 0.5113, 95% 0.5562, min 0.4980, max 0.5637
+  followers of win_back_ship: mean 0.5055, median 0.5045, 5% 0.4774, 95% 0.5377, min 0.4650, max 0.5504
+  followers of none above kept customers: 100 of 100 (1.000)
 
-Distance from the truth, mean absolute error over draws and contrasts
-  ltmle  0.0207
-  sdr    0.0207
-  gcomp  0.0209
-  ipw    0.0225
+Blind outcome regressions: LTMLE and g-computation, same estimands as the main fit
+  blind LTMLE   discount       coverage 95 of 100 (0.950); bias +0.0013 (MC SE 0.0031); SD 0.0310; mean SE 0.0322; ratio 1.039; SE over main SE 1.073
+  blind g-comp  discount       bias -0.0140 (MC SE 0.0030); SD 0.0303; largest gap from the crude contrast 0.00e+00
+  blind LTMLE   shipping       coverage 96 of 100 (0.960); bias -0.0062 (MC SE 0.0032); SD 0.0318; mean SE 0.0301; ratio 0.945; SE over main SE 1.066
+  blind g-comp  shipping       bias -0.0061 (MC SE 0.0029); SD 0.0291; largest gap from the crude contrast 0.00e+00
+  blind LTMLE   win_back       coverage 93 of 100 (0.930); bias -0.0060 (MC SE 0.0022); SD 0.0217; mean SE 0.0215; ratio 0.993; SE over main SE 1.059
+  blind g-comp  win_back       bias -0.0314 (MC SE 0.0019); SD 0.0193; largest gap from the crude contrast 0.00e+00
+  blind LTMLE   win_back_ship  coverage 95 of 100 (0.950); bias -0.0055 (MC SE 0.0025); SD 0.0248; mean SE 0.0249; ratio 1.005; SE over main SE 1.060
+  blind g-comp  win_back_ship  bias -0.0345 (MC SE 0.0023); SD 0.0234; largest gap from the crude contrast 0.00e+00
 
 Paired comparisons
   win_back - discount: truth 0.1401
-    paired coverage: 94 of 100 (0.940)
+    paired coverage: 95 of 100 (0.950)
     paired SE below unpaired SE: 100 of 100 (1.000)
-    unpaired SE over paired SE: mean 1.3313, median 1.3291, 5% 1.2927, 95% 1.3738, min 1.2703, max 1.4242
+    unpaired SE over paired SE: mean 1.3317, median 1.3296, 5% 1.2918, 95% 1.3706, min 1.2782, max 1.4267
     paired interval excludes zero: 100 of 100 (1.000)
   win_back - shipping: truth 0.0132
-    paired coverage: 96 of 100 (0.960)
-    paired SE below unpaired SE: 100 of 100 (1.000)
-    unpaired SE over paired SE: mean 1.3726, median 1.3718, 5% 1.3249, 95% 1.4239, min 1.3105, max 1.4392
-    paired interval excludes zero: 7 of 100 (0.070)
-  win_back_ship - win_back: truth 0.0271
     paired coverage: 97 of 100 (0.970)
     paired SE below unpaired SE: 100 of 100 (1.000)
-    unpaired SE over paired SE: mean 1.5683, median 1.5640, 5% 1.5152, 95% 1.6263, min 1.4751, max 1.6449
-    paired interval excludes zero: 25 of 100 (0.250)
+    unpaired SE over paired SE: mean 1.3744, median 1.3716, 5% 1.3317, 95% 1.4224, min 1.3156, max 1.4464
+    paired interval excludes zero: 8 of 100 (0.080)
+  win_back_ship - win_back: truth 0.0271
+    paired coverage: 96 of 100 (0.960)
+    paired SE below unpaired SE: 100 of 100 (1.000)
+    unpaired SE over paired SE: mean 1.5648, median 1.5632, 5% 1.5085, 95% 1.6174, min 1.4725, max 1.6489
+    paired interval excludes zero: 26 of 100 (0.260)
 
 Synthetic deployment check, fit minus pilot
-  difference: mean -0.0029, median -0.0034, 5% -0.0258, 95% 0.0193, min -0.0366, max 0.0331
-  difference in standard errors: mean -0.2025, median -0.2385, 5% -1.8148, 95% 1.3868, min -2.5100, max 2.3662
-  |z| < 1.96: 93 of 100 (0.930)
-  |z| < 2: 94 of 100 (0.940)
+  difference: mean -0.0030, median -0.0035, 5% -0.0269, 95% 0.0213, min -0.0365, max 0.0339
+  difference in standard errors: mean -0.2080, median -0.2470, 5% -1.8977, 95% 1.5129, min -2.5062, max 2.4310
+  |z| < 1.96: 92 of 100 (0.920)
+  |z| < 2: 93 of 100 (0.930)
 
 Support of the declared fit
-  minimum Kish ratio: mean 0.8600, median 0.8610, 5% 0.8485, 95% 0.8713, min 0.8349, max 0.8773
+  minimum Kish ratio: mean 0.8601, median 0.8613, 5% 0.8489, 95% 0.8703, min 0.8340, max 0.8775
   minimum followers at any node: mean 429.2200, median 429.0000, 5% 402.9500, 95% 456.1000, min 390.0000, max 466.0000
-  maximum weight: mean 97.0618, median 99.1543, 5% 90.7238, 95% 100.0000, min 88.7649, max 100.0000
-  no weight truncated: 54 of 100 (0.540)
+  maximum weight: mean 96.8389, median 97.9529, 5% 90.8616, 95% 100.0000, min 87.6972, max 100.0000
+  no weight truncated: 63 of 100 (0.630)
+  a weight at the cap of 100: 37 of 100 (0.370)
   followers of none at week 3: mean 774.4700, median 775.0000, 5% 725.9000, 95% 817.0500, min 689.0000, max 839.0000
   followers of discount at week 3: mean 429.2200, median 429.0000, 5% 402.9500, 95% 456.1000, min 390.0000, max 466.0000
   followers of shipping at week 3: mean 541.1900, median 543.0000, 5% 506.0000, 95% 574.0500, min 482.0000, max 587.0000
   followers of win_back at week 3: mean 1243.3400, median 1240.5000, 5% 1184.9500, 95% 1305.3500, min 1166.0000, max 1332.0000
   followers of win_back_ship at week 3: mean 941.5000, median 944.5000, 5% 898.8000, 95% 983.3000, min 877.0000, max 1019.0000
 
-Logs unavailable: estimated offer mechanism
-  discount       coverage 94 of 100 (0.940); estimate minus declared fit: mean -0.0000, median -0.0002, 5% -0.0043, 95% 0.0038, min -0.0068, max 0.0140
-  shipping       coverage 95 of 100 (0.950); estimate minus declared fit: mean 0.0003, median 0.0004, 5% -0.0037, 95% 0.0059, min -0.0048, max 0.0076
-  win_back       coverage 94 of 100 (0.940); estimate minus declared fit: mean 0.0002, median 0.0002, 5% -0.0024, 95% 0.0027, min -0.0060, max 0.0056
-  win_back_ship  coverage 95 of 100 (0.950); estimate minus declared fit: mean 0.0002, median 0.0006, 5% -0.0029, 95% 0.0034, min -0.0069, max 0.0065
-  truncation-curve moves, in SEs of the fit:
-    discount       bound 0.02: max |move| 0.375; mean +0.032
-    discount       bound 0.05: max |move| 0.513; mean +0.080
-    discount       bound 0.1: max |move| 0.445; mean +0.083
-    shipping       bound 0.02: max |move| 0.356; mean +0.002
-    shipping       bound 0.05: max |move| 0.467; mean +0.004
-    shipping       bound 0.1: max |move| 0.455; mean +0.005
-    win_back       bound 0.02: max |move| 0.132; mean +0.002
-    win_back       bound 0.05: max |move| 0.418; mean -0.015
-    win_back       bound 0.1: max |move| 0.398; mean -0.020
-    win_back_ship  bound 0.02: max |move| 0.115; mean +0.002
-    win_back_ship  bound 0.05: max |move| 0.386; mean -0.014
-    win_back_ship  bound 0.1: max |move| 0.437; mean -0.016
-  truncated score cells at 0.1: mean 10008.4900, median 9955.0000, 5% 9557.0000, 95% 10553.2000, min 9458.0000, max 10971.0000
-
 Benchmark: drop engagement from the history of the static plans
-  discount: move mean -0.0027, median -0.0028, 5% -0.0091, 95% 0.0045, min -0.0159, max 0.0094
-  discount: move in SE mean -0.0902, median -0.0925, 5% -0.3032, 95% 0.1520, min -0.5208, max 0.3206
+  discount: move mean -0.0024, median -0.0028, 5% -0.0075, 95% 0.0045, min -0.0153, max 0.0100
+  discount: move in SE mean -0.0792, median -0.0958, 5% -0.2542, 95% 0.1525, min -0.5232, max 0.3426
   discount: |move| below one SE: 100 of 100 (1.000)
-  shipping: move mean 0.0004, median -0.0001, 5% -0.0059, 95% 0.0066, min -0.0095, max 0.0097
-  shipping: move in SE mean 0.0128, median -0.0038, 5% -0.2063, 95% 0.2288, min -0.3375, max 0.3397
+  shipping: move mean 0.0004, median 0.0005, 5% -0.0056, 95% 0.0061, min -0.0106, max 0.0079
+  shipping: move in SE mean 0.0134, median 0.0178, 5% -0.2058, 95% 0.2169, min -0.3840, max 0.2757
   shipping: |move| below one SE: 100 of 100 (1.000)

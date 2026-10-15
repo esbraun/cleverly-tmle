@@ -42,6 +42,7 @@ which holds generators of one wide frame with the columns `Y` and `A`.
    cleverly.datasets.make_shift_dose
    cleverly.datasets.make_missing_outcome
    cleverly.datasets.make_missing_outcome_binary
+   cleverly.datasets.make_missing_outcome_bounded
    cleverly.datasets.make_cde
    cleverly.datasets.make_clustered
    cleverly.datasets.make_biased_sample

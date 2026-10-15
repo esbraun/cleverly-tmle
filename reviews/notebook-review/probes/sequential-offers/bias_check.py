@@ -1,7 +1,7 @@
-"""Bias of the notebook's LTMLE and IPW fits on fresh draws, per contrast and per level.
+"""Bias of the notebook's LTMLE fit on fresh draws, per contrast and per level.
 
 Each seed ``s`` draws ``make_sequential_offers(20_000, seed=s)`` and fits the declared-mechanism
-cross-fitted LTMLE and the Hajek IPW of ``docs/examples/sequential-offers.ipynb`` twice: once as
+in-sample LTMLE of ``docs/examples/sequential-offers.ipynb`` twice: once as
 ``RegimeMean`` (the five levels) and once as ``RegimeContrast`` against ``none`` (the four
 contrasts). Truths come from ``offers_truth()``. The seeds are disjoint from the 1000 to 1099
 range of ``sweep.py``.
@@ -35,7 +35,6 @@ def one_seed(seed: int) -> dict:
     from cleverly import (
         CausalStudy,
         CrossFitting,
-        IPWMethod,
         LongPanel,
         ModelSpec,
         RegimeContrast,
@@ -50,7 +49,6 @@ def one_seed(seed: int) -> dict:
         win_back,
         win_back_then_ship,
     )
-    from cleverly.learners import GLM
     from cleverly.longitudinal import DynamicRegimen, each_node
 
     panel, _ = make_sequential_offers(20_000, seed=seed)
@@ -88,10 +86,9 @@ def one_seed(seed: int) -> dict:
                 pseudo_learner=LinearRegression(),
                 censoring_learner=logistic,
             ),
-            cross_fitting=CrossFitting(n_folds=2),
+            cross_fitting=CrossFitting(enabled=False),
             runtime=runtime,
         ),
-        "ipw": IPWMethod(models=ModelSpec(censoring_learner=GLM()), runtime=runtime),
     }
     study = CausalStudy(panel, design=design, protocol=offers_protocol())
     levels = study.identify(RegimeMean(plans))

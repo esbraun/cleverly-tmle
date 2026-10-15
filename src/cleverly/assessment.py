@@ -641,7 +641,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         )
     if (
         family == "point"
-        and result.data.is_continuous_treatment
+        and result.data.treatment_kind == "continuous"
         and result.config.parameter_axis == "msm"
     ):
         # The arm positivity report cannot interpret a continuous density. No
@@ -2249,6 +2249,15 @@ def _bound_arguments(bound: inspect.BoundArguments, report: Any = None) -> dict[
         resolved = getattr(report, "random_state", getattr(report, "root_seed", None))
         if resolved is not None:
             effective["random_state"] = resolved
+    # ``omitted_variable_bounds`` resolves an omitted strength to 0.03 itself, because a
+    # ``benchmark=`` must be told apart from an explicit strength. Record what it ran, except
+    # beside a benchmark, where a replay passing both strengths would conflict with it.
+    if effective.get("benchmark") is None:
+        for name in ("cf_y", "cf_d"):
+            if name in effective and effective[name] is None:
+                resolved = getattr(report, name, None)
+                if resolved is not None:
+                    effective[name] = resolved
     return effective
 
 
@@ -2594,11 +2603,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                     nuisance.policies,
                     nuisance.density,
                     self._result.data.treatment,
-                    propensity=(
-                        None
-                        if self._result.data.is_continuous_treatment
-                        else nuisance.propensity.values
-                    ),
+                    propensity=(nuisance.propensity.values if self._result.data.has_arms else None),
                     mechanisms=mechanisms,
                     folds=nuisance.folds,
                     **score_arguments("mtp"),
@@ -3316,7 +3321,10 @@ def _omitted_item(
     spans = report.lower <= report.null_hypothesis <= report.upper
     defaults = [] if arguments is None else [n for n in ("cf_y", "cf_d") if n not in arguments]
     provenance = ""
-    if defaults:
+    benchmark = None if arguments is None else arguments.get("benchmark")
+    if benchmark is not None:
+        provenance = f"at the strengths of the benchmark against {list(benchmark.covariates)}; "
+    elif defaults:
         provenance = (
             "at the default strengths; "
             if len(defaults) == 2
@@ -3452,11 +3460,13 @@ def _conditioning_population(report: Any) -> tuple[float | None, float | None, b
         for cell in report.cells
         if cell.target_population_fraction is not None
     ]
+    from .sensitivity.simulated_confounding import _is_anchor
+
     anchor = next(
         (
             cell.target_population_fraction
             for cell in report.cells
-            if cell.treatment_strength == 0.0 and cell.outcome_strength == 0.0
+            if _is_anchor(cell.treatment_strength, cell.outcome_strength)
         ),
         None,
     )
@@ -3885,7 +3895,9 @@ class SensitivityFacade(_CapabilityFacade):
         # both reads.  Neither one needs a ``getattr`` default: a default would answer for a
         # point result whose data lack the flag, and no such result exists, because both are
         # properties of ``CausalData``.
-        continuous = not longitudinal and bool(self._result.data.is_continuous_treatment)
+        # A vector treatment with a continuous component has no arms either, so it takes
+        # the continuous branch: every eligible parameter is a named policy parameter.
+        continuous = not longitudinal and not self._result.data.has_arms
         from .sensitivity._simulated_confounding_request import (
             _eligible_binary_parameter_names,
             _fit_wide_refusal,

@@ -1203,6 +1203,24 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+tests.studies.vector_mtp_properties,double_robustness,bias discriminated,pair_collapse
+tests.studies.vector_mtp_properties,double_robustness,bias equivalent,bias
+tests.studies.vector_mtp_properties,double_robustness,se ratio in union band,se/0.05
+tests.studies.vector_mtp_properties,image_necessity,bias discriminated,pair_collapse
+tests.studies.vector_mtp_properties,image_necessity,bias equivalent,bias
+tests.studies.vector_mtp_properties,image_necessity,least displacement over labels,control_concentrated
+tests.studies.vector_mtp_properties,interval_calibration,coverage in calibration band,shift/0.7
+tests.studies.vector_mtp_properties,interval_calibration,efficiency above band,pair_collapse
+tests.studies.vector_mtp_properties,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+tests.studies.vector_mtp_properties,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+tests.studies.vector_mtp_properties,interval_calibration,se ratio below band,se_high
+tests.studies.vector_mtp_properties,interval_calibration,se ratio in calibration band,affine
+tests.studies.vector_mtp_properties,jacobian_necessity,bias discriminated,pair_collapse
+tests.studies.vector_mtp_properties,jacobian_necessity,bias equivalent,bias
+tests.studies.vector_mtp_properties,jacobian_necessity,least displacement over labels,control_concentrated
+tests.studies.vector_mtp_properties,preimage_necessity,bias discriminated,pair_collapse
+tests.studies.vector_mtp_properties,preimage_necessity,bias equivalent,bias
+tests.studies.vector_mtp_properties,preimage_necessity,least displacement over labels,control_concentrated
 weighted-ltmle,double_robustness,bias discriminated,bias
 weighted-ltmle,double_robustness,bias equivalent,bias
 weighted-ltmle,double_robustness,se ratio in union band,se/0.05
