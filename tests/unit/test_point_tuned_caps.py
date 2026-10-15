@@ -40,6 +40,7 @@ from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import (
     DoseQuantile,
     LinearQuantileRegression,
+    Scale,
     Shift,
     SupportBoundary,
 )
@@ -167,35 +168,48 @@ def _silverman(values: np.ndarray, power: float = 0.2) -> float:
     return 0.9 * min(sd, iqr / 1.34) * values.size ** (-power)
 
 
-def _longhand_term(frame: pd.DataFrame, nuisance: Any, kind: str) -> np.ndarray:
-    """``dPhi_n' IF`` written out: the tuner, its curve, and the kernel derivative."""
+def _longhand_term(
+    frame: pd.DataFrame,
+    nuisance: Any,
+    kind: str,
+    *,
+    q: float = 0.5,
+    factor: float | None = None,
+) -> np.ndarray:
+    """``dPhi_n' IF`` written out: the tuner, its curve, and the kernel derivative.
+
+    A ``Shift(1.0)`` has the edge ``c - 1`` and ``|e'| = 1``; a ``Scale(f)`` has the edge
+    ``c / f`` and ``|e'| = 1 / f``, both written here.
+    """
     dose = frame["A"].to_numpy()
     n = dose.size
     if kind == "quantile":
-        theta = np.array([np.quantile(dose, 0.5, method="inverted_cdf")])
+        theta = np.array([np.quantile(dose, q, method="inverted_cdf")])
         h = _silverman(dose)
         density = float(np.mean(stats.norm.pdf((theta[0] - dose) / h)) / h)
-        influence = (-((dose <= theta[0]).astype(float) - 0.5) / density)[:, None]
+        influence = (-((dose <= theta[0]).astype(float) - q) / density)[:, None]
         design = np.ones((n, 1))
     else:
         features = frame[["W"]].to_numpy()
-        model = QuantileRegressor(quantile=0.5, alpha=0.0, solver="highs").fit(features, dose)
+        model = QuantileRegressor(quantile=q, alpha=0.0, solver="highs").fit(features, dose)
         theta = np.concatenate([[model.intercept_], model.coef_])
         design = np.column_stack([np.ones(n), features])
         residual = dose - design @ theta
         hj = _silverman(residual, power=1.0 / 3.0)
         inside = (np.abs(residual) <= hj).astype(float)
         jacobian = (design * inside[:, None]).T @ design / (2.0 * hj * n)
-        score = design * (0.5 - (residual <= 0.0).astype(float))[:, None]
+        score = design * (q - (residual <= 0.0).astype(float))[:, None]
         influence = np.linalg.solve(jacobian, score.T).T
     boundary = design @ theta
-    gap = dose - (boundary - 1.0)
+    edge = boundary - 1.0 if factor is None else boundary / factor
+    slope = 1.0 if factor is None else 1.0 / factor
+    gap = dose - edge
     h = _silverman(gap)
     kernel = stats.norm.pdf(gap / h) / h
     high = nuisance.outcome_probes["tuned0:boundary"]
     low = nuisance.outcome_probes["tuned0:edge"]
     np.testing.assert_allclose(nuisance.policies.curve_terms[:, 1], 0.0, atol=0)
-    derivative = (kernel * (high - low)) @ design / n
+    derivative = slope * (kernel * (high - low)) @ design / n
     return np.asarray(influence @ derivative)
 
 
@@ -679,3 +693,87 @@ def test_point_tuned_caps_refuse_a_categorical_treatment(frame: Any) -> None:
     settings = {**COLUMNS, "treatment_kind": "discrete"}
     with pytest.raises(CapabilityError, match="is not one continuous dose"):
         TMLE(policies=_policies("population"), **_settings(**_raising())).fit(data, **settings)
+
+
+# ------------------------------------------------------------------ the tuned Scale (M1)
+
+FACTOR = 0.5
+SCALE_Q = 0.3
+SCALE_TUNERS = {
+    "quantile": Tuner(q=SCALE_Q),
+    "regression": Tuner(features=("W",), q=SCALE_Q),
+}
+
+
+def _scale_policies(kind: str) -> list[Any]:
+    if kind == "quantile":
+        cap: Any = DoseQuantile(SCALE_Q)
+    else:
+        cap = SupportBoundary(LinearQuantileRegression(("W",)), SCALE_Q)
+    return [Scale(FACTOR, cap=cap, target="population", name="tuned"), Shift(0.0, cap=None)]
+
+
+@pytest.fixture
+def unit_slope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation of the review: ``|e'| = 1`` on every tuned map."""
+    original = tuned_module.tuned_cap_parts
+
+    def forced(policy: Any, fitted: Any, frame: Any, n: int) -> Any:
+        boundary, edge, gradient, _ = original(policy, fitted, frame, n)
+        return boundary, edge, gradient, 1.0
+
+    monkeypatch.setattr(tuned_module, "tuned_cap_parts", forced)
+
+
+@pytest.mark.parametrize("path", ["w", "a1"])
+@pytest.mark.parametrize("kind", sorted(SCALE_TUNERS))
+def test_t_e4_the_point_scale_curve_is_the_pathwise_derivative(kind: str, path: str) -> None:
+    """T-e4 (i) for ``Scale(0.5)`` on the point law, with the slope ``1/f`` in the oracle."""
+    law = lawp.PointLawQ(tuner=SCALE_TUNERS[kind], factor=FACTOR)
+    assert abs(lawp.pathwise_derivative(law, path) - law.score_pairing(path)) < IDENTITY
+    assert abs(lawp.pathwise_derivative(law, "a1") - law.score_pairing("a1", tuning=False)) > CAUGHT
+    term, phi = law.spreads()
+    assert term / phi > 0.1
+
+
+@pytest.mark.parametrize(
+    ("folds", "kind", "ratio"),
+    [(1, "quantile", "density"), (3, "regression", "density"), (3, "quantile", "classifier")],
+)
+def test_t_e4_the_point_scale_curve_adds_the_tuning_term_longhand(
+    folds: int, kind: str, ratio: str, frame: Any
+) -> None:
+    """T-e4 (ii) for ``Scale``: the longhand computes its own edge ``c / f`` and slope ``1/f``."""
+    fit = _fit(_scale_policies(kind), frame, n_folds=folds, ratio=ratio)
+    term = _longhand_term(frame, fit.nuisance, kind, q=SCALE_Q, factor=FACTOR)
+    np.testing.assert_allclose(fit.nuisance.policies.curve_terms[:, 0], term, rtol=1e-8, atol=1e-10)
+    assert np.std(term) > 0.05 * np.std(fit.influence_curves[NAME])
+
+
+@pytest.mark.parametrize("kind", ["quantile", "regression"])
+def test_m_e4_a_unit_slope_moves_the_point_scale_curve(
+    kind: str, frame: Any, unit_slope: None
+) -> None:
+    """M1: with ``|e'| = 1`` the reported term misses the longhand term by half of it."""
+    fit = _fit(_scale_policies(kind), frame, n_folds=1)
+    term = _longhand_term(frame, fit.nuisance, kind, q=SCALE_Q, factor=FACTOR)
+    gap = float(np.max(np.abs(fit.nuisance.policies.curve_terms[:, 0] - term)))
+    assert gap > 0.3 * float(np.max(np.abs(term)))
+
+
+def test_the_point_scale_term_has_the_oracle_spread() -> None:
+    """The library term has the oracle's SD (T-e4 (i) at the library), flexible regressions."""
+    from sklearn.ensemble import HistGradientBoostingRegressor
+
+    big = lawp.sample(8_000, 11)
+    fit = _fit(
+        _scale_policies("regression"),
+        big,
+        n_folds=1,
+        outcome_learner=HistGradientBoostingRegressor(
+            max_iter=300, learning_rate=0.05, random_state=0
+        ),
+    )
+    oracle, _ = lawp.PointLawQ(tuner=SCALE_TUNERS["regression"], factor=FACTOR).spreads()
+    spread = float(np.sqrt(np.mean(fit.nuisance.policies.curve_terms[:, 0] ** 2)))
+    assert abs(spread / oracle - 1.0) < 0.25
