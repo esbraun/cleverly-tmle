@@ -16,7 +16,7 @@ scenario                            subject
 ``sdr_categorical_k5_switch``       (0.5, 0.1, 3.5), n = 72,000: ``low``, ``switch``
 ``sdr_categorical_k5_high``         (0.25, 0, 3.5), n = 64,000: ``low``, ``high``
 ``sdr_categorical_k5_mix``          (1, 0.05, 3.5), n = 96,000: ``low``, ``mix``
-``sdr_policy_k5``                   L_R, n = 48,000: ``low``, ``mix``, ``taper``
+``sdr_policy_k5``                   L_R, n = 44,000: ``low``, ``mix``, ``taper``
 ``sdr_policy_k5_mix``               (1, 0.05, 3.5), n = 96,000: ``low``, ``mix``, ``taper``
 ``sdr_policy_k5_taper``             (1, 0, 3.5), n = 76,000: ``low``, ``taper``
 ==================================  ============================================================
@@ -84,7 +84,7 @@ SCENARIOS = (
     Scenario("sdr_categorical_k5_switch", 5, 3, Law(0.5, 0.1, 3.5), 72_000, ("low", "switch")),
     Scenario("sdr_categorical_k5_high", 5, 3, Law(0.25, 0.0, 3.5), 64_000, ("low", "high")),
     Scenario("sdr_categorical_k5_mix", 5, 3, Law(1.0, 0.05, 3.5), 96_000, ("low", "mix")),
-    Scenario("sdr_policy_k5", 5, 3, law_.L_R, 48_000, POLICY, paired=TAPER),
+    Scenario("sdr_policy_k5", 5, 3, law_.L_R, 44_000, POLICY, paired=TAPER),
     Scenario("sdr_policy_k5_mix", 5, 3, Law(1.0, 0.05, 3.5), 96_000, POLICY, paired=TAPER),
     Scenario("sdr_policy_k5_taper", 5, 3, Law(1.0, 0.0, 3.5), 76_000, ("low", "taper")),
 )
