@@ -174,11 +174,11 @@ _MONOTONE_GRID = 9
 #: observed dose holds before a declared continuous policy is refused as a collapse.
 _TIE_EXCESS = 0.01
 
-#: Whether a fit refuses a continuous node with an undeclared recorded atom (R-b4 of
-#: ``X40-plan.md``).  A private seam for the exact-law tests, whose finite-support oracles
-#: put every dose on a few grid points: :func:`_refuse_undeclared_atoms` reads it by
-#: module-global lookup at call time, and it gates that refusal only.  No ratio, density
-#: or design code reads it, and no public object names it.
+#: Whether a fit refuses a continuous node with an undeclared recorded atom.  A private seam
+#: for the exact-law tests, whose finite-support oracles put every dose on a few grid
+#: points: :func:`_refuse_undeclared_atoms` reads it by module-global lookup at call time,
+#: and it gates that refusal only.  No ratio, density or design code reads it, and no
+#: public object names it.
 _ATOM_CHECK: bool = True
 
 #: Rule (A) of the undeclared-atom check: the number of distinct doses on each side whose
@@ -219,7 +219,7 @@ _POLICY_DECLARATION = FunctionDeclaration(
 def _check_declared_target(name: str, target: object, tuned: bool) -> None:
     """Refuse an unknown ``target`` and a target on a map with a declared cap.
 
-    A tuned map with no target is refused at the fit, before any learner (R-e1), as an
+    A tuned map with no target is refused at the fit, before any learner, as an
     undeclared ``policy_kind`` is: :func:`refuse_policy_declarations`.
     """
     if target is None:
@@ -1381,7 +1381,8 @@ def mixed_ratio(
     r"""The density ratio of one branch at a node with declared atoms, at one value per row.
 
     The ratio is taken with respect to Lebesgue measure plus counting measure on the
-    declared atoms (``X40-plan.md`` section 2.3).  At an atom :math:`a_k`,
+    declared atoms (the technical reference, "Modified treatment policies at a node").
+    At an atom :math:`a_k`,
 
     .. math::
 
@@ -2784,7 +2785,7 @@ def check_declared_atoms(
 ) -> None:
     r"""Refuse a declared atom with no observed row, overall or in an outer training fold.
 
-    R-b2 of ``X40-plan.md``: the ratio at an atom divides by :math:`P(A = a \mid H)`,
+    The ratio at an atom divides by :math:`P(A = a \mid H)`,
     which the data estimate only from rows that received it.
 
     Parameters
@@ -4060,7 +4061,8 @@ class PolicySet:
         by_fold : sequence or None
             Per outer fold, the policies that fold's classifier stacks, in place of
             ``policies``, with the same branches: a population-target tuned cap at the
-            tuner fitted on that fold's training rows (X40 plan section 2.5, N3).  The ratio
+            tuner fitted on that fold's training rows
+            (``test_t_e7_each_fold_trains_at_its_own_tuner``).  The ratio
             is still evaluated at the doses ``policies`` assign.  ``None`` stacks
             ``policies`` in every fold.
 

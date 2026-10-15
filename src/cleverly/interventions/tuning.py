@@ -51,7 +51,7 @@ dose :math:`e_t(h)` (:math:`c - \delta` for a shift, :math:`c / f` for a scale) 
 which :func:`cap_derivative` estimates by a normal kernel average in :math:`A_t - e_t(H_t)`,
 so it needs no density value and runs on both ratio routes.
 
-``bandwidth="undersmoothed"`` is the declared fallback of X40 plan section 2.5: half of
+``bandwidth="undersmoothed"`` is the declared fallback for the kernel estimates: half of
 Silverman's bandwidth for :math:`f` and :math:`\partial\Phi`, and :math:`(C/2) n^{-1/3}` for
 :math:`J`.  Both bandwidths keep :math:`h \to 0` and :math:`n h \to \infty` (and
 :math:`n h^2 \to \infty` for :math:`J`).

@@ -1172,7 +1172,7 @@ def resolve_tuned_plans(
     frame.  ``target="population"`` resolves the plan at that fit, :math:`\\theta_n`, and
     records the tuner's influence function.  On a cross-fitted fit each outer fold also
     gets the plan at its training rows' fit, :math:`\\theta^{(-k)}`, which that fold's
-    untargeted recursion and its classifier read (plan section 2.5, M3).
+    untargeted recursion and its classifier read (``test_t_e7_each_fold_trains_at_its_own_tuner``).
     ``target="fold_average"`` resolves one plan per outer fold, at its training rows' fit,
     and the returned plan holds, at row ``i``, the doses of the fold that holds ``i`` out.
     Each fold plan runs the declared-support and atom checks over every row, since a fold's
@@ -1222,7 +1222,7 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
     target = _regimen_target(regimen)
     if target == "fold_average":
         # The fold-average target is a different parameter from the population one, so its
-        # report names it (X40 plan section 2.4): ``ey_regimen[<label>, fold average]``.
+        # report names it: ``ey_regimen[<label>, fold average]``.
         regimen = replace(regimen, label=f"{regimen.label}{FOLD_AVERAGE_SUFFIX}")
     tuned_nodes = [
         (time, node, cast(DoseQuantile | SupportBoundary, node.cap))

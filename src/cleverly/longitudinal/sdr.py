@@ -233,7 +233,7 @@ def _recursion(
     training tuner :math:`\\theta^{(-k)}`, with the fold mechanism's numerators.  The
     regressions are then fitted to the transform under ``carry_plan``, so they are fixed
     given the fold's training rows, and the returned arrays, which the held-out rows read,
-    are those under ``plan``, the map at :math:`\\theta_n` (X40 plan section 2.5, M3).
+    are those under ``plan``, the map at :math:`\\theta_n`.
     """
     single = Folds.single(data.n)
     numerator = plan.intervention_density(data)
@@ -373,7 +373,7 @@ class FoldMechanism:
     carry_plans : tuple of Plan
         Per plan, the plan the fold's training transform reads, or ``None`` where it is the
         plan itself.  On a cross-fitted population-target tuned plan it is the map at the
-        fold's own training tuner, with the fold's numerators (X40 plan section 2.5).
+        fold's own training tuner, with the fold's numerators.
     """
 
     mechanism: Mechanism
@@ -428,7 +428,7 @@ def fit_fold_mechanisms(
         outer_train = np.zeros(data.n, dtype=bool)
         outer_train[train] = True
         # A tuned plan fits the fold's mechanism under the fold's own map, at its training
-        # tuner, so the classifier route stacks no held-out row's map (X40 section 2.5).
+        # tuner, so the classifier route stacks no held-out row's map.
         own = [plan.fold_plans[fold] if plan.fold_plans else plan for plan in plans]
         with collect_phases(wanted) as profile, phase("mechanism_fit"):
             mechanism = fit_mechanism(

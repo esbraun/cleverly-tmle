@@ -682,7 +682,7 @@ class RegimenFit:
     mechanism_term: FloatArray | None = None
     #: On a plan with a tuned cap and the population target, the ``(n,)`` term
     #: :math:`w \\sum_t \\partial_t\\Phi_n' \\mathrm{IF}_t` that :attr:`influence_curve_scaled`
-    #: holds beside the curve of the map at :math:`\\theta_n` (X40 plan section 2.5).
+    #: holds beside the curve of the map at :math:`\\theta_n`.
     #: ``None`` elsewhere.
     tuning_term: FloatArray | None = None
     #: The kernel estimate :math:`\\partial_t\\Phi_n` of each tuned node, by node in time
@@ -893,7 +893,7 @@ def preflight_declared_doses(
     """The declared-support and atom checks of every continuous node, before any plan.
 
     At each continuous node, in order: an observed dose outside the declared support
-    (R-a2 of ``X40-plan.md``), an undeclared recorded atom where some regimen's policy moves
+    (R-a2), an undeclared recorded atom where some regimen's policy moves
     a dose (R-b4), and a declared atom with no row at risk (R-b2).  The policy's own checks
     under the declared support and atoms (R-a1, R-b1, R-b3) run when the plans resolve, and
     the training-fold half of R-b2 runs in :func:`preflight_mechanism_support`.
@@ -1594,7 +1594,7 @@ def _continuous_node_ratios(
     density: ConditionalDensity | MixedDensity | None = None
     if ratio == "density" and atoms:
         # A dose with declared atoms: the multinomial "which atom, or none" and the binned
-        # density of the rows with no atom, on the same folds (X40 section 2.3).  A
+        # density of the rows with no atom, on the same folds.  A
         # training fold's own fit reads its bin edges from every row at risk.
         density, _ = fit_mixed_density(
             treatment_learner,
@@ -1669,9 +1669,9 @@ def _density_numerator(
     """The density-route ratio of one plan at a continuous node, at the observed doses.
 
     The density is out of fold, so row ``i`` reads the model of the fold that holds it out.
-    A fold-average plan evaluates that model under the same fold's map (X40 plan section
-    2.4).  Every other plan, a population-target plan included, evaluates it under the
-    plan's own map: the full-sample tuner :math:`\\theta_n` (section 2.5, N3).
+    A fold-average plan evaluates that model under the same fold's map.  Every other plan, a
+    population-target plan included, evaluates it under the plan's own map: the full-sample
+    tuner :math:`\\theta_n` (``test_t_e7_each_fold_trains_at_its_own_tuner``).
     """
 
     def ratio(source: Plan) -> FloatArray:
@@ -1709,7 +1709,7 @@ def _classifier_numerator(
 
     On a plan with fold plans, a cross-fitted tuned plan of either target, outer fold
     ``k``'s classifier stacks the doses of fold ``k``'s map, :math:`d_{\\theta^{(-k)}}`, so no
-    held-out row enters the map a classifier is trained on (X40 plan section 2.5, N3).
+    held-out row enters the map a classifier is trained on.
     """
     if plan.fold_plans and not folds.is_single:
         branches = _node_branches(plan.fold_plans[0], time)
@@ -2168,7 +2168,7 @@ def _fit_node_regression(
     """Fit one node's regression without constructing targeting-only arrays.
 
     ``carry_plan`` is one outer fold's plan at its own training tuner, on a cross-fitted
-    tuned plan (X40 plan section 2.5, M3).  The regression is also predicted at that
+    tuned plan.  The regression is also predicted at that
     plan's doses, and :attr:`_NodeRegression.carry_marginal` is their policy-weighted
     mean, which the fold's earlier regression reads on its training rows.  A tuned node
     with the population target is also predicted at its boundary and last moved dose
@@ -2677,9 +2677,9 @@ def tuning_term(
     r"""The tuners' term of a population-target curve, and each node's derivative estimate.
 
     :math:`w_i \sum_t \partial_t\Phi_n' \mathrm{IF}_t(O_i)`, the chain-rule term of
-    :math:`D_\Psi = D_\Phi(\theta_0) + \sum_t \partial_t\Phi(\theta_0)' \mathrm{IF}_t` (X40 plan
-    section 2.5).  :math:`\partial_t\Phi_n` is :func:`~cleverly.interventions.tuning.cap_derivative`
-    with :math:`W_{1:t-1}` the cumulative ratio of the node before (one at the first node)
+    :math:`D_\Psi = D_\Phi(\theta_0) + \sum_t \partial_t\Phi(\theta_0)' \mathrm{IF}_t`.
+    :math:`\partial_t\Phi_n` is :func:`~cleverly.interventions.tuning.cap_derivative` with
+    :math:`W_{1:t-1}` the cumulative ratio of the node before (one at the first node)
     and :math:`m_t` the node's predictions at its boundary and last moved dose: the
     targeted ones on a targeted fit, and the fold regressions' on a sequentially doubly
     robust one.
@@ -2746,7 +2746,7 @@ def _finish_fold_average(
     cause: str | None,
     numerator: FloatArray | None,
 ) -> RegimenFit:
-    r"""The fold-average estimate and curve (X40 plan section 2.4).
+    r"""The fold-average estimate and curve.
 
     Fold ``k``'s estimate :math:`\hat\psi_k` is the weighted mean of its held-out rows'
     targeted values.  The estimate is :math:`V^{-1} \sum_k \hat\psi_k`.  Row ``i`` in fold
@@ -3070,8 +3070,8 @@ def _untargeted_recursion_in_fold(
     outputs: _FoldOutputs = {}
     carried = seed_carried(data, scaler)
     # A cross-fitted tuned plan: the fold's own recursion runs under the map at its own
-    # training tuner, so its regressions are fixed given its training rows (X40 plan
-    # section 2.5, M3).  The held-out predictions read the plan's own doses.
+    # training tuner, so its regressions are fixed given its training rows.  The held-out
+    # predictions read the plan's own doses.
     carry_plan = cell.plan.fold_plans[fold] if cell.plan.fold_plans else None
     for time in range(cell.horizon, 0, -1):
         node = _fit_node_regression(
@@ -3453,7 +3453,7 @@ def _fold_fluctuations(
 ) -> tuple[Fluctuation, tuple[float, ...]]:
     """One fluctuation per outer fold, each solved on that fold's own held-out rows.
 
-    The fold-average target of X40 plan section 2.4: fold ``k``'s estimator is a TMLE on its
+    The fold-average target: fold ``k``'s estimator is a TMLE on its
     validation rows, with nuisances from its training rows and its own coefficient at
     every node, so each fold's estimate is asymptotically linear given its training rows
     (Hubbard, Kherad-Pajouh and van der Laan 2016, Theorem 1).  The targeted predictions
