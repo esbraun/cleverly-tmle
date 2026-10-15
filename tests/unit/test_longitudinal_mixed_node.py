@@ -455,6 +455,31 @@ def test_one_column_readers_raise_at_a_mixed_node() -> None:
     assert data.node_values(1).shape == (data.n, 2)
 
 
+def test_hazard_targeting_refuses_a_vector_with_a_dose_by_name() -> None:
+    """``refuse_hazard_design`` reads the node kind, so a vector gets the H11 refusal."""
+    rng = np.random.default_rng(0)
+    n = 200
+    frame = pd.DataFrame(
+        {
+            "W": rng.integers(0, 2, n).astype(float),
+            "F": rng.integers(0, 2, n).astype(float),
+            "D": rng.uniform(0.0, 2.0, n),
+            "C1": 1.0,
+            "Y1": 0.0,
+        }
+    )
+    policy = JointPolicy("up", components={"D": Shift(0.5, cap=None)}, policy_kind="known")
+    with pytest.raises(CapabilityError, match="treatment 'F\\+D' is a vector with a dose"):
+        LTMLE({"up": policy}, n_folds=1, survival_model="hazard").fit(
+            frame,
+            treatment=[["F", "D"]],
+            continuous_treatment=["D"],
+            outcome=["Y1"],
+            baseline=["W"],
+            censoring=["C1"],
+        )
+
+
 #: The functions allowed to read ``.treatment[...]`` or call ``is_continuous_node``, each
 #: because it dispatches on the node kind first or reads another object's ``treatment``.
 _DISPATCHING: dict[tuple[str, str], str] = {
@@ -462,6 +487,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("data/causal_data.py", "CausalData.subset"): "point CausalData",
     ("data/known_mechanism.py", "KnownNodeMechanisms.treatment_at"): "declared matrices",
     ("estimators/_nuisance.py", "_retained_covariates"): "point CausalData",
+    ("estimators/ctmle.py", "CTMLE._derivative_nuisances"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._intercept_propensity.proportions"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._fluctuate"): "point CausalData",
     ("estimators/ctmle.py", "_Selector._lasso_propensities"): "point CausalData",
@@ -475,6 +501,8 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
+    ("longitudinal/estimator.py", "_run_hazard"): "after refuse_hazard_design",
+    ("longitudinal/hazard.py", "hazard_inputs"): "after refuse_hazard_design",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/sdr.py", "node_factors"): "fitted factors",
     ("longitudinal/sequential.py", "Mechanism.cumulative_with_unbounded"): "fitted factors",
@@ -484,6 +512,7 @@ _DISPATCHING: dict[tuple[str, str], str] = {
         "a panel container only: from_long_panel refuses a vector node with a dose"
     ),
     ("study.py", "TimeToEvent._check_prepared"): "one baseline column",
+    ("validation/longitudinal.py", "_hazard_nuisances"): "a hazard fit only",
     ("validation/longitudinal.py", "_treatment_report"): "mixed branch first",
 }
 
@@ -498,6 +527,8 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
+    ("longitudinal/hazard.py", "level_plans"): "after refuse_hazard_design",
+    ("longitudinal/hazard.py", "regimen_weights"): "after refuse_hazard_design",
     ("longitudinal/regimen.py", "DynamicRegimen.policy_density"): "categorical policy node",
     ("longitudinal/regimen.py", "_categorical_carry"): "categorical policy node",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
