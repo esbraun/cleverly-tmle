@@ -12,19 +12,29 @@ family                      cells, replications and size
                             ``p4`` and ``p5`` (``p4_sdr``, ``p5_sdr``).  Each positive has its
                             own replications, :data:`CALIBRATION_REPLICATES`, set from the
                             calibration pilot by the arm-pooled rule
-``jacobian_necessity``      ``p3``, wrong outcome: the declared fit against the same draw with
-                            every piece's inverse slope replaced by 1; 1,000 at n = 2,000
+``jacobian_necessity``      ``p3``, dose-blind outcome: the declared fit against the same draw
+                            with every piece's inverse slope replaced by 1; 1,000 at n = 2,000
 ``branch_necessity``        ``p4``, wrong outcome: Equation (3) summed over the first branch
                             only; 1,000 at n = 2,000
 ``atom_necessity``          ``p5``, wrong outcome: the atom's ratio without the mass of the
                             interval sent to it (ratio 1 at the atom); 1,000 at n = 2,000
 ``ratio_necessity``         ``p2``, wrong outcome: the declared ratio against a ratio of one
-                            (the classifier route with the prior classifier); 1,000 at n = 2,000
+                            (the classifier route with the prior classifier); 1,000 at n = 2,000.
+                            With ratio one on both arms the ``Y`` terms of the curve cancel, so
+                            the control's reported SE is near zero; its ``covered`` and
+                            ``rejected`` columns are no coverage reading (design review n1)
 ==========================  =====================================================================
 
 **The wrong outcome** (:class:`~tests.studies.mtp_boundaries_common.WrongOutcome`) omits ``L2``
 and ``A2^2`` at node 2, and the first node reads least squares on ``[W1, W2, A1]``.  The
 targeting step then carries the correction, so each defect in the ratio moves the estimate.
+The Jacobian pair reads the dose-blind model instead
+(:class:`~tests.studies.mtp_boundaries_common.DoseBlindOutcome`, without ``A2`` and ``A2^2``).
+Its defect is a factor monotone in the dose, and targeting absorbs the factor's constant part.
+On 100 paired draws at n = 2,000 (design review B1), under the wrong outcome, whose error is
+U-shaped in the dose, the control's bias was 0.07 of its own SD and the displacement 0.05 of
+the positive's.  Under the dose-blind outcome they were 1.69 and 0.71 (MC SE 0.07), with the
+positive at -0.01.
 
 **The defects patch** :mod:`cleverly.interventions.policy` **and**
 :mod:`cleverly.learners.density` **module-wide.**  A patch is safe only because each property
@@ -47,11 +57,11 @@ so a control cannot be written as a mis-declared policy; it is a patch of the ra
    diagnosed finite-sample SE bias at n = 2,000 moves the cell to n = 4,000, re-piloted, and
    if that is still infeasible the cell is declared ``reporting`` with an owner and the pilot
    published.  No ``R`` is bought to pass a biased cell, and no margin moves.
-3. Each necessity control's standardized bias at n = 2,000 comes from
-   :func:`necessity_pilot`: :data:`NECESSITY_PILOT_DRAWS` paired draws at n = 8,000 on the
-   ``diagnostic`` stream, with its Monte Carlo SE.  Each pair must give power at least 0.90
-   for ``bias_discriminated`` at 1,000 replications
-   (:func:`~tests.studies.mtp_study_tools.necessity_power`) and a displacement of at least
+3. Each necessity pair is read from :func:`necessity_pilot`: :data:`NECESSITY_PILOT_DRAWS`
+   paired draws at n = 2,000 on the ``diagnostic`` stream, each arm standardized by its own
+   empirical SD, the scale the verdicts read.  Each pair must give power at least 0.90 for
+   ``bias_discriminated`` (control) and ``bias_equivalent`` (positive) at 1,000 replications
+   (:func:`~tests.studies.mtp_study_tools.pair_reading`) and a displacement of at least
    :data:`NECESSITY_DISPLACEMENT`.  A pair that cannot is redesigned before declaration.
 
 The failure rule is ``vector-mtp``'s: the property phase records no failure, so a raise stops
@@ -126,8 +136,22 @@ NECESSITY: dict[str, tuple[str, tuple[str, str], str]] = {
     family: (label, (positive, control), family.removesuffix("_necessity"))
     for family, (label, positive, control) in study.NECESSITY_CELLS.items()
 }
-NECESSITY_PILOT_DRAWS = 8
-NECESSITY_PILOT_N = 8_000
+NECESSITY_PILOT_DRAWS = tools.PAIR_PILOT_DRAWS
+#: Each necessity family's wrong outcome model.  The Jacobian pair reads the dose-blind model,
+#: the only one whose error varies with the dose the defect reweights (design review B1).
+NECESSITY_OUTCOME: dict[str, str] = {
+    family: "dose_blind" if family == "jacobian_necessity" else "wrong" for family in NECESSITY
+}
+#: The cells that gate the merge though the record publishes under ``reporting`` (design
+#: review M7): every calibration positive with its two derived controls, and both arms of every
+#: necessity pair (the control's row carries the displacement).  Every Python truth row of the
+#: four primary scenarios gates too (:data:`GATING_TRUTH`).  Only the margin-read atom pairing
+#: rows and the five-fold rows report.  ``tests/unit/test_mtp_boundaries_design.py`` reads the
+#: committed tables through :func:`~tests.studies.mtp_study_tools.gating_findings`.
+GATING_CELLS: tuple[str, ...] = tuple(
+    f"{family}/{cell}" for family, cells in study.PROPERTY_CELLS.items() for cell in cells
+)
+GATING_TRUTH: tuple[str, ...] = (study.STUDY.implementation,)
 #: The efficiency bound of each calibration label, which sizes the noise control only
 #: (:func:`~tests.studies.mtp_boundaries_common.contrast_sd`, pinned).
 EFFICIENCY_SD: dict[str, float] = {
@@ -226,17 +250,18 @@ def necessity_fit(family: str, frame: pd.DataFrame, *, control: bool) -> Any:
     plan, _, defect = NECESSITY[family]
     law = common.LAW_OF[plan]
     labels = (study.REFERENCE, plan)
+    outcome: Any = NECESSITY_OUTCOME[family]
     if control and defect == "ratio":
         return study.fit(
             frame,
             law,
             labels,
-            outcome="wrong",
+            outcome=outcome,
             ratio="classifier",
             treatment_learner=DummyClassifier(strategy="prior"),
         )
     with ratio_defect(defect if control else None):
-        return study.fit(frame, law, labels, outcome="wrong")
+        return study.fit(frame, law, labels, outcome=outcome)
 
 
 # ---------------------------------------------------------------------------- the grid
@@ -492,13 +517,14 @@ def calibration_pilot(
 
 
 def necessity_pilot(
-    parts: Path, *, draws: int = NECESSITY_PILOT_DRAWS, n: int = NECESSITY_PILOT_N, n_jobs: int = 1
+    parts: Path, *, draws: int = NECESSITY_PILOT_DRAWS, n: int = NECESSITY_N, n_jobs: int = 1
 ) -> dict[str, Any]:
-    """Each necessity pair at ``n`` on the ``diagnostic`` stream: bias, power, displacement.
+    """Each necessity pair on :data:`NECESSITY_PILOT_DRAWS` paired draws at n = 2,000.
 
-    The control's bias is read at ``n``, where the finite-sample terms are smaller, and
-    standardized by the declared arm's spread at n = 2,000, which is its reported SE at ``n``
-    times ``sqrt(n / 2000)``.
+    Read on each arm's own SD (:func:`~tests.studies.mtp_study_tools.pair_reading`): the
+    control's power for ``bias_discriminated``, the positive's for ``bias_equivalent``, and
+    the paired displacement.  A pair below power 0.90 on either arm is redesigned before
+    declaration.
     """
     out: dict[str, Any] = {}
     for family, (plan, (positive, control), _) in NECESSITY.items():
@@ -508,19 +534,16 @@ def necessity_pilot(
         )
         declared = rows.loc[rows["cell"] == f"{plan}__{positive}"].set_index("replicate")
         broken = rows.loc[rows["cell"] == f"{plan}__{control}"].set_index("replicate")
-        sd = float(declared["std_error"].mean() * np.sqrt(n / NECESSITY_N))
-        bias = broken["estimate"] - broken["truth"]
-        moved = broken["estimate"] - declared["estimate"]
-        delta = float(bias.mean() / sd)
+        broken = broken.loc[declared.index]
         out[family] = {
-            "standardized_bias": delta,
-            "standardized_bias_mc_se": float(bias.std(ddof=1) / np.sqrt(len(bias)) / sd),
-            "declared_standardized_bias": float(
-                (declared["estimate"] - declared["truth"]).mean() / sd
+            **tools.pair_reading(
+                declared["estimate"],
+                broken["estimate"],
+                declared["truth"],
+                NECESSITY_REPLICATES,
+                NECESSITY_DISPLACEMENT,
             ),
-            "displacement": float(abs(moved.mean()) / sd),
-            "power": tools.necessity_power(delta, NECESSITY_REPLICATES),
-            "seconds": float(rows["seconds"].mean()),
+            "seconds": float(rows["seconds"].sum() / len(declared)),
         }
     return out
 
@@ -560,10 +583,7 @@ BUDGET: dict[str, Any] = {
     "peak_gib": 0.57,
     "cpu_hours": {
         "calibration_pilot": _calibration_hours(PILOT_DRAWS),
-        "necessity_pilot": NECESSITY_PILOT_DRAWS
-        * sum(_PAIR_SECONDS.values())
-        * (NECESSITY_PILOT_N / NECESSITY_N)
-        / _HOUR,
+        "necessity_pilot": NECESSITY_PILOT_DRAWS * sum(_PAIR_SECONDS.values()) / _HOUR,
         "calibration": {r: _calibration_hours(r) for r in (6_000, 6_400, 8_000)},
         "necessity": NECESSITY_REPLICATES * sum(_PAIR_SECONDS.values()) / _HOUR,
         "primary": study.PRIMARY_REPLICATES * _PRIMARY_SECONDS / _HOUR,

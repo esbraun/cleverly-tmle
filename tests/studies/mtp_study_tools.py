@@ -208,6 +208,126 @@ def equivalence_power(
     return float(max(upper - lower, 0.0))
 
 
+#: The paired draws a pair pilot needs before it can separate a powered pair from an
+#: unpowered one: the MC SE of a standardized bias is then about ``1 / sqrt(100) = 0.1``
+#: own SD, against the 0.12 own SD between the margin 0.25 and the 0.372 that power 0.90 needs
+#: at R = 1,000 (design review M2).
+PAIR_PILOT_DRAWS = 100
+
+
+def pair_reading(
+    declared: Any, control: Any, truth: Any, replicates: int, threshold: float = 0.10
+) -> dict[str, float]:
+    """A pair pilot read on the scales the verdicts read: each arm's own empirical SD.
+
+    ``bias_discriminated`` standardizes a control's bias by the control's own SD, and
+    ``bias_equivalent`` the positive's by its own; ``necessity_verdicts`` reads the paired
+    displacement in the positive arm's SD.  ``declared`` and ``control`` are the two arms'
+    estimates on the same draws, and ``truth`` their truths.
+    """
+    declared = np.asarray(declared, dtype=float)
+    control = np.asarray(control, dtype=float)
+    truth = np.asarray(truth, dtype=float)
+    k = declared.size
+    own = float(np.std(declared, ddof=1))
+    control_sd = float(np.std(control, ddof=1))
+    positive = float(np.mean(declared - truth) / own)
+    negative = float(np.mean(control - truth) / control_sd)
+    moved = control - declared
+    displacement = float(abs(np.mean(moved)) / own)
+    return {
+        "draws": float(k),
+        "positive_standardized_bias": positive,
+        "positive_mc_se": float(1.0 / np.sqrt(k)),
+        "equivalence_power": equivalence_power(positive, replicates),
+        "control_standardized_bias": negative,
+        "control_mc_se": float(1.0 / np.sqrt(k)),
+        "necessity_power": necessity_power(negative, replicates),
+        "displacement": displacement,
+        "displacement_mc_se": float(np.std(moved, ddof=1) / np.sqrt(k) / own),
+        "displacement_clears": float(displacement >= threshold),
+    }
+
+
+# ---------------------------------------------------------------------------- the gate
+
+
+def gating_findings(
+    record: Any,
+    cells: Sequence[str],
+    truth_implementations: Sequence[str] = (),
+    calibration: str = "interval_calibration",
+) -> list[str]:
+    """Every red gating verdict of ``record``'s committed tables that no owner may hold.
+
+    The record publishes under ``reporting``, so the regeneration does not refuse a red row;
+    this is the mechanical gate (design review M7).  ``cells`` are ``property/cell`` keys, and
+    every truth row of each of ``truth_implementations`` gates too.  A red gating row passes
+    only as a finite-sample red under the beta brief's three-condition reading: it is a
+    calibration positive or a truth row, the 99% interval of its SE ratio contains 1, its
+    coverage interval contains 0.95, and :data:`~tests.studies.evidence.red_cells.OWNERS`
+    names its owner (the owner row records the diagnosis that found no defect).  A red control
+    or pair arm is a defect suspect and never passes.  Without committed tables there is
+    nothing to read, and the result is empty.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study.
+    cells : sequence of str
+        The gating property cells, as ``property/cell``.
+    truth_implementations : sequence of str
+        The implementations whose truth rows gate.
+    calibration : str
+        The property family whose ``positive`` rows may be finite-sample reds.
+
+    Returns
+    -------
+    list of str
+        One line per inadmissible red row.
+    """
+    from tests.studies.evidence import red_cells
+
+    if not record.artifact(red_cells.FRAMES["properties"]).exists():
+        return []
+    tables = red_cells.frames(record)
+    gating = set(cells)
+    out: list[str] = []
+
+    def finite_sample(row: Any) -> bool:
+        return bool(
+            row.se_ratio_ci_lower <= 1.0 <= row.se_ratio_ci_upper
+            and row.coverage_ci_lower <= 0.95 <= row.coverage_ci_upper
+        )
+
+    def judge(key: Any, row: Any, may_be_finite: bool) -> None:
+        owner = red_cells.OWNERS.get(key)
+        if not may_be_finite:
+            out.append(f"{key.key} is a red control or pair arm: a defect suspect")
+        elif not finite_sample(row):
+            out.append(f"{key.key} is red outside the finite-sample reading")
+        elif owner is None:
+            out.append(f"{key.key} is a finite-sample red with no owner row")
+
+    seen: set[str] = set()
+    for row in tables["properties"].itertuples():
+        name = f"{row.property}/{row.cell}"
+        if name not in gating:
+            continue
+        seen.add(name)
+        if bool(row.passed) and bool(row.property_passed):
+            continue
+        key = red_cells.RedKey(record.slug, "property", name)
+        judge(key, row, row.property == calibration and row.role == "positive")
+    out += [f"{name} is a gating cell the committed table does not hold" for name in gating - seen]
+    for row in tables["performance"].itertuples():
+        if row.implementation not in truth_implementations or bool(row.passed):
+            continue
+        name = f"{row.implementation}/{row.scenario}/{row.estimand}"
+        judge(red_cells.RedKey(record.slug, "truth", name), row, True)
+    return sorted(out)
+
+
 # ---------------------------------------------------------------------------- parts
 
 

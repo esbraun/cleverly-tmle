@@ -46,6 +46,7 @@ def test_every_truth_is_stable_and_every_plan_moves_the_mean() -> None:
 
 def test_the_pinned_truths_match_the_quadrature() -> None:
     assert common.truth("natural", "B") == pytest.approx(0.629508896737884, abs=1e-12)
+    assert common.contrast("p3") == pytest.approx(-0.025184762881319434, abs=1e-12)
     assert common.contrast("p4") == pytest.approx(-0.11148632112351742, abs=1e-12)
     assert common.contrast("p5") == pytest.approx(-0.02685794801370245, abs=1e-12)
 
@@ -181,7 +182,7 @@ def test_the_declared_sizes() -> None:
     assert set(properties.CALIBRATION_REPLICATES.values()) <= {6_000, 6_400, 8_000}
     assert set(properties.CALIBRATION_REPLICATES) == set(study.CALIBRATION_LABELS)
     assert properties.NECESSITY_REPLICATES == 1_000
-    assert properties.NECESSITY_PILOT_DRAWS >= 8
+    assert properties.NECESSITY_PILOT_DRAWS >= 100
     assert study.FAILURE_BOUND == 0.01
 
 
@@ -275,7 +276,7 @@ def test_the_jacobian_control_drops_the_slope_only() -> None:
     w1, w2, a = (frame[k].to_numpy() for k in ("W1", "W2", "A1"))
     u = common.upper(w2)
     mean = common.mean1(w1, w2)
-    source = u * (a / u) ** (1.0 / common.POWER)
+    source = common.power_inverse(a, u)
     expected = common.tn_pdf(source, mean, u) / common.tn_pdf(a, mean, u)
     assert np.median(np.abs(ratio[:, 0] - expected)) < 5e-3
     declared = _closed(frame, "p3", 1, "B")
@@ -342,3 +343,19 @@ def test_the_budget_is_recorded() -> None:
     budget = properties.BUDGET
     assert {"seconds", "cpu_hours", "peak_gib"} <= set(budget)
     assert budget["cpu_hours"]["python_total"] > 0
+
+
+# ---------------------------------------------------------------------------- the gate
+
+
+def test_the_gating_cells_are_published_and_hold_no_inadmissible_red() -> None:
+    """Design review M7: the record publishes under ``reporting``, so this is its merge gate."""
+    published = {
+        f"{family}/{cell}" for family, cells in study.PROPERTY_CELLS.items() for cell in cells
+    }
+    assert set(properties.GATING_CELLS) <= published
+    assert len(properties.GATING_CELLS) == 7 * 3 + 4 * 2
+    assert (study.STUDY.implementation,) == properties.GATING_TRUTH
+    assert (
+        tools.gating_findings(study.STUDY, properties.GATING_CELLS, properties.GATING_TRUTH) == []
+    )
