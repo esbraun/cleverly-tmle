@@ -11,8 +11,8 @@ document in the same change. Superseded rationale belongs in Git history.
 
 Validate each derivation independently. A comparison against a canonical implementation is
 acceptance evidence for the numerical and repeated-sampling claims it covers.
-[RM42](roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) adds the comparator-backed
-label to those claims on the evidence pages.
+The evidence pages mark a study that names a reference as comparator-backed. Each such study
+declares its comparison kind in the study registry.
 
 A comparison does not replace an independent check of a changed term. Implementations descended
 from one source share transcription errors. Derivative, exact-law, remainder, mutation, and score

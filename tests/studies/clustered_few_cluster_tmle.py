@@ -157,6 +157,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="ltmle",
+    comparison="matching implementation",
     modules=(
         "tests/studies/clustered_few_cluster_tmle.py",
         "tests/studies/clustered_few_cluster_properties.py",

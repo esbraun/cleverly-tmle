@@ -94,6 +94,10 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stacked-cvtmle",
     reference="tmle3-cvtmle",
+    comparison="matching implementation",
+    comparison_overrides={
+        "binary:paf": "related target",
+    },
     incomparable_se=frozenset({"paf"}),
     modules=(
         "tests/studies/canonical_cvtmle.py",

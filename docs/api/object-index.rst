@@ -84,6 +84,8 @@ categorized API tables.
    cleverly.PositivityWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
+   cleverly.exceptions.Refusal
+   cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
    cleverly.learners.CorrelationScreener
    cleverly.learners.CrossFitPlan

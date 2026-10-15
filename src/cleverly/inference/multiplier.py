@@ -133,16 +133,18 @@ import numpy as np
 
 from .._inference_status import FEW_CLUSTER_THRESHOLD
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import CapabilityError, refuse_inference
+from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
 from .cluster import cluster_sums
 from .influence import ParameterEstimate, with_precedent_status
 
 #: Why no band covers an estimate with a Student t reference.
-T_REFERENCE_BAND_REFUSAL = (
+T_REFERENCE_BAND_REFUSAL = Refusal(
+    RefusalReason.INFERENCE_GAP,
     "simultaneous_bands() has no joint result for an estimate with a Student t reference. "
     f"The fit reads fewer than {FEW_CLUSTER_THRESHOLD} clusters with positive weight mass, "
-    "and no source read here gives a simultaneous band at that count. Report the pointwise "
-    "intervals, which use the t reference."
+    "and no source read here gives a simultaneous band at that count.",
+    alternative="Report the pointwise intervals, which use the t reference.",
+    roadmap="F28",
 )
 
 __all__ = [
@@ -450,10 +452,6 @@ def simultaneous_bands(
     ValueError
         If ``estimates`` is empty, or if the influence curves have different lengths.
     ValueError
-        If any estimate declares ``covariance_rule="second_moment"``. The multiplier
-        draws center each influence curve, which matches the raw second moment only on a
-        mean-zero curve, and this function does not check the mean.
-    ValueError
         If ``cluster`` has a different length from the influence curves, or if ``kind``
         is not a supported multiplier, when two or more estimates are banded.
     CapabilityError
@@ -461,7 +459,10 @@ def simultaneous_bands(
         a confidence statement, and the package supplies no inference for such an
         estimate. Also if any estimate carries a Student t reference
         (:attr:`~cleverly.inference.ParameterEstimate.reference_df`), because no source
-        gives a t-calibrated band.
+        gives a t-calibrated band. Also, with code ``inference_gap``, if any estimate
+        declares ``covariance_rule="second_moment"``. The multiplier draws center each
+        influence curve, which matches the raw second moment only on a mean-zero curve,
+        and this function does not check the mean.
     """
     items = _checked_items(estimates)
     n = items[0][1].n
@@ -504,16 +505,21 @@ def _checked_items(
     for _, estimate in items:
         refuse_inference(estimate.inference, operation="simultaneous_bands()")
     if any(estimate.reference_df is not None for _, estimate in items):
-        raise CapabilityError(T_REFERENCE_BAND_REFUSAL)
+        raise CapabilityError.from_refusal(T_REFERENCE_BAND_REFUSAL)
     second_moment = [
         name for name, estimate in items if estimate.covariance_rule == "second_moment"
     ]
     if second_moment:
-        raise ValueError(
-            f"simultaneous_bands cannot band {second_moment}, which declare "
+        raise CapabilityError(
+            f"simultaneous_bands() cannot band {second_moment}, which declare "
             "covariance_rule='second_moment'. The multiplier draws center each influence "
             "curve, which matches the raw second moment only on a mean-zero curve, and "
-            "simultaneous_bands does not check the mean"
+            "simultaneous_bands() does not check the mean.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative=(
+                "Report the pointwise interval of each named estimate, or pass the other "
+                "estimates to simultaneous_bands() without them."
+            ),
         )
     lengths = {estimate.influence_curve.shape[0] for _, estimate in items}
     if len(lengths) != 1:

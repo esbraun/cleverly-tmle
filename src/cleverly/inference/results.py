@@ -16,7 +16,7 @@ import numpy as np
 
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
 from .._typing import FloatArray
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapResult
 from .cluster import influence_covariance, stacked_second_moment_covariance
 from .delta import Transform, delta_method, log_odds_ratio_influence, log_ratio_influence
@@ -425,13 +425,16 @@ def median_derived(
             try:
                 mapped.append(transform_estimate(result, transform, cluster=cluster))
             except ValueError as error:
-                raise ValueError(
+                raise CapabilityError(
                     f"draw {index} of {total}: the contrast value {result.psi:.6g} has no "
                     f"finite value or slope under the transform {transform.name!r}. The "
                     "median over draws is taken on the transform's scale, so the transform "
-                    "must be defined at every draw's value. Use a transform defined there, "
-                    "drop transform= for the natural scale, or read each draw in "
-                    "result.repeats."
+                    "must be defined at every draw's value.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        "Use a transform defined there, drop transform= for the natural "
+                        "scale, or read each draw in result.repeats."
+                    ),
                 ) from error
         results = mapped
     name = results[0].name
@@ -525,14 +528,15 @@ def repeat_spread(
 
     Raises
     ------
-    ValueError
+    CapabilityError
         When there are fewer than two draws.
     """
     if len(draws) < 2:
-        raise ValueError(
+        raise CapabilityError(
             "repeat_spread() describes how much psi moved between draws of the "
-            f"cross-fitting split, and this fit has {len(draws)}. Fit with "
-            "repeats=2 or more."
+            f"cross-fitting split, and this fit has {len(draws)}.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Fit with repeats=2 or more.",
         )
     shared = [name for name in estimates if all(name in draw for draw in draws)]
     spreads: dict[str, float] = {}
@@ -923,7 +927,9 @@ def refuse_odds_ratio(family: str) -> None:
     if required is not None and family != required:
         raise CapabilityError(
             "an odds ratio compares two probabilities, and this fit's outcome family is "
-            f'{family!r}. Use kind="rr" for a ratio of means'
+            f"{family!r}.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative='Use kind="rr" for a ratio of means.',
         )
 
 

@@ -50,14 +50,16 @@ stays inside the 0.8 to 1.2 sanity screen.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| continuous-outcome law selected by a covariate-dependent density | `ate` | average treatment effect | 2.830e-07 | 0.000031 | 1.0000 | 0 | 0.000008 vs 0.0500 | equivalent |
-| continuous-outcome law selected by a covariate-dependent density | `ey0` | counterfactual mean under no treatment | 0.000002 | 0.000325 | 1.0002 | 0 | 0.000146 vs 0.0500 | equivalent |
-| continuous-outcome law selected by a covariate-dependent density | `ey1` | counterfactual mean under treatment | 0.000002 | 0.000257 | 1.0002 | 0 | 0.000111 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle-r-learned-weighted` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| continuous-outcome law selected by a covariate-dependent density | `ate` | average treatment effect | 2.830e-07 | 0.000031 | 1.0000 | 0 | matching implementation | 0.000008 vs 0.0500 | equivalent |
+| continuous-outcome law selected by a covariate-dependent density | `ey0` | counterfactual mean under no treatment | 0.000002 | 0.000325 | 1.0002 | 0 | matching implementation | 0.000146 vs 0.0500 | equivalent |
+| continuous-outcome law selected by a covariate-dependent density | `ey1` | counterfactual mean under treatment | 0.000002 | 0.000257 | 1.0002 | 0 | matching implementation | 0.000111 vs 0.0500 | equivalent |
 <!-- /generated -->
 
-The implementations agree on all three parameters. This comparison is independent because R
+The comparator-backed comparison shows that the implementations agree on all three parameters. This comparison is independent because R
 `tmle` fits its own weighted Gaussian and binomial nuisance regressions on the shared samples.
 
 ## Theory properties

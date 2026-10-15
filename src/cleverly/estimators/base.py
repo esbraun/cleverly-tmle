@@ -26,6 +26,8 @@ from .._inference_status import (
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
 from ..exceptions import (
+    CapabilityError,
+    RefusalReason,
     refuse_after_repeats,
     refuse_inference,
 )
@@ -910,11 +912,13 @@ class TMLEResult:
         refuse_after_repeats(
             self.n_repeats,
             operation="covariance()",
-            reason=(
+            text=(
                 "The marginal variance includes between-draw displacement, but no "
                 "established joint aggregation rule supplies its cross-estimand "
-                "covariance. Fit one split or inspect each entry in result.repeats."
+                "covariance."
             ),
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Fit one split or inspect each entry in result.repeats.",
         )
         return estimate_covariance(self.estimates, names, cluster=self.data.cluster)
 
@@ -975,11 +979,11 @@ class TMLEResult:
         refuse_after_repeats(
             self.n_repeats,
             operation="contrast()",
-            reason=(
-                "A coordinatewise median does not preserve algebraic identities across "
-                "estimands. Request the contrast as an estimand before fitting, or fit "
-                "one split."
+            text=(
+                "A coordinatewise median does not preserve algebraic identities across estimands."
             ),
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=("Request the contrast as an estimand before fitting, or fit one split."),
         )
         derived = smooth_contrast(
             self.estimates,
@@ -1064,11 +1068,11 @@ class TMLEResult:
         refuse_after_repeats(
             self.n_repeats,
             operation="ratio()",
-            reason=(
-                "A coordinatewise median does not preserve algebraic identities across "
-                "estimands. Request the contrast as an estimand before fitting, or fit "
-                "one split."
+            text=(
+                "A coordinatewise median does not preserve algebraic identities across estimands."
             ),
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=("Request the contrast as an estimand before fitting, or fit one split."),
         )
         if kind == "or":
             refuse_odds_ratio(self.config.family)
@@ -1397,17 +1401,24 @@ class TMLEResult:
             raise ValueError(f"scale must be 'link' or 'ratio'; got {scale!r}")
         msm = self.nuisance.msm
         if msm is None:
-            raise ValueError(
+            raise CapabilityError(
                 "this fit has no working model, so it reports counterfactual means rather "
-                "than coefficients; result.to_frame() is its report. Declare msm= to "
-                "project those means onto a model whose coefficients are the parameters."
+                "than coefficients; result.to_frame() is its report.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=(
+                    "Declare msm= to project those means onto a model whose coefficients "
+                    "are the parameters."
+                ),
             )
         if scale == "ratio" and msm.link == "identity":
-            raise ValueError(
+            raise CapabilityError(
                 "an identity-link working model's coefficients are risk differences, and "
-                "exp() of a difference is not a quantity anybody reports. Declare "
-                "link='log' for coefficients that are log risk ratios, or link='logit' "
-                "for log odds ratios, and this view exponentiates those."
+                "exp() of a difference is not a quantity anybody reports.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Declare link='log' for coefficients that are log risk ratios, or "
+                    "link='logit' for log odds ratios, and this view exponentiates those."
+                ),
             )
         # Term to reported name, composed *forward* through the same rule that named the
         # parameters, never split back out of one: a term may legitimately contain a

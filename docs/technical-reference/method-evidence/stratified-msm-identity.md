@@ -52,17 +52,19 @@ $\operatorname{sd} / \sqrt{n_s}$, the number the stratified fit's embedded curve
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[(intercept)][V=0]` | point-treatment MSM projection intercept coefficient, in stratum V=0 | 0.000006 | 0.0082 | 1.0032 | 0.0020 | 0.0043 vs 0.0500 | equivalent |
-| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[(intercept)][V=1]` | point-treatment MSM projection intercept coefficient, in stratum V=1 | -0.000006 | 0.0060 | 1.0056 | -0.0020 | 0.0173 vs 0.0500 | equivalent |
-| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[(intercept)][V=2]` | point-treatment MSM projection intercept coefficient, in stratum V=2 | 0.000020 | 0.0172 | 1.0070 | -0.0060 | 0.0675 vs 0.0500 **>** | equivalent |
-| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[W][V=0]` | point-treatment MSM projection baseline-covariate coefficient, in stratum V=0 | -0.000007 | 0.0119 | 1.0047 | -0.0020 | 0.0037 vs 0.0500 | equivalent |
-| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[W][V=1]` | point-treatment MSM projection baseline-covariate coefficient, in stratum V=1 | -0.000004 | 0.0060 | 1.0077 | -0.0090 | 0.0519 vs 0.0500 **>** | equivalent |
-| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[W][V=2]` | point-treatment MSM projection baseline-covariate coefficient, in stratum V=2 | -0.000006 | 0.0081 | 1.0047 | -0.0120 | 0.0476 vs 0.0500 | **inconclusive** |
-| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[a][V=0]` | point-treatment MSM projection treatment coefficient, in stratum V=0 | -0.000005 | 0.0048 | 1.0027 | 0.0030 | 0.0028 vs 0.0500 | equivalent |
-| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[a][V=1]` | point-treatment MSM projection treatment coefficient, in stratum V=1 | 0.000010 | 0.0089 | 1.0059 | -0.0020 | 0.0038 vs 0.0500 | equivalent |
-| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[a][V=2]` | point-treatment MSM projection treatment coefficient, in stratum V=2 | -0.000025 | 0.0260 | 1.0037 | 0.0010 | 0.0063 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle3-msm-stratified` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[(intercept)][V=0]` | point-treatment MSM projection intercept coefficient, in stratum V=0 | 0.000006 | 0.0082 | 1.0032 | 0.0020 | related target | 0.0043 vs 0.0500 | equivalent |
+| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[(intercept)][V=1]` | point-treatment MSM projection intercept coefficient, in stratum V=1 | -0.000006 | 0.0060 | 1.0056 | -0.0020 | related target | 0.0173 vs 0.0500 | equivalent |
+| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[(intercept)][V=2]` | point-treatment MSM projection intercept coefficient, in stratum V=2 | 0.000020 | 0.0172 | 1.0070 | -0.0060 | related target | 0.0675 vs 0.0500 **>** | equivalent |
+| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[W][V=0]` | point-treatment MSM projection baseline-covariate coefficient, in stratum V=0 | -0.000007 | 0.0119 | 1.0047 | -0.0020 | related target | 0.0037 vs 0.0500 | equivalent |
+| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[W][V=1]` | point-treatment MSM projection baseline-covariate coefficient, in stratum V=1 | -0.000004 | 0.0060 | 1.0077 | -0.0090 | related target | 0.0519 vs 0.0500 **>** | equivalent |
+| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[W][V=2]` | point-treatment MSM projection baseline-covariate coefficient, in stratum V=2 | -0.000006 | 0.0081 | 1.0047 | -0.0120 | related target | 0.0476 vs 0.0500 | **inconclusive** |
+| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[a][V=0]` | point-treatment MSM projection treatment coefficient, in stratum V=0 | -0.000005 | 0.0048 | 1.0027 | 0.0030 | related target | 0.0028 vs 0.0500 | equivalent |
+| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[a][V=1]` | point-treatment MSM projection treatment coefficient, in stratum V=1 | 0.000010 | 0.0089 | 1.0059 | -0.0020 | related target | 0.0038 vs 0.0500 | equivalent |
+| baseline-strata law with a bounded outcome Y ~ Beta(24 Q, 24 (1 - Q)) | `msm[a][V=2]` | point-treatment MSM projection treatment coefficient, in stratum V=2 | -0.000025 | 0.0260 | 1.0037 | 0.0010 | related target | 0.0063 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Repeated-sampling properties

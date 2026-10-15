@@ -78,7 +78,7 @@ def test_a_cross_fitted_all_request_names_the_admitted_estimands() -> None:
             _missing_frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta"
         )
     message = str(caught.value)
-    assert "no audited result covers ['att', 'atc']" in message
+    assert "No audited result covers ['att', 'atc']" in message
     assert (
         "Request estimands from ['ate', 'ey', 'ey1', 'ey0', 'ey_obs', 'par', 'paf', 'rr', 'or']"
         in message
@@ -96,7 +96,7 @@ def test_a_cross_fitted_joint_request_with_att_names_the_admitted_estimands() ->
             _missing_frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta"
         )
     message = str(caught.value)
-    assert "no audited result covers ['att']" in message
+    assert "No audited result covers ['att']" in message
     assert "'ey_obs', 'par', 'paf'" in message
     assert NeverFit.calls == 0
 

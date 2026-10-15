@@ -38,17 +38,19 @@ reports every arm mean plus two ATEs, risk ratios, and odds ratios against the `
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| three-arm binary-outcome law | `ate[low vs high]` | difference in counterfactual means, low versus high | 0.000018 | 0.0039 | 1.0001 | 0 | 0.000096 vs 0.0500 | equivalent |
-| three-arm binary-outcome law | `ate[medium vs high]` | difference in counterfactual means, medium versus high | 0.000034 | 0.0075 | 1.0001 | 0 | 0.000122 vs 0.0500 | equivalent |
-| three-arm binary-outcome law | `ey[high]` | counterfactual mean under treatment arm 'high' | -0.000017 | 0.0052 | 1.0001 | 0 | 0.000139 vs 0.0500 | equivalent |
-| three-arm binary-outcome law | `ey[low]` | counterfactual mean under treatment arm 'low' | 2.195e-07 | 0.000066 | 1.0000 | 0 | 0.000062 vs 0.0500 | equivalent |
-| three-arm binary-outcome law | `ey[medium]` | counterfactual mean under treatment arm 'medium' | 0.000017 | 0.0051 | 1.0001 | 0 | 0.000224 vs 0.0500 | equivalent |
-| three-arm binary-outcome law | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | 0.000127 | 0.0039 | 1.0002 | 0 | 0.000101 vs 0.0500 | equivalent |
-| three-arm binary-outcome law | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | 0.000441 | 0.0075 | 1.0004 | 0 | 0.000120 vs 0.0500 | equivalent |
-| three-arm binary-outcome law | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | 0.000061 | 0.0044 | 1.0002 | 0 | 0.000107 vs 0.0500 | equivalent |
-| three-arm binary-outcome law | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | 0.000119 | 0.0072 | 1.0003 | 0 | 0.000121 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle3-multi-arm` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| three-arm binary-outcome law | `ate[low vs high]` | difference in counterfactual means, low versus high | 0.000018 | 0.0039 | 1.0001 | 0 | matching implementation | 0.000096 vs 0.0500 | equivalent |
+| three-arm binary-outcome law | `ate[medium vs high]` | difference in counterfactual means, medium versus high | 0.000034 | 0.0075 | 1.0001 | 0 | matching implementation | 0.000122 vs 0.0500 | equivalent |
+| three-arm binary-outcome law | `ey[high]` | counterfactual mean under treatment arm 'high' | -0.000017 | 0.0052 | 1.0001 | 0 | matching implementation | 0.000139 vs 0.0500 | equivalent |
+| three-arm binary-outcome law | `ey[low]` | counterfactual mean under treatment arm 'low' | 2.195e-07 | 0.000066 | 1.0000 | 0 | matching implementation | 0.000062 vs 0.0500 | equivalent |
+| three-arm binary-outcome law | `ey[medium]` | counterfactual mean under treatment arm 'medium' | 0.000017 | 0.0051 | 1.0001 | 0 | matching implementation | 0.000224 vs 0.0500 | equivalent |
+| three-arm binary-outcome law | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | 0.000127 | 0.0039 | 1.0002 | 0 | matching implementation | 0.000101 vs 0.0500 | equivalent |
+| three-arm binary-outcome law | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | 0.000441 | 0.0075 | 1.0004 | 0 | matching implementation | 0.000120 vs 0.0500 | equivalent |
+| three-arm binary-outcome law | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | 0.000061 | 0.0044 | 1.0002 | 0 | matching implementation | 0.000107 vs 0.0500 | equivalent |
+| three-arm binary-outcome law | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | 0.000119 | 0.0072 | 1.0003 | 0 | matching implementation | 0.000121 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
