@@ -1,0 +1,7 @@
+"regime","estimator","ltmle_name","estimate"
+"always","gcomp","gcomp",0.255994671803637
+"always","iptw","iptw",0.261859685160338
+"never","gcomp","gcomp",0.485760420615309
+"never","iptw","iptw",0.489364441397979
+"rule","gcomp","gcomp",0.300362123291663
+"rule","iptw","iptw",0.294079863809259
