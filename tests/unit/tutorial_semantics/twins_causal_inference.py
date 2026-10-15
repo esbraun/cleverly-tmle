@@ -116,8 +116,8 @@ def check_stored() -> None:
     assert "clusters =" not in fit_text
     # The bounded-outcome reading: the share is continuous, and the initial fit stays in [0, 1].
     assert "outcome family: gaussian; fluctuation: logistic" in fit_text
-    low, high = re.search(r"initial outcome predictions: (\S+) to (\S+)", fit_text).groups()
-    assert 0.0 <= float(low) <= float(high) <= 1.0
+    initial = re.search(r"initial outcome predictions: (\S+) to (\S+)", fit_text)
+    assert initial and 0.0 <= float(initial[1]) <= float(initial[2]) <= 1.0
 
     # The ATT and the crude difference share the observed risk of the smoking pairs.
     observed = _number(fit_text, r"observed risk, smoking pairs:\s+(\S+)")
