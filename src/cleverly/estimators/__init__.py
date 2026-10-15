@@ -19,6 +19,7 @@ from .ctmle import (
     CTMLESelection,
     CTMLEStrategy,
     LogisticPlugin,
+    PropensityArrays,
     logistic_plugin,
 )
 from .drtmle import DRTMLE, ReducedFit
@@ -37,6 +38,7 @@ __all__ = [
     "CVTargeting",
     "LogisticPlugin",
     "NuisanceEstimates",
+    "PropensityArrays",
     "ReducedFit",
     "TMLEConfig",
     "TMLEResult",

@@ -29,7 +29,7 @@ fitted ``g`` only has to adjust for whatever confounding the initial ``Qbar`` ha
 already handled, rather than for all of it.  Neither nuisance model needs to be
 right on its own.
 
-Three ways of building the sequence are available, mirroring the entry points of R's
+Five ways of building the sequence are available, mirroring the entry points of R's
 ``ctmle`` package:
 
 ``strategy="greedy"`` (default)
@@ -59,19 +59,41 @@ Three ways of building the sequence are available, mirroring the entry points of
     a covariate, such as ``random_common_cause``, places it after the declared ordering.
 
 ``strategy="discrete"``
-    Cross-validated selection among an explicit list of candidate covariate sets --
-    the analogue of ``ctmleDiscrete`` / ``ctmleGlmnet``.
+    Cross-validated selection among an explicit list of candidate covariate sets.  Each
+    candidate fluctuates the initial fit once.
 
-The three strategies above build a candidate path and cut it at a data-chosen stopping
+``strategy="lasso"``
+    The C-TMLE1 path of R ``ctmleGlmnet`` (Ju et al., 2019, C-LASSO Section 4.2).  The
+    candidates are the L1-penalized logistic mechanisms on a strictly decreasing penalty
+    grid, on the ``glmnet`` objective.  ``lambdas=None`` uses ``glmnet``'s default grid,
+    with the penalty 0 appended.  The sequence is built by the indexed rule below, and
+    after the cross-validation a final step fluctuates the selected candidate's targeted
+    fit with each smaller penalty and reports the one with the smallest unpenalized loss.
+
+``strategy="learners"``
+    The declared sequence of R ``build_gn_seq`` and ``ctmleGeneral``.  The candidates are
+    the entries of ``treatment_candidates=``, ordered from the least to the most adaptive,
+    then ``treatment_learner`` on every covariate.  An entry is an unfitted learner, or a
+    :class:`PropensityArrays` pair of full-sample and out-of-fold predictions under a
+    declared ``selection_split=``.
+
+The two indexed strategies share one construction rule, the template of van der Laan and
+Gruber (2010), Section 2.4.  From the current initial fit, every remaining candidate is
+tried and the best is taken.  The candidates it skipped are recorded as fluctuations of
+the current initial fit, its targeted fit becomes the next initial fit, and the search
+stops when the best try no longer improves on the best criterion so far.
+
+The five strategies above build a candidate path and cut it at a data-chosen stopping
 index.  **The package supplies no inference for any of them.**  ``ci``, ``pvalue`` and
 ``std_error`` raise :class:`~cleverly.exceptions.CapabilityError`: no result shows the
 reported curve is this estimator's influence curve when the selected working mechanism is
 not consistent for the treatment law.  The point estimate, the selection path and the
 curve remain, and ``plugin_std_error`` and ``plugin_interval`` report the retained
 diagnostic under names that make no coverage claim.  F18 in ``docs/roadmap.md`` is the
-condition that reopens this.  One ``"discrete"`` fit is the exception.  When the declared
-list holds one candidate and that candidate is the full adjustment set, nothing is
-selected, the estimator is the ordinary TMLE, and the fit takes the ordinary TMLE status.
+condition that reopens this.  Two declarations are the exception.  When a ``"discrete"``
+list holds one candidate and that candidate is the full adjustment set, or a
+``"learners"`` list is empty, nothing is selected, the estimator is the ordinary TMLE, and
+the fit takes the ordinary TMLE status.
 
 ``strategy="oat"``
     The outcome-adaptive treatment mechanism of Benkeser, Cai and van der Laan (2020).
@@ -93,10 +115,10 @@ selected, the estimator is the ordinary TMLE, and the fit takes the ordinary TML
     in ``tilt_missingness``.
 
     **It also trades away one leg of double robustness, and that is the reason to reach
-    for it deliberately rather than as a default.**  The three selector strategies choose
-    a *subset of the analyst's covariates*, so the full model is always in the candidate
-    path and a search that keeps going recovers :math:`g_0`; collaborative double
-    robustness is retained.  Here :math:`W` never enters :math:`g` at all.  The fitted
+    for it deliberately rather than as a default.**  The selector strategies end their
+    candidate path at a mechanism on every covariate, so a search that keeps going recovers
+    :math:`g_0` when that last candidate is consistent; collaborative double robustness is
+    retained.  Here :math:`W` never enters :math:`g` at all.  The fitted
     mechanism is the projection of :math:`A` on :math:`\sigma(\hat{\bar Q})`, so it is
     consistent for :math:`g_0` only when :math:`g_0` is a function of the outcome
     regression -- and if :math:`\hat{\bar Q}` is inconsistent then in general so is
@@ -257,6 +279,8 @@ References
   Likelihood Estimation in Causal Inference and Genomics*.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019),
   *Scalable collaborative targeted learning for high-dimensional data*.
+- Ju, Wyss, Franklin, Schneeweiss, Häggström & van der Laan (2019), *Collaborative-controlled
+  LASSO for constructing propensity score-based estimators in high-dimensional data*.
 
 Examples
 --------
@@ -289,6 +313,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -307,6 +332,7 @@ from ..inference.delta import log_odds_ratio_influence, log_ratio_influence, wal
 from ..inference.influence import counterfactual_means
 from ..interventions.learned import learned_rule_configuration_refusal
 from ..learners._fitting import Task, predict_mean, predict_probabilities
+from ..learners._l1_logistic import check_penalty_grid, default_penalty_grid, penalty_path
 from ..learners.crossfit import _POST_DRAW_REMEDY, Folds, check_integrity, make_folds
 from ..learners.super_learner import resolve_learner
 from ..targets.base import parameter_name
@@ -314,6 +340,7 @@ from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
 from ._nuisance import (
+    _SIMPLEX_TOLERANCE,
     ArmQuery,
     NuisanceEstimates,
     Propensity,
@@ -342,13 +369,15 @@ __all__ = [
     "CTMLESelection",
     "CTMLEStrategy",
     "LogisticPlugin",
+    "PropensityArrays",
+    "declares_no_selection",
     "is_per_arm_oat",
     "is_selector_strategy",
     "logistic_plugin",
     "per_arm_design_admits",
 ]
 
-CTMLEStrategy = Literal["greedy", "ordered", "discrete", "oat"]
+CTMLEStrategy = Literal["greedy", "ordered", "discrete", "lasso", "learners", "oat"]
 CTMLELoss = Literal["auto", "loglik", "squared"]
 CTMLEPreorder = Literal["logistic", "partial_correlation"]
 CTMLEOatDesign = Literal["per_arm", "shared"]
@@ -366,8 +395,14 @@ OAT_PER_ARM_INFERENTIAL: Final[bool] = False
 #: The strategies that build a candidate path and cut it at a data-chosen stopping index.
 #: ``"oat"`` is not one: it fits its mechanism on the arm-specific outcome predictions and
 #: has no path, no selector loss and no stopping index (see the module docstring).
-#: F19 owns the inference of its shared design; F18 owns these three.
-CTMLE_SELECTOR_STRATEGIES: frozenset[str] = frozenset({"greedy", "ordered", "discrete"})
+#: F19 owns the inference of its shared design; F18 owns these five.
+CTMLE_SELECTOR_STRATEGIES: frozenset[str] = frozenset(
+    {"greedy", "ordered", "discrete", "lasso", "learners"}
+)
+
+#: The strategies that build an indexed candidate sequence (van der Laan and Gruber 2010,
+#: Section 2.4) rather than a sequence of covariate sets.
+_INDEXED_STRATEGIES: frozenset[str] = frozenset({"lasso", "learners"})
 
 
 def is_selector_strategy(strategy: str | None) -> bool:
@@ -382,24 +417,28 @@ def is_selector_strategy(strategy: str | None) -> bool:
     Returns
     -------
     bool
-        ``True`` for ``"greedy"``, ``"ordered"`` and ``"discrete"``. ``False`` for
+        ``True`` for ``"greedy"``, ``"ordered"``, ``"discrete"``, ``"lasso"`` and
+        ``"learners"``. ``False`` for
         ``"oat"``, for ``None`` and for any unrecognised value, so a caller that
         broadens the Literal does not silently acquire a refusal it never declared.
     """
     return strategy in CTMLE_SELECTOR_STRATEGIES
 
 
-def declares_full_adjustment_only(
+def declares_no_selection(
     strategy: str | None,
     candidates: Sequence[Sequence[str]] | None,
+    treatment_candidates: Sequence[Any] | None,
     covariate_names: Sequence[str],
 ) -> bool:
-    """Whether a ``"discrete"`` fit declares one candidate, and that candidate is every covariate.
+    """Whether a selector fit declares a candidate list with nothing to select.
 
-    Such a fit has nothing to select. Its treatment mechanism is fitted on the full
-    adjustment set, so the estimator is the ordinary TMLE. The key reads the declared list
-    and the prepared covariate names only, and never the fitted path, so a caller can know
-    the answer before the fit.
+    Two declarations qualify. A ``"discrete"`` fit whose one candidate is every covariate
+    fits its treatment mechanism on the full adjustment set. A ``"learners"`` fit with an
+    empty ``treatment_candidates=`` list has one candidate, ``treatment_learner`` on every
+    covariate. Each fit selects nothing, and the estimator is the ordinary TMLE. The key
+    reads the declaration and the prepared covariate names only, and never the fitted path,
+    so a caller can know the answer before the fit.
 
     Parameters
     ----------
@@ -407,19 +446,112 @@ def declares_full_adjustment_only(
         The collaborative strategy.
     candidates : sequence of sequence of str or None
         The declared ``candidates=`` list.
+    treatment_candidates : sequence or None
+        The declared ``treatment_candidates=`` list.
     covariate_names : sequence of str
         The prepared covariate names, :attr:`~cleverly.data.CausalData.covariate_names`.
 
     Returns
     -------
     bool
-        ``True`` when the strategy is ``"discrete"``, the list has exactly one entry, and
-        that entry holds each covariate name exactly once, in any order. A repeated
-        candidate counts as two candidates, and a repeated name is not the full set.
+        ``True`` for a ``"discrete"`` fit whose list has exactly one entry that holds each
+        covariate name exactly once, in any order, and for a ``"learners"`` fit whose list
+        is empty. A repeated candidate counts as two candidates, and a repeated name is not
+        the full set.
     """
+    if strategy == "learners":
+        return treatment_candidates is not None and len(treatment_candidates) == 0
     if strategy != "discrete" or candidates is None or len(candidates) != 1:
         return False
     return len(covariate_names) > 0 and sorted(candidates[0]) == sorted(covariate_names)
+
+
+@dataclass(frozen=True, eq=False)
+class PropensityArrays:
+    """A declared candidate mechanism, given as predictions: the ``ctmleGeneral`` pair.
+
+    R ``ctmle``'s ``ctmleGeneral`` takes each candidate as two columns:
+    ``gn_candidates``, fitted on the whole sample, and ``gn_candidates_cv``, fitted out of
+    fold on the selection split. A ``strategy="learners"`` fit takes the pair in the same
+    roles. The full-sample path reads :attr:`full`. Inside each selection fold, the training
+    rows and the validation rows both read :attr:`cv`, as ``ctmleGeneral`` does.
+
+    The pair needs ``selection_split=``, the fold labels :attr:`cv` was fitted under. The
+    package cannot check that :attr:`cv` respects that split, so the caller must. Each
+    training-row prediction in :attr:`cv` comes from a fit that used the validation fold's
+    treatment and covariates, though never its outcome, as in R. That is a declared
+    exception to the selector rule that a selection-validation row reaches no nuisance fit
+    that scores it.
+
+    Parameters
+    ----------
+    full : array-like
+        ``n`` rows of probabilities over the arms, in arm order, fitted on every row. Each
+        row sums to 1 within ``1e-9``, the tolerance of every
+        propensity on the simplex. At two arms a vector of ``P(A = arm 1)`` is accepted.
+    cv : array-like
+        The same shape, each row predicted by a fit that held out that row's selection
+        fold.
+    """
+
+    full: Any
+    cv: Any
+
+    def resolved(
+        self, index: int, n: int, arms: Sequence[float], labels: Sequence[Any]
+    ) -> tuple[FloatArray, FloatArray]:
+        """Both arrays as ``(n, K)`` probabilities, or ``ValueError`` on a wrong shape.
+
+        Parameters
+        ----------
+        index : int
+            The entry's position in ``treatment_candidates=``, for the message.
+        n : int
+            The number of analysis rows.
+        arms : sequence of float
+            The arm codes, in arm order.
+        labels : sequence
+            The arm labels, in arm order, for the message.
+
+        Returns
+        -------
+        tuple of ndarray
+            ``(full, cv)``, each of shape ``(n, K)``.
+        """
+        k = len(arms)
+        out = []
+        shapes = []
+        for value in (self.full, self.cv):
+            array = np.asarray(value, dtype=float)
+            shapes.append(array.shape)
+            if k == 2 and array.ndim == 1 and array.shape[0] == n:
+                array = np.column_stack([1.0 - array, array])
+            out.append(array)
+        valid = all(
+            array.shape == (n, k)
+            and bool(np.all(np.isfinite(array)))
+            and bool(np.all((array >= 0.0) & (array <= 1.0)))
+            for array in out
+        )
+        if not valid:
+            raise ValueError(
+                f"PropensityArrays entry {index}: full and cv must each hold {n} rows of "
+                f"probabilities over the {k} arms in arm order {list(labels)}; a vector of "
+                f"P(A = {labels[1]}) is accepted at two arms; got shapes {shapes[0]} and "
+                f"{shapes[1]}"
+            )
+        for name, array in zip(("full", "cv"), out, strict=True):
+            gap = float(np.max(np.abs(np.sum(array, axis=1) - 1.0)))
+            if gap > _SIMPLEX_TOLERANCE:
+                raise ValueError(
+                    f"PropensityArrays entry {index}: each row of {name} must sum to 1 over "
+                    f"the {k} arms, and the largest gap from 1 is {gap:.3g}, above "
+                    f"{_SIMPLEX_TOLERANCE:g}. A row that does not sum to 1 is not a "
+                    "probability distribution, so the clever covariate would weight the arms "
+                    f"wrongly. Pass predict_proba output in arm order {list(labels)}, or "
+                    "divide each row by its sum"
+                )
+        return out[0], out[1]
 
 
 def is_per_arm_oat(estimator: Any) -> bool:
@@ -487,6 +619,14 @@ def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
 
+#: The tie tolerance of the declared-order check of ``strategy="learners"``: 1%.  A candidate
+#: whose treatment negative log likelihood exceeds the previous candidate's by at most this
+#: fraction of that loss is a tie.  The reason: a nested candidate with an uninformative extra
+#: covariate can rise by sampling noise under the propensity bounds.  On the instrument law of
+#: ``tests/studies/ctmle_sequence_properties.py`` the nested terminal rises by about 0.2%, and
+#: the unordered ``W1`` candidate of the study's first run by about 19%.
+_ORDER_TIE_TOLERANCE: Final[float] = 0.01
+
 #: The way out of a selection or nested split that cannot fit its nuisances.  The search
 #: draws those splits even in sample, so fitting in sample removes neither of them.
 #: ``strategy="oat"`` refuses a selector setting away from its default, and the ordinary
@@ -546,43 +686,112 @@ _MSM_REFUSAL = Refusal(
 _SELECTION_SPLIT_BACKSTOP = _POST_DRAW_REMEDY.format(remedy=_SELECTION_SPLIT_REMEDY)
 
 
+def _unordered_candidates(treatment_risk: Sequence[float] | FloatArray) -> tuple[int, ...]:
+    """The indices whose treatment loss rises above the previous candidate's by more than a tie.
+
+    ``ctmleGeneral`` requires a declared sequence ordered from the least to the most adaptive
+    candidate, with a decreasing treatment loss.  A rise of at most 1% of the previous loss
+    (``_ORDER_TIE_TOLERANCE``) counts as a tie, because a nested candidate with an
+    uninformative covariate can rise by sampling noise under the propensity bounds.
+
+    Parameters
+    ----------
+    treatment_risk : sequence of float
+        The treatment negative log likelihood of each candidate, in path order.
+
+    Returns
+    -------
+    tuple of int
+        Each index ``k`` whose loss exceeds the loss at ``k - 1`` by more than the tie.
+    """
+    risk = np.asarray(treatment_risk, dtype=float)
+    tolerance = _ORDER_TIE_TOLERANCE * np.abs(risk[:-1])
+    return tuple(int(k) + 1 for k in np.flatnonzero(np.diff(risk) > tolerance))
+
+
+def _warn_on_unordered_candidates(path: Sequence[_Candidate]) -> None:
+    """Warn when the declared candidates of ``strategy="learners"`` break the declared order.
+
+    The construction tries the candidates in their declared order, so a candidate that fits
+    the treatment worse than its predecessor can stop the search early.  The fit proceeds,
+    because a rise can also be a tie of sampling noise.
+    """
+    risk = [candidate.treatment_risk for candidate in path]
+    offending = _unordered_candidates(risk)
+    if not offending:
+        return
+    named = ", ".join(f"{index} ({path[index].label})" for index in offending)
+    warnings.warn(
+        "strategy='learners' needs treatment_candidates= ordered from the least to the most "
+        "adaptive, with a decreasing treatment loss. The treatment negative log likelihood "
+        f"rises by more than 1% at candidate {named}. The fit proceeds, but the search can stop "
+        "before a candidate that carries a confounder. Declare nested candidates, each one "
+        "adding covariates to the one before it.",
+        UserWarning,
+        stacklevel=2,
+    )
+
+
 @dataclass(frozen=True)
 class CTMLESelection:
     """The candidate sequence a C-TMLE fit searched, and where it was cut.
 
-    Attributes
+    Parameters
     ----------
-    path:
-        Covariate sets of the candidates, in the order the search built them.  Each
-        is the covariate set used for ``g``; the outcome model always sees every
-        covariate.
-    n_steps:
-        Number of fluctuation steps the search had applied when it reached each
-        candidate.  A value above one means the greedy search had to increment the
-        TMLE step to keep making progress.
-    train_risk:
-        The selection criterion for each candidate, evaluated in sample.
-        A greedy or ordered search retries from one further targeted fit when no
-        addition improves the criterion, then accepts the best addition.  The recorded
-        penalized risk may therefore increase.
-    cv_risk:
-        The same criterion, cross-validated.  This is the quantity actually
-        minimised, and unlike ``train_risk`` it is free to turn back up -- which is
-        what stops the search from simply taking every covariate.
-    selected:
-        Index into ``path`` of the chosen candidate.
-    folds:
-        The realized selection split ``cv_risk`` was scored over.  This is the
-        partition the fit actually used, not a rule for rebuilding one, so a paired
-        study can hand another implementation the same fold assignment instead of
-        recomputing its own and hoping the two agree.
-
-        Its :attr:`~cleverly.learners.Folds.origin` records the generator, the scheme,
-        the requested fold count and the seed, at **every** cross-fitting setting.  A
-        collaborative fit draws this split whether or not the outer nuisances are
-        cross-fitted, so ``cross_fit=False`` -- which records no outer split on
-        :class:`~cleverly.learners.CrossFitPlan`, because there is none -- would
-        otherwise leave the one split the fit did draw unrecorded.
+    strategy : str
+        The selector strategy.
+    preorder : str or None
+        The preordering rule of ``strategy="ordered"``, ``"custom"`` for a declared
+        ordering, and ``None`` for the other strategies.
+    estimand : str
+        The estimand the selection was made for.
+    target_names : tuple of str
+        The jointly scored components of :attr:`estimand`.
+    loss : str
+        ``"loglik"`` or ``"squared"``.
+    penalized : bool
+        Whether the selection criterion adds the variance/bias penalty.
+    path : tuple of tuple of str
+        The covariates of each candidate's treatment mechanism, in path order. For a
+        covariate-set strategy this is the candidate's covariate set. For ``"lasso"`` it
+        holds the covariates with a nonzero coefficient in at least one fit that produced
+        the candidate on the analysis sample. For ``"learners"`` it holds every covariate.
+        The outcome model always sees every covariate.
+    n_steps : tuple of int
+        The number of fluctuation steps the search had applied when it reached each
+        candidate. A value above one means the search had moved its initial fit.
+    train_risk : ndarray
+        The selection criterion for each candidate, evaluated in sample. A greedy or
+        ordered search retries from one further targeted fit when no addition improves the
+        criterion, then accepts the best addition. The recorded penalized risk may
+        therefore increase.
+    train_loss : ndarray
+        The unpenalized loss part of :attr:`train_risk`.
+    penalty : ndarray
+        The penalty part of :attr:`train_risk`, zero when :attr:`penalized` is ``False``.
+    treatment_risk : ndarray
+        The weighted treatment negative log likelihood of each candidate.
+    cv_risk : ndarray
+        The same criterion, cross-validated. This is the quantity minimised, and unlike
+        :attr:`train_risk` it is free to turn back up, which stops the search from taking
+        every candidate.
+    selected : int
+        The index into :attr:`path` that the cross-validated risk chose.
+    covariates : tuple of str
+        Every covariate of the fit, in data order.
+    folds : Folds
+        The realized selection split :attr:`cv_risk` was scored over. This is the partition
+        the fit used, so a paired study can hand another implementation the same fold
+        assignment. Its :attr:`~cleverly.learners.Folds.origin` records the generator, the
+        scheme, the requested fold count and the seed of a drawn split. A split declared
+        with ``selection_split=`` has no origin (``None``).
+    labels : tuple of str
+        One label per candidate: ``"W1, W2"`` style covariate lists, ``"lambda=0.0123"``
+        for a lasso candidate, a learner's class name with its position, or
+        ``"arrays[1]"`` for a :class:`PropensityArrays` entry.
+    final : int or None
+        The candidate the ``"lasso"`` final step reported, or ``None`` when no final step
+        ran.
     """
 
     strategy: CTMLEStrategy
@@ -601,22 +810,49 @@ class CTMLESelection:
     selected: int
     covariates: tuple[str, ...]
     folds: Folds
+    labels: tuple[str, ...] = ()
+    final: int | None = None
+
+    @property
+    def reported(self) -> int:
+        """The candidate whose mechanism the estimate uses: :attr:`final`, else :attr:`selected`."""
+        return self.selected if self.final is None else self.final
 
     @property
     def selected_covariates(self) -> tuple[str, ...]:
-        """The covariate set chosen for the treatment model."""
-        return self.path[self.selected]
+        """The covariates of the reported treatment model."""
+        return self.path[self.reported]
 
     @property
     def dropped(self) -> tuple[str, ...]:
-        """Covariates the treatment model left out, in their original order."""
+        """Covariates the reported treatment model left out, in their original order."""
         chosen = set(self.selected_covariates)
         return tuple(name for name in self.covariates if name not in chosen)
 
+    def _label(self, index: int) -> str:
+        if self.labels:
+            return self.labels[index]
+        names = self.path[index]
+        return ", ".join(names) if names else "(intercept)"
+
     def to_frame(self, data: CausalData | None = None) -> Any:
-        """One row per candidate: its covariate set, loss and cross-validated risk."""
+        """One row per candidate: its covariate set, loss and cross-validated risk.
+
+        Parameters
+        ----------
+        data : CausalData or None
+            When given, the rows come back in that data's frame type.
+
+        Returns
+        -------
+        dict or frame
+            The columns ``candidate``, ``label``, ``covariates``, ``n_covariates``,
+            ``n_steps``, ``train_risk``, ``train_loss``, ``penalty``, ``treatment_risk``,
+            ``cv_risk``, ``selected`` and ``final``.
+        """
         payload: dict[str, Any] = {
             "candidate": list(range(len(self.path))),
+            "label": [self._label(index) for index in range(len(self.path))],
             "covariates": [", ".join(names) if names else "(intercept)" for names in self.path],
             "n_covariates": [len(names) for names in self.path],
             "n_steps": list(self.n_steps),
@@ -626,27 +862,62 @@ class CTMLESelection:
             "treatment_risk": self.treatment_risk.tolist(),
             "cv_risk": self.cv_risk.tolist(),
             "selected": [index == self.selected for index in range(len(self.path))],
+            "final": [index == self.final for index in range(len(self.path))],
         }
         if data is None:
             return payload
         return data.frame_like(payload)
 
+    @property
+    def treatment_risk_decreasing(self) -> bool:
+        """Whether :attr:`treatment_risk` does not increase along the path.
+
+        ``ctmleGeneral`` requires a declared sequence ordered from the least to the most
+        adaptive candidate, with decreasing empirical loss. The fit does not refuse a
+        sequence that breaks the order. :meth:`summary` reports it.
+        """
+        return bool(np.all(np.diff(self.treatment_risk) <= 0.0))
+
+    @property
+    def treatment_risk_increases(self) -> tuple[int, ...]:
+        """The candidates whose treatment loss rises above the previous candidate's.
+
+        A rise of at most 1% of the previous candidate's loss is a tie and is not listed.
+        A fit of ``strategy="learners"`` warns when this tuple is not empty.
+
+        Returns
+        -------
+        tuple of int
+            The indices into :attr:`path`, in path order.
+        """
+        return _unordered_candidates(self.treatment_risk)
+
     def summary(self) -> str:
-        """A printable report of the selection."""
+        """A printable report of the selection.
+
+        Returns
+        -------
+        str
+            The candidate table, the criterion and the reported mechanism.
+        """
+        indexed = self.strategy in _INDEXED_STRATEGIES
         rows = []
         for index, names in enumerate(self.path):
+            marker = "<--" if index == self.selected else ""
+            if self.final is not None and index == self.final:
+                marker = "<-- final"
             rows.append(
                 [
                     str(index),
-                    ", ".join(names) if names else "(intercept)",
+                    self._label(index) if indexed else (", ".join(names) or "(intercept)"),
                     str(self.n_steps[index]),
                     f"{self.train_risk[index]:.6g}",
                     f"{self.cv_risk[index]:.6g}",
-                    "<--" if index == self.selected else "",
+                    marker,
                 ]
             )
         table = format_table(
-            ["k", "covariates in g", "steps", "risk", "cv risk", ""],
+            ["k", "candidate g" if indexed else "covariates in g", "steps", "risk", "cv risk", ""],
             rows,
         )
         criterion = "penalized " if self.penalized else ""
@@ -660,10 +931,19 @@ class CTMLESelection:
             "",
         ]
         chosen = self.selected_covariates
-        footer = [
-            "",
-            "selected g: " + (", ".join(chosen) if chosen else "(intercept only)"),
-        ]
+        footer = [""]
+        if indexed:
+            footer.append(f"selected g: {self._label(self.reported)}")
+            footer.append(
+                "covariates in selected g: " + (", ".join(chosen) if chosen else "(none)")
+            )
+            if self.strategy == "learners":
+                footer.append(
+                    "treatment risk decreases along the declared order: "
+                    + ("yes" if self.treatment_risk_decreasing else "no")
+                )
+            return "\n".join([*header, table, *footer])
+        footer.append("selected g: " + (", ".join(chosen) if chosen else "(intercept only)"))
         if self.dropped:
             footer.append(
                 "left out: "
@@ -689,20 +969,23 @@ class CTMLESelection:
         str
             A complete sentence, ready to embed in a report line.
         """
-        return (
+        sentence = (
             f"C-TMLE {self.strategy} selected candidate {self.selected + 1} of "
             f"{len(self.path)} for {self.estimand}"
         )
+        if self.final is not None:
+            sentence += f"; the final step used candidate {self.final + 1}"
+        return sentence
 
     @property
     def treatment_features(self) -> tuple[str, ...]:
-        """The covariates entering the selected treatment model."""
+        """The covariates entering the reported treatment model."""
         return self.selected_covariates
 
     @property
     def treatment_risk_selected(self) -> float:
-        """Treatment negative log likelihood at the selected path position."""
-        return float(self.treatment_risk[self.selected])
+        """Treatment negative log likelihood at the reported path position."""
+        return float(self.treatment_risk[self.reported])
 
 
 @dataclass(frozen=True)
@@ -828,6 +1111,7 @@ class _Candidate:
     penalty: float
     treatment_risk: float
     risk: float
+    label: str = ""
 
 
 class CTMLE(TMLE):
@@ -845,56 +1129,79 @@ class CTMLE(TMLE):
     The selector strategies refuse ``ci``, ``pvalue`` and ``std_error``, and report
     ``plugin_std_error`` and ``plugin_interval`` instead.  A contrast of them, a
     simultaneous band and every E-value branch refuse for the same reason, which F18 in the
-    roadmap holds.  The exception is a ``"discrete"`` fit whose one declared candidate is
-    the full adjustment set: it selects nothing, equals the ordinary TMLE, and reports its
-    interval.  ``strategy="oat"`` withholds the interval on either design, for the reason
-    F19 in the roadmap holds: condition (v) of Benkeser, Cai and van der Laan (2020),
-    Theorem 1, fails for an estimated outcome regression.  See the module docstring.
+    roadmap holds.  The exceptions are a ``"discrete"`` fit whose one declared candidate is
+    the full adjustment set and a ``"learners"`` fit with an empty declared list: each
+    selects nothing, equals the ordinary TMLE, and reports its interval.
+    ``strategy="oat"`` withholds the interval on either design, for the reason F19 in the
+    roadmap holds: condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1,
+    fails for an estimated outcome regression.  See the module docstring.
 
     Parameters
     ----------
-    strategy:
-        ``"greedy"`` (default), ``"ordered"``, ``"discrete"`` or ``"oat"``.  The
-        selector strategies fit one shared categorical propensity path and jointly score
-        all components of ``ctmle_estimand``; ``"oat"`` fits treatment on the arm-specific
-        outcome predictions without a candidate path (see ``oat_design``).
+    strategy : {"greedy", "ordered", "discrete", "lasso", "learners", "oat"}, default="greedy"
+        ``"greedy"`` (default), ``"ordered"``, ``"discrete"``, ``"lasso"``, ``"learners"``
+        or ``"oat"``.  The selector strategies fit one shared categorical propensity path
+        and jointly score all components of ``ctmle_estimand``; ``"oat"`` fits treatment on
+        the arm-specific outcome predictions without a candidate path (see ``oat_design``).
         ``"oat"`` excludes ``W`` from ``g`` entirely and so gives up
         consistency-when-only-``g``-is-right; see the module docstring.
-    ordering:
+    ordering : sequence of str or None, default=None
         Explicit covariate order for ``strategy="ordered"``.  When omitted, ``preorder``
         determines the published data-adaptive ordering.  A refit that adds a covariate,
         such as ``random_common_cause``, places it after the declared ordering.
-    preorder:
+    preorder : {"logistic", "partial_correlation"} or None, default=None
         ``"logistic"`` (default) or ``"partial_correlation"`` for Algorithms 2 and 3
         of Ju et al. (2019).  Ignored when an explicit ``ordering=`` is supplied.
-    candidates:
+    candidates : sequence of sequence of str or None, default=None
         Explicit candidate covariate sets for ``strategy="discrete"``.
-    selection_folds:
+    selection_folds : int, default=5
         Folds used to cross-validate the candidate sequence.  Separate from
-        ``n_folds``, which cross-fits the nuisance models.
-    selection_inner_folds:
+        ``n_folds``, which cross-fits the nuisance models.  With ``selection_split``, it
+        must equal the split's fold count.
+    selection_inner_folds : int, default=2
         Inner folds used to make selection-training predictions out of fold. Two is the
         default because every selection fold also needs a full-training fit for its
         validation rows; increasing it improves the inner cross-fit at a linear fit-cost.
-    loss:
+    loss : {"auto", "loglik", "squared"}, default="auto"
         ``"auto"`` (default) uses the squared-error loss for a continuous outcome and
         the quasi-binomial log-likelihood for a binary one, as R's ``ctmle`` does.
-    penalty:
+    penalty : bool, default=True
         Add the variance/bias penalty to the selection loss.  Leave it on unless you
         specifically want the unpenalized log-likelihood selector.
-    ctmle_estimand:
+    ctmle_estimand : str, default="ate"
         Which estimand the selection is *for*.  A collaborative selection is
         parameter-specific -- the loss involves that estimand's influence curve --
         so unlike a plain TMLE, one fit cannot serve every estimand equally. At ``K``
         arms, ``ate``, ``rr`` and ``or`` jointly optimize the ``K - 1`` contrasts against
         ``reference=`` and ``ey`` jointly optimizes all ``K`` means. Must be requested.
-    oat_design:
+    oat_design : {"per_arm", "shared"} or None, default=None
         The treatment design of ``strategy="oat"``.  ``"per_arm"`` (the default under
         ``"oat"``) fits one binary mechanism per arm, ``P(A = a | Qbar(a, W))``, on that
         arm's own outcome prediction.  ``"shared"`` fits one categorical mechanism on the
         vector ``[Qbar(a, W): a in arms]``, as ``ctmle3::LF_oat`` does.  Neither design
         reports inference; see the module docstring.  ``None`` resolves to
         ``"per_arm"`` under ``"oat"``, and any other value raises under a selector strategy.
+    lambdas : sequence of float or None, default=None
+        The penalty grid of ``strategy="lasso"``: two or more finite, non-negative,
+        strictly decreasing penalties, with 0 allowed only as the last value.  A user grid
+        gets no automatic 0.  ``None`` uses ``glmnet``'s default grid, 100 log-spaced values
+        from ``lambda_max`` down, then 0.  The grid reads treatment and covariates only, is fixed
+        on the analysis sample, and is reused in every fold.  ``treatment_learner`` is not
+        used by the lasso candidates; it stays the fallback of the missingness learner.
+    treatment_candidates : sequence or None, default=None
+        The declared candidates of ``strategy="learners"``, from the least to the most
+        adaptive.  An entry is an unfitted learner, fitted on every covariate on exactly the
+        rows a covariate-set candidate uses, or a :class:`PropensityArrays` pair.
+        ``treatment_learner`` on every covariate is appended as the last candidate.  An
+        empty list selects nothing.  A scikit-learn ``FrozenEstimator`` passes as a learner
+        and is not refit, because ``clone`` returns it unchanged.
+    selection_split : sequence of int or None, default=None
+        Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
+        selection split, on every selector strategy.  ``selection_folds`` must equal ``V``.
+        It refuses ``repeats > 1`` and ``n_bootstrap > 0``.
+    **kwargs : Any
+        The keyword arguments of :class:`~cleverly.TMLE`: the learners, the fold policy,
+        the bounds and the targeting controls.
 
     Notes
     -----
@@ -914,11 +1221,12 @@ class CTMLE(TMLE):
     def _inference_status(self, data: CausalData) -> InferenceStatus:
         """Name the status of each strategy, and admit the one fit that selects nothing.
 
-        Keyed on the strategy. The selector paths take the status that F18 keys on, with one
-        exception. A ``"discrete"`` fit that declares one candidate, equal to the full adjustment
-        set, selects nothing and is the ordinary TMLE, so it takes the status of
-        :class:`~cleverly.TMLE`. :func:`declares_full_adjustment_only` is the key. It reads the
-        declared list and the prepared covariate names, and never the fitted path.
+        Keyed on the strategy. The selector paths take the status that F18 keys on, with two
+        exceptions. A ``"discrete"`` fit that declares one candidate, equal to the full adjustment
+        set, and a ``"learners"`` fit that declares an empty list select nothing and are the
+        ordinary TMLE, so they take the status of :class:`~cleverly.TMLE`.
+        :func:`declares_no_selection` is the key. It reads the declaration and the prepared
+        covariate names, and never the fitted path.
         ``docs/technical-reference/collaborative-tmle.md`` states the contract.
 
         Every ``"oat"`` fit takes ``"generated_design_plugin"``, which F19 holds. The key
@@ -942,13 +1250,15 @@ class CTMLE(TMLE):
         -------
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`: the
-            :class:`~cleverly.TMLE` status for the admitted ``"discrete"`` fit and a per-arm
-            ``"oat"`` fit that :func:`per_arm_design_admits` admits (none while
-            :data:`OAT_PER_ARM_INFERENTIAL` is ``False``), ``"working_mechanism_plugin"``
-            for every other ``"greedy"``, ``"ordered"`` and ``"discrete"`` fit, and
+            :class:`~cleverly.TMLE` status for the admitted ``"discrete"`` and ``"learners"``
+            fits and a per-arm ``"oat"`` fit that :func:`per_arm_design_admits` admits (none
+            while :data:`OAT_PER_ARM_INFERENTIAL` is ``False``), ``"working_mechanism_plugin"``
+            for every other selector fit, and
             ``"generated_design_plugin"`` for every other ``"oat"`` fit.
         """
-        if declares_full_adjustment_only(self.strategy, self.candidates, data.covariate_names):
+        if declares_no_selection(
+            self.strategy, self.candidates, self.treatment_candidates, data.covariate_names
+        ):
             return super()._inference_status(data)
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
@@ -1063,6 +1373,9 @@ class CTMLE(TMLE):
         penalty: bool = True,
         ctmle_estimand: str = "ate",
         oat_design: CTMLEOatDesign | None = None,
+        lambdas: Sequence[float] | None = None,
+        treatment_candidates: Sequence[Any] | None = None,
+        selection_split: Sequence[int] | None = None,
         **kwargs: Any,
     ) -> None:
         if kwargs.get("learned_rule") is not None:
@@ -1094,6 +1407,9 @@ class CTMLE(TMLE):
         self.penalty = penalty
         self.ctmle_estimand = ctmle_estimand
         self.oat_design = oat_design
+        self.lambdas = lambdas
+        self.treatment_candidates = treatment_candidates
+        self.selection_split = selection_split
         self._validate_ctmle_settings()
         if self.strategy == "ordered" and self.ordering is None and self.preorder is None:
             self.preorder = "logistic"
@@ -1103,9 +1419,10 @@ class CTMLE(TMLE):
     def _validate_ctmle_settings(self) -> None:
         if self.loss not in ("auto", "loglik", "squared"):
             raise ValueError(f"loss must be 'auto', 'loglik' or 'squared'; got {self.loss!r}")
-        if self.strategy not in ("greedy", "ordered", "discrete", "oat"):
+        if self.strategy not in ("greedy", "ordered", "discrete", "lasso", "learners", "oat"):
             raise ValueError(
-                f"strategy must be 'greedy', 'ordered', 'discrete' or 'oat'; got {self.strategy!r}"
+                "strategy must be 'greedy', 'ordered', 'discrete', 'lasso', 'learners' or "
+                f"'oat'; got {self.strategy!r}"
             )
         if self.preorder not in (None, "logistic", "partial_correlation"):
             raise ValueError(
@@ -1117,6 +1434,30 @@ class CTMLE(TMLE):
             raise ValueError(
                 f"candidates= only applies to strategy='discrete', not {self.strategy!r}"
             )
+        if self.strategy != "lasso" and self.lambdas is not None:
+            raise ValueError(f"lambdas= only applies to strategy='lasso', not {self.strategy!r}")
+        if self.lambdas is not None:
+            grid = check_penalty_grid(self.lambdas)
+            if grid.size < 2:
+                raise ValueError(
+                    "strategy='lasso' needs lambdas= with at least two penalties; got "
+                    f"{grid.tolist()!r}. One penalty gives one candidate, so the fit selects "
+                    "nothing. Pass a strictly decreasing sequence of two or more penalties, "
+                    "or lambdas=None for the default grid"
+                )
+        if self.strategy != "learners" and self.treatment_candidates is not None:
+            raise ValueError(
+                f"treatment_candidates= only applies to strategy='learners', not {self.strategy!r}"
+            )
+        if self.strategy == "learners" and self.treatment_candidates is None:
+            raise ValueError(
+                "strategy='learners' needs an explicit treatment_candidates= list, ordered "
+                "from the least to the most adaptive mechanism; treatment_learner on every "
+                "covariate is appended as the last candidate. Pass an empty list to fit "
+                "treatment_learner alone"
+            )
+        self._validate_treatment_candidates()
+        self._validate_selection_split()
         if self.strategy != "ordered" and self.ordering is not None:
             raise ValueError(f"ordering= only applies to strategy='ordered', not {self.strategy!r}")
         if self.strategy != "ordered" and self.preorder is not None:
@@ -1162,6 +1503,92 @@ class CTMLE(TMLE):
                 "the outcome predictions and selects nothing"
             )
 
+    def _validate_treatment_candidates(self) -> None:
+        """Refuse a lone array entry, and an arrays entry outside its declared regime."""
+        if self.treatment_candidates is None:
+            return
+        if isinstance(self.treatment_candidates, (str, bytes)) or not isinstance(
+            self.treatment_candidates, Sequence
+        ):
+            raise ValueError(
+                "treatment_candidates= must be a list of learners or PropensityArrays pairs"
+            )
+        has_arrays = False
+        for index, entry in enumerate(self.treatment_candidates):
+            if isinstance(entry, PropensityArrays):
+                has_arrays = True
+                continue
+            if entry is None:
+                raise ValueError(
+                    f"treatment_candidates= entry {index} is None; pass a learner or a "
+                    "PropensityArrays pair"
+                )
+            if _is_array_like(entry):
+                raise CapabilityError(
+                    f"treatment_candidates= entry {index} is a single propensity array. Pass "
+                    "the ctmleGeneral pair instead: PropensityArrays(full=..., cv=...), with "
+                    "the full-sample predictions and the out-of-fold predictions, and pass "
+                    "the split those out-of-fold predictions used as selection_split=. A "
+                    "single array fitted on every row would score a mechanism that saw the "
+                    "validation rows.",
+                    reason=RefusalReason.API_REDIRECTION,
+                    alternative=(
+                        "Pass PropensityArrays(full=..., cv=...) with selection_split=, or "
+                        "pass the learner that produced the array."
+                    ),
+                )
+            resolve_learner(entry, task="classification")
+        if not has_arrays:
+            return
+        if self.selection_split is None:
+            raise CapabilityError(
+                "PropensityArrays candidates need selection_split=, the fold labels their "
+                "cv= predictions were fitted under. selection_folds= draws a new split, which "
+                "those predictions do not respect.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass the fold labels of the cv= predictions as selection_split=.",
+            )
+        if self.cross_fit:
+            raise CapabilityError(
+                "PropensityArrays candidates are fitted on the analysis sample, and a "
+                "cross-fitted fit needs one fit for each outer fold.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    "Fit with cross_fit=False, or pass the learner that produced the arrays."
+                ),
+            )
+
+    def _validate_selection_split(self) -> None:
+        """Refuse a declared selection split beside a setting that redraws or resamples."""
+        if self.selection_split is None or not is_selector_strategy(self.strategy):
+            return
+        if self.repeats > 1:
+            raise CapabilityError(
+                "selection_split= fixes the selection folds, and repeats= redraws them for "
+                "each repeat.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Use repeats=1 with a declared split.",
+            )
+        if self.n_bootstrap:
+            raise CapabilityError(
+                "selection_split= labels the analysis rows, and a bootstrap resample changes "
+                "the rows.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Use n_bootstrap=0 with a declared split.",
+            )
+        declared = _declared_fold_count(self.selection_split)
+        if declared is not None and declared != self.selection_folds:
+            raise ValueError(
+                f"selection_split= declares {declared} folds, and selection_folds= is "
+                f"{self.selection_folds}. The two must agree, so that the fit records the "
+                f"number of folds it used. Pass selection_folds={declared} with this split"
+            )
+
+    def _has_arrays(self) -> bool:
+        return any(
+            isinstance(entry, PropensityArrays) for entry in (self.treatment_candidates or ())
+        )
+
     def _selector_only_overrides(self) -> list[str]:
         """Which selector-only settings sit away from their constructor defaults.
 
@@ -1176,11 +1603,11 @@ class CTMLE(TMLE):
         all four of these supplied explicitly and has to rebuild rather than raise.
         """
         defaults = inspect.signature(CTMLE.__init__).parameters
-        return [
-            name
-            for name in ("selection_folds", "selection_inner_folds", "loss", "penalty")
-            if getattr(self, name) != defaults[name].default
-        ]
+        names = ("selection_folds", "selection_inner_folds", "loss", "penalty")
+        overridden = [name for name in names if getattr(self, name) != defaults[name].default]
+        if self.selection_split is not None:
+            overridden.append("selection_split")
+        return overridden
 
     # --------------------------------------------------------------- the hook
 
@@ -1225,6 +1652,13 @@ class CTMLE(TMLE):
         cv_risk, selection_folds = selector.cross_validate(path)
         selected = int(np.argmin(cv_risk))
         chosen = path[selected]
+        if self.strategy == "learners":
+            _warn_on_unordered_candidates(path)
+        final: int | None = None
+        if self.strategy == "lasso":
+            step = selector.final_step(path, selected)
+            if step is not None:
+                final, chosen = step
 
         # `base.diagnostics` carries no "propensity" entry, and deliberately so -- unlike
         # the `oat` branch below, which has one shared fit to report.  A selector's
@@ -1240,6 +1674,7 @@ class CTMLE(TMLE):
             targeting_outcome=chosen.targeted,
             treatment_covariates=chosen.covariates,
         )
+        indexed = self.strategy in _INDEXED_STRATEGIES
         selection = CTMLESelection(
             strategy=self.strategy,
             preorder=("custom" if self.ordering is not None else self.preorder)
@@ -1259,6 +1694,8 @@ class CTMLE(TMLE):
             selected=selected,
             folds=selection_folds,
             covariates=data.covariate_names,
+            labels=tuple(candidate.label for candidate in path) if indexed else (),
+            final=final,
         )
         return nuisance, {"ctmle": selection}
 
@@ -1422,8 +1859,11 @@ class CTMLE(TMLE):
         Returns
         -------
         Folds
-            The realized selection split, carrying its generator record.
+            The realized selection split, carrying its generator record. A split declared
+            with ``selection_split=`` is returned as declared, with no generator record.
         """
+        if self.selection_split is not None:
+            return _declared_split(self.selection_split, data.n)
         return make_folds(
             data.n,
             self.selection_folds,
@@ -1877,6 +2317,13 @@ class CTMLE(TMLE):
             cover every covariate of ``data``. Otherwise a copy with the extended ordering
             or the extended candidates.
         """
+        if self._has_arrays():
+            raise CapabilityError(
+                "a refit adds, replaces or perturbs a column, and the PropensityArrays "
+                "candidates were fitted on the original columns.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass learners as treatment_candidates= to refit.",
+            )
         if self.strategy == "discrete" and self.candidates is not None:
             recorded = set(data.added_covariates)
             added = tuple(name for name in data.covariate_names if name in recorded)
@@ -2064,8 +2511,19 @@ class _Selector:
         #: `target` hands each candidate solve `stop.restrict(rows)`. `None` under `relative`.
         self.stop = estimator._stop_context(data, base)
         self._cache: dict[tuple[Any, ...], FloatArray] = {}
+        self._active: dict[tuple[Any, ...], tuple[str, ...]] = {}
         self.reference = estimator._reference_arm(data)
         self.target_names = self._target_names()
+        #: The penalty grid of ``strategy="lasso"``. It reads treatment and covariates only
+        #: and is fixed on the analysis sample: every selection fold and inner fold reuses
+        #: it, as ``ctmleGlmnet`` reuses its ``lambdas``.
+        self.lambdas: FloatArray | None = None
+        if estimator.strategy == "lasso":
+            self.lambdas = (
+                check_penalty_grid(estimator.lambdas)
+                if estimator.lambdas is not None
+                else default_penalty_grid(data.covariates, data.treatment, data.weights)
+            )
 
     # ------------------------------------------------------------ propensities
 
@@ -2320,10 +2778,198 @@ class _Selector:
     def build_path(self, train: IntArray | None, tag: str) -> list[_Candidate]:
         """The candidate sequence, fit on ``train`` (or cross-fitted when ``None``)."""
         rows = self.all_rows if train is None else train
+        if self.est.strategy in _INDEXED_STRATEGIES:
+            return self._indexed_candidates_path(rows, train, tag)
         if self.est.strategy == "discrete":
             return self._discrete_path(rows, train, tag)
         order = self._ordering(rows, train) if self.est.strategy == "ordered" else None
         return self._forward_path(rows, train, tag, order)
+
+    # ------------------------------------------------------- indexed sequences
+
+    def indexed_propensities(
+        self, train: IntArray | None, tag: str
+    ) -> tuple[list[Propensity], list[tuple[str, ...]], list[str]]:
+        """The candidates of ``"lasso"`` or ``"learners"`` on one search branch.
+
+        A lasso candidate is the L1-penalized mechanism at each penalty of the grid. A
+        learners candidate is each declared entry in the declared order, then
+        ``treatment_learner`` on every covariate. Every learner is fitted on exactly the
+        rows a covariate-set candidate uses. A :class:`PropensityArrays` entry reads
+        :attr:`~PropensityArrays.full` on the analysis sample and
+        :attr:`~PropensityArrays.cv` inside each selection fold.
+
+        Parameters
+        ----------
+        train : ndarray of int or None
+            The selection-fold training rows, or ``None`` on the analysis sample.
+        tag : str
+            The search branch, ``"full"`` or ``"cv<fold>"``.
+
+        Returns
+        -------
+        tuple
+            The propensities, the covariates of each candidate and the label of each.
+        """
+        names = tuple(self.data.covariate_names)
+        if self.est.strategy == "lasso":
+            assert self.lambdas is not None
+            propensities = self._lasso_propensities(train, tag)
+            covariates = [self._active[(tag, ("lasso", k))] for k in range(len(propensities))]
+            labels = [_penalty_label(value) for value in self.lambdas]
+            return propensities, covariates, labels
+        entries = list(self.est.treatment_candidates or ())
+        propensities = []
+        labels = []
+        for index, entry in enumerate(entries):
+            if isinstance(entry, PropensityArrays):
+                propensities.append(self._array_propensity(index, entry))
+                labels.append(f"arrays[{index}]")
+                continue
+            key = (tag, ("learner", index))
+            cached = self._cache.get(key)
+            if cached is None:
+                learner = resolve_learner(
+                    entry,
+                    task="classification",
+                    n_folds=self.est.learner_folds,
+                    random_state=self.seed,
+                )
+                cached = self._fit_propensity_with(learner, names, train).values
+                self._cache[key] = cached
+            propensities.append(Propensity(cached, self.data.arm_codes))
+            labels.append(f"{_learner_name(entry)}[{index}]")
+        propensities.append(self.propensity(names, train, tag))
+        labels.append(f"{_learner_name(self.est.treatment_learner)}[terminal]")
+        return propensities, [names] * len(propensities), labels
+
+    def _array_propensity(self, index: int, entry: PropensityArrays) -> Propensity:
+        """``full`` on the analysis sample, ``cv`` on every row inside a selection fold."""
+        labels = [self.data.arm_label(arm) for arm in self.data.arm_codes]
+        full, cv = entry.resolved(index, self.data.n, self.data.arm_codes, labels)
+        values = full if self.train_folds is None else cv
+        return Propensity(np.clip(values, 0.0, 1.0), self.data.arm_codes)
+
+    def _fit_rows(self, train: IntArray | None, tag: str) -> list[tuple[IntArray, IntArray, str]]:
+        """The ``(fit rows, predicted rows, layer)`` of each fit a candidate needs.
+
+        The same rows :meth:`_fit_propensity_with` gives a covariate-set candidate: the
+        nested folds inside a selection fold, the selection-fold training rows, the
+        analysis sample in sample, or each outer fold when cross-fitted.
+        """
+        where = "the analysis sample" if tag == "full" else f"selection fold {tag[2:]}"
+        if self.train_folds is not None:
+            assert self.train_mask is not None
+            out = []
+            last = self.train_folds.n_folds - 1
+            for fold, (fit_rows, test) in enumerate(self.train_folds):
+                eligible = fit_rows[self.train_mask[fit_rows]]
+                if eligible.size == 0:
+                    raise ValueError(
+                        "a cross-fitting fold has no trainable rows for a nuisance model. "
+                        f"{_SELECTION_SPLIT_BACKSTOP}"
+                    )
+                layer = (
+                    f"{where}, full-training fit" if fold == last else f"{where}, inner fold {fold}"
+                )
+                out.append((eligible, test, layer))
+            return out
+        if train is None:
+            if self.base.folds.is_single:
+                return [(self.all_rows, self.all_rows, where)]
+            return [
+                (fit_rows, test, f"outer fold {fold}")
+                for fold, (fit_rows, test) in enumerate(self.base.folds)
+            ]
+        return [(train, self.all_rows, where)]
+
+    def _lasso_propensities(self, train: IntArray | None, tag: str) -> list[Propensity]:
+        """One warm-started penalty path for each training set, cached per branch."""
+        assert self.lambdas is not None
+        data = self.data
+        count = self.lambdas.size
+        keys = [(tag, ("lasso", k)) for k in range(count)]
+        if all(key in self._cache for key in keys):
+            return [Propensity(self._cache[key], data.arm_codes) for key in keys]
+        values = np.empty((count, data.n, data.n_arms))
+        active: list[set[int]] = [set() for _ in range(count)]
+        for fit_rows, predict_rows, layer in self._fit_rows(train, tag):
+            fits = penalty_path(
+                data.covariates[fit_rows],
+                data.treatment[fit_rows],
+                data.weights[fit_rows],
+                self.lambdas,
+                classes=data.arm_codes,
+                layer=layer,
+            )
+            for k, fit in enumerate(fits):
+                values[k, predict_rows] = fit.predict_proba(data.covariates[predict_rows])
+                active[k].update(fit.active)
+        out = []
+        for k, key in enumerate(keys):
+            self._cache[key] = np.clip(values[k], 0.0, 1.0)
+            self._active[key] = tuple(
+                name for j, name in enumerate(data.covariate_names) if j in active[k]
+            )
+            out.append(Propensity(self._cache[key], data.arm_codes))
+        return out
+
+    def _indexed_candidates_path(
+        self, rows: IntArray, train: IntArray | None, tag: str
+    ) -> list[_Candidate]:
+        propensities, covariates, labels = self.indexed_propensities(train, tag)
+        self._indexed = (propensities, covariates, labels)
+
+        def fluctuate(index: int, initial: InitialFit, n_steps: int) -> _Candidate:
+            return self._fluctuate(
+                covariates[index], propensities[index], initial, rows, n_steps, labels[index]
+            )
+
+        return _indexed_path(len(propensities), self.base.outcome, fluctuate)
+
+    def final_step(
+        self, path: Sequence[_Candidate], selected: int
+    ) -> tuple[int, _Candidate] | None:
+        """The C-TMLE1 final step of ``ctmleGlmnet`` on the analysis sample.
+
+        Fluctuate the selected candidate's targeted fit with each mechanism of a smaller
+        penalty, and report the one with the smallest unpenalized loss. The paper
+        fluctuates the selected candidate's initial fit (Ju et al. 2019, C-LASSO
+        Appendix A, Algorithm 1, steps 14 and 15); R ``ctmleGlmnet`` and this package
+        fluctuate its targeted fit (``R/ctmle_glmnet.R``, line 291).
+
+        Parameters
+        ----------
+        path : sequence of _Candidate
+            The analysis-sample path.
+        selected : int
+            The cross-validated index.
+
+        Returns
+        -------
+        tuple of (int, _Candidate) or None
+            The final index and its fluctuation, or ``None`` when no smaller penalty
+            exists.
+        """
+        if selected >= len(path) - 1:
+            return None
+        propensities, covariates, labels = self._indexed
+        start = path[selected]
+        options = [
+            self._fluctuate(
+                covariates[index],
+                propensities[index],
+                start.targeted,
+                self.all_rows,
+                start.n_steps + 1,
+                labels[index],
+            )
+            for index in range(selected + 1, len(path))
+        ]
+        losses = np.array([option.loss for option in options], dtype=float)
+        losses[~np.isfinite(losses)] = np.inf
+        best = int(np.argmin(losses))
+        return selected + 1 + best, options[best]
 
     def _discrete_path(self, rows: IntArray, train: IntArray | None, tag: str) -> list[_Candidate]:
         assert self.est.candidates is not None
@@ -2386,6 +3032,18 @@ class _Selector:
         n_steps: int,
     ) -> _Candidate:
         propensity = self.propensity(covariates, train, tag)
+        return self._fluctuate(covariates, propensity, initial, rows, n_steps)
+
+    def _fluctuate(
+        self,
+        covariates: tuple[str, ...],
+        propensity: Propensity,
+        initial: InitialFit,
+        rows: IntArray,
+        n_steps: int,
+        label: str = "",
+    ) -> _Candidate:
+        """Fluctuate ``initial`` along one candidate mechanism and score it on ``rows``."""
         submodel = self.submodel(propensity)
         targeted, epsilon = self.target(initial, submodel, rows)
         loss = self.loss(targeted, rows)
@@ -2407,6 +3065,7 @@ class _Selector:
             penalty=penalty,
             treatment_risk=treatment_risk,
             risk=loss + penalty,
+            label=label,
         )
 
     def _ordering(
@@ -2625,6 +3284,77 @@ class _Selector:
             missingness=missingness,
             diagnostics={},
         )
+
+
+def _indexed_path(
+    count: int,
+    initial: InitialFit,
+    fluctuate: Callable[[int, InitialFit, int], _Candidate],
+) -> list[_Candidate]:
+    """The indexed construction rule of van der Laan and Gruber (2010), Section 2.4.
+
+    From the current initial fit, fluctuate with every remaining candidate and take the
+    first smallest criterion. When it does not improve on the best criterion so far, stop.
+    Otherwise record each candidate from the previous accepted index up to this one as a
+    fluctuation of the current initial fit, make the accepted candidate's targeted fit the
+    next initial fit, and drop every candidate up to and including it. After a stop, the
+    remaining candidates are fluctuations of the last initial fit. Candidate ``k`` is always
+    position ``k``, so every branch's path has length ``count``. This is C-LASSO Appendix A,
+    Algorithm 1, steps 5 to 12, and ``construct_candidates_general`` in R ``ctmle``
+    (``R/functions_general.R``, argmin line 81, jump line 124, stop line 129).
+
+    A pure function of the candidates and the scoring callable, so a test can feed it R's
+    own propensity arrays.
+
+    Parameters
+    ----------
+    count : int
+        The number of candidates.
+    initial : InitialFit
+        The initial outcome regression.
+    fluctuate : callable
+        ``fluctuate(k, initial, n_steps)`` returns candidate ``k`` fluctuated from
+        ``initial``, with its criterion in ``risk`` and its targeted fit in ``targeted``.
+
+    Returns
+    -------
+    list of _Candidate
+        The ``count`` candidates in index order.
+    """
+    path: list[_Candidate | None] = [None] * count
+    current = initial
+    best = np.inf
+    start = 0
+    accepted = 0
+    tries: list[_Candidate] = []
+    while start < count:
+        tries = [fluctuate(index, current, accepted + 1) for index in range(start, count)]
+        scores = np.array([candidate.risk for candidate in tries], dtype=float)
+        scores[~np.isfinite(scores)] = np.inf
+        choice = int(np.argmin(scores))
+        if scores[choice] > best:
+            break
+        best = float(scores[choice])
+        for offset in range(choice + 1):
+            path[start + offset] = tries[offset]
+        current = tries[choice].targeted
+        start += choice + 1
+        accepted += 1
+        tries = []
+    for offset, candidate in enumerate(tries):
+        path[start + offset] = candidate
+    assert all(candidate is not None for candidate in path)
+    return [candidate for candidate in path if candidate is not None]
+
+
+def _penalty_label(value: float) -> str:
+    return "lambda=0" if value == 0.0 else f"lambda={value:.4g}"
+
+
+def _learner_name(learner: Any) -> str:
+    if learner is None:
+        return "SuperLearner"
+    return type(learner).__name__
 
 
 @dataclass(frozen=True)
@@ -2852,6 +3582,58 @@ def _binary_risk(predicted: FloatArray, indicator: FloatArray, weights: FloatArr
     return float(-np.sum(weights * (indicator * np.log(g) + (1.0 - indicator) * np.log1p(-g))))
 
 
+def _declared_fold_count(labels: Sequence[int]) -> int | None:
+    """The fold count ``V`` that integer labels declare, or ``None`` when they are malformed.
+
+    A malformed split is refused at fit time by :func:`_declared_split`, which also knows ``n``.
+    """
+    try:
+        values = np.asarray(labels, dtype=float).reshape(-1)
+    except (TypeError, ValueError):
+        return None
+    if values.size == 0 or not bool(np.all(np.isfinite(values) & (values % 1 == 0))):
+        return None
+    count = int(values.max()) + 1
+    return count if count >= 2 else None
+
+
+def _declared_split(labels: Sequence[int], n: int) -> Folds:
+    """The ``selection_split=`` labels as a split, or ``ValueError`` when they are malformed."""
+    try:
+        values = np.asarray(labels).reshape(-1)
+        integral = values.size > 0 and bool(np.all(np.asarray(values, dtype=float) % 1 == 0))
+    except (TypeError, ValueError):
+        values = np.asarray([], dtype=float)
+        integral = False
+    codes = values.astype(np.int64) if integral else np.asarray([], dtype=np.int64)
+    n_folds = int(codes.max()) + 1 if codes.size else 0
+    valid = (
+        integral
+        and codes.size == n
+        and int(codes.min()) == 0
+        and n_folds >= 2
+        and bool(np.all(np.bincount(codes, minlength=n_folds) > 0))
+    )
+    if not valid:
+        found = (
+            f"{values.size} labels with values {sorted(set(values.tolist()))[:6]}"
+            if values.size
+            else "no labels"
+        )
+        raise ValueError(
+            f"selection_split must hold one fold label for each of the {n} rows, with labels "
+            f"0 to V-1 and V >= 2; got {found}"
+        )
+    return Folds(codes, n_folds)
+
+
+def _is_array_like(value: Any) -> bool:
+    """Whether a ``treatment_candidates=`` entry is data rather than a learner."""
+    if hasattr(value, "fit"):
+        return False
+    return isinstance(value, (np.ndarray, list, tuple)) or hasattr(value, "__array__")
+
+
 def _penalty_of(influence_curve: FloatArray) -> float:
     """``tr(Cov(D*)) + n ||mean(D*)||^2`` for a scalar or vector target."""
     curve = np.asarray(influence_curve, dtype=float)
@@ -2946,7 +3728,21 @@ def _logistic_plugin_refusal(result: TMLEResult) -> str | None:
     if not isinstance(selection, CTMLESelection):
         if isinstance(selection, CTMLEOutcomeAdaptiveFit):
             return "used strategy='oat', which fits no logistic propensity on covariates"
-        return "is not a selector C-TMLE fit (strategy 'greedy', 'ordered' or 'discrete')"
+        return (
+            "is not a selector C-TMLE fit (strategy 'greedy', 'ordered', 'discrete', 'lasso' "
+            "or 'learners')"
+        )
+    if selection.strategy == "lasso":
+        return (
+            "used strategy='lasso', which fits an L1-penalized logistic path rather than one "
+            "logistic model on a covariate set. R ctmleGlmnet type 1 reports the plain D* "
+            "variance, var(D*) / n. plugin_std_error squared is the same variance."
+        )
+    if selection.strategy == "learners":
+        return (
+            "used strategy='learners', which fits declared candidates rather than one "
+            "logistic model on a covariate set."
+        )
     if not data.is_binary_treatment:
         return f"has {data.n_arms} treatment arms"
     if result.config.cross_fit:

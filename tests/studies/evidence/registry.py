@@ -235,6 +235,20 @@ class StudyRecord:
     #: publishes the complete result, including red verdicts, but never relaxes schema,
     #: provenance, convergence, or replication-accounting checks.
     publication_policy: Literal["gated", "reporting"] = "gated"
+    #: What the paired comparison with the reference claims.  ``"gated"`` publishes the
+    #: similarity and non-inferiority verdict in ``equivalence.csv``'s ``passed`` column, and
+    #: the regeneration gates and the red-cell ledger read it.  ``"descriptive"`` publishes the
+    #: same endpoints with no ``passed`` column: the regeneration gates nothing on them, the
+    #: failure accounting adds no paired row, and the ledger reads none of them.  A study
+    #: declares it when the two implementations do not compute the same selected estimate by
+    #: construction, so a paired verdict would test a declared difference rather than either
+    #: implementation.  ``canonical-ctmle-sequences`` is the case: R ``ctmle`` scores its
+    #: cross-validation after an all-row refit (X16 plan, quirk 2).
+    paired_role: Literal["gated", "descriptive"] = "gated"
+    #: Further committed result files that the property module writes beside its rows, through
+    #: a ``generate_property_artifacts`` hook.  A record that declares them must have the
+    #: hook, and the regeneration driver writes and hashes each one.
+    property_artifacts: tuple[str, ...] = ()
     #: Further committed result files supplied by a study-specific ``extra_artifacts`` hook.
     extra_artifacts: tuple[str, ...] = ()
     #: Whether each replication row carries its own truth.
@@ -267,6 +281,12 @@ class StudyRecord:
                 "publication_policy must be 'gated' or 'reporting'; "
                 f"got {self.publication_policy!r}"
             )
+        if self.paired_role not in ("gated", "descriptive"):
+            raise ValueError(
+                f"paired_role must be 'gated' or 'descriptive'; got {self.paired_role!r}"
+            )
+        if self.paired_role == "descriptive" and self.reference is None:
+            raise ValueError("a descriptive paired role needs a reference to pair with")
         if self.truth_varies_by_replicate and self.reference is not None:
             raise ValueError(
                 "a record whose truth varies by replication cannot declare a reference: the "
@@ -420,6 +440,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CTMLE_OAT_PER_ARM_STRATA_MISSING,
     )
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
+    from tests.studies.canonical_ctmle_sequences import STUDY as CANONICAL_CTMLE_SEQUENCES
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_deterministic_regimes import (
         STUDY as CANONICAL_DETERMINISTIC_REGIMES,
@@ -481,6 +502,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as POINT_SURVIVAL_POLICIES,
     )
     from tests.studies.canonical_policy_point_mtp import STUDY as POLICY_POINT_MTP
+    from tests.studies.canonical_sequential_baselines import STUDY as SEQUENTIAL_BASELINES
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_categorical_ltmle import (
         STUDY as STOCHASTIC_CATEGORICAL_LTMLE,
@@ -533,6 +555,7 @@ def registered() -> tuple[StudyRecord, ...]:
         REPEATED_CROSSFIT_TMLE,
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
+        CANONICAL_CTMLE_SEQUENCES,
         CANONICAL_CTMLE_OAT,
         CANONICAL_MULTI_ARM_CTMLE_OAT,
         CANONICAL_DRTMLE,
@@ -577,6 +600,7 @@ def registered() -> tuple[StudyRecord, ...]:
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
+        SEQUENTIAL_BASELINES,
         CTMLE_OAT_PER_ARM,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,

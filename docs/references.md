@@ -1007,6 +1007,12 @@ sizes only the cluster sum is the delta-method variance of the row mean
   product-rate regime. Separately, the estimator solves extra derivative-score equations and uses
   an undersmoothing condition. It does not cover the package's discrete selector paths, nested
   folds, or joint target vectors.
+  Corollary 4 (Section 3.6, preprint page 15) gives the expansion of the paper's LASSO-C-TMLE. Its
+  extra term $\Delta(P_1)$ is zero by Lemma 2 under a consistent outcome regression and a product
+  rate. The paper gives no estimator of the term otherwise. Section 5.3 estimates the variance with
+  the empirical variance of $D^*$, and Section 5.4 reports that those intervals fail to cover
+  except at large `n`. The `lasso` strategy lies outside the corollary's conditions: its index is a
+  discrete grid, and its stop rule, index rule and final step are the package's own.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
   *Statistical Methods in Medical Research* 28(2):532-554, DOI 10.1177/0962280217729845,
@@ -1042,6 +1048,11 @@ sizes only the cluster sum is the delta-method variance of the row mean
   Section 4.2 states that the C-TMLE estimator is asymptotically linear under regularity
   conditions and cites earlier work for it. The data analysis in Section 7 forms its intervals from
   the analytic influence curve. The paper states no post-selection theorem.
+  The section 4.2 display (preprint page 7) defines the lasso candidate. Appendix A, Algorithm 1
+  (preprint page 23), gives the indexed construction rule in steps 5 to 12 and the final step in
+  steps 13 to 16. That final step fluctuates the selected candidate's initial fit. The `lasso`
+  strategy of `CTMLE` follows steps 5 to 12. In the final step it fluctuates the targeted fit, as R
+  `ctmleGlmnet` does.
 - Liu (2018), [*Contributions to evolutionary dynamics and causal
   inference*](https://nrs.harvard.edu/urn-3:HUL.InstRepos:41129186), Harvard University
   dissertation. Chapter 2 derives asymptotic laws for C-TMLE coefficients, squared errors,
@@ -1349,6 +1360,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
   an observation weight, and no fit, sum, mean, or variance in them applies one. This source
   supplies no fixed-weight comparison.
 
+  `R/functions_general.R` gives the indexed construction rule that the `lasso` and `learners`
+  strategies follow: the argmin on line 81, the jump on line 124 and the stop on line 129.
+  `R/functions_glmnet.R` gives the same rule over a penalty grid, on lines 184, 253 and 256.
+  [`ctmleGlmnet`, lines 265-325](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_glmnet.R#L265-L325)
+  is the type-1 final step. `R/build_gn_seq.R` builds the `gn_candidates` and `gn_candidates_cv`
+  pair that `PropensityArrays` mirrors. The
+  [collaborative TMLE page](technical-reference/collaborative-tmle.md#candidate-sequences) lists
+  the R behaviors the package does not reproduce.
+
   [`calc_varIC`, lines 39-60](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions.R#L39-L60)
   adds a binary logistic parameter-estimation term to each candidate's ATE curve.
   [`ctmleDiscrete`, lines 173-185](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L173-L185)
@@ -1463,7 +1483,28 @@ sizes only the cluster sum is the delta-method variance of the row mean
 
 ## Longitudinal, survival and marginal structural models
 
-- Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*.
+- Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*,
+  *Biometrics* 61(4):962–972. Section 3, p. 966, gives the missing-data recursion. Section 4,
+  p. 969, steps 1 to 5, gives the causal form. `SequentialGComputation` cites it for the ICE
+  recursion. The paper states the causal form for a marginal structural model parameter. The
+  plain g-formula is a special case.
+- Robins, Hernán & Brumback (2000), *Marginal structural models and causal inference in
+  epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
+  eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek
+  form of `SequentialIPW` rests on `CalcIPTW` in R `ltmle` 1.3-0 and the delta method.
+- Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician*
+  56(1):29–38. Read in the 2001 preprint (NCSU Mimeo 2528). Section 2 gives the stacked sandwich
+  variance of a system of estimating equations. The published page and equation numbers are not
+  checked. The stacked curves of the sequential baselines cite it.
+- Lunceford & Davidian (2004), *Stratification and weighting via the propensity score in
+  estimation of causal treatment effects: a comparative study*, *Statistics in Medicine*
+  23(19):2937–2960. Section 3.1, p. 2945, eqs. (13)–(16): with a correctly specified propensity
+  fitted by maximum likelihood, the IPW variance is at most the fixed-propensity variance. The
+  result is for a point treatment.
+- Ertefaie, Hejazi & van der Laan (2023), *Nonparametric inverse-probability-weighted estimators
+  based on the highly adaptive lasso*, *Biometrics* 79(2):1029–1041. Section 3, Theorem 1,
+  gives asymptotic linearity of IPW with an undersmoothed HAL propensity at one time point, for a
+  binary treatment. F35 in the roadmap cites it as the starting point for a longitudinal result.
 - van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
   multiple time point interventions*, DOI
   [10.1515/1557-4679.1370](https://doi.org/10.1515/1557-4679.1370). The intervention-specific

@@ -35,8 +35,9 @@ NO_STAGE = {
 }
 
 #: Runner-defined functions that may sit inside a stage argument: each is a comparator wrapper
-#: that calls package code only, with no check of its own.
-STAGE_WRAPPERS = frozenset({"fit_conditional", "fit_cv"})
+#: that calls package code only, with no check of its own.  `rebuild_type1` and `final_type1`
+#: transcribe R ctmle's own code (X16 plan 3.4), so their errors are comparator errors.
+STAGE_WRAPPERS = frozenset({"fit_conditional", "fit_cv", "rebuild_type1", "final_type1"})
 
 #: Every R file a comparator fit runs through: the runners and the adapters beside the harness.
 COMPARATOR_FILES = tuple(
