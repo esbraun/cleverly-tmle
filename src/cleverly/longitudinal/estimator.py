@@ -264,30 +264,80 @@ def refuse_sdr_scale(name: str, value: float, scale: str, *, estimator: str = "s
     )
 
 
-def _warn_parameter_space(
-    estimates: Mapping[str, ParameterEstimate],
+def _level_range(
     data: LongitudinalData,
     scaler: OutcomeScaler,
+    q_bounds: tuple[float, float] | None,
+    horizon: int,
+) -> tuple[float, float]:
+    """The range of the outcome that a level at ``horizon`` averages.
+
+    A binary or survival outcome lives on ``[0, 1]``.  An end-of-study continuous outcome has
+    the range of ``scaler``.  A continuous repeated outcome has the range of its own horizon:
+    ``q_bounds`` when declared, else the observed range of ``Y_h`` on the rows uncensored
+    through ``h``, padded as the derived scaler pads.  The scaler pools every node (W14), so
+    its range would hide a level that leaves the range of ``Y_h`` and stays inside another
+    node's.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    scaler : OutcomeScaler
+        The scaler of the fit.
+    q_bounds : tuple of float, optional
+        The declared outcome bounds.
+    horizon : int
+        The horizon of the level.
+
+    Returns
+    -------
+    tuple of float
+        The lower and upper end of the range.
+    """
+    if data.family == "binomial":
+        return 0.0, 1.0
+    if not data.is_repeated:
+        return scaler.lower, scaler.upper
+    observed = data.outcome_at(horizon)[data.uncensored_through(horizon)]
+    derived = OutcomeScaler.from_outcome(observed, q_bounds)
+    return derived.lower, derived.upper
+
+
+def _warn_parameter_space(
+    estimates: Mapping[str, ParameterEstimate],
+    ranges: Mapping[str, tuple[float, float]],
     *,
     estimator: str = "sdr",
 ) -> None:
     """Warn once when a one-step level leaves the range of the outcome it averages.
 
-    The range is ``[0, 1]`` on a binary or survival outcome, and ``[q_lo, q_hi]`` on a
-    continuous one, declared or derived.
+    Parameters
+    ----------
+    estimates : Mapping[str, ParameterEstimate]
+        The reported estimates.  Only a level is checked.
+    ranges : Mapping[str, tuple of float]
+        The range of the outcome behind each level, by parameter name (:func:`_level_range`).
+        The message names the range of each level that leaves its own.
+    estimator : str
+        The estimator kind, for the cause that the message gives.
     """
-    low, high = (0.0, 1.0) if data.family == "binomial" else (scaler.lower, scaler.upper)
-    outside = [
-        f"{name} = {estimate.psi:.4g}"
-        for name, estimate in estimates.items()
-        if estimate.scale == "level" and not low <= estimate.psi <= high
-    ]
+    outside: dict[tuple[float, float], list[str]] = {}
+    for name, estimate in estimates.items():
+        if estimate.scale != "level":
+            continue
+        low, high = ranges[name]
+        if not low <= estimate.psi <= high:
+            outside.setdefault((low, high), []).append(f"{name} = {estimate.psi:.4g}")
     if not outside:
         return
+    described = "; ".join(
+        f"{'; '.join(items)}: outside the outcome range [{low:.4g}, {high:.4g}]"
+        for (low, high), items in outside.items()
+    )
     warnings.warn(
-        f"{'; '.join(outside)}: outside the outcome range [{low:.4g}, {high:.4g}]. "
-        f"{_RANGE_CAUSE[estimator]}. It is reported as computed, with no truncation. A ratio "
-        "or odds functional of such a level is refused",
+        f"{described}. {_RANGE_CAUSE[estimator]}. It is reported as computed, with no "
+        "truncation. A ratio or odds functional of such a level is refused",
         ParameterSpaceWarning,
         stacklevel=3,
     )
@@ -540,18 +590,46 @@ def _fit_key(label: str, cause: str | None, horizon: int, curve: bool) -> str:
     return _index(label, cause, horizon, curve)
 
 
-def refuse_repeated_outcome(estimator: str, name: str) -> None:
-    """Refuse a repeated outcome on any longitudinal estimator other than the TMLE.
+#: The estimator kinds that fit a repeated outcome.  A kind belongs here once each horizon of
+#: its fit is the end-of-study fit of the panel truncated after it, and its evidence exists.
+REPEATED_OUTCOME_KINDS: frozenset[str] = frozenset({"tmle"})
 
-    The sequential TMLE fits a repeated outcome by one backward pass per horizon, each the
-    end-of-study fit of the panel truncated after it.  Another estimator that shares
-    :meth:`LTMLE.fit`, such as a sequentially doubly robust or an incremental-intervention
-    estimator, fits nothing until its own reduction and evidence exist, so it refuses here,
-    before any learner, rather than fitting by inheritance.
-    ``tests/unit/test_repeated_outcome_subclasses.py`` fits every subclass of
-    :class:`LTMLE` on a repeated outcome and requires either this refusal or, for a TMLE kind,
-    an estimate and influence curve at each horizon equal to the end-of-study fit of the
-    truncated panel.
+#: How the refusal names each estimator kind.
+_REPEATED_OUTCOME_NAMES: dict[str, str] = {"tmle": "LTMLE", "sdr": "SDR", "ipsi": "IPSI"}
+
+
+def repeated_outcome_refusal(name: str) -> str:
+    """The reason ``name`` refuses a repeated outcome, naming the kinds that fit one.
+
+    Parameters
+    ----------
+    name : str
+        The class or method name of the refusing estimator.
+
+    Returns
+    -------
+    str
+        ``REPEATED_OUTCOME_REFUSAL`` filled from ``REPEATED_OUTCOME_KINDS``.
+    """
+    kinds = sorted(_REPEATED_OUTCOME_NAMES.get(kind, kind) for kind in REPEATED_OUTCOME_KINDS)
+    listed = kinds[0] if len(kinds) == 1 else f"{', '.join(kinds[:-1])} and {kinds[-1]}"
+    return REPEATED_OUTCOME_REFUSAL.format(
+        name=name, kinds=listed, verb="s" if len(kinds) == 1 else ""
+    )
+
+
+def refuse_repeated_outcome(estimator: str, name: str) -> None:
+    """Refuse a repeated outcome on a longitudinal estimator that has no per-horizon reduction.
+
+    A kind in ``REPEATED_OUTCOME_KINDS`` fits a repeated outcome by one backward pass per
+    horizon, each the end-of-study fit of the panel truncated after it.  Another estimator
+    that shares :meth:`LTMLE.fit`, such as a sequentially doubly robust or an
+    incremental-intervention estimator, fits nothing until its own reduction and evidence
+    exist, so it refuses here, before any learner, rather than fitting by inheritance.
+    ``tests/unit/test_repeated_outcome_subclasses.py`` fits every concrete subclass of
+    ``_SequentialEstimator`` on a repeated outcome and requires either this refusal or,
+    for a kind in the set, an estimate and influence curve at each horizon equal to the
+    end-of-study fit of the truncated panel.
 
     Parameters
     ----------
@@ -563,11 +641,11 @@ def refuse_repeated_outcome(estimator: str, name: str) -> None:
     Raises
     ------
     CapabilityError
-        For every kind other than ``"tmle"``.
+        For every kind outside ``REPEATED_OUTCOME_KINDS``.
     """
-    if estimator == "tmle":
+    if estimator in REPEATED_OUTCOME_KINDS:
         return
-    raise CapabilityError(f"{name} does not fit a repeated outcome. {REPEATED_OUTCOME_REFUSAL}")
+    raise CapabilityError(repeated_outcome_refusal(name))
 
 
 def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> None:
@@ -2684,7 +2762,7 @@ def _run_sdr(
         n_jobs=n_jobs,
     )
     fits = {
-        _fit_key(cell.label, cell.cause, cell.horizon, data.is_survival): _with_node_ratio(
+        _fit_key(cell.label, cell.cause, cell.horizon, data.reports_curve): _with_node_ratio(
             fit, ratios[cell.label]
         )
         for cell, fit in zip(cells, fitted, strict=True)
@@ -2752,7 +2830,7 @@ def _run_ipsi(
         n_jobs=n_jobs,
     )
     fits = {
-        _fit_key(cell.label, cell.cause, cell.horizon, data.is_survival): fit
+        _fit_key(cell.label, cell.cause, cell.horizon, data.reports_curve): fit
         for cell, fit in zip(cells, fitted, strict=True)
     }
     if msm is None:
@@ -3614,7 +3692,13 @@ class _SequentialEstimator:
         estimates = reported.estimates
         _warn_parameter_statuses(estimates)
         if self._estimator in _RANGE_CAUSE and model is None:
-            _warn_parameter_space(estimates, prepared, scaler, estimator=self._estimator)
+            ranges = {
+                name: _level_range(
+                    prepared, scaler, self.q_bounds, reported.contributors[name][0].horizon
+                )
+                for name in estimates
+            }
+            _warn_parameter_space(estimates, ranges, estimator=self._estimator)
         with phase("inference"):
             bands = self._bands(estimates, prepared, status)
         result = LongitudinalResult(
