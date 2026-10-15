@@ -207,6 +207,7 @@ def fold_strata_refusal(
             "Set stratify_folds='none' "
             f"(CrossFitting(stratify_by='none')), which is the default.{tail}"
         ),
+        roadmap="X61",
     )
 
 

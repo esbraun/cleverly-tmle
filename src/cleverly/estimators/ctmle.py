@@ -493,6 +493,7 @@ _DISCRETE_TREATMENT_REFUSAL = Refusal(
     "CTMLE strategies require a discrete treatment. strategy='oat' fits its mechanism on "
     "one Qbar prediction per arm, and a continuous dose has no finite arm vector.",
     alternative="Fit TMLE on the continuous dose.",
+    roadmap="X62",
 )
 
 #: Why CTMLE refuses ``policies=``.  Checked before the continuous-dose refusal, because a
@@ -1066,6 +1067,7 @@ class CTMLE(TMLE):
                 "requires a separate fold-specific collaborative derivation.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Use cv_evaluation=False.",
+                roadmap="X61",
             )
         # The base constructor validates the fold policy. OAT has no selector folds,
         # so it must know the strategy before that validation runs.
@@ -1131,6 +1133,7 @@ class CTMLE(TMLE):
                 "that has not been derived.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Use targeting_scheme='pooled'.",
+                roadmap="X61",
             )
 
         if not is_selector_strategy(self.strategy) and self.ctmle_estimand != "ate":

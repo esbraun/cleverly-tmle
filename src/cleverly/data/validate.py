@@ -119,6 +119,7 @@ def encode_binary(values: np.ndarray, name: str) -> tuple[FloatArray, tuple[obje
             "A multi-valued intermediate variable is not supported.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Declare a binary intermediate variable.",
+            roadmap="X63",
         )
 
     unique_obj = np.unique(arr)
@@ -513,6 +514,7 @@ def check_covariates(
             "means is the route outside this package.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=NO_ALTERNATIVE,
+            roadmap="X63",
         )
 
     non_finite = ~np.isfinite(matrix)

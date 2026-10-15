@@ -628,6 +628,7 @@ _ESTIMATED_DENSITY = Refusal(
         "mechanism at each node of a longitudinal fit, put Incremental nodes in "
         "IPSI(regimens=...) from cleverly.longitudinal."
     ),
+    roadmap="X64",
 )
 
 _UNDECLARED_DENSITY = Refusal(
@@ -735,6 +736,7 @@ _ESTIMATED_INTERVENTION = Refusal(
         "estimator. Otherwise make density(data) a fixed function of the covariates and set "
         "density_kind = 'known'."
     ),
+    roadmap="X64",
 )
 
 #: The density declaration of a user-written :class:`Intervention`: the attribute

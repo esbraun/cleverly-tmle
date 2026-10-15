@@ -163,6 +163,7 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
             "probability. That is a different derivation, not a wider loop.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit TMLE on the continuous dose.",
+            roadmap="X62",
         )
     raise ValueError(f"unknown refusal {kind!r}")
 

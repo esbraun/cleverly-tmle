@@ -2803,6 +2803,7 @@ def _method_refusal(method: str, estimand: str, declared: Refusal | None) -> Ref
             RefusalReason.IMPLEMENTATION_GAP,
             f"method {method!r} cannot estimate {estimand}: the method does not declare support.",
             alternative="Choose a method that available_methods() lists as available.",
+            roadmap="X64",
         )
     return replace(
         declared, condition=f"method {method!r} cannot estimate {estimand}: {declared.condition}"
@@ -2857,6 +2858,7 @@ def _continuous_dose_refusal(actual: Any, axis: str) -> Refusal:
                 "randomizer=Randomizer(values, probabilities), policy_kind='known')]). "
                 "MSMProjection(MSM.linear(doses=[0.0, 0.5, 1.0])) is the other route."
             ),
+            roadmap="X64",
         )
     if axis == "regime":
         return Refusal(
@@ -2894,8 +2896,8 @@ def _continuous_dose_refusal(actual: Any, axis: str) -> Refusal:
     )
 
 
-def _variant_roadmap(method: str, functional: Any, design: Any) -> str | None:
-    """The roadmap item that holds a DR-TMLE or C-TMLE fit of a functional, or ``None``.
+def _variant_roadmap(method: str, functional: Any, design: Any) -> str:
+    """The roadmap item that holds a DR-TMLE or C-TMLE fit of a functional.
 
     Parameters
     ----------
@@ -2908,12 +2910,14 @@ def _variant_roadmap(method: str, functional: Any, design: Any) -> str | None:
 
     Returns
     -------
-    str or None
-        F5 for the compositions it keeps, X50 or X51 for the ones that moved there, and
-        ``None`` when no item holds the request.
+    str
+        F5 for the compositions it keeps, X50 or X51 for the ones that moved there, and X62
+        for the rest: a longitudinal functional, a continuous dose, the risk-ratio tilt, and
+        the natural course with complete outcomes.
     """
     if functional.longitudinal or getattr(design, "treatment_kind", None) == "continuous":
-        return None
+        # X62 parts (e) and (g).
+        return "X62"
     axis, target = functional.axis, functional.target
     # F5 keeps ATT, ATC, incremental and modified-policy fits under both variants.
     if axis in {"ipsi", "policy"} or (axis == "arm" and target in {"att", "atc"}):
@@ -2924,7 +2928,9 @@ def _variant_roadmap(method: str, functional: Any, design: Any) -> str | None:
     natural_course = target == NATURAL_COURSE_TARGET or target in POPULATION_INTERVENTION_TARGETS
     if natural_course and getattr(design, "missingness", None) is not None:
         return moved
-    return None
+    # X62 parts (h) and (i): the risk-ratio tilt, and the natural course with complete
+    # outcomes.
+    return "X62"
 
 
 def _point_functional(

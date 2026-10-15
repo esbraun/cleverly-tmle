@@ -95,6 +95,7 @@ def _risk_ratio_refusal(
                 "Fit the risk ratio as an estimand with TMLE(estimands=('ate', 'rr')) "
                 "on an arm-indexed fit, then call evalue(result, 'rr')."
             ),
+            roadmap="X65",
         )
     if key.reference is None or key.stratum is not None:
         return Refusal(
@@ -104,6 +105,7 @@ def _risk_ratio_refusal(
                 "Call evalue on the marginal alias of the same fit, "
                 "or fit the stratum's rows as their own study."
             ),
+            roadmap="X65",
         )
     if result.data.is_continuous_treatment:
         return _invalid("derived risk ratios are unavailable for a continuous treatment.")
@@ -116,12 +118,14 @@ def _risk_ratio_refusal(
             f"derived risk ratios are unavailable for fitted method {method!r}. "
             "Only ordinary TMLE has a same-seed equality witness.",
             alternative="Fit the risk ratio as an estimand, then call evalue(result, 'rr').",
+            roadmap="X65",
         )
     if result.config.cv_evaluation:
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             "derived risk ratios are unavailable for CV-evaluated fits.",
             alternative="Fit the risk ratio as an estimand, then call evalue(result, 'rr').",
+            roadmap="X65",
         )
     if declares_intermediate(result):
         return Refusal(
@@ -129,6 +133,7 @@ def _risk_ratio_refusal(
             "derived risk ratios are unavailable for controlled direct effects because "
             "cached-nuisance retargeting does not pass the fitted intermediate intervention level.",
             alternative=NO_ALTERNATIVE,
+            roadmap="X65",
         )
     from ..assessment import replayability
 

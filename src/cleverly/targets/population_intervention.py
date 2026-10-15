@@ -59,6 +59,7 @@ NATURAL_COURSE_SUPPORT_REFUSAL = Refusal(
         "Inspect the missingness row from diagnostics.nuisance_models() and the targeting "
         "score instead."
     ),
+    roadmap="X63",
 )
 
 

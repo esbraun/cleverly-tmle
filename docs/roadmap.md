@@ -247,6 +247,14 @@ not change the package version.
 | after beta | Bootstrap extensions | [published support](technical-reference/hard-stop-review.md); the book chapter of part (c) is not read | the shipped full-refit bootstrap; a HAL learner for part (b) | [X55](#x55-bootstrap-extensions) |
 | after beta | Competing-event intervention targets | [published support](technical-reference/hard-stop-review.md) for part (a); source audit for parts (b) and (c) | the shipped censored `LTMLE` | [X56](#x56-competing-event-intervention-targets) |
 | after beta | Joint intervention axes and tilt compositions | [natural extension](technical-reference/hard-stop-review.md) | the shipped single-axis fits and the MNAR tilt | [X57](#x57-joint-intervention-axes-and-tilt-compositions) |
+| after beta | Settings of the stacked and natural-course contracts | no new theory for parts (a) and (c); natural extension for part (b); part (d) needs a source | the shipped stacked and natural-course contracts | [X60](#x60-settings-of-the-stacked-and-natural-course-contracts) |
+| after beta | Fold targeting, fold evaluation and split design | natural extension for parts (b) and (c); pending source read for part (a); parts (d) to (f) need a source | the shipped fold-specific update and fold-evaluated report | [X61](#x61-fold-targeting-fold-evaluation-and-split-design) |
+| after beta | Other DR-TMLE and C-TMLE compositions | natural extension for parts (c), (f) and (i); parts (a), (b), (d), (e), (g) and (h) need a source | the shipped `DRTMLE` and `CTMLE`; F5 for part (h) | [X62](#x62-other-dr-tmle-and-c-tmle-compositions) |
+| after beta | Missing data, intermediates and designs | no new theory for parts (b), (d) and (g); natural extension for part (c); parts (a), (e) and (f) need a source | the shipped composite indicator and controlled direct effect | [X63](#x63-missing-data-intermediates-and-designs) |
+| after beta | Intervention and policy declarations | natural extension for parts (b) and (e); no new theory for part (f); parts (a), (c), (d) and (g) need a source | the shipped intervention declarations; X57 for part (d) | [X64](#x64-intervention-and-policy-declarations) |
+| after beta | Sensitivity analyses beyond the shipped scope | natural extension for parts (a) to (c), (e), (g) and (h); no new theory for parts (d), (f) and (i) | the shipped sensitivity analyses; X61 part (c) and X63 part (d) | [X65](#x65-sensitivity-analyses-beyond-the-shipped-scope) |
+| after beta | Simulated confounding beyond X47 and X48 | natural extension; part (d) needs a source | X47; X57 for part (c) | [X66](#x66-simulated-confounding-beyond-x47-and-x48) |
+| after beta | Refutation and assessment adapters | no new theory | the shipped `refute` catalog | [X67](#x67-refutation-and-assessment-adapters) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1489,6 +1497,144 @@ conditions. Acceptance: oracle and evidence gates for each target in both direct
 Acceptance: each composition reduces exactly to each standalone fit; nonzero controls for every
 cross-axis block; a registered study for each interval claim.
 
+### X60. Settings of the stacked and natural-course contracts
+
+Two audited contracts refuse settings that the ordinary in-sample `TMLE` accepts. The first is
+the cross-fitted arm-indexed stacked contract with missing outcomes. The second is the
+missing-outcome contract of `NaturalCourseMean`, PAR and PAF. Each refusal raises before any
+learner, in `estimators/tmle.py`.
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | `fluctuation="linear"`, one-step targeting, and `target_weights=True`, on both contracts | each setting changes the submodel only. The contract states that the submodel solves the same stacked score as the logistic one. The in-sample `TMLE` ships each setting, so no new theory is needed |
+| (b) | `att` and `atc` on the arm-indexed stacked fit | the shipped in-sample ATT and ATC curves with missing outcomes, with the composite indicator $\Delta \cdot 1\{A = a\}$, stacked in each validation fold. The steps are an indicator reduction and a fixed-dimension stack |
+| (c) | observation weights and clusters on both stacked fits | known weights in each fold's targeting equation, and a cluster as the unit with whole-cluster folds. Both are standard steps |
+| (d) | `intermediate=` beside a natural-course target | a population-intervention parameter that sets $Z = z$ and leaves $A$ natural. The refusal text states that this parameter needs its own identification. A source is needed for that identification. Until a source is read, the part is research under [Eligibility](#eligibility) |
+
+Acceptance: a nonzero witness for each changed term; a pre-fit refusal test for each request that
+stays refused; a registered study for each interval claim.
+
+### X61. Fold targeting, fold evaluation and split design
+
+The fold-specific update fits the fluctuation on the validation rows. Zheng and van der Laan
+(2010), WP 273, Theorem 1, gives that update for a fixed number of splits. The parts below compose
+it, or the fold-evaluated report, with settings that the package refuses.
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | `targeting_scheme="fold"` with `incremental=` | both the outcome and the mechanism equations re-solved inside each fold. The mechanism term of the tilt is pending a source read of Kennedy (2019), as in X53 part (d) |
+| (b) | baseline strata with `targeting_scheme="fold"` | a finite partition of the fold-specific update. Each stratum solves its own fold-specific equation, and the strata are stacked |
+| (c) | `cv_evaluation=True` with `rr` or `or` | a ratio of the fold-evaluated arm means, with its curve from the delta method. The target is the ratio of fold averages, not the fold average of ratios |
+| (d) | `CTMLE` with `cv_evaluation=True` or `targeting_scheme="fold"` | a fold-specific collaborative selection and update. No read source derives it, so a source is needed. Until a source is read, the part is research under [Eligibility](#eligibility) |
+| (e) | `DRTMLE` with `targeting_scheme="fold"` or `cv_evaluation=True` | the reduced regressions and the alternation of each fold, and a corrected curve under fold-wise evaluation. No read source derives it, as F27 records. The part is research until a source is read |
+| (f) | outer folds stratified on the treatment or the outcome (`stratify_folds`) | a result that keeps the cross-fitted remainder argument when the partition reads $A$ or $Y$. A source is needed. Until a source is read, the part is research |
+
+Acceptance: a nonzero witness for each changed term; a registered study for each interval claim.
+
+### X62. Other DR-TMLE and C-TMLE compositions
+
+F5 keeps the compositions that need a new regularity or asymptotic argument. X50 and X51 hold
+the compositions that moved. This item holds the other refused compositions of `DRTMLE` and
+`CTMLE`. `CausalStudy.available_methods()` names this item for parts (e), (g), (h) and (i).
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | `DRTMLE` combined with `CTMLE` | a reduced regression that conditions on a collaborative $\hat g$. That $\hat g$ does not estimate $g_0$, so the reduced-dimension correction loses its base. The part is research under [Eligibility](#eligibility) |
+| (b) | a partial `guard` on the randomized missing-outcome `DRTMLE` | a result for a subset of the three correction blocks. The shipped algorithm targets the treatment, observation and outcome blocks jointly. A source is needed |
+| (c) | observation weights on the randomized missing-outcome `DRTMLE` | known weights in each targeting equation, as the complete-outcome `DRTMLE` applies them. The chain rule with a known weight carries the step |
+| (d) | `evaluation=` or `reduced_crossfit="nested"` on the randomized missing-outcome `DRTMLE` | `evaluation=` as a diagnostic only, as X50 part (d). The nested construction needs the asymptotic argument that F21 lacks for the composite. It is research until a source is read |
+| (e) | a continuous dose under `DRTMLE`, its evaluation companion and its nested construction, and under `CTMLE` | reduced regressions that condition on a conditional density in place of an arm probability, and a collaborative candidate sequence of density estimators. No read source derives either. A source is needed |
+| (f) | the composite missing-data route for a method other than `TMLE`, `DRTMLE` and the per-arm `oat` design | the indicator reduction to $\Delta_A \cdot \Delta \cdot 1\{A = a\}$ for each method whose binary-treatment result ships |
+| (g) | `CTMLE` and `DRTMLE` on a longitudinal functional | a sequential collaborative score, and a sequential reduced-dimension correction. Benkeser et al. (2017), Section 1, name several time points as future work. A source is needed for each |
+| (h) | `CTMLE` and `DRTMLE` on the risk-ratio tilt | the tilt reads $g$, as the incremental target of F5 does. The part needs the argument that F5 records as missing |
+| (i) | `NaturalCourseMean`, PAR and PAF with complete outcomes under `CTMLE` or `DRTMLE` | the sample mean stacked beside the variant's arm mean, then linearity for PAR and the delta method for PAF |
+
+Acceptance: a nonzero witness for each changed term; a registered study for each interval claim.
+
+### X63. Missing data, intermediates and designs
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | a missing treatment on a continuous treatment | a policy mean reads the law of $A$ given $W$. That law is not identified when the recording reads $A$. A source with an identifying condition is needed. Until one is read, the part is research under [Eligibility](#eligibility) |
+| (b) | a declared known density for a continuous treatment | a declared conditional density in place of the fitted one in the density ratio. A known nuisance removes its term, so no new theory is needed |
+| (c) | a multi-valued intermediate variable | the controlled direct effect at each level $z$, through the indicator $1\{Z = z\}$. The step is an indicator reduction |
+| (d) | a fit with no covariates | an intercept-only nuisance design. The arm mean then reduces to the unadjusted mean. No new theory is needed |
+| (e) | the composite indicator with a controlled direct effect | a stated condition that ties $Z$ to the recording of the treatment, then the indicator reduction. The refusal text states that the condition is not written. A source is needed for it |
+| (f) | a categorical modified treatment policy with a missing treatment | the policy reads the level that each unit received. The law of that level is not identified when the recording reads $A$. A source is needed, as for part (a) |
+| (g) | a support report of the response mechanism for the natural course with missing outcomes | a diagnostic over the fitted response probabilities. It makes no estimator claim |
+
+Acceptance: a nonzero witness for each changed term; a pre-fit refusal test for each request that
+stays refused.
+
+### X64. Intervention and policy declarations
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | `Stochastic(density_kind="estimated")`, and a user `Intervention` with an estimated density | the regime curve plus the pathwise derivative through the estimated $g^*$. Kennedy (2019) gives that term for the odds tilt only, which ships as `Incremental`. A source is needed for a general $g^*$ that depends on $P$ |
+| (b) | a policy with a continuous randomizer | an integral over the declared randomizer law. The law is known, so the chain rule with a known weight carries it. The contract states the error of the numerical integral |
+| (c) | a known stochastic density on a continuous dose | a ratio of the declared density to the fitted treatment density, as the shift uses. A source read is needed before the contract |
+| (d) | an `IPSI` plan with a modified-treatment-policy node or a risk-ratio-tilt node | a density ratio at each such node inside the cross-fitted `IPSI` estimator, and the mechanism term of the tilt node. X57 holds the point-treatment joint axes. A source is needed for the plan |
+| (e) | estimated MSM projection weights, and an estimated MSM design | a stacked estimating equation for a finite-dimensional weight or design, such as arm shares or a sample centre. A learned mechanism weight adds a term that no read source gives |
+| (f) | a method whose catalog does not declare the requested target | a catalog row and its evidence for each pair of method and target. A pair moves to the item that holds its construction when one exists |
+| (g) | automatic selection of the cumulative bound for `LTMLE` | a data-adaptive bound selector. A source is needed for its inference |
+
+Acceptance: a nonzero witness for each changed term; a pre-fit refusal test for each request that
+stays refused.
+
+### X65. Sensitivity analyses beyond the shipped scope
+
+The E-value, the derived risk ratio, the omitted-variable bound and the missingness tilt each
+refuse the requests below.
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | the standardized E-value with a response mechanism | a population standard deviation of $Y$, from the shipped missing-outcome estimates of $E[Y]$ and $E[Y^2]$, and the delta method |
+| (b) | the E-value, the derived risk ratio and the omitted-variable bound of a stratum-conditional estimand | the marginal result applied inside each stratum. The step is a finite partition |
+| (c) | the ATT and ATC E-value on a binomial outcome | a risk ratio among the treated or the controls from the two means of the ATT or the ATC, and the delta method. The E-value conversion then applies |
+| (d) | the derived risk ratio off the arm axis, for a method other than `TMLE`, after fold evaluation, and for a controlled direct effect | a same-seed equality witness for each method. Fold evaluation follows X61 part (c). The cached retargeting must pass the intermediate level. No new theory is needed |
+| (e) | the omitted-variable bound after `repeats` above 1 | the bound computed on each draw, then the median, under the argument of X53 part (b) |
+| (f) | a benchmark that drops every covariate | an intercept-only short model. It depends on X63 part (d) |
+| (g) | the missingness tilt and `tipping_gamma` of the natural-course mean | the point curve $E[\Delta Y + (1 - \Delta)\bar Q_\gamma(A, W)]$. The spread columns take the `plugin_` names, as X57 part (d) |
+| (h) | the missingness tilt of a ratio, a regime mean or an MSM coefficient | the tilted arm means, then the delta method for a ratio, an indicator reduction for a regime, and the fixed projection for an MSM |
+| (i) | a dose-grid support diagnostic for a continuous MSM | the fitted treatment density at each grid dose, with the share of rows below a declared floor. It is a diagnostic |
+
+Acceptance: a nonzero witness for each changed term; a mutation control for each part that adds a
+term.
+
+### X66. Simulated confounding beyond X47 and X48
+
+The base law is the pinned DoWhy refuter, as in
+[X47](#x47-simulated-confounding-laws-for-point-treatment-fits). Each part below needs a
+declared reading of the strengths. No part makes an interval claim.
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | an MSM with a link other than identity, log or logit | the replay refits the MSM under its own link. The law does not read the link |
+| (b) | a regime class other than `Static`, `Rule` and `Stochastic` | the replay of a regime that is a known function of $W$. A user `Intervention` with `density_kind="known"` qualifies |
+| (c) | a fixed regime or MSM beside another axis | a replay of each axis of the joint fit. It depends on X57 |
+| (d) | a risk-ratio tilt fit | the tilt reads $g$, so a simulated common cause moves the policy. The contract must declare whether the replay holds the policy at the original $g$. A source is needed for that reading |
+| (e) | a replay under a method that it does not cover, for a binary, continuous or fixed-policy fit, and PAR or PAF under `DRTMLE` or `CTMLE` | a refit of the stored estimator on each perturbed draw. Each estimator needs a zero-strength reproduction witness. PAR and PAF depend on X50 part (c), X51 part (a) and X62 part (i) |
+| (f) | a binary replay of a parameter off the arm axis, and a continuous replay of a parameter off the policy axis | the replay applied to the refit of that parameter, with a declared reading for each parameter. A parameter that reads $g$ follows part (d) |
+
+Acceptance: the replay at zero strength reproduces the estimate; a nonzero witness for each part.
+
+### X67. Refutation and assessment adapters
+
+`refute` and `bootstrap_measurement_error` refuse the requests below. Each generated-outcome
+process has a known effect on its generated law, so each part needs an exact calculation and no
+new theory.
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | a longitudinal refute adapter and a longitudinal generated-outcome process | a sequential outcome process, with its effect from the sequential g-formula on the generated law |
+| (b) | a generated-outcome process for another outcome family or a non-binary treatment | a registered process for each family and for each pair of arms |
+| (c) | a generated-outcome process for a controlled direct effect, an MSM, an intervention, a ratio, or a functional other than `BackdoorMeanContrast` | a registered process for each target, with its effect computed exactly |
+| (d) | a generated-outcome process with missing outcomes | a declared observation process under missing at random, and the effect computed on the complete law |
+| (e) | `bootstrap_measurement_error` on a result that is not a point-treatment result, or on the strata variables | a perturbation of each node's covariates, and a declared reading that keeps the reported strata at their recorded values |
+
+Acceptance: each process's effect checked against an exact calculation; a pre-fit refusal test
+for each request that stays refused.
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
@@ -2144,3 +2290,5 @@ Not every absence is missing package functionality. The five reason codes in
 [How to read a refusal](technical-reference/scope-and-refusals.md#how-to-read-a-refusal)
 separate an `implementation_gap` and an `inference_gap` from an `invalid_declaration`, a
 `different_estimand`, and an `api_redirection`. Only the first two belong on this roadmap.
+Each `implementation_gap` refusal names the item that tracks it.
+`tests/unit/test_refusal_codes.py` checks each one in the source and in each module-level record.

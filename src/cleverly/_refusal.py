@@ -37,7 +37,7 @@ class RefusalReason(StrEnum):  # numpydoc ignore=PR01,PR02
         The requested option changes the causal question. The message names both questions.
     IMPLEMENTATION_GAP
         A valid method has no implementation here yet. The message names the available
-        alternatives, and the roadmap item that tracks the gap when one exists.
+        alternatives and the roadmap item that tracks the gap.
     INFERENCE_GAP
         The estimate exists, but the requested uncertainty calculation is incomplete. The
         message offers the supported inference.
@@ -75,7 +75,7 @@ class Refusal:
         code except :attr:`RefusalReason.INVALID_DECLARATION`.
     roadmap : str or None
         The id of the ``docs/roadmap.md`` item that tracks a missing capability, such as
-        ``"F21"``.
+        ``"F21"``. An :attr:`RefusalReason.IMPLEMENTATION_GAP` refusal always names one.
 
     Raises
     ------

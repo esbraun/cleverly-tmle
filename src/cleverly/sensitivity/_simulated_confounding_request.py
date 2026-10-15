@@ -319,6 +319,7 @@ def _refuse_risk_ratio_tilt(result: Any) -> Refusal | None:
         alternative=(
             "Fit the static arms (ate) or an incremental odds tilt (ipsi) for this surface."
         ),
+        roadmap="X66",
     )
 
 
@@ -361,6 +362,7 @@ def _refuse_binary_estimator(result: Any) -> Refusal | None:
             "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
             f"complete-outcome DR-TMLE; got {type(estimator).__name__}.",
             alternative="Fit the data with TMLE, CTMLE or DRTMLE and replay that fit.",
+            roadmap="X66",
         )
     return None
 
@@ -376,6 +378,7 @@ def _refuse_continuous_estimator(result: Any) -> Refusal | None:
             "continuous simulated_confounding supports exact ordinary TMLE only; "
             f"got {type(estimator).__name__}.",
             alternative="Fit the continuous treatment with TMLE and replay that fit.",
+            roadmap="X66",
         )
     return None
 
@@ -586,6 +589,7 @@ def _replay_refusal(estimator: Any, estimand: str) -> Refusal | None:
             "the identified effect's method catalog evidences no collaborative score and "
             "no reduced-dimension correction for these observed-law contrasts.",
             alternative="Fit the data with TMLE and replay that fit.",
+            roadmap="X66",
         )
     return None
 
@@ -1215,6 +1219,7 @@ def _validated_parameter(
                     "axis, such as TMLE(estimands=('ate',)) with no other counterfactual "
                     "keyword."
                 ),
+                roadmap="X66",
             ),
         )
         if key.estimand not in _BINARY_PARAMETER_TARGETS or key.axis != "arm":
@@ -1227,6 +1232,7 @@ def _validated_parameter(
                     "Call simulated_confounding(result, estimand=...) for an ATE, ATT, ATC, "
                     "arm mean, rr, or, par or paf of a fit of the same data."
                 ),
+                roadmap="X66",
             )
         _validate_binary_parameter_state(result, estimand, key, identified, functional, estimator)
     else:
@@ -1242,6 +1248,7 @@ def _validated_parameter(
                     "Call simulated_confounding on a continuous fit that declares policies= "
                     "alone, such as TMLE(policies=[Shift(delta, cap=...)])."
                 ),
+                roadmap="X66",
             ),
         )
         if key.estimand not in {"ey_policy", "ate_policy"} or key.axis != "policy":
@@ -1253,6 +1260,7 @@ def _validated_parameter(
                     "Call simulated_confounding(result, estimand='ate_policy[...]'), or an "
                     "ey_policy mean other than the natural course."
                 ),
+                roadmap="X66",
             )
         _validate_continuous_policy_state(result, estimand, key, identified, functional, estimator)
 

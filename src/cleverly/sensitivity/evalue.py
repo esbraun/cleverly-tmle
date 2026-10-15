@@ -86,6 +86,7 @@ _STANDARDISED_MISSING_REFUSAL = Refusal(
         "An E-value computed from a reported risk ratio or odds ratio reads only the "
         "estimate and its interval, so it stays available."
     ),
+    roadmap="X65",
 )
 
 #: Why every E-value branch stops on a fit that supplies no inference.  Each branch reads
@@ -485,6 +486,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
                 "Call evalue on the marginal alias of the same fit, or fit the stratum's "
                 "rows as their own study."
             ),
+            roadmap="X65",
         )
     # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
     # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
@@ -522,6 +524,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
                 "describes a different population. On a gaussian outcome the standardized "
                 "ATT or ATC E-value runs."
             ),
+            roadmap="X65",
         )
     if key.estimand not in {"ate", "or"}:
         raise _EValueRefusal(

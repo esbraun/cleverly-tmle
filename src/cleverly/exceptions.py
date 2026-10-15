@@ -338,6 +338,7 @@ def repeats_refusal(
     text: str,
     reason: RefusalReason,
     alternative: str,
+    roadmap: str | None = None,
 ) -> Refusal | None:
     """Return the refusal :func:`refuse_after_repeats` raises, or ``None``.
 
@@ -357,6 +358,8 @@ def repeats_refusal(
         The code of the refusal.
     alternative : str
         The sentence that names what the caller can do instead.
+    roadmap : str or None
+        The id of the ``docs/roadmap.md`` item that tracks the gap.
 
     Returns
     -------
@@ -368,5 +371,6 @@ def repeats_refusal(
             reason,
             f"{operation} is not defined for median-combined repeats. {text}",
             alternative=alternative,
+            roadmap=roadmap,
         )
     return None

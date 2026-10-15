@@ -544,7 +544,7 @@ These requests with `strata=` refuse before any learner:
 
 | request | reason |
 | --- | --- |
-| `targeting_scheme="fold"` | fold targeting fits the fluctuation on the validation rows. Zheng and van der Laan (2010) and Montoya et al. (2023) publish that update, and the package does not implement it with strata. No roadmap row holds this composition |
+| `targeting_scheme="fold"` | fold targeting fits the fluctuation on the validation rows. Zheng and van der Laan (2010) and Montoya et al. (2023) publish that update, and the package does not implement it with strata. [X61](../roadmap.md#x61-fold-targeting-fold-evaluation-and-split-design) part (b) holds this composition |
 | `cv_evaluation=True` | the fold-evaluated estimate needs stratum shares and a stratum-indexed fold average in each validation fold ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)) |
 | an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation has no finite root |
 | an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |

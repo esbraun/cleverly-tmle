@@ -553,6 +553,7 @@ class ModifiedPolicy:
                     "Discretize it. runif() < delta is a two-point randomizer and is "
                     "accepted: Randomizer((True, False), (delta, 1 - delta))."
                 ),
+                roadmap="X64",
             )
         if (self.pieces is None) == (self.apply is None):
             raise DataError(
@@ -2006,6 +2007,7 @@ def _discrete_components(
                 "Drop the rows with a missing treatment, which assumes the treatment is "
                 "missing completely at random, and fit TMLE(policies=)."
             ),
+            roadmap="X63",
         )
     levels = tuple(data.arm_label(code) for code in data.arm_codes)
     observed = np.asarray(data.treatment, dtype=float).astype(np.int64)

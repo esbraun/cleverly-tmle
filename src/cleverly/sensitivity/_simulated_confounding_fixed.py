@@ -53,9 +53,10 @@ def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
     if fixed_axis(target) is None:
         return None
     if type(estimator) is not TMLE:
-        # X50 holds the DR-TMLE regimes and MSMs, and X51 the C-TMLE ones.
+        # X50 holds the DR-TMLE regimes and MSMs, X51 the C-TMLE ones, and X66 part (e)
+        # the other estimators.
         roadmap = {"drtmle": "X50", "collaborative_tmle": "X51"}.get(
-            getattr(estimator, "_assessment_method", "")
+            getattr(estimator, "_assessment_method", ""), "X66"
         )
         return Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
@@ -70,6 +71,7 @@ def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
                 RefusalReason.IMPLEMENTATION_GAP,
                 "simulated_confounding supports exact MSM with identity, log, or logit link only.",
                 alternative="Fit the MSM with the identity, log, or logit link.",
+                roadmap="X66",
             )
     elif any(type(item) not in {Static, Rule, Stochastic} for item in estimator.interventions):
         return Refusal(
@@ -79,6 +81,7 @@ def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
                 "Write the regime as Static, Rule(..., rule_kind='known') or "
                 "Stochastic(..., density_kind='known')."
             ),
+            roadmap="X66",
         )
     return None
 
@@ -381,6 +384,7 @@ def validate_fixed_replay(result: Any, estimand: str, key: Any) -> Any:
                 "Fit the fixed regime or the MSM alone, with no other counterfactual "
                 "keyword, intermediate= or horizons=, and call simulated_confounding on it."
             ),
+            roadmap="X66",
         ),
     )
     study = point_study_or_refuse(result, error)

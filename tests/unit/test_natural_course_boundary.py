@@ -106,16 +106,17 @@ SUBJECT = (
         (
             {"fluctuation": "linear"},
             "No audited result covers a fluctuation other than the logistic one here. "
-            "Set fluctuation='logistic'.",
+            "X60 in docs/roadmap.md tracks this. Set fluctuation='logistic'.",
         ),
         (
             {"targeting": "one_step"},
             "No audited result covers a targeting algorithm other than the iterative one "
-            "here. Set targeting='iterative'.",
+            "here. X60 in docs/roadmap.md tracks this. Set targeting='iterative'.",
         ),
         (
             {"target_weights": True},
-            "No audited result covers the weighted fluctuation here. Set target_weights=False.",
+            "No audited result covers the weighted fluctuation here. X60 in docs/roadmap.md "
+            "tracks this. Set target_weights=False.",
         ),
         (
             {"n_bootstrap": 2},
@@ -271,8 +272,8 @@ ESTIMATORS = [
     [
         (
             {"intermediate": "Z"},
-            "intermediate= is not implemented for these targets. Fit the natural-course "
-            "target without intermediate=.",
+            "intermediate= is not implemented for these targets. X60 in docs/roadmap.md "
+            "tracks this. Fit the natural-course target without intermediate=.",
         )
     ],
     ids=("intermediate",),
@@ -336,12 +337,13 @@ def test_a_stacked_attributable_fit_meets_the_arm_indexed_strata_refusal(
     [
         (
             {"weights": "weight"},
-            "The stacked contract covers unweighted iid rows. Drop weights= from fit, or fit "
-            "in sample.",
+            "The stacked contract covers unweighted iid rows. X60 in docs/roadmap.md tracks "
+            "this. Drop weights= from fit, or fit in sample.",
         ),
         (
             {"id": "id"},
-            "The stacked contract covers unweighted iid rows. Drop id= from fit, or fit in sample.",
+            "The stacked contract covers unweighted iid rows. X60 in docs/roadmap.md tracks "
+            "this. Drop id= from fit, or fit in sample.",
         ),
     ],
     ids=("weighted", "clustered"),

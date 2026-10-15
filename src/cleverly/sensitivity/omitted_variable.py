@@ -519,6 +519,7 @@ def _refuse_repeats(result: Any) -> Refusal | None:
         text=_REPEATS_REASON,
         reason=RefusalReason.IMPLEMENTATION_GAP,
         alternative="Fit one split for this analysis.",
+        roadmap="X65",
     )
 
 
@@ -1771,6 +1772,7 @@ def benchmark_refusal(result: TMLEResult, covariates: Any = None) -> Refusal | N
             "Name a proper subset of the covariates, which exists only when the fit "
             "adjusts for two or more."
         ),
+        roadmap="X65",
     )
 
 

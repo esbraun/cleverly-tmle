@@ -74,6 +74,7 @@ CONTINUOUS_REFUSAL = Refusal(
     "treatment_probabilities= gives arm probabilities, and a continuous treatment has a "
     "conditional density, not arms. A known density is not supported.",
     alternative="Fit without treatment_probabilities=.",
+    roadmap="X63",
 )
 #: The refusal of C-TMLE on data that declares the mechanism.
 KNOWN_CTMLE_REFUSAL = Refusal(

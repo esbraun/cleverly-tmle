@@ -1211,6 +1211,7 @@ Deterministic callbacks must accept the new dose vector. Callback and outcome-su
 Custom MSM links require their own replay audit and remain refused.
 
 A continuous MSM has no implemented dose-grid support diagnostic.
+[X65](../roadmap.md#x65-sensitivity-analyses-beyond-the-shipped-scope) part (i) holds it.
 Its combined assessment records that row as unavailable and continues to the requested surface.
 Outcome diagnostics remain available; integration-grid positions never become treatment-arm calibration rows.
 `tests/unit/test_continuous_msm_assessment.py` checks these reporting boundaries.
@@ -1460,11 +1461,11 @@ of the roadmap also has a part that waits on published theory, as the
 | a clustered fit | `implementation_gap` | the caller declares a row-level, cluster-level, or mixed latent cause. See [X47](../roadmap.md#x47-simulated-confounding-laws-for-point-treatment-fits) part (b) |
 | identification other than a backdoor mean contrast with explicit adjustment | `invalid_declaration` | the surface reads registered explicit-adjustment provenance |
 | ATT or ATC under C-TMLE or DR-TMLE | `implementation_gap` | `CTMLE` and `DRTMLE` refuse these functionals when they estimate, so no such fitted result exists |
-| a custom MSM link | `implementation_gap` | only built-in identity, log, and logit links have a replay audit |
-| a custom intervention type | `implementation_gap` | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract |
+| a custom MSM link | `implementation_gap` | only built-in identity, log, and logit links have a replay audit. See [X66](../roadmap.md#x66-simulated-confounding-beyond-x47-and-x48) part (a) |
+| a custom intervention type | `implementation_gap` | only exact `Static`, `Rule`, `Stochastic`, and `Incremental` declarations have an audited baseline-input contract. See [X66](../roadmap.md#x66-simulated-confounding-beyond-x47-and-x48) part (b) |
 | a regime, incremental target, or MSM under C-TMLE or DR-TMLE | `implementation_gap` | the method catalog lacks the corresponding collaborative score or reduced-dimension correction. See [X50](../roadmap.md#x50-further-dr-tmle-compositions) and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) for regimes and MSMs, and [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) for incremental targets |
 | continuous-treatment C-TMLE and DR-TMLE | `implementation_gap` | both estimators refuse a modified-policy functional. See [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| PAR or PAF under C-TMLE or DR-TMLE | `implementation_gap` | the method catalog lacks a score or correction for these observed-law contrasts. See [X50](../roadmap.md#x50-further-dr-tmle-compositions) and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) |
+| PAR or PAF under C-TMLE or DR-TMLE | `implementation_gap` | the method catalog lacks a score or correction for these observed-law contrasts. See [X66](../roadmap.md#x66-simulated-confounding-beyond-x47-and-x48) part (e), which depends on [X50](../roadmap.md#x50-further-dr-tmle-compositions) and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) |
 | `NaturalCourseMean`, reported as `ey_obs` | `invalid_declaration` | $E[Y]$ has no counterfactual treatment term. Outcome perturbation alone cannot make it a confounding diagnostic |
 | the policy mean of a zero-delta shift | `invalid_declaration` | $d_0(a, w) = a$ on both branches, so the policy is the natural course. Its mean is $E[Y]$, and no counterfactual treatment dependence remains for a common cause to move. The `ate_policy[...]` contrast that uses this policy as its reference is still accepted |
 | an incremental mean at multiplier one | `invalid_declaration` | its mean is $E[Y]$. Contrasts with this reference remain supported |

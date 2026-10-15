@@ -532,6 +532,7 @@ def missing_treatment_refusal(
             "This fit is not one of those compositions.",
             _MEANS_REMEDY,
             code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="X62",
         )
     if data.known_treatment is not None:
         return CapabilityError.from_refusal(KNOWN_TREATMENT_DELTA_REFUSAL)
@@ -573,6 +574,7 @@ def missing_treatment_refusal(
             "stated.",
             _DROP_REMEDY,
             code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="X63",
         )
     for keyword in ("incremental", "policies"):
         if getattr(estimator, keyword, None):
@@ -660,6 +662,7 @@ def missing_treatment_design_refusal(
             "stated.",
             _DROP_REMEDY,
             code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="X63",
         )
     if axis == "learned_rule":
         return _message(

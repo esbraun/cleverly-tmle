@@ -973,6 +973,7 @@ class TMLE:
                     "Use targeting_scheme='pooled', which is the literature-backed "
                     "common-validation CV-TMLE update, or fit without incremental=."
                 ),
+                roadmap="X61",
             )
         if self.targeting == "one_step" and self.fluctuation == "linear":
             raise ValueError(
@@ -1491,6 +1492,7 @@ class TMLE:
                 "result covers a fold-local update.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Use the default pooled targeting scheme.",
+                roadmap="X61",
             )
         if data.has_strata and self.cv_evaluation:
             raise CapabilityError(
@@ -1543,6 +1545,7 @@ class TMLE:
                 alternative=(
                     "Fit the natural-course targets in a fit that declares no intermediate=."
                 ),
+                roadmap="X60",
             )
         if self.cv_evaluation:
             unsupported = [
@@ -1560,6 +1563,7 @@ class TMLE:
                         "supported. Request linear levels/contrasts or ATT/ATC for "
                         "fold-wise evaluation."
                     ),
+                    roadmap="X61",
                 )
 
         # These checks also run in `_scaler` and `_config` before any nuisance learner.
@@ -2135,18 +2139,21 @@ class TMLE:
                 "No audited result covers the linear fluctuation.",
                 "Set fluctuation='logistic' (Targeting(fluctuation='logistic')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if self.targeting != "iterative":
             refuse(
                 "No audited result covers the one-step update.",
                 "Set targeting='iterative' (Targeting(algorithm='iterative')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if self.target_weights:
             refuse(
                 "No audited result covers the weighted fluctuation.",
                 "Set target_weights=False (Targeting(target_weights=False)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if self.cv_evaluation:
             refuse(
@@ -2172,6 +2179,7 @@ class TMLE:
                 "estimand silently.",
                 f"Request estimands from {admitted}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if data.family != "binomial" and self.q_bounds is None:
             refuse(
@@ -2208,6 +2216,7 @@ class TMLE:
                 "Drop weights= from fit (PointTreatment(weights=None)), or "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if data.cluster is not None:
             refuse(
@@ -2215,6 +2224,7 @@ class TMLE:
                 "Drop id= from fit (PointTreatment(cluster=None)), or "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if data.has_strata:
             refuse(
@@ -2344,18 +2354,21 @@ class TMLE:
                 "No audited result covers a fluctuation other than the logistic one here.",
                 "Set fluctuation='logistic'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if self.targeting != "iterative":
             refuse(
                 "No audited result covers a targeting algorithm other than the iterative one here.",
                 "Set targeting='iterative'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if self.target_weights:
             refuse(
                 "No audited result covers the weighted fluctuation here.",
                 "Set target_weights=False.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if self.n_bootstrap:
             # X55 part (a) holds the in-sample bootstrap, and F2 the cross-fitted one.
@@ -2373,18 +2386,21 @@ class TMLE:
                 "The stacked contract covers unweighted iid rows.",
                 "Drop weights= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if self.cross_fit and data.cluster is not None:
             refuse(
                 "The stacked contract covers unweighted iid rows.",
                 "Drop id= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if data.has_intermediate:
             refuse(
                 "intermediate= is not implemented for these targets.",
                 "Fit the natural-course target without intermediate=.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X60",
             )
         if data.family != "binomial":
             if self.cross_fit:

@@ -469,8 +469,9 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         status=AssessmentStatus.UNAVAILABLE,
         refusal=Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
-            "no evidence-backed longitudinal perturbation/refit adapter is implemented",
+            "no evidence-backed longitudinal perturbation/refit adapter is implemented.",
             alternative=NO_ALTERNATIVE,
+            roadmap="X67",
         ),
         interpretation="behavior under longitudinal data perturbations",
     ),
@@ -625,8 +626,9 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 status=AssessmentStatus.UNAVAILABLE,
                 refusal=Refusal(
                     RefusalReason.IMPLEMENTATION_GAP,
-                    "a continuous MSM has no implemented dose-grid support diagnostic",
+                    "a continuous MSM has no implemented dose-grid support diagnostic.",
                     alternative=NO_ALTERNATIVE,
+                    roadmap="X65",
                 ),
             )
             if row.operation == "support"
@@ -1529,6 +1531,7 @@ def _tipping_natural_course_refusal(
         f"arm-specific: {natural} read the natural-course mean, which needs a "
         "natural-course sensitivity parameter that is not implemented.",
         alternative=f"Choose an explicit estimand from {list(candidates)}.",
+        roadmap="X65",
     )
 
 

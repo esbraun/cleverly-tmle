@@ -234,8 +234,8 @@ def test_r4_refuses_a_tilt_beside_a_modified_treatment_policy(panel: Any) -> Non
     assert str(raised.value) == (
         "regimen 'tilt then shift' sets node 'A2' by a modified treatment policy (Shift). "
         "IPSI estimates no density ratio for a modified treatment policy or a risk-ratio "
-        "tilt, so it has no estimator for a plan with such a node. Fit that plan without an "
-        "odds tilt by LTMLE or SDR."
+        "tilt, so it has no estimator for a plan with such a node. X64 in docs/roadmap.md "
+        "tracks this. Fit that plan without an odds tilt by LTMLE or SDR."
     )
 
 

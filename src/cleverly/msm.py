@@ -334,6 +334,7 @@ _ESTIMATED_WEIGHTS = Refusal(
         "Pass weights= as a known function of the arm and the covariates with "
         "weights_kind='known', or leave weights=None for uniform weights."
     ),
+    roadmap="X64",
 )
 
 _UNDECLARED_WEIGHTS = Refusal(
@@ -377,6 +378,7 @@ _ESTIMATED_DESIGN = Refusal(
         "Choose any centre independently of the analysis sample, then pass "
         "design_kind='known'. MSM.linear needs no declaration."
     ),
+    roadmap="X64",
 )
 
 _UNDECLARED_DESIGN = Refusal(

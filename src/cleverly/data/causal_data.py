@@ -1457,6 +1457,7 @@ def _treatment_recorded(
             "fitted on the recorded rows has no composite indicator to divide by.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative=f"Drop {delta_name}= or the rows with an unrecorded treatment.",
+            roadmap="X63",
         )
     recorded = check_delta(treatment_delta, delta_name, role="treatment")
     if recorded.shape[0] != missing.shape[0]:

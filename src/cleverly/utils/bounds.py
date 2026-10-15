@@ -156,6 +156,7 @@ def resolve_cumulative_g_bounds(spec: CumulativeGBounds) -> tuple[float, float]:
             "default is the fixed heuristic (0.01, 1.0).",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Pass a scalar lower bound or an explicit (lower, upper) pair.",
+            roadmap="X64",
         )
 
     if isinstance(spec, (int, float)) and not isinstance(spec, bool):
