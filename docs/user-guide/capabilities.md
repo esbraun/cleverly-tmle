@@ -9,6 +9,18 @@ direct effects, C-TMLE, DR-TMLE, cross-fitting, influence-curve inference, sensi
 and post-fit diagnostics in the combinations documented there. The longitudinal
 family also includes Kennedy's incremental estimator `IPSI`.
 
+| longitudinal estimator | reads | interval |
+| --- | --- | --- |
+| `LTMLE` | outcome regressions and mechanisms, with a fluctuation | the influence curve |
+| `SDR` | the same, with the sequentially doubly robust construction | the influence curve |
+| `IPSI` | the treatment mechanism | the influence curve of the incremental estimator |
+| `SequentialGComputation` | the outcome and pseudo-outcome regressions | the stacked curve when every regression is a `GLM`. Otherwise the point only |
+| `SequentialIPW` | the treatment and censoring mechanisms | the stacked curve when every mechanism is a `GLM`. Otherwise the point only |
+
+The two sequential baselines are reference estimators. They refuse `n_folds > 1` and `msm=`.
+[Sequential g-computation and IPW](../technical-reference/sequential-baselines.md#refusals) lists
+every refusal.
+
 ## Why a request can be refused
 
 An error at identification or method selection is often a scientific boundary, not merely an API
