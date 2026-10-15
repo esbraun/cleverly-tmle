@@ -1,0 +1,152 @@
+{
+  "schema_version": 2,
+  "study": "longitudinal incremental propensity-score interventions under dropout",
+  "slug": "longitudinal-incremental-dropout",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ipsi-dropout",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "340fcd6a71603360af55b51e859349c6d38202c4",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 80000,
+    "seed": 20261242,
+    "resampling_seed": 2026124201,
+    "publication_policy": "gated",
+    "scenarios": {
+      "dropout_folds_1": [
+        "ey_regimen[odds x0.5]",
+        "ey_regimen[natural course]",
+        "ey_regimen[odds x2]",
+        "ate_regimen[odds x0.5 vs natural course]",
+        "ate_regimen[odds x2 vs natural course]"
+      ],
+      "dropout_folds_5": [
+        "ey_regimen[odds x0.5]",
+        "ey_regimen[natural course]",
+        "ey_regimen[odds x2]",
+        "ate_regimen[odds x0.5 vs natural course]",
+        "ate_regimen[odds x2 vs natural course]"
+      ],
+      "survival_folds_1": [
+        "risk_regimen[odds x0.5 @ t=1]",
+        "risk_regimen[odds x0.5 @ t=2]",
+        "risk_regimen[odds x0.5 @ t=3]",
+        "risk_regimen[natural course @ t=1]",
+        "risk_regimen[natural course @ t=2]",
+        "risk_regimen[natural course @ t=3]",
+        "risk_regimen[odds x2 @ t=1]",
+        "risk_regimen[odds x2 @ t=2]",
+        "risk_regimen[odds x2 @ t=3]",
+        "ate_regimen[odds x0.5 vs natural course @ t=1]",
+        "ate_regimen[odds x0.5 vs natural course @ t=2]",
+        "ate_regimen[odds x0.5 vs natural course @ t=3]",
+        "ate_regimen[odds x2 vs natural course @ t=1]",
+        "ate_regimen[odds x2 vs natural course @ t=2]",
+        "ate_regimen[odds x2 vs natural course @ t=3]"
+      ],
+      "survival_folds_5": [
+        "risk_regimen[odds x0.5 @ t=1]",
+        "risk_regimen[odds x0.5 @ t=2]",
+        "risk_regimen[odds x0.5 @ t=3]",
+        "risk_regimen[natural course @ t=1]",
+        "risk_regimen[natural course @ t=2]",
+        "risk_regimen[natural course @ t=3]",
+        "risk_regimen[odds x2 @ t=1]",
+        "risk_regimen[odds x2 @ t=2]",
+        "risk_regimen[odds x2 @ t=3]",
+        "ate_regimen[odds x0.5 vs natural course @ t=1]",
+        "ate_regimen[odds x0.5 vs natural course @ t=2]",
+        "ate_regimen[odds x0.5 vs natural course @ t=3]",
+        "ate_regimen[odds x2 vs natural course @ t=1]",
+        "ate_regimen[odds x2 vs natural course @ t=2]",
+        "ate_regimen[odds x2 vs natural course @ t=3]"
+      ]
+    },
+    "construction": "IPSI one-step with dropout weights, training-fold recursion (Kim 2021)",
+    "n_folds": {
+      "dropout_folds_1": 1,
+      "dropout_folds_5": 5,
+      "survival_folds_1": 1,
+      "survival_folds_5": 5
+    },
+    "horizons": [
+      1,
+      2,
+      3
+    ],
+    "learners": "CellMeans at every slot",
+    "g_bounds": [
+      0.01,
+      1.0
+    ],
+    "q_bounds": [
+      -8.0,
+      17.0
+    ],
+    "deltas": {
+      "odds x0.5": 0.5,
+      "natural course": 1.0,
+      "odds x2": 2.0
+    },
+    "reference": "natural course",
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_longitudinal_incremental_dropout.py": "378e2b7253e9c9e1908a12fa5b2729f89ca384efc8a010e0a88340b7eced5222",
+    "tests/studies/longitudinal_incremental_dropout_properties.py": "7410874831346c2041d517c1216c5c9174211258d5a6347a7d3e9b7d0cc395e1",
+    "tests/studies/longitudinal_incremental_common.py": "ed586da4507db03e220361312974bb2bcd34ecdf34092879291f17cbf1e96ad6",
+    "tests/discrete_law_longitudinal_incremental.py": "a1b01eeea0343037b33a6ce948884241e718f882a309dd35216b8217717df0a5",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/longitudinal_ipsi.py": "e0178cef68da828d421c16f68b02e0cc0662e4a82c1f7105ce03501c34677a05",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "d5253e4b247c1aab2094770ddb60de4ac80e172f05f357aff5c81c2a113eb415",
+    "summary.csv": "145e3b77ccce93a143d9b2b5dab2109dc0c0dfc231780c5e6c4ef3fb6cbb73be",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "9040a4306b7df8f012b7faf68e1ad237cad79debeae252b24ce1c8d81da0d9e2",
+    "property-replicates.csv.gz": "2e58ba30b6924a76c1d1ba8079b47a98d31a60795350b6ba8733901c31c57af5",
+    "properties.csv": "d573042492b4cf54c3006146d9b9be983862a02712f451fbe4456914b2f3065d"
+  }
+}
