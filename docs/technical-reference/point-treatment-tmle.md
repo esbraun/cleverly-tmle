@@ -685,8 +685,8 @@ a value, the fit refuses:
 > reason. Pass g_bounds=(lower, upper) that contains every known probability.
 
 `truncation_curve()` evaluates only the pairs that the fit admits. An explicit bound whose
-symmetric pair moves a declared value is refused with the same sentence and the
-`invalid_declaration` code. The default grid omits each canned pair that moves a declared value.
+symmetric pair moves a declared value is refused with a sentence that quotes the
+fit's condition, and with the `invalid_declaration` code. The default grid omits each canned pair that moves a declared value.
 An admitted pair moves no declared value. Each row carries a `treatment_mechanism`
 column that reads `"known"`. `tests/unit/test_known_treatment_mechanism.py` pins the refusal and
 the default grid.

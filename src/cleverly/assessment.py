@@ -2778,8 +2778,9 @@ class DiagnosticsFacade(_CapabilityFacade):
             ``cleverly.sensitivity.positivity.truncation_refusal`` returns. A
             longitudinal result also refuses an omitted ``bounds`` grid and
             ``mechanism=True``, which are the two requests its contract above has no answer
-            to. On a declared known mechanism, either family refuses a bound pair that the
-            fit itself refuses, because that pair would truncate a declared value.
+            to. On a declared known mechanism, either family refuses an explicit bound pair
+            that the fit itself refuses, because that pair would truncate a declared value.
+            The point-treatment default grid omits such a pair.
         """
         # The row this request resolves to, not the bare row. It carries every
         # point-treatment refusal of the axis, read from the predicate the module call

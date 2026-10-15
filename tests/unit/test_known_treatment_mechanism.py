@@ -630,7 +630,17 @@ def test_a_bound_that_contains_every_known_value_reaches_the_learners() -> None:
         assert NeverFit.calls > 0
 
 
-def test_the_truncation_curve_refuses_a_bound_that_moves_a_known_value() -> None:
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda **settings: _tmle(**settings),
+        lambda **settings: _tmle(estimands=("att",), **settings),
+        lambda **settings: _tmle(repeats=2, cross_fit=True, **settings),
+        lambda **settings: _drtmle(guard=("Q",), **settings),
+    ],
+    ids=["ate", "att", "repeats", "drtmle_q_guard"],
+)
+def test_the_truncation_curve_refuses_a_bound_that_moves_a_known_value(build: Any) -> None:
     """A swept bound that moves a declared value is a bound the fit refuses.
 
     The law's mechanism lies in [0.25, 0.75], so the symmetric pair at 0.3 moves every unit
@@ -639,15 +649,16 @@ def test_the_truncation_curve_refuses_a_bound_that_moves_a_known_value() -> None
     """
     frame = law.point_frame(2)
     with pytest.raises(CapabilityError) as fitted:
-        _tmle(g_bounds=0.3).fit(frame, **ROLES, treatment_probabilities=_columns(2))
-    result = _tmle().fit(frame, **ROLES, treatment_probabilities=_columns(2)).single()
+        build(g_bounds=0.3).fit(frame, **ROLES, treatment_probabilities=_columns(2))
+    result = build().fit(frame, **ROLES, treatment_probabilities=_columns(2)).single()
     with pytest.raises(CapabilityError) as raised:
         result.diagnostics.truncation_curve([0.01, 0.3])
     assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
     message = str(raised.value)
     assert "a fit refuses this one" in message
     assert "outside the truncation bounds [0.3, 0.7]" in message
-    assert "outside the truncation bounds [0.3, 0.7]" in str(fitted.value)
+    # The curve quotes the fit's own sentence, so the two cannot disagree.
+    assert fitted.value.refusal.condition in message
     # The bound at the edge of the declaration moves nothing and is admitted.
     curve = result.diagnostics.truncation_curve([0.25])
     np.testing.assert_allclose(curve["delta_from_fitted"], 0.0, atol=1e-12)

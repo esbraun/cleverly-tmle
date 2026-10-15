@@ -57,6 +57,7 @@ from ..data.weighting import (
     top_weight_share,
     validate_score_loads,
 )
+from ..estimators._nuisance import KnownPropensity
 from ..estimators.composite import composite_state
 from ..estimators.direct_effect import targeted_rows
 from ..estimators.targeting import build_submodel
@@ -1651,7 +1652,10 @@ def truncation_curve(
     # A g(W) bound that moves a declared value is a bound the fit refuses, so the sweep
     # never evaluates one.  The default grid omits such a canned pair, and an explicit one
     # is refused.  The fitted pairs passed the fit's own check.
-    known = not mechanism and result.nuisance.treatment_mechanism == "known"
+    # The fit's own source decides: the declaration on the data, not the stored propensity,
+    # which a guarded DR-TMLE may replace with its fluctuated mechanism.
+    declared = None if mechanism else result.data.known_treatment
+    known = declared is not None
     canned = (0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2)
     if bounds is None:
         admitted = (
@@ -1668,8 +1672,8 @@ def truncation_curve(
         grid = [pair_for(lower) for lower in lowers]
         for pair in grid if known else ():
             count = _moved_known_count(result, pair)
-            if count:
-                refusal = moved_known_values_refusal(count, pair, result.nuisance.propensity.values)
+            if count and declared is not None:
+                refusal = moved_known_values_refusal(count, pair, declared.values)
                 raise CapabilityError.from_refusal(
                     replace(
                         refusal,
@@ -1759,11 +1763,15 @@ def truncation_curve(
 def _moved_known_count(result: TMLEResult, pair: tuple[float, float]) -> int:
     """How many units a ``g(W)`` bound pair moves on a declared known mechanism.
 
-    The rule is :meth:`Propensity.truncate
-    <cleverly.estimators._nuisance.Propensity.truncate>`, the one the fit's own check
-    reads.  Every draw carries the same declared values, so the first draw answers.
+    The mechanism is built from the declaration exactly as the fit's own check builds it,
+    and the rule is :meth:`Propensity.truncate
+    <cleverly.estimators._nuisance.Propensity.truncate>`, the one that check reads.
     """
-    return int(np.count_nonzero(result.nuisance.propensity.truncate(pair).units))
+    known = result.data.known_treatment
+    if known is None:  # pragma: no cover - the caller asks on a declared mechanism only
+        return 0
+    mechanism = KnownPropensity(np.asarray(known.values, dtype=float), result.data.arm_codes)
+    return int(np.count_nonzero(mechanism.truncate(pair).units))
 
 
 def _select(estimands: Any, reported_targets: dict[str, str]) -> tuple[str, ...]:

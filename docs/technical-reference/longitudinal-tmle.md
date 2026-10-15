@@ -720,8 +720,8 @@ first leaves the bounds. Products fall fast: 0.5 at each node reaches 0.01 near 
 Pass a lower bound below the smallest declared product, such as `g_bounds=(1e-8, 1.0)`.
 
 `truncation_curve()` runs the same check on each pair of its grid before any replay. A pair that
-the fit refuses is refused with the fit's sentence and the `invalid_declaration` code. A curve
-row therefore never truncates a declared product. With every factor declared, the curve over
+the fit refuses is refused with a sentence that quotes the fit's condition, and with the
+`invalid_declaration` code. A curve row therefore never truncates a declared product. With every factor declared, the curve over
 admitted pairs is flat. With the censoring estimated, an admitted pair can still truncate the
 estimated factor, and the curve reports that movement. `tests/unit/test_known_node_mechanisms.py`
 pins the refusal, the flat curve and the estimated-censoring case.
