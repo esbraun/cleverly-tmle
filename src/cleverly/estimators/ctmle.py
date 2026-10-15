@@ -313,6 +313,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -613,6 +614,13 @@ def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
 
+#: The tie tolerance of the declared-order check of ``strategy="learners"``.  A candidate
+#: whose treatment negative log likelihood exceeds the previous candidate's by at most this
+#: fraction of that loss is a tie.  A nested candidate with an uninformative extra covariate
+#: can rise by a fraction of a percent under the propensity bounds; an unordered candidate in
+#: ``tests/unit/test_ctmle_candidate_sequences.py`` rises by far more.
+_ORDER_TIE_TOLERANCE: Final[float] = 0.01
+
 #: The way out of a selection or nested split that cannot fit its nuisances.  The search
 #: draws those splits even in sample, so fitting in sample removes neither of them.
 #: ``strategy="oat"`` refuses a selector setting away from its default, and the ordinary
@@ -660,6 +668,51 @@ _MSM_REFUSAL = (
 
 #: The selection split's refusal remedy in the words the nuisance fold loop closes with.
 _SELECTION_SPLIT_BACKSTOP = _POST_DRAW_REMEDY.format(remedy=_SELECTION_SPLIT_REMEDY)
+
+
+def _unordered_candidates(treatment_risk: Sequence[float] | FloatArray) -> tuple[int, ...]:
+    """The indices whose treatment loss rises above the previous candidate's by more than a tie.
+
+    ``ctmleGeneral`` requires a declared sequence ordered from the least to the most adaptive
+    candidate, with a decreasing treatment loss.  A rise of at most 1% of the previous loss is
+    sampling noise and counts as a tie.
+
+    Parameters
+    ----------
+    treatment_risk : sequence of float
+        The treatment negative log likelihood of each candidate, in path order.
+
+    Returns
+    -------
+    tuple of int
+        Each index ``k`` whose loss exceeds the loss at ``k - 1`` by more than the tie.
+    """
+    risk = np.asarray(treatment_risk, dtype=float)
+    tolerance = _ORDER_TIE_TOLERANCE * np.abs(risk[:-1])
+    return tuple(int(k) + 1 for k in np.flatnonzero(np.diff(risk) > tolerance))
+
+
+def _warn_on_unordered_candidates(path: Sequence[_Candidate]) -> None:
+    """Warn when the declared candidates of ``strategy="learners"`` break the declared order.
+
+    The construction tries the candidates in their declared order, so a candidate that fits
+    the treatment worse than its predecessor can stop the search early.  The fit proceeds,
+    because a rise can also be a tie of sampling noise.
+    """
+    risk = [candidate.treatment_risk for candidate in path]
+    offending = _unordered_candidates(risk)
+    if not offending:
+        return
+    named = ", ".join(f"{index} ({path[index].label})" for index in offending)
+    warnings.warn(
+        "strategy='learners' needs treatment_candidates= ordered from the least to the most "
+        "adaptive, with a decreasing treatment loss. The treatment negative log likelihood "
+        f"rises by more than 1% at candidate {named}. The fit proceeds, but the search can stop "
+        "before a candidate that carries a confounder. Declare nested candidates, each one "
+        "adding covariates to the one before it.",
+        UserWarning,
+        stacklevel=2,
+    )
 
 
 @dataclass(frozen=True)
@@ -807,6 +860,20 @@ class CTMLESelection:
         sequence that breaks the order. :meth:`summary` reports it.
         """
         return bool(np.all(np.diff(self.treatment_risk) <= 0.0))
+
+    @property
+    def treatment_risk_increases(self) -> tuple[int, ...]:
+        """The candidates whose treatment loss rises above the previous candidate's.
+
+        A rise of at most 1% of the previous candidate's loss is a tie and is not listed.
+        A fit of ``strategy="learners"`` warns when this tuple is not empty.
+
+        Returns
+        -------
+        tuple of int
+            The indices into :attr:`path`, in path order.
+        """
+        return _unordered_candidates(self.treatment_risk)
 
     def summary(self) -> str:
         """A printable report of the selection.
@@ -1543,6 +1610,8 @@ class CTMLE(TMLE):
         cv_risk, selection_folds = selector.cross_validate(path)
         selected = int(np.argmin(cv_risk))
         chosen = path[selected]
+        if self.strategy == "learners":
+            _warn_on_unordered_candidates(path)
         final: int | None = None
         if self.strategy == "lasso":
             step = selector.final_step(path, selected)
