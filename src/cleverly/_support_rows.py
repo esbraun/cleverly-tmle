@@ -1008,6 +1008,69 @@ def _c_rows() -> tuple[SupportRow, ...]:
             cells=["missing_treatment"],
         ),
     ]
+    derivative = _ctmle("derivative")
+    study = "ctmle-derivative"
+    rows += [
+        point_row(
+            "C10.in_sample",
+            [study],
+            families=("P1",),
+            engine=derivative,
+            cells=["in_sample"],
+        ),
+        point_row(
+            "C10.stacked",
+            [study],
+            families=("P1",),
+            engine=derivative,
+            splitting=("stacked",),
+            cells=["cross_fitted"],
+        ),
+        point_row(
+            "C10.multi_arm",
+            [study],
+            families=("P1", "P2"),
+            engine=derivative,
+            treatment=("arms3",),
+            cells=["multi_arm"],
+        ),
+        point_row(
+            "C10.missing_outcome",
+            [study],
+            families=("P1",),
+            engine=derivative,
+            missing=("outcome",),
+            cells=["missing_outcome"],
+        ),
+        point_row(
+            "C10.clustered",
+            [study],
+            families=("P1",),
+            engine=derivative,
+            splitting=("stacked",),
+            dependence="clustered",
+            cells=["cluster_robust"],
+        ),
+    ]
+    stack = (*_ctmle("oat", "per_arm"), "parametric_stack")
+    parametric = "ctmle-oat-per-arm-parametric"
+    rows += [
+        point_row(
+            "C11.binary",
+            [parametric],
+            families=("P1", "P2"),
+            engine=stack,
+            cells=["binary_active__ate__corrected"],
+        ),
+        point_row(
+            "C11.bounded",
+            [parametric],
+            families=("P1",),
+            engine=stack,
+            outcome=BOUNDED,
+            cells=["bounded_outcome__ate__corrected"],
+        ),
+    ]
     rows += [
         point_row(
             f"C09.{strategy}",
@@ -1059,6 +1122,9 @@ def long_row(
     qualifiers: Iterable[str] = (),
     engine: str = "tmle",
     normalization: str | None = None,
+    survival_model: str = "iterated_mean",
+    targeting: str = "iterative",
+    isotonic: bool = False,
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
@@ -1090,6 +1156,12 @@ def long_row(
         ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``.
     normalization : str or None, default None
         The inverse-probability normalization of an ``ipw`` row.
+    survival_model : {"iterated_mean", "hazard"}, default "iterated_mean"
+        How a survival curve is targeted.
+    targeting : str, default "iterative"
+        The hazard targeting algorithm of a ``hazard`` row.
+    isotonic : bool, default False
+        Whether the row projects the curve onto a monotone one.
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
@@ -1123,6 +1195,9 @@ def long_row(
             ("multiplier_kind", "rademacher"),
             ("normalization", normalization),
             ("ratio", "density"),
+            ("survival_model", survival_model),
+            ("targeting", targeting),
+            ("isotonic", isotonic),
         ),
     )
     return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), None, tuple(limits))
@@ -1388,6 +1463,158 @@ def _long_rows() -> tuple[SupportRow, ...]:
             cells=["mtp_t5"],
         ),
     ]
+    # Per-horizon and one-step hazard targeting of a held baseline treatment.
+    hazard = "point-survival-hazard"
+    curve = "point-survival-curve"
+    curve_xf = "point-survival-curve-crossfit"
+    held5 = ("2",) * 5
+    held4 = ("2",) * 4
+    rows += [
+        long_row(
+            "G30.survival",
+            [hazard, curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            survival_model="hazard",
+            kinds=_LONG_BAND,
+            cells=["survival_t5", "survival_t5_per_horizon"],
+        ),
+        long_row(
+            "G30.competing",
+            [hazard],
+            outcome_kind="competing",
+            held=True,
+            treatment=held4,
+            survival_model="hazard",
+            kinds=_LONG_BAND,
+            cells=["competing_t4"],
+        ),
+        long_row(
+            "G31.survival",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["survival_t5"],
+        ),
+        long_row(
+            "G31.competing",
+            [curve],
+            outcome_kind="competing",
+            held=True,
+            treatment=held4,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["competing_t4"],
+        ),
+        long_row(
+            "G31.three_arm",
+            [curve],
+            outcome_kind="survival",
+            regimens=("static", "stochastic"),
+            held=True,
+            treatment=("3",) * 3,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["rule_t3", "policy_t3"],
+        ),
+        long_row(
+            "G31.weighted",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            weighting="fixed",
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["weighted_t5"],
+        ),
+        long_row(
+            "G31.weighted_per_horizon",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            weighting="fixed",
+            survival_model="hazard",
+            kinds=_LONG_BAND,
+            cells=["weighted_t5_per_horizon"],
+        ),
+        long_row(
+            "G31.clustered",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            dependence="t",
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_T,
+            cells=["clustered_t5"],
+        ),
+        long_row(
+            "G31.clustered_per_horizon",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            dependence="t",
+            survival_model="hazard",
+            kinds=_LONG_T,
+            cells=["clustered_t5_per_horizon"],
+        ),
+        long_row(
+            "G31.isotonic",
+            [curve],
+            outcome_kind="survival",
+            treatment=("2", "2"),
+            isotonic=True,
+            kinds=_LONG_BAND,
+            cells=["isotonic_t2"],
+        ),
+        long_row(
+            "G32.survival",
+            [curve_xf],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            splitting=xf,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["survival_t5"],
+        ),
+        long_row(
+            "G32.survival_per_horizon",
+            [curve_xf],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            splitting=xf,
+            survival_model="hazard",
+            kinds=_LONG_BAND,
+            cells=["survival_t5_per_horizon"],
+        ),
+        long_row(
+            "G32.competing",
+            [curve_xf],
+            outcome_kind="competing",
+            held=True,
+            treatment=held4,
+            splitting=xf,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["competing_t4"],
+        ),
+    ]
     rows += [
         long_row(
             "G19",
@@ -1548,6 +1775,9 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
         ("multiplier_kind", "rademacher"),
         ("normalization", normalization),
         ("ratio", "density"),
+        ("survival_model", "iterated_mean"),
+        ("targeting", "iterative"),
+        ("isotonic", False),
     )
 
 

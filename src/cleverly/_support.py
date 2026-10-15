@@ -220,8 +220,9 @@ class SupportKey:
         ``strata`` and ``known_mechanism``. A longitudinal key holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        longitudinal key holds ``multiplier_kind``, the inverse-probability ``normalization`` and
-        the policy density ``ratio``.
+        longitudinal key holds ``multiplier_kind``, the inverse-probability ``normalization``,
+        the policy density ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm
+        and the ``isotonic`` projection.
     """
 
     kind: str
@@ -425,6 +426,12 @@ def point_key(
     engine: tuple[str, ...] = (method,)
     if method == "collaborative_tmle":
         engine += (str(estimator.strategy), str(estimator.oat_design))
+        from .estimators.ctmle import per_arm_parametric_support
+
+        if per_arm_parametric_support(estimator, data).admitted:
+            # The stacked curve of X58 is another estimator of the interval, so it is its own
+            # engine: a row for it never matches a per-arm fit that keeps the shipped curve.
+            engine += ("parametric_stack",)
 
     if estimator.cross_fit:
         folded = estimator.targeting_scheme != "pooled"
@@ -585,6 +592,9 @@ def longitudinal_key(
             ("multiplier_kind", _option(estimator.multiplier_kind)),
             ("normalization", _option(estimator._normalization())),
             ("ratio", _option(getattr(estimator, "ratio", "density"))),
+            ("survival_model", _option(estimator.survival_model)),
+            ("targeting", _option(estimator.targeting)),
+            ("isotonic", _option(estimator.isotonic)),
         ),
     )
     learners = {
@@ -819,7 +829,6 @@ def record_refusal_site(
     roadmap: str | None,
     *,
     flagged: bool = False,
-    availability: bool = False,
 ) -> None:
     """Record that a group-A or flagged refusal site was reached. A no-op with the switch off.
 
@@ -835,9 +844,6 @@ def record_refusal_site(
         The roadmap id the refusal names.
     flagged : bool, default False
         Whether the plan holds the site as a refusal until the owner decides.
-    availability : bool, default False
-        Whether the site builds a capability row and no fit reaches it. The record then has
-        the kind ``"availability_site"``, which the measurement excludes from its fit counts.
     """
     directory = recording_directory()
     if directory is None:
@@ -845,7 +851,7 @@ def record_refusal_site(
     _append(
         directory,
         {
-            "record": "availability_site" if availability else "refusal_site",
+            "record": "refusal_site",
             "site": site,
             "code": str(refusal_code),
             "roadmap": roadmap,

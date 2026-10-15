@@ -518,35 +518,10 @@ def read_records(directory: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in lines]
 
 
-class TestAvailabilityRecord:
-    def test_a_capability_row_records_under_its_own_kind(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
-        """The C-TMLE clustering row is built by a capability query, and no fit reaches it."""
-        from cleverly import ATE, CausalStudy, PointTreatment
-
-        data = make_clustered(n=200, seed=2)[0]
-        study = CausalStudy(
-            data,
-            design=PointTreatment(
-                outcome="Y", treatment="A", adjustment=("W1", "W2"), cluster="cluster"
-            ),
-        )
-        monkeypatch.setenv(RECORD_ENVIRONMENT_VARIABLE, str(tmp_path))
-        study.identify(ATE()).available_methods()
-        records = read_records(tmp_path)
-        assert records
-        assert {record["record"] for record in records} == {"availability_site"}
-        assert {record["site"] for record in records} == {"study.ctmle_clustered"}
-        assert all(record["flagged"] for record in records)
-
-    def test_a_fit_site_keeps_the_refusal_kind(
+class TestRefusalSiteRecord:
+    def test_a_fit_site_records_the_refusal_kind(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         monkeypatch.setenv(RECORD_ENVIRONMENT_VARIABLE, str(tmp_path))
         _support.record_refusal_site("x", RefusalReason.IMPLEMENTATION_GAP, "X1")
-        _support.record_refusal_site("y", RefusalReason.IMPLEMENTATION_GAP, "X1", availability=True)
-        assert [r["record"] for r in read_records(tmp_path)] == [
-            "refusal_site",
-            "availability_site",
-        ]
+        assert [r["record"] for r in read_records(tmp_path)] == ["refusal_site"]

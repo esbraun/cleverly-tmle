@@ -1293,6 +1293,46 @@ def _c_cases() -> tuple[RowCase, ...]:
             ("ey0", "ey1", "ate", "rr", "or"),
         )
     )
+    derivative = "canonical_ctmle_derivative"
+
+    def derived(**options: Any) -> Callable[[], Any]:
+        return lambda: _study(derivative).estimator(lambdas=None, **options)
+
+    where = _ST + "canonical_ctmle_derivative.py:253"
+    for row, cell, options, data, names in (
+        ("C10.in_sample", "in_sample", {}, {}, ATE),
+        ("C10.stacked", "cross_fitted", {"cross_fit": True}, {}, ("ate",)),
+        ("C10.multi_arm", "multi_arm", {"three_arm": True}, {"arms": 3}, ("ate",)),
+        ("C10.missing_outcome", "missing_outcome", {}, {"delta": True}, ("ate",)),
+        (
+            "C10.clustered",
+            "cluster_robust",
+            {"cross_fit": True},
+            {"n": 2000, "clusters": 50},
+            ("ate",),
+        ),
+    ):
+        add(_case(row, "ctmle-derivative", cell, where, derived(**options), data, names))
+    parametric = "canonical_ctmle_oat_per_arm_parametric"
+    where = _ST + "canonical_ctmle_oat_per_arm_parametric.py:681"
+    for row, cell, data in (
+        ("C11.binary", "binary_active__ate__corrected", {}),
+        ("C11.bounded", "bounded_outcome__ate__corrected", {"y": "bounded"}),
+    ):
+        options = {} if not data else {"q_bounds": (0.0, 1.0)}
+        add(
+            _case(
+                row,
+                "ctmle-oat-per-arm-parametric",
+                cell,
+                where,
+                lambda options=options: _study(parametric).estimator(
+                    _study(parametric).Fit("main", **options)
+                ),
+                data,
+                ("ate",),
+            )
+        )
     return tuple(cases)
 
 
@@ -1552,6 +1592,42 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, frame, label=label: study.fit_label(label, frame),
         )
 
+    # Hazard targeting of a held baseline treatment.
+    hazard_module = "canonical_point_survival_hazard"
+    for row, scenario in (("G30.survival", "survival"), ("G30.competing", "competing")):
+        observed(
+            row,
+            "point-survival-hazard",
+            scenario,
+            f"{hazard_module}.py:230",
+            lambda study, scenario=scenario: study.draw_from_seed(scenario, 400, 0)[0],
+            lambda study, frame, scenario=scenario: study.fit(scenario, frame),
+        )
+    curve_properties = "point_survival_curve_properties.py:262"
+    for row, slug, label, folds in (
+        ("G30.survival", "point-survival-curve", "survival_t5_per_horizon", 1),
+        ("G31.survival", "point-survival-curve", "survival_t5", 1),
+        ("G31.competing", "point-survival-curve", "competing_t4", 1),
+        ("G31.three_arm", "point-survival-curve", "rule_t3", 1),
+        ("G31.weighted", "point-survival-curve", "weighted_t5", 1),
+        ("G31.weighted_per_horizon", "point-survival-curve", "weighted_t5_per_horizon", 1),
+        ("G31.clustered", "point-survival-curve", "clustered_t5", 1),
+        ("G31.clustered_per_horizon", "point-survival-curve", "clustered_t5_per_horizon", 1),
+        ("G31.isotonic", "point-survival-curve", "isotonic_t2", 1),
+        ("G32.survival", "point-survival-curve-crossfit", "survival_t5", 5),
+        ("G32.survival_per_horizon", "point-survival-curve-crossfit", "survival_t5_per_horizon", 5),
+        ("G32.competing", "point-survival-curve-crossfit", "competing_t4", 5),
+    ):
+        observed(
+            row,
+            slug,
+            label,
+            curve_properties,
+            lambda study, label=label: study.draw(label, 2000, 0),
+            lambda study, frame, label=label, folds=folds: study.fit_label(
+                label, frame, n_folds=folds
+            ),
+        )
     seeded(
         "G19",
         "longitudinal-msm",

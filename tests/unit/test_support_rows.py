@@ -108,10 +108,16 @@ class TestRegistry:
             assert row.kinds <= KINDS, row.id
             assert row.evidence and row.cells, row.id
 
-    def test_c_tmle_rows_license_the_point_only(self) -> None:
+    def test_c_tmle_rows_license_the_point_only_unless_the_interval_is_supplied(self) -> None:
+        # C-TMLE0 (derivative) and the stacked per-arm curve supply an interval. Every other
+        # collaborative path withholds it.
+        supplied = ("derivative", "parametric_stack")
         for row in ALL_ROWS:
             if row.key.engine[0] == "collaborative_tmle":
-                assert row.kinds == {"point"}, row.id
+                if any(part in row.key.engine for part in supplied):
+                    assert "wald" in row.kinds, row.id
+                else:
+                    assert row.kinds == {"point"}, row.id
 
     def test_every_evidence_slug_is_a_registered_study(self) -> None:
         slugs = {record.slug for record in registered()}
@@ -284,6 +290,56 @@ class TestLongitudinalControls:
         ht = self.observed("G28.d2.ipw.horvitz_thompson")
         assert hajek.key != ht.key
         assert classify_key(ht.key, ht.learners).row.id == "G28.d2.ipw.horvitz_thompson"  # type: ignore[union-attr]
+
+    @staticmethod
+    def without_option(key: Any, name: str) -> Any:
+        return replace(key, options=tuple(item for item in key.options if item[0] != name))
+
+    def test_a_hazard_fit_never_matches_an_iterated_mean_row(self) -> None:
+        hazard = self.observed("G30.survival", "point-survival-hazard")
+        assert dict(hazard.key.options)["survival_model"] == "hazard"
+        assert classify_key(hazard.key, hazard.learners).row.id == "G30.survival"  # type: ignore[union-attr]
+        # The same design read as an iterated-mean fit is the registered G14 shape.
+        mean = replace(
+            hazard.key,
+            options=tuple(
+                (name, "iterated_mean" if name == "survival_model" else value)
+                for name, value in hazard.key.options
+            ),
+        )
+        assert classify_key(mean, hazard.learners).row.id == "G14.survival"  # type: ignore[union-attr]
+
+    def test_a_hazard_fit_with_no_row_is_experimental(self) -> None:
+        # A hazard fit with estimated weights has no registered row, and the iterated-mean row
+        # of the same design must not absorb it.
+        hazard = self.observed("G30.survival", "point-survival-hazard")
+        result = classify_key(replace(hazard.key, weighting="estimated"), hazard.learners)
+        assert result.row is None
+        mean = self.observed("G14.survival")
+        moved = replace(
+            mean.key,
+            options=tuple(
+                (name, "hazard" if name == "survival_model" else value)
+                for name, value in mean.key.options
+            ),
+            weighting="estimated",
+        )
+        assert classify_key(moved, mean.learners).row is None
+
+    def test_control_without_the_survival_model_option_the_hazard_row_collides(self) -> None:
+        # Mutation control: the registered rows with the option removed from every key put
+        # a hazard fit on two rows, which the classifier refuses.
+        rows = [
+            replace(row, key=self.without_option(row.key, "survival_model"))
+            if row.key.kind == "longitudinal"
+            else row
+            for row in ALL_ROWS
+        ]
+        hazard = self.observed("G30.survival", "point-survival-hazard")
+        with pytest.raises(RuntimeError):
+            classify_key(
+                self.without_option(hazard.key, "survival_model"), hazard.learners, rows=rows
+            )
 
     def test_a_held_design_is_not_covered_by_a_free_one(self) -> None:
         held = self.observed("G14.end_of_study")

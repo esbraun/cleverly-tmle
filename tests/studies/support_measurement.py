@@ -16,7 +16,6 @@ withheld to shown       per status, the fits whose interval moves to shown under
                         under the alternative of Q1
 bootstrap and band      per row of plan section 3.4, the fits that keep or change their label
 group-A reach           the calls that reach each refusal site, flagged sites apart
-availability records    the capability-row records, which no fit count includes
 studies                 the runner keys of each study that classify experimental or match no case
 ======================= ===========================================================================
 
@@ -57,10 +56,9 @@ DIAGNOSTIC_BOOTSTRAP_ENGINE = "collaborative_tmle"
 
 ROOT = Path(__file__).resolve().parents[2]
 
-#: The record kinds a fit count reads and the ones it excludes.
+#: The record kinds a fit count reads.
 FIT_RECORD = "classification"
 OUTCOME_RECORD = "fit_outcome"
-EXCLUDED_RECORDS = ("availability_site",)
 
 
 def _category(group: str) -> str:
@@ -210,8 +208,6 @@ class Measurement:
         Per bootstrap and band row: the calls and the distinct keys.
     reach : list of dict
         Per refusal site: the calls by category.
-    availability : dict of str to int
-        The excluded capability-row records by site.
     studies : list of dict
         The runner keys that classify experimental or match no case.
     silent_studies : list of str
@@ -226,7 +222,6 @@ class Measurement:
     status: dict[str, dict[str, int]] = field(default_factory=dict)
     flips: dict[str, dict[str, int]] = field(default_factory=dict)
     reach: list[dict[str, Any]] = field(default_factory=list)
-    availability: dict[str, int] = field(default_factory=dict)
     studies: list[dict[str, Any]] = field(default_factory=list)
     silent_studies: list[str] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
@@ -289,16 +284,12 @@ def measure(
     flip_calls: Counter[str] = Counter()
     flip_keys: dict[str, set[tuple[str, str]]] = defaultdict(set)
     sites: dict[tuple[str, bool], dict[str, Any]] = {}
-    availability: Counter[str] = Counter()
     study_seen: set[str] = set()
 
     for record in records:
         kind = str(record.get("record"))
         group = str(record.get("group", "."))
         totals[kind] += 1
-        if kind in EXCLUDED_RECORDS:
-            availability[str(record.get("site"))] += 1
-            continue
         if kind == "classification_error":
             result.errors.append(
                 {"group": group, "source": record.get("source"), "error": record.get("error")}
@@ -436,7 +427,6 @@ def measure(
         ),
         key=lambda entry: (not entry["flagged"], entry["site"]),
     )
-    result.availability = dict(sorted(availability.items()))
 
     # studies: runner keys that classify experimental or match no case
     for (group, text, label), fit in sorted(fits.items()):
@@ -565,10 +555,6 @@ def render(result: Measurement) -> str:
             for entry in result.reach
         ),
     )
-    out += [""]
-
-    out += ["## Availability records (excluded from every fit count)", ""]
-    out += _table(["site", "records"], result.availability.items())
     out += [""]
 
     out += ["## Studies", ""]

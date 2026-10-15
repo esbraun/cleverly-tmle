@@ -124,13 +124,6 @@ def root(tmp_path: Path) -> Path:
                 "flagged": False,
             },
             {
-                "record": "availability_site",
-                "site": "study.ctmle_clustered",
-                "code": "X",
-                "roadmap": "F3",
-                "flagged": True,
-            },
-            {
                 "record": "classification_error",
                 "source": "TMLE._fit_single",
                 "error": "KeyError('x')",
@@ -213,14 +206,7 @@ class TestFitsByLabel:
         assert entry["calls"] == {"fast": 1, "studies": 1}
 
 
-class TestAvailability:
-    def test_an_availability_record_is_listed_and_in_no_fit_count(self, root: Path) -> None:
-        result = measured(root)
-        assert result.availability == {"study.ctmle_clustered": 1}
-        assert result.totals["availability_site"] == 1
-        assert all(site["site"] != "study.ctmle_clustered" for site in result.reach)
-        assert result.totals["fits"] == 7
-
+class TestErrors:
     def test_a_classifier_error_is_reported(self, root: Path) -> None:
         errors = measured(root).errors
         assert [e["error"] for e in errors] == ["KeyError('x')"]
@@ -348,7 +334,6 @@ class TestCommandLine:
             "## Withheld to shown",
             "## Bootstrap and band flips",
             "## Group-A and flagged reach",
-            "## Availability records",
             "## Studies",
         ):
             assert heading in text
