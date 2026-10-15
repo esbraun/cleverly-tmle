@@ -5,10 +5,10 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-ipsi-dropout",
-      "cleverly_version": "0.1.2",
-      "cleverly_commit": "340fcd6a71603360af55b51e859349c6d38202c4",
+      "cleverly_version": "0.1.3",
+      "cleverly_commit": "32fc23012e0ef4b779a6efe616346ac0982e4e9a",
       "cleverly_worktree_clean": false,
-      "python": "3.13.7",
+      "python": "3.13.16",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
       "pandas": "3.0.6",
@@ -21,7 +21,7 @@
     "n": 80000,
     "seed": 20261242,
     "resampling_seed": 2026124201,
-    "publication_policy": "gated",
+    "publication_policy": "reporting",
     "scenarios": {
       "dropout_folds_1": [
         "ey_regimen[odds x0.5]",
@@ -126,7 +126,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_longitudinal_incremental_dropout.py": "378e2b7253e9c9e1908a12fa5b2729f89ca384efc8a010e0a88340b7eced5222",
+    "tests/studies/canonical_longitudinal_incremental_dropout.py": "856fb2b25c785ad52c655ee7442b23f075ab3e8bdd0e9b9b022a8d9a9493b4c9",
     "tests/studies/longitudinal_incremental_dropout_properties.py": "7410874831346c2041d517c1216c5c9174211258d5a6347a7d3e9b7d0cc395e1",
     "tests/studies/longitudinal_incremental_common.py": "ed586da4507db03e220361312974bb2bcd34ecdf34092879291f17cbf1e96ad6",
     "tests/discrete_law_longitudinal_incremental.py": "a1b01eeea0343037b33a6ce948884241e718f882a309dd35216b8217717df0a5",
@@ -145,7 +145,7 @@
     "replicates.csv.gz": "d5253e4b247c1aab2094770ddb60de4ac80e172f05f357aff5c81c2a113eb415",
     "summary.csv": "145e3b77ccce93a143d9b2b5dab2109dc0c0dfc231780c5e6c4ef3fb6cbb73be",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "9040a4306b7df8f012b7faf68e1ad237cad79debeae252b24ce1c8d81da0d9e2",
+    "performance-tests.csv": "15bd20cc1e981cc6547ef5b3158f8889f5dfbbfcc801dd6b4b4de6f12d89c4d0",
     "property-replicates.csv.gz": "2e58ba30b6924a76c1d1ba8079b47a98d31a60795350b6ba8733901c31c57af5",
     "properties.csv": "d573042492b4cf54c3006146d9b9be983862a02712f451fbe4456914b2f3065d"
   }
