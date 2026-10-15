@@ -2,7 +2,8 @@
 
 Each declaration refusal raises in ``LongitudinalData.from_frame``, before any learner.
 Each result refusal names what a repeated fit reports instead: a mean at each horizon,
-not a cumulative risk.
+not a cumulative risk.  WR runs the result refusals on every estimator kind that fits a
+repeated outcome.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.exceptions import DataError
-from cleverly.longitudinal import LTMLE, LongitudinalData, Repeated
+from cleverly.longitudinal import LTMLE, SDR, LongitudinalData, Repeated
 
 from .test_repeated_outcome import panel
 
@@ -30,7 +31,10 @@ ROLES: dict[str, Any] = {
 OUTCOME = Repeated(["Y1", "Y2", "Y3"])
 
 
-def _estimator(**overrides: Any) -> LTMLE:
+KINDS = (LTMLE, SDR)
+
+
+def _estimator(kind: type[Any] = LTMLE, **overrides: Any) -> Any:
     settings: dict[str, Any] = {
         "reference": "never",
         "outcome_learner": LogisticRegression(),
@@ -41,23 +45,23 @@ def _estimator(**overrides: Any) -> LTMLE:
         "simultaneous": False,
     }
     settings.update(overrides)
-    return LTMLE({"never": 0, "always": 1}, **settings)
+    return kind({"never": 0, "always": 1}, **settings)
 
 
-@pytest.fixture(scope="module")
-def result() -> Any:
+@pytest.fixture(scope="module", params=KINDS, ids=[kind.__name__ for kind in KINDS])
+def result(request: pytest.FixtureRequest) -> Any:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return _estimator().fit(panel(), outcome=OUTCOME, **ROLES)
+        return _estimator(request.param).fit(panel(), outcome=OUTCOME, **ROLES)
 
 
-@pytest.fixture(scope="module")
-def continuous_result() -> Any:
+@pytest.fixture(scope="module", params=KINDS, ids=[kind.__name__ for kind in KINDS])
+def continuous_result(request: pytest.FixtureRequest) -> Any:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return _estimator(outcome_learner=LinearRegression(), q_bounds=(-1.0, 6.0)).fit(
-            panel(continuous=True), outcome=OUTCOME, **ROLES
-        )
+        return _estimator(
+            request.param, outcome_learner=LinearRegression(), q_bounds=(-1.0, 6.0)
+        ).fit(panel(continuous=True), outcome=OUTCOME, **ROLES)
 
 
 # ---------------------------------------------------------------- the declaration
@@ -116,9 +120,10 @@ def test_a_missing_earlier_value_is_refused_too() -> None:
         LongitudinalData.from_frame(frame, outcome=OUTCOME, **ROLES)
 
 
-def test_horizons_on_an_end_of_study_fit_names_both_curve_declarations() -> None:
+@pytest.mark.parametrize("kind", KINDS, ids=lambda kind: kind.__name__)
+def test_horizons_on_an_end_of_study_fit_names_both_curve_declarations(kind: type[Any]) -> None:
     with pytest.raises(ValueError, match=re.escape("outcome=Repeated([...])")):
-        _estimator(horizons=[1]).fit(panel(), outcome="Y3", **ROLES)
+        _estimator(kind, horizons=[1]).fit(panel(), outcome="Y3", **ROLES)
 
 
 # ---------------------------------------------------------------- the result

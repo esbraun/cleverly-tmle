@@ -592,7 +592,7 @@ def _fit_key(label: str, cause: str | None, horizon: int, curve: bool) -> str:
 
 #: The estimator kinds that fit a repeated outcome.  A kind belongs here once each horizon of
 #: its fit is the end-of-study fit of the panel truncated after it, and its evidence exists.
-REPEATED_OUTCOME_KINDS: frozenset[str] = frozenset({"tmle"})
+REPEATED_OUTCOME_KINDS: frozenset[str] = frozenset({"tmle", "sdr"})
 
 #: How the refusal names each estimator kind.
 _REPEATED_OUTCOME_NAMES: dict[str, str] = {"tmle": "LTMLE", "sdr": "SDR", "ipsi": "IPSI"}
@@ -622,10 +622,9 @@ def refuse_repeated_outcome(estimator: str, name: str) -> None:
     """Refuse a repeated outcome on a longitudinal estimator that has no per-horizon reduction.
 
     A kind in ``REPEATED_OUTCOME_KINDS`` fits a repeated outcome by one backward pass per
-    horizon, each the end-of-study fit of the panel truncated after it.  Another estimator
-    that shares :meth:`LTMLE.fit`, such as a sequentially doubly robust or an
-    incremental-intervention estimator, fits nothing until its own reduction and evidence
-    exist, so it refuses here, before any learner, rather than fitting by inheritance.
+    horizon, each the end-of-study fit of the panel truncated after it.  A kind outside the
+    set, such as :class:`IPSI`, fits nothing until its own reduction and evidence exist, so
+    it refuses here, before any learner, rather than fitting by inheritance.
     ``tests/unit/test_repeated_outcome_subclasses.py`` fits every concrete subclass of
     ``_SequentialEstimator`` on a repeated outcome and requires either this refusal or,
     for a kind in the set, an estimate and influence curve at each horizon equal to the
@@ -4330,6 +4329,14 @@ class SDR(_SequentialEstimator):
     conditions of the paper's Theorem 4.  See
     :mod:`cleverly.longitudinal.sdr` for the recursion.
 
+    **A repeated outcome.**  With ``outcome=Repeated([...])`` the fit reports one mean per
+    plan and horizon.  Each horizon is the end-of-study fit of the panel truncated after it,
+    with :math:`Y_h` as the outcome and each earlier :math:`Y_s` as a covariate.  Equation
+    (4), Lemmas 3 and 4 and Theorem 4 of the paper apply to each horizon on its prefix.  So
+    the estimate of horizon :math:`h` is consistent when, at each node :math:`t \le h`, the
+    ratio or the sequential regression is consistent.  The band of ``simultaneous=True``
+    covers every plan and horizon jointly, from the stacked influence curves.
+
     A transform can leave ``[0, 1]``, so the default pseudo learner is a regression
     :class:`~cleverly.learners.SuperLearner` with no clip, as ``lmtp`` fits it.  A pseudo
     learner that clips is accepted, and it moves the estimate away from ``lmtp_sdr``.  A
@@ -4343,7 +4350,9 @@ class SDR(_SequentialEstimator):
     reference : str or None
         The regimen every contrast is taken against, as for :class:`LTMLE`.
     horizons : sequence of int or None
-        The survival horizons, as for :class:`LTMLE`.
+        The horizons of a survival or repeated outcome, as for :class:`LTMLE`.  ``None``
+        reports every node.  A repeated outcome reports one mean per plan and horizon, each
+        from the truncated end-of-study fit.  Refused on a fit with one end-of-study outcome.
     msm : MSM or None
         A working model over the regimen and horizon cells.  Each cell's first-node
         transform is projected onto it.  The identity link is supported.  A logit or log
