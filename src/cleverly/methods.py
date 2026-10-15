@@ -948,7 +948,7 @@ class CollaborativeTMLEMethod(TMLEMethod):
                 "collaborative TMLE has no longitudinal derivation.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Fit a longitudinal design with method='tmle' (LTMLE) or 'sdr'.",
-                roadmap="X62",
+                roadmap="F5",
             )
         return {
             **super().estimator_kwargs(),
@@ -1059,7 +1059,7 @@ class DRTMLEMethod(TMLEMethod):
                 alternative=(
                     "Fit a longitudinal design with method='sdr' (sequentially doubly robust)."
                 ),
-                roadmap="X62",
+                roadmap="F5",
             )
         return {
             **super().estimator_kwargs(),

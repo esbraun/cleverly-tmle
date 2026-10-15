@@ -53,7 +53,7 @@ def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
     if fixed_axis(target) is None:
         return None
     if type(estimator) is not TMLE:
-        # X50 holds the DR-TMLE regimes and MSMs, X51 the C-TMLE ones, and X66 part (e)
+        # X50 holds the DR-TMLE regimes and MSMs, X51 the C-TMLE ones, and X66 part (g)
         # the other estimators.
         roadmap = {"drtmle": "X50", "collaborative_tmle": "X51"}.get(
             getattr(estimator, "_assessment_method", ""), "X66"

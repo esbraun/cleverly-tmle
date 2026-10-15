@@ -524,7 +524,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
                 "describes a different population. On a gaussian outcome the standardized "
                 "ATT or ATC E-value runs."
             ),
-            roadmap="X65",
+            roadmap="F34",
         )
     if key.estimand not in {"ate", "or"}:
         raise _EValueRefusal(

@@ -152,7 +152,7 @@ CASES = {
         "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection requires a "
         "separate fold-specific collaborative derivation.",
         "Use cv_evaluation=False.",
-        roadmap="X61",
+        roadmap="F18",
     ),
     RefusalReason.INFERENCE_GAP: Case(
         RefusalReason.INFERENCE_GAP,

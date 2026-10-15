@@ -95,7 +95,7 @@ def _risk_ratio_refusal(
                 "Fit the risk ratio as an estimand with TMLE(estimands=('ate', 'rr')) "
                 "on an arm-indexed fit, then call evalue(result, 'rr')."
             ),
-            roadmap="X65",
+            roadmap="F34",
         )
     if key.reference is None or key.stratum is not None:
         return Refusal(

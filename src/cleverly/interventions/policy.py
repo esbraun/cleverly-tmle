@@ -1999,15 +1999,15 @@ def _discrete_components(
     """The component arrays on a categorical treatment, by the discrete formula."""
     if data.has_missing_treatment:
         raise CapabilityError(
-            "a modified treatment policy on a categorical treatment reads the level each unit "
-            "received, and this fit declares a missing treatment. The policy mean with an "
-            "unrecorded treatment is a parameter this package has not derived.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
+            f"When the missingness of {data.treatment_name} may depend on "
+            f"{data.treatment_name}, P({data.treatment_name} = a | W) is not identified; only "
+            f"P({data.treatment_name} = a | Delta_A = 1, W) is. policies= reads "
+            f"P({data.treatment_name} | W).",
+            reason=RefusalReason.INVALID_DECLARATION,
             alternative=(
                 "Drop the rows with a missing treatment, which assumes the treatment is "
                 "missing completely at random, and fit TMLE(policies=)."
             ),
-            roadmap="X63",
         )
     levels = tuple(data.arm_label(code) for code in data.arm_codes)
     observed = np.asarray(data.treatment, dtype=float).astype(np.int64)

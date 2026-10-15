@@ -2912,15 +2912,17 @@ def _variant_roadmap(method: str, functional: Any, design: Any) -> str:
     -------
     str
         F5 for the compositions it keeps, X50 or X51 for the ones that moved there, and X62
-        for the rest: a longitudinal functional, a continuous dose, the risk-ratio tilt, and
-        the natural course with complete outcomes.
+        for the natural course with complete outcomes.
     """
-    if functional.longitudinal or getattr(design, "treatment_kind", None) == "continuous":
-        # X62 parts (e) and (g).
-        return "X62"
     axis, target = functional.axis, functional.target
-    # F5 keeps ATT, ATC, incremental and modified-policy fits under both variants.
-    if axis in {"ipsi", "policy"} or (axis == "arm" and target in {"att", "atc"}):
+    # F5 keeps a longitudinal functional, a continuous dose, and ATT, ATC, incremental,
+    # modified-policy and risk-ratio-tilt fits under both variants.
+    if (
+        functional.longitudinal
+        or getattr(design, "treatment_kind", None) == "continuous"
+        or axis in {"ipsi", "policy", "rr_tilt"}
+        or (axis == "arm" and target in {"att", "atc"})
+    ):
         return "F5"
     moved = {"drtmle": "X50", "collaborative_tmle": "X51"}[method]
     if axis in {"regime", "msm"}:
@@ -2928,8 +2930,7 @@ def _variant_roadmap(method: str, functional: Any, design: Any) -> str:
     natural_course = target == NATURAL_COURSE_TARGET or target in POPULATION_INTERVENTION_TARGETS
     if natural_course and getattr(design, "missingness", None) is not None:
         return moved
-    # X62 parts (h) and (i): the risk-ratio tilt, and the natural course with complete
-    # outcomes.
+    # X62 part (d): the natural course with complete outcomes.
     return "X62"
 
 

@@ -1452,12 +1452,12 @@ def _treatment_recorded(
         return None
     if treatment_kind != "discrete":
         raise DataError(
-            "a missing treatment is supported for an arm-coded treatment only; "
-            f"{treatment_name} is declared {treatment_kind}, and a conditional density "
-            "fitted on the recorded rows has no composite indicator to divide by.",
-            reason=RefusalReason.IMPLEMENTATION_GAP,
+            f"When the missingness of {treatment_name} may depend on {treatment_name}, the "
+            f"law of {treatment_name} given W is not identified; only its law given "
+            f"Delta_A = 1 and W is. A {treatment_kind}-treatment target reads the law of "
+            f"{treatment_name} given W.",
+            reason=RefusalReason.INVALID_DECLARATION,
             alternative=f"Drop {delta_name}= or the rows with an unrecorded treatment.",
-            roadmap="X63",
         )
     recorded = check_delta(treatment_delta, delta_name, role="treatment")
     if recorded.shape[0] != missing.shape[0]:

@@ -307,15 +307,14 @@ def _refuse_learned_rule(result: Any) -> Refusal | None:
 
 
 def _refuse_risk_ratio_tilt(result: Any) -> Refusal | None:
-    """Refuse a risk-ratio tilt fit, whose policy reads the treatment mechanism."""
+    """Refuse a risk-ratio tilt fit, whose replay declares no reading of its policy."""
     if result.config.parameter_axis != "rr_tilt":
         return None
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         "simulated_confounding does not cover a risk-ratio tilt fit (ey_rr_tilt, "
-        "ate_rr_tilt): the tilt's policy mean reads the treatment mechanism, so a simulated "
-        "common cause moves the policy as well as the confounding, and this package has not "
-        "derived that replay.",
+        "ate_rr_tilt): the tilt is a known randomized rule on the natural treatment, and the "
+        "replay declares no reading of that rule on a perturbed draw.",
         alternative=(
             "Fit the static arms (ate) or an incremental odds tilt (ipsi) for this surface."
         ),

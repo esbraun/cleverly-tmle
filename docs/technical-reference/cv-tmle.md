@@ -175,8 +175,10 @@ remain refused until their scale transform has an exact contract. The
 [X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e) tracks both follow-ups.
 
 The package refuses fold-specific targeting and repeated-split reporting on the stacked fits.
-Zheng and van der Laan (2010), Theorem 1, give the fold-specific update, and the median over
-splits keeps the asymptotic expansion of each draw. The package implements neither composition.
+Montoya, van der Laan, Skeem and Petersen (2023), Section 3.2, Step 2(c), fit the fold-specific
+update on the validation rows. Zheng and van der Laan (2011), Working Paper 273, choose one pooled
+fluctuation instead. The median over splits keeps the asymptotic expansion of each draw. The
+package implements neither composition.
 [X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) parts (a) and (b) track them.
 
 The registered

@@ -1488,8 +1488,8 @@ class TMLE:
         if data.has_strata and self.targeting_scheme == "fold":
             raise CapabilityError(
                 "baseline strata are not combined with targeting_scheme='fold': each stratum "
-                "would need a fold-local update in place of the pooled one, and no published "
-                "result covers a fold-local update.",
+                "would need its own fold-local update on its validation rows, and that "
+                "composition is not implemented.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Use the default pooled targeting scheme.",
                 roadmap="X61",
@@ -1540,7 +1540,7 @@ class TMLE:
             raise CapabilityError(
                 f"{sorted(beside_intermediate)} do not yet support intermediate=: "
                 "combining the natural course with a controlled mediator intervention "
-                "needs a separately identified population-intervention parameter.",
+                "defines the mean E[Qbar(A, z, W)], which is not implemented.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative=(
                     "Fit the natural-course targets in a fit that declares no intermediate=."

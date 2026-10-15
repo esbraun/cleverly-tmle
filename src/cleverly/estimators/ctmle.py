@@ -493,7 +493,7 @@ _DISCRETE_TREATMENT_REFUSAL = Refusal(
     "CTMLE strategies require a discrete treatment. strategy='oat' fits its mechanism on "
     "one Qbar prediction per arm, and a continuous dose has no finite arm vector.",
     alternative="Fit TMLE on the continuous dose.",
-    roadmap="X62",
+    roadmap="F5",
 )
 
 #: Why CTMLE refuses ``policies=``.  Checked before the continuous-dose refusal, because a
@@ -1062,12 +1062,14 @@ class CTMLE(TMLE):
             assert refusal is not None
             raise CapabilityError.from_refusal(refusal)
         if kwargs.get("cv_evaluation", False):
+            # F18 keeps a fold-specific selection, and F19 the outcome-adaptive fold average.
+            fold_item = "F18" if is_selector_strategy(strategy) else "F19"
             raise CapabilityError(
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
                 "requires a separate fold-specific collaborative derivation.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Use cv_evaluation=False.",
-                roadmap="X61",
+                roadmap=fold_item,
             )
         # The base constructor validates the fold policy. OAT has no selector folds,
         # so it must know the strategy before that validation runs.
@@ -1127,13 +1129,14 @@ class CTMLE(TMLE):
                 f"got {self.ctmle_estimand!r}"
             )
         if self.targeting_scheme != "pooled":
+            fold_item = "F18" if is_selector_strategy(self.strategy) else "F19"
             raise CapabilityError(
                 "CTMLE implements the published pooled collaborative estimator only; "
                 "targeting_scheme='fold' composes it with a different CV-TMLE estimator "
                 "that has not been derived.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Use targeting_scheme='pooled'.",
-                roadmap="X61",
+                roadmap=fold_item,
             )
 
         if not is_selector_strategy(self.strategy) and self.ctmle_estimand != "ate":

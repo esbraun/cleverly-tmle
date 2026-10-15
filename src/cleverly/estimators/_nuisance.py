@@ -1587,7 +1587,7 @@ def _check_companion(data: CausalData, companion: CausalData) -> None:
             "new rows is a different object from predicting a probability.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit TMLE on the continuous dose.",
-            roadmap="X62",
+            roadmap="F5",
         )
     if data.has_missing_outcome or data.has_intermediate:
         # F5 keeps the DR-TMLE controlled direct effect, and X50 part (d) holds evaluation=
@@ -1655,7 +1655,7 @@ def fit_inner_designs(
             "the nested construction reads a per-arm mechanism, and a continuous dose has none.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             alternative="Fit TMLE on the continuous dose.",
-            roadmap="X62",
+            roadmap="F5",
         )
     folds = nuisance.folds
     if folds.n_folds < 3:

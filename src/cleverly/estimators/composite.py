@@ -574,7 +574,7 @@ def missing_treatment_refusal(
             "stated.",
             _DROP_REMEDY,
             code=RefusalReason.IMPLEMENTATION_GAP,
-            roadmap="X63",
+            roadmap="F33",
         )
     for keyword in ("incremental", "policies"):
         if getattr(estimator, keyword, None):
@@ -662,7 +662,7 @@ def missing_treatment_design_refusal(
             "stated.",
             _DROP_REMEDY,
             code=RefusalReason.IMPLEMENTATION_GAP,
-            roadmap="X63",
+            roadmap="F33",
         )
     if axis == "learned_rule":
         return _message(

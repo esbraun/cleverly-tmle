@@ -781,7 +781,7 @@ class DRTMLE(TMLE):
                 "reduction.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Use targeting_scheme='pooled', cv_evaluation=False.",
-                roadmap="X61",
+                roadmap="F5",
             )
         for keyword in ("interventions", "policies", "incremental", "msm"):
             if getattr(self, keyword, None):
@@ -1178,7 +1178,7 @@ class DRTMLE(TMLE):
                 "informative, which is precisely the case this variant insures against.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Fit DRTMLE or CTMLE alone.",
-                roadmap="X62",
+                roadmap="F5",
             )
         self._refuse_one_step_nested()
         if data.is_continuous_treatment:
@@ -1218,7 +1218,7 @@ class DRTMLE(TMLE):
                 "outcome correction blocks, and no partial-guard theorem is claimed.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Use guard=('Q', 'g').",
-                roadmap="X62",
+                roadmap="F5",
             )
         # At every guard, including ``guard=()``. That fit is a plain TMLE on the
         # cross-fitted missing-outcome surface, which only ordinary TMLE's audited
@@ -1242,12 +1242,14 @@ class DRTMLE(TMLE):
                     roadmap="X62",
                 )
             if self.evaluation is not None or self.reduced_crossfit != "pooled":
+                # X62 holds evaluation=, and F21 the nested construction.
+                nested_item = "X62" if self.reduced_crossfit == "pooled" else "F21"
                 raise CapabilityError(
                     "missing-outcome DRTMLE supports the published pooled construction only; "
                     "evaluation= and nested reduced cross-fitting are not certified.",
                     reason=RefusalReason.IMPLEMENTATION_GAP,
                     alternative="Drop evaluation= and reduced_crossfit='nested'.",
-                    roadmap="X62",
+                    roadmap=nested_item,
                 )
         if (
             route == "composite"

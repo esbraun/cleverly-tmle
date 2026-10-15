@@ -782,12 +782,12 @@ def test_a_missing_treatment_composition_is_refused_before_any_learner(row: str)
 
 
 def test_a_missing_treatment_with_a_dose_is_refused_by_the_container() -> None:
-    """A conditional density has no composite indicator; the container refuses first."""
+    """The law of a dose given W is not identified; the container refuses first."""
     assert_refused_before_any_call(
         lambda: _fit_missing_treatment(TMLE(**_never(policies=[Shift(1.0, cap=None)]))),
         None,
         "learner",
-        "arm-coded treatment only",
+        "continuous-treatment target reads the law",
         error=DataError,
     )
 
