@@ -16,7 +16,7 @@ target one block per stratum, so this module pins these things:
 * ``simulated_confounding`` replays a stratum of a ``guard=()`` result;
 * the one-step nested composition refuses before any learner, on a copied estimator as well;
 * each other moved refusal is a ``CapabilityError``, and the incremental-intermediate refusal
-  cites F6;
+  cites X57 and names the two-node IPSI plan;
 * a mutation that removes a stratified data check lets a learner fit.
 """
 
@@ -63,7 +63,7 @@ from tests.unit.test_drtmle_missing import _binary_trial, _trial
 
 drtmle_module = importlib.import_module("cleverly.estimators.drtmle")
 
-F6 = "docs/roadmap.md F6"
+X57 = "docs/roadmap.md X57"
 COVARIATES = ["W1", "W2", "W3", "W4", "S"]
 DOSES = (-1.0, 0.0, 1.0, 2.0)
 NESTED = "targeting='one_step' and reduced_crossfit='nested' are not combined"
@@ -196,7 +196,8 @@ GUARD_INDEPENDENT: dict[str, tuple[Callable[[], Any], str]] = {
             delta="Delta",
             strata=["S"],
         ),
-        "does not establish its cross-validated extension",
+        "does not establish its cross-validated extension (docs/roadmap.md F21); "
+        "pass cross_fit=False",
     ),
 }
 
@@ -386,7 +387,8 @@ class TestTheIncrementalIntermediateRefusal:
             None,
             "",
             "incremental= and intermediate= are not combined",
-            F6,
+            "IPSI(regimens=[DynamicRegimen('tilt, Z=z', (Incremental(delta), z))])",
+            X57,
         )
 
 
@@ -457,6 +459,10 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         lambda: _plain_fit(CTMLE(incremental=[Incremental(2.0)], **spies())),
         "CTMLE and incremental= are not combined",
     ),
+    "CTMLE incremental= citation": (
+        lambda: _plain_fit(CTMLE(incremental=[Incremental(2.0)], **spies())),
+        "Use a plain TMLE. docs/roadmap.md F5 tracks this stop.",
+    ),
     "CTMLE continuous dose": (
         lambda: _dose_fit(CTMLE(msm=MSM.linear(doses=DOSES), density_bins=6, **spies())),
         "CTMLE strategies require a discrete treatment",
@@ -477,10 +483,55 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         lambda: DRTMLE(evaluation=strata_frame(), repeats=2, cross_fit=True, n_folds=2),
         "evaluation= and repeats= are not combined",
     ),
-    "DRTMLE msm=": (lambda: DRTMLE(msm=MSM.linear()), "DRTMLE and msm= are not combined"),
+    "DRTMLE msm=": (
+        lambda: DRTMLE(msm=MSM.linear()),
+        "projection of the arm or regime means follow from that theorem, but they are not "
+        "implemented (docs/roadmap.md X50). Fit a plain TMLE",
+    ),
     "DRTMLE interventions=": (
         lambda: DRTMLE(interventions=(Static(1), Static(0))),
-        "DRTMLE and interventions= are not combined",
+        "DRTMLE and interventions= are not combined. The reduced-dimension regressions are "
+        "derived for counterfactual means under a static treatment",
+    ),
+    "DRTMLE interventions= citation": (
+        lambda: DRTMLE(interventions=(Static(1), Static(0))),
+        "not implemented (docs/roadmap.md X50). Fit a plain TMLE",
+    ),
+    "DRTMLE policies=": (
+        lambda: DRTMLE(policies=[Shift(1.0, cap=None)]),
+        "No theorem read here says what its reductions would be (docs/roadmap.md F5). "
+        "Fit a plain TMLE",
+    ),
+    "DRTMLE incremental=": (
+        lambda: DRTMLE(incremental=[Incremental(2.0)]),
+        "DRTMLE and incremental= are not combined",
+    ),
+    "DRTMLE incremental= citation": (
+        lambda: DRTMLE(incremental=[Incremental(2.0)]),
+        "(docs/roadmap.md F5). Fit a plain TMLE",
+    ),
+    "TMLE msm= beside interventions=": (
+        lambda: TMLE(msm=MSM.linear(), interventions=(Static(1), Static(0))),
+        "msm= and interventions= cannot be combined",
+    ),
+    "TMLE msm= beside interventions= citation": (
+        lambda: TMLE(msm=MSM.linear(), interventions=(Static(1), Static(0))),
+        "docs/roadmap.md X57 tracks this stop.",
+    ),
+    "CTMLE policies= on a binary treatment": (
+        lambda: _plain_fit(CTMLE(policies=[Shift(1.0, cap=None)], **spies())),
+        "docs/roadmap.md F5 tracks this stop. Use a plain TMLE, which fits policies=.",
+    ),
+    "CTMLE interventions=": (
+        lambda: _plain_fit(
+            CTMLE(interventions=[Static(1.0, name="on"), Static(0.0, name="off")], **spies())
+        ),
+        "docs/roadmap.md X51 tracks the point estimate. Use a plain TMLE, which fits "
+        "interventions= with an interval.",
+    ),
+    "CTMLE msm=": (
+        lambda: _plain_fit(CTMLE(msm=MSM.linear(), **spies())),
+        "docs/roadmap.md X51 tracks the point estimate. Use a plain TMLE, which fits msm=.",
     ),
     "DRTMLE intermediate=": (
         lambda: _cde_fit(DRTMLE(estimands=("ate",), **drtmle_spies()))(),
@@ -669,7 +720,10 @@ MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
     ),
     "learned_rule": (
         lambda: _fit_missing_treatment(TMLE(**_never(learned_rule=LearnedRule()))),
-        ("no composite derivation for a rule learned from the fit", "roadmap F27"),
+        (
+            "no composite derivation for a rule learned from the fit",
+            "cross-fitted learned-rule fit with a missing treatment (roadmap F27)",
+        ),
     ),
     "intermediate": (
         lambda: _fit_missing_treatment(TMLE(**_never()), intermediate="Z"),
@@ -677,7 +731,11 @@ MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
     ),
     "cross_fit": (
         lambda: _fit_missing_treatment(TMLE(**_never(cross_fit=True))),
-        ("roadmap F21", "cross_fit=False"),
+        ("cross-fitted composite construction is open (roadmap X53)", "cross_fit=False"),
+    ),
+    "cross_fit_drtmle": (
+        lambda: _fit_missing_treatment(_never_drtmle(cross_fit=True, estimands=("ate",))),
+        ("cross-fitted composite construction is open (roadmap F21)", "cross_fit=False"),
     ),
     "randomized": (
         lambda: _fit_missing_treatment(_never_drtmle(randomized=True, estimands=("ate",))),
@@ -685,7 +743,7 @@ MISSING_TREATMENT_ROWS: dict[str, tuple[Callable[[], Any], tuple[str, ...]]] = {
     ),
     "ctmle": (
         lambda: _fit_missing_treatment(CTMLE(**_never(estimands=("ate",)))),
-        ("roadmap F5", "Fit TMLE or DRTMLE"),
+        ("observation factors off the selection path is open (roadmap X51)", "Fit TMLE or DRTMLE"),
     ),
     "evaluation": (
         lambda: _fit_missing_treatment(

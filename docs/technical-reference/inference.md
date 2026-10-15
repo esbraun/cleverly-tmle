@@ -103,9 +103,9 @@ Every other status is a non-inferential status.
 | `"influence_curve"` | every estimate except the ones below. This is the constructor default | return the values on this page | `std_err` | not applicable |
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, `"discrete"`, `"lasso"`, or `"learners"`. A `discrete` fit with one declared candidate, equal to the full adjustment set, takes the TMLE status instead. A `learners` fit with an empty declared list does the same. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"`, of either `oat_design=`, including a fit with `strata=`, `delta=` or `treatment_delta=` and a fit that requests one arm mean. [Collaborative TMLE](collaborative-tmle.md#the-applied-revert) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
-| `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [F5](../roadmap.md#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
-| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. The `LTMLE` floor applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
-| `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `constant-node se` | [F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) |
+| `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. A per-arm `CTMLE` fit with `strategy="oat"` and estimated weights takes `"generated_design_plugin"` while `OAT_PER_ARM_INFERENTIAL` is `False`, and F19 holds its interval. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | raise `CapabilityError` with the reason of the status | `fixed-weight se` | [X50](../roadmap.md#x50-further-dr-tmle-compositions) |
+| `"few_cluster_plugin"` | a `TMLE` or `DRTMLE` fit with `id=` and fewer than 10 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 20. The `LTMLE` floor applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `normal-reference se` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
+| `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `constant-node se` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 
 At every status, `plugin_std_error` and `plugin_interval` return the plug-in spread of the
 reported curve. On `"influence_curve"` they return the numbers of `std_error` and `ci` under names
@@ -303,7 +303,8 @@ Below 10 clusters with positive weight mass, in the fit or in one reported basel
 fit takes `"few_cluster_plugin"`. An `LTMLE` fit takes it below 20. Each floor is the smallest
 count that the registered few-cluster study measures for that fit
 (`MINIMUM_INTERVAL_CLUSTERS` and `MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`), and
-[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns the counts below. The
+[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the counts from 4 to each floor, and
+[F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) keeps the counts below 4. The
 status is
 determined from prepared cluster labels, strata, and weights, without reading a fitted quantity.
 A fit has one status, so one stratum below the floor withholds the interval of every estimate.
@@ -405,8 +406,18 @@ a data-adaptive nuisance.
 
 An `LTMLE` bootstrap is licensed as inference only for a design kind
 in `LICENSED_BOOTSTRAP_DESIGNS`, which a kind enters after its registered cells are green. Every
-other `LTMLE` bootstrap prints as a diagnostic. `POINT_BOOTSTRAP_INFERENTIAL` in
-`estimators/tmle.py` holds the point-treatment rule.
+other `LTMLE` bootstrap prints as a diagnostic.
+
+`POINT_BOOTSTRAP_INFERENTIAL` in
+`estimators/tmle.py` holds the point-treatment rule. It applies to an in-sample `TMLE` fit only,
+because the registered point cell fits an in-sample `TMLE`. A cross-fitted point bootstrap prints
+as a diagnostic, because its replicates redraw the split and no source covers that construction
+([F2](../roadmap.md#f2-targeted-bootstrap-inference)).
+
+Every `DRTMLE` and `CTMLE` bootstrap also prints as a diagnostic, in sample too. The study measured neither estimator, and no reviewed
+theorem covers the bootstrap of a selector path. An in-sample `TMLE` fit with a data-adaptive
+learner still prints the interval as inference. The registered study measured it only with
+correctly specified nuisances, and F2 holds the data-adaptive case.
 
 `simultaneous_bands` refuses an estimate that declares the `"second_moment"` covariance rule. The
 multiplier draws center each influence curve. Centering matches the raw second moment only on a

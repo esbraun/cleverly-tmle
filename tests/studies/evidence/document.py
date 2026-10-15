@@ -586,6 +586,12 @@ def _replace_block(
     return changed, (start, stop + len(replacement) - (tail - head - 1))
 
 
+#: The label every grid cell and study section carries while a comparator's runs are pending
+#: (:attr:`~tests.studies.evidence.registry.StudyRecord.pending_reference`).  The owner's
+#: rule: a method merges on its Python evidence, and the comparator study follows.
+PENDING_LABEL = "Python property evidence, with comparator runs pending"
+
+
 def fill(record: StudyRecord) -> list[str]:
     """Rewrite a study's generated tables and its measured values.  Returns what changed."""
     document = record.document_path

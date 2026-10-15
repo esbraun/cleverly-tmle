@@ -92,10 +92,10 @@ to a registered study.
 | full-refit bootstrap and derived contrasts | none claimed. No pinned comparator ships these outputs, so a zero-row equivalence artifact records the absence | the log-scale ratio of two regimen levels, the RMST and its contrast, the `LTMLE` full-refit bootstrap percentile interval in sample, cross-fitted and clustered, and the point `TMLE` bootstrap percentile interval | [2/2 implementation-estimand tests against known truth pass using 99% confidence bounds](full-refit-bootstrap-and-derived-contrasts.md#accuracy-against-known-truth) | [0/0 external comparisons; no comparator ships these outputs](full-refit-bootstrap-and-derived-contrasts.md) | [20/23 cells pass: every ratio, RMST and control cell, and the in-sample, survival and point bootstrap cells; the two cross-fitted bootstrap cells over-cover and the cluster contrast under-covers](full-refit-bootstrap-and-derived-contrasts.md#theory-properties) | 1,000 replications x n=2,000 of the end-of-study ratios; worst standardized bias 0.0219, lowest coverage 0.9640 | [reporting, not gated; six declared limits: correctly specified cell-mean nuisances only, one size per cell, finite binary laws, static regimens, node units, and unmeasured compositions; the red kinds stay diagnostic](full-refit-bootstrap-and-derived-contrasts.md#limits) |
 
 A registered study with no canonical comparator says so in its own cell and rests on the other two
-columns. A study with no property cells is not a validation row at all, because matching another
-implementation is not evidence that either one is right. The
-[learned-rule boundary study](learned-rule-cvtmle-boundary.md) is such a study. It has its own page
-and no row here.
+columns. A study with no property cells has no row today.
+[RM42](../../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) owns a row for a
+comparator-backed study. The [learned-rule boundary study](learned-rule-cvtmle-boundary.md) has no
+property cells. It has its own page and no row here.
 
 Full test-by-test results are in the
 [implementation validation studies](index.md). Each study publishes one row per

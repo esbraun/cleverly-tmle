@@ -246,7 +246,10 @@ class TestTheTargetSpecificRefusals:
         result.sensitivity.tipping_gamma("ey0")
 
     def test_simulated_confounding_keeps_the_missing_outcome_refusal(self, joint: Any) -> None:
-        with pytest.raises(CapabilityError, match=r"docs/roadmap.md F12 tracks this stop"):
+        with pytest.raises(
+            CapabilityError,
+            match=r"docs/roadmap.md F12 tracks a response mechanism that reads the treatment",
+        ):
             joint.sensitivity.simulated_confounding("par")
 
 

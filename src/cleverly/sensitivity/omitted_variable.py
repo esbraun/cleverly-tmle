@@ -102,7 +102,7 @@ from ..exceptions import CapabilityError, DataError, refuse_inference, repeats_r
 from ..inference.cluster import influence_variance
 from ..inference.delta import one_sided_quantile
 from ..inference.influence import spread_name
-from ..interventions.learned import LEARNED_RULE_SENSITIVITY_REFUSAL
+from ..interventions.learned import LEARNED_RULE_BOUND_REFUSAL
 from ..targets import parameter_stem
 from ..targets.population_intervention import natural_course_names, reads_natural_course_mean
 from ..utils.bounds import g_bounds_for
@@ -169,11 +169,15 @@ _AXIS_NOUNS: dict[str, str] = {
     "msm": "A point-treatment MSM coefficient",
 }
 
-#: The longitudinal stop, byte for byte what
+#: The longitudinal stop.  It starts with the sentence that
 #: :class:`~cleverly.assessment.SensitivityFacade` published before the rule table
-#: existed.  ``tests/unit/test_assessment_contract.py`` matches the declared reason
-#: against the raised one, so the string is the contract rather than the sentence.
-_LONGITUDINAL_BOUND_REFUSAL = "no longitudinal sensitivity derivation is registered"
+#: existed, and ``tests/unit/test_assessment_contract.py`` matches that prefix against the
+#: raised reason.  The citation names the research-queue row that holds the missing law.
+_LONGITUDINAL_BOUND_REFUSAL = (
+    "no longitudinal sensitivity derivation is registered: the bound needs a per-period "
+    "latent law that identifies the bias of a sequential g-formula target "
+    "(docs/roadmap.md F16 tracks this stop)"
+)
 
 #: The clause both mechanism refusals end on.  Neither estimator assumes a consistent
 #: treatment mechanism, and that assumption is what the published bound's ``nu^2`` and
@@ -231,9 +235,11 @@ _PLUGIN_LIMITS_REFUSAL = (
     "at first order with the fitted treatment mechanism, and its curve alpha_hat^2 - nu^2 has "
     "no term for that fit. Lemma 3 and Theorem 4 of Chernozhukov, Cinelli, Newey, Sharma and "
     "Syrgkanis (2026) give the limits for the doubly robust estimator only. The bias-adjusted "
-    "bounds, rv, max_bias, benchmark() and contour() remain available. docs/roadmap.md F26 "
-    "tracks this stop, and docs/roadmap.md X26 tracks the limits for a fit whose own "
-    "treatment learner is a declared unpenalized logistic or multinomial model"
+    "bounds, rv, max_bias, benchmark() and contour() remain available, and "
+    "nu2_estimator='doubly_robust' gives the limits for any mechanism learner at the rates "
+    "of that Theorem 4. "
+    "docs/roadmap.md F26 tracks this stop, and docs/roadmap.md X26 tracks the limits for a "
+    "fit whose own treatment learner is a declared unpenalized logistic or multinomial model"
 )
 
 #: The estimators of nu^2 whose bounds refuse their limits, and why.  The doubly robust
@@ -432,7 +438,7 @@ def _refuse_non_arm_axis(result: Any) -> str | None:
         # A benchmark refit would also relearn the rules, and so change the target.
         return (
             "the omitted-variable bound and its benchmark do not cover a learned-rule fit: "
-            + LEARNED_RULE_SENSITIVITY_REFUSAL
+            + LEARNED_RULE_BOUND_REFUSAL
         )
     if axis == "ipsi":
         return (

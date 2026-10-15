@@ -10,7 +10,8 @@ The bootstrap here is a *full refit*: every replicate re-runs the whole procedur
 nuisance fits included.  Bootstrapping only the targeting step while holding the
 nuisance fits fixed would understate the variance, because the nuisance
 estimation is itself a source of uncertainty.  The name states that procedure: a
-targeted bootstrap is a distinct construction, which docs/roadmap.md F2 holds open.
+targeted bootstrap is a distinct construction. docs/roadmap.md X55 holds the HAL-TMLE
+bootstrap, and F2 holds a targeted bootstrap for other learners.
 
 With clusters, whole clusters are resampled. Resampling rows would destroy the
 dependence structure the cluster variance exists to account for. Each sampled
