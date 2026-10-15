@@ -105,14 +105,14 @@ CALIBRATION_REPLICATES: dict[str, int] = dict.fromkeys(CELLS, pricing.S2_REPLICA
 EXPECTED_CONTROL_RATIO = {"dose_quantile": 0.612, "quantile_regression": 0.832}
 
 #: The noise scale of each ``noise_control``: ``mtp-pricing``'s ``NOISE_FACTOR`` times the arm's
-#: own pilot SD times sqrt(n) (design review B2).  Provisional: the arm's reported SE in the
-#: one-replicate smoke times sqrt(2,000).  The declaration commit pins the pilot's ``noise_sd``.
+#: own pilot SD times sqrt(n) (design review B2), the pilot's ``noise_sd`` (2,000 draws,
+#: 2026-10-15).
 NOISE_SD: dict[str, float] = {
-    "population_dose_quantile_tau2": 0.555,
-    "population_quantile_regression_tau2": 0.456,
-    "population_dose_quantile_crossfit_tau2": 0.555,
-    "population_dose_quantile_crossfit_classifier_tau2": 0.555,
-    "fold_average_dose_quantile_tau2": 0.34,
+    "population_dose_quantile_tau2": 0.528,
+    "population_quantile_regression_tau2": 0.437,
+    "population_dose_quantile_crossfit_tau2": 0.53,
+    "population_dose_quantile_crossfit_classifier_tau2": 0.531,
+    "fold_average_dose_quantile_tau2": 0.326,
     "fold_average_quantile_regression_tau2": 0.367,
 }
 

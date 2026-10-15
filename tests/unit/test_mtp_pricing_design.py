@@ -337,7 +337,7 @@ def test_the_declared_learner_recovers_the_node_one_derivative(
 
 @pytest.mark.parametrize(
     ("module", "record", "expected"),
-    [(properties, study, 9 * 3 + 2 + 4 + 2), (tuning_properties, tuning, 6 * 4)],
+    [(properties, study, 9 * 3 + 2 + 4), (tuning_properties, tuning, 6 * 4)],
     ids=["mtp-pricing", "mtp-tuning"],
 )
 def test_the_gating_cells_are_published_and_hold_no_inadmissible_red(
@@ -346,7 +346,7 @@ def test_the_gating_cells_are_published_and_hold_no_inadmissible_red(
     """Design review M7: both S2 records publish under ``reporting``; this is their gate.
 
     ``mtp-pricing`` gates its nine non-density positives, the three density positives while
-    the screen leaves them out of ``REPORTING_LABELS``, and every pair arm.
+    the screen leaves them out of ``REPORTING_LABELS``, and every registered pair arm.
     """
     gating = module.GATING_CELLS  # type: ignore[attr-defined]
     cells = record.PROPERTY_CELLS  # type: ignore[attr-defined]
@@ -467,3 +467,26 @@ def test_the_kernel_expectation_tends_to_the_derivative() -> None:
     assert errors[0] > errors[1] > errors[2]
     assert errors[0] / errors[1] == pytest.approx(4.0, rel=0.25)
     assert errors[2] < 1e-2 * np.max(np.abs(truth))
+
+
+def test_the_s2_r_is_the_pooled_rule_read_off_the_published_pilots() -> None:
+    """Sizing on the declared pilot readings of both S2 records, the reporting arms left out."""
+    assert set(properties.PILOT_SE_RATIOS) == set(properties.POOLED_LABELS)
+    reading = properties.pooled_replicates(properties.PILOT_SE_RATIOS)
+    assert all(reading["screened"]) and not reading["suspect"]
+    assert reading["R"] == properties.S2_REPLICATES
+    assert reading["family_wise"] >= 0.95 and reading["per_cell"] >= 0.90
+
+
+def test_the_registered_pairs_and_their_sizes() -> None:
+    """``classifier_split`` took its declared exit; ``wrong_tau5`` moved to n = 4,000."""
+    assert "classifier_split" not in study.PAIRED_CELLS
+    assert all("classifier_split" not in families for _, families in properties.PAIR_SETS.values())
+    assert properties.PAIR_SIZES == {"dr_tau3": 2_000, "wrong_tau3": 2_000, "wrong_tau5": 4_000}
+    sizes = {
+        (cell.property, cell.cell): cell.n
+        for cell in properties.declared_cells()
+        if cell.property == "ratio_necessity"
+    }
+    assert sizes[("ratio_necessity", "up_tau5__learned_classifier")] == 4_000
+    assert sizes[("ratio_necessity", "up_tau3__learned_classifier")] == 2_000

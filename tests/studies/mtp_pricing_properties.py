@@ -148,10 +148,31 @@ POOLED_LABELS: tuple[str, ...] = (
     *tuning_study.CALIBRATION_LABELS,
 )
 POOLED_ARMS = len(POOLED_LABELS)
+#: Each pooled arm's pilot SE ratio (2,000 draws on the ``diagnostic`` stream, 2026-10-15):
+#: the screen's parts for the learned classifiers, the local queue's for the rest (plans
+#: ``reviews/x40/pilots/s2-pricing-calibration-pilot.json`` and
+#: ``s2-tuning-calibration-pilot.json``).
+PILOT_SE_RATIOS: dict[str, float] = {
+    "crossfit_ltmle_learned_classifier_tau3": 0.984,
+    "crossfit_sdr_learned_classifier_tau3": 1.003,
+    "revenue_learned_classifier_tau3": 0.9918,
+    "up_learned_classifier_tau2": 0.9713,
+    "up_learned_classifier_tau3": 0.9965,
+    "up_learned_classifier_tau5": 0.9679,
+    "up_oracle_tau2": 1.0144,
+    "up_oracle_tau3": 1.0072,
+    "up_oracle_tau5": 0.9762,
+    "fold_average_dose_quantile_tau2": 0.9972,
+    "fold_average_quantile_regression_tau2": 0.9912,
+    "population_dose_quantile_crossfit_classifier_tau2": 0.9986,
+    "population_dose_quantile_crossfit_tau2": 0.9978,
+    "population_dose_quantile_tau2": 1.0001,
+    "population_quantile_regression_tau2": 1.0044,
+}
 #: The one ``R`` of both S2 records (design review m2): ``mtp_tuning_properties`` reads it
-#: from here.  Provisional: the expected ``R`` at a pilot mean of 1.005 for 18 arms at 2,000
-#: draws.  The declaration commit replaces it with :func:`pooled_replicates`'s ``R``.
-S2_REPLICATES = 6_400
+#: from here.  :func:`pooled_replicates` over :data:`PILOT_SE_RATIOS`: every arm inside the
+#: screen, mean 0.9934, tau 0.0108, per-cell 0.997, family-wise 0.956.
+S2_REPLICATES = 7_200
 CALIBRATION_REPLICATES: dict[str, int] = {
     label: PILOT_DRAWS if label in REPORTING_LABELS else S2_REPLICATES for label in CELLS
 }
@@ -161,21 +182,21 @@ CALIBRATION_REPLICATES: dict[str, int] = {
 #: whose upper 99% end at R = 6,400 lies far below the band's 0.93.  An arm scaled to another
 #: arm's SD can sit at ``k = 0.45`` of its own and stay inside the band (design review B2).
 NOISE_FACTOR = 1.0
-#: Provisional until the pilot: each arm's own reported SE in the one-replicate smoke times
-#: sqrt(2,000).  The declaration commit replaces every value with the pilot's ``noise_sd``.
+#: Each arm's ``noise_sd`` from the calibration pilot (2,000 draws, 2026-10-15): its empirical
+#: SD times sqrt(2,000).
 NOISE_SD: dict[str, float] = {
-    "up_oracle_tau2": 0.69,
-    "up_oracle_tau3": 0.89,
-    "up_oracle_tau5": 1.58,
-    "up_learned_density_tau2": 1.37,
-    "up_learned_density_tau3": 2.57,
-    "up_learned_density_tau5": 3.51,
-    "up_learned_classifier_tau2": 0.74,
-    "up_learned_classifier_tau3": 0.89,
-    "up_learned_classifier_tau5": 1.21,
-    "revenue_learned_classifier_tau3": 7.58,
-    "crossfit_ltmle_learned_classifier_tau3": 0.93,
-    "crossfit_sdr_learned_classifier_tau3": 0.98,
+    "up_oracle_tau2": 0.712,
+    "up_oracle_tau3": 0.88,
+    "up_oracle_tau5": 1.341,
+    "up_learned_density_tau2": 0.891,
+    "up_learned_density_tau3": 1.169,
+    "up_learned_density_tau5": 2.162,
+    "up_learned_classifier_tau2": 0.745,
+    "up_learned_classifier_tau3": 0.886,
+    "up_learned_classifier_tau5": 1.335,
+    "revenue_learned_classifier_tau3": 7.624,
+    "crossfit_ltmle_learned_classifier_tau3": 0.923,
+    "crossfit_sdr_learned_classifier_tau3": 0.915,
 }
 assert set(NOISE_SD) == set(CELLS)
 #: The screen's winner per ``tau`` (2,000 draws per candidate, 2026-10-15).  The quadratic
@@ -204,8 +225,23 @@ PAIR_SETS: dict[str, tuple[int, tuple[str, ...]]] = {
     "dr_tau3": (3, ("double_robustness",)),
     "wrong_tau3": (3, ("ratio_necessity",)),
     "wrong_tau5": (5, ("ratio_necessity",)),
+}
+#: The ``classifier_split`` pair, fitted by its pilot only.  Its 400-draw pilot (2026-10-15)
+#: read necessity power 0.0002 (control bias -0.22 SD, displacement 0.13), so under the declared
+#: exit the pair is not registered: the method-evidence limitations cell says that the effect
+#: of a cross-fold leak is shown in the fast tier only (T-c1, M-c1).
+SPLIT_PILOT_SET: dict[str, tuple[int, tuple[str, ...]]] = {
     "split_tau3": (3, ("classifier_split",)),
 }
+_ALL_PAIR_SETS = {**PAIR_SETS, **SPLIT_PILOT_SET}
+#: Each registered pair set's sample size.  ``wrong_tau5`` moved to n = 4,000 before the
+#: declaration (plan sizing rule 5): its 200-draw pilot at n = 2,000 read the positive's bias at
+#: 0.208 own SD (equivalence power 0.11).  On 1,400 fresh draws at n = 2,000 the positive read
+#: 0.068 and the oracle-ratio fit 0.044, a finite-sample bias of the wrong outcome under the
+#: tau = 5 ratios; pooled with the pilot, 0.086 (upper 95% bound 0.136, power 0.85).  At
+#: n = 4,000 the positive reads 0.032 on 800 draws (power 0.98 at the upper bound) and the
+#: control 15.3 own SD (``X40-progress-studies.md``).
+PAIR_SIZES: dict[str, int] = dict.fromkeys(PAIR_SETS, PAIR_N) | {"wrong_tau5": 4_000}
 #: Each family's cell suffixes at a ``tau``: ``(positive, control)``.
 PAIR_ARMS: dict[str, tuple[str, str]] = {
     "double_robustness": ("outcome_wrong_learned_classifier", "both_wrong_control"),
@@ -215,8 +251,8 @@ PAIR_ARMS: dict[str, tuple[str, str]] = {
 #: The cells that gate the merge though the record publishes under ``reporting`` (design
 #: review M7): each calibration positive outside :data:`REPORTING_LABELS` with its two derived
 #: controls (the density cells only once the screen qualifies them), and both arms of the DR
-#: pair, of ``ratio_necessity`` at tau = 3 and 5, and of ``classifier_split`` while it is
-#: registered.  The default-density row reports.
+#: pair and of ``ratio_necessity`` at tau = 3 and 5.  ``classifier_split`` is not registered
+#: (:data:`SPLIT_PILOT_SET`).  The default-density row reports.
 GATING_CELLS: tuple[str, ...] = (
     *(
         f"interval_calibration/{label}__{cell}"
@@ -385,7 +421,7 @@ def pair_fits(
     ``classifier_name`` overrides the pair's declared classifier: :data:`SPLIT_CLASSIFIER`
     for ``classifier_split``, the screened classifier of its ``tau`` otherwise.
     """
-    tau, families = PAIR_SETS[name]
+    tau, families = _ALL_PAIR_SETS[name]
     labels = (study.REFERENCE, PLAN)
     if families == ("classifier_split",):
         settings = {
@@ -432,7 +468,7 @@ FIT_SETS: tuple[tuple[str, str, int, int], ...] = (
         ("interval_calibration", label, CALIBRATION_N, CALIBRATION_REPLICATES[label])
         for label in CELLS
     ),
-    *(("pairs", name, PAIR_N, PAIR_REPLICATES) for name in PAIR_SETS),
+    *(("pairs", name, PAIR_SIZES[name], PAIR_REPLICATES) for name in PAIR_SETS),
 )
 
 
@@ -493,7 +529,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                     f"up_tau{tau}__{arm}",
                     role,
                     DeclaredLaw(tau),
-                    PAIR_N,
+                    PAIR_SIZES[name],
                     PAIR_REPLICATES,
                     name,
                 )
@@ -504,7 +540,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 
 
 def _tau_of(family: str, label: str) -> int:
-    return CELLS[label][0] if family == "interval_calibration" else PAIR_SETS[label][0]
+    return CELLS[label][0] if family == "interval_calibration" else _ALL_PAIR_SETS[label][0]
 
 
 def _fit_rows(
@@ -537,7 +573,7 @@ def _fit_rows(
     name = estimand()
     declared, control = pair_fits(label, frame, classifier_name)
     rows = []
-    for each in PAIR_SETS[label][1]:
+    for each in _ALL_PAIR_SETS[label][1]:
         positive, negative = PAIR_ARMS[each]
         rows.append(
             replicate_row(
@@ -706,7 +742,7 @@ NECESSITIES: tuple[Necessity, ...] = tuple(
         column="necessity_displacement",
         threshold=NECESSITY_DISPLACEMENT,
     )
-    for family in ("ratio_necessity", "classifier_split")
+    for family in ("ratio_necessity",)
 )
 
 
@@ -865,7 +901,7 @@ def pooled_replicates(ratios: dict[str, float], draws: int = PILOT_DRAWS) -> dic
 def _pair_pilot_reading(
     name: str, draws: int, parts: Path, n_jobs: int, classifier_name: str | None
 ) -> dict[str, Any]:
-    tau, families = PAIR_SETS[name]
+    tau, families = _ALL_PAIR_SETS[name]
     keys = [("pairs", name, r, PAIR_N, draws, classifier_name) for r in range(draws)]
     label = f"pair__{name}__{classifier_name or 'declared'}"
     rows = tools.run_in_parts(_pilot_rows, keys, label=label, root=parts, n_jobs=n_jobs)

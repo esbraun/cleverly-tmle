@@ -126,7 +126,6 @@ PAIRED_CELLS: dict[str, tuple[tuple[str, str], ...]] = {
     "ratio_necessity": tuple(
         (f"up_tau{tau}__learned_classifier", f"up_tau{tau}__unit_ratio_control") for tau in (3, 5)
     ),
-    "classifier_split": (("up_tau3__unit_folds", "up_tau3__row_folds_control"),),
 }
 PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "interval_calibration": tuple(

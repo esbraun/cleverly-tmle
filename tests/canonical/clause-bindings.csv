@@ -1120,9 +1120,6 @@ tests.studies.mtp_boundaries_properties,jacobian_necessity,least displacement ov
 tests.studies.mtp_boundaries_properties,ratio_necessity,bias discriminated,pair_collapse
 tests.studies.mtp_boundaries_properties,ratio_necessity,bias equivalent,bias
 tests.studies.mtp_boundaries_properties,ratio_necessity,least displacement over labels,control_concentrated
-tests.studies.mtp_pricing_properties,classifier_split,bias discriminated,pair_collapse
-tests.studies.mtp_pricing_properties,classifier_split,bias equivalent,bias
-tests.studies.mtp_pricing_properties,classifier_split,least displacement over labels,control_concentrated
 tests.studies.mtp_pricing_properties,double_robustness,bias discriminated,pair_collapse
 tests.studies.mtp_pricing_properties,double_robustness,bias equivalent,bias
 tests.studies.mtp_pricing_properties,double_robustness,se ratio in union band,se/0.05
