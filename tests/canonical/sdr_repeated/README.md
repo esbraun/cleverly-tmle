@@ -1,0 +1,143 @@
+# Canonical evidence for repeated-outcome longitudinal SDR
+
+This directory holds the study of the sequentially doubly robust estimator (`SDR`) on a repeated
+outcome. `cleverly` fits each panel once with `outcome=Repeated(["Y1", "Y2", "Y3"])`. Each
+horizon `h` is the end-of-study estimate for the panel cut after node `h` (Díaz, Williams,
+Hoffman and Schenck 2023, Equation (4), Lemmas 3 and 4 and Theorem 4).
+
+The truths come from the exact law in `tests/studies/ltmle_repeated_law.py`.
+
+## State: comparator pending, placeholder pilots
+
+The study declares `pending_reference="lmtp"`. No reference process runs in this change. The
+change that registers the R `lmtp` 1.5.4 rows adds them as the TRACKER Study queue item of
+plan X32b, PR C. This change writes the pairing columns beside each replicate, so that change
+can pair on the same draws:
+
+| column | content |
+| --- | --- |
+| `ratio__<plan>__<node>` | the per-node ratio at the observed arm, zero where the unit leaves the plan |
+| `shift__<plan>__<node>__1` | the arm each unit takes at the node under the plan |
+| `fold` | the fold assignment of the fit |
+
+The pilot tables in `tests/studies/sdr_repeated_properties.py` are placeholders. The marker
+`PILOT_STATE` in `tests/studies/canonical_sdr_repeated.py` reads `"placeholder"`. The declared
+sizes follow the rules in `tests/studies/repeated_sizing.py` applied to those placeholders, so
+they are not final. The declared run refuses to start until the pilots are recorded. The
+study stays unregistered until its artifacts and its row of the implementation validation grid
+exist.
+
+To record the pilots:
+
+1. Run P1, P2 and P3 with the commands below.
+2. Run `assemble` for each pilot. It prints the tables and the sizes the rules give.
+3. Paste the tables into `sdr_repeated_properties.py` and set the size constants to the printed
+   values. Set `PILOT_STATE` to `"recorded"`.
+4. Run the declared study (the last section).
+
+## Pilots
+
+The driver is `tests/canonical/sdr_repeated/pilot.py`. A pilot has units. A unit is one fit
+set that the driver can run, re-run or override alone. The driver splits the tasks of the
+chosen units into chunks. A chunk writes one part file to `--output`. A relaunch skips the
+parts that exist, and a part that exists is never replaced.
+
+| pilot | units | fit | fits per unit |
+| --- | --- | --- | --- |
+| P1 | scenarios `repeated_folds_1` and `repeated_folds_5` | `n = PRIMARY_N` | 2,000 |
+| P2 | arms `in_sample`, `crossfit`, `continuous`, `crossfit_boosted` | `CALIBRATION_N`, `CONTINUOUS_N` for `continuous` | 8,000 |
+| P3 | the six property families | family `n` | 2,000 |
+
+P2 also yields the C4 joint coverage. The pilots draw from streams that no declared run uses.
+The sample size is part of each stream, so a pilot at a new `n` draws fresh seeds.
+
+`plan.json` in each directory records the arguments, the resolved sample size of each unit,
+the git HEAD, and the hash of each study module. A relaunch with other arguments or other
+module bytes stops. Use a new `--output` then.
+
+Run the pilots from the repository root. Run P2 per arm if you want to split it.
+
+```powershell
+uv run python -m tests.canonical.sdr_repeated.pilot run P1 --output .tmp/sdr-p1 --jobs 8
+uv run python -m tests.canonical.sdr_repeated.pilot run P2 --output .tmp/sdr-p2 --jobs 8
+uv run python -m tests.canonical.sdr_repeated.pilot run P3 --output .tmp/sdr-p3 --jobs 8
+```
+
+Each command prints one progress line for each chunk. Use `--chunk` to change the chunk size.
+Use `--replicates` for a smaller run. Use `--units` to run some units only, for example
+`--units continuous`. Use `--n N` to set the size of every chosen unit and `--n-for UNIT=N`
+to set one unit. `--n-for` wins over `--n`. Both overrides appear in `plan.json`.
+
+To split a pilot between two launches, give one launch `--from 0 --to 4000` and the other
+`--from 4000`. `--down-to 4000` runs the chunks from the end down to task 4000, last chunk
+first. Two launches over the same output directory then meet in the middle. Task indices
+count from zero, unit by unit.
+
+### Assemble
+
+`assemble` reads one or more directories. It prints, for every cell, the draw count, the covered
+count, the SE ratio, the standardized bias and the spread of the estimate. It then prints the
+tables to paste into `sdr_repeated_properties.py`, and the sizes the rules give.
+
+```powershell
+uv run python -m tests.canonical.sdr_repeated.pilot assemble P1 --output .tmp/sdr-p1
+uv run python -m tests.canonical.sdr_repeated.pilot assemble P2 --output .tmp/sdr-p2
+uv run python -m tests.canonical.sdr_repeated.pilot assemble P3 --output .tmp/sdr-p3
+```
+
+`assemble` reads a unit only from a directory whose recorded size equals the size the study
+declares now. It checks the `n` column of the rows too. A unit with no such directory stops the
+assembly. When two directories supply a unit, the last `--output` wins. `assemble` stops when
+a part is missing. It refuses a table that no size up to 50,000 replications can satisfy.
+
+### After an `n` rule fires
+
+The `n` rules change one constant at a time: `PRIMARY_N`, `CONTINUOUS_N` or `ABSORBING_N`.
+Take N1 as the example. Its rule doubles `ABSORBING_N` to 16,000.
+
+1. Set `ABSORBING_N = 16_000` in `sdr_repeated_properties.py`.
+2. Run the family again. The default size is the new declared size.
+3. Assemble with both directories. The old P3 directory still supplies the other families
+   at their sizes, and the new directory supplies N1. The `tau` reading pools all six families.
+
+```powershell
+uv run python -m tests.canonical.sdr_repeated.pilot run P3 `
+  --units repeated_outcome_necessity --output .tmp/sdr-p3-n1 --jobs 8
+uv run python -m tests.canonical.sdr_repeated.pilot assemble P3 `
+  --output .tmp/sdr-p3 --output .tmp/sdr-p3-n1
+```
+
+The primary rule changes `PRIMARY_N`. The expected number of unseen-cell fits then still holds,
+because the count falls as `n` grows. The C6 rule doubles `CONTINUOUS_N` alone, and the C1, C3
+and C5 arms keep `CALIBRATION_N`. Run `--units continuous` in the same way.
+
+## What the in-sample arms do not test
+
+In sample, a saturated outcome learner reproduces every seen cell. The correction is then
+exactly zero on seen cells. The in-sample cells test the plug-in and the mechanism terms. The
+`double_robustness` and `correction_necessity` families use a regression on `W` alone, and their
+correction is nonzero. Tests E2, E3 and N8' cover the correction exactly.
+
+## Smoke study
+
+Run a disposable smoke study from the repository root. It uses explicit sizes and skips the
+property study, so the placeholder refusal does not apply. It checks the wiring only.
+
+```powershell
+uv run python -m tests.canonical.sdr_repeated.regenerate `
+  --replicates 20 --n 1000 --skip-properties --output .tmp/sdr-smoke
+uv run python -m tests.canonical.sdr_repeated.pilot run P2 `
+  --output .tmp/sdr-smoke-p2 --replicates 4 --n 1000 --chunk 4 --jobs 2
+```
+
+## Declared study
+
+After the pilots are recorded, run the declared study and refresh its documentation:
+
+```powershell
+uv run python -m tests.canonical.sdr_repeated.regenerate
+uv run python -m tests.studies.evidence.document --slug longitudinal-repeated-sdr
+```
+
+The manifest records every result-determining module. No grid row or evidence page exists for
+this study yet. A later change adds them with the artifacts.
