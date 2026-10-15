@@ -1025,6 +1025,7 @@ node of `LTMLE` and `SDR`.
 | --- | --- | --- |
 | `treatment=["A1", "A2"]`, all columns categorical | one categorical treatment over the observed tuples. Each tuple is a level, and there are at most 20 | every estimand of a categorical treatment, with tuple levels. `policies=` takes a `JointPolicy` or a `ModifiedPolicy` that maps tuples |
 | `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, and nothing else |
+| the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`) |
 
 `from_arrays` and `PointTreatment` take the same two keywords. A vector names two or more
 distinct columns. `treatment_kind=` describes a treatment of one column, so a vector refuses it.

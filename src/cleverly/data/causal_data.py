@@ -35,7 +35,7 @@ container refuses rather than approximates.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
@@ -1362,8 +1362,10 @@ class CausalData:
 
         Parameters
         ----------
-        treatment_support : Support or None
-            The declared conditional support of the dose.
+        treatment_support : Support, mapping of str to Support, or None
+            The declared conditional support of the dose.  A vector treatment declares a
+            mapping from each continuous component to its support, given the covariates,
+            the categorical components and the doses before it in column order.
         dose_atoms : sequence of float
             The doses with a recorded point mass.
 
@@ -1375,15 +1377,21 @@ class CausalData:
         Raises
         ------
         DataError
-            If the treatment is not one continuous dose, or an atom is not finite or is
-            declared twice.
+            If the treatment is not one continuous dose or a vector with one, a support of a
+            vector is not a mapping of its continuous components, or an atom is not finite
+            or is declared twice.
+        CapabilityError
+            If a vector treatment declares atoms, which this release supports at a dose of
+            one column only.
         """
         from ..interventions.policy import Support
 
         atoms = tuple(float(atom) for atom in dose_atoms)
         if treatment_support is None and not atoms:
             return self
-        if not self.is_continuous_treatment or self.treatment_kind == "vector":
+        if self.treatment_kind == "vector":
+            return self._with_component_supports(treatment_support, atoms)
+        if not self.is_continuous_treatment:
             raise DataError(
                 "treatment_support= and dose_atoms= declare the support and the point masses "
                 f"of one continuous dose, and {self.treatment_name!r} is not one. Declare "
@@ -1396,6 +1404,60 @@ class CausalData:
         if not all(np.isfinite(atom) for atom in atoms) or len(set(atoms)) != len(atoms):
             raise DataError(f"dose_atoms= holds distinct finite doses; got {list(atoms)!r}")
         return replace(self, treatment_support=treatment_support, dose_atoms=tuple(sorted(atoms)))
+
+    def _with_component_supports(self, declared: Any, atoms: tuple[float, ...]) -> CausalData:
+        """A vector treatment's declared component supports, as ``(name, Support)`` pairs."""
+        from ..interventions.policy import Support
+
+        if atoms:
+            raise CapabilityError(
+                f"dose_atoms= declares atoms for the vector treatment {self.treatment_name!r}. "
+                "Declared atoms apply to a continuous dose of one column in this release: an "
+                "atom of a component makes its factor of the joint density mixed, which the "
+                "joint density evaluator does not build"
+            )
+        doses = [
+            name
+            for name, levels in zip(self.component_names, self.component_levels, strict=True)
+            if not levels
+        ]
+        if declared is None:
+            return self
+        if not isinstance(declared, Mapping):
+            raise DataError(
+                f"treatment_support= for the vector treatment {self.treatment_name!r} maps "
+                f"each continuous component to its Support, such as "
+                f"treatment_support={{{doses[0]!r}: Support(lower, upper)}}; got {declared!r}"
+            )
+        pairs = []
+        for name, support in declared.items():
+            if str(name) not in doses:
+                raise DataError(
+                    f"treatment_support= declares {name!r}, which is not a continuous component "
+                    f"of {self.treatment_name!r}; its continuous components are {doses}"
+                )
+            if not isinstance(support, Support):
+                raise DataError(
+                    f"treatment_support= maps {name!r} to {support!r}; a declared support is "
+                    "Support(lower, upper)"
+                )
+            pairs.append((str(name), support))
+        order = {name: index for index, name in enumerate(self.component_names)}
+        pairs.sort(key=lambda pair: order[pair[0]])
+        return replace(self, treatment_support=tuple(pairs) or None)
+
+    @property
+    def component_supports(self) -> dict[str, Any]:
+        """The declared support of each continuous component of a vector treatment.
+
+        Returns
+        -------
+        dict of str to Support
+            Empty on a treatment of one column, or when no component declares one.
+        """
+        if self.treatment_kind != "vector" or self.treatment_support is None:
+            return {}
+        return dict(self.treatment_support)
 
     def with_known_mechanism(self, treatment_probabilities: Any) -> CausalData:
         """Return a copy that declares the treatment mechanism known.

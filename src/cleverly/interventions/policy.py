@@ -2285,17 +2285,140 @@ def _check_declared_support(
     outside, first, lower, upper = _assigned_outside_support(policy, observed, frame, rows, support)
     if not outside.any():
         return
-    row = int(np.flatnonzero(outside)[0])
     name = getattr(policy, "name", repr(policy))
-    raise DataError(
+    raise _support_refusal(name, outside, first, lower, upper, regimen=regimen, node=node)
+
+
+def _support_refusal(
+    policy: str,
+    outside: BoolArray,
+    first: FloatArray,
+    lower: FloatArray,
+    upper: FloatArray,
+    *,
+    regimen: str,
+    node: str,
+) -> DataError:
+    """The R-a1 text: ``outside`` rows are assigned ``first``, outside ``[lower, upper]``."""
+    row = int(np.flatnonzero(outside)[0])
+    return DataError(
         f"regimen {regimen!r} is not identified under the declared support: at node {node!r} "
-        f"the policy {name!r} assigns {int(outside.sum())} row(s) at risk a dose outside the "
+        f"the policy {policy!r} assigns {int(outside.sum())} row(s) at risk a dose outside the "
         f"declared support (first: dose {float(first[row]):g} against [{float(lower[row]):g}, "
         f"{float(upper[row]):g}]). Díaz et al. (2023), Assumption 1, needs the assigned dose "
         "inside the support of A_t given the history. Cap the policy at the support boundary, "
         "for example Shift(delta, cap=...) or a Piece bound that reads the frame, or remove "
         "the regimen"
     )
+
+
+def _component_frame(
+    components: Sequence[JointComponent],
+    index: int,
+    values: FloatArray,
+    frame_with: FrameWith,
+) -> FrameSource:
+    """The frame a component's declared support reads: its chain-rule conditioning set.
+
+    The joint density factors as the categorical components first and then the doses in
+    column order (:mod:`~cleverly.interventions.joint_density`), so the support of dose
+    ``index`` is a support given the history, every categorical component and the doses
+    before it.  ``values`` holds those components' values: the natural ones for the
+    observed check, and a branch's assigned ones for the check of the assigned vector.
+    """
+    extra: dict[str, Any] = {}
+    for position, other in enumerate(components):
+        if position == index:
+            continue
+        if not other.continuous:
+            extra[other.name] = other.labels(values[:, position])
+        elif position < index:
+            extra[other.name] = np.asarray(values[:, position], dtype=float)
+    return lazy_frame(lambda: frame_with(extra))
+
+
+def check_component_supports(
+    policy: str,
+    components: Sequence[JointComponent],
+    natural: FloatArray,
+    assigned: Sequence[FloatArray],
+    frame_with: FrameWith,
+    rows: BoolArray,
+    supports: Mapping[str, Support],
+    *,
+    regimen: str,
+) -> None:
+    """R-a2 and R-a1 for the declared support of each continuous component of a vector.
+
+    The support of a dose is read given its chain-rule conditioning set
+    (:func:`_component_frame`).  An observed dose is checked on the natural values (R-a2).
+    An assigned dose is checked on the values the same branch assigns, because Assumption 1
+    of Díaz et al. (2023) asks that the assigned vector lie in the support of the vector
+    given the history.
+
+    Parameters
+    ----------
+    policy : str
+        The joint policy's name.
+    components : sequence of JointComponent
+        The node's components, in column order.
+    natural : ndarray
+        ``(n, d)`` natural values: level codes and doses.
+    assigned : sequence of ndarray
+        Each branch's ``(n, d)`` assigned values.
+    frame_with : callable
+        Returns the node's policy frame with the given columns appended.
+    rows : ndarray
+        ``(n,)`` the rows that hold the node.
+    supports : mapping of str to Support
+        The declared support of each continuous component that declares one.
+    regimen : str
+        The label the R-a1 refusal names.
+
+    Raises
+    ------
+    DataError
+        If an observed dose, or a dose some branch assigns, lies outside its row's declared
+        support.
+    """
+    n = int(rows.size)
+    for index, component in enumerate(components):
+        support = supports.get(component.name)
+        if support is None:
+            continue
+        check_observed_support(
+            natural[:, index],
+            _component_frame(components, index, natural, frame_with),
+            rows,
+            support,
+            node=component.name,
+        )
+        outside = np.zeros(n, dtype=bool)
+        first = np.full(n, np.nan)
+        lower_first = np.full(n, np.nan)
+        upper_first = np.full(n, np.nan)
+        for values in assigned:
+            lower, upper = support.bounds(
+                _component_frame(components, index, values, frame_with), n
+            )
+            dose = np.asarray(values[:, index], dtype=float)
+            with np.errstate(invalid="ignore"):
+                leaves = rows & ~((dose >= lower) & (dose <= upper))
+            new = leaves & ~outside
+            first = np.where(new, dose, first)
+            lower_first = np.where(new, lower, lower_first)
+            upper_first = np.where(new, upper, upper_first)
+            outside |= leaves
+        if outside.any():
+            raise _support_refusal(
+                policy,
+                outside,
+                first,
+                lower_first,
+                upper_first,
+                regimen=regimen,
+                node=component.name,
+            )
 
 
 def check_observed_support(
@@ -2992,6 +3115,8 @@ def joint_assignments(
     rows: BoolArray,
     *,
     where: str,
+    supports: Mapping[str, Support] | None = None,
+    regimen: str | None = None,
 ) -> tuple[tuple[float, FloatArray], ...]:
     """Each branch of a joint policy as the ``(n, d)`` component values it assigns.
 
@@ -3016,6 +3141,11 @@ def joint_assignments(
         is set to zero.
     where : str
         The node, for the refusals.
+    supports : mapping of str to Support or None
+        The declared support of each continuous component that declares one, checked by
+        :func:`check_component_supports`.
+    regimen : str or None
+        The label the support refusal names; ``None`` names the policy.
 
     Returns
     -------
@@ -3029,7 +3159,8 @@ def joint_assignments(
         If a continuous component's policy fails :func:`check_continuous_policy`.
     DataError
         If the policy names a column that is not a component of the node, maps a label off
-        the component's levels, or a dose map reads another continuous component.
+        the component's levels, or a dose map reads another continuous component, or a
+        dose leaves its declared support.
     """
     _check_tilt_components(policy, components, where)
     values = np.asarray(natural, dtype=float)
@@ -3039,6 +3170,17 @@ def joint_assignments(
             policy.name, declared, components, values, frame_with, rows, where, policy.order
         )
         out.append((probability, np.where(rows[:, None], assigned, 0.0)))
+    if supports:
+        check_component_supports(
+            policy.name,
+            components,
+            values,
+            [assigned for _, assigned in out],
+            frame_with,
+            rows,
+            supports,
+            regimen=policy.name if regimen is None else regimen,
+        )
     return tuple(out)
 
 
@@ -4404,6 +4546,31 @@ class _VectorSetup:
     assigned: tuple[FloatArray, ...]
 
 
+def preflight_vector_policies(policies: Sequence[object], data: CausalData) -> None:
+    """Apply each joint policy to a point vector before any learner, with every check.
+
+    The maps, Assumption 4 of each dose map and the declared support of each continuous
+    component (R-a2, R-a1) read observed values only, so the fit runs them before its first
+    learner.
+
+    Parameters
+    ----------
+    policies : sequence of JointPolicy
+        The declared policies.
+    data : CausalData
+        The validated data, with a vector treatment.
+
+    Raises
+    ------
+    CapabilityError
+        If a policy is not a :class:`JointPolicy`, or a dose map fails
+        :func:`check_continuous_policy`.
+    DataError
+        If a map is malformed, or a dose leaves its declared support.
+    """
+    _vector_setup(tuple(policies), data)
+
+
 def _vector_setup(declared: tuple[object, ...], data: CausalData) -> _VectorSetup:
     """Apply each joint policy to a point vector treatment, with the observed-frame checks."""
     assert data.treatment_components is not None
@@ -4429,7 +4596,13 @@ def _vector_setup(declared: tuple[object, ...], data: CausalData) -> _VectorSetu
     for index, policy in enumerate(declared):
         assert isinstance(policy, JointPolicy)
         evaluated = joint_assignments(
-            policy, components, natural, frame_with, everyone, where=where
+            policy,
+            components,
+            natural,
+            frame_with,
+            everyone,
+            where=where,
+            supports=data.component_supports,
         )
         for (probability, values), (_, mapping) in zip(
             evaluated, joint_branches(policy), strict=True

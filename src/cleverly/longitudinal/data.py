@@ -451,7 +451,10 @@ class LongitudinalData:
             ``{name: Support(lower, upper) or None}`` also declares the conditional support
             of each dose (:class:`~cleverly.interventions.Support`).  The fit then refuses,
             before any learner, an observed dose outside it and a policy that assigns a row
-            at risk a dose outside it (Díaz et al. 2023, Assumption 1).
+            at risk a dose outside it (Díaz et al. 2023, Assumption 1).  The support of a
+            component is given the history, the node's categorical components and its
+            doses before it in column order, and each branch of a joint policy is
+            checked on the components it assigns.
         treatment_probabilities:
             The known treatment mechanism of a sequentially randomized design, which the fit
             then reads in place of a treatment learner.  The preferred form maps each node
@@ -701,8 +704,15 @@ class LongitudinalData:
             If a name is not a continuous treatment node, an entry is malformed, or an
             atom is declared twice.
         CapabilityError
-            If a name is a component of a vector node, where a declared support and
-            declared atoms are not supported.
+            If a name is a component of a vector node and declares atoms, which this
+            release supports at a dose of one column only.
+
+        Notes
+        -----
+        A continuous component of a vector node takes a declared support.  The support is
+        given the history, the node's categorical components and its doses before the
+        component in column order, the conditioning set of the component's factor in the
+        joint density.
         """
         from ..interventions.policy import Support
 
@@ -710,20 +720,42 @@ class LongitudinalData:
             return self
         names = {name: time for time, name in enumerate(self.treatment_names, start=1)}
         components = {
-            name for block in self.treatment_components if len(block) > 1 for name in block
+            name: time
+            for time, block in enumerate(self.treatment_components, start=1)
+            if len(block) > 1
+            for name in block
         }
         node_supports: list[Any] = [None] * self.n_times
         node_atoms: list[tuple[float, ...]] = [()] * self.n_times
+        component_supports: dict[int, dict[str, Any]] = {}
         for keyword, declared in (("continuous_treatment", supports), ("dose_atoms", atoms)):
             for name, value in declared.items():
                 if name in components:
-                    what = "atoms" if keyword == "dose_atoms" else "a support"
-                    raise CapabilityError(
-                        f"{keyword}= declares {what} "
-                        f"for {name!r}, a component of a vector node. A declared support and "
-                        "declared atoms apply to a continuous node of one column in this "
-                        "release"
-                    )
+                    if keyword == "dose_atoms":
+                        raise CapabilityError(
+                            f"dose_atoms= declares atoms for {name!r}, a component of a vector "
+                            "node. Declared atoms apply to a continuous node of one column in "
+                            "this release: an atom of a component makes its factor of the "
+                            "joint density mixed, which the joint density evaluator does not "
+                            "build"
+                        )
+                    node = components[name]
+                    index = self.treatment_components[node - 1].index(name)
+                    if self.component_levels[node - 1][index]:
+                        raise DataError(
+                            f"continuous_treatment= declares a support for {name!r}, a "
+                            "categorical component of a vector node. A support applies to a "
+                            "continuous component"
+                        )
+                    if value is None:
+                        continue
+                    if not isinstance(value, Support):
+                        raise DataError(
+                            f"continuous_treatment= maps {name!r} to {value!r}; a declared "
+                            "support is Support(lower, upper) or None"
+                        )
+                    component_supports.setdefault(node, {})[name] = value
+                    continue
                 time = names.get(name)
                 if time is None or self.node_kind(time) != "continuous":
                     raise DataError(
@@ -749,6 +781,11 @@ class LongitudinalData:
                             "support is Support(lower, upper) or None"
                         )
                     node_supports[time - 1] = value
+        for time, declared in component_supports.items():
+            order = self.treatment_components[time - 1]
+            node_supports[time - 1] = tuple(
+                (name, declared[name]) for name in order if name in declared
+            )
         if self.treatment_held:
             node_supports = [node_supports[0]] * self.n_times
             node_atoms = [node_atoms[0]] * self.n_times
@@ -769,9 +806,27 @@ class LongitudinalData:
         Returns
         -------
         Support or None
-            The declaration.
+            The declaration.  A vector node returns ``None``; its components' supports are
+            :meth:`component_supports`.
         """
-        return self.dose_supports[time - 1] if self.dose_supports else None
+        value = self.dose_supports[time - 1] if self.dose_supports else None
+        return None if isinstance(value, tuple) else value
+
+    def component_supports(self, time: int) -> dict[str, Any]:
+        """The declared support of each continuous component of vector node ``time``.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        dict of str to Support
+            Empty at a node of one column, or when no component declares one.
+        """
+        value = self.dose_supports[time - 1] if self.dose_supports else None
+        return dict(value) if isinstance(value, tuple) else {}
 
     def node_atoms(self, time: int) -> tuple[float, ...]:
         """The declared atoms of node ``time``, or ``()``.

@@ -470,6 +470,7 @@ table of that section states.
 | `SDR` | supported on both routes, in sample and with folds that are each an exact copy of the law |
 | a known randomizer on the `JointPolicy` or on one component | supported (W11, `tests/unit/test_vector_component_randomizer.py`) |
 | `RiskRatioTilt` on a binary component | supported. It joins the product randomizer |
+| a declared support for a dose, `continuous_treatment={name: Support}` | supported. The support is given the history, the categorical components and the earlier doses of the node. The fit checks each branch at the components it assigns (`tests/unit/test_mtp_vector_support.py`) |
 
 [Scope and refusals](scope-and-refusals.md#vector-treatments) lists what a vector refuses and
 gives the reason for each refusal.

@@ -184,6 +184,7 @@ from ..interventions.learned import (
 from ..interventions.policy import (
     JointPolicy,
     preflight_point_policies,
+    preflight_vector_policies,
     refuse_policy_declarations,
     vector_msm_refusal,
     vector_route_refusal,
@@ -1188,7 +1189,7 @@ class TMLE:
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
         continuous_treatment: Sequence[str] = (),
-        treatment_support: Support | None = None,
+        treatment_support: Support | Mapping[str, Support] | None = None,
         dose_atoms: Sequence[float] = (),
     ) -> TMLEResultSet:
         """Fit the estimator.
@@ -1247,11 +1248,14 @@ class TMLE:
             The dose columns of a vector ``treatment=[...]``.  A vector with a dose column
             is fitted with ``policies=`` of :class:`~cleverly.interventions.JointPolicy`
             only, on either ``ratio`` route.  See :meth:`~cleverly.data.CausalData.from_frame`.
-        treatment_support : Support or None
+        treatment_support : Support, mapping of str to Support, or None
             The declared conditional support of a continuous dose,
             :class:`~cleverly.interventions.Support`.  The fit refuses, before any learner, an
             observed dose outside it and a policy that assigns a row a dose outside it
-            (Díaz et al. 2023, Assumption 1).
+            (Díaz et al. 2023, Assumption 1).  A vector treatment maps each continuous
+            component to its support, given the covariates, the categorical components and
+            the doses before it in column order.  Each branch of a joint policy is checked
+            on the components it assigns.
         dose_atoms : sequence of float
             The doses with a recorded point mass, such as a list price.  The policy ratio
             is then taken against Lebesgue plus counting measure on these doses, on both
@@ -3078,7 +3082,10 @@ class TMLE:
         if tuned:
             refuse_tuned_compositions(self, data)
         if data.treatment_kind == "vector":
-            # :meth:`_refuse_vector_compositions` admits joint policies only.
+            # :meth:`_refuse_vector_compositions` admits joint policies only.  A declared
+            # component support is checked here, before any learner (X40 part (a)).
+            if data.component_supports and self.policies:
+                preflight_vector_policies(tuple(self.policies), data)
             return
         if self.policies and any(isinstance(item, RiskRatioTilt) for item in self.policies):
             levels = [] if data.is_continuous_treatment else list(data.treatment_levels)

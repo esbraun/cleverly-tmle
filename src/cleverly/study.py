@@ -449,10 +449,11 @@ class PointTreatment:
         unavailable on such a design, because there is no mechanism to select.
     continuous_treatment : sequence of str
         The columns of a vector ``treatment`` that hold a continuous dose.
-    treatment_support : Support or None
+    treatment_support : Support, mapping of str to Support, or None
         The declared conditional support of a continuous dose, as
-        :meth:`cleverly.TMLE.fit` takes it.  A modified treatment policy must assign each
-        row a dose inside it.
+        :meth:`cleverly.TMLE.fit` takes it.  A vector treatment maps each continuous
+        component to its support.  A modified treatment policy must assign each row a dose
+        inside it.
     dose_atoms : sequence of float
         The doses of a continuous treatment with a recorded point mass, as
         :meth:`cleverly.TMLE.fit` takes them.
@@ -655,7 +656,11 @@ class PointTreatment:
             ("weights", self.weights, data.weights_name),
             ("strata", tuple(self.strata), tuple(data.strata_names)),
             ("treatment_kind", self.support, data.treatment_kind),
-            ("treatment_support", self.treatment_support, data.treatment_support),
+            (
+                "treatment_support",
+                _point_support(self.treatment_support),
+                _point_support(data.treatment_support),
+            ),
             ("dose_atoms", tuple(sorted(self.dose_atoms)), tuple(data.dose_atoms)),
             # Not role names, but they change what the reported variance means, so a
             # disagreement here is as consequential as a mis-named column.
@@ -1456,35 +1461,43 @@ class LongPanel:
                 )
 
 
-def _continuous_names(declared: tuple[Any, ...]) -> tuple[str, ...]:
+def _continuous_names(declared: Any) -> tuple[str, ...]:
     """The node names of a normalized ``continuous_treatment``: names, or (name, support)."""
     return tuple(item[0] if isinstance(item, tuple) else item for item in declared)
 
 
-def _named_declarations(declared: tuple[Any, ...]) -> dict[str, Any]:
+def _named_declarations(declared: Any) -> dict[str, Any]:
     """The declared supports of a normalized ``continuous_treatment``, without ``None``."""
     return {
         item[0]: item[1] for item in declared if isinstance(item, tuple) and item[1] is not None
     }
 
 
-def _declared_continuous(declared: tuple[Any, ...]) -> Sequence[str] | Mapping[str, Any]:
+def _declared_continuous(declared: Any) -> Sequence[str] | Mapping[str, Any]:
     """A normalized ``continuous_treatment`` in the form ``from_frame`` reads."""
     if declared and isinstance(declared[0], tuple):
         return dict(declared)
     return declared
 
 
+def _point_support(declared: Any) -> Any:
+    """A point support for comparison: a vector's component supports become a dict."""
+    return dict(declared) if isinstance(declared, Mapping | tuple) else declared
+
+
 def _held_supports(data: LongitudinalData) -> dict[str, Any]:
-    """The declared support of each continuous node of ``data``, by node name."""
+    """The declared support of each continuous node or component of ``data``, by name."""
     if data.treatment_held:
         support = data.node_support(1)
         return {} if support is None else {data.treatment_names[0]: support}
-    return {
+    held = {
         name: data.node_support(time)
         for time, name in enumerate(data.treatment_names, start=1)
         if data.node_support(time) is not None
     }
+    for time in range(1, data.n_times + 1):
+        held.update(data.component_supports(time))
+    return held
 
 
 def _held_atoms(data: LongitudinalData) -> dict[str, tuple[float, ...]]:
@@ -1500,7 +1513,7 @@ def _held_atoms(data: LongitudinalData) -> dict[str, tuple[float, ...]]:
 
 
 def _declare_every_node(
-    data: LongitudinalData, support: Any, atoms: tuple[float, ...]
+    data: LongitudinalData, support: Any, atoms: Sequence[float]
 ) -> LongitudinalData:
     """Declare one support and one atom set at every treatment node of ``data``."""
     if support is None and not atoms:
