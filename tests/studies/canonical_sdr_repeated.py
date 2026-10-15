@@ -29,6 +29,14 @@ every replicate and commits none of them (see "Memory and PR C"):
   plan.  A missing plan value is accepted only on a unit that left the study before the node;
 * ``fold``: the fold assignment of the fit, which the comparator receives as ``task$folds``.
 
+The declared reference sources
+------------------------------
+
+The pending mechanism needs a ``Reference``, and the type requires a runner path.  The driver
+names ``longitudinal_sdr_runner.R``, ``lmtp_sdr_adapter.R`` and the ``lmtp_crossfit`` Dockerfile,
+which plan K12 reuses unchanged.  An edit to that runner for ``longitudinal-sdr`` is
+result-neutral for this pending study until PR C replaces it.
+
 Memory and PR C
 ---------------
 

@@ -211,3 +211,12 @@ framework from the required module list, so this is not a gap.
 | --- | --- | --- | --- |
 | stacked missing-outcome natural-course CV-TMLE | `tests/studies/point_study_helpers.py` | `f7fa94d4116739718c78000f7d51d506a7907af9c8c0a02bf5354eeab4738d5a` | result-neutral: the helper serialized the existing initial estimate and primary rows. Its bytes are identical at `f899841` and `df0b3cf` |
 | stacked missing-outcome natural-course CV-TMLE | `tests/conftest.py` | `6e991807afeae6a901f953040ab9080b86baed5e7a9a7ed043f7d6f4f6fb45ea` | result-neutral: the property study used its oracle outcome and response learners. Its bytes are identical at `f899841` and `df0b3cf` |
+
+## Runners that a pending study names
+
+The study `longitudinal-repeated-sdr` declares a pending lmtp comparator. Its `Reference` names
+`longitudinal_sdr_runner.R`, `lmtp_sdr_adapter.R` and the `lmtp_crossfit` Dockerfile, because the
+`Reference` type requires a runner path and plan X32b section K12 reuses the adapter and the
+Dockerfile unchanged. An edit to that runner for `longitudinal-sdr` is result-neutral for the
+pending study until PR C replaces it with the per-horizon runner. The pending study runs no
+reference process, so the recorded hash describes no committed result.
