@@ -54,6 +54,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_point_survival_hazard as study
 from tests.studies import point_survival_common as common
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -63,13 +64,20 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 from tests.studies.point_survival_properties import (
     EFFICIENCY_SD as POINT_EFFICIENCY_SD,
 )
@@ -332,16 +340,53 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 # ------------------------------------------------------------------ rows
 
 
-def fit_set_rows(
-    payload: tuple[str, str, str, int, int, int, str],
-    *,
-    targeting: str = TARGETING,
-    n_folds: int = 1,
-    seed: Any = None,
-) -> list[dict[str, Any]]:
-    """The replicate rows of one fit of one fit set."""
-    family, stream, configuration, replicate, n, requested, label = payload
-    frame = draw(label, n, (seed or _seed)(family, stream, replicate))
+#: The calibration positive arm of each controlled label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CONTROLLED_LABELS)
+
+_Payload = tuple[str, str, str, int, int, int, str]
+_Key = tuple[_Payload]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    family, stream, _, replicate, n, _, label = key[0]
+    return draw(label, n, _seed(family, stream, replicate))
+
+
+def cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the fit set's rows and derived controls fill."""
+    family, _, configuration, _, n, _, label = key[0]
+    if family == "interval_calibration":
+        name = f"{family}/{label}__correctly_specified"
+        names = [name, *DERIVED_CELLS.get(name, ())]
+        if label == "survival_t5":
+            names += [f"{JOINT_FAMILY}/{joint}" for joint in joint_cells(JOINT_LABEL)]
+        return names
+    if family == "double_robustness":
+        return [f"{family}/survival_t5__{configuration}"]
+    if family == "targeting_necessity":
+        return [f"{family}/survival_t5__targeted", f"{family}/survival_t5__untargeted"]
+    if family == "root_n_and_efficiency":
+        return [f"{family}/survival_t5__n_{n}"]
+    return [f"{family}/survival_t5__alternative"]
+
+
+def cell_of(key: _Key) -> str:
+    return f"{key[0][0]}/{key[0][1]}"
+
+
+def replicate_of(key: _Key) -> int:
+    return key[0][3]
+
+
+def fit_set_rows(payload: _Payload) -> list[dict[str, Any]]:
+    """The replicate rows of one fit of one fit set, drawn and fitted in one call."""
+    return fit_drawn(payload, _draw((payload,)))
+
+
+def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """The replicate rows of one fit of one fit set on its drawn sample."""
+    family, _, configuration, replicate, n, requested, label = payload
     common_row = {"replicate": replicate, "n": n, "requested": requested}
 
     def row(cell: str, role: str, estimate: Any) -> dict[str, Any]:
@@ -357,7 +402,7 @@ def fit_set_rows(
 
     if family == "interval_calibration":
         joint = label == "survival_t5"
-        result = fit_label(label, frame, simultaneous=joint, targeting=targeting, n_folds=n_folds)
+        result = fit_label(label, frame, simultaneous=joint)
         rows = [row(f"{label}__correctly_specified", "positive", result[ESTIMAND[label]])]
         if joint:
             rows.extend(
@@ -373,9 +418,7 @@ def fit_set_rows(
                 )
             )
         return rows
-    result = fit_label(
-        label, frame, configuration=configuration, targeting=targeting, n_folds=n_folds
-    )
+    result = fit_label(label, frame, configuration=configuration)
     estimate = result[ESTIMAND[label]]
     if family == "double_robustness":
         role = "control" if configuration == "both_wrong" else "positive"
@@ -401,8 +444,8 @@ def fit_set_rows(
 
 def _payloads(
     fit_sets: Sequence[tuple[str, str, str, int, int, str]], budget: int | None
-) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+) -> list[_Key]:
+    out: list[_Key] = []
     for family, stream, configuration, n, replicates, label in fit_sets:
         requested = replicates if budget is None else budget
         out.extend(
@@ -411,9 +454,32 @@ def _payloads(
     return out
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
+def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    return fit_drawn(key[0], frame)
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(fit_set_rows, _payloads(FIT_SETS, budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(FIT_SETS, budget),
+        _fit_key,
+        cells_of=cells_of,
+        cell_of=cell_of,
+        replicate_of=replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -457,6 +523,16 @@ def _probe_one(payload: tuple[str, str, str, int, int, int, str]) -> bool:
     return not all(np.isfinite(row["estimate"]) and np.isfinite(row["std_error"]) for row in rows)
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("survival_t5",),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts and the study's own declared rules."""
     summary, rates = apply_shared_verdicts(
@@ -467,14 +543,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("survival_t5",),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY),
+)

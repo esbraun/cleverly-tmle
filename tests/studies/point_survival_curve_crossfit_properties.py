@@ -33,6 +33,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_point_survival_curve_crossfit as study
 from tests.studies import point_survival_curve_properties as base
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
@@ -132,10 +133,21 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 fit_set_rows = partial(base.fit_set_rows, n_folds=N_FOLDS, seed=_seed)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(fit_set_rows, base.payloads(FIT_SETS, budget), n_jobs=n_jobs)
-    rows = pd.DataFrame([row for result in outcomes for row in result])
+    rows = pd.DataFrame(
+        base.fit_loop(base.payloads(FIT_SETS, budget), n_jobs=n_jobs, n_folds=N_FOLDS, seed=_seed)
+    )
     rows = pd.concat(
         [
             rows,
@@ -186,3 +198,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)
