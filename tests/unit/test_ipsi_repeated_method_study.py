@@ -1,10 +1,10 @@
 """The design of the repeated-outcome IPSI study, checked before any run.
 
-The pilots P4, P5 and P6 have not run.  The pilot tables in
-:mod:`tests.studies.ipsi_repeated_properties` are placeholders, and these tests state that.
-They assert that each declared size equals the declared rule applied to the placeholder tables,
-that the declared run refuses to start, and that every control the study declares separates from
-the truth by a nonzero amount.  The framework tests in ``tests/unit/test_method_evidence.py``
+The pilot tables in :mod:`tests.studies.ipsi_repeated_properties` hold the recorded pilots P4,
+P5 and P6.  These tests assert that each declared size equals the declared rule applied to the
+pinned tables, that the declared run refuses to start while the state is "placeholder", and that
+every control the study declares separates from the truth by a nonzero amount.  The tests that
+read the pilot state branch on ``PILOT_STATE``, so they also hold if it returns to "placeholder".  The framework tests in ``tests/unit/test_method_evidence.py``
 recompute committed verdicts when artifacts exist.
 """
 
@@ -233,19 +233,59 @@ def test_the_control_fits_report_the_declared_estimand_names(horizon: int) -> No
 # ---------------------------------------------------------------------------- the sizes
 
 
-def test_the_pilot_tables_are_placeholders() -> None:
-    """The tables are uniform planning values.  No pilot has run."""
-    assert study.PILOT_STATE == "placeholder"
-    assert set(properties.PRIMARY_PILOT_COVERED.values()) == {1_900}
-    assert set(properties.PRIMARY_PILOT_BIASES.values()) == {0.0}
-    assert set(properties.CALIBRATION_PILOT_RATIOS.values()) == {1.0}
-    assert set(properties.CALIBRATION_PILOT_BIASES.values()) == {0.0}
-    assert set(properties.PROPERTY_PILOT_BIASES.values()) == {0.0}
-    assert properties.CALIBRATION_PILOT_JOINT_COVERAGE == 0.95
-    assert properties.C6_FALLBACK_MASS == {}
+#: The sizes the recorded pilots set.  No ``n`` rule fired.
+RECORDED_SIZES = {
+    "primary_replicates": 2_400,
+    "calibration_replicates": 6_800,
+    "single_robustness": 800,
+    "repeated_outcome_necessity": 1_000,
+    "outcome_history_necessity": 800,
+}
 
 
-def test_each_declared_size_is_the_rule_applied_to_the_placeholder_pilots() -> None:
+def test_the_pilot_tables_hold_the_declared_pilot_state() -> None:
+    """Recorded: the pinned P4, P5 and P6 tables.  Placeholder: uniform planning values."""
+    assert study.PILOT_STATE in ("placeholder", "recorded")
+    if study.PILOT_STATE == "placeholder":
+        assert set(properties.PRIMARY_PILOT_COVERED.values()) == {1_900}
+        assert set(properties.PRIMARY_PILOT_BIASES.values()) == {0.0}
+        assert set(properties.CALIBRATION_PILOT_RATIOS.values()) == {1.0}
+        assert set(properties.CALIBRATION_PILOT_BIASES.values()) == {0.0}
+        assert set(properties.PROPERTY_PILOT_BIASES.values()) == {0.0}
+        assert properties.CALIBRATION_PILOT_JOINT_COVERAGE == 0.95
+        assert properties.C6_FALLBACK_MASS == {}
+        return
+    assert properties.PRIMARY_PILOT_REPLICATES == 2_000
+    assert properties.CALIBRATION_PILOT_REPLICATES == 8_000
+    assert properties.PROPERTY_PILOT_REPLICATES == 2_000
+    assert properties.PRIMARY_PILOT_N == study.PRIMARY_N == 8_000
+    assert properties.CALIBRATION_PILOT_N == {
+        "in_sample": 8_000,
+        "crossfit": 8_000,
+        "continuous": 8_000,
+    }
+    assert properties.PROPERTY_PILOT_N == {
+        "single_robustness": 2_000,
+        "repeated_outcome_necessity": 8_000,
+        "outcome_history_necessity": 8_000,
+    }
+    # The pins are measurements: no table is the uniform placeholder.
+    assert len(set(properties.PRIMARY_PILOT_COVERED.values())) > 1
+    assert len(set(properties.PRIMARY_PILOT_BIASES.values())) > 1
+    assert len(set(properties.PRIMARY_PILOT_RATIOS.values())) > 1
+    assert len(set(properties.CALIBRATION_PILOT_RATIOS.values())) > 1
+    assert len(set(properties.CALIBRATION_PILOT_BIASES.values())) > 1
+    assert len(set(properties.PROPERTY_PILOT_BIASES.values())) > 1
+    assert len(set(properties.PROPERTY_PILOT_SPREADS.values())) > 1
+    assert properties.CALIBRATION_PILOT_JOINT_COVERAGE == 0.9475
+    assert properties.C6_FALLBACK_MASS == {"0.5": 0.0013, "2.0": 0.001}
+    # Each pinned spread is a measured spread, not the law's own efficiency spread.
+    for cell, spread in properties.CALIBRATION_PILOT_SPREADS.items():
+        law_spread = properties.EFFICIENCY_SD[cell.split("__", 1)[0]] / 8_000**0.5
+        assert spread != pytest.approx(law_spread, rel=1e-6)
+
+
+def test_each_declared_size_is_the_rule_applied_to_the_pilot_tables() -> None:
     derived = properties.declared_sizes()
     assert derived["primary_replicates"] == study.PRIMARY_REPLICATES
     assert derived["calibration_replicates"] == properties.CALIBRATION_REPLICATES
@@ -253,7 +293,7 @@ def test_each_declared_size_is_the_rule_applied_to_the_placeholder_pilots() -> N
     assert derived["single_robustness"] == properties.SINGLE_ROBUSTNESS_REPLICATES
     assert derived["repeated_outcome_necessity"] == properties.ABSORBING_REPLICATES
     assert derived["outcome_history_necessity"] == properties.HISTORY_FREE_REPLICATES
-    # No rule fires on placeholder tables, so no size has doubled.
+    # No rule fires on the pinned tables, so no size has doubled.
     assert not any(
         derived[key] for key in ("primary_n_rule", "c6_n_rule", "n1_n_rule", "n2_n_rule")
     )
@@ -261,6 +301,11 @@ def test_each_declared_size_is_the_rule_applied_to_the_placeholder_pilots() -> N
     assert properties.CALIBRATION_N == 8_000
     assert study.STUDY.replicates == study.PRIMARY_REPLICATES
     assert study.STUDY.n == study.PRIMARY_N
+    if study.PILOT_STATE == "recorded":
+        assert derived["primary_replicates"] == RECORDED_SIZES["primary_replicates"]
+        assert derived["calibration_replicates"] == RECORDED_SIZES["calibration_replicates"]
+        for key in ("single_robustness", "repeated_outcome_necessity", "outcome_history_necessity"):
+            assert derived[key] == RECORDED_SIZES[key]
 
 
 def test_the_property_sizes_cover_the_three_control_families() -> None:
@@ -274,7 +319,7 @@ def test_the_property_sizes_cover_the_three_control_families() -> None:
     }
 
 
-def test_the_pilot_rules_applied_to_the_placeholder_tables_give_the_declared_sizes() -> None:
+def test_the_pilot_rules_applied_to_the_pilot_tables_give_the_declared_sizes() -> None:
     primary = (
         properties.PRIMARY_PILOT_COVERED,
         properties.PRIMARY_PILOT_BIASES,
@@ -292,9 +337,27 @@ def test_the_pilot_rules_applied_to_the_placeholder_tables_give_the_declared_siz
     )
     assert verdicts["primary_replicates"] == study.PRIMARY_REPLICATES
     assert verdicts["calibration_replicates"] == properties.CALIBRATION_REPLICATES
-    assert verdicts["property_replicates"]["single_robustness"] == 600
-    assert not verdicts["primary_n_rule_fires"]
-    assert not verdicts["c6_n_rule_fires"]
+    assert verdicts["calibration_budget_met"] == properties.CALIBRATION_BUDGET_MET
+    assert verdicts["property_replicates"] == {
+        "single_robustness": properties.SINGLE_ROBUSTNESS_REPLICATES,
+        "repeated_outcome_necessity": properties.ABSORBING_REPLICATES,
+        "outcome_history_necessity": properties.HISTORY_FREE_REPLICATES,
+    }
+    for rule in ("primary_n_rule_fires", "c6_n_rule_fires", "n1_n_rule_fires", "n2_n_rule_fires"):
+        assert not verdicts[rule], rule
+    if study.PILOT_STATE == "recorded":
+        assert verdicts["primary_replicates"] == RECORDED_SIZES["primary_replicates"]
+        assert verdicts["calibration_replicates"] == RECORDED_SIZES["calibration_replicates"]
+        assert verdicts["property_replicates"] == {
+            key: RECORDED_SIZES[key]
+            for key in (
+                "single_robustness",
+                "repeated_outcome_necessity",
+                "outcome_history_necessity",
+            )
+        }
+    else:
+        assert verdicts["property_replicates"]["single_robustness"] == 600
 
 
 def _arm_spread(family: str, cell: str, n: int) -> float:
@@ -364,8 +427,9 @@ def _discrimination_probabilities() -> dict[str, float]:
 def test_every_control_is_discriminated_at_the_declared_sizes() -> None:
     """The union bound gives each of 55 checks the pass probability 1 - 0.001 / 55.
 
-    The law gaps stand in for the pilot spreads while ``PILOT_STATE`` is "placeholder".  The
-    test reads the pilot spreads and ratios from the recorded tables once the state changes.
+    The gap of each control is in the pilot spread of its cell, and each calibration control
+    scales the pilot SE ratio.  While ``PILOT_STATE`` is "placeholder", the law's own spread
+    stands in for the pilot spread.
     """
     probabilities = _discrimination_probabilities()
     floor = sizing.discrimination_floor(55)
@@ -451,14 +515,31 @@ def test_doubling_the_c6_size_leaves_the_other_arms_alone(monkeypatch: pytest.Mo
     assert properties.fit_n("booster_calibration", "crossfit_boosted") == 8_000
 
 
-def test_the_declared_primary_run_is_refused_while_the_pilots_are_placeholders() -> None:
+def test_the_declared_primary_run_is_refused_while_the_pilots_are_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(study, "PILOT_STATE", "placeholder")
     with pytest.raises(study.PlaceholderPilotsError, match="placeholder pilot tables"):
         study.draw_and_fit(replicates=study.PRIMARY_REPLICATES, n=study.PRIMARY_N, n_jobs=1)
 
 
-def test_the_declared_property_run_is_refused_while_the_pilots_are_placeholders() -> None:
+def test_the_declared_property_run_is_refused_while_the_pilots_are_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(study, "PILOT_STATE", "placeholder")
     with pytest.raises(study.PlaceholderPilotsError, match="placeholder pilot tables"):
         properties.generate_property_rows(n_jobs=1)
+
+
+def test_the_guard_lets_a_declared_run_through_once_the_pilots_are_recorded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard alone, with no fit: it raises on a placeholder and returns on a recorded state."""
+    monkeypatch.setattr(study, "PILOT_STATE", "recorded")
+    assert study.require_recorded_pilots("the declared primary run") is None
+    monkeypatch.setattr(study, "PILOT_STATE", "placeholder")
+    with pytest.raises(study.PlaceholderPilotsError, match="the declared primary run"):
+        study.require_recorded_pilots("the declared primary run")
 
 
 # ---------------------------------------------------------------------------- the drivers
@@ -759,7 +840,7 @@ def test_the_pilot_summaries_read_synthetic_rows() -> None:
 
 
 def test_each_declared_n_is_its_base_times_the_recorded_doublings() -> None:
-    """The n rules double a size at most twice, and the placeholder pilots fire none."""
+    """The n rules double a size at most twice, and the pinned pilots fire none."""
     assert study.PRIMARY_N == study.PRIMARY_N_BASE * 2**study.PRIMARY_N_DOUBLINGS
     for name in ("CONTINUOUS", "ABSORBING", "HISTORY_FREE"):
         base = getattr(properties, f"{name}_N_BASE")

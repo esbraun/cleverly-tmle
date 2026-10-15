@@ -44,12 +44,11 @@ Declared before any run
 Pilot state
 -----------
 
-:data:`PILOT_STATE` is ``"placeholder"`` until pilots P4, P5 and P6 are run
-(``tests/canonical/ipsi_repeated/README.md`` gives the commands).  While it is a placeholder, the
-pilot tables in :mod:`tests.studies.ipsi_repeated_properties` hold declared uniform planning
-values, the sizes in this module are the rules applied to them, and a declared run is refused
-(:func:`require_recorded_pilots`).  The disposable smoke run with explicit ``--replicates`` and
-``--n`` is not a declared run.
+:data:`PILOT_STATE` is ``"recorded"``.  The pilot tables in
+:mod:`tests.studies.ipsi_repeated_properties` hold the pilots P4, P5 and P6 (``tests/canonical/ipsi_repeated/README.md``
+gives the commands).  The sizes in this module are the rules applied to those tables.  A declared
+run is refused while the state is ``"placeholder"`` (:func:`require_recorded_pilots`).  The
+disposable smoke run with explicit ``--replicates`` and ``--n`` is not a declared run.
 """
 
 from __future__ import annotations
@@ -75,8 +74,9 @@ from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.studies.ltmle_repeated_properties import CellMeansBackoff
 
 #: ``"placeholder"`` while the sizes below are the rules applied to declared uniform planning
-#: values, and ``"recorded"`` once pilots P4, P5 and P6 are pinned in the properties module.
-PILOT_STATE: Literal["placeholder", "recorded"] = "placeholder"
+#: values, and ``"recorded"`` once pilots P4, P5 and P6 are pinned in the properties module.  The
+#: pins record the pilots run at commit 9b6ffcfd (see the properties module docstring).
+PILOT_STATE: Literal["placeholder", "recorded"] = "recorded"
 
 #: The primary sample size is its base times two to the number of doublings the ``n`` rule
 #: recorded.  Both counts are declared, so a test can check the product.

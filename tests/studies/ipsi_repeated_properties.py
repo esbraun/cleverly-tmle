@@ -94,13 +94,17 @@ P5 C1, C3, C6 (and C4)     8,000 each   ``CALIBRATION_REPLICATES`` or the cap, t
 P6 every property family   2,000 each   each family's size, and the N1 and N2 ``n`` rules
 =========================  ===========  ====================================================
 
-While :data:`~tests.studies.canonical_ipsi_repeated.PILOT_STATE` is ``"placeholder"``, the
-tables below hold declared uniform planning values (SE ratio 1, standardized bias 0, coverage
-0.95), and the sizes are the rules applied to them.  They are planning sizes, not results.
-A declared run is refused.  The pilot driver (``tests/canonical/ipsi_repeated/pilot.py``) writes
-the pilot rows in resumable parts, and :func:`summarize_primary_pilot`,
-:func:`summarize_calibration_pilot` and :func:`summarize_property_pilot` turn them into these
-tables.
+The tables below hold the recorded pilots P4, P5 and P6.  The pilot driver
+(``tests/canonical/ipsi_repeated/pilot.py``) writes the pilot rows in resumable parts, and
+:func:`summarize_primary_pilot`, :func:`summarize_calibration_pilot` and
+:func:`summarize_property_pilot` turn them into these tables.
+
+The pilots ran on cloud containers at cleverly-tmle commit 9b6ffcfd.  Later merges of main, the
+RM42a refusal codes, the RM39b2 property contract and the X41 sequential baselines, do not change
+an IPSI fit.  The check: the pilot driver ran three P4 tasks for each scenario, three P5 tasks for
+each arm and three P6 tasks for each family, at the declared sizes, at 9b6ffcfd and at the merged
+head 187d0346.  The part files are byte-identical.  That is 645 floats with a largest difference
+of 0.  A declared run measures every gated cell and checks the claim again.
 """
 
 from __future__ import annotations
@@ -190,7 +194,7 @@ CALIBRATION_N = 8_000
 #: The sample size of the C6 arm (``continuous``).  It is declared apart from
 #: :data:`CALIBRATION_N`, so the C6 ``n`` rule doubles this size alone.
 CONTINUOUS_N_BASE = 8_000
-#: The doublings the C6 ``n`` rule recorded.  Zero while the pilots are placeholders.
+#: The doublings the C6 ``n`` rule recorded.  Zero: the rule did not fire on P5.
 CONTINUOUS_N_DOUBLINGS = 0
 CONTINUOUS_N = CONTINUOUS_N_BASE * 2**CONTINUOUS_N_DOUBLINGS
 #: The sample size of N1 and N2.  The ``n`` rule may double them, twice at most.
@@ -218,11 +222,11 @@ BASELINE_CONFIGURATIONS = frozenset({"w_only_m"})
 # test re-derives every one of them and states which pilot state it reads.
 
 #: ``calibration_size`` on P5 (``CALIBRATION_BUDGET_MET`` is False when the rule reached the cap).
-CALIBRATION_REPLICATES = 4_000
+CALIBRATION_REPLICATES = 6_800
 CALIBRATION_BUDGET_MET = True
 #: ``property_bias_replicates`` on P6 at the share ``family_share(3)``.
-SINGLE_ROBUSTNESS_REPLICATES = 600
-ABSORBING_REPLICATES = 800
+SINGLE_ROBUSTNESS_REPLICATES = 800
+ABSORBING_REPLICATES = 1_000
 HISTORY_FREE_REPLICATES = 800
 
 # ---------------------------------------------------------------------------- label parts
@@ -1015,44 +1019,236 @@ def effective_cells(labels: Sequence[str]) -> float:
 
 # ---------------------------------------------------------------------------- pilot tables
 #
-# PLACEHOLDER while ``PILOT_STATE`` is "placeholder".  These are declared uniform planning
-# values, not pilot results: every SE ratio is 1, every standardized bias is 0 and every
-# coverage is 0.95.  They exist so that the sizing rules run end to end and the declared run is
-# refused until the pilots replace them.  ``summarize_*_pilot`` produces the real tables.
+# Recorded pilot tables.  ``summarize_*_pilot`` produced them from the pilot rows of P4, P5 and
+# P6 at the code of commit 9b6ffcfd.  Each block below is the pasted output of the assemble step.
 
 #: Pilot P4 (primary): the covered count and the standardized bias of each ``scenario/label``
 #: cell over :data:`PRIMARY_PILOT_REPLICATES` draws at ``n = PRIMARY_N`` from the pilot stream.
-PRIMARY_PILOT_REPLICATES = 2_000
+PRIMARY_PILOT_REPLICATES = 2000
 #: The sample size P4 ran at.  A recorded table must equal :data:`PRIMARY_N` of the same module.
-PRIMARY_PILOT_N = 8_000
-PRIMARY_PILOT_COVERED = {f"{scenario}/{name}": 1_900 for scenario in SCENARIOS for name in LABELS}
-PRIMARY_PILOT_BIASES = {f"{scenario}/{name}": 0.0 for scenario in SCENARIOS for name in LABELS}
+PRIMARY_PILOT_N = 8000
+PRIMARY_PILOT_COVERED = {
+    "repeated_folds_5/ipsi_0.5_t1": 1893,
+    "repeated_folds_5/ipsi_0.5_t2": 1903,
+    "repeated_folds_5/ipsi_0.5_t3": 1893,
+    "repeated_folds_5/ipsi_1.0_t1": 1892,
+    "repeated_folds_5/ipsi_1.0_t2": 1916,
+    "repeated_folds_5/ipsi_1.0_t3": 1902,
+    "repeated_folds_5/ipsi_2.0_t1": 1886,
+    "repeated_folds_5/ipsi_2.0_t2": 1910,
+    "repeated_folds_5/ipsi_2.0_t3": 1910,
+    "repeated_folds_5/ipsi_0.5_vs_1.0_t1": 1890,
+    "repeated_folds_5/ipsi_0.5_vs_1.0_t2": 1890,
+    "repeated_folds_5/ipsi_0.5_vs_1.0_t3": 1890,
+    "repeated_folds_5/ipsi_2.0_vs_1.0_t1": 1890,
+    "repeated_folds_5/ipsi_2.0_vs_1.0_t2": 1889,
+    "repeated_folds_5/ipsi_2.0_vs_1.0_t3": 1895,
+    "repeated_folds_1/ipsi_0.5_t1": 1906,
+    "repeated_folds_1/ipsi_0.5_t2": 1903,
+    "repeated_folds_1/ipsi_0.5_t3": 1892,
+    "repeated_folds_1/ipsi_1.0_t1": 1898,
+    "repeated_folds_1/ipsi_1.0_t2": 1900,
+    "repeated_folds_1/ipsi_1.0_t3": 1899,
+    "repeated_folds_1/ipsi_2.0_t1": 1903,
+    "repeated_folds_1/ipsi_2.0_t2": 1899,
+    "repeated_folds_1/ipsi_2.0_t3": 1907,
+    "repeated_folds_1/ipsi_0.5_vs_1.0_t1": 1902,
+    "repeated_folds_1/ipsi_0.5_vs_1.0_t2": 1889,
+    "repeated_folds_1/ipsi_0.5_vs_1.0_t3": 1891,
+    "repeated_folds_1/ipsi_2.0_vs_1.0_t1": 1900,
+    "repeated_folds_1/ipsi_2.0_vs_1.0_t2": 1900,
+    "repeated_folds_1/ipsi_2.0_vs_1.0_t3": 1888,
+}
+PRIMARY_PILOT_BIASES = {
+    "repeated_folds_5/ipsi_0.5_t1": 0.0243,
+    "repeated_folds_5/ipsi_0.5_t2": -0.0255,
+    "repeated_folds_5/ipsi_0.5_t3": 0.0342,
+    "repeated_folds_5/ipsi_1.0_t1": 0.0193,
+    "repeated_folds_5/ipsi_1.0_t2": -0.0245,
+    "repeated_folds_5/ipsi_1.0_t3": 0.0261,
+    "repeated_folds_5/ipsi_2.0_t1": 0.013,
+    "repeated_folds_5/ipsi_2.0_t2": -0.0245,
+    "repeated_folds_5/ipsi_2.0_t3": -0.0021,
+    "repeated_folds_5/ipsi_0.5_vs_1.0_t1": 0.0222,
+    "repeated_folds_5/ipsi_0.5_vs_1.0_t2": -0.0121,
+    "repeated_folds_5/ipsi_0.5_vs_1.0_t3": 0.0279,
+    "repeated_folds_5/ipsi_2.0_vs_1.0_t1": -0.02,
+    "repeated_folds_5/ipsi_2.0_vs_1.0_t2": -0.0,
+    "repeated_folds_5/ipsi_2.0_vs_1.0_t3": -0.0529,
+    "repeated_folds_1/ipsi_0.5_t1": 0.0094,
+    "repeated_folds_1/ipsi_0.5_t2": 0.0154,
+    "repeated_folds_1/ipsi_0.5_t3": 0.0154,
+    "repeated_folds_1/ipsi_1.0_t1": 0.0039,
+    "repeated_folds_1/ipsi_1.0_t2": 0.0061,
+    "repeated_folds_1/ipsi_1.0_t3": 0.0085,
+    "repeated_folds_1/ipsi_2.0_t1": -0.0022,
+    "repeated_folds_1/ipsi_2.0_t2": -0.002,
+    "repeated_folds_1/ipsi_2.0_t3": 0.005,
+    "repeated_folds_1/ipsi_0.5_vs_1.0_t1": 0.0184,
+    "repeated_folds_1/ipsi_0.5_vs_1.0_t2": 0.0251,
+    "repeated_folds_1/ipsi_0.5_vs_1.0_t3": 0.0182,
+    "repeated_folds_1/ipsi_2.0_vs_1.0_t1": -0.0191,
+    "repeated_folds_1/ipsi_2.0_vs_1.0_t2": -0.0184,
+    "repeated_folds_1/ipsi_2.0_vs_1.0_t3": -0.006,
+}
 #: Mean reported standard error over the empirical spread of the estimate, by cell (reported).
-PRIMARY_PILOT_RATIOS = {f"{scenario}/{name}": 1.0 for scenario in SCENARIOS for name in LABELS}
+PRIMARY_PILOT_RATIOS = {
+    "repeated_folds_5/ipsi_0.5_t1": 0.9983,
+    "repeated_folds_5/ipsi_0.5_t2": 1.0086,
+    "repeated_folds_5/ipsi_0.5_t3": 0.9937,
+    "repeated_folds_5/ipsi_1.0_t1": 0.9957,
+    "repeated_folds_5/ipsi_1.0_t2": 1.0211,
+    "repeated_folds_5/ipsi_1.0_t3": 1.0144,
+    "repeated_folds_5/ipsi_2.0_t1": 0.9882,
+    "repeated_folds_5/ipsi_2.0_t2": 1.0152,
+    "repeated_folds_5/ipsi_2.0_t3": 1.0346,
+    "repeated_folds_5/ipsi_0.5_vs_1.0_t1": 0.9759,
+    "repeated_folds_5/ipsi_0.5_vs_1.0_t2": 0.975,
+    "repeated_folds_5/ipsi_0.5_vs_1.0_t3": 0.9959,
+    "repeated_folds_5/ipsi_2.0_vs_1.0_t1": 0.9759,
+    "repeated_folds_5/ipsi_2.0_vs_1.0_t2": 0.9651,
+    "repeated_folds_5/ipsi_2.0_vs_1.0_t3": 1.0047,
+    "repeated_folds_1/ipsi_0.5_t1": 1.0082,
+    "repeated_folds_1/ipsi_0.5_t2": 1.0089,
+    "repeated_folds_1/ipsi_0.5_t3": 0.9813,
+    "repeated_folds_1/ipsi_1.0_t1": 1.0094,
+    "repeated_folds_1/ipsi_1.0_t2": 0.9982,
+    "repeated_folds_1/ipsi_1.0_t3": 0.9984,
+    "repeated_folds_1/ipsi_2.0_t1": 1.009,
+    "repeated_folds_1/ipsi_2.0_t2": 0.9856,
+    "repeated_folds_1/ipsi_2.0_t3": 1.0051,
+    "repeated_folds_1/ipsi_0.5_vs_1.0_t1": 1.0043,
+    "repeated_folds_1/ipsi_0.5_vs_1.0_t2": 0.9956,
+    "repeated_folds_1/ipsi_0.5_vs_1.0_t3": 0.9709,
+    "repeated_folds_1/ipsi_2.0_vs_1.0_t1": 1.0049,
+    "repeated_folds_1/ipsi_2.0_vs_1.0_t2": 0.988,
+    "repeated_folds_1/ipsi_2.0_vs_1.0_t3": 0.9693,
+}
 
 #: Pilot P5 (calibration): the SE ratio and the standardized bias of each gated calibration
 #: cell over :data:`CALIBRATION_PILOT_REPLICATES` draws per arm at :data:`CALIBRATION_N`, and the
 #: joint coverage of the C4 band over the C1 fits.
-CALIBRATION_PILOT_REPLICATES = 8_000
+CALIBRATION_PILOT_REPLICATES = 8000
 #: The sample size each P5 arm ran at.  A recorded table must equal the arm's declared size.
-CALIBRATION_PILOT_N = {"in_sample": 8_000, "crossfit": 8_000, "continuous": 8_000}
+CALIBRATION_PILOT_N = {"in_sample": 8000, "crossfit": 8000, "continuous": 8000}
 CALIBRATION_CELLS = (
     *(f"{name}__in_sample" for name in LABELS),
     *(f"{name}__crossfit" for name in GATED_LABELS),
     *(f"{name}__continuous" for name in GATED_LABELS),
 )
-CALIBRATION_PILOT_RATIOS = dict.fromkeys(CALIBRATION_CELLS, 1.0)
-CALIBRATION_PILOT_BIASES = dict.fromkeys(CALIBRATION_CELLS, 0.0)
-#: The covered count of each calibration cell over the pilot draws of its arm (reported).
-CALIBRATION_PILOT_COVERED = dict.fromkeys(CALIBRATION_CELLS, 7_600)
-#: The empirical spread of each calibration cell's estimate (reported).  The placeholder is the
-#: efficiency bound over the root of the arm's size, which is the law's own spread.
-CALIBRATION_PILOT_SPREADS = {
-    cell: EFFICIENCY_SD[cell.split("__", 1)[0]] / 8_000**0.5 for cell in CALIBRATION_CELLS
+CALIBRATION_PILOT_RATIOS = {
+    "ipsi_0.5_t1__in_sample": 1.0001,
+    "ipsi_0.5_t2__in_sample": 1.0041,
+    "ipsi_0.5_t3__in_sample": 1.001,
+    "ipsi_1.0_t1__in_sample": 1.0017,
+    "ipsi_1.0_t2__in_sample": 1.0018,
+    "ipsi_1.0_t3__in_sample": 1.0071,
+    "ipsi_2.0_t1__in_sample": 1.0034,
+    "ipsi_2.0_t2__in_sample": 0.9966,
+    "ipsi_2.0_t3__in_sample": 1.0009,
+    "ipsi_0.5_vs_1.0_t1__in_sample": 1.0017,
+    "ipsi_0.5_vs_1.0_t2__in_sample": 1.0008,
+    "ipsi_0.5_vs_1.0_t3__in_sample": 0.9823,
+    "ipsi_2.0_vs_1.0_t1__in_sample": 1.0006,
+    "ipsi_2.0_vs_1.0_t2__in_sample": 1.0074,
+    "ipsi_2.0_vs_1.0_t3__in_sample": 0.9869,
+    "ipsi_0.5_t3__crossfit": 0.9982,
+    "ipsi_1.0_t3__crossfit": 0.9963,
+    "ipsi_2.0_t3__crossfit": 0.9907,
+    "ipsi_0.5_vs_1.0_t3__crossfit": 1.0013,
+    "ipsi_2.0_vs_1.0_t3__crossfit": 0.9884,
+    "ipsi_0.5_t3__continuous": 0.9848,
+    "ipsi_1.0_t3__continuous": 0.9898,
+    "ipsi_2.0_t3__continuous": 0.982,
+    "ipsi_0.5_vs_1.0_t3__continuous": 0.9699,
+    "ipsi_2.0_vs_1.0_t3__continuous": 0.9795,
 }
-CALIBRATION_PILOT_JOINT_COVERAGE = 0.95
+CALIBRATION_PILOT_BIASES = {
+    "ipsi_0.5_t1__in_sample": -0.0008,
+    "ipsi_0.5_t2__in_sample": -0.0151,
+    "ipsi_0.5_t3__in_sample": -0.0266,
+    "ipsi_1.0_t1__in_sample": 0.0043,
+    "ipsi_1.0_t2__in_sample": -0.0035,
+    "ipsi_1.0_t3__in_sample": -0.009,
+    "ipsi_2.0_t1__in_sample": 0.0092,
+    "ipsi_2.0_t2__in_sample": 0.0072,
+    "ipsi_2.0_t3__in_sample": 0.012,
+    "ipsi_0.5_vs_1.0_t1__in_sample": -0.0144,
+    "ipsi_0.5_vs_1.0_t2__in_sample": -0.0305,
+    "ipsi_0.5_vs_1.0_t3__in_sample": -0.0407,
+    "ipsi_2.0_vs_1.0_t1__in_sample": 0.0147,
+    "ipsi_2.0_vs_1.0_t2__in_sample": 0.0247,
+    "ipsi_2.0_vs_1.0_t3__in_sample": 0.0404,
+    "ipsi_0.5_t3__crossfit": 0.0016,
+    "ipsi_1.0_t3__crossfit": -0.0108,
+    "ipsi_2.0_t3__crossfit": -0.0241,
+    "ipsi_0.5_vs_1.0_t3__crossfit": 0.0226,
+    "ipsi_2.0_vs_1.0_t3__crossfit": -0.0276,
+    "ipsi_0.5_t3__continuous": -0.0285,
+    "ipsi_1.0_t3__continuous": -0.0063,
+    "ipsi_2.0_t3__continuous": 0.0211,
+    "ipsi_0.5_vs_1.0_t3__continuous": -0.0493,
+    "ipsi_2.0_vs_1.0_t3__continuous": 0.0532,
+}
+#: The covered count of each calibration cell over the pilot draws of its arm (reported).
+CALIBRATION_PILOT_COVERED = {
+    "ipsi_0.5_t1__in_sample": 7595,
+    "ipsi_0.5_t2__in_sample": 7598,
+    "ipsi_0.5_t3__in_sample": 7625,
+    "ipsi_1.0_t1__in_sample": 7594,
+    "ipsi_1.0_t2__in_sample": 7601,
+    "ipsi_1.0_t3__in_sample": 7616,
+    "ipsi_2.0_t1__in_sample": 7580,
+    "ipsi_2.0_t2__in_sample": 7599,
+    "ipsi_2.0_t3__in_sample": 7623,
+    "ipsi_0.5_vs_1.0_t1__in_sample": 7585,
+    "ipsi_0.5_vs_1.0_t2__in_sample": 7578,
+    "ipsi_0.5_vs_1.0_t3__in_sample": 7580,
+    "ipsi_2.0_vs_1.0_t1__in_sample": 7577,
+    "ipsi_2.0_vs_1.0_t2__in_sample": 7593,
+    "ipsi_2.0_vs_1.0_t3__in_sample": 7586,
+    "ipsi_0.5_t3__crossfit": 7609,
+    "ipsi_1.0_t3__crossfit": 7581,
+    "ipsi_2.0_t3__crossfit": 7592,
+    "ipsi_0.5_vs_1.0_t3__crossfit": 7585,
+    "ipsi_2.0_vs_1.0_t3__crossfit": 7582,
+    "ipsi_0.5_t3__continuous": 7555,
+    "ipsi_1.0_t3__continuous": 7582,
+    "ipsi_2.0_t3__continuous": 7567,
+    "ipsi_0.5_vs_1.0_t3__continuous": 7544,
+    "ipsi_2.0_vs_1.0_t3__continuous": 7580,
+}
+#: The empirical spread of each calibration cell's estimate (reported).
+CALIBRATION_PILOT_SPREADS = {
+    "ipsi_0.5_t1__in_sample": 0.0048235,
+    "ipsi_0.5_t2__in_sample": 0.00552908,
+    "ipsi_0.5_t3__in_sample": 0.00637494,
+    "ipsi_1.0_t1__in_sample": 0.00425306,
+    "ipsi_1.0_t2__in_sample": 0.00470627,
+    "ipsi_1.0_t3__in_sample": 0.00527458,
+    "ipsi_2.0_t1__in_sample": 0.00416176,
+    "ipsi_2.0_t2__in_sample": 0.00470883,
+    "ipsi_2.0_t3__in_sample": 0.00555608,
+    "ipsi_0.5_vs_1.0_t1__in_sample": 0.00153525,
+    "ipsi_0.5_vs_1.0_t2__in_sample": 0.00220557,
+    "ipsi_0.5_vs_1.0_t3__in_sample": 0.00300461,
+    "ipsi_2.0_vs_1.0_t1__in_sample": 0.00134426,
+    "ipsi_2.0_vs_1.0_t2__in_sample": 0.00203919,
+    "ipsi_2.0_vs_1.0_t3__in_sample": 0.00282228,
+    "ipsi_0.5_t3__crossfit": 0.00645353,
+    "ipsi_1.0_t3__crossfit": 0.00534937,
+    "ipsi_2.0_t3__crossfit": 0.00565106,
+    "ipsi_0.5_vs_1.0_t3__crossfit": 0.00300622,
+    "ipsi_2.0_vs_1.0_t3__crossfit": 0.00285634,
+    "ipsi_0.5_t3__continuous": 0.00518581,
+    "ipsi_1.0_t3__continuous": 0.00425383,
+    "ipsi_2.0_t3__continuous": 0.00445774,
+    "ipsi_0.5_vs_1.0_t3__continuous": 0.00245798,
+    "ipsi_2.0_vs_1.0_t3__continuous": 0.00227177,
+}
+CALIBRATION_PILOT_JOINT_COVERAGE = 0.9475
 #: The realized fallback-read mass of the C6 arm at the third node, by tilt, from P5.  Reported.
-C6_FALLBACK_MASS: dict[str, float] = {}
+C6_FALLBACK_MASS: dict[str, float] = {"0.5": 0.0013, "2.0": 0.001}
 
 
 def property_cells() -> dict[str, list[str]]:
@@ -1071,22 +1267,118 @@ def property_cells() -> dict[str, list[str]]:
 #: Pilot P6 (property families): the standardized bias of each ``family/cell`` around its
 #: target (the truth for a positive arm, the control's own limit for a control) over
 #: :data:`PROPERTY_PILOT_REPLICATES` draws at the family's own size.
-PROPERTY_PILOT_REPLICATES = 2_000
+PROPERTY_PILOT_REPLICATES = 2000
 #: The sample size each P6 family ran at.  A recorded table must equal the family's declared size.
 PROPERTY_PILOT_N = {
-    "single_robustness": 2_000,
-    "repeated_outcome_necessity": 8_000,
-    "outcome_history_necessity": 8_000,
+    "single_robustness": 2000,
+    "repeated_outcome_necessity": 8000,
+    "outcome_history_necessity": 8000,
 }
-PROPERTY_PILOT_BIASES = {name: 0.0 for names in property_cells().values() for name in names}
-PROPERTY_PILOT_RATIOS = {name: 1.0 for names in property_cells().values() for name in names}
-PROPERTY_PILOT_COVERED = {name: 1_900 for names in property_cells().values() for name in names}
+PROPERTY_PILOT_BIASES = {
+    "single_robustness/ipsi_0.5_t3__w_only_m": 0.0169,
+    "single_robustness/ipsi_0.5_t3__one_step_necessity": 0.0185,
+    "single_robustness/ipsi_2.0_t3__w_only_m": -0.0089,
+    "single_robustness/ipsi_2.0_t3__one_step_necessity": -0.0129,
+    "single_robustness/ipsi_0.5_vs_1.0_t3__w_only_m": 0.0304,
+    "single_robustness/ipsi_0.5_vs_1.0_t3__one_step_necessity": 0.0514,
+    "single_robustness/ipsi_2.0_vs_1.0_t3__w_only_m": -0.0249,
+    "single_robustness/ipsi_2.0_vs_1.0_t3__one_step_necessity": -0.049,
+    "repeated_outcome_necessity/ipsi_0.5_t2__repeated": -0.0353,
+    "repeated_outcome_necessity/ipsi_0.5_t2__absorbing_reading": -0.0366,
+    "repeated_outcome_necessity/ipsi_0.5_t3__repeated": 0.0151,
+    "repeated_outcome_necessity/ipsi_0.5_t3__absorbing_reading": 0.0017,
+    "repeated_outcome_necessity/ipsi_1.0_t2__repeated": -0.0392,
+    "repeated_outcome_necessity/ipsi_1.0_t2__absorbing_reading": -0.0328,
+    "repeated_outcome_necessity/ipsi_1.0_t3__repeated": 0.0309,
+    "repeated_outcome_necessity/ipsi_1.0_t3__absorbing_reading": 0.0017,
+    "repeated_outcome_necessity/ipsi_2.0_t2__repeated": -0.0339,
+    "repeated_outcome_necessity/ipsi_2.0_t2__absorbing_reading": -0.0232,
+    "repeated_outcome_necessity/ipsi_2.0_t3__repeated": 0.033,
+    "repeated_outcome_necessity/ipsi_2.0_t3__absorbing_reading": 0.0008,
+    "outcome_history_necessity/ipsi_0.5_t3__repeated": -0.0115,
+    "outcome_history_necessity/ipsi_0.5_t3__history_free": -0.0159,
+    "outcome_history_necessity/ipsi_2.0_t3__repeated": 0.0184,
+    "outcome_history_necessity/ipsi_2.0_t3__history_free": 0.0121,
+}
+PROPERTY_PILOT_RATIOS = {
+    "single_robustness/ipsi_0.5_t3__w_only_m": 1.0217,
+    "single_robustness/ipsi_0.5_t3__one_step_necessity": 1.1492,
+    "single_robustness/ipsi_2.0_t3__w_only_m": 1.0341,
+    "single_robustness/ipsi_2.0_t3__one_step_necessity": 1.0404,
+    "single_robustness/ipsi_0.5_vs_1.0_t3__w_only_m": 1.0763,
+    "single_robustness/ipsi_0.5_vs_1.0_t3__one_step_necessity": 1.9201,
+    "single_robustness/ipsi_2.0_vs_1.0_t3__w_only_m": 1.0673,
+    "single_robustness/ipsi_2.0_vs_1.0_t3__one_step_necessity": 1.5694,
+    "repeated_outcome_necessity/ipsi_0.5_t2__repeated": 1.0139,
+    "repeated_outcome_necessity/ipsi_0.5_t2__absorbing_reading": 1.0079,
+    "repeated_outcome_necessity/ipsi_0.5_t3__repeated": 0.9935,
+    "repeated_outcome_necessity/ipsi_0.5_t3__absorbing_reading": 1.0144,
+    "repeated_outcome_necessity/ipsi_1.0_t2__repeated": 1.0149,
+    "repeated_outcome_necessity/ipsi_1.0_t2__absorbing_reading": 1.0096,
+    "repeated_outcome_necessity/ipsi_1.0_t3__repeated": 0.9984,
+    "repeated_outcome_necessity/ipsi_1.0_t3__absorbing_reading": 1.03,
+    "repeated_outcome_necessity/ipsi_2.0_t2__repeated": 1.0087,
+    "repeated_outcome_necessity/ipsi_2.0_t2__absorbing_reading": 1.0057,
+    "repeated_outcome_necessity/ipsi_2.0_t3__repeated": 1.004,
+    "repeated_outcome_necessity/ipsi_2.0_t3__absorbing_reading": 1.0365,
+    "outcome_history_necessity/ipsi_0.5_t3__repeated": 0.9895,
+    "outcome_history_necessity/ipsi_0.5_t3__history_free": 0.9931,
+    "outcome_history_necessity/ipsi_2.0_t3__repeated": 0.9975,
+    "outcome_history_necessity/ipsi_2.0_t3__history_free": 0.9993,
+}
+PROPERTY_PILOT_COVERED = {
+    "single_robustness/ipsi_0.5_t3__w_only_m": 1911,
+    "single_robustness/ipsi_0.5_t3__one_step_necessity": 842,
+    "single_robustness/ipsi_2.0_t3__w_only_m": 1912,
+    "single_robustness/ipsi_2.0_t3__one_step_necessity": 1068,
+    "single_robustness/ipsi_0.5_vs_1.0_t3__w_only_m": 1917,
+    "single_robustness/ipsi_0.5_vs_1.0_t3__one_step_necessity": 0,
+    "single_robustness/ipsi_2.0_vs_1.0_t3__w_only_m": 1924,
+    "single_robustness/ipsi_2.0_vs_1.0_t3__one_step_necessity": 0,
+    "repeated_outcome_necessity/ipsi_0.5_t2__repeated": 1910,
+    "repeated_outcome_necessity/ipsi_0.5_t2__absorbing_reading": 0,
+    "repeated_outcome_necessity/ipsi_0.5_t3__repeated": 1887,
+    "repeated_outcome_necessity/ipsi_0.5_t3__absorbing_reading": 0,
+    "repeated_outcome_necessity/ipsi_1.0_t2__repeated": 1919,
+    "repeated_outcome_necessity/ipsi_1.0_t2__absorbing_reading": 0,
+    "repeated_outcome_necessity/ipsi_1.0_t3__repeated": 1876,
+    "repeated_outcome_necessity/ipsi_1.0_t3__absorbing_reading": 0,
+    "repeated_outcome_necessity/ipsi_2.0_t2__repeated": 1902,
+    "repeated_outcome_necessity/ipsi_2.0_t2__absorbing_reading": 0,
+    "repeated_outcome_necessity/ipsi_2.0_t3__repeated": 1894,
+    "repeated_outcome_necessity/ipsi_2.0_t3__absorbing_reading": 0,
+    "outcome_history_necessity/ipsi_0.5_t3__repeated": 1898,
+    "outcome_history_necessity/ipsi_0.5_t3__history_free": 1122,
+    "outcome_history_necessity/ipsi_2.0_t3__repeated": 1896,
+    "outcome_history_necessity/ipsi_2.0_t3__history_free": 1729,
+}
 #: The empirical spread of each cell's estimate.  The discrimination test reads the gaps of the
 #: controls in these spreads once the pilots are recorded.
 PROPERTY_PILOT_SPREADS = {
-    f"{family}/{cell}": EFFICIENCY_SD[cell.split("__", 1)[0]] / PROPERTY_PILOT_N[family] ** 0.5
-    for family, names in property_cells().items()
-    for cell in (key.split("/", 1)[1] for key in names)
+    "single_robustness/ipsi_0.5_t3__w_only_m": 0.0128927,
+    "single_robustness/ipsi_0.5_t3__one_step_necessity": 0.0114621,
+    "single_robustness/ipsi_2.0_t3__w_only_m": 0.0109766,
+    "single_robustness/ipsi_2.0_t3__one_step_necessity": 0.0109096,
+    "single_robustness/ipsi_0.5_vs_1.0_t3__w_only_m": 0.00592002,
+    "single_robustness/ipsi_0.5_vs_1.0_t3__one_step_necessity": 0.00331855,
+    "single_robustness/ipsi_2.0_vs_1.0_t3__w_only_m": 0.00547098,
+    "single_robustness/ipsi_2.0_vs_1.0_t3__one_step_necessity": 0.00372063,
+    "repeated_outcome_necessity/ipsi_0.5_t2__repeated": 0.00547497,
+    "repeated_outcome_necessity/ipsi_0.5_t2__absorbing_reading": 0.00612466,
+    "repeated_outcome_necessity/ipsi_0.5_t3__repeated": 0.00642334,
+    "repeated_outcome_necessity/ipsi_0.5_t3__absorbing_reading": 0.00651148,
+    "repeated_outcome_necessity/ipsi_1.0_t2__repeated": 0.00464425,
+    "repeated_outcome_necessity/ipsi_1.0_t2__absorbing_reading": 0.00542862,
+    "repeated_outcome_necessity/ipsi_1.0_t3__repeated": 0.00532213,
+    "repeated_outcome_necessity/ipsi_1.0_t3__absorbing_reading": 0.0057229,
+    "repeated_outcome_necessity/ipsi_2.0_t2__repeated": 0.00465029,
+    "repeated_outcome_necessity/ipsi_2.0_t2__absorbing_reading": 0.00556019,
+    "repeated_outcome_necessity/ipsi_2.0_t3__repeated": 0.00553883,
+    "repeated_outcome_necessity/ipsi_2.0_t3__absorbing_reading": 0.00612888,
+    "outcome_history_necessity/ipsi_0.5_t3__repeated": 0.00644998,
+    "outcome_history_necessity/ipsi_0.5_t3__history_free": 0.00643276,
+    "outcome_history_necessity/ipsi_2.0_t3__repeated": 0.00557612,
+    "outcome_history_necessity/ipsi_2.0_t3__history_free": 0.00574589,
 }
 
 

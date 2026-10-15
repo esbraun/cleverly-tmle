@@ -1045,7 +1045,7 @@ stochastic-regimes,targeting_necessity,bias equivalent,bias
 stochastic-regimes,targeting_necessity,least displacement over labels,control_concentrated
 stochastic-regimes,type_i_error,coverage floor,coverage/0.5
 stochastic-regimes,type_i_error,rejection ceiling,rejection/0.1
-tests.studies.ipsi_repeated_properties,interval_calibration,coverage in calibration band,bias
+tests.studies.ipsi_repeated_properties,interval_calibration,coverage in calibration band,affine
 tests.studies.ipsi_repeated_properties,interval_calibration,noise se ratio below band,none
 tests.studies.ipsi_repeated_properties,interval_calibration,se ratio below band,se_high
 tests.studies.ipsi_repeated_properties,interval_calibration,se ratio in calibration band,affine
