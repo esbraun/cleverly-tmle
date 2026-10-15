@@ -230,8 +230,10 @@ _POLICY_ID = Identification(
         "it does not establish true conditional support or identification",
         "the policy is a known function of (A, W), and of a randomizer of known law when "
         "it is randomized: d does not depend on the observed-data law, so the influence "
-        "function carries no term for estimating it. A cap fitted from the data would "
-        "break this, which is why cap= is required rather than defaulted to max(A)",
+        "function carries no term for estimating it. A cap read from the data is a "
+        "declared tuner with a declared target instead (X40 part (e)): the population "
+        "target adds the tuner's term to the curve, and the fold-average target fits each "
+        "fold's map on its training rows. cap= is never defaulted to max(A)",
         "on a continuous treatment, d is piecewise smooth invertible (Diaz, Williams, "
         "Hoffman & Schenck 2023, Assumption 4): a policy that maps an interval to one dose "
         "is not pathwise differentiable and is refused",

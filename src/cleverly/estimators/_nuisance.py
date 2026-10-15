@@ -584,6 +584,10 @@ class NuisanceEstimates:
     #: object it is handed, so the companion designs and the split cannot come apart -- and
     #: it is what :math:`P_0\\hat D` is integrated from.  See :class:`CompanionEstimates`.
     companion: CompanionEstimates | None = None
+    #: The outcome regression predicted at each requested probe dose, keyed as
+    #: :func:`fit_nuisances`'s ``probe_doses``: the boundary and the last moved dose of a
+    #: population-target tuned cap (X40 part (e2)).  Empty on every other fit.
+    outcome_probes: dict[str, FloatArray] = field(default_factory=dict)
 
     def retilted(self, mechanism: FloatArray) -> NuisanceEstimates:
         """The same nuisances with every tilt re-evaluated at ``mechanism``.
@@ -1281,6 +1285,8 @@ def fit_nuisances(
     n_jobs: int = 1,
     fit_treatment: bool = True,
     fit_treatment_observation: bool = True,
+    policy_by_fold: Sequence[Sequence[Policy]] | None = None,
+    probe_doses: Mapping[str, FloatArray] | None = None,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -1340,6 +1346,12 @@ def fit_nuisances(
     declaration and marked known, so that its targeting solves no mechanism equation.  A
     discrete modified treatment policy is evaluated at the declaration, as at a fitted
     mechanism.  A companion's propensity is the companion's own declaration in every fold.
+
+    Two keywords serve a policy with a data-tuned cap (X40 part (e)).  ``policy_by_fold``
+    gives, per outer fold, the policies that fold's classifier stacks on the classifier
+    route: the map at the tuner fitted on that fold's training rows.  ``probe_doses`` asks
+    for the outcome regression at further ``(n,)`` doses, returned on
+    :attr:`NuisanceEstimates.outcome_probes` under the same keys.
     """
     if data.composite_view:
         raise ValueError(
@@ -1406,6 +1418,7 @@ def fit_nuisances(
             folds,
             reference=policy_reference,
             n_jobs=n_jobs,
+            by_fold=policy_by_fold,
         )
     elif data.is_continuous_treatment:
         # A dose has no arms, so there is no P(A = a | W) to classify: the mechanism is a
@@ -1651,6 +1664,11 @@ def fit_nuisances(
         }
 
     designs: dict[str, FloatArray] = {"observed": outcome_design}
+    probes = dict(probe_doses or {})
+    for key, doses in probes.items():
+        designs[f"probe:{key}"] = data.counterfactual_design(
+            np.asarray(doses, dtype=float), intermediate_value=levels[0]
+        )
     for level in levels:
         for code, value in counterfactual.items():
             designs[_design_key(code, level)] = data.counterfactual_design(
@@ -1727,6 +1745,7 @@ def fit_nuisances(
         incremental=ipsi_set,
         msm=msm,
         companion=companion_estimates,
+        outcome_probes={key: outcome_out[f"probe:{key}"] for key in probes},
     )
 
 

@@ -151,7 +151,6 @@ __all__ = [
     "Shift",
     "Support",
     "check_policy_support",
-    "refuse_point_tuned_policies",
     "refuse_policy_declarations",
     "resolve_tuned_policy",
     "tuned_policy",
@@ -1031,29 +1030,6 @@ def refuse_tuned_declarations(policy: Shift | Scale) -> None:
         and not cap.finite_dimensional
     ):
         raise CapabilityError(population_refusal(policy.name, cap))
-
-
-def refuse_point_tuned_policies(policies: Iterable[object]) -> None:
-    """Refuse a tuned cap in a point-treatment fit, which does not resolve one.
-
-    Parameters
-    ----------
-    policies : iterable of object
-        The policies of a point-treatment fit.
-
-    Raises
-    ------
-    CapabilityError
-        If a policy is a :class:`Shift` or :class:`Scale` whose cap is a tuner.
-    """
-    for policy in policies:
-        if tuned_policy(policy):
-            raise CapabilityError(
-                f"policy {getattr(policy, 'name', policy)!r} tunes its cap from the treatment "
-                "law. The point-treatment fit does not resolve a tuned cap in this release, so "
-                "it estimates neither target. Fit the policy as the node of a DynamicRegimen "
-                "with LTMLE or SDR, which resolve the tuner and both targets"
-            )
 
 
 def tuned_policy(policy: object) -> bool:
@@ -3732,6 +3708,16 @@ class PolicySet:
         factors of the node's law at the observed value and at each branch's assigned
         value (:mod:`~cleverly.interventions.joint_density`).  :meth:`design_at` rebuilds
         the ratios from them with the categorical factor bounded.  ``None`` elsewhere.
+    component_rows : ndarray or None
+        ``(n, C)`` boolean, the rows each component's mean and curve read, or ``None`` when
+        every component reads every row.  A fold-average policy (X40 part (e1)) has one
+        component per outer fold, at the map fitted on that fold's training rows, and the
+        component reads only the fold's held-out rows.  Its ratio is zero on the other rows,
+        so its fluctuation solves the fold's own score.
+    curve_terms : ndarray or None
+        ``(n, S)`` the term each policy's curve adds on the scaled outcome scale, or
+        ``None``.  A population-target policy with a tuned cap adds
+        :math:`\\partial\\Phi_n' \\mathrm{IF}` (X40 part (e2)); every other policy adds zero.
 
     Attributes
     ----------
@@ -3759,6 +3745,8 @@ class PolicySet:
     observed_codes: IntArray | None = None
     capped: BoolArray | None = None
     joint: JointDensityParts | None = None
+    component_rows: BoolArray | None = None
+    curve_terms: FloatArray | None = None
 
     def __post_init__(self) -> None:
         s = len(self.names)
@@ -3771,6 +3759,12 @@ class PolicySet:
             ("ratio", self.ratio, (n, c)),
             ("moved", self.moved, (n, c)),
             *(() if self.capped is None else (("capped", self.capped, (n, c)),)),
+            *(
+                ()
+                if self.component_rows is None
+                else (("component_rows", self.component_rows, (n, c)),)
+            ),
+            *(() if self.curve_terms is None else (("curve_terms", self.curve_terms, (n, s)),)),
             ("ratio_at", self.ratio_at, (n, c, c)),
         ):
             if np.asarray(array).shape != shape:
@@ -3877,6 +3871,7 @@ class PolicySet:
         *,
         reference: str | None = None,
         n_jobs: int = 1,
+        by_fold: Sequence[Sequence[object]] | None = None,
     ) -> PolicySet:
         """Evaluate every policy with ratios estimated by classification.
 
@@ -3900,6 +3895,12 @@ class PolicySet:
             Label of the policy contrasts are taken against.
         n_jobs : int
             Parallel workers across the outer folds.
+        by_fold : sequence or None
+            Per outer fold, the policies that fold's classifier stacks, in place of
+            ``policies``, with the same branches: a population-target tuned cap at the
+            tuner fitted on that fold's training rows (X40 plan section 2.5, N3).  The ratio
+            is still evaluated at the doses ``policies`` assign.  ``None`` stacks
+            ``policies`` in every fold.
 
         Returns
         -------
@@ -3957,6 +3958,20 @@ class PolicySet:
                     columns.append(codes[np.arange(data.n), observed_codes].astype(float))
         shifted = np.column_stack(columns)
         count = shifted.shape[1]
+        fold_columns: list[FloatArray] | None = None
+        if by_fold is not None:
+            if not data.is_continuous_treatment:
+                raise ValueError("by_fold applies to a continuous treatment of one column")
+            fold_columns = []
+            for fold_policies in by_fold:
+                stacked = [
+                    np.asarray(branch.assign(a, frame), dtype=float)
+                    for policy in fold_policies
+                    for _, branch in policy_branches(policy)
+                ]
+                if len(stacked) != count:
+                    raise ValueError("each fold's policies need the branches of policies=")
+                fold_columns.append(np.column_stack(stacked))
         ratio = np.zeros((data.n, count))
         ratio_at = np.zeros((data.n, count, count))
         # The classifier reads a vector's components as indicators, never the joint level
@@ -3976,6 +3991,11 @@ class PolicySet:
                 groups=data.cluster,
                 n_jobs=n_jobs,
                 atoms=atoms,
+                assigned_by_fold=(
+                    None
+                    if fold_columns is None
+                    else [((1.0, block(fold[:, c])),) for fold in fold_columns]
+                ),
             )
             ratio[:, c] = evaluated[0]
             for s in range(count):
@@ -4262,11 +4282,18 @@ class PolicySet:
         """``(n, S)`` each policy's clever covariate at the observed treatment.
 
         The known component weights average the component ratios, which is the ratio of
-        the policy's induced density: :math:`g^d = \\sum_e p(e)\\, g^{d_e}`.
+        the policy's induced density: :math:`g^d = \\sum_e p(e)\\, g^{d_e}`.  A
+        fold-average policy reads, at each row, the ratio of the component that holds the
+        row out, so the weights are renormalised over the components that read the row.
         """
         if self.mixing is None:
             return np.asarray(self.ratio, dtype=float)
-        return np.asarray(self.ratio @ self.weights.T, dtype=float)
+        if self.component_rows is None:
+            return np.asarray(self.ratio @ self.weights.T, dtype=float)
+        rows = np.asarray(self.component_rows, dtype=float)
+        mass = rows @ self.weights.T
+        safe = np.where(mass > 0.0, mass, 1.0)
+        return np.asarray((self.ratio * rows) @ self.weights.T / safe, dtype=float)
 
     @property
     def design(self) -> FloatArray:
@@ -4352,6 +4379,8 @@ class PolicySet:
             component_codes=None if self.component_codes is None else self.component_codes[idx],
             observed_codes=None if self.observed_codes is None else self.observed_codes[idx],
             joint=None if self.joint is None else self.joint.subset(idx),
+            component_rows=None if self.component_rows is None else self.component_rows[idx],
+            curve_terms=None if self.curve_terms is None else self.curve_terms[idx],
         )
 
 

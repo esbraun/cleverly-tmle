@@ -429,14 +429,6 @@ def test_m_e4_dropping_the_term_moves_the_reported_curve(
     )
 
 
-def test_the_point_fit_refuses_a_tuned_cap() -> None:
-    """Point TMLE does not resolve a tuner in this release, and it says so at construction."""
-    from cleverly.estimators import TMLE
-
-    with pytest.raises(CapabilityError, match="does not resolve a tuned cap in this release"):
-        TMLE(policies=[Shift(1.0, cap=DoseQuantile(0.5), target="population")])
-
-
 # ------------------------------------------------------------------ the kernel slope (T-e5)
 
 SIZES = (2_000, 8_000, 32_000, 128_000)

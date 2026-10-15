@@ -184,7 +184,6 @@ from ..interventions.learned import (
 from ..interventions.policy import (
     JointPolicy,
     preflight_point_policies,
-    refuse_point_tuned_policies,
     refuse_policy_declarations,
     vector_msm_refusal,
     vector_route_refusal,
@@ -229,6 +228,12 @@ from ._strata import (
     stratum_probabilities,
     stratum_source,
     unscale_block,
+)
+from ._tuned_policies import (
+    declares_tuned,
+    in_sample_policies,
+    refuse_tuned_compositions,
+    resolve_point_policies,
 )
 from .base import (
     CVTargeting,
@@ -950,7 +955,6 @@ class TMLE:
         self.incremental = tuple(incremental or ())
         refuse_mixed_interventions(self.policies, kind="policy", holder="policies=")
         refuse_policy_declarations(self.policies)
-        refuse_point_tuned_policies(self.policies)
         _refuse_mixed_tilts(self.policies)
         refuse_mixed_interventions(self.incremental, kind="incremental", holder="incremental=")
         self.msm = msm
@@ -3048,7 +3052,15 @@ class TMLE:
         treatment coded 0 and 1.  A ``Rule`` is :math:`d(W)`, a different policy.  A
         continuous treatment with no ``policies=`` has no estimand at all, since every
         registered arm-indexed target names a level it has none of.
+
+        A policy with a data-tuned cap meets
+        :func:`~cleverly.estimators._tuned_policies.refuse_tuned_compositions` first, and
+        the declaration checks read it at the tuner fitted on every row.  Each fold map of
+        a fold-average target is checked over every row when the fit evaluates it.
         """
+        tuned = declares_tuned(self.policies)
+        if tuned:
+            refuse_tuned_compositions(self, data)
         if data.treatment_kind == "vector":
             # :meth:`_refuse_vector_compositions` admits joint policies only.
             return
@@ -3069,7 +3081,10 @@ class TMLE:
             # The declared support, the declared atoms and the undeclared-atom check, all
             # before any learner (X40 parts (a) and (b)).
             preflight_point_policies(
-                tuple(self.policies), data, ratio=self.ratio, density_bins=self.density_bins
+                in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
+                data,
+                ratio=self.ratio,
+                density_bins=self.density_bins,
             )
         elif data.treatment_support is not None or data.dose_atoms:
             raise DataError(
@@ -3301,6 +3316,10 @@ class TMLE:
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         msm = self._msm(data)
+        # A data-tuned cap is fitted here, on the realised split and before any learner
+        # (X40 part (e)), and the expanded policies are what the nuisances evaluate.
+        tuned = resolve_point_policies(self.policies, data, folds) if self.policies else None
+        reference = None if self.reference is None else str(self.reference)
         estimates = fit_nuisances(
             data,
             outcome_learner=self._resolve_learner(
@@ -3336,8 +3355,10 @@ class TMLE:
             screen_treatment=self.screen_treatment,
             screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
-            policies=self.policies,
-            policy_reference=None if self.reference is None else str(self.reference),
+            policies=self.policies if tuned is None else tuned.expanded,  # type: ignore[arg-type]
+            policy_reference=reference if tuned is None else None,
+            policy_by_fold=None if tuned is None else tuned.by_fold,  # type: ignore[arg-type]
+            probe_doses=None if tuned is None else tuned.probe_doses,
             incremental=self.incremental,
             incremental_reference=None if self.reference is None else str(self.reference),
             density_bins=self.density_bins,
@@ -3348,6 +3369,14 @@ class TMLE:
             fit_treatment=fit_treatment,
             fit_treatment_observation=fit_treatment_observation,
         )
+        if tuned is not None:
+            assert estimates.policies is not None
+            estimates = replace(
+                estimates,
+                policies=tuned.finish(
+                    estimates.policies, estimates.outcome_probes, data, reference
+                ),
+            )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
         # the regimes and the working model this fit declared, without re-running the
@@ -4783,6 +4812,8 @@ class TMLE:
             corrections=corrections,
             policies=None if policies is None else policies.design,
             policy_mixing=None if policies is None else policies.mixing,
+            policy_rows=None if policies is None else policies.component_rows,
+            policy_terms=None if policies is None else policies.curve_terms,
             incremental=incremental,
             msm_design=None if msm is None else msm.design,
             msm_weights=None if msm is None else msm.weights,

@@ -390,6 +390,14 @@ class TargetContext:
     policies: FloatArray | None = None
     #: ``(S, C)`` known component weights of a randomized policy set, or ``None``.
     policy_mixing: FloatArray | None = None
+    #: ``(n, C)`` the rows each policy component reads, or ``None`` when every component
+    #: reads every row: a fold-average policy's component reads its fold's held-out rows
+    #: (:attr:`~cleverly.interventions.PolicySet.component_rows`).
+    policy_rows: BoolArray | None = None
+    #: ``(n, S)`` the term each policy's curve adds, or ``None``: the chain-rule term of a
+    #: population target with a tuned cap
+    #: (:attr:`~cleverly.interventions.PolicySet.curve_terms`).
+    policy_terms: FloatArray | None = None
     #: ``(n, K, p)`` working-model design and ``(n, K)`` weights, for the ``msm``
     #: fluctuation; ``None`` otherwise.  Two arrays rather than one product because the
     #: projection needs them apart: the Gram matrix is ``h * phi * phi'`` and the fitted
@@ -504,6 +512,8 @@ class TargetContext:
                 self.weights,
                 self.observed,
                 self.policy_mixing,
+                rows=self.policy_rows,
+                terms=self.policy_terms,
             )
         if self.regimes is not None:
             return regime_means(
