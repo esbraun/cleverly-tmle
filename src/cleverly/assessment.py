@@ -2249,6 +2249,15 @@ def _bound_arguments(bound: inspect.BoundArguments, report: Any = None) -> dict[
         resolved = getattr(report, "random_state", getattr(report, "root_seed", None))
         if resolved is not None:
             effective["random_state"] = resolved
+    # ``omitted_variable_bounds`` resolves an omitted strength to 0.03 itself, because a
+    # ``benchmark=`` must be told apart from an explicit strength. Record what it ran, except
+    # beside a benchmark, where a replay passing both strengths would conflict with it.
+    if effective.get("benchmark") is None:
+        for name in ("cf_y", "cf_d"):
+            if name in effective and effective[name] is None:
+                resolved = getattr(report, name, None)
+                if resolved is not None:
+                    effective[name] = resolved
     return effective
 
 
@@ -3316,7 +3325,10 @@ def _omitted_item(
     spans = report.lower <= report.null_hypothesis <= report.upper
     defaults = [] if arguments is None else [n for n in ("cf_y", "cf_d") if n not in arguments]
     provenance = ""
-    if defaults:
+    benchmark = None if arguments is None else arguments.get("benchmark")
+    if benchmark is not None:
+        provenance = f"at the strengths of the benchmark against {list(benchmark.covariates)}; "
+    elif defaults:
         provenance = (
             "at the default strengths; "
             if len(defaults) == 2
