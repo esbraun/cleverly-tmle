@@ -21,12 +21,20 @@ from collections.abc import Sequence
 
 from .._typing import ParameterAxis
 from ..fluctuation.submodel import SUBMODEL_BUILDERS, TargetGroup
-from .base import Identification, Target, TargetContext, parameter_name, parameter_stem
+from .base import (
+    Identification,
+    Interpretation,
+    Target,
+    TargetContext,
+    parameter_name,
+    parameter_stem,
+)
 from .builtin import BUILTIN_TARGETS
 
 __all__ = [
     "TARGETS",
     "Identification",
+    "Interpretation",
     "Target",
     "TargetContext",
     "all_names",

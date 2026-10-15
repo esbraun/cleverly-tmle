@@ -50,6 +50,7 @@ from .targets.base import (
     OUTCOME_REGRESSION,
     TREATMENT_OBSERVATION_MECHANISM,
     Identification,
+    Interpretation,
     arm_alias,
     parameter_name,
     stratum_alias,
@@ -2644,6 +2645,7 @@ def _point_identification(
         required_nuisances=tuple(nuisances),
         dr_condition=_bound_dr_condition(base, design, functional, direct=direct),
         references=references,
+        interpretations=base.interpretations,
     )
 
 
@@ -2760,30 +2762,69 @@ _LONGITUDINAL_POLICY_IDENTIFICATION = Identification(
 )
 
 
-#: The identification of a regimen set with a modified treatment policy node.  Díaz,
-#: Williams, Hoffman and Schenck (2023), Theorem 1: under their Assumption 3 (strong
-#: sequential randomization) the functional identifies the LMTP, and under Assumption 2
-#: alone the same functional is the LMTP-SI.  One number, two readings.
+#: The two readings of the longitudinal policy functional (X40 part (d)).  Díaz, Williams,
+#: Hoffman and Schenck (2023), Theorem 1: under strong sequential randomization (Assumption 3)
+#: the functional identifies the LMTP, and under standard sequential randomization
+#: (Assumption 2) it identifies the LMTP-SI.  Williams and Díaz (2025) correct the software
+#: paper's exchangeability to the strong form.
+_LONGITUDINAL_MTP_INTERPRETATIONS = (
+    Interpretation(
+        label="modified treatment policy effect",
+        meaning=(
+            "the mean outcome had each node's natural dose a_t been replaced by "
+            "d_t(a_t, h_t), with the history the earlier replacements produce"
+        ),
+        assumptions=(
+            "strong sequential randomization: at every node, every common cause of the dose, "
+            "the outcome, and the later covariates and doses is in the recorded history "
+            "(Díaz et al. 2023, Assumption 3; the strong exchangeability of Williams & Díaz "
+            "2025, A_t independent of Y(a_t, d_{t+1}(A_{t+1}(a_t), H_{t+1}(a_t))) given H_t)",
+        ),
+        references=(
+            "Díaz, Williams, Hoffman & Schenck (2023), Theorem 1 (ii) and Assumption 3",
+            "Williams & Díaz (2025)",
+        ),
+    ),
+    Interpretation(
+        label="stochastic intervention (LMTP-SI)",
+        meaning=(
+            "the mean outcome had each node's dose been drawn from the law of d_t(A_t, H_t) "
+            "given the history"
+        ),
+        assumptions=(
+            "standard sequential randomization: at every node, every common cause of the dose "
+            "and the next covariates, which at the last node are the outcome, is in the "
+            "recorded history (Díaz et al. 2023, Assumption 2)",
+        ),
+        references=("Díaz, Williams, Hoffman & Schenck (2023), Theorem 1 (i) and Assumption 2",),
+    ),
+)
+
+#: The identification of a regimen set with a modified treatment policy node.  The shared
+#: assumptions are what both readings of :data:`_LONGITUDINAL_MTP_INTERPRETATIONS` need,
+#: and one line that names the exchangeability each reading adds.
 _LONGITUDINAL_MTP_IDENTIFICATION = Identification(
     assumptions=(
         *_LONGITUDINAL_IDENTIFICATION.assumptions[:2],
-        "sequential exchangeability of the natural treatment and the outcome given the "
-        "recorded history (Díaz et al. 2023, Assumption 3) identifies the modified treatment "
-        "policy effect; under exchangeability given the history before each node alone "
-        "(Assumption 2) the same number is the LMTP-SI of their Theorem 1 (i)",
+        "sequential exchangeability in the form the chosen interpretation names: strong "
+        "sequential randomization (Díaz et al. 2023, Assumption 3) for the modified "
+        "treatment policy effect, or standard sequential randomization (Assumption 2) for "
+        "the LMTP-SI of their Theorem 1 (i)",
         "positivity: the dose a policy assigns, d(a_t, h_t), lies in the support of A_t given "
-        "h_t wherever a_t does (Assumption 1), and so does remaining under observation",
-        "each policy is known and fixed before the fit, and on a continuous node it is "
-        "piecewise smooth invertible (Assumption 4); a policy reads the history and the "
-        "unit's own treatment at its node, and its earlier treatment columns stand for the "
-        "intervened values",
+        "h_t wherever a_t does (Díaz et al. 2023, Assumption 1, which Williams & Díaz 2025 "
+        "leave unchanged), and so does remaining under observation",
+        "each policy is known and fixed before the fit, or its cap is a declared tuner with a "
+        "declared target (X40 part (e)), and on a continuous node it is piecewise smooth "
+        "invertible (Assumption 4); a policy reads the history and the unit's own treatment "
+        "at its node, and its earlier treatment columns stand for the intervened values",
     ),
     required_nuisances=_LONGITUDINAL_IDENTIFICATION.required_nuisances,
     dr_condition=(
         "the remainder is a sum over nodes of the products of the density ratio error and "
         "the outcome regression error (Díaz et al. 2023, Theorem 3), with bounded ratios"
     ),
-    references=("Díaz, Williams, Hoffman & Schenck (2023)",),
+    references=("Díaz, Williams, Hoffman & Schenck (2023)", "Williams & Díaz (2025)"),
+    interpretations=_LONGITUDINAL_MTP_INTERPRETATIONS,
 )
 
 
@@ -3425,6 +3466,15 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             A printable block naming the estimand, the functional, and the assumptions.
         """
         assumptions = "\n".join(f"  - {item}" for item in self.identification.assumptions)
+        readings = [
+            line
+            for reading in self.identification.interpretations
+            for line in (
+                f"  - {reading.label}: {reading.meaning}",
+                *(f"      needs {item}" for item in reading.assumptions),
+                *(f"      source: {item}" for item in reading.references),
+            )
+        ]
         history = self.functional.history
         # A longitudinal functional conditions each node's mechanism on its own history,
         # so one list of the baseline covariates would understate every later node.
@@ -3440,6 +3490,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 *adjustment,
                 f"required nuisances: {list(self.identification.required_nuisances)}",
                 f"assumptions:\n{assumptions}",
+                *(
+                    ["interpretations, each with the assumption it adds:", *readings]
+                    if readings
+                    else []
+                ),
                 *protocol_summary_lines(self.protocol, protocol),
             ]
         )
@@ -3463,6 +3518,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             f"identification: {self.provider.name}; {self.functional.expression}",
             "required nuisances: " + ", ".join(self.identification.required_nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
+            *(
+                f"interpretation {reading.label}: {reading.meaning}; needs "
+                + "; ".join(reading.assumptions)
+                for reading in self.identification.interpretations
+            ),
             *protocol_summary_lines(self.protocol, protocol),
         )
 
