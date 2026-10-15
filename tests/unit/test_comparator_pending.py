@@ -50,7 +50,9 @@ class TestTheRecord:
         assert COMPARED.comparator_state == "compared"
         assert _pending().comparator_state == "pending"
         assert (
-            dataclasses.replace(COMPARED, reference=None, comparison=None).comparator_state
+            dataclasses.replace(
+                COMPARED, reference=None, comparison=None, comparison_overrides={}
+            ).comparator_state
             == "none"
         )
 
@@ -132,7 +134,9 @@ class TestTheManifestCheck:
         assert any("records one as pending" in item for item in found)
 
     def test_a_record_without_a_comparator_publishing_paired_rows_is_caught(self) -> None:
-        record = dataclasses.replace(COMPARED, reference=None, comparison=None)
+        record = dataclasses.replace(
+            COMPARED, reference=None, comparison=None, comparison_overrides={}
+        )
         manifest = {"generated_with": {"reference": None}, "reference_sha256": {}}
         assert any(
             "paired row(s)" in item
