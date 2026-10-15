@@ -1,4 +1,4 @@
-"""Treatment-mechanism covariates (X22 part (h)) beside C-TMLE, DR-TMLE and the sensitivity bound.
+"""Treatment-mechanism covariates (part (h)) beside C-TMLE, DR-TMLE and the sensitivity bound.
 
 ``tests/unit/test_treatment_covariates.py`` pins the design, the data field, the plain TMLE and
 the exact-law witnesses.  This file pins the compositions:
@@ -59,7 +59,7 @@ R_H2 = (
     "treatment_adjustment="
 )
 
-#: The plan's pinned DR-TMLE line (X22 I-2.6.3), with ``{Wg}`` still to fill.
+#: The plan's pinned DR-TMLE line (plan I-2.6.3), with ``{Wg}`` still to fill.
 DRTMLE_PINNED = (
     "DRTMLE with treatment-mechanism covariates {Wg}: when the restriction fails, the "
     "treatment mechanism is inconsistent, and the mechanism-wrong rows of the one-wrong "

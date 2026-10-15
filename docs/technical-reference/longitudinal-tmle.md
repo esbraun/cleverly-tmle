@@ -733,7 +733,7 @@ The hazard walk takes none of the point-treatment targeting rules. `iterate=`, `
 `implementation_gap` that the roadmap tracks as X33. The walk imports only `relative_score` and
 `TargetingFailure` from the targeting modules. `tests/unit/test_hazard_x22_refusal.py` checks the
 refusal text and the order. It also shows that the refusal comes before any data or learner. A
-tripwire in the same file replaces every X22 solver, and a default hazard fit still runs.
+tripwire in the same file replaces every targeting solver, and a default hazard fit still runs.
 
 | item | per horizon, `targeting="iterative"` (default) | one step, `targeting="one_step"` |
 | --- | --- | --- |

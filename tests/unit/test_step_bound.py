@@ -69,7 +69,7 @@ SPAN = HI - LO
 XATOL = 1.4901161193847656e-08
 ALPHA = 0.9995
 
-#: The plan's pinned refusal texts (X22 I-2.8).
+#: The plan's pinned refusal texts (plan I-2.8).
 R_C1 = (
     "step_bound must be a positive finite number; got {value!r}. "
     "step_bound=None takes the full Newton step"

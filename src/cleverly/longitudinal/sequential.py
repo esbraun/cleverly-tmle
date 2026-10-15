@@ -2187,8 +2187,8 @@ def _fluctuate_node_ruled(
     The node is the same intercept fluctuation with the same loss weight.  What changes is the
     outer test of :func:`~cleverly.fluctuation.iterative.solve_fluctuation`: the node stops when
     its largest score over its threshold is at most one.  The score column is the
-    contribution of the node (declared difference D4 of the X22 plan, because the loss weight
-    is not one), summed over the rows ``stop`` describes.  Those are all the rows the solver
+    contribution of the node (declared difference D4 of the options plan, because the loss
+    weight is not one), summed over the rows ``stop`` describes.  Those are all the rows the solver
     receives, and the rows that are not followers contribute zero, so the threshold is the
     standard error of the node's score ``P_n S``.
 

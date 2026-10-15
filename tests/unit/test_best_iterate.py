@@ -61,7 +61,7 @@ sequential_module = importlib.import_module("cleverly.longitudinal.sequential")
 estimator_module = importlib.import_module("cleverly.longitudinal.estimator")
 msm_module = importlib.import_module("cleverly.longitudinal.msm")
 
-#: The plan's pinned refusal text (X22 I-2.8, R-a1).
+#: The plan's pinned refusal text (plan I-2.8, R-a1).
 R_A1 = "iterate must be 'last' or 'best'; got {value!r}"
 
 #: ``(seed, delta, steps)`` of fixed-length walks whose best iterate is not the last one.  Seed 8

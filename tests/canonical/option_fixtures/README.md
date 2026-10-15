@@ -1,6 +1,6 @@
-# X22 option fixtures: the R side
+# Option fixtures: the R side
 
-This directory holds the R side of four comparisons for the targeting and fitting options of row X22.
+This directory holds the R side of four comparisons for the targeting and fitting options.
 Each fixture is one R script, one registry entry and, after the R run, one JSON file.
 Every fixture is **pending**: the cloud session that wrote the scripts has no R.
 The Python exact tests of each option gate the change. A pending comparator blocks nothing.
@@ -9,7 +9,7 @@ Reader-facing rows that cite a pending fixture carry the label "exact tests, wit
 
 ## Fixtures
 
-| fixture | X22 parts | R call | tolerance |
+| fixture | option parts | R call | tolerance |
 | --- | --- | --- | --- |
 | `tmle3_updater.json` | a, b, c | tmle_TSM_all() with tmle3_Update: sample_size, scaled_var and constrain_step | step counts and best step equal; cumulative epsilon and final estimates 1e-6; thresholds 1e-9 relative; final ED 1e-8 |
 | `drtmle_stratify.json` | f | drtmle(stratify = TRUE) and drtmle(stratify = FALSE), guard = NULL | `Qn` and propensity 1e-8; TMLE estimate 1e-6 |

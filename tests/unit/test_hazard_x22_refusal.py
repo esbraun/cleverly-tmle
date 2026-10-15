@@ -1,10 +1,10 @@
-"""The X22 targeting rules beside ``survival_model="hazard"`` (R-abc4).
+"""The targeting rules beside ``survival_model="hazard"`` (R-abc4).
 
 The hazard walk of X14 moves one set of hazards along its own path in steps of ``step_size``.
 It reads neither the iterate choice, nor a stopping rule, nor a step bound.  ``LTMLE`` refuses
 those three settings beside it, before any data or learner, and the refusal names the roadmap
 item that lifts it.  The defaults run the shipped walk untouched: the hazard solvers import no
-function that X22 changed, and the fit is bit-identical with the settings written out.
+function that the targeting options changed, and the fit is bit-identical with the settings written out.
 """
 
 from __future__ import annotations
@@ -142,9 +142,9 @@ def test_r_abc4_the_method_route_default_passes_the_defaults_through() -> None:
 
 
 def test_the_hazard_walk_calls_no_function_x22_changed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The hazard solvers import only ``relative_score`` and ``TargetingFailure`` of X22's modules.
+    """The hazard solvers import only ``relative_score`` and ``TargetingFailure`` of the targeting modules.
 
-    Every fluctuation solver X22 changed raises when called, and a default hazard fit still
+    Every fluctuation solver the targeting options changed raises when called, and a default hazard fit still
     runs, so the defaults reach the shipped path and nothing else.
     """
     from cleverly.estimators import targeting as targeting_module

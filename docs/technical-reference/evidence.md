@@ -381,7 +381,7 @@ Python tests below gate the change. The R comparators are pending, and the next 
 | `outcome_by_arm=` | `tests/unit/test_outcome_by_arm.py` compares per-arm predictions with a hand fit at $10^{-12}$ at four sites | an $A \times W$ interaction law, where per-arm and pooled predictions differ by more than $10^{-3}$ | swapped arm models, a mask without the arm, the observed arm read for a shifted arm |
 | `patience=` | `tests/unit/test_patience.py` compares the counter with a transcription of the R loop, and the lazy path with the eager path | a law whose global minimum lies past the stop changes `selected` | `>=` for `>`, no reset on a tie |
 | `treatment_adjustment=` | `tests/unit/test_treatment_covariates.py` and `test_treatment_covariates_collaborative.py`. Exact-law witnesses reproduce $-1/75$ and $-0.0138815$ at $10^{-10}$, and a spy learner sees $W_g$ at every site | the arm-1 error exceeds $10^{-3}$ when the restriction fails | fit $g$ on the full set, and in C-TMLE the pool, the preorder, the lasso design and the learners names |
-| `hazard` refusal | `tests/unit/test_hazard_x22_refusal.py` asserts the text, the order and the timing | a default hazard fit still runs when every X22 solver is replaced | none |
+| `hazard` refusal | `tests/unit/test_hazard_x22_refusal.py` asserts the text, the order and the timing | a default hazard fit still runs when every targeting solver is replaced | none |
 
 The R comparators have scripts, a registry and a self-test in `tests/canonical/option_fixtures/`.
 The cloud session that wrote them has no R, so each fixture is pending. The local Study queue runs

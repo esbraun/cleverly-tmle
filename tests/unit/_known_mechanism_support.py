@@ -209,7 +209,7 @@ def instrument_mechanism(w1: Any, z: Any, *, on_instrument: bool = True) -> Any:
 
 
 def instrument_frame(m: int = INSTRUMENT_M, *, on_instrument: bool = True) -> pd.DataFrame:
-    """The exact law of X22 I-2.6.2, whose empirical law is the law.
+    """The exact law of plan I-2.6.2, whose empirical law is the law.
 
     ``W1`` and ``Z`` are independent Bernoulli(1/2), ``A | (W1, Z) ~ Bernoulli(g_0)``, and
     ``Y = 0.2 + 0.3 A + 0.2 W1`` with no noise.  Each ``(W1, Z)`` cell holds ``4 m`` rows

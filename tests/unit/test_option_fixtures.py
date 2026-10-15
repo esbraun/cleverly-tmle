@@ -1,7 +1,7 @@
-"""The X22 option fixtures: the pending state, the parity comparison and the pending label.
+"""The option fixtures: the pending state, the parity comparison and the pending label.
 
 Four R scripts in ``tests/canonical/option_fixtures`` produce the R side of the comparisons for
-the X22 options: the ``tmle3`` updater, ``drtmle(stratify=)``, ``ctmleDiscrete(patience=)`` and
+the targeting options: the ``tmle3`` updater, ``drtmle(stratify=)``, ``ctmleDiscrete(patience=)`` and
 ``ctmleDiscrete(Wg=)``.  R is not in the cloud session, so every fixture is ``pending``: it has
 no JSON file, a reason, and the checksum of its script.  The local Study queue runs the script
 (``tests/canonical/option_fixtures/README.md``) and a follow-up change adds the JSON and sets the

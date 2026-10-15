@@ -743,7 +743,7 @@ def _rule_state(
 
     A column of the ``"mean"`` group that targets one arm, under unit weights, takes the full
     arm curve as its contribution.  Every other column, and every weighted fit, takes the
-    score column (declared difference D4 of the X22 plan).
+    score column (declared difference D4 of the targeting-options plan).
     """
     arm_curves = None
     if (

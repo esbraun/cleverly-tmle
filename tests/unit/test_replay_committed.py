@@ -39,7 +39,7 @@ def test_missing_text_agrees_and_other_text_must_match() -> None:
 
 
 # ---------------------------------------------------------------------------------------
-# The A/B side: ``replay --write``, ``compare`` and ``replay --all`` (X22 G1).
+# The A/B side: ``replay --write``, ``compare`` and ``replay --all`` (G1).
 # ---------------------------------------------------------------------------------------
 
 SOURCE = {

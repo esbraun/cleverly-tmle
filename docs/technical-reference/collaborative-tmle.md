@@ -241,7 +241,7 @@ text, the remainder when the restriction fails, and the exact-law witnesses.
 
 The R fixture `ctmle_wg.json` is pending: exact tests, with comparator runs pending.
 
-### The X22 targeting options on a collaborative fit
+### The targeting options on a collaborative fit
 
 `CTMLE` inherits `stopping=`, `step_bound=`, `step_search=`, `iterate=` and `outcome_by_arm=` from
 `TMLE`.

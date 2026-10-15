@@ -1,4 +1,4 @@
-"""The parity comparisons of the X22 option fixtures: the R side's JSON against ``cleverly``.
+"""The parity comparisons of the option fixtures: the R side's JSON against ``cleverly``.
 
 Each ``compare_*`` function reads one fixture payload (the schema of the R script that writes
 it), repeats the R run with ``cleverly`` on the exported arrays, and returns the findings.  An empty
@@ -6,7 +6,7 @@ list is parity.  The functions use only public ``cleverly`` calls, except that t
 thresholds come from :mod:`cleverly.fluctuation._score`, whose functions are the single place the
 thresholds are computed.
 
-Tolerances (X22 plan, section I-3.3):
+Tolerances (targeting-options plan, section I-3.3):
 
 ==================  =====================================================  =============
 fixture             quantity                                               tolerance

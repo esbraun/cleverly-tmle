@@ -57,7 +57,7 @@ tmle_module = importlib.import_module("cleverly.estimators.tmle")
 #: that a check against the per-arm fit is not also a check against the pooled one.
 WITNESS_FLOOR = 1e-3
 
-#: The plan's pinned refusal texts (X22 I-2.8, R-f1 and R-f2).
+#: The plan's pinned refusal texts (plan I-2.8, R-f1 and R-f2).
 R_F1 = (
     "outcome_by_arm=True fits one outcome regression per treatment arm, so it needs an "
     "arm-coded treatment. A continuous dose has no arms."

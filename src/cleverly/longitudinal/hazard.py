@@ -111,7 +111,7 @@ HazardAlgorithm = Literal["per_horizon", "one_step"]
 #: The roadmap item that tracks hazard targeting outside its held baseline design.
 HAZARD_ROADMAP = "X70"
 
-#: The roadmap item that tracks the X22 targeting rules (``iterate=``, ``stopping=`` and
+#: The roadmap item that tracks the targeting rules (``iterate=``, ``stopping=`` and
 #: ``step_bound=``) on the hazard walk.
 HAZARD_RULES_ROADMAP = "X33"
 

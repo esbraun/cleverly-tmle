@@ -1,4 +1,4 @@
-"""Early stop on a C-TMLE path (X22 part (g), ``patience=``).
+"""Early stop on a C-TMLE path (part (g), ``patience=``).
 
 ``patience=p`` stops the cross-validated scoring of a candidate path, as R ``ctmle``'s
 ``ctmleDiscrete(patience=)`` does.  The counter keeps the smallest risk seen (the pointer).  A

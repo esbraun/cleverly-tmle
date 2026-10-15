@@ -1,4 +1,4 @@
-"""Treatment-mechanism covariates (X22 part (h)): the treatment mechanism reads a subset ``Wg``.
+"""Treatment-mechanism covariates (part (h)): the treatment mechanism reads a subset ``Wg``.
 
 ``PointTreatment(treatment_adjustment=Wg)`` and ``TMLE.fit(treatment_covariates=Wg)`` let the
 treatment mechanism read a subset of the adjustment set.  Every other nuisance keeps the full
@@ -39,7 +39,7 @@ from tests.unit import _known_mechanism_support as law
 from tests.unit._declaration_support import assert_refused_before_any_call
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
-#: The plan's pinned restriction (X22 I-2.6.3), with ``{Wg}`` still to fill.
+#: The plan's pinned restriction (plan I-2.6.3), with ``{Wg}`` still to fill.
 PINNED = (
     "statistical-model restriction, treatment-mechanism covariates {Wg}: the treatment "
     "mechanism depends on the adjustment covariates only through {Wg}. It restricts the "
@@ -52,7 +52,7 @@ PINNED = (
     "both use {Wg}."
 )
 
-#: The plan's pinned refusal texts (X22 I-2.8), with the argument names of the design.
+#: The plan's pinned refusal texts (plan I-2.8), with the argument names of the design.
 R_H1 = (
     "treatment_adjustment names {cols} outside adjustment=. The treatment mechanism "
     "conditions on a subset of the adjustment set"

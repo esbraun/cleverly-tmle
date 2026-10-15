@@ -1,7 +1,7 @@
-"""X22 settings beside ``CTMLE(strategy="derivative")`` (C-TMLE0, X30).
+"""The targeting settings beside ``CTMLE(strategy="derivative")`` (C-TMLE0, X30).
 
 C-TMLE0 solves one update of the arm clever covariates and their derivative columns on every
-row, then continues as an ordinary TMLE.  The update is a targeting solve, so the X22 settings
+row, then continues as an ordinary TMLE.  The update is a targeting solve, so the targeting settings
 reach it.
 
 * ``stopping`` reaches the derivative solve with its stop context.  Before it did, a declared

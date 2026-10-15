@@ -1,10 +1,9 @@
-"""The registry of the X22 option fixtures: one R script and one JSON file each.
+"""The registry of the option fixtures: one R script and one JSON file each.
 
-Each fixture holds the R side of a comparison for an option of the targeting and fitting row
-X22: the ``tmle3`` updater (parts a to c), ``drtmle(stratify=)`` (part f), ``ctmleDiscrete(patience=)``
-(part g) and ``ctmleDiscrete(Wg=)`` (part h).  R is not part of the cloud session that wrote the
-scripts, so every fixture ships ``pending``.  A pending fixture has no JSON file, a reason, and the
-checksum of its script.  The local Study queue runs the script, adds the JSON and sets the status to
+Each fixture holds the R side of a comparison for a targeting or fitting option: the ``tmle3``
+updater (parts a to c), ``drtmle(stratify=)`` (part f), ``ctmleDiscrete(patience=)`` (part g) and
+``ctmleDiscrete(Wg=)`` (part h).  R is not part of the cloud session that wrote the scripts, so every fixture ships ``pending``.
+A pending fixture has no JSON file, a reason, and the checksum of its script.  The local Study queue runs the script, adds the JSON and sets the status to
 ``present`` in a follow-up change.  :func:`check_entry` reads the state of one entry and returns
 the findings; ``tests/unit/test_option_fixtures.py`` asserts that none are left.
 
@@ -66,7 +65,7 @@ class FixtureEntry:
     name : str
         The fixture name.  The JSON file is ``<name>.json``.
     parts : tuple of str
-        The X22 parts the fixture checks.
+        The option parts the fixture checks.
     comparator : str
         The R call the script makes, in words.
     script : str
