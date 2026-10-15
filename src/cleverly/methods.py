@@ -1375,6 +1375,10 @@ class _BaselineMethod(TMLEMethod):
             ("submodel_alpha", "alpha"),
             ("max_iter", "max_iter"),
             ("tol", "tol"),
+            ("stopping", "stopping"),
+            ("step_bound", "step_bound"),
+            ("step_search", "step_search"),
+            ("iterate", "iterate"),
         ):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
@@ -1383,7 +1387,15 @@ class _BaselineMethod(TMLEMethod):
                     baseline_no_fluctuation_refusal(engine_name)
                 )
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol"):
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "stopping",
+            "step_bound",
+            "step_search",
+            "iterate",
+        ):
             del kwargs[engine_name]
         return kwargs
 
@@ -1409,8 +1421,9 @@ class GComputationMethod(_BaselineMethod):
         than one fold.
     targeting : Targeting
         ``g_bounds`` and ``q_bounds``.  ``g_bounds`` moves the positivity diagnostics only.
-        ``submodel_alpha``, ``max_iter`` and ``tol`` are refused, because the estimator
-        fits no fluctuation.
+        ``submodel_alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``,
+        ``step_search`` and ``iterate`` are refused, because the estimator fits no
+        fluctuation.
     inference : Inference
         Interval and resampling settings.
     runtime : Runtime
@@ -1459,8 +1472,9 @@ class IPWMethod(_BaselineMethod):
         Sample-splitting settings.  The default is in sample, and the engine refuses more
         than one fold.
     targeting : Targeting
-        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
-        refused, because the estimator fits no fluctuation.
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter``, ``tol``,
+        ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because
+        the estimator fits no fluctuation.
     inference : Inference
         Interval and resampling settings.
     runtime : Runtime
