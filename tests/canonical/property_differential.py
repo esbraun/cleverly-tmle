@@ -80,6 +80,7 @@ SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.longitudinal_incremental_properties",
     "tests.studies.longitudinal_incremental_dropout_properties",
+    "tests.studies.structural_nested_mean_properties",
 )
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.

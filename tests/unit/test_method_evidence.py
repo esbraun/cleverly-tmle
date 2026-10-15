@@ -1393,6 +1393,11 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # outside the calibration band on a predicted side; the other cells report.
         "first_node_se",
         "fixed_mechanism_se",
+        # A declared-red control (a blip feature set that omits a covariate) that answers to
+        # the calibration SE-ratio and coverage bands of a positive cell, and the SE of a
+        # clustered fit made without its cluster column, which must leave the band from below.
+        "blip_feature_control",
+        "unclustered_se",
     }
 )
 
@@ -3149,6 +3154,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 UNCOMMITTED_MODULES = (
     "tests.studies.longitudinal_incremental_properties",
     "tests.studies.longitudinal_incremental_dropout_properties",
+    "tests.studies.structural_nested_mean_properties",
 )
 
 
