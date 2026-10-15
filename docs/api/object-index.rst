@@ -43,6 +43,7 @@ categorized API tables.
    cleverly.LearnedRuleValue
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
+   cleverly.targets.Interpretation
    cleverly.IncrementalMean
    cleverly.IncrementalEffect
    cleverly.MSMProjection
@@ -114,6 +115,7 @@ categorized API tables.
    cleverly.interventions.LinearQuantileRegression
    cleverly.interventions.Piecewise
    cleverly.interventions.Piece
+   cleverly.interventions.Support
    cleverly.interventions.ModifiedPolicy
    cleverly.interventions.Randomizer
    cleverly.interventions.RiskRatioTilt
