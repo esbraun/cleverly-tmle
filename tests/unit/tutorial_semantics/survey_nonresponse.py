@@ -117,8 +117,8 @@ def check(namespace: dict[str, Any]) -> None:
         ("mar_robustness", "mechanisms_correct"): ("-0.0039", "0.0023", "0.0103"),
         ("missingness_necessity", "ate__complete_case_control"): ("-0.1229", "-0.1172", "0.0096"),
     }.items():
-        row = cells[key]
-        values = (row["bias_ci_lower"], row["bias_ci_upper"], row["bias_margin"])
+        cell_row = cells[key]
+        values = (cell_row["bias_ci_lower"], cell_row["bias_ci_upper"], cell_row["bias_margin"])
         assert tuple(f"{float(value):.4f}" for value in values) == quoted
 
     effect = namespace["effect"]
