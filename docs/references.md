@@ -1730,8 +1730,10 @@ sizes only the cluster sum is the delta-method variance of the row mean
   | Appendix A, Algorithm 1 | the cross-fitted estimator with dropout. Step 4 uses $M_s$ both for the regression target and for the augmentation term |
   | Appendix F, Lemmas F.2 to F.5 | proofs of Kennedy's Lemmas 2 to 4 with dropout, for a general intervention distribution |
 
-  Theorem 3.1 at one horizon also identifies the mean of a non-absorbing outcome $Y_t$. Roadmap
-  item [X32](roadmap.md#x32-repeated-outcome-curves) cites it for that curve. Kim's research code,
+  Theorem 3.1 at one horizon also identifies the mean of a non-absorbing outcome $Y_t$. The
+  repeated-outcome curve of `LTMLE` cites the paper as context only. That curve rests on the
+  end-of-study results of Bang & Robins (2005) and van der Laan & Gruber (2012).
+  [X32b](roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) reads the paper for `IPSI`. Kim's research code,
   `kwangho-joshua-kim/Incremental-dropout` at commit `6dc23fb4`, has no package and no tag. It is
   provenance only and no comparator.
 - Pinned `npcausal` 0.1.0
