@@ -86,6 +86,7 @@ from tests.studies import canonical_mtp_pricing as study
 from tests.studies import canonical_mtp_tuning as tuning_study
 from tests.studies import mtp_pricing_common as common
 from tests.studies import mtp_study_tools as tools
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -93,12 +94,15 @@ from tests.studies.evidence.properties import (
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
+    Necessity,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 STUDY = study.STUDY
@@ -497,18 +501,17 @@ def _tau_of(family: str, label: str) -> int:
     return CELLS[label][0] if family == "interval_calibration" else PAIR_SETS[label][0]
 
 
-def fit_set_rows(
+def _fit_rows(
     family: str,
     label: str,
     replicate: int,
     n: int,
     requested: int,
-    seed: int | None = None,
+    frame: pd.DataFrame,
     classifier_name: str | None = None,
 ) -> list[dict[str, Any]]:
-    """The rows of one replication of one fit set, from its declared stream or ``seed``."""
+    """The rows of one replication of one fit set, fitted on its drawn ``frame``."""
     tau = _tau_of(family, label)
-    frame = common.sample(n, _seed(family, label, replicate) if seed is None else seed, tau)
     shared: dict[str, Any] = {"replicate": replicate, "n": n, "requested": requested}
     if family == "interval_calibration":
         revenue = CELLS[label][4]
@@ -568,30 +571,105 @@ def fit_set_rows(
     return rows
 
 
+def fit_set_rows(
+    family: str,
+    label: str,
+    replicate: int,
+    n: int,
+    requested: int,
+    seed: int | None = None,
+    classifier_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """The rows of one replication of one fit set, from its declared stream or ``seed``."""
+    frame = common.sample(
+        n, _seed(family, label, replicate) if seed is None else seed, _tau_of(family, label)
+    )
+    return _fit_rows(family, label, replicate, n, requested, frame, classifier_name)
+
+
+#: A property key: ``(family, stream label, replicate, n, requested)``.
+_Key = tuple[str, str, int, int, int]
+
+#: Each calibration positive's derived controls, which the keys name and :func:`calibration_controls`
+#: writes after the loop.
+DERIVED_CELLS: dict[str, tuple[str, ...]] = calibration_derived(CELLS)
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    family, label, replicate, n, _ = key
+    return common.sample(n, _seed(family, label, replicate), _tau_of(family, label))
+
+
+def _fit(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    return _fit_rows(*key, frame)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    family, label, *_ = key
+    if family == "interval_calibration":
+        positive = f"{family}/{label}__correctly_specified"
+        return [positive, *DERIVED_CELLS[positive]]
+    tau, families = PAIR_SETS[label]
+    return [f"{each}/up_tau{tau}__{arm}" for each in families for arm in PAIR_ARMS[each]]
+
+
+def _cell_of(key: _Key) -> str:
+    return _cells_of(key)[0]
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[2]
+
+
+def _seed_of(key: _Key) -> int:
+    family, label, replicate, *_ = key
+    return _seed(family, label, replicate)
+
+
 #: A generous peak of one property worker: the 320-bin hazard design at ``tau = 5``.
 FIT_BYTES = 2 * 2**30
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6).  Up to ``floor(0.01 R)`` lost
+#: replicates are judged by the worst case of each clause; one more is ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(
     *, n_jobs: int = STUDY_JOBS, budget: int | None = None, parts: Path | None = None
 ) -> pd.DataFrame:
-    """Fit every property replication in parts; ``budget`` caps each fit set."""
+    """Fit every property replication; ``budget`` caps each fit set.
+
+    The keys of every fit set run in one :func:`~tests.studies.evidence.replication.
+    fit_properties` loop.  A finished key is kept under
+    :func:`~tests.studies.mtp_study_tools.property_checkpoint` (the driver's checkpoint
+    scratch, else ``parts``), so a stopped run resumes.  A ``budget`` run keeps nothing,
+    because a key's row carries ``requested``.
+    """
     jobs = memory_capped_workers(n_jobs, FIT_BYTES)
-    root = tools.parts_root(parts)
-    frames = []
+    keys: list[_Key] = []
     for family, label, n, replicates in FIT_SETS:
         requested = replicates if budget is None else budget
-        keys = [(family, label, r, n, requested) for r in range(requested)]
-        frames.append(
-            tools.run_in_parts(
-                fit_set_rows,
-                keys,
-                label=f"{family}__{label}__{requested}",
-                root=root,
-                n_jobs=jobs,
-            )
-        )
-    rows = pd.concat(frames, ignore_index=True)
+        keys += [(family, label, r, n, requested) for r in range(requested)]
+    outcomes = fit_properties(
+        keys,
+        _fit,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+        seed_of=_seed_of,
+        checkpoint=tools.property_checkpoint(parts) if budget is None else None,
+    )
+    rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
             rows,
@@ -612,24 +690,38 @@ def generate_property_rows(
     )
 
 
+#: The necessity families' declarations, read by the verdict and by its rule.  Each family's
+#: labels are the ``tau`` of the pair sets that fit it.
+NECESSITIES: tuple[Necessity, ...] = tuple(
+    Necessity(
+        family=family,
+        labels=tuple(f"up_tau{tau}" for tau, families in PAIR_SETS.values() if family in families),
+        arms=PAIR_ARMS[family],
+        column="necessity_displacement",
+        threshold=NECESSITY_DISPLACEMENT,
+    )
+    for family in ("ratio_necessity", "classifier_split")
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts and the study's own declared rules."""
     summary, rates = apply_shared_verdicts(
         rows, STUDY, extra_columns=("necessity_displacement",), rate_labels=()
     )
     calibration_verdicts(summary, margins=STUDY.margins)
-    for family in ("ratio_necessity", "classifier_split"):
-        labels = tuple(f"up_tau{tau}" for tau, families in PAIR_SETS.values() if family in families)
-        necessity_verdicts(
-            summary,
-            rows,
-            family=family,
-            labels=labels,
-            arms=PAIR_ARMS[family],
-            column="necessity_displacement",
-            threshold=NECESSITY_DISPLACEMENT,
-        )
+    for necessity in NECESSITIES:
+        necessity_verdicts(summary, rows, necessity)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes no
+#: efficiency band, because the study's noise control answers to the SE-ratio rule.
+#: ``double_robustness`` keeps the shared rule of :func:`apply_shared_verdicts`.
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=None),
+    *property_verdicts.necessity_rules(*NECESSITIES),
+)
 
 
 # ---------------------------------------------------------------------------- pilots

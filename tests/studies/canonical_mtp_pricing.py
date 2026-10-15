@@ -188,7 +188,7 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     calibration_efficiency_ratio=False,
     publication_policy="reporting",
-    failure_bound={"cleverly-mtp-pricing": FAILURE_BOUND},
+    failure_bound={"cleverly-mtp-pricing": FAILURE_BOUND, "lmtp": FAILURE_BOUND},
 )
 
 REFERENCE_METADATA = {
