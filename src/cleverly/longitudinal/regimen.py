@@ -100,6 +100,7 @@ from ..interventions.tuning import (
     SupportBoundary,
     fit_tuner,
     refuse_outcome_tuners,
+    tuned_cap_at_atoms,
     tuner_influence,
 )
 from ..learners.crossfit import Folds
@@ -1195,7 +1196,8 @@ def resolve_tuned_plans(
     ------
     CapabilityError
         R-e3 for a tuner that reads an outcome column, R-e4 for the fold-average target on
-        one fold, and a tuned cap at a node that does not hold one dose.
+        one fold, a tuned cap at a node that does not hold one dose, and a tuned cap at a node
+        with declared atoms.
     """
     plans = []
     for regimen in regimens:
@@ -1239,6 +1241,11 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
                 f"{data.decision_name(time)!r}, which is not one continuous dose. A tuned cap "
                 "reads a quantile of the dose law, which has a density only at a continuous "
                 "node"
+            )
+        atoms = data.node_atoms(time)
+        if atoms:
+            raise CapabilityError(
+                tuned_cap_at_atoms(f"the node {data.decision_name(time)!r}", atoms)
             )
     weights = data.weights
     tunings: list[NodeTuning] = []

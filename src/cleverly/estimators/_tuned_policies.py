@@ -59,6 +59,7 @@ from ..interventions.tuning import (
     cap_derivative,
     fit_tuner,
     refuse_outcome_tuners,
+    tuned_cap_at_atoms,
     tuner_influence,
 )
 
@@ -119,8 +120,8 @@ def refuse_tuned_compositions(estimator: Any, data: CausalData) -> None:
     CapabilityError
         R-e3 for a tuner that reads the outcome.  For ``cv_evaluation=True``,
         ``targeting_scheme="fold"``, baseline strata, a missing treatment or outcome, an
-        intermediate, a treatment that is not one continuous dose, and, on the fold-average
-        target, the bootstrap and repeated splits.
+        intermediate, a treatment that is not one continuous dose, declared dose atoms, and, on
+        the fold-average target, the bootstrap and repeated splits.
     """
     refuse_outcome_tuners(
         [
@@ -162,6 +163,8 @@ def refuse_tuned_compositions(estimator: Any, data: CausalData) -> None:
             "A tuned cap reads a quantile of the dose law, which has a density only at a "
             "continuous dose",
         )
+    if data.dose_atoms:
+        raise CapabilityError(tuned_cap_at_atoms("the treatment", data.dose_atoms))
     fold_average = any(
         tuned_policy(policy) and getattr(policy, "target", None) == "fold_average"
         for policy in estimator.policies

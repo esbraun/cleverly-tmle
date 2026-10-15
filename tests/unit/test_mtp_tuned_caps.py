@@ -1260,3 +1260,57 @@ def test_the_scale_standard_error_is_the_oracle_standard_error(big_frame: Any) -
     assert abs(se / oracle - 1.0) < 0.05
     law = lawq.LawQ(tuners=SCALE_TUNERS["regression"], factor=FACTOR)
     assert abs(result.psi("ey_regimen[tuned]") - law.tuned_psi) < 4.0 * oracle
+
+
+# ------------------------------------------------------------------ declared atoms (M3)
+
+
+def _atom_frame(frame: pd.DataFrame, column: str = "A1") -> pd.DataFrame:
+    """Law Q with 41% of the doses at ``column`` held at 3, so the median sits on the atom."""
+    out = frame.copy()
+    held = np.random.default_rng(5).uniform(size=len(out)) < 0.41
+    out.loc[held, column] = 3.0
+    return out
+
+
+def _atom_refusal(where: str) -> str:
+    return (
+        f"a data-tuned cap is not combined with declared dose atoms: {where} declares the "
+        "atom(s) 3. The cap is a quantile of the dose law. Where that law has an atom, the "
+        "quantile does not move with the law while its level stays inside the atom's jump, "
+        "and it is not pathwise differentiable at the jump's edge. The influence function of "
+        "the tuner and the derivative of the mean in the cap both need a density of the dose "
+        "at the cap, and this release does not derive them at an atom. Declare the cap as a "
+        "number, or tune the cap at a node with no declared atoms"
+    )
+
+
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+@pytest.mark.parametrize("target", ["population", "fold_average"])
+def test_m3_a_tuned_cap_at_a_declared_atom_is_refused_before_any_learner(
+    estimator: type, target: str, frame: Any
+) -> None:
+    """M3: the text names the missing derivation, and no learner is fitted."""
+    held = _atom_frame(frame)
+    assert np.mean(held["A1"] == 3.0) > 0.4
+    with pytest.raises(CapabilityError) as caught:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            estimator(
+                [_regimen(target)], **_settings(**_raising(), n_folds=2 if target[0] == "f" else 1)
+            ).fit(held, dose_atoms={"A1": (3.0,)}, **COLUMNS)
+    assert str(caught.value) == _atom_refusal("the node 'A1'")
+
+
+def test_m3_a_tuned_cap_at_a_node_without_atoms_ignores_another_node_atoms(frame: Any) -> None:
+    """Atoms at node 2 do not refuse a regimen that tunes node 1 only."""
+    held = _atom_frame(frame, "A2")
+    regimen = DynamicRegimen(
+        "tuned", (Shift(1.0, cap=DoseQuantile(0.5), target="population"), Shift(0.0, cap=None))
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE([regimen], **_settings(n_folds=1)).fit(
+            held, dose_atoms={"A2": (3.0,)}, **COLUMNS
+        )
+    assert np.isfinite(result.psi("ey_regimen[tuned]"))

@@ -78,6 +78,7 @@ __all__ = [
     "fit_tuner",
     "is_tuner",
     "kernel_bandwidth",
+    "tuned_cap_at_atoms",
     "tuner_influence",
 ]
 
@@ -741,6 +742,38 @@ FOLD_AVERAGE_ONE_FOLD = (
     "its mean on the held-out rows, so it needs n_folds of at least 2. For an in-sample fit, "
     "tune the map with a finite-dimensional tuner and declare target='population'"
 )
+
+
+def tuned_cap_at_atoms(where: str, atoms: Sequence[float]) -> str:
+    """The refusal text of a data-tuned cap at a node that declares dose atoms.
+
+    Parameters
+    ----------
+    where : str
+        The node, named for the reader.
+    atoms : sequence of float
+        The node's declared atoms.
+
+    Returns
+    -------
+    str
+        The text.  A tuned cap is a quantile of the dose law, or a linear quantile fit.
+        Where the law has an atom, the quantile is constant while its level stays inside the
+        atom's jump, and it is not pathwise differentiable at the jump's edge.  The
+        influence function of the tuner and the cap derivative (a density of the dose at the
+        last moved dose) rest on a density there, and no derivation covers the atom.
+    """
+    values = ", ".join(f"{float(atom):g}" for atom in atoms)
+    return (
+        f"a data-tuned cap is not combined with declared dose atoms: {where} declares the "
+        f"atom(s) {values}. The cap is a quantile of the dose law. Where that law has an "
+        "atom, the quantile does not move with the law while its level stays inside the "
+        "atom's jump, and it is not pathwise differentiable at the jump's edge. The "
+        "influence function of the tuner and the derivative of the mean in the cap both "
+        "need a density of the dose at the cap, and this release does not derive them "
+        "at an atom. Declare the cap as a number, or tune the cap at a node with no declared "
+        "atoms"
+    )
 
 
 def refuse_outcome_tuners(

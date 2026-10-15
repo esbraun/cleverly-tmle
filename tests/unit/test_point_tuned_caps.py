@@ -777,3 +777,36 @@ def test_the_point_scale_term_has_the_oracle_spread() -> None:
     oracle, _ = lawp.PointLawQ(tuner=SCALE_TUNERS["regression"], factor=FACTOR).spreads()
     spread = float(np.sqrt(np.mean(fit.nuisance.policies.curve_terms[:, 0] ** 2)))
     assert abs(spread / oracle - 1.0) < 0.25
+
+
+# ------------------------------------------------------------------ declared atoms (M3)
+
+
+def test_m3_a_point_tuned_cap_with_declared_atoms_is_refused_before_any_learner() -> None:
+    """M3: the median sits on a 41% atom; the text names the missing derivation."""
+    rng = np.random.default_rng(5)
+    n = 1500
+    w = rng.normal(size=n)
+    atom = rng.uniform(size=n) < 0.41
+    dose = np.where(atom, 3.0, 3.0 + 0.5 * w + rng.normal(size=n))
+    held = pd.DataFrame({"W": w, "A": dose, "Y": rng.uniform(size=n)})
+    for target in ("population", "fold_average"):
+        policies = [
+            Shift(0.5, cap=DoseQuantile(0.5), target=target, name="tuned"),
+            Shift(0.0, cap=None),
+        ]
+        with pytest.raises(CapabilityError) as caught:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                TMLE(policies=policies, n_folds=2, **_settings(**_raising())).fit(
+                    held, dose_atoms=(3.0,), **COLUMNS
+                )
+        assert str(caught.value) == (
+            "a data-tuned cap is not combined with declared dose atoms: the treatment declares "
+            "the atom(s) 3. The cap is a quantile of the dose law. Where that law has an atom, "
+            "the quantile does not move with the law while its level stays inside the atom's "
+            "jump, and it is not pathwise differentiable at the jump's edge. The influence "
+            "function of the tuner and the derivative of the mean in the cap both need a "
+            "density of the dose at the cap, and this release does not derive them at an atom. "
+            "Declare the cap as a number, or tune the cap at a node with no declared atoms"
+        )
