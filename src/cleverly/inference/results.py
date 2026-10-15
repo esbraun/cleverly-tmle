@@ -16,7 +16,7 @@ import numpy as np
 
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
 from .._typing import FloatArray
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapResult
 from .cluster import influence_covariance, stacked_second_moment_covariance
 from .delta import Transform, delta_method, log_odds_ratio_influence, log_ratio_influence
@@ -581,7 +581,9 @@ def refuse_odds_ratio(family: str) -> None:
     if required is not None and family != required:
         raise CapabilityError(
             "an odds ratio compares two probabilities, and this fit's outcome family is "
-            f'{family!r}. Use kind="rr" for a ratio of means'
+            f"{family!r}.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative='Use kind="rr" for a ratio of means.',
         )
 
 

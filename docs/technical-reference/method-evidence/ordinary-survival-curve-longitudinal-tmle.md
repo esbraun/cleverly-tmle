@@ -52,16 +52,18 @@ same horizon-specific parameters without treating a terminal outcome as a surviv
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | 3.324e-11 | 1.160e-08 | 1.0000 | 0 | 1.353e-09 vs 0.0500 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | -3.360e-10 | 7.845e-08 | 1.0000 | 0 | 4.322e-08 vs 0.0500 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | -3.903e-10 | 8.898e-08 | 1.0000 | 0 | 4.072e-08 vs 0.0500 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | -8.728e-11 | 4.910e-08 | 1.0000 | 0 | 2.193e-09 vs 0.0500 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | -2.473e-10 | 9.571e-08 | 1.0000 | 0 | 1.359e-09 vs 0.0500 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | -1.205e-10 | 5.271e-08 | 1.0000 | 0 | 1.342e-09 vs 0.0500 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | 8.867e-11 | 2.594e-08 | 1.0000 | 0 | 5.747e-08 vs 0.0500 | equivalent |
-| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | -3.016e-10 | 1.104e-07 | 1.0000 | 0 | 1.204e-09 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `ltmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=1]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 1 | 3.324e-11 | 1.160e-08 | 1.0000 | 0 | matching implementation | 1.353e-09 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[always vs never @ t=2]` | difference in cumulative risk between the plans "treat at both times" against "treat at neither time" at horizon t = 2 | -3.360e-10 | 7.845e-08 | 1.0000 | 0 | matching implementation | 4.322e-08 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never @ t=2]` | difference in cumulative risk between the plans "treat, then continue only if L2 is positive" against "treat at neither time" at horizon t = 2 | -3.903e-10 | 8.898e-08 | 1.0000 | 0 | matching implementation | 4.072e-08 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=1]` | cumulative risk under the plan treat at both times at horizon t = 1 | -8.728e-11 | 4.910e-08 | 1.0000 | 0 | matching implementation | 2.193e-09 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[always @ t=2]` | cumulative risk under the plan treat at both times at horizon t = 2 | -2.473e-10 | 9.571e-08 | 1.0000 | 0 | matching implementation | 1.359e-09 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=1]` | cumulative risk under the plan treat at neither time at horizon t = 1 | -1.205e-10 | 5.271e-08 | 1.0000 | 0 | matching implementation | 1.342e-09 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[never @ t=2]` | cumulative risk under the plan treat at neither time at horizon t = 2 | 8.867e-11 | 2.594e-08 | 1.0000 | 0 | matching implementation | 5.747e-08 vs 0.0500 | equivalent |
+| two-time-point absorbing-event law with monotone censoring | `risk_regimen[treat then continue if l2 positive @ t=2]` | cumulative risk under the plan treat, then continue only if L2 is positive at horizon t = 2 | -3.016e-10 | 1.104e-07 | 1.0000 | 0 | matching implementation | 1.204e-09 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

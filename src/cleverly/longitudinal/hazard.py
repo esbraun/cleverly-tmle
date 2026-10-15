@@ -73,7 +73,7 @@ from scipy.special import xlogy
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import ConvergenceWarning
+from ..exceptions import CapabilityError, ConvergenceWarning, RefusalReason
 from ..fluctuation._score import relative_score
 from ..fluctuation.iterative import TargetingFailure
 from ..learners.crossfit import Folds
@@ -100,6 +100,9 @@ __all__ = [
 
 #: The two hazard targeting algorithms.
 HazardAlgorithm = Literal["per_horizon", "one_step"]
+
+#: The roadmap item that tracks hazard targeting outside its held baseline design.
+HAZARD_ROADMAP = "X70"
 
 #: The variance floor of a one-step target whose initial influence curve is zero, so that
 #: the fixed metric :math:`\Sigma` stays invertible.
@@ -1277,7 +1280,9 @@ def refuse_hazard_settings(
     Raises
     ------
     ValueError
-        On any refused combination.
+        On a malformed setting.
+    CapabilityError
+        On a combination that is not built.
     """
     if survival_model not in ("iterated_mean", "hazard"):
         raise ValueError(
@@ -1302,10 +1307,15 @@ def refuse_hazard_settings(
         )
     if msm and (survival_model == "hazard" or isotonic):
         option = "survival_model='hazard'" if survival_model == "hazard" else "isotonic=True"
-        raise ValueError(
+        raise CapabilityError(
             f"msm= with {option} is not built. A working model reports coefficients over "
-            "regimen and horizon cells. Fit msm= with survival_model='iterated_mean' and "
-            "isotonic=False, or report the curve and take contrasts"
+            "regimen and horizon cells.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap=HAZARD_ROADMAP,
+            alternative=(
+                "Fit msm= with survival_model='iterated_mean' and isotonic=False, or report "
+                "the curve and take contrasts."
+            ),
         )
     if pseudo_learner and survival_model == "hazard":
         raise ValueError(
@@ -1335,55 +1345,73 @@ def refuse_hazard_design(
 
     Raises
     ------
-    ValueError
+    CapabilityError
         On any refused design.
     """
     if survival_model == "hazard" and not data.is_survival:
-        raise ValueError(
+        raise CapabilityError(
             "survival_model='hazard' needs an event indicator at every node, and this fit "
             "declares one end-of-study outcome. A hazard is the chance of the event at a node "
-            "among the units still at risk, so an outcome measured once has none"
+            "among the units still at risk, so an outcome measured once has none.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if isotonic and not data.is_survival:
-        raise ValueError(
+        raise CapabilityError(
             "isotonic=True makes a curve over the horizons monotone, and an end-of-study fit "
-            "reports one horizon"
+            "reports one horizon.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if survival_model != "hazard":
         return
     if not data.treatment_held and data.n_decisions > 1:
-        raise ValueError(
+        raise CapabilityError(
             "survival_model='hazard' is built for one baseline treatment held over every "
             f"node, and this design declares a treatment at {data.n_decisions} nodes. Hazard "
-            "targeting for a treatment at several nodes is not built. LTMLE with "
-            "survival_model='iterated_mean' estimates this curve, and isotonic=True makes it "
-            "monotone. If one baseline treatment is held over every node, declare "
-            "treatment='A'"
+            "targeting for a treatment at several nodes is not built.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap=HAZARD_ROADMAP,
+            alternative=(
+                "LTMLE with survival_model='iterated_mean' estimates this curve, and "
+                "isotonic=True makes it monotone. If one baseline treatment is held over every "
+                "node, declare treatment='A'."
+            ),
         )
     later = [name for block in data.time_varying_names for name in block]
     if later:
-        raise ValueError(
+        raise CapabilityError(
             "survival_model='hazard' models the event and censoring hazards given the "
             "baseline treatment and the baseline covariates. This fit declares covariates "
             f"measured after baseline ({', '.join(later)}), and hazard targeting with such "
             "covariates is not built: it needs a model and a fluctuation of each later "
-            "covariate. LTMLE with survival_model='iterated_mean' adjusts for them, and "
-            "isotonic=True makes its curve monotone"
+            "covariate.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap=HAZARD_ROADMAP,
+            alternative=(
+                "LTMLE with survival_model='iterated_mean' adjusts for them, and "
+                "isotonic=True makes its curve monotone."
+            ),
         )
     if data.is_continuous_node(1):
-        raise ValueError(
+        raise CapabilityError(
             "survival_model='hazard' needs a categorical baseline treatment, and treatment "
             f"{data.decision_name(1)!r} is continuous. The hazard plug-in would need the "
-            "treatment density at every dose, and that construction is not built. Use "
-            "survival_model='iterated_mean'"
+            "treatment density at every dose, and that construction is not built.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap=HAZARD_ROADMAP,
+            alternative="Use survival_model='iterated_mean'.",
         )
     for regimen in regimens:
         if bool(getattr(regimen, "has_mtp", False)):
             label = getattr(regimen, "label", "")
-            raise ValueError(
+            raise CapabilityError(
                 f"regimen {label!r} is a modified treatment policy, and "
                 "survival_model='hazard' does not support one. Its plug-in evaluates the "
                 "event and censoring hazards at the shifted dose, and that construction is "
-                "not built. Use survival_model='iterated_mean', which supports a modified "
-                "treatment policy at baseline"
+                "not built.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap=HAZARD_ROADMAP,
+                alternative=(
+                    "Use survival_model='iterated_mean', which supports a modified treatment "
+                    "policy at baseline."
+                ),
             )

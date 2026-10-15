@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly.exceptions import MethodConfigurationError
+from cleverly.exceptions import CapabilityError, MethodConfigurationError, RefusalReason
 from cleverly.interventions import ModifiedPolicy, Shift
 from cleverly.longitudinal import IPSI, LTMLE, SDR
 from cleverly.methods import IPSIMethod, SDRMethod, TMLEMethod
@@ -44,18 +44,24 @@ def _msm() -> MSM:
 LAW = survival_law()
 
 
+def _assert_gap(error: CapabilityError) -> None:
+    assert error.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert error.refusal.roadmap == "X70"
+
+
 def test_h1_a_treatment_at_several_nodes_is_refused() -> None:
     message = (
         "survival_model='hazard' is built for one baseline treatment held over every node, "
         "and this design declares a treatment at 3 nodes. Hazard targeting for a treatment "
-        "at several nodes is not built. LTMLE with survival_model='iterated_mean' estimates "
-        "this curve, and isotonic=True makes it monotone. If one baseline treatment is held "
-        "over every node, declare treatment='A'"
+        "at several nodes is not built. X70 in docs/roadmap.md tracks this. LTMLE with "
+        "survival_model='iterated_mean' estimates this curve, and isotonic=True makes it "
+        "monotone. If one baseline treatment is held over every node, declare treatment='A'."
     )
-    with pytest.raises(ValueError, match=re.escape(message)):
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
         LTMLE({"a1": 1}, n_folds=1, survival_model="hazard", **_refusing()).fit(
             LAW.frame(), **LAW.fit_columns(held=False)
         )
+    _assert_gap(raised.value)
 
 
 def test_h2_a_covariate_after_baseline_is_refused() -> None:
@@ -64,14 +70,15 @@ def test_h2_a_covariate_after_baseline_is_refused() -> None:
         "survival_model='hazard' models the event and censoring hazards given the baseline "
         "treatment and the baseline covariates. This fit declares covariates measured after "
         "baseline (L2), and hazard targeting with such covariates is not built: it needs a "
-        "model and a fluctuation of each later covariate. LTMLE with "
-        "survival_model='iterated_mean' adjusts for them, and isotonic=True makes its curve "
-        "monotone"
+        "model and a fluctuation of each later covariate. X70 in docs/roadmap.md tracks this. "
+        "LTMLE with survival_model='iterated_mean' adjusts for them, and isotonic=True makes "
+        "its curve monotone."
     )
-    with pytest.raises(ValueError, match=re.escape(message)):
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
         LTMLE({"a1": 1}, n_folds=1, survival_model="hazard", **_refusing()).fit(
             law.frame(), **law.fit_columns()
         )
+    _assert_gap(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -81,19 +88,20 @@ def test_h2_a_covariate_after_baseline_is_refused() -> None:
             {"survival_model": "hazard"},
             "survival_model='hazard' needs an event indicator at every node, and this fit "
             "declares one end-of-study outcome. A hazard is the chance of the event at a node "
-            "among the units still at risk, so an outcome measured once has none",
+            "among the units still at risk, so an outcome measured once has none.",
         ),
         (
             {"isotonic": True, "pseudo_learner": _Refuse()},
             "isotonic=True makes a curve over the horizons monotone, and an end-of-study fit "
-            "reports one horizon",
+            "reports one horizon.",
         ),
     ],
 )
 def test_h3_an_end_of_study_outcome_is_refused(settings: dict[str, Any], message: str) -> None:
     law = end_of_study_law()
-    with pytest.raises(ValueError, match=re.escape(message)):
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
         LTMLE({"a1": 1}, n_folds=1, **settings, **_refusing()).fit(law.frame(), **law.fit_columns())
+    assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
 
 def test_h4_a_one_step_iterated_mean_fit_is_refused() -> None:
@@ -118,11 +126,13 @@ def test_h4_a_one_step_iterated_mean_fit_is_refused() -> None:
 def test_h5_a_working_model_is_refused(settings: dict[str, Any], option: str) -> None:
     message = (
         f"msm= with {option} is not built. A working model reports coefficients over regimen "
-        "and horizon cells. Fit msm= with survival_model='iterated_mean' and isotonic=False, "
-        "or report the curve and take contrasts"
+        "and horizon cells. X70 in docs/roadmap.md tracks this. Fit msm= with "
+        "survival_model='iterated_mean' and isotonic=False, or report the curve and take "
+        "contrasts."
     )
-    with pytest.raises(ValueError, match=re.escape(message)):
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
         LTMLE({"a1": 1}, msm=_msm(), **settings, **_refusing())
+    _assert_gap(raised.value)
 
 
 def test_h6_a_pseudo_learner_on_a_hazard_fit_is_refused() -> None:
@@ -143,13 +153,15 @@ def test_h7_a_modified_treatment_policy_is_refused() -> None:
     message = (
         "regimen 'up' is a modified treatment policy, and survival_model='hazard' does not "
         "support one. Its plug-in evaluates the event and censoring hazards at the shifted "
-        "dose, and that construction is not built. Use survival_model='iterated_mean', which "
-        "supports a modified treatment policy at baseline"
+        "dose, and that construction is not built. X70 in docs/roadmap.md tracks this. Use "
+        "survival_model='iterated_mean', which supports a modified treatment policy at "
+        "baseline."
     )
-    with pytest.raises(ValueError, match=re.escape(message)):
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
         LTMLE({"up": policy}, n_folds=1, survival_model="hazard", **_refusing()).fit(
             LAW.frame(), **LAW.fit_columns()
         )
+    _assert_gap(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -238,9 +250,10 @@ def test_h11_a_continuous_baseline_treatment_is_refused() -> None:
     message = (
         "survival_model='hazard' needs a categorical baseline treatment, and treatment 'D' "
         "is continuous. The hazard plug-in would need the treatment density at every dose, "
-        "and that construction is not built. Use survival_model='iterated_mean'"
+        "and that construction is not built. X70 in docs/roadmap.md tracks this. Use "
+        "survival_model='iterated_mean'."
     )
-    with pytest.raises(ValueError, match=re.escape(message)):
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
         LTMLE({"up": Shift(0.5, cap=None)}, n_folds=1, survival_model="hazard", **_refusing()).fit(
             frame,
             treatment="D",
@@ -249,3 +262,4 @@ def test_h11_a_continuous_baseline_treatment_is_refused() -> None:
             baseline=["W"],
             censoring=["C1", "C2"],
         )
+    _assert_gap(raised.value)

@@ -88,7 +88,7 @@ import numpy as np
 from .._typing import FloatArray
 from ..data.causal_data import CausalData
 from ..data.weighting import effective_sample_size, format_score_load
-from ..exceptions import DataError
+from ..exceptions import DataError, Refusal, RefusalReason
 from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = ["IPSISet", "Incremental", "IncrementalSupport", "check_incremental_support"]
@@ -113,15 +113,25 @@ def refuse_multi_arm_tilt(data: CausalData) -> None:
     """
     if data.n_arms == 2:
         return
-    raise DataError(
-        multi_arm_tilt_message(data.treatment_name, data.n_arms, list(data.treatment_levels))
+    raise DataError.from_refusal(
+        multi_arm_tilt_refusal(
+            data.treatment_name,
+            data.n_arms,
+            list(data.treatment_levels),
+            alternative=(
+                "TMLE(interventions=[Stochastic(..., density_kind='known')]) fits a known "
+                "stochastic intervention on this treatment."
+            ),
+        )
     )
 
 
-def multi_arm_tilt_message(subject: str, n_levels: int, levels: list[Any]) -> str:
+def multi_arm_tilt_refusal(
+    subject: str, n_levels: int, levels: list[Any], *, alternative: str
+) -> Refusal:
     """The refusal of an odds tilt on a treatment with other than two arms.
 
-    One string for the point treatment and for a node of a longitudinal fit, so the two
+    One record for the point treatment and for a node of a longitudinal fit, so the two
     refusals cannot drift apart.
 
     Parameters
@@ -133,18 +143,25 @@ def multi_arm_tilt_message(subject: str, n_levels: int, levels: list[Any]) -> st
     levels : list
         The levels.
 
+    alternative : str
+        The sentence that names the working call for this subject.
+
     Returns
     -------
-    str
-        The message.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.IMPLEMENTATION_GAP` record tracked by
+        roadmap item ``X43``.
     """
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         f"an incremental propensity-score intervention tilts the *odds* of treatment, "
         f"which names two arms; {subject} has {n_levels} "
         f"({levels}). Kennedy's binary odds multiplier alone does not "
         "select a multinomial policy. This API has no declared multi-arm tilt; one odds "
         "per contrast or a cost-based reference policy defines a different intervention "
-        "with its own influence function."
+        "with its own influence function.",
+        alternative=alternative,
+        roadmap="X43",
     )
 
 

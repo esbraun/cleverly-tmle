@@ -164,6 +164,7 @@ STUDY = StudyRecord(
     implementation="cleverly",
     pending_reference="tmle3",
     pending_reason="the tmle3 comparator runs are queued as Study queue row 21 in TRACKER.md",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_point_survival_curve.py",
         "tests/studies/point_survival_curve_properties.py",

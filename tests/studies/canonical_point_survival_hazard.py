@@ -159,6 +159,7 @@ STUDY = StudyRecord(
     implementation="cleverly",
     pending_reference="survtmle",
     pending_reason="the survtmle comparator runs are queued as Study queue row 20 in TRACKER.md",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_point_survival_hazard.py",
         "tests/studies/point_survival_hazard_properties.py",

@@ -1189,8 +1189,9 @@ class TestTheAdmittedFitOnOtherSurfaces:
 
     def test_the_omitted_variable_bound_still_refuses_and_says_why(self, admitted: Any) -> None:
         """The bound keys on the method, and its sentence fits a fit that selected nothing."""
-        reason = fit_wide_bound_refusal(admitted)
-        assert reason is not None
+        refusal = fit_wide_bound_refusal(admitted)
+        assert refusal is not None
+        reason = refusal.message()
         assert "selected" not in reason
         assert "selects nothing" in reason
         with pytest.raises(CapabilityError) as raised:
@@ -1205,9 +1206,9 @@ class TestTheAdmittedFitOnOtherSurfaces:
             .fit(frame, outcome="Y", treatment="A")
             .single()
         )
-        reason = fit_wide_bound_refusal(selecting)
-        assert reason is not None
-        assert "selected adjustment set" in reason
+        refusal = fit_wide_bound_refusal(selecting)
+        assert refusal is not None
+        assert "selected adjustment set" in refusal.message()
 
     def test_the_logistic_plugin_stays_a_diagnostic(self, admitted: Any) -> None:
         """R ``ctmle``'s logistic term is reported, and the admitted status does not move."""

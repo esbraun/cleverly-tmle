@@ -56,7 +56,7 @@ from cleverly.datasets import (
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, Refusal
 from cleverly.interventions import Incremental, Shift
 from cleverly.msm import MSM
 from cleverly.sensitivity import omitted_variable
@@ -1041,7 +1041,7 @@ _TILT_RULE = SensitivityFacade._tilt_rule
 _PRE_RM23_TILT_RULES = ("longitudinal", "natural_course", "missing_outcome")
 
 
-def _pre_rm23_tilt_rule(self: SensitivityFacade) -> tuple[str, str] | None:
+def _pre_rm23_tilt_rule(self: SensitivityFacade) -> tuple[str, Refusal] | None:
     """The tilt rows as they were: available on every other fit with missing outcomes."""
     rule = _TILT_RULE(self)
     return rule if rule is not None and rule[0] in _PRE_RM23_TILT_RULES else None

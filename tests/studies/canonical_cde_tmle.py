@@ -56,6 +56,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-cde-tmle",
     reference="tmle-r-cde",
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_cde_tmle.py",
         "tests/studies/cde_tmle_properties.py",

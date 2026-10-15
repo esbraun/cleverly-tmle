@@ -83,17 +83,19 @@ The table gives the estimands that are measured against the exact truth and not 
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with three unequal baseline strata | `ate[V=0]` | average treatment effect, in stratum V=0 | 0.000001 | 0.000282 | 1.0004 | 0 | 0.000713 vs 0.0500 | equivalent |
-| binary-outcome law with three unequal baseline strata | `ate[V=1]` | average treatment effect, in stratum V=1 | 0.000007 | 0.0014 | 1.0037 | -0.0010 | 0.0021 vs 0.0500 | equivalent |
-| binary-outcome law with three unequal baseline strata | `ate[V=2]` | average treatment effect, in stratum V=2 | 0.000001 | 0.000256 | 1.0031 | 0.0010 | 0.0055 vs 0.0500 | equivalent |
-| binary-outcome law with three unequal baseline strata | `ey[0][V=0]` | counterfactual mean under treatment arm '0', in stratum V=0 | 4.362e-08 | 0.000012 | 1.0000 | 0 | 0.000017 vs 0.0500 | equivalent |
-| binary-outcome law with three unequal baseline strata | `ey[0][V=1]` | counterfactual mean under treatment arm '0', in stratum V=1 | 4.438e-08 | 0.000011 | 1.0000 | 0 | 0.000008 vs 0.0500 | equivalent |
-| binary-outcome law with three unequal baseline strata | `ey[0][V=2]` | counterfactual mean under treatment arm '0', in stratum V=2 | -1.943e-08 | 0.000006 | 1.0000 | 0 | 0.000076 vs 0.0500 | equivalent |
-| binary-outcome law with three unequal baseline strata | `ey[1][V=0]` | counterfactual mean under treatment arm '1', in stratum V=0 | 3.601e-09 | 0.000001 | 1.0000 | 0 | 0.000018 vs 0.0500 | equivalent |
-| binary-outcome law with three unequal baseline strata | `ey[1][V=1]` | counterfactual mean under treatment arm '1', in stratum V=1 | 4.951e-08 | 0.000014 | 1.0000 | 0 | 0.000010 vs 0.0500 | equivalent |
-| binary-outcome law with three unequal baseline strata | `ey[1][V=2]` | counterfactual mean under treatment arm '1', in stratum V=2 | 1.511e-07 | 0.000047 | 1.0000 | 0 | 0.000140 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle3-stratified` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law with three unequal baseline strata | `ate[V=0]` | average treatment effect, in stratum V=0 | 0.000001 | 0.000282 | 1.0004 | 0 | matching implementation | 0.000713 vs 0.0500 | equivalent |
+| binary-outcome law with three unequal baseline strata | `ate[V=1]` | average treatment effect, in stratum V=1 | 0.000007 | 0.0014 | 1.0037 | -0.0010 | matching implementation | 0.0021 vs 0.0500 | equivalent |
+| binary-outcome law with three unequal baseline strata | `ate[V=2]` | average treatment effect, in stratum V=2 | 0.000001 | 0.000256 | 1.0031 | 0.0010 | matching implementation | 0.0055 vs 0.0500 | equivalent |
+| binary-outcome law with three unequal baseline strata | `ey[0][V=0]` | counterfactual mean under treatment arm '0', in stratum V=0 | 4.362e-08 | 0.000012 | 1.0000 | 0 | matching implementation | 0.000017 vs 0.0500 | equivalent |
+| binary-outcome law with three unequal baseline strata | `ey[0][V=1]` | counterfactual mean under treatment arm '0', in stratum V=1 | 4.438e-08 | 0.000011 | 1.0000 | 0 | matching implementation | 0.000008 vs 0.0500 | equivalent |
+| binary-outcome law with three unequal baseline strata | `ey[0][V=2]` | counterfactual mean under treatment arm '0', in stratum V=2 | -1.943e-08 | 0.000006 | 1.0000 | 0 | matching implementation | 0.000076 vs 0.0500 | equivalent |
+| binary-outcome law with three unequal baseline strata | `ey[1][V=0]` | counterfactual mean under treatment arm '1', in stratum V=0 | 3.601e-09 | 0.000001 | 1.0000 | 0 | matching implementation | 0.000018 vs 0.0500 | equivalent |
+| binary-outcome law with three unequal baseline strata | `ey[1][V=1]` | counterfactual mean under treatment arm '1', in stratum V=1 | 4.951e-08 | 0.000014 | 1.0000 | 0 | matching implementation | 0.000010 vs 0.0500 | equivalent |
+| binary-outcome law with three unequal baseline strata | `ey[1][V=2]` | counterfactual mean under treatment arm '1', in stratum V=2 | 1.511e-07 | 0.000047 | 1.0000 | 0 | matching implementation | 0.000140 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

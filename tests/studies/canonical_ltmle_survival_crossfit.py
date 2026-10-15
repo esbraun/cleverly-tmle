@@ -88,6 +88,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-cross-fitted-ltmle-survival",
     reference="lmtp",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_ltmle_survival_crossfit.py",
         "tests/studies/ltmle_survival_crossfit_properties.py",

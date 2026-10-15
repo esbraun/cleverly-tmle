@@ -571,7 +571,7 @@ class TestBandsRefuseTheTReference:
     def test_an_explicit_band_raises(self, twelve: Any) -> None:
         with pytest.raises(CapabilityError) as raised:
             simultaneous_bands(twelve.estimates, cluster=twelve.data.cluster)
-        assert str(raised.value) == T_REFERENCE_BAND_REFUSAL
+        assert str(raised.value) == T_REFERENCE_BAND_REFUSAL.message()
 
     def test_forty_clusters_keep_the_default_band(self) -> None:
         result = _binary(40, estimands=("ey0", "ey1", "ate"), simultaneous=True)

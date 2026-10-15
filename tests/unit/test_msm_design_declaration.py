@@ -109,8 +109,8 @@ from tests.unit._simulated_confounding_support import (
 
 #: The two declaration refusals, imported from the module that raises them, so the text
 #: is written once.
-UNDECLARED = _UNDECLARED_DESIGN
-ESTIMATED = _ESTIMATED_DESIGN
+UNDECLARED = _UNDECLARED_DESIGN.message()
+ESTIMATED = _ESTIMATED_DESIGN.message()
 #: Fragments of the other refusals.  A test matches a fragment, not the whole text, so a
 #: rewording of the explanation does not break it, but a message from another check does.
 SIGNATURES = (
@@ -337,7 +337,7 @@ LATER_REFUSALS: dict[str, tuple[Callable[[MSM], Any], type[Exception], str]] = {
     "missing outcomes": (
         lambda model: cross_fitted(model, missing_outcome(), delta="D"),
         CapabilityError,
-        "no audited result covers MSM targets under cross-fitting",
+        "No audited result covers MSM targets under cross-fitting",
     ),
 }
 
@@ -467,7 +467,10 @@ def shorthand_fit() -> Any:
 SLOPE = "a"
 
 #: Each declaration that a replayed model can lack, and the refusal it meets.
-UNDECLARED_BY_FIELD = {"weights_kind": _UNDECLARED_WEIGHTS, "design_kind": _UNDECLARED_DESIGN}
+UNDECLARED_BY_FIELD = {
+    "weights_kind": _UNDECLARED_WEIGHTS.message(),
+    "design_kind": _UNDECLARED_DESIGN.message(),
+}
 
 
 def counted_msm_fit(field: str) -> tuple[Any, Counter, Counter]:

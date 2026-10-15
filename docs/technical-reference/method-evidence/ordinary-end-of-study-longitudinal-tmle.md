@@ -45,13 +45,15 @@ beside the paired one. A regeneration fails if either is false.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 2.101e-10 | 4.449e-08 | 1.0000 | 0 | 5.021e-10 vs 0.0500 | equivalent |
-| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 6.175e-12 | 1.283e-09 | 1.0000 | 0 | 8.709e-09 vs 0.0500 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 8.850e-11 | 3.180e-08 | 1.0000 | 0 | 9.006e-09 vs 0.0500 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -1.216e-10 | 3.133e-08 | 1.0000 | 0 | 4.273e-10 vs 0.0500 | equivalent |
-| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | -1.155e-10 | 3.766e-08 | 1.0000 | 0 | 1.753e-08 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `ltmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point law with monotone censoring | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 2.101e-10 | 4.449e-08 | 1.0000 | 0 | matching implementation | 5.021e-10 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 6.175e-12 | 1.283e-09 | 1.0000 | 0 | matching implementation | 8.709e-09 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[always]` | mean outcome under the plan treat at both times | 8.850e-11 | 3.180e-08 | 1.0000 | 0 | matching implementation | 9.006e-09 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -1.216e-10 | 3.133e-08 | 1.0000 | 0 | matching implementation | 4.273e-10 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | -1.155e-10 | 3.766e-08 | 1.0000 | 0 | matching implementation | 1.753e-08 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

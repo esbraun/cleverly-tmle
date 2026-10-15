@@ -57,7 +57,7 @@ from cleverly.data import CausalData
 from cleverly.datasets import make_linear_ate
 from cleverly.estimators import TMLE, tmle
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import (
     Intervention,
     RegimeSet,
@@ -844,6 +844,8 @@ def raising(error: type[Exception]) -> Callable[[], None]:
     """A declaration check that raises ``error``."""
 
     def refuse() -> None:
+        if issubclass(error, CapabilityError):
+            raise error("refused", reason=RefusalReason.INVALID_DECLARATION)
         raise error("refused")
 
     return refuse

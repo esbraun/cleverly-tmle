@@ -33,7 +33,7 @@ from cleverly._inference_status import MINIMUM_INTERVAL_CLUSTERS, NON_INFERENTIA
 from cleverly.assessment import AssessmentStatus
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, inference_refusal
+from cleverly.exceptions import CapabilityError, RefusalReason, inference_refusal
 from cleverly.inference.cluster import cluster_inference_status
 from cleverly.inference.influence import _DIAGNOSTIC_NAMES
 from cleverly.sensitivity.evalue import _EVALUE_NEEDS_INFERENCE
@@ -139,7 +139,7 @@ def assert_withholds(result: Any, status: str) -> None:
         for accessor in ("ci", "pvalue", "std_error"):
             with pytest.raises(CapabilityError) as raised:
                 getattr(estimate, accessor)
-            assert str(raised.value) == inference_refusal(f".{accessor}", status)
+            assert str(raised.value) == inference_refusal(f".{accessor}", status).message()
         assert estimate.plugin_std_error > 0
     columns = set(result.to_frame().columns)
     assert not INFERENTIAL_COLUMNS & columns
@@ -169,7 +169,11 @@ def assert_evalue_unavailable(result: Any, status: str) -> None:
     """
     capability = result.sensitivity.capability("evalue")
     assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.reason == _EVALUE_NEEDS_INFERENCE + NON_INFERENTIAL[status].reason
+    assert str(capability.reason).startswith(
+        _EVALUE_NEEDS_INFERENCE + NON_INFERENTIAL[status].reason
+    )
+    assert capability.refusal is not None
+    assert capability.refusal.reason is RefusalReason.INFERENCE_GAP
 
 
 def assert_variable_importance_refuses(
@@ -190,7 +194,7 @@ def assert_variable_importance_refuses(
             estimator=estimator,
             **roles,
         )
-    assert str(raised.value) == inference_refusal("variable_importance()", status)
+    assert str(raised.value) == inference_refusal("variable_importance()", status).message()
     assert NeverFit.calls == 0
 
 
