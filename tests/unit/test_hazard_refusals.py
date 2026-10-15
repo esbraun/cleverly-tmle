@@ -15,8 +15,14 @@ import pytest
 
 from cleverly.exceptions import CapabilityError, MethodConfigurationError, RefusalReason
 from cleverly.interventions import ModifiedPolicy, Shift
-from cleverly.longitudinal import IPSI, LTMLE, SDR
-from cleverly.methods import IPSIMethod, SDRMethod, TMLEMethod
+from cleverly.longitudinal import IPSI, LTMLE, SDR, SequentialGComputation, SequentialIPW
+from cleverly.methods import (
+    GComputationMethod,
+    IPSIMethod,
+    IPWMethod,
+    SDRMethod,
+    TMLEMethod,
+)
 from cleverly.msm import MSM
 from tests.discrete_law_point_survival import CellMeans, end_of_study_law, survival_law
 
@@ -207,7 +213,15 @@ def test_h10_a_point_treatment_functional_refuses_the_curve_options(
         TMLEMethod().with_overrides(**option).estimator_kwargs()
 
 
-@pytest.mark.parametrize("method", [SDRMethod, IPSIMethod])
+@pytest.mark.parametrize(
+    ("method", "name"),
+    [
+        (SDRMethod, "SDR"),
+        (IPSIMethod, "IPSI"),
+        (GComputationMethod, "SequentialGComputation"),
+        (IPWMethod, "SequentialIPW"),
+    ],
+)
 @pytest.mark.parametrize(
     "option",
     [
@@ -218,9 +232,8 @@ def test_h10_a_point_treatment_functional_refuses_the_curve_options(
     ],
 )
 def test_h12_an_untargeted_longitudinal_method_refuses_the_curve_options(
-    method: type[TMLEMethod], option: dict[str, object]
+    method: type[TMLEMethod], name: str, option: dict[str, object]
 ) -> None:
-    name = method().name.upper()
     message = (
         "survival_model=, a hazard targeting= algorithm, step_size= and isotonic= are settings "
         f"of the targeted fit, method='tmle'. The {name} estimator fits no hazard, and no "
@@ -230,7 +243,7 @@ def test_h12_an_untargeted_longitudinal_method_refuses_the_curve_options(
         method().with_overrides(**option).estimator_kwargs(longitudinal=True)
 
 
-@pytest.mark.parametrize("engine", [SDR, IPSI])
+@pytest.mark.parametrize("engine", [SDR, IPSI, SequentialGComputation, SequentialIPW])
 def test_h12_the_untargeted_engines_take_no_curve_option(engine: type) -> None:
     for option in ("survival_model", "step_size", "isotonic"):
         with pytest.raises(TypeError, match=re.escape(f"unexpected keyword argument {option!r}")):

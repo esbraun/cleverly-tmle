@@ -762,6 +762,34 @@ def fit_ipsi() -> Any:
     )
 
 
+def _fit_baseline(method: str) -> Any:
+    """The in-sample two-node regime fit of ``make_longitudinal(400, 12)`` by a baseline."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
+        method=method, random_state=5, simultaneous=False
+    )
+
+
+def fit_gcomp() -> Any:
+    """The two-node regime fit of ``make_longitudinal(400, 12)``, by g-computation."""
+    return _fit_baseline("gcomp")
+
+
+def fit_ipw() -> Any:
+    """The two-node regime fit of ``make_longitudinal(400, 12)``, by IPW."""
+    return _fit_baseline("ipw")
+
+
 # ------------------------------------------------------------------------- the kinds
 
 
@@ -898,6 +926,10 @@ KINDS: dict[str, Kind] = {
     "ltmle_isotonic": _kind(fit_isotonic, *_READ, "truncation_curve"),
     # IPSI averages the influence function and solves no score equation.
     "ipsi": _kind(fit_ipsi, "nuisance_models", "support", "truncation_curve"),
+    # The baselines fit no fluctuation, so no score equation. A g-computation estimate reads
+    # no treatment mechanism, so its bounds move nothing and no truncation curve exists.
+    "gcomp": _kind(fit_gcomp, "nuisance_models", "support"),
+    "ipw": _kind(fit_ipw, "nuisance_models", "support", "truncation_curve"),
 }
 
 

@@ -51,6 +51,7 @@ __all__ = [
     "LONGITUDINAL_KNOWN_MECHANISM",
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
+    "LONGITUDINAL_NO_OUTCOME_REGRESSION",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
     "LongitudinalNuisanceOmission",
@@ -64,6 +65,9 @@ __all__ = [
 
 #: The data has no censoring columns, so the estimator made no censoring fit.
 LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
+
+#: The estimator fits no outcome regression, as sequential IPW reads the mechanisms only.
+LONGITUDINAL_NO_OUTCOME_REGRESSION = "inverse probability weighting fits no outcome regression"
 
 #: A continuous node on the classifier ratio route fits no density, so there is no
 #: treatment likelihood to report there.
@@ -1025,6 +1029,12 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
         omissions.append(
             LongitudinalNuisanceOmission("censoring", None, LONGITUDINAL_CENSORING_NOT_FITTED)
         )
+
+    if result.config.estimator == "ipw":
+        omissions.append(
+            LongitudinalNuisanceOmission("outcome", None, LONGITUDINAL_NO_OUTCOME_REGRESSION)
+        )
+        return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend, tuple(omissions))
 
     for fit in result.fits.values():
         for step in fit.steps:

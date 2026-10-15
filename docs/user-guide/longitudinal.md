@@ -618,6 +618,61 @@ level can leave the outcome range too. The fit then warns with `ParameterSpaceWa
 [The sequentially doubly robust estimator](../technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
 states the contract and what differs from the default method.
 
+## Report the sequential baselines
+
+`SequentialGComputation` and `SequentialIPW` estimate the regimen levels and contrasts that
+`LTMLE` estimates. Report them beside an `LTMLE` or `SDR` fit as reference estimators.
+
+| estimator | the estimate reads | use it to |
+| --- | --- | --- |
+| `SequentialGComputation` | the outcome and pseudo-outcome regressions | check the targeted estimate against the plug-in |
+| `SequentialIPW` | the treatment and censoring mechanisms | check the targeted estimate against the weighted mean |
+
+```python
+from cleverly.datasets import make_longitudinal
+from cleverly.learners import GLM
+from cleverly.longitudinal import SequentialGComputation, SequentialIPW
+
+frame, _ = make_longitudinal(n=300, seed=0)
+columns = dict(
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+regimens = {"always": 1, "never": 0}
+gcomp = SequentialGComputation(regimens, reference="never", outcome_learner=GLM()).fit(
+    frame, **columns
+)
+ipw = SequentialIPW(regimens, reference="never", treatment_learner=GLM()).fit(frame, **columns)
+print(gcomp.summary())
+print(ipw.summary())
+```
+
+`gcomp()` and `ipw()` are the one-call forms. Both take the same columns and `regimens=`.
+
+The interval of each baseline holds only when every `GLM` that the estimate reads is correctly
+specified. Under misspecification the interval covers the limit of the misspecified fit, not the
+target. A targeted estimator has no such condition on one of its two models.
+
+When a regression that the estimate reads uses a data-adaptive learner, the result reports the
+status `adaptive_baseline_plugin`. It gives the point estimate only. The standard error is a
+diagnostic under `plugin_std_error`. Fit `LTMLE` or `SDR` when you need an interval with
+data-adaptive learners.
+
+The answers can differ from `LTMLE` for three reasons.
+
+| reason | effect |
+| --- | --- |
+| g-computation applies no fluctuation | its estimate reads the outcome regressions alone |
+| IPW uses no outcome regression | its estimate reads the mechanisms alone, and a large weight moves it |
+| both baselines fit `GLM` models by default | `LTMLE` fits a Super Learner by default |
+
+With the same outcome learner, the g-computation estimate equals the untargeted first step of
+`LTMLE`. [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md) gives
+the estimators, the stacked influence curve, the settings, and the refusals.
+
 ## Estimate an incremental intervention over time
 
 Pass `IncrementalEffect` to `identify()` and `method="ipsi"` to `estimate()`. Each
