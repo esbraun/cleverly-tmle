@@ -136,9 +136,8 @@ NECESSITY_REPLICATES = 1_200
 #: bias of the GLM without ``W2`` on the primary law, about 2.5 spreads.
 TARGETING_DISPLACEMENT = 1.5
 #: The efficiency bound of each calibration cell's law and contrast.  No verdict reads it:
-#: the study claims no efficiency ratio, because no cited result gives C-TMLE0 with a selected
-#: lasso propensity the efficient influence curve, so the summary publishes no efficiency
-#: columns.  The design test keeps the values reproducible for the plan's sizing arithmetic.
+#: the study declares no efficiency band, so the summary publishes no efficiency columns.
+#: The design test keeps the values reproducible for the plan's sizing arithmetic.
 EFFICIENCY_BOUNDS = {
     "in_sample": laws.PRIMARY_EIF_SD,
     "cross_fitted": laws.PRIMARY_EIF_SD,

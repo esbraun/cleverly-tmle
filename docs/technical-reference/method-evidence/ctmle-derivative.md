@@ -91,10 +91,10 @@ model with a correct treatment law.
 | `double_robustness` | `multi_arm_treatment_correct` | positive | three arms with a multinomial lasso and a constant outcome regression, on the contrast of arm 1.0 against arm 0.0 | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0017 to 0.0017, margin 0.0069, SE ratio 1.0783 | pass |
 | `double_robustness` | `outcome_correct` | positive | only the outcome regression is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0021 to 0.0021, margin 0.0070, SE ratio 0.8746 | pass |
 | `double_robustness` | `treatment_correct` | positive | only the treatment mechanism is correctly specified | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000689 to 0.0027, margin 0.0056, SE ratio 1.0898 | pass |
-| `interval_calibration` | `cross_fitted` | positive | the same law and nuisances, cross-fitted over five folds | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9360 to 0.9597, SE ratio 0.9548 to 1.0255, empirical efficiency ratio 0.9684 to 1.0401, reported efficiency ratio 0.9917 to 0.9943 | pass |
-| `interval_calibration` | `in_sample` | positive | the internal lasso is consistent for the main-terms treatment law, and the outcome regression is a correct GLM | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9379 to 0.9611, SE ratio 0.9509 to 1.0251, empirical efficiency ratio 0.9579 to 1.0324, reported efficiency ratio 0.9807 to 0.9832 | pass |
-| `interval_calibration` | `missing_outcome` | positive | outcomes are missing at random, with a correct response learner | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9406 to 0.9634, SE ratio 0.9607 to 1.0330, empirical efficiency ratio 0.9482 to 1.0191, reported efficiency ratio 0.9776 to 0.9809 | pass |
-| `interval_calibration` | `multi_arm` | positive | three arms with a multinomial lasso, on the contrast of arm 1.0 against arm 0.0 | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9328 to 0.9570, SE ratio 0.9547 to 1.0289, empirical efficiency ratio 0.9487 to 1.0226, reported efficiency ratio 0.9745 to 0.9777 | pass |
+| `interval_calibration` | `cross_fitted` | positive | the same law and nuisances, cross-fitted over five folds | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9360 to 0.9597, SE ratio 0.9548 to 1.0255 | pass |
+| `interval_calibration` | `in_sample` | positive | the internal lasso is consistent for the main-terms treatment law, and the outcome regression is a correct GLM | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9379 to 0.9611, SE ratio 0.9509 to 1.0251 | pass |
+| `interval_calibration` | `missing_outcome` | positive | outcomes are missing at random, with a correct response learner | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9406 to 0.9634, SE ratio 0.9607 to 1.0330 | pass |
+| `interval_calibration` | `multi_arm` | positive | three arms with a multinomial lasso, on the contrast of arm 1.0 against arm 0.0 | SE ratio and coverage intervals both inside their calibration bands | coverage 0.9328 to 0.9570, SE ratio 0.9547 to 1.0289 | pass |
 | `power` | `alternative` | positive | the same test applied to a law with a real effect | rejection lower bound clears the minimum power | rejection 0.9208, 0.8986 to 0.9396 | pass |
 | `root_n_and_efficiency` | `n_2000` | positive | bias, coverage and SE calibration at n = 2,000 | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000100, coverage 0.9267 to 0.9613, SE ratio 0.9667 | pass |
 | `root_n_and_efficiency` | `n_500` | positive | bias, coverage and SE calibration at n = 500 | bias inside the margin, coverage clears the floor, SE ratio inside the band | bias -0.000431, coverage 0.9192 to 0.9556, SE ratio 0.9553 | pass |
@@ -176,6 +176,10 @@ the committed results and checked at the precision printed.
 | `margin:calibration_coverage_lower` | 0.9200 | calibration coverage band, lower limit |
 | `margin:calibration_coverage_upper` | 0.9800 | calibration coverage band, upper limit |
 | `margin:type_i_ceiling` | 0.1000 | one-sided type-I error ceiling |
+| `margin:paired_difference` | 0.1500 | paired similarity margin in empirical SDs |
+| `margin:rmse_noninferiority` | 1.1000 | RMSE-ratio non-inferiority margin |
+| `margin:coverage_noninferiority` | -0.0250 | coverage-difference non-inferiority margin |
+| `margin:calibration_noninferiority` | 0.0500 | SE-calibration non-inferiority margin |
 | `margin:minimum_power` | 0.8000 | power-control rejection lower bound |
 | `margin:root_n_slope` | -0.5000 | predicted root-n slope |
 | `margin:root_n_slope_lower` | -0.6250 | accepted slope band, lower limit |
@@ -184,6 +188,8 @@ the committed results and checked at the precision printed.
 | `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
 | `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
 | `margin:targeting_displacement` | 1.5000 | least the fluctuation must move the estimate |
+| `margin:iid_control_se_ceiling` | 0.8000 | IID-control SE-ratio ceiling |
+| `margin:clustered_coverage_gain` | 0.0300 | paired coverage-gain floor |
 
 ## Limitations
 
