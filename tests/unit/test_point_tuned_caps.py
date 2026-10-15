@@ -848,14 +848,16 @@ def test_m2_a_fold_map_that_leaves_the_support_is_refused_before_any_learner(
     from cleverly.estimators import TMLE
 
     _fold_cap_at(50.0, monkeypatch)
-    with pytest.raises(DataError, match="not identified under the declared support"):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            TMLE(
-                policies=_policies("population"),
-                n_folds=2,
-                **_settings(**_raising(), cross_fit=True),
-            ).fit(frame, treatment_support=_support_for_the_fold_test(), **COLUMNS)
+    with (
+        pytest.raises(DataError, match="not identified under the declared support"),
+        warnings.catch_warnings(),
+    ):
+        warnings.simplefilter("ignore")
+        TMLE(
+            policies=_policies("population"),
+            n_folds=2,
+            **_settings(**_raising(), cross_fit=True),
+        ).fit(frame, treatment_support=_support_for_the_fold_test(), **COLUMNS)
 
 
 def test_m2_the_same_fit_without_the_fold_cap_reaches_the_learners(frame: Any) -> None:
