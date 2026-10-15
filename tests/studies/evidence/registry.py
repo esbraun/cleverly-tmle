@@ -197,6 +197,10 @@ class StudyRecord:
     #: for the same estimand, which is what decides a disagreement between two
     #: implementations rather than merely reporting one.
     efficiency_bounds: Mapping[str, float] = field(default_factory=dict)
+    #: The outcome a horizon-indexed key reports: ``"absorbing"`` for a cumulative risk or
+    #: incidence, ``"repeated"`` for the mean of a repeated outcome.  A key alone cannot
+    #: tell ``ate_regimen[a vs b @ t=2]`` of the two apart, so the record declares it.
+    outcome_kind: str = "absorbing"
     #: Whether interval-calibration cells publish ratios against an exact efficiency bound.
     #: A study may use an exact bound only to size a negative control without claiming that
     #: its deliberately misspecified estimator attains the bound.
@@ -395,6 +399,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_LTMLE_COMPETING_CROSSFIT,
     )
     from tests.studies.canonical_ltmle_crossfit import STUDY as CANONICAL_LTMLE_CROSSFIT
+    from tests.studies.canonical_ltmle_repeated import STUDY as CANONICAL_LTMLE_REPEATED
     from tests.studies.canonical_ltmle_survival import STUDY as CANONICAL_LTMLE_SURVIVAL
     from tests.studies.canonical_ltmle_survival_crossfit import (
         STUDY as CANONICAL_LTMLE_SURVIVAL_CROSSFIT,
@@ -519,6 +524,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_SURVIVAL_CROSSFIT,
         CANONICAL_LTMLE_COMPETING,
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
+        CANONICAL_LTMLE_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_POLICIES,

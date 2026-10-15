@@ -30,7 +30,7 @@ the parameter under.
 from __future__ import annotations
 
 from ..exceptions import LongitudinalError
-from .data import LongitudinalData
+from .data import LongitudinalData, Repeated
 from .estimator import (
     IPSI,
     LTMLE,
@@ -74,6 +74,7 @@ __all__ = [
     "Regimen",
     "RegimenFit",
     "RegimenSpec",
+    "Repeated",
     "SequentialStep",
     "each_node",
     "fit_mechanism",

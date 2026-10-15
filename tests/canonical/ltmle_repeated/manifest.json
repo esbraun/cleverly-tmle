@@ -1,0 +1,140 @@
+{
+  "schema_version": 2,
+  "study": "repeated-outcome longitudinal TMLE",
+  "slug": "longitudinal-repeated-outcome",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.3",
+      "cleverly_commit": "45dd3e5d1f130a7545c729c5f24ea33dedbac3ae",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 3000,
+    "seed": 20263204,
+    "resampling_seed": 2026320401,
+    "publication_policy": "gated",
+    "scenarios": {
+      "censored_repeated_outcome": [
+        "ey_regimen[never @ t=1]",
+        "ey_regimen[never @ t=2]",
+        "ey_regimen[never @ t=3]",
+        "ey_regimen[always @ t=1]",
+        "ey_regimen[always @ t=2]",
+        "ey_regimen[always @ t=3]",
+        "ey_regimen[treat then treat after an outcome @ t=2]",
+        "ey_regimen[treat then treat after an outcome @ t=3]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[always vs never @ t=3]",
+        "ate_regimen[treat then treat after an outcome vs never @ t=2]",
+        "ate_regimen[treat then treat after an outcome vs never @ t=3]"
+      ]
+    },
+    "construction": "ordinary",
+    "outcome_kind": "repeated",
+    "horizon_mode": "all_prefixes",
+    "r_survival_outcome": false,
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "variance_method": "ic",
+    "stratify": true,
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "probability_bound": 0.9999,
+    "horizons": [
+      1,
+      2,
+      3
+    ],
+    "regimens": [
+      "never",
+      "always",
+      "treat then treat after an outcome"
+    ],
+    "q_formulas": [
+      "Q.kplus1 ~ W",
+      "Q.kplus1 ~ W + Y1 + L2",
+      "Q.kplus1 ~ W + Y1 + L2 + Y2 + L3"
+    ],
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ltmle_repeated.py": "fc71775b0b95663b08b5805cdee25afe7150ada1c19efed675c3e57865a8f798",
+    "tests/studies/ltmle_repeated_properties.py": "104f7b5529c7b706331733d3856bf8f550795494004d92224739a1d2d590aaa2",
+    "tests/studies/ltmle_repeated_law.py": "0a47bca289540fa4924f3914607dfbb239738843a0eb62dd8d0117a012e82caa",
+    "tests/studies/canonical_ltmle.py": "3f15ff47823c8ff791fca05d12511f53786e4d89ad7bac4f954e5d735656ad6c",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
+    "src/cleverly/datasets/longitudinal.py": "0da84c77c274c906645ee028a5d055c9eb16b18e93b63aaef5425f1e2cd7c950",
+    "tests/studies/evidence/comparison.py": "cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "14e0e3daaea0a8fde5cedca2e5b3002ca50ac6f82b2355e7573853b57c5e8287",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "0347edde7dbe3b5b54932258ab458af8e9deef14389bce74e91a1c6ca1728e09",
+    "summary.csv": "7a7ca91b73c64db87a9f7c6ab12d3142b05e131dc57ea63caa5c6dea37c81f76",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "ad9268c8f7316d2d9874d5cd68185b8e9185680e2e2e930e064d668b6f39afee",
+    "property-replicates.csv.gz": "c01574c471a0e8f2e38c2e290c9106974c08d49a196b32399519dd8d413067e8",
+    "properties.csv": "bc5a9ea2b98d95ffc978a2d4e58d4a8ed925e4cd0c0d91ae11986a9f59a98a07"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "ltmle",
+    "reason": "the R ltmle 1.3-0 paired runs at n = 3,000 run on the owner's machine as TRACKER Study queue item 14(c); the X32a follow-up change registers them",
+    "metadata": {
+      "ltmle_version": "1.3-0",
+      "ltmle_source_commit": "338c029dae9692ef20714125773da7037688993b",
+      "ltmle_tarball_sha256": "fb31d0dd6ab81687b81f3279b414c21e91c655e10aac12f73fc6723efd848aad",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "ltmle per horizon on the prefix through Y_h, survivalOutcome=FALSE, main-terms Qform, numeric gform; the initial estimate is a second call with gcomp=TRUE. The cleverly rows publish no initial estimate"
+    },
+    "declared_sources_sha256": {
+      "tests/canonical/ltmle/Dockerfile": "8370ba25d46635797f0e60e903e87b02239b9263d0bc235eeedc32a5e6d3c044",
+      "tests/canonical/ltmle_repeated/run_study.R": "528e895165158afca0cdf4a59146b2f6d50bf0c3123b38c6088007af9e53a215",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+      "tests/canonical/ltmle_repeated_adapter.R": "10c6e6cafc9d01a0d93026b5869618d52f7c61c7a5b1207598a20816328149a0"
+    }
+  }
+}

@@ -72,6 +72,11 @@ SDR_TILT_REFUSAL = (
     "mechanism, so its estimator is not doubly robust (Kennedy 2019, Section 3.3). Fit "
     "IPSI(regimens=[...])"
 )
+#: Why ``SDR`` and ``IPSI`` refuse a repeated outcome (R7, ``refuse_repeated_outcome``).
+REPEATED_OUTCOME_REFUSAL = (
+    "LTMLE fits a repeated outcome (outcome=Repeated([...])) in this version, one end-of-study "
+    "backward pass per horizon. Support for SDR and IPSI is roadmap row X32b (docs/roadmap.md)"
+)
 #: Why the IPSI estimator refuses a fluctuation setting (R5 in ``test_ipsi_e2e.py``).
 IPSI_NO_FLUCTUATION = (
     "IPSI fits no fluctuation: Kennedy's estimator averages the influence function at the "

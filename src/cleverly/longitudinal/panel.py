@@ -410,8 +410,9 @@ def _unit_level(
         reason = {
             "baseline": "A column that changes over time is time-varying. Read as a baseline "
             "covariate, a later value would let a rule at an earlier node read the future",
-            "outcome": "An end-of-study outcome holds one value per unit. A per-row outcome is "
-            "a survival event, declared with event=",
+            "outcome": "An end-of-study outcome holds one value per unit. A per-row event "
+            "indicator is a survival outcome, declared with event=. A long panel does not "
+            "take a repeated outcome in this version; declare it on a wide frame with Repeated",
         }.get(role, f"A {role} column holds one value per unit")
         raise DataError(
             f"column {name!r} holds more than one value for {int(clash.sum())} unit(s); the "
@@ -467,6 +468,13 @@ def from_long_panel(
     frame = as_frame(data)
     columns = [str(name) for name in frame.columns]
 
+    if outcome is not None and not isinstance(outcome, str):
+        raise DataError(
+            "from_long_panel takes outcome= as one column name, an end-of-study outcome. A "
+            "repeated outcome (Repeated([...])) is declared on a wide frame, with one column "
+            "per node; a long panel with a repeated outcome on each row is not supported in "
+            "this version"
+        )
     if (outcome is None) == (event is None):
         raise DataError(
             "declare exactly one of outcome= (one end-of-study value per unit) and event= "
