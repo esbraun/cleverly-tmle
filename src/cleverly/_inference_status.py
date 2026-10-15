@@ -263,8 +263,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "conditional reading of the weights does not use efficiency, so it covers the "
                 "fixed-weight DR-TMLE curve. A per-arm outcome-adaptive C-TMLE fit "
                 "(strategy='oat', oat_design='per_arm') with estimated weights takes the "
-                "generated_design_plugin status while OAT_PER_ARM_INFERENTIAL is False, and "
-                "F19 in docs/roadmap.md holds its interval."
+                "generated_design_plugin status, because per_arm_parametric_support refuses "
+                "observation weights, and F19 in docs/roadmap.md holds its interval."
             ),
             assessment_note=(
                 "the reported curve is a fixed-weight diagnostic: no confidence interval or "

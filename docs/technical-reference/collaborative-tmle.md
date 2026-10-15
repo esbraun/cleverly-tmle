@@ -304,10 +304,10 @@ The table states the construction of the per-arm curve. `plugin_std_error` and
 | variance | in sample, the empirical variance of the reported curve. Cross-fitted, the variance of the stacked out-of-fold curve |
 | conditions | (i) the curve equation is solved to $o_P(n^{-1/2})$. (ii) $\bar Q_n$ and $Q^*_n$ converge at $o_P(n^{-1/4})$ in $L_2(P_0)$. (iii) the treatment learner is consistent for $P(A = a \mid \bar Q_n(a, W))$ at $o_P(n^{-1/4})$. A misspecified learner makes $R_{23}$ first order whenever $Q^*_n - \bar Q_0 = O_P(n^{-1/2})$, which includes every correctly specified parametric outcome model. (iv) the curve converges in $L_2$, and in sample its class is Donsker. (v) $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ is differentiable in $\bar Q_0$ with a bounded derivative. This condition fails for a root-$n$ outcome regression on a continuous $W$, as the next section states. (vi) the term from fitting $G$ on the initial $\bar Q_n$ is negligible. Positivity: the projection $P(A = a \mid \bar Q_0(a, W))$ lies inside `g_bounds`. Also iid rows, or fixed known weights, and a consistent outcome regression. A correct $g$ alone does not give consistency |
 | the source's warnings | Section 4.1 (p. 12): "the estimated standard errors of CTMLE had poor performance, often underestimating the true variability of the estimator". The Discussion (pp. 17-18) calls the CTMLE "an irregular estimator, it may perform poorly for certain data generating distributions", and notes "the poor behavior of the confidence intervals in both simulations". The limit is pointwise at a fixed law. It is not locally uniform |
-| the key's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits withhold their interval while the revert flag is `False` |
-| withheld | every `strategy="oat"` fit, of either design. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the key excludes it even with the flag set |
+| the diagnostic's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits report the diagnostic curve, and they withhold their interval unless `per_arm_parametric_support` admits them |
+| withheld | every `strategy="oat"` fit of either design that `per_arm_parametric_support` refuses. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the predicate refuses it on the `strata`, `missing_outcome` or `missing_treatment` axis |
 | bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
-| key | `per_arm_design_admits(estimator, data)` in `cleverly.estimators.ctmle`. It reads the strategy, the design, the missing outcomes and treatment, the strata and the revert flag, and never a fitted array |
+| predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits an in-sample per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on a binary treatment with complete, unweighted and unstratified data. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
 
 **The shared design publishes no inference.** It fits one categorical mechanism on the outcome
 predictions of every arm. Theorem 1 covers one scalar design, and no reviewed result supplies the
@@ -352,12 +352,15 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 
 ### The applied revert
 
-`OAT_PER_ARM_INFERENTIAL` in `cleverly.estimators.ctmle` is `False`. Every per-arm fit takes
-`"generated_design_plugin"`, and the reason names condition (v) and the registered study.
+A per-arm fit takes `"generated_design_plugin"` unless `per_arm_parametric_support` in
+`cleverly.estimators.ctmle` admits it. The predicate replaced the global per-arm
+flag. Every fit with a scikit-learn learner takes the status, and the reason
+names condition (v) and the registered study.
 
-The study `ctmle-oat-per-arm` declared its positive coverage and calibration cells as the cells
-that the flag reads. Before the run, it declared that a red cell with no defect sets the flag to
-`False`. The table gives the run at the declared budgets.
+The study `ctmle-oat-per-arm` fits scikit-learn learners. It declared its positive coverage and
+calibration cells as the revert cells. Before the run, it declared that a red cell with no defect
+withholds the interval of every fit the study measures. The table gives the run at the declared
+budgets.
 
 | cells | standard-error ratio | coverage |
 | --- | --- | --- |
@@ -370,8 +373,8 @@ that the flag reads. Before the run, it declared that a red cell with no defect 
 | type I error at the sharp null | 0.88 | 0.904 |
 | the default band over the three-arm family | not applicable | 0.871 joint coverage |
 
-The shipped fit builds no band. The study's band cell sets the flag for its own fit only, so it
-measures the band that the per-arm design would build from its stacked curves.
+The shipped fit builds no band. The study's band cell calls `simultaneous_bands` on the plug-in
+curves of its own fit. It measures the band that the per-arm design would build from those curves.
 
 The deficit does not shrink with $n$. The comparator-backed comparison with R `drtmle` 1.1.2, with
 `adapt_g = TRUE`, shows agreement with `cleverly` to `1e-8` in each estimate and standard error. The bias is equivalent to zero in each

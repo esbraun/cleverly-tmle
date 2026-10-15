@@ -1002,9 +1002,9 @@ ordinary TMLE without a separate argument.
    meet it.
 8. Add parts (b) and (c) only after their changed contributions are mapped and tested.
 
-**Release gate.** A support predicate replaces the global flag `OAT_PER_ARM_INFERENTIAL`. The
-predicate reads the outcome learner, the mechanism learner, the design, the fitting, the target and
-the inference request. It never reads a fitted array. One passed study does not open every per-arm
+**Release gate.** A support predicate, `per_arm_parametric_support`, replaced the global per-arm
+flag. The predicate reads the outcome learner, the mechanism learner, the design, the fitting, the
+target and the inference request. It never reads a fitted array. One passed study does not open every per-arm
 fit.
 
 The corrected status, the covariance and the method declaration survive `result.save()`,
@@ -2243,9 +2243,9 @@ is further outside Theorem 1, because Appendix D only outlines its proof.
 - A result covers the exact cross-fitted multi-arm construction, and it separates a fixed target
   from a target conditional on the learned design.
 - For the per-arm design, the revert cells of `ctmle-oat-per-arm` pass their declared bands under
-  a fresh declaration. A support predicate for the validated configurations replaces the flag
-  `OAT_PER_ARM_INFERENTIAL`. [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans this for its
-  scope.
+  a fresh declaration. The support predicate `per_arm_parametric_support` replaced the global per-arm
+  flag, and it admits the validated configurations only.
+  [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans its scope.
 - It establishes whether the current curve suffices or an added representation contribution is
   needed.
 - It covers the requested joint means or contrasts and their covariance. It states the remainder,

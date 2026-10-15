@@ -115,12 +115,14 @@ selected, the estimator is the ordinary TMLE, and the fit takes the ordinary TML
     the remainder ``R24``), and that condition fails for an estimated outcome regression:
     the reported curve then omits a first-order generated-design term.  The registered
     study ``ctmle-oat-per-arm`` measured standard errors 8 to 24 percent too small, flat in
-    ``n``, while its oracle-design cells were calibrated.  So every ``oat`` fit, of either
-    design, takes the ``"generated_design_plugin"`` status (:data:`OAT_PER_ARM_INFERENTIAL`
-    is ``False``): ``ci``, ``pvalue`` and ``std_error`` raise
-    :class:`~cleverly.exceptions.CapabilityError`, and ``plugin_std_error`` and
-    ``plugin_interval`` report the retained diagnostic.  F19 in ``docs/roadmap.md`` holds
-    the generated-design term.  ``ctmle3`` does not cross-fit this fit at all
+    ``n``, while its oracle-design cells were calibrated.  So an ``oat`` fit takes the
+    ``"generated_design_plugin"`` status unless :func:`per_arm_parametric_support` admits it:
+    ``ci``, ``pvalue`` and ``std_error`` raise :class:`~cleverly.exceptions.CapabilityError`,
+    and ``plugin_std_error`` and ``plugin_interval`` report the retained diagnostic.  F19 in
+    ``docs/roadmap.md`` holds the generated-design term.  The predicate admits only an
+    in-sample per-arm fit with the two parametric learners.  Its curve is the stacked-equation
+    curve, which includes the generated-design term (X58 in ``docs/roadmap.md``).
+    ``ctmle3`` does not cross-fit this fit at all
     -- ``LF_oat`` pins ``cv_fold = -1`` -- so non-cross-fitted parity and a cross-fitted
     result would have different sources.
 
@@ -332,7 +334,6 @@ if TYPE_CHECKING:
 __all__ = [
     "CTMLE",
     "CTMLE_SELECTOR_STRATEGIES",
-    "OAT_PER_ARM_INFERENTIAL",
     "CTMLELoss",
     "CTMLEOatDesign",
     "CTMLEOutcomeAdaptiveFit",
@@ -340,26 +341,17 @@ __all__ = [
     "CTMLESelection",
     "CTMLEStrategy",
     "LogisticPlugin",
+    "SupportVerdict",
     "is_per_arm_oat",
     "is_selector_strategy",
     "logistic_plugin",
-    "per_arm_design_admits",
+    "per_arm_parametric_support",
 ]
 
 CTMLEStrategy = Literal["greedy", "ordered", "discrete", "oat"]
 CTMLELoss = Literal["auto", "loglik", "squared"]
 CTMLEPreorder = Literal["logistic", "partial_correlation"]
 CTMLEOatDesign = Literal["per_arm", "shared"]
-
-#: Whether an admitted per-arm outcome-adaptive fit publishes inference. ``False``: the
-#: declared revert of the registered study ``ctmle-oat-per-arm``. Its calibration, primary
-#: coverage, estimated-design and band cells measured standard errors 8 to 24 percent too
-#: small, flat in ``n``, while the oracle-design cells were calibrated. The cause is condition
-#: (v) of Benkeser, Cai and van der Laan (2020), Theorem 1 (preprint Appendix F, the remainder
-#: ``R24``), which fails for an estimated outcome regression, so the reported curve omits a
-#: first-order generated-design term. Every per-arm fit takes ``"generated_design_plugin"``.
-#: :func:`per_arm_design_admits` reads it; F19 in ``docs/roadmap.md`` holds the term.
-OAT_PER_ARM_INFERENTIAL: Final[bool] = False
 
 #: The strategies that build a candidate path and cut it at a data-chosen stopping index.
 #: ``"oat"`` is not one: it fits its mechanism on the arm-specific outcome predictions and
@@ -424,7 +416,7 @@ def is_per_arm_oat(estimator: Any) -> bool:
     """Whether an estimator is the per-arm outcome-adaptive :class:`CTMLE`.
 
     One predicate for every reader that admits the per-arm design where it refuses the
-    other collaborative strategies: :func:`per_arm_design_admits`, the missing-treatment
+    other collaborative strategies: :func:`per_arm_parametric_support`, the missing-treatment
     refusal and the missing-outcome contracts of :class:`~cleverly.estimators.TMLE`.
 
     Parameters
@@ -440,45 +432,6 @@ def is_per_arm_oat(estimator: Any) -> bool:
     return (
         getattr(estimator, "strategy", None) == "oat"
         and getattr(estimator, "oat_design", None) == "per_arm"
-    )
-
-
-def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
-    """Whether an outcome-adaptive fit is inside the per-arm result and reports inference.
-
-    The per-arm design regresses ``1{A = a}`` on the one column ``Qbar_n(a, W)`` for each arm.
-    Benkeser, Cai and van der Laan (2020), Theorem 1, give the influence curve of that
-    construction for one treatment-specific mean. An indicator reduction per arm and a
-    fixed-dimension stack give the joint curve of every arm. That theorem needs its
-    condition (v), which fails for an estimated outcome regression, so
-    :data:`OAT_PER_ARM_INFERENTIAL` is ``False`` and the key admits no fit.
-    ``docs/technical-reference/collaborative-tmle.md`` states the contract. The key reads
-    the estimator configuration, the prepared data and :data:`OAT_PER_ARM_INFERENTIAL`. It
-    never reads a fitted array, so a caller knows the answer before the fit.
-
-    Parameters
-    ----------
-    estimator : CTMLE
-        The collaborative estimator. Only ``strategy`` and ``oat_design`` are read.
-    data : CausalData
-        The prepared data. Missing outcomes, a missing treatment and baseline strata are
-        read.
-
-    Returns
-    -------
-    bool
-        ``True`` when the strategy is ``"oat"``, the design is ``"per_arm"``, every outcome
-        and treatment is observed, the fit declares no baseline strata, and
-        :data:`OAT_PER_ARM_INFERENTIAL` is ``True``.  The per-arm design with strata or
-        missing data is excluded even with the flag set, because no study measured its
-        curve.
-    """
-    return bool(
-        OAT_PER_ARM_INFERENTIAL
-        and is_per_arm_oat(estimator)
-        and not data.has_missing_outcome
-        and not data.has_missing_treatment
-        and not data.has_strata
     )
 
 
@@ -657,6 +610,8 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
         )
     allowed = {"ate", "rr", "or", "ey", "ey0", "ey1"}
     requested = estimator.estimands
+    if isinstance(requested, str):
+        requested = (requested,)
     if requested is None or not set(requested) <= allowed:
         return SupportVerdict(
             False,
@@ -1109,14 +1064,13 @@ class CTMLE(TMLE):
         declared list and the prepared covariate names, and never the fitted path.
         ``docs/technical-reference/collaborative-tmle.md`` states the contract.
 
-        Every ``"oat"`` fit takes ``"generated_design_plugin"``, which F19 holds. The key
-        :func:`per_arm_design_admits` would admit a per-arm fit on complete outcomes and
-        treatment without baseline strata, but it also reads :data:`OAT_PER_ARM_INFERENTIAL`,
-        which is ``False``: the registered study found the per-arm standard errors too small,
-        because condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1, fails for
-        an estimated outcome regression. Were the flag set, an admitted fit would take the
-        :class:`~cleverly.TMLE` status, or ``"estimated_weight_plugin"`` on weights declared
-        estimated, since the conditioning argument concerns the efficient curve. The status
+        An ``"oat"`` fit takes ``"generated_design_plugin"``, which F19 holds, unless
+        :func:`per_arm_parametric_support` admits it. The registered study found the
+        per-arm standard errors too small, because condition (v) of Benkeser, Cai and van der
+        Laan (2020), Theorem 1, fails for an estimated outcome regression. The predicate admits
+        only an in-sample fit with the parametric learners, whose stacked curve includes the
+        generated-design term. It refuses observation weights, so estimated weights never reach
+        an admitted fit. An admitted fit takes the :class:`~cleverly.TMLE` status. The status
         table of ``docs/technical-reference/inference.md`` states the shipped behaviour.
 
         Parameters
@@ -1130,27 +1084,16 @@ class CTMLE(TMLE):
         -------
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`: the
-            :class:`~cleverly.TMLE` status for the admitted ``"discrete"`` fit and a per-arm
-            ``"oat"`` fit that :func:`per_arm_design_admits` admits (none while
-            :data:`OAT_PER_ARM_INFERENTIAL` is ``False``), ``"working_mechanism_plugin"``
-            for every other ``"greedy"``, ``"ordered"`` and ``"discrete"`` fit, and
-            ``"generated_design_plugin"`` for every other ``"oat"`` fit.
+            :class:`~cleverly.TMLE` status for the admitted ``"discrete"`` fit and for a
+            per-arm ``"oat"`` fit that :func:`per_arm_parametric_support` admits,
+            ``"working_mechanism_plugin"`` for every other ``"greedy"``, ``"ordered"`` and
+            ``"discrete"`` fit, and ``"generated_design_plugin"`` for every other ``"oat"``
+            fit.
         """
         if declares_full_adjustment_only(self.strategy, self.candidates, data.covariate_names):
             return super()._inference_status(data)
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
-        if per_arm_design_admits(self, data):
-            # The interval conditions on the weights only for the efficient curve. The per-arm
-            # curve is Theorem 1's, so estimated weights withhold it, as a guarded DRTMLE does.
-            return precedent_status(
-                [
-                    "estimated_weight_plugin"
-                    if data.declares_estimated_weights
-                    else "influence_curve",
-                    super()._inference_status(data),
-                ]
-            )
         if per_arm_parametric_support(self, data).admitted:
             # The stacked curve of X58: the outcome GLM, each arm's mechanism, fluctuation and
             # mean as one Z-estimator. An arm whose stack fails on the sample takes the

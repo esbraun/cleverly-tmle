@@ -198,6 +198,10 @@ class TestTheDataAxes:
         bounded = CTMLE(**_options(q_bounds=(2.0, 10.0)))
         assert per_arm_parametric_support(bounded, _prepared(bounded, frame)).admitted
 
+    def test_one_estimand_named_by_a_string(self) -> None:
+        estimator = CTMLE(**_options(estimands="ate"))
+        assert per_arm_parametric_support(estimator, _prepared(estimator)).admitted
+
     def test_an_unlisted_estimand(self) -> None:
         estimator = CTMLE(**_options(estimands=("ate", "ey_obs")))
         verdict = per_arm_parametric_support(estimator, _prepared(estimator))
