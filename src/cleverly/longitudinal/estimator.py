@@ -279,7 +279,7 @@ def refuse_sdr_scale(
     every = (
         ""
         if draw is None
-        else " in every draw, because a repeated fit combines the ratio per draw on the "
+        else " in every draw, because a repeated fit combines each draw on the "
         f"{'log' if scale == 'log' else scale} scale"
     )
     if scale == "log":
@@ -1546,7 +1546,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         ndarray
             Covariance matrix at the independent observation or cluster level. On a fit
             whose status supplies no inference, or a selection with a name that supplies
-            none, it is the plug-in covariance of the reported curves, a diagnostic.
+            none, it is a diagnostic: the plug-in covariance of the reported curves on a
+            single-draw fit, and the matrix rule over the per-draw plug-in candidates on a
+            repeated fit.
         """
         if self.n_repeats > 1:
             chosen = select_estimates(self.estimates, names)

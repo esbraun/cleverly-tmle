@@ -37,7 +37,7 @@ from cleverly.estimators.serialize import dumps, loads
 from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import influence_variance
 from cleverly.inference.delta import Transform
-from cleverly.inference.influence import make_estimate
+from cleverly.inference.influence import _median_adjusted_variance, make_estimate
 from cleverly.inference.multiplier import median_bands, simultaneous_bands
 from cleverly.inference.results import estimate_covariance, median_covariance, smooth_contrast
 from cleverly.learners.crossfit import CrossFitPlan, check_integrity, random_partition
@@ -306,13 +306,17 @@ def test_converged_reads_every_draw() -> None:
     per_draw = [all(fit.converged for fit in draw.fits.values()) for draw in result.repeats]
     assert per_draw == [True, True, False]
     assert not result.converged
+    # The stagewise report's rows are draw 1's, and its per-draw field reads every draw.
+    stagewise = result.diagnostics.support()
+    assert all(stagewise.to_frame()["converged"])
+    assert stagewise.draw_converged == (True, True, False)
     assert "in at least one draw" in result.summary()
 
 
 # ================================================================ 4.2 aggregation
 
 
-@pytest.mark.parametrize("design", ["ltmle", "sdr", "ipsi", "survival", "competing"])
+@pytest.mark.parametrize("design", ["ltmle", "sdr", "ipsi", "survival", "competing", "repeated"])
 def test_point_is_the_median_of_draws(design: str) -> None:
     result = _fit(design, repeats=3)
     for name, estimate in result.estimates.items():
@@ -441,7 +445,7 @@ def test_sdr_ratio_checks_every_draw() -> None:
         result.ratio(LEVEL_B, REF)
     text = str(raised.value)
     assert f"{LEVEL_B} is -0.01 in draw 2 of 3, at or below 0." in text
-    assert "a positive level in every draw, because a repeated fit combines the ratio" in text
+    assert "a positive level in every draw, because a repeated fit combines each draw" in text
 
 
 def test_rmst_and_contrast_apply_per_draw() -> None:
@@ -485,6 +489,7 @@ def test_incidence_total_applies_per_draw() -> None:
     result = _fit("competing", repeats=3)
     frame = result.incidence_total()
     assert len(frame) > 0
+    displaced = 0
     index = result.parameter_index
     for row in frame.itertuples():
         names = [
@@ -495,6 +500,21 @@ def test_incidence_total_applies_per_draw() -> None:
         assert len(names) == 2
         totals = np.array([sum(d.estimates[n].psi for n in names) for d in result.repeats])
         _close(row.total, np.median(totals))
+        # Each draw's total has the variance of its summed curve; the median rule adds each
+        # draw's displacement from the median total (Chernozhukov 2018, equation 3.14).
+        variances = [
+            float(
+                influence_variance(
+                    np.sum([d.estimates[n].influence_curve for n in names], axis=0),
+                    cluster=result.data.cluster,
+                )
+            )
+            for d in result.repeats
+        ]
+        _close(row.std_err, np.sqrt(_median_adjusted_variance(totals, variances)))
+        displaced += abs(row.std_err - np.sqrt(np.median(variances))) > 1e-9
+    # The displacement term moves at least one row's standard error.
+    assert displaced > 0
 
 
 def test_msm_coefficients_median_coordinatewise() -> None:
@@ -506,11 +526,18 @@ def test_msm_coefficients_median_coordinatewise() -> None:
     assert len(coefficients) == 2
 
 
-def test_band_uses_split_adjusted_se_and_median_critical_value() -> None:
-    result = _fit("ltmle", repeats=3)
+@pytest.mark.parametrize(("design", "repeats"), [("ltmle", 4), ("repeated", 3)])
+def test_band_uses_split_adjusted_se_and_median_critical_value(design: str, repeats: int) -> None:
+    """The band's critical value is the median over draws, and not draw 1's (review major 1).
+
+    On the three-draw law-D fit draw 1's critical value is the median, so a regression to
+    draw 1 would pass there.  Both fixtures here have a draw-1 value away from the median.
+    """
+    result = _fit(design, repeats=repeats)
     band = result.simultaneous
     draws = np.array(band.draw_critical_values)
-    assert len(draws) == 3 and len(set(draws.tolist())) == 3
+    assert len(draws) == repeats and len(set(draws.tolist())) == repeats
+    assert abs(band.critical_value - draws[0]) > 1e-6, "draw 1 holds the median"
     _close(band.critical_value, np.median(draws))
     for name, (low, high) in band.bands.items():
         estimate = result[name]
@@ -520,7 +547,7 @@ def test_band_uses_split_adjusted_se_and_median_critical_value() -> None:
         assert low <= marginal[0] and marginal[1] <= high
 
 
-def _study_result(repeats: int) -> Any:
+def _study_result(repeats: int, random_state: int | None = 11) -> Any:
     rows = _rows("ltmle")
     study = CausalStudy(
         rows,
@@ -539,7 +566,7 @@ def _study_result(repeats: int) -> Any:
         n_folds=5,
         learner_folds=2,
         g_bounds=support.G_BOUNDS,
-        random_state=11,
+        random_state=random_state,
         repeats=repeats,
     )
 
@@ -634,7 +661,10 @@ def test_one_name_covariance_is_the_reported_variance(repeats: int) -> None:
         for d in per_draw
     ]
     gaps.append(_central(np.array(candidates)) != ratio.variance)
-    assert any(gaps), "no last-bit gap: the exact equality would not witness the scalar route"
+    if not any(gaps):
+        # The witness needs the matrix route and the scalar route to differ in a last bit.
+        # That gap depends on the floating-point stack, and its absence is no defect.
+        pytest.skip("no last-bit gap on this platform: the equality witnesses nothing here")
 
 
 def test_covariance_can_differ_from_the_reported_diagonal() -> None:
@@ -787,7 +817,7 @@ def test_validate_and_assess_run_on_a_repeated_fit() -> None:
     report = result.validate()
     assert any("draw 1 of 3" in str(item) for item in report.items)
     assessed = result.assess()
-    assert assessed.validation.items == report.items or len(assessed.validation.items) > 0
+    assert assessed.validation.items == report.items
     assert result.replayability.refit_nuisances
     assert result.assessment_cache is not None
 
@@ -895,6 +925,12 @@ def test_readers_report_the_combined_estimates() -> None:
     text = str(result.summary())
     assert "median over 3 draws" in text
     assert "leverage of draw 1 of 3" in text
+    # The split-noise block names every parameter with its spread across the draws.
+    assert "split noise -- spread across the 3 draws on the inference scale" in text
+    spread = result.repeat_spread()
+    for name in result.estimates:
+        assert f"  {name} {spread[name]:.4g}  (" in text
+    assert "split noise" not in str(single.summary())
 
 
 def test_unavailable_capabilities_keep_their_reason() -> None:
@@ -905,6 +941,10 @@ def test_unavailable_capabilities_keep_their_reason() -> None:
         theirs = {c.operation: c for c in getattr(single, facade).capabilities}
         assert sorted(mine) == sorted(theirs)
         for operation, capability in theirs.items():
+            if facade == "sensitivity":
+                # Every route maps to this test in the registry, so a route that turns
+                # available needs its own repeat witness before it leaves this list.
+                assert not mine[operation].available, operation
             if capability.available:
                 continue
             assert mine[operation].status == capability.status
@@ -997,6 +1037,111 @@ def test_time_to_event_study_repeats_reach_the_engine() -> None:
     assert via_study.n_repeats == 3
     for name, estimate in via_study.estimates.items():
         _close(estimate.psi, result[name].psi)
+
+
+# ================================================================ review witnesses
+
+
+#: Law D with a lower bound that clips the cumulative mechanism of draw 3 only: the largest
+#: clipped share of a node is 0 in draws 1 and 2 and 0.0595 in draw 3, above the 5% line.
+LATE_TRUNCATION = {"g_bounds": (0.02, 1.0), "random_state": 3}
+
+
+def test_a_later_draw_truncation_reaches_the_warning_and_assess() -> None:
+    """A breach in draw 3 alone warns at fit time and reaches ``assess`` (review minors 1, 2)."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = support.ltmle(_rows("ltmle"), repeats=3, **LATE_TRUNCATION)
+    stagewise = result.diagnostics.support()
+    shares = stagewise.draw_max_share_truncated
+    assert shares[0] <= 0.05 and shares[1] <= 0.05 and shares[2] > 0.05
+    # The rows are draw 1's, so a grade that read only the rows would see no breach.
+    assert max(stagewise.to_frame()["share_truncated"]) <= 0.05
+    for draw, share in zip(result.repeats, shares, strict=True):
+        single = _fit("ltmle", g_bounds=LATE_TRUNCATION["g_bounds"], random_state=draw.seed)
+        assert share == max(single.diagnostics.support().to_frame()["share_truncated"])
+    truncation = [str(w.message) for w in caught if "truncat" in str(w.message)]
+    assert truncation and all("in draw(s) 3 of 3" in text for text in truncation), truncation
+    item = next(i for i in result.validate().items if i.name == "support")
+    assert item.status.value == "warning"
+    assert "exceeds 5% at one or more nodes in draw 3 of 3" in item.detail
+    assert "the rows describe draw 1 of 3" in item.detail
+
+
+def test_causal_study_band_without_a_seed_reads_the_recorded_multiplier_seed() -> None:
+    """Under ``random_state=None`` the narrowed band reproduces from the recorded seed."""
+    result = _study_result(3, random_state=None)
+    seed = result.config.multiplier_seed
+    assert isinstance(seed, int)
+    family = {name: result[name] for name in result.simultaneous.bands}
+    expected = median_bands(
+        [draw.estimates for draw in result.repeats],
+        family,
+        alpha=result.simultaneous.alpha,
+        n_replicates=result.simultaneous.n_replicates,
+        kind=result.simultaneous.kind,
+        random_state=seed,
+    )
+    other = median_bands(
+        [draw.estimates for draw in result.repeats],
+        family,
+        alpha=result.simultaneous.alpha,
+        n_replicates=result.simultaneous.n_replicates,
+        kind=result.simultaneous.kind,
+        random_state=seed + 1,
+    )
+    assert other.critical_value != expected.critical_value
+    assert result.simultaneous.critical_value == expected.critical_value
+    assert result.simultaneous.bands == expected.bands
+
+
+def test_repeated_outcome_curve_is_the_median_of_draws() -> None:
+    """X32a's repeated outcome under ``repeats=3``: each horizon combines by the median rule.
+
+    Each draw is a single-draw fit (``test_each_draw_reproduces_a_single_draw_fit``, case
+    ``repeated``).  Here every horizon's mean and paired contrast is the median of its draws,
+    with the split-adjusted variance, and ``curve(scale="mean")`` reports those numbers.  The
+    nonzero witness: at least one row's median is away from draw 1's value.
+    """
+    result = _fit("repeated", repeats=3)
+    assert result.data.is_repeated and result.config.outcome_kind == "repeated"
+    assert set(result.estimates) == set(_fit("repeated").estimates)
+    curve = result.curve(scale="mean")
+    assert len(curve) == len(result.estimates)
+    away = 0
+    for row in curve.itertuples():
+        values = _draw_psi(result, row.estimand)
+        _close(row.psi, np.median(values))
+        _close(result[row.estimand].variance, _hand_variance(result, row.estimand))
+        low, high = result[row.estimand].ci
+        _close((row.ci_lower, row.ci_upper), (low, high))
+        away += abs(row.psi - values[0]) > 1e-9
+    assert away > 0
+    # A contrast is formed inside each draw, then combined: the paired rule.
+    contrast = "ate_regimen[always vs never @ t=2]"
+    paired = np.array(
+        [
+            d.estimates["ey_regimen[always @ t=2]"].psi - d.estimates["ey_regimen[never @ t=2]"].psi
+            for d in result.repeats
+        ]
+    )
+    _close(result[contrast].psi, np.median(paired))
+    assert result.covariance(sorted(result.estimates)).shape == (15, 15)
+    with pytest.raises(ValueError, match="not a cumulative risk"):
+        result.curve(scale="risk")
+
+
+def test_sensitivity_benchmark_refuses_a_longitudinal_fit_by_capability() -> None:
+    """``benchmark`` on a longitudinal fit raises the capability row's refusal.
+
+    It raised ``AttributeError`` from the point-treatment arm table before the fix.
+    """
+    for result in (_fit("ltmle"), _fit("ltmle", repeats=3)):
+        capability = next(c for c in result.sensitivity.capabilities if c.operation == "benchmark")
+        assert not capability.available
+        for arguments in ((), (["W"],)):
+            with pytest.raises(CapabilityError, match="no longitudinal benchmarking derivation"):
+                result.sensitivity.benchmark(*arguments)
 
 
 # ------------------------------------------------------------------ the registry
@@ -1130,7 +1275,13 @@ CAPABILITIES: dict[str, tuple[str, str, str | None]] = {
     **dict.fromkeys(SENSITIVITY_ROUTES, _UNAVAILABLE),
 }
 
-_EACH_KIND = {"end_of_study": "ltmle", "survival": "survival", "competing": "competing"}
+#: The witness design of each outcome kind, by the ``outcome_kind`` a fit records.
+_EACH_KIND = {
+    "end_of_study": "ltmle",
+    "survival": "survival",
+    "competing": "competing",
+    "repeated": "repeated",
+}
 
 #: Every outcome kind, every ``is_*`` declaration of ``LongitudinalData``, every public
 #: constructor, and every longitudinal design of ``CausalStudy``.
@@ -1138,6 +1289,7 @@ DATA_DECLARATIONS: dict[str, tuple[str, str, str | None]] = {
     **{f"kind:{kind}": _witness(EACH_DRAW, case) for kind, case in _EACH_KIND.items()},
     "is_survival": _witness(EACH_DRAW, "survival"),
     "is_competing": _witness(EACH_DRAW, "competing"),
+    "is_repeated": _witness("test_repeated_outcome_curve_is_the_median_of_draws"),
     "is_weighted": _witness(EACH_DRAW, "weighted"),
     "is_continuous_node": _witness(EACH_DRAW, "mtp"),
     "is_held_node": _witness(EACH_DRAW, "time_to_event"),
@@ -1184,11 +1336,11 @@ def _live_capabilities() -> set[str]:
 
 
 def _live_data_declarations() -> set[str]:
-    kinds = set()
-    for case in _EACH_KIND.values():
-        data = _fit(case, repeats=3).data
-        kind = "competing" if data.is_competing else "survival" if data.is_survival else None
-        kinds.add(f"kind:{kind or 'end_of_study'}")
+    # Every kind the estimator declares, read from its type, so a new kind fails here until
+    # it has a row.  Each row's design must be a fit of that kind.
+    kinds = {f"kind:{kind}" for kind in typing.get_args(estimator_module.OutcomeKind)}
+    for kind, case in _EACH_KIND.items():
+        assert _fit(case, repeats=3).config.outcome_kind == kind, (kind, case)
     flags = {name for name in dir(LongitudinalData) if name.startswith("is_")}
     constructors = {
         name

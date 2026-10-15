@@ -1298,7 +1298,6 @@ def median_estimates(
             points = np.asarray([part.inference_value for part in parts], dtype=float)
             median_point = float(np.median(points))
             psi = float(transform.inverse(median_point))
-            log_psi = parts[0].log_psi if scale == "ratio" else None
         elif scale == "ratio":
             # ``points`` and ``median_point`` are on the reporting scale, which for a
             # ratio is the log scale.  The displacement term below reads them, so a ratio

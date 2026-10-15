@@ -251,6 +251,7 @@ panel, under the same inference statuses.
 | static, dynamic and known stochastic plans, modified treatment policies | fits. A rule may read $Y_{t-1}$ |
 | cross-fitting, clusters, weights, a held treatment, known mechanisms | fits |
 | `msm=` over $(d, h)$ cells | fits |
+| `repeats` above 1 | fits. Each horizon's mean and contrast take the median rule of [repeated fold draws](#repeated-fold-draws) |
 | `SDR` and `IPSI` | refused before any learner, until [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | competing causes | not declarable. A cause mapping declares an absorbing outcome |
 | `rmst()`, `rmtl()`, `incidence_total()`, `ratio(view="survival")` | refused. A mean of a repeated outcome is not a cumulative risk |
@@ -947,6 +948,7 @@ for each quantity.
 | `covariance(names)` | the matrix rule of equation (3.14) for the selected names. See the next paragraph |
 | simultaneous band | $\tilde\psi_j \pm c_{\mathrm{med}}\,\tilde\sigma_j$. Here $c_{\mathrm{med}}$ is the median of the per-draw multiplier critical values, and $\tilde\sigma_j$ is the reported standard error |
 | inference status | each name takes the precedent status of its draws before any median |
+| repeated outcome, `Repeated([...])` | the rule above for each horizon's mean and contrast. `curve(scale="mean")` reports the combined values |
 | `influence_curves` | the curve of the central draw, or the mean of the two central curves at an even draw count. It serves marginal diagnostics only |
 | `repeat_spread()` | the standard deviation of the draws on the inference scale, a diagnostic |
 
@@ -956,21 +958,29 @@ displacement from the coordinatewise median. The method returns the candidate wi
 largest eigenvalue, with ties to the lower draw. At an even draw count it returns the mean of the
 two candidates with the central largest eigenvalues.
 
-The draw that the rule picks depends on the selection. So an entry of the matrix can differ between two selections that share a name, and from
-the reported variance. A one-name call equals the reported variance exactly, because it runs the
-same scalar rule. The reported intervals, contrasts and bands read the per-name rule and not this
-matrix.
+The draw that the rule picks depends on the selection. So an entry of the matrix can differ
+between two selections that share a name, and from the reported variance. A one-name call equals
+the reported variance exactly, because it runs the same scalar rule. The reported intervals,
+contrasts and bands read the per-name rule and not this matrix.
 
 **Why the median keeps each draw's expansion.** Draw $r$ is the shipped single-draw estimator at
-its own split, so $\hat\psi_r - \psi_0 = P_n D^* + \mathrm{Rem}_r + o_P(n^{-1/2})$. For a fixed
-`R` the median lies between the smallest and the largest draw. Its remainder is therefore at most
+its own split. The expansion
+$\hat\psi_r - \psi_0 = P_n D^* + \mathrm{Rem}_r + o_P(n^{-1/2})$ with
+$\mathrm{Rem}_r = o_P(n^{-1/2})$ holds under the conditions that the single-draw row of the
+estimator states. For `LTMLE` that is the product rate over the outcome and mechanism errors, or a
+known mechanism. `SDR` has no interval when only one nuisance is consistent, and a boundary or
+few-cluster fit has no interval at all. Under those conditions, for a fixed `R`, the median lies
+between the smallest and the largest draw. Its remainder is therefore at most
 $\max_r |\mathrm{Rem}_r|$, which is $o_P(n^{-1/2})$. The displacement term is $o_P(n^{-1})$, so it
 is a finite-sample split adjustment.
 
-The same argument holds on any inference scale that is differentiable at $\psi_0$. Corollary 3.3 of Chernozhukov et al. (2018) states the analogue for
-the DML estimators and is not the licence. A single curve does not represent the split variability
-of the median in a finite sample. Asymptotically at a fixed `R` the median has the curve of each
-draw.
+A draw whose status supplies no inference gives the median no inference either. Each name takes
+the precedent status of its draws before the median, as **Status across draws** states.
+
+The argument holds on any inference scale that is differentiable at $\psi_0$. Corollary 3.3 of
+Chernozhukov et al. (2018) states the analogue for the DML estimators. It is not the licence. A
+single curve does not represent the split variability of the median in a finite sample.
+Asymptotically at a fixed `R` the median has the curve of each draw.
 
 **Status across draws.** A node regression can read a constant target in the training rows of one
 draw only. That draw then stamps `constant_node_plugin` on the level. Every route that combines
@@ -994,7 +1004,7 @@ engine sends the fresh fold seed to its learners at one draw. The two engines di
 
 | report | what it reads |
 | --- | --- |
-| `support()`, `nuisance_models()` | draw 1. The report states `n_repeats` and `reported_repeat`. `nuisance_models()` also carries one `repeat_spread` row per name |
+| `support()`, `nuisance_models()` | draw 1. The report states `n_repeats` and `reported_repeat`. `support()` also holds `draw_max_share_truncated` and `draw_converged`, one value per draw, and the `support` row of `validate()` grades truncation on every draw and names the draw. `nuisance_models()` also carries one `repeat_spread` row per name |
 | `score_equations()` | every draw. Its frame gains a `draw` column, one-based, only when `R` is above 1 |
 | `truncation_curve()` | a replay of every draw at each bound. Each row reports the median rule over the draws, and the score-cell counts sum over the draws |
 | `converged` | true only when every node of every draw converged |
@@ -1016,9 +1026,9 @@ the method is called.
 `result.split_plan` and accepts none back.
 
 `tests/unit/test_longitudinal_repeats.py` holds the evidence. It checks that `repeats=1` equals a
-record captured before the change. It checks that each draw of twelve designs equals a single-draw
-fit. It gives a nonzero witness for every rule in the tables above, and 16 source mutations each
-turn a named test red.
+record captured before the change. It checks that each draw of every design in
+`tests/unit/_longitudinal_repeats_support.py` equals a single-draw fit. It gives a nonzero witness
+for every rule in the tables above.
 
 A registry test maps every estimator keyword, result member, assessment
 capability, data declaration and `CausalStudy` step to a repeated-fit witness. No registered study

@@ -2982,6 +2982,9 @@ def _support_item(
     if warning:
         facts.append(warning)
     detail = "; ".join(facts) if facts else "stored support report completed"
+    if isinstance(report, LongitudinalDiagnostics) and report.n_repeats > 1:
+        # The leverage facts read the rows, which describe one draw; the warning grades all.
+        detail += f"; the rows describe {format_draw(report.reported_repeat, report.n_repeats)}"
     return AssessmentItem(
         "support",
         # `COMPLETED` rather than `PASSED`, because support has no pass criterion once the
@@ -3588,10 +3591,24 @@ def _support_warning(report: Any) -> str | None:
     # on one would present a house convention as a finding and let a reader take `passed`
     # for a positivity clearance.  `_support_facts` reports the minimum ratio on every row
     # instead, which is the number an analyst has to judge.
-    if isinstance(report, LongitudinalDiagnostics) and any(
-        row.share_truncated > 0.05 for row in report.rows
-    ):
-        return "cumulative mechanism truncation exceeds 5% at one or more nodes"
+    if isinstance(report, LongitudinalDiagnostics):
+        # Every draw is graded, not only the draw the rows describe: a breach in a later
+        # draw reaches the combined estimate through the median.
+        shares = report.draw_max_share_truncated or (
+            max(
+                (row.share_truncated for row in report.rows if row.share_truncated > 0.0),
+                default=0.0,
+            ),
+        )
+        breached = [draw for draw, share in enumerate(shares, start=1) if share > 0.05]
+        if not breached:
+            return None
+        where = (
+            ""
+            if report.n_repeats == 1
+            else " in " + ", ".join(format_draw(draw, report.n_repeats) for draw in breached)
+        )
+        return f"cumulative mechanism truncation exceeds 5% at one or more nodes{where}"
     if isinstance(report, Mapping):
         # A shift or IPSI fit reports one support record per declared intervention rather
         # than a single object, so none of the attribute probes above sees it.  These

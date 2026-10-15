@@ -429,6 +429,22 @@ def time_to_event(rows: pd.DataFrame, **overrides: Any) -> Any:
 
 
 #: Every design that ``test_each_draw_reproduces_a_single_draw_fit`` refits draw by draw.
+def repeated_frame() -> pd.DataFrame:
+    """The shipped repeated-outcome sample: a binary outcome at each of three nodes."""
+    from cleverly.datasets import make_longitudinal_repeated
+
+    return make_longitudinal_repeated(n=1_500, seed=7, backend="pandas")[0]
+
+
+def repeated(rows: pd.DataFrame, **overrides: Any) -> Any:
+    """``LTMLE`` of the X32a plans on a repeated outcome, a mean at each of three horizons."""
+    from tests.studies import canonical_ltmle_repeated as x32a
+
+    return LTMLE(x32a.REGIMENS, reference=x32a.REFERENCE, **_parametric(overrides)).fit(
+        rows, **x32a.COLUMNS
+    )
+
+
 DESIGNS: dict[str, tuple[Callable[[], pd.DataFrame], Callable[..., Any]]] = {
     **GOLDEN,
     "weighted": (weighted_frame, weighted),
@@ -437,4 +453,5 @@ DESIGNS: dict[str, tuple[Callable[[], pd.DataFrame], Callable[..., Any]]] = {
     "mtp": (mtp_frame, mtp),
     "settings": (settings_frame, settings),
     "time_to_event": (time_to_event_frame, time_to_event),
+    "repeated": (repeated_frame, repeated),
 }

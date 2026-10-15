@@ -149,8 +149,11 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
     Names are generated for every arm whether or not the fit reported them; callers
     intersect with ``result.estimates``.  Returns an empty mapping for a fit with no
     arms at all, so a continuous dose is refused by whatever the caller says rather than
-    by an index error here.
+    by an index error here.  A longitudinal fit has regimens, not arms, so it gets an
+    empty mapping too, and the capability row of the analysis gives its refusal.
     """
+    if result.assessment_family != "point":
+        return {}
     data = result.data
     if data.is_continuous_treatment:
         return {}

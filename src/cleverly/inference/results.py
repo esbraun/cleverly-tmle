@@ -402,7 +402,15 @@ def median_derived(
     Raises
     ------
     ValueError
-        When the transform has no finite value or slope at one draw's value.
+        When the transform has no finite value or slope at one draw's value, or when
+        ``function`` raises it in one draw.
+    KeyError
+        When ``function`` raises it in one draw, such as for a name a draw lacks.
+    TypeError
+        When ``function`` raises it in one draw.
+    CapabilityError
+        When ``function`` refuses one draw.  Each error from ``function`` keeps its type,
+        and its message starts ``draw r of R:``.
     """
     total = len(per_draw)
     results: list[ParameterEstimate] = []

@@ -168,11 +168,14 @@ At an even draw count the package takes the
 mean of the two candidates with the central operator norms. That is a convention, and the mean can
 have a smaller norm than either candidate.
 
-The justification is the per-draw expansion of each shipped single-draw estimator. Each draw is
-asymptotically linear with the same efficient curve. For a fixed draw count the median lies
-between the smallest and the largest draw, so its remainder is at most the largest per-draw
-remainder. That remainder is $o_P(n^{-1/2})$. The displacement term is $o_P(n^{-1})$, so it is a
-finite-sample adjustment.
+The justification is the per-draw expansion of each shipped single-draw estimator. It holds under
+the conditions that the single-draw row of the estimator states, such as the product rate of the
+nuisance errors or a known mechanism. Under those conditions each draw is asymptotically linear
+with the same efficient curve. For a fixed draw count the median lies between the smallest and the
+largest draw, so its remainder is at most the largest per-draw remainder. That remainder is then
+$o_P(n^{-1/2})$, and the displacement term is $o_P(n^{-1})$, a finite-sample adjustment. A draw
+whose status supplies no inference gives the median no inference either, because each name takes
+the precedent status of its draws.
 
 Corollary 3.3 of the same paper states the analogue for the DML
 estimators. It is not the licence here. The

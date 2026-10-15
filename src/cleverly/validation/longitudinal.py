@@ -244,7 +244,10 @@ class LongitudinalDiagnostics:
     **On a fit with** ``repeats > 1`` the rows describe draw :attr:`reported_repeat` of
     :attr:`n_repeats`, for the reason
     :attr:`~cleverly.validation.NuisanceDiagnostics.n_repeats` gives: a node's leverage is a
-    property of one fitted recursion.  ``result.repeats`` holds every draw.
+    property of one fitted recursion.  ``result.repeats`` holds every draw.  The ``converged``
+    column is the reported draw's.  Two fields cover every draw:
+    :attr:`draw_max_share_truncated` and :attr:`draw_converged` hold one value per draw, so a
+    truncation breach or a failed targeting step in a later draw reaches ``assess``.
     """
 
     rows: tuple[LongitudinalStageRow, ...]
@@ -257,6 +260,11 @@ class LongitudinalDiagnostics:
     n_repeats: int = 1
     #: The one-based draw the rows describe.
     reported_repeat: int = REPORTED_DRAW
+    #: The largest ``share_truncated`` over the nodes of each draw, in draw order.  ``nan``
+    #: for a draw with no node that reads a mechanism.
+    draw_max_share_truncated: tuple[float, ...] = ()
+    #: Whether every targeting step of each draw converged, in draw order.
+    draw_converged: tuple[bool, ...] = ()
 
     def to_frame(self, data: Any = None) -> Any:
         assignment = "assigned_shares" if self.categorical else "share_assigned_1"
@@ -670,6 +678,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                     ipsi=_ipsi_node_row(result, fit, step),
                 )
             )
+    draws = [repeat.fits for repeat in getattr(result, "repeats", ())] or [result.fits]
     return LongitudinalDiagnostics(
         tuple(rows),
         epsilon_names,
@@ -678,7 +687,32 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
         result.data.is_competing,
         result.data.backend,
         n_repeats=int(getattr(result, "n_repeats", 1)),
+        draw_max_share_truncated=tuple(_max_share_truncated(fits) for fits in draws),
+        draw_converged=tuple(
+            all(
+                step.fluctuation is None or bool(step.fluctuation.converged)
+                for fit in fits.values()
+                for step in fit.steps
+            )
+            for fits in draws
+        ),
     )
+
+
+def _max_share_truncated(fits: Any) -> float:
+    """The largest share of trained rows whose cumulative probability the bounds moved.
+
+    The ``share_truncated`` column of :class:`LongitudinalDiagnostics`, read over the fits of
+    one draw.  ``nan`` when no node has a trained row.
+    """
+    shares = [
+        float(np.mean(raw != bounded))
+        for fit in fits.values()
+        for step in fit.steps
+        if (raw := fit.cumulative_unbounded[:, step.time - 1][step.trained_on]).size
+        and (bounded := fit.cumulative[:, step.time - 1][step.trained_on]).size
+    ]
+    return max(shares) if shares else float("nan")
 
 
 def _sdr_node_row(step: Any) -> SDRNodeRow | None:

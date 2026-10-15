@@ -665,8 +665,11 @@ print(repeated.repeat_spread())
 | set it on a method | `CrossFitting(repeats=3)` |
 
 The fit refuses `repeats` above 1 with `n_folds=1`, because one fold has no split to draw again. It
-also refuses `repeats` above 1 with `n_bootstrap` above 0. The support and nuisance reports describe
-draw 1. The score report has one row per node and draw.
+also refuses `repeats` above 1 with `n_bootstrap` above 0.
+
+The rows of the support and nuisance reports describe draw 1. The support warning of `validate()` grades every draw and names the draw.
+The score report has one row per node and draw. A repeated outcome, `Repeated([...])`, takes
+`repeats` too.
 [Repeated fold draws](../technical-reference/longitudinal-tmle.md#repeated-fold-draws) states the
 rule, the seeds and the refusals.
 
