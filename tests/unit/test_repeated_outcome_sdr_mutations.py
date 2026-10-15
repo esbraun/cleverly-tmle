@@ -476,6 +476,12 @@ CONTROLS: dict[str, tuple[Mutation, dict[str, tuple[Witness, str]]]] = {
     ),
 }
 
+
+def test_the_reference_counts_eleven_controls() -> None:
+    """The reference states the count: ten controls of the plan and NS, which controls E2b."""
+    assert sorted(CONTROLS) == ["M1", "M2", "M3", "M5'", "M6", "M7", "M8", "N4", "N8'", "N9", "NS"]
+
+
 PAIRS = [
     pytest.param(apply, witness, reason, id=f"{control}-{label}")
     for control, (apply, witnesses) in CONTROLS.items()

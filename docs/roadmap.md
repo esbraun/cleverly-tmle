@@ -1271,15 +1271,15 @@ Acceptance:
 
 ### X32b. Repeated outcomes for SDR and IPSI
 
-`LTMLE` fits a repeated outcome, declared with `outcome=Repeated([...])`. Each horizon is the
-end-of-study fit of the panel truncated after it
-([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). `LTMLE.fit`
-refuses a repeated outcome for any other estimator kind, before any learner. So `SDR` and `IPSI`
-refuse it now.
+`LTMLE` and `SDR` fit a repeated outcome, declared with `outcome=Repeated([...])`. Each horizon
+is the end-of-study fit of the panel truncated after it
+([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). The fit
+refuses a repeated outcome for any other estimator kind, before any learner. So `IPSI` refuses it
+now.
 
 | part | what to add | evidence |
 | --- | --- | --- |
-| (a) `SDR` | the per-horizon reduction of the sequentially doubly robust fit | the reduction test of `tests/unit/test_repeated_outcome.py` for `SDR`, and exact-law Gateaux witnesses |
+| (a) `SDR` | the per-horizon reduction of the sequentially doubly robust fit | shipped, with the reduction test of `tests/unit/test_repeated_outcome.py` and the exact-law witnesses E1 to E3, E2b and E8. The truth-calibrated study `longitudinal-repeated-sdr` is pending |
 | (b) `IPSI` | the curve $t \mapsto E[Y_t^{Q}]$ under a tilt. Kim, Kennedy and Naimi (2021), *Journal of Causal Inference* 9(1):302–344, Theorems 3.1, 4.1 and 5.1, cover tilts, dropout, and the joint process over $\delta$ and $t$ | the same, for `IPSI` |
 
 Acceptance:

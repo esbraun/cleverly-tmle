@@ -260,6 +260,13 @@ def reduction(
     return kind, composition, frame, fit(kind, composition, frame, T, repeated=True)
 
 
+def test_w1_runs_over_thirteen_compositions_of_each_kind() -> None:
+    """The reference states the count: 13 compositions for ``LTMLE`` and for ``SDR``."""
+    for kind in (LTMLE, SDR):
+        assert len([composition for k, composition in CASES if k is kind]) == 13, kind.__name__
+    assert REFUSED[SDR] == {"tilt_plan"} and not REFUSED[LTMLE]
+
+
 def _close(left: Any, right: Any, what: str) -> None:
     if left is None or right is None:
         assert left is None and right is None, what
