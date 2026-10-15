@@ -94,6 +94,7 @@ known-treatment-mechanism
 known-mechanism-dr-tmle
 dr-tmle-one-inconsistent-nuisance
 known-node-mechanisms-ltmle
+sequential-baselines
 repeated-outcome-longitudinal-tmle
 omitted-variable-bound-standard-error
 calibration-slope-warning

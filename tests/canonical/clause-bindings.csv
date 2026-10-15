@@ -940,6 +940,17 @@ repeated-crossfit-tmle,root_n_and_efficiency,se ratio sanity,se_high
 repeated-crossfit-tmle,root_n_rate,slope in root-n band,contract
 repeated-crossfit-tmle,type_i_error,coverage floor,coverage/0.5
 repeated-crossfit-tmle,type_i_error,rejection ceiling,rejection/0.1
+sequential-baselines,interval_calibration,bias equivalent,bias
+sequential-baselines,interval_calibration,coverage in calibration band,coverage/0.5
+sequential-baselines,interval_calibration,noise se ratio below band,se_high
+sequential-baselines,interval_calibration,se ratio below band,se_high
+sequential-baselines,interval_calibration,se ratio in calibration band,affine
+sequential-baselines,misspecification_control,coverage in calibration band,none
+sequential-baselines,misspecification_control,se ratio in calibration band,affine
+sequential-baselines,root_n_and_efficiency,bias equivalent,bias
+sequential-baselines,root_n_and_efficiency,coverage floor,affine
+sequential-baselines,root_n_and_efficiency,se ratio sanity,se_high
+sequential-baselines,root_n_rate,slope in root-n band,contract
 shift-policies,cap_necessity,bias discriminated,pair_collapse
 shift-policies,cap_necessity,bias equivalent,bias
 shift-policies,cap_necessity,least displacement over labels,control_concentrated

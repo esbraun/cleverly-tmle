@@ -59,6 +59,7 @@ from .validation.longitudinal import (
     LONGITUDINAL_KNOWN_MECHANISM,
     LONGITUDINAL_NO_CENSORING,
     LONGITUDINAL_NO_CENSORING_IN_FOLD,
+    LONGITUDINAL_NO_OUTCOME_REGRESSION,
     LongitudinalDiagnostics,
     LongitudinalNuisanceDiagnostics,
     LongitudinalNuisanceOmission,
@@ -81,6 +82,7 @@ __all__ = [
     "LONGITUDINAL_KNOWN_MECHANISM",
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
+    "LONGITUDINAL_NO_OUTCOME_REGRESSION",
     "SENSITIVITY_ROUTES",
     "VALIDATION_OPERATIONS",
     "AssessmentCapability",
@@ -332,7 +334,7 @@ def _capability(
             else (
                 ("tmle", "collaborative_tmle", "drtmle")
                 if family == "point"
-                else ("tmle", "sdr", "ipsi")
+                else ("tmle", "sdr", "ipsi", "gcomp", "ipw")
             )
         ),
         available=available,
@@ -532,6 +534,14 @@ SDR_SCORE_EQUATIONS_REFUSAL = Refusal(
     alternative="diagnostics.support() reports each node's transform range and bound share.",
 )
 
+#: Why a sequential baseline fit has no score-equation report.
+BASELINE_SCORE_EQUATIONS_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the sequential g-computation and IPW estimators fit no fluctuation, so no node solves a "
+    "score equation.",
+    alternative="diagnostics.support() reports each node's weights and bound share.",
+)
+
 #: Why an IPSI fit has no score-equation report.
 IPSI_SCORE_EQUATIONS_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
@@ -576,21 +586,38 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     estimator = getattr(result.config, "estimator", "tmle") if family == "longitudinal" else None
-    if estimator in ("sdr", "ipsi"):
-        # An SDR or IPSI fit has no fluctuation, so no node solves a score equation.  The
-        # support report carries its weights and bound shares instead.
+    if estimator in ("sdr", "ipsi", "gcomp", "ipw"):
+        # An SDR, IPSI or baseline fit has no fluctuation, so no node solves a score
+        # equation.  The support report carries its weights and bound shares instead.
+        refusal = {
+            "sdr": SDR_SCORE_EQUATIONS_REFUSAL,
+            "ipsi": IPSI_SCORE_EQUATIONS_REFUSAL,
+            "gcomp": BASELINE_SCORE_EQUATIONS_REFUSAL,
+            "ipw": BASELINE_SCORE_EQUATIONS_REFUSAL,
+        }[estimator]
         rows = tuple(
             replace(
                 row,
                 available=False,
                 status=AssessmentStatus.NOT_APPLICABLE,
-                refusal=(
-                    SDR_SCORE_EQUATIONS_REFUSAL
-                    if estimator == "sdr"
-                    else IPSI_SCORE_EQUATIONS_REFUSAL
-                ),
+                refusal=refusal,
             )
             if row.operation == "score_equations"
+            else row
+            for row in rows
+        )
+    if estimator == "gcomp":
+        # A g-computation estimate reads no treatment mechanism, so no bound moves it.
+        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL
+
+        rows = tuple(
+            replace(
+                row,
+                available=False,
+                status=AssessmentStatus.UNAVAILABLE,
+                refusal=GCOMP_TRUNCATION_REFUSAL,
+            )
+            if row.operation == "truncation_curve"
             else row
             for row in rows
         )
