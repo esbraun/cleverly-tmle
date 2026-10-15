@@ -954,9 +954,11 @@ default="greedy"
         Collaborative search strategy. ``"greedy"``, ``"ordered"``, ``"discrete"``,
         ``"lasso"`` and ``"learners"`` report no confidence interval, no p-value and no
         standard error, with two exceptions that the Notes state. F18 in the roadmap holds
-        the reason. ``"oat"`` reports no interval on either design, for the reason F19
-        holds. ``"derivative"`` is C-TMLE0. It selects nothing and reports the ordinary
-        TMLE interval.
+        the reason. ``"oat"`` reports no interval, for the reason F19 holds, except on an
+        in-sample per-arm fit with ``ParametricOutcome`` and ``ParametricMechanism`` that
+        ``cleverly.estimators.ctmle.per_arm_parametric_support`` admits (X58). That fit
+        reports pointwise intervals. ``"derivative"`` is C-TMLE0. It selects nothing and
+        reports the ordinary TMLE interval.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None
@@ -975,8 +977,9 @@ default="greedy"
         Estimand used by the selector.
     oat_design : {"per_arm", "shared"} or None, default=None
         The treatment design of ``strategy="oat"``. ``None`` resolves to ``"per_arm"``.
-        ``"shared"`` fits the one categorical mechanism of ``ctmle3``. Neither reports an
-        interval, for the reason F19 in the roadmap holds.
+        ``"shared"`` fits the one categorical mechanism of ``ctmle3`` and reports no
+        interval, for the reason F19 in the roadmap holds. ``"per_arm"`` reports an interval
+        only on the fits that the ``strategy`` entry names.
     lambdas : tuple of float or None, default=None
         The penalty grid of ``strategy="lasso"``: two or more penalties, strictly
         decreasing, with 0 allowed only as the last value. ``None`` uses ``glmnet``'s default
