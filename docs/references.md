@@ -1500,7 +1500,28 @@ sizes only the cluster sum is the delta-method variance of the row mean
 
 ## Longitudinal, survival and marginal structural models
 
-- Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*.
+- Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*,
+  *Biometrics* 61(4):962–972. Section 3, p. 966, gives the missing-data recursion. Section 4,
+  p. 969, steps 1 to 5, gives the causal form. `SequentialGComputation` cites it for the ICE
+  recursion. The paper states the causal form for a marginal structural model parameter. The
+  plain g-formula is a special case.
+- Robins, Hernán & Brumback (2000), *Marginal structural models and causal inference in
+  epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
+  eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek
+  form of `SequentialIPW` rests on `CalcIPTW` in R `ltmle` 1.3-0 and the delta method.
+- Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician*
+  56(1):29–38. Read in the 2001 preprint (NCSU Mimeo 2528). Section 2 gives the stacked sandwich
+  variance of a system of estimating equations. The published page and equation numbers are not
+  checked. The stacked curves of the sequential baselines cite it.
+- Lunceford & Davidian (2004), *Stratification and weighting via the propensity score in
+  estimation of causal treatment effects: a comparative study*, *Statistics in Medicine*
+  23(19):2937–2960. Section 3.1, p. 2945, eqs. (13)–(16): with a correctly specified propensity
+  fitted by maximum likelihood, the IPW variance is at most the fixed-propensity variance. The
+  result is for a point treatment.
+- Ertefaie, Hejazi & van der Laan (2023), *Nonparametric inverse-probability-weighted estimators
+  based on the highly adaptive lasso*, *Biometrics* 79(2):1029–1041. Section 3, Theorem 1,
+  gives asymptotic linearity of IPW with an undersmoothed HAL propensity at one time point, for a
+  binary treatment. F35 in the roadmap cites it as the starting point for a longitudinal result.
 - van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
   multiple time point interventions*, DOI
   [10.1515/1557-4679.1370](https://doi.org/10.1515/1557-4679.1370). The intervention-specific

@@ -503,6 +503,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as POINT_SURVIVAL_POLICIES,
     )
     from tests.studies.canonical_policy_point_mtp import STUDY as POLICY_POINT_MTP
+    from tests.studies.canonical_sequential_baselines import STUDY as SEQUENTIAL_BASELINES
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_categorical_ltmle import (
         STUDY as STOCHASTIC_CATEGORICAL_LTMLE,
@@ -601,6 +602,7 @@ def registered() -> tuple[StudyRecord, ...]:
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
+        SEQUENTIAL_BASELINES,
         CTMLE_OAT_PER_ARM,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
