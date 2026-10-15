@@ -7,7 +7,8 @@ decimals are also compared against its stored outputs.
 
 from __future__ import annotations
 
-from itertools import pairwise
+import csv
+import re
 from typing import Any
 
 import numpy as np
@@ -16,6 +17,7 @@ import pytest
 from cleverly.datasets import navigation_protocol
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
+    ROOT,
     assert_protocol_recorded,
     changed_fields,
     covers,
@@ -35,6 +37,11 @@ _DOSE = f"{_PROBE}/summary.log, sweep_dose.csv (seeds 9000 to 9119)"
 UNPRINTED_DECIMALS = {
     "1.07": f"regime offer-to-all mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
     "1.10": f"regime screen mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
+    "-0.00029": f"regime offer-to-all mean error, degree-2 logistic g: {_BINARY}",
+    "0.00054": f"MC SE of the regime offer-to-all mean error, degree-2 logistic g: {_BINARY}",
+    "-0.00028": f"regime screen mean error, degree-2 logistic g: {_BINARY}",
+    "0.00037": f"MC SE of the regime screen mean error, degree-2 logistic g: {_BINARY}",
+    "1.08": f"incremental mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
     "5.6": f"the law's share of intensities below zero, 0.055784: {_PROBE}/truth.log",
     # The shown dose configuration, quad_rboost40.
     "-0.0004": f"+0.5 capped mean error, quad_rboost40 (-0.00040): {_DOSE}",
@@ -81,9 +88,137 @@ UNPRINTED_DECIMALS = {
         "coverage of ate_ipsi[odds x2 vs natural course]: "
         "tests/canonical/npcausal_incremental/summary.csv"
     ),
+    "3.2": "a section number of Kennedy (2019), docs/references.md#incremental-interventions",
+    "3.3": "a section number of Kennedy (2019), docs/references.md#incremental-interventions",
+    "4.5": "the capacity of 5 minus the raise of 0.5, the threshold the cap acts on",
     "0.15": "the shift study's curvature, PRIMARY_CURVATURE: tests/studies/canonical_shift_policies.py",
     "0.25": "the curvature of shift_dgp(): src/cleverly/datasets/synthetic.py",
 }
+
+#: Where each probe or study decimal of ``UNPRINTED_DECIMALS`` lives: the committed file, a
+#: pattern whose first group is the number, and the decimals the prose rounds it to.
+_SUMMARY = f"{_PROBE}/summary.log"
+_ROW = r"\| {row} \| (\d+)/120 = [\d.]+ \| ([+-][\d.]+) \(([\d.]+)\) \| [\d.]+ \| [\d.]+ \| ([\d.]+) \|"
+_SECTIONS = {
+    "poly2": r"### treatment learner: poly2",
+    "booster": r"### treatment learner: booster",
+    "quad40": r"### configuration: quad40 ",
+    "quad_oracle320": r"### configuration: quad_oracle320",
+    "quad_rboost40": r"### configuration: quad_rboost40",
+}
+#: (prose decimal, section, row, column) where column 1 is the coverage count, 2 the mean
+#: error, 3 its Monte Carlo SE, and 4 the mean SE over the empirical SD.
+_PROBE_CELLS = (
+    ("-0.00029", "poly2", "all", 2),
+    ("0.00054", "poly2", "all", 3),
+    ("1.07", "poly2", "all", 4),
+    ("-0.00028", "poly2", "screen", 2),
+    ("0.00037", "poly2", "screen", 3),
+    ("1.10", "poly2", "screen", 4),
+    ("+0.00011", "poly2", "ipsi", 2),
+    ("0.00008", "poly2", "ipsi", 3),
+    ("1.08", "poly2", "ipsi", 4),
+    ("+0.00066", "booster", "ipsi", 2),
+    ("0.00008", "booster", "ipsi", 3),
+    ("-0.0004", "quad_rboost40", "capped", 2),
+    ("0.0010", "quad_rboost40", "capped", 3),
+    ("1.17", "quad_rboost40", "capped", 4),
+    ("+0.0002", "quad_rboost40", "uncapped", 2),
+    ("0.0010", "quad_rboost40", "uncapped", 3),
+    ("1.16", "quad_rboost40", "uncapped", 4),
+    ("-0.0005", "quad_rboost40", "one", 2),
+    ("0.0025", "quad_rboost40", "one", 3),
+    ("0.95", "quad_rboost40", "one", 4),
+    ("+0.0006", "quad_rboost40", "gap", 2),
+    ("0.0005", "quad_rboost40", "gap", 3),
+    ("0.93", "quad_rboost40", "gap", 4),
+    ("0.93", "quad_oracle320", "capped", 4),
+    ("1.01", "quad_oracle320", "uncapped", 4),
+    ("0.73", "quad40", "capped", 4),
+    ("0.57", "quad40", "one", 4),
+)
+#: Coverage counts the trust section quotes, by (section, row).
+_PROBE_COVERAGE = {
+    ("poly2", "all"): 117,
+    ("poly2", "screen"): 117,
+    ("poly2", "ipsi"): 116,
+    ("booster", "ipsi"): 110,
+    ("quad_rboost40", "capped"): 117,
+    ("quad_rboost40", "uncapped"): 117,
+    ("quad_rboost40", "one"): 114,
+    ("quad_rboost40", "gap"): 112,
+}
+
+
+def _read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _probe_row(section: str, row: str) -> tuple[str, ...]:
+    text = _read(_SUMMARY)
+    start = text.index(_SECTIONS[section])
+    match = re.search(_ROW.format(row=row), text[start:])
+    assert match is not None, (section, row)
+    return match.groups()
+
+
+def _rounds_to(value: float, prose: str) -> bool:
+    places = len(prose.split(".")[1])
+    return f"{value:.{places}f}" == prose.lstrip("+")
+
+
+def _summary_csv(study: str, estimand: str, column: str) -> float:
+    with (ROOT / f"tests/canonical/{study}/summary.csv").open(encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if row["implementation"] == "cleverly" and row["estimand"] == estimand:
+                return float(row[column])
+    raise AssertionError((study, estimand))
+
+
+def check_sources() -> None:
+    """Each unprinted probe or study decimal equals its committed source, rounded as written."""
+    for prose, section, row, column in _PROBE_CELLS:
+        assert prose in UNPRINTED_DECIMALS
+        assert _rounds_to(float(_probe_row(section, row)[column - 1]), prose), (prose, section)
+    for (section, row), count in _PROBE_COVERAGE.items():
+        assert int(_probe_row(section, row)[0]) == count, (section, row)
+    # The median calibration slopes of the two treatment models.
+    summary = _read(_SUMMARY)
+    slopes = re.findall(r"calibration slope 5%, 50%, 95%: [\d.]+, ([\d.]+), ", summary)
+    assert [round(float(value), 2) for value in slopes] == [0.94, 0.93]  # booster, poly2
+    # Density-ratio means: 1.03 to 1.05 with this density, 1.00 to 1.01 with the exact one.
+    for section, low, high in (("quad_rboost40", 1.03, 1.05), ("quad_oracle320", 1.00, 1.01)):
+        part = summary[summary.index(_SECTIONS[section]) :]
+        means = re.search(r"capped ([\d.]+) \(.*?uncapped ([\d.]+) \(.*?one ([\d.]+) \(", part)
+        assert means is not None
+        values = [round(float(value), 2) for value in means.groups()]
+        assert (min(values), max(values)) == (low, high), section
+    # Coverage of the default booster density: 87 to 104 of 120 draws.
+    quad40 = [int(_probe_row("quad40", row)[0]) for row in ("capped", "uncapped", "one")]
+    assert (min(quad40), max(quad40)) == (87, 104)
+    truth = _read(f"{_PROBE}/truth.log")
+    assert re.search(r"ipsi x2 vs x1\s+0\.024137 ", truth)
+    assert re.search(r"P\(A < 0\)\s+0\.0557", truth)  # 5.6%
+    # The registered coverages and the shift study's curvature.
+    assert _summary_csv("lmtp_regimes", "ate_regime[rule vs never]", "coverage") == 0.9525
+    assert _summary_csv("lmtp_shift", "ate_policy[+0.5 capped vs natural course]", "coverage") == (
+        0.9625
+    )
+    assert (
+        _summary_csv("npcausal_incremental", "ate_ipsi[odds x2 vs natural course]", "coverage")
+        == 0.94625
+    )
+    assert "PRIMARY_CURVATURE = 0.15" in _read("tests/studies/canonical_shift_policies.py")
+    # The cross-fitted shift probe of the technical reference: 3.91 and 0.98.
+    reference = _read("docs/technical-reference/point-treatment-tmle.md")
+    assert re.search(r"default settings \| 40 \| cross-fitted \| 3\.91 \|", reference)
+    assert re.search(r"exact law \| 320 \| cross-fitted \| 0\.98 \|", reference)
+    # The Kennedy locators, and the threshold the cap acts on.
+    kennedy = _read("docs/references.md")
+    assert "| Section 3.2, Assumptions 1 and 2, Theorem 1 |" in kennedy
+    assert "| Section 3.3, Theorem 2," in kennedy
+    assert 5.0 - 0.5 == 4.5
+
 
 SCREEN = "ate_regime[screen on risk vs offer to none]"
 OFFER_ALL = "ate_regime[offer to all vs offer to none]"
@@ -94,7 +229,8 @@ IPSI = "ate_ipsi[double odds vs current odds]"
 
 
 def check(namespace: dict[str, Any]) -> None:
-    """The three-axis tutorial's truths, support figures, and draw-specific claims hold."""
+    """The three-proposal tutorial's truths, support figures, and draw-specific claims hold."""
+    check_sources()
     offer_all, screen = namespace["truth"]["ate"], namespace["screen_truth"]
     assert 0.5 * offer_all < screen < offer_all
     # The incremental truth carries g, so it moved when the law's g was bounded. truth.py
@@ -165,6 +301,12 @@ def check(namespace: dict[str, Any]) -> None:
     assert covers(regimes[OFFER_ALL], offer_all)
     assert covers(regimes[SCREEN], screen)
     assert 0.0 < screen - regimes[SCREEN].ci[0] < 0.001
+    # "offer to all minus screen: 0.056 (0.048, 0.065) ... population value 0.057": the gap
+    # comes from the joint influence curve, so its interval is narrower than either contrast's.
+    given_up = namespace["given_up"]
+    assert given_up.psi == pytest.approx(regimes[OFFER_ALL].psi - regimes[SCREEN].psi)
+    assert covers(given_up, offer_all - screen)
+    assert given_up.std_error < min(regimes[OFFER_ALL].std_error, regimes[SCREEN].std_error)
 
     # "`needs attention` is empty" on the regime fit.
     assert not namespace["regime_assessment"].attention
@@ -187,8 +329,11 @@ def check(namespace: dict[str, Any]) -> None:
     smallest = rows["offer to all"].min_support_propensity
     assert smallest < TRUNCATION < 0.05
     assert smallest < 0.01 / rows["offer to all"].max_ratio
-    # "The screen assigns a different arm from the observed arm in 1205 rows ... the same count."
-    assert namespace["screen_load"]["zero_load"] == namespace["off_plan"] > 0
+    # "The screen asks for offers where current practice already offers more often, and its
+    # effective sample size is the largest."
+    assert rows["screen on risk"].effective_sample_size == max(
+        row.effective_sample_size for row in rows.values()
+    )
 
     # Two warnings, for the uncapped policies; the cap of 5 lies below the largest dose, so
     # the capped policy moves no row past it and raises none.
@@ -256,9 +401,6 @@ def check(namespace: dict[str, Any]) -> None:
     assert gap.ci[0] > 0.0
     # "below the standard error of each estimate": the correlation is load-bearing.
     assert gap.std_error < min(shift_result[CAPPED].std_error, shift_result[UNCAPPED].std_error)
-    # "The count is 2 for +0.5 and 3 for +1.0."
-    beyond = {delta: int(np.sum(dose + delta > dose.max())) for delta in (0.5, 1.0)}
-    assert beyond == {0.5: 2, 1.0: 3}
 
     # The incremental interval contains its population value on this draw, 0.9 SE away.
     tilt = namespace["incremental_result"][IPSI]
@@ -271,52 +413,24 @@ def check(namespace: dict[str, Any]) -> None:
     score_rows = incremental.report("score_equations").rows
     assert {row.name for row in score_rows} >= {"ipsi", "ipsi (mechanism)"}
     assert all(row.passed and row.ratio < 0.01 for row in score_rows)
-    # "the outcome-targeting score weight stays between one half and two"; the load describes
-    # the outcome equations only, so the mechanism equation has no row-level load in the report.
-    assert "covariate in [0.5, 2]" in stored_output(NOTEBOOK, "incremental-support")
+    # "the clever covariate stays between one half and two for this multiplier".
     tilts = incremental.report("support")
     assert tilts["double odds"].guaranteed == pytest.approx((0.5, 2.0))
-    assert all(item.score_load["equation"].startswith("h_ipsi") for item in tilts.values())
-    # "The smallest fitted g is 2.66e-06, the same fitted value as in Step 6."
-    assert tilts["double odds"].min_propensity == pytest.approx(smallest, rel=1e-6)
 
-    # The status table of Step 14 prints only the operations that ran or can run.
-    status = namespace["status"]
-    printed = status[namespace["ran"]]
-    assert list(printed.index) == [
-        "validation.score_equations",
-        "validation.support",
-        "validation.nuisance_models",
-        "diagnostics.refute",
-        "sensitivity.simulated_confounding",
-    ]
-    assert printed.loc["validation.support"].to_dict() == {
-        "known regime": "completed",
-        "modified treatment policy": "warning",
-        "incremental intervention": "completed",
-    }
-    assert set(printed.loc["validation.score_equations"]) == {"passed"}
-    assert set(printed.loc["validation.nuisance_models"]) == {"completed"}
-    assert set(printed.loc["sensitivity.simulated_confounding"]) == {"deferred"}
-    assert "unavailable" not in stored_output(NOTEBOOK, "assessment")
-
-    # The treatment-only stress surface: every cell returns, and each flip strength moves the
-    # screen estimate further down.
+    # The treatment-only stress surface: both cells return, and the flip moves the screen
+    # estimate down by 0.029037 (-6.1 standard errors) with a small induced association.
     surface = namespace["surface"]
     cells = sorted(surface.cells, key=lambda cell: cell.treatment_strength)
-    assert [cell.treatment_strength for cell in cells] == [0.0, 0.05, 0.1, 0.2]
+    assert [cell.treatment_strength for cell in cells] == [0.0, 0.1]
     assert all(cell.outcome_strength == 0.0 and cell.failure is None for cell in cells)
-    estimates = [cell.estimate for cell in cells]
-    assert all(later < earlier for earlier, later in pairwise(estimates))
-    assert cells[2].displacement == pytest.approx(-0.0290, abs=0.001)
-    # "The induced association ... stays small in every cell."
+    assert cells[1].estimate < cells[0].estimate
+    assert cells[1].displacement == pytest.approx(-0.0290, abs=0.001)
     for cell in cells:
         assert cell.induced_treatment_association is not None
         assert abs(cell.induced_treatment_association) < 0.1
-    # "A strength of 0.5 sends this score outside the declared support of 0 to 1": the
+    # "An outcome strength ... moves the score outside its declared range of 0 to 1": the
     # witness for why the grid has no outcome axis.
     assert namespace["regime_result"].estimator.q_bounds == (0.0, 1.0)
     latent = np.random.default_rng(surface.latent_seed).normal(size=len(namespace["frame"]))
     perturbed = namespace["frame"]["transition_score"].to_numpy() - 0.5 * latent
     assert perturbed.min() < 0.0 or perturbed.max() > 1.0
-    assert "robustness value refused" not in stored_output(NOTEBOOK, "sensitivity")

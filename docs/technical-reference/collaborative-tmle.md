@@ -26,8 +26,8 @@ Collaborative TMLE is available for point-treatment, arm-axis fits whose target 
 before any model is fitted.
 
 A worked applied analysis is in the
-[collaborative TMLE tutorial](../examples/collaborative-tmle.ipynb). It shows both the
-comparison that discriminates and the one that does not.
+[collaborative TMLE tutorial](../examples/collaborative-tmle.ipynb). It compares the in-sample
+per-arm outcome-adaptive fit with an ordinary TMLE on a law with an instrument.
 
 The selector does not identify a causal adjustment set. Establish the eligible baseline set from
 the study design before the selector chooses an assignment nuisance model.
