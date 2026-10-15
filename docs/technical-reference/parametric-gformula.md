@@ -51,7 +51,7 @@ study method.
 | repeated-sampling evidence | registered study `parametric-gformula`. The method-evidence page `docs/technical-reference/method-evidence/parametric-gformula.md` lists the cells | Python property evidence |
 | a comparator run against `pygformula` or `gfoRmula` | not run. The packages fit different models ([below](#how-it-differs-from-gformula-and-pygformula)) | none |
 | a published analytic variance for the simulation form | none exists | [Inference](#inference) |
-| pooled-over-time models | not shipped. [X72](../roadmap.md#x72-pooled-over-time-parametric-g-formula-models) tracks it | none |
+| pooled-over-time models | not shipped. [X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks it | none |
 | a repeated outcome | refused. [X71](../roadmap.md#x71-repeated-outcomes-for-the-sequential-baselines) tracks it | none |
 
 ## The estimator
@@ -289,7 +289,7 @@ fit chooses the family of each model from its response.
 | a learner that nothing reads, such as `hazard_learner=` on an end-of-study outcome | `CapabilityError` |
 | a continuous outcome, a binomial `GLM`, and `q_bounds=None` | `CapabilityError`, as for `SequentialGComputation` |
 | a declared treatment mechanism with a missing value at a tilt or policy node | `CapabilityError` |
-| a rule that sets a continuous dose | `CapabilityError`, `implementation_gap`. [X72](../roadmap.md#x72-pooled-over-time-parametric-g-formula-models) tracks it |
+| a rule that sets a continuous dose | `CapabilityError`, `implementation_gap`. [X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks it |
 | a repeated outcome | `CapabilityError`, `implementation_gap`. [X71](../roadmap.md#x71-repeated-outcomes-for-the-sequential-baselines) tracks it |
 | a truncation curve | `CapabilityError`, `api_redirection`. The estimate divides by no mechanism |
 | a regimen that leaves the span of an aliased `GLM` column | `DataError`, from the simulation |
@@ -317,7 +317,7 @@ comparison of two model classes, unless the data come from a law where both are 
 two-node panel for the covariate laws. No comparator run has been done.
 
 Pooled-over-time models with lag and cumulative-average terms are the default of both packages.
-[X72](../roadmap.md#x72-pooled-over-time-parametric-g-formula-models) tracks them.
+[X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks them.
 
 ## Validation
 

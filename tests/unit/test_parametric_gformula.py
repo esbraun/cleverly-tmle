@@ -2072,7 +2072,7 @@ class TestRefusals:
         assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         assert "X71" in str(raised.value)
 
-    def test_a_rule_at_a_continuous_node_is_an_implementation_gap_of_x72(self) -> None:
+    def test_a_rule_at_a_continuous_node_is_an_implementation_gap_of_x73(self) -> None:
         rule = DynamicRegimen("rule", (lambda history: history["W1"], 1.0), rule_kind="known")
         estimator = ParametricGFormula(
             rule, outcome_learner=NeverFit(), covariate_types={"L2": "normal"}, random_state=1
@@ -2080,7 +2080,7 @@ class TestRefusals:
         with pytest.raises(CapabilityError, match="by a rule") as raised:
             quiet_fit(estimator, panel_f(200, seed=1), **ROLES_F)
         assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert raised.value.refusal.roadmap == "X72"
+        assert raised.value.refusal.roadmap == "X73"
 
     def test_a_binomial_glm_on_an_unbounded_outcome_is_refused(self) -> None:
         frame = panel_f(200, seed=3)

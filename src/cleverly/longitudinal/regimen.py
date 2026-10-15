@@ -1173,7 +1173,7 @@ def refuse_continuous_assignments(
                     "Declare a fixed dose or a modified treatment policy at that node, or fit "
                     "a regimen per dose."
                 ),
-                roadmap="X72",
+                roadmap="X73",
             )
         if data.is_continuous_node(time) and not _is_mtp(node):
             raise CapabilityError(
