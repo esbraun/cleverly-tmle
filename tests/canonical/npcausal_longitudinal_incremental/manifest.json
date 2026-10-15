@@ -1,0 +1,136 @@
+{
+  "schema_version": 2,
+  "study": "longitudinal incremental propensity-score interventions",
+  "slug": "longitudinal-incremental",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ipsi",
+      "cleverly_version": "0.1.3",
+      "cleverly_commit": "f23fc92490269f5256a9d41ec2a015acc04bd4fa",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 96000,
+    "seed": 20261241,
+    "resampling_seed": 2026124101,
+    "publication_policy": "gated",
+    "scenarios": {
+      "ipsi_folds_2": [
+        "ey_regimen[odds x0.5]",
+        "ey_regimen[natural course]",
+        "ey_regimen[odds x2]",
+        "ate_regimen[odds x0.5 vs natural course]",
+        "ate_regimen[odds x2 vs natural course]"
+      ],
+      "ipsi_folds_5": [
+        "ey_regimen[odds x0.5]",
+        "ey_regimen[natural course]",
+        "ey_regimen[odds x2]",
+        "ate_regimen[odds x0.5 vs natural course]",
+        "ate_regimen[odds x2 vs natural course]"
+      ]
+    },
+    "construction": "IPSI one-step, training-fold recursion, pooled mean (Kennedy 2019)",
+    "reference_construction": "npcausal ipsi with injected folds",
+    "n_folds": {
+      "ipsi_folds_2": 2,
+      "ipsi_folds_5": 5
+    },
+    "learners": "CellMeans at every slot",
+    "g_bounds": [
+      0.01,
+      1.0
+    ],
+    "q_bounds": [
+      -8.0,
+      17.0
+    ],
+    "deltas": {
+      "odds x0.5": 0.5,
+      "natural course": 1.0,
+      "odds x2": 2.0
+    },
+    "reference": "natural course",
+    "pairing_gate": 1e-10,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_longitudinal_incremental.py": "7dea62e91043e8537ef7455fab8c796a379bed1bf4186a25f6289a1257cd9fb4",
+    "tests/studies/longitudinal_incremental_properties.py": "1c639f71928cbfc497dd443fea530fbe5f7f6283a967ef27b2c448c95f6b4b3d",
+    "tests/studies/longitudinal_incremental_common.py": "ed586da4507db03e220361312974bb2bcd34ecdf34092879291f17cbf1e96ad6",
+    "tests/studies/canonical_incremental_interventions.py": "55a20c842e57531a135c4f9922fab15c83fb153a71e0576e8ae1c0f36e1a9833",
+    "tests/discrete_law_longitudinal_incremental.py": "a1b01eeea0343037b33a6ce948884241e718f882a309dd35216b8217717df0a5",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/longitudinal_ipsi.py": "e0178cef68da828d421c16f68b02e0cc0662e4a82c1f7105ce03501c34677a05",
+    "tests/studies/evidence/comparison.py": "cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "14e0e3daaea0a8fde5cedca2e5b3002ca50ac6f82b2355e7573853b57c5e8287",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15",
+    "tests/canonical/npcausal_incremental/Dockerfile": "f790996d3833b584d564202862591e9e66ad340b3639380fe964a6c8195cdc43",
+    "tests/canonical/npcausal_ipsi_adapter.R": "c49f04c6e071da499e3523c8223721d3c6328f9a63bb75468c3836510646c9ea",
+    "tests/canonical/npcausal_longitudinal_incremental/run_study.R": "c951194ab23a299905ddc1bac1c13f4fa786c0f26e7ed812f13cff963693fc12"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "520fdc6cf65662c3ac98b2bc6f99a16df02b175659b1f59dd4519a866c4308d0",
+    "summary.csv": "cb042fd9fed8d03e2bb07799e61a3abe1aa6363df8ccfcd5aab32b0139a7ecab",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "a84ecf51fd27241c0df204a52588af391e1c3ddb88500a693a75286711f31c17",
+    "property-replicates.csv.gz": "17def89a012fd1ed3a21c77273d80fcad05c038db05f5a72a334399c945372cf",
+    "properties.csv": "61eadf225426978c275b24f39bbe2d02864080dc8b1507bced2632e543dd23d1"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "npcausal",
+    "reason": "the npcausal R phase runs on the local study queue (TRACKER item 9a) and registers in a later change; the owner's rule merges the method on its Python evidence",
+    "metadata": {
+      "npcausal_commit": "56a5ac117a29258b67b94874be662a171b5131f7",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_parameter": "longitudinal incremental odds curve, end-of-study outcome",
+      "reference_construction": "npcausal ipsi with fit = 'sl', one call over the full delta grid per fold mode, its fold draw replaced by the Python assignment; SL.cellmeans outcome fits and time-blocked treatment fits; returned ifvals un-recycled",
+      "reference_adapter": "tests/canonical/npcausal_ipsi_adapter.R"
+    },
+    "declared_sources_sha256": {
+      "tests/canonical/npcausal_incremental/Dockerfile": "f790996d3833b584d564202862591e9e66ad340b3639380fe964a6c8195cdc43",
+      "tests/canonical/npcausal_longitudinal_incremental/run_study.R": "c951194ab23a299905ddc1bac1c13f4fa786c0f26e7ed812f13cff963693fc12",
+      "tests/canonical/npcausal_ipsi_adapter.R": "c49f04c6e071da499e3523c8223721d3c6328f9a63bb75468c3836510646c9ea",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+    }
+  }
+}
