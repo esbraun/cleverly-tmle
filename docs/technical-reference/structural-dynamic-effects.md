@@ -61,19 +61,23 @@ $$
 | --- | --- |
 | $c(a_t)$ | the coding of the treatment. A binary node uses the indicator. A categorical node uses the indicators of the levels after the first sorted level. A continuous node uses the dose |
 | $\phi_t$ | the declared feature map of node $t$. The intercept is always a feature |
-| $\Psi_t$ | the matrix of constants that the fit estimates, with one row per coding component and one column per feature |
-| $Z_t$ | $\phi_t(H_t) \otimes c(A_t)$. The vector $\psi_t$ is $\mathrm{vec}(\Psi_t)$ in the order of the result names |
+| $\Psi_t$ | the matrix of constants that the fit estimates, with one row per coding component and one column per feature. `result.blip(t)` returns $\Psi_t^\top$, with one row per feature |
+| $Z_t$ | $\phi_t(H_t) \otimes c(A_t)$. The vector $\psi_t$ is $\mathrm{vec}(\Psi_t)$. It lists one feature at a time, and each feature lists its coding components |
 
 A feature $\phi_t$ may read the baseline columns, the covariates through node $t$, the earlier
-treatments, and products of those. Result names have the form `blip[<treatment>:<component>:<feature>]`.
+treatments, and products of those. Result names have the form `blip[<treatment>:<component>:<feature>]`. The names list one coding
+component at a time, and each component lists its features. The order of the names therefore
+differs from the order of $\psi_t$ when a node has two or more components and two or more
+features.
 
-Three assumptions apply beyond those of `LTMLE`.
+Three assumptions apply. `LTMLE` shares the first. The estimator adds the second. The third is the
+positivity condition in the form that this estimator needs.
 
 | assumption | statement |
 | --- | --- |
-| sequential exchangeability | the potential outcome $Y(\bar A_{t-1}, 0)$ is independent of $A_t$ given $H_t$ |
-| linear blip | the equation above holds with the declared features and constant $\Psi_t$ |
-| average positivity | $E[\tilde Z_{t,t} \tilde Z_{t,t}^\top]$ is positive definite, with the residuals of the estimating equation below |
+| sequential exchangeability | the potential outcome $Y(\bar A_{t-1}, 0)$ is independent of $A_t$ given $H_t$. `LTMLE` assumes the same |
+| linear blip | the equation above holds with the declared features and constant $\Psi_t$. `LTMLE` assumes no such model |
+| average positivity | $E[\tilde Z_{t,t} \tilde Z_{t,t}^\top]$ is positive definite, with the residuals of the estimating equation below. The estimator inverts no probability, so it truncates none |
 
 The model is a restriction. A blip that depends on an undeclared earlier treatment or covariate
 makes the coefficients answer a different question. Laws L and P in the validation table show the
@@ -115,8 +119,11 @@ Each fit cross-fits these nuisances on the full history $H_t$, one set per node 
 
 | nuisance | definition | learner |
 | --- | --- | --- |
-| $q_t$ | $E[Y \mid H_t]$ | `outcome_learner` as a regression, or as a classifier for a binary outcome |
-| $m_{j,t}$ for $j \ge t$ | $E[Z_j \mid H_t]$ | `treatment_learner` as a classifier for a target in $\{0, 1\}$. `outcome_learner` as a regression for any other target |
+| $q_t$ | $E[Y \mid H_t]$ | `outcome_learner` as a classifier for a binary outcome. `regression_learner` as a regression for any other outcome |
+| $m_{j,t}$ for $j \ge t$ | $E[Z_j \mid H_t]$ | `treatment_learner` as a classifier for a target in $\{0, 1\}$. `regression_learner` as a regression for any other target |
+
+`regression_learner` defaults to `outcome_learner`. A binary outcome with a dose node or a
+continuous feature needs it, because a classifier takes no target outside $\{0, 1\}$.
 
 For $j > t$ the feature map $\phi_j$ reads treatments that $H_t$ does not hold. The estimator
 splits each feature into the factors that $H_t$ determines and the factors it does not. It
@@ -148,6 +155,12 @@ where $\delta_q$ and $\delta_{j,t}$ are the out-of-fold errors of $q_t$ and $m_{
 term holds the error of the own-node treatment nuisance. The point is consistent when every
 own-node treatment nuisance converges, even if $q_t$ does not. A correct $q_t$ alone is not enough.
 
+The instrument $\tilde Z_{t,t}$ is unweighted. The locally efficient estimator of the model weights
+it by the conditional variance of the outcome residual. This estimator is not that one. This page
+states no ranking of its variance against the variance of `LTMLE`.
+[F36](../roadmap.md#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model)
+tracks the weighted estimator.
+
 ## Influence curves
 
 The Jacobian $G$ is block upper triangular. Block $(t, j)$ for $j \ge t$ is
@@ -161,10 +174,10 @@ $\psi_j$. Write $S_i$ for the stacked scores of unit $i$.
 | level of $a$ | $\mu_0 + \sum_t c(a_t)^\top \Psi_t \bar\phi_t(a)$ | the curve of $\mu_0$, plus $\sum_t c(a_t)^\top \Psi_t(\phi_{t,i} - \bar\phi_t(a))$, plus $\sum_t (\bar\phi_t(a) \otimes c(a_t))^\top \mathrm{IC}_{\psi_t,i}$ |
 | contrast | a difference of two levels | the difference of the two level curves. The $\mu_0$ terms cancel |
 
-The estimator divides the weights by their mean before it builds these curves. A known weight
-$w_i$ enters each mean and each regression. The curve carries the factor $w_i / E_n[w]$. The
-feature term uses the weighted unit deviation $\bar w_i(\phi_{t,i} - \bar\phi_t(a))$. With clusters, the
-curve sums within a cluster, and the cluster is the unit.
+The estimator divides the weights by their mean before it builds these curves. Write
+$\bar w_i = w_i / E_n[w]$. A known weight enters each mean and each regression. The curve of unit
+$i$ carries the factor $\bar w_i$. The feature term is $\bar w_i(\phi_{t,i} - \bar\phi_t(a))$. With
+clusters, the variance sums the curve within a cluster, and the cluster is the unit.
 
 The variance is $\mathrm{Var}_n(\mathrm{IC}) / n$. For $\psi$ this is the sandwich
 $G^{-1} \hat\Sigma G^{-\top} / n$ with $\hat\Sigma = E_n[S S^\top]$. The sample variance divides by
@@ -247,7 +260,8 @@ differences.
 
 The library and the test suite never install EconML. `tests/canonical/econml_dynamic_dml/` holds a
 container, a hash-pinned `requirements.txt`, the generator, and a committed fixture of seven
-cases. `tests/unit/test_structural_econml_parity.py` (W2) refits each case on the folds and
+cases. The fixture came from a virtual environment whose installed distributions equal those pins,
+not from the container. It records that route under `environment`. Nobody has built the container. `tests/unit/test_structural_econml_parity.py` (W2) refits each case on the folds and
 nuisances that EconML used.
 
 | quantity | result |
@@ -267,7 +281,7 @@ The comparator study with replicates is a later phase.
 
 ## Validation
 
-The evidence label is Python property evidence, with comparator runs pending.
+The evidence label is fast-tier evidence only, with no registered study.
 
 | id | what it checks | test |
 | --- | --- | --- |
@@ -275,10 +289,13 @@ The evidence label is Python property evidence, with comparator runs pending.
 | W1 | the product nuisances equal the conditional means of the law | `test_w1_product_nuisances_equal_the_conditional_means_of_the_law` |
 | W2 | the EconML parity fixture | `tests/unit/test_structural_econml_parity.py` |
 | W3 | each curve is the derivative of the estimator in the observation weights, with the nuisances held fixed | `test_w3_curves_are_the_derivative_of_the_estimator_in_the_weights` |
-| W4 | with too few declared features the structural contrast misses the regimen truth by a closed-form amount (laws L and P) | `test_w4_an_undeclared_covariate_blip_has_a_closed_form_limit` |
+| W4 | with too few declared features the structural contrast misses the regimen truth by a closed-form amount (laws L and P) | `test_w4_baseline_only_features_on_law_p_have_a_closed_form_limit`, `test_w4_an_undeclared_covariate_blip_has_a_closed_form_limit` |
 | W5 | on law M the second treatment reads a covariate the period state omits, and the full history recovers the truth | `test_w5_the_full_history_removes_the_markov_restriction` |
 | W6 | the structural label survives `save()` and `load()` | `test_w6_the_structural_label_survives_save_and_load` |
-| W7 | each refusal carries its reason code | `test_w7_refusals_carry_their_reason_codes` |
+| W7 | each refusal carries its reason code, including the redirected designs, the dose and reference refusals, and the refusals of `check_model` | the `test_w7_*` tests |
+| W8 | each standard error and the simultaneous bands sum the curve within a cluster. The data share a cluster effect, so a variance that ignores the clusters differs from the hand calculation | `test_w8_the_variance_sums_the_curve_within_a_cluster`, `test_w8_the_bands_and_the_joint_covariance_read_the_clusters`. A control that drops `cluster=` fails both: `test_w8_dropping_the_cluster_from_the_variance_fails_the_witness` |
+| W9 | `check_model` reports the closed-form gap between the structural and the nonparametric contrasts on law L, and its covariance, degrees of freedom and p-value follow from the curves, at the cluster level | `test_check_model_statistic_on_exact_law_l`, `test_check_model_covariance_degrees_of_freedom_and_clusters` |
+| W10 | the share of rows with an extreme class probability equals the mass of the extreme cell | `test_the_extreme_share_is_the_mass_of_the_cells_near_zero_or_one` |
 | M1 | dropping the adjustment for later blips fails W1 on S3 | `test_m1_dropping_the_later_blip_adjustment_misses_the_truth_by_its_limit` |
 | M2 | residualizing on the period state fails W5 | `test_m2_a_period_state_treatment_nuisance_misses_by_the_limit` |
 | M3 | a wrong reference level fails W1 on law K | `test_m3_the_wrong_reference_moves_the_level_blips_and_the_reference_mean` |

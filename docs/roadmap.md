@@ -168,6 +168,7 @@ not change the package version.
 | after beta | Refutation and assessment adapters | no new theory | the shipped `refute` catalog | [X67](#x67-refutation-and-assessment-adapters) |
 | after beta | Repeated outcomes for the sequential baselines | no new theory | the shipped `LTMLE` repeated outcome; X41 | [X71](#x71-repeated-outcomes-for-the-sequential-baselines) |
 | after beta | Static regimen values from structural blips with time-varying features | published support for identification; the inference result is a preprint | the shipped `StructuralNestedMean`; the shipped `LTMLE` | [X72](#x72-static-regimen-values-from-structural-blips-with-time-varying-features) |
+| after beta | Assessment and study integration for the structural nested mean model | no new theory | the shipped assessment layer; the shipped `StructuralNestedMean` | [X74](#x74-assessment-and-study-integration-for-the-structural-nested-mean-model) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -238,6 +239,7 @@ It moved each part that an established method or a natural extension carries to 
 | arbitrary dependence | an argument for a fixed number of dependent units |
 | serial dependence | a limit theorem for split-based TMLE under mixing |
 | algorithm definition | a published definition of the procedure that the package would implement |
+| efficiency | the efficient influence function of a model, and an estimator that attains its bound |
 
 | investigation | kept claim | kind of missing argument | current boundary | details |
 | --- | --- | --- | --- | --- |
@@ -261,6 +263,7 @@ It moved each part that an established method or a natural extension carries to 
 | Other intervention and design compositions | the composite missing-treatment indicator with a controlled direct effect; an `IPSI` plan with a modified-policy or risk-ratio-tilt node; an MSM weight from a learned mechanism; automatic cumulative-bound selection for `LTMLE` | identification; regularity; adaptive-optimum inference | named pre-fit refusals. [X63](#x63-missing-data-intermediates-and-designs) and [X64](#x64-intervention-and-policy-declarations) hold the declarations that a natural extension carries | [F33](#f33-other-intervention-and-design-compositions) |
 | E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, and the standardized ATT and ATC E-value on a gaussian outcome. [X49](#x49-e-value-for-a-controlled-direct-effect) holds the controlled direct effect, and [X65](#x65-sensitivity-analyses-beyond-the-shipped-scope) the other sensitivity requests | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
 | Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | asymptotic | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F35](#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
+| Locally efficient g-estimation of the structural nested mean model | an interval for the blips from the g-estimator that weights its instrument by the conditional variance of the outcome residual | efficiency | the shipped `StructuralNestedMean` solves the unweighted equation. Its interval is valid under the linear model, and it is not the efficient estimator of that model | [F36](#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model) |
 
 ## Eligibility
 
@@ -1665,6 +1668,20 @@ Acceptance: a written derivation of the influence curve under the [Eligibility](
 conditions, an exact-law witness whose feature reads a covariate with a nonzero effect on the
 contrast, a mutation control that drops the covariate-law term, and a registered study cell.
 
+### X74. Assessment and study integration for the structural nested mean model
+
+`StructuralNestedMeanResult` declares `fitted_method = "snmm"` and no `assessment_family`.
+`cleverly.assessment.assessment_capabilities` therefore raises a bare `TypeError` that names the
+missing family. `CausalStudy` offers no method that fits `StructuralNestedMean`.
+
+| part | what to add | evidence |
+| --- | --- | --- |
+| (a) | an `assessment_family` for the result, with one declaration per assessment operation. Each declaration is available, or refuses with a reason code and a roadmap id | a test that every operation of `assessment_capabilities` runs or refuses with a code and an id on a structural fit |
+| (b) | a `CausalStudy` method for the estimator, whose study report carries the structural label | a study test that the label reaches the study report |
+
+Acceptance: both tests, and a refusal for each operation that a structural fit cannot support, such
+as a truncation curve, which an estimator with no inverse probability has no use for.
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
@@ -2402,6 +2419,18 @@ bias is then of the order of the learner's error.
 | an interval for sequential g-computation with a data-adaptive outcome learner | asymptotic | an asymptotic-linearity theorem for the iterated conditional expectation plug-in over several time points, such as an undersmoothing result. No source read here derives one |
 | an interval for longitudinal IPW with a data-adaptive mechanism learner | asymptotic | the same result for the cumulative weights. Ertefaie, Hejazi and van der Laan (2023), Section 3, Theorem 1, cover IPW with an undersmoothed highly adaptive lasso propensity at a single time point only |
 | a cross-fitted baseline, `n_folds` above 1 | asymptotic | the same result for cross-fitted nuisances. Cross-fitting does not remove the first-order bias of a plug-in or IPW estimate, so the in-sample result does not carry over |
+
+### F36. Locally efficient g-estimation of the structural nested mean model
+
+`StructuralNestedMean` solves the unweighted g-estimating equation. Its instrument is the residual
+treatment $\tilde Z_{t,t}$. The semiparametric efficient estimator of a structural nested mean
+model weights that instrument by the conditional variance of the outcome residual. The shipped
+estimator is not that one, and no result read for this item ranks its variance against the
+variance of `LTMLE`. The weighted instrument also needs a nuisance for that variance.
+
+| kept claim | kind | missing argument |
+| --- | --- | --- |
+| an interval for the blips from the variance-weighted g-estimator, with a cross-fitted variance nuisance | efficiency | the efficient influence function of the linear structural nested mean model, and a limit theorem for the cross-fitted weighted estimator. No source read for this item states either |
 
 ## Reading a gap correctly
 

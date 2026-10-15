@@ -715,10 +715,16 @@ print(result.summary())
 print(result.blip(2))
 ```
 
-`snmm()` is the one-call form. `result.blip(node)` returns the matrix of a node, with one row per
-feature and one column per coding component. A categorical node has one column for each level
+`snmm()` is the one-call form. `result.blip(node)` returns the coefficients of a node as a matrix
+with one row per feature and one column per coding component. It is the transpose of the matrix
+$\Psi_t$ of the
+[technical page](../technical-reference/structural-dynamic-effects.md#the-model). A categorical node has one column for each level
 after the first sorted level. A continuous node has one column, the dose. The regimen levels and
 contrasts follow from the blips and the mean outcome at the reference level `ey_reference`.
+
+Pass `regression_learner=` when the outcome is binary and a node holds a dose or a feature is
+continuous. A classifier takes no target outside $\{0, 1\}$, and `regression_learner` fits those
+targets. It defaults to `outcome_learner`.
 
 Read the result with this condition. The intervals are valid under the linear structural nested
 mean model with the declared blip features. Every row of the summary and of `to_frame()` carries
