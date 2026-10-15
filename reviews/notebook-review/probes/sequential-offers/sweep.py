@@ -7,7 +7,8 @@ stagewise support; the "logs unavailable" fit with its truncation curve; and the
 drops engagement from the history of the static plans. Truths come from ``offers_truth()``.
 
 Usage: ``python sweep.py <first seed> <count> <workers>``. The page cites
-``python sweep.py 1000 100 3``. Outputs: ``sweep.csv`` (one row per seed) and ``sweep.log``.
+``python sweep.py 1000 100 3``. The notebook draws seed 1000, the first of that range, by a
+rule fixed before the page ran with it, so its fits are the first row of ``sweep.csv``. Outputs: ``sweep.csv`` (one row per seed) and ``sweep.log``.
 Every worker is single-threaded (``OMP_NUM_THREADS=1``, ``n_jobs=1``).
 """
 
