@@ -2971,13 +2971,16 @@ def test_a_comparator_backed_study_with_no_property_cells_has_a_row() -> None:
 
 @pytest.mark.parametrize("study", STUDIES, ids=IDS)
 def test_a_study_with_a_reference_declares_its_comparison_kind(study: StudyRecord) -> None:
-    """The kind is declared exactly with the reference, and each override names a real row."""
+    """The kind is declared exactly with a reference, compared or pending, and each override names a real row."""
     kinds = {"matching implementation", "different estimator", "related target"}
-    if study.reference is None:
+    if study.reference is None and study.pending_reference is None:
         assert study.comparison is None
         assert not study.comparison_overrides
         return
     assert study.comparison in kinds
+    if study.reference is None:
+        assert not study.comparison_overrides
+        return
     assert set(study.comparison_overrides.values()) <= kinds
     frame = pd.read_csv(study.artifact("equivalence.csv"))
     rows = set(zip(frame["scenario"], frame["estimand"], strict=True))
