@@ -36,8 +36,8 @@ from ._inference_status import (
 from ._refusal import Refusal
 
 __all__ = [
+    "KEY_AXES",
     "RECORD_ENVIRONMENT_VARIABLE",
-    "ROWS",
     "UNCLASSIFIED",
     "Classification",
     "Kind",
@@ -53,6 +53,7 @@ __all__ = [
     "record_fit",
     "record_refusal_site",
     "recording_directory",
+    "registered_rows",
     "start_longitudinal_record",
     "start_point_record",
 ]
@@ -190,9 +191,11 @@ class SupportKey:
     engine : tuple of str
         The estimation procedure: the assessment method and, for C-TMLE, its strategy and design.
         A longitudinal key holds the recursion name.
-    family : tuple of str
-        The parameter axis and the requested estimand names, sorted. A longitudinal key holds
-        the outcome kind, the working-model flag and the regimen-kind flags.
+    family : frozenset of str
+        The target families the fit reports, as the ids ``P1`` to ``P11`` of the support
+        inventory. A row covers a fit when its family set holds every family of the fit. A
+        longitudinal key holds the outcome kind, the working-model flag and the regimen-kind
+        flags.
     outcome : tuple of str
         The outcome family and whether a continuous outcome declares its bounds.
     missing : tuple of str
@@ -203,22 +206,22 @@ class SupportKey:
     weighting : {"none", "fixed", "estimated"}
         How the observation weights are read.
     splitting : tuple of str
-        ``in_sample``, ``stacked``, ``fold_evaluated``, ``fold_targeted``, or ``cross_fitted``,
-        followed by ``repeated`` and ``supplied_plan`` where they apply.
+        ``in_sample``, ``stacked``, ``fold_evaluated``, ``fold_targeted``,
+        ``fold_targeted_evaluated`` or ``cross_fitted``, followed by ``repeated`` and
+        ``supplied_plan`` where they apply.
     dependence : {"iid", "clustered", "t", "below_floor"}
         ``clustered`` from 40 clusters with positive weight mass, ``t`` from the interval floor
         to 39, ``below_floor`` under the floor. The floor is 10 for a point fit and 20 for a
         longitudinal one.
     qualifiers : frozenset of str
-        Strata, a known mechanism, a named reference arm. A longitudinal key holds the known
-        factors.
+        ``strata`` and ``known_mechanism``. A longitudinal key holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic.
     """
 
     kind: str
     engine: tuple[str, ...]
-    family: tuple[str, ...]
+    family: frozenset[str]
     outcome: tuple[str, ...]
     missing: tuple[str, ...]
     treatment: tuple[str, ...]
@@ -242,13 +245,34 @@ class SupportKey:
             values[name] = tuple(sorted(value)) if isinstance(value, frozenset) else value
         return values
 
+    def is_covered_by(self, row_key: SupportKey) -> bool:
+        """Whether ``row_key`` covers this key.
+
+        Every axis must be equal, except the family axis: the row covers the fit when the row's
+        families include every family of the fit.
+
+        Parameters
+        ----------
+        row_key : SupportKey
+            The key of a support row.
+
+        Returns
+        -------
+        bool
+            ``True`` when the fit falls inside the row.
+        """
+        return not self.differing_axes(row_key)
+
     def differing_axes(self, other: SupportKey) -> tuple[str, ...]:
-        """The names of the axes on which this key and ``other`` differ.
+        """The names of the axes on which this key is not covered by ``other``.
+
+        The family axis differs when this key holds a family that ``other`` lacks. Every other
+        axis differs when the values are unequal.
 
         Parameters
         ----------
         other : SupportKey
-            The key to compare with.
+            The key of a support row.
 
         Returns
         -------
@@ -256,7 +280,14 @@ class SupportKey:
             The axis names, in :data:`KEY_AXES` order.
         """
         mine, theirs = self.axes(), other.axes()
-        return tuple(name for name in KEY_AXES if mine[name] != theirs[name])
+        differing = []
+        for name in KEY_AXES:
+            if name == "family":
+                if not self.family <= other.family:
+                    differing.append(name)
+            elif mine[name] != theirs[name]:
+                differing.append(name)
+        return tuple(differing)
 
     def to_json(self) -> dict[str, Any]:
         """The key as a JSON-ready mapping.
@@ -320,6 +351,52 @@ def _learner_type(learner: Any) -> type | None:
     return None if learner is None else type(learner)
 
 
+#: The target family of each arm-axis estimand, as the ids of the support inventory.
+_ARM_FAMILIES: Final[Mapping[str, str]] = {
+    "ey": "P1",
+    "ey1": "P1",
+    "ey0": "P1",
+    "ate": "P1",
+    "rr": "P2",
+    "or": "P2",
+    "att": "P3",
+    "atc": "P3",
+    "ey_obs": "P4",
+    "par": "P4",
+    "paf": "P4",
+}
+
+#: The target family of each other parameter axis. The regime axis is ``P5`` unless a
+#: regime declares a known stochastic density, which makes it ``P6``.
+_AXIS_FAMILIES: Final[Mapping[str, str]] = {
+    "regime": "P5",
+    "policy": "P7",
+    "rr_tilt": "P8",
+    "ipsi": "P9",
+    "msm": "P10",
+    "learned_rule": "P11",
+}
+
+
+def _point_families(estimator: Any, estimands: Sequence[str]) -> frozenset[str]:
+    """The target families of a point fit: its parameter axis and, on the arm axis, its names."""
+    axis = str(estimator._axis)
+    if axis == "arm":
+        return frozenset(_ARM_FAMILIES.get(str(name), f"?{name}") for name in estimands)
+    if axis == "regime" and any(
+        type(item).__name__ == "Stochastic" for item in estimator.interventions
+    ):
+        return frozenset({"P6"})
+    return frozenset({_AXIS_FAMILIES[axis]})
+
+
+def _outcome(data: Any, q_bounds: Any) -> tuple[str, ...]:
+    """The outcome family, and for a non-binary outcome whether its support is declared."""
+    if str(data.family) == "binomial":
+        return ("binomial",)
+    return (str(data.family), "bounded" if q_bounds is not None else "unbounded")
+
+
 def point_key(
     estimator: Any, data: Any, estimands: Sequence[str]
 ) -> tuple[SupportKey, dict[str, type | None]]:
@@ -345,12 +422,11 @@ def point_key(
         engine += (str(estimator.strategy), str(estimator.oat_design))
 
     if estimator.cross_fit:
+        folded = estimator.targeting_scheme != "pooled"
         if estimator.cv_evaluation:
-            scheme = "fold_evaluated"
-        elif estimator.targeting_scheme != "pooled":
-            scheme = "fold_targeted"
+            scheme = "fold_targeted_evaluated" if folded else "fold_evaluated"
         else:
-            scheme = "stacked"
+            scheme = "fold_targeted" if folded else "stacked"
     else:
         scheme = "in_sample"
     splitting = [scheme]
@@ -377,8 +453,6 @@ def point_key(
         qualifiers.add("strata")
     if data.known_treatment is not None:
         qualifiers.add("known_mechanism")
-    if getattr(estimator, "reference", None) is not None:
-        qualifiers.add("reference_arm")
 
     options: dict[str, Any] = {
         "fluctuation": estimator.fluctuation,
@@ -394,8 +468,8 @@ def point_key(
     key = SupportKey(
         kind="point",
         engine=engine,
-        family=(str(estimator._axis), *sorted(str(name) for name in estimands)),
-        outcome=(str(data.family), "bounded" if estimator.q_bounds is not None else "unbounded"),
+        family=_point_families(estimator, estimands),
+        outcome=_outcome(data, estimator.q_bounds),
         missing=tuple(missing) or ("complete",),
         treatment=treatment,
         weighting=_weighting(data),
@@ -455,8 +529,10 @@ def longitudinal_key(
     key = SupportKey(
         kind="longitudinal",
         engine=(str(estimator._estimator),),
-        family=(outcome_kind, "msm" if has_msm else "regimens", "mtp" if has_policy else "static"),
-        outcome=(str(data.family), "bounded" if estimator.q_bounds is not None else "unbounded"),
+        family=frozenset(
+            (outcome_kind, "msm" if has_msm else "regimens", "mtp" if has_policy else "static")
+        ),
+        outcome=_outcome(data, estimator.q_bounds),
         missing=("censoring",) if data.has_censoring else ("complete",),
         treatment=levels,
         weighting=_weighting(data),
@@ -522,15 +598,25 @@ class SupportRow:
         Returns
         -------
         bool
-            ``True`` when the keys are equal and every learner the row names is the fit's.
+            ``True`` when the row covers the key and every learner the row names is the fit's.
         """
-        if self.key != key:
+        if not key.is_covered_by(self.key):
             return False
         return all(learners.get(role) is cls for role, cls in (self.learners or {}).items())
 
 
-#: The registered rows. Empty until the row table lands, so every fit classifies as unmatched.
-ROWS: tuple[SupportRow, ...] = ()
+def registered_rows() -> tuple[SupportRow, ...]:
+    """The registered support rows.
+
+    Returns
+    -------
+    tuple of SupportRow
+        The point-treatment rows of :mod:`cleverly._support_rows`. The longitudinal rows join
+        them in a later change.
+    """
+    from ._support_rows import POINT_ROWS
+
+    return POINT_ROWS
 
 
 @dataclass(frozen=True)
@@ -582,7 +668,7 @@ def classify_key(
     conditions : sequence of Refusal, default ()
         The group-A conditions the fit meets.
     rows : sequence of SupportRow or None, default None
-        The rows to match. ``None`` reads :data:`ROWS`.
+        The rows to match. ``None`` reads :func:`registered_rows`.
 
     Returns
     -------
@@ -594,7 +680,7 @@ def classify_key(
     RuntimeError
         When two rows match. The row tests make this unreachable.
     """
-    table = ROWS if rows is None else tuple(rows)
+    table = registered_rows() if rows is None else tuple(rows)
     matched = [row for row in table if row.matches(key, learners)]
     if len(matched) > 1:
         raise RuntimeError(f"support rows {[row.id for row in matched]} all match one fit")
@@ -602,7 +688,7 @@ def classify_key(
         return Classification(key, learners, matched[0], None, tuple(conditions))
     nearest: tuple[str, tuple[str, ...]] | None = None
     for row in table:
-        differing = row.key.differing_axes(key)
+        differing = key.differing_axes(row.key)
         if (
             learners
             and row.learners
@@ -685,7 +771,12 @@ def _append(directory: Path, payload: dict[str, Any]) -> None:
 
 
 def record_refusal_site(
-    site: str, refusal_code: str, roadmap: str | None, *, flagged: bool = False
+    site: str,
+    refusal_code: str,
+    roadmap: str | None,
+    *,
+    flagged: bool = False,
+    availability: bool = False,
 ) -> None:
     """Record that a group-A or flagged refusal site was reached. A no-op with the switch off.
 
@@ -701,6 +792,9 @@ def record_refusal_site(
         The roadmap id the refusal names.
     flagged : bool, default False
         Whether the plan holds the site as a refusal until the owner decides.
+    availability : bool, default False
+        Whether the site builds a capability row and no fit reaches it. The record then has
+        the kind ``"availability_site"``, which the measurement excludes from its fit counts.
     """
     directory = recording_directory()
     if directory is None:
@@ -708,7 +802,7 @@ def record_refusal_site(
     _append(
         directory,
         {
-            "record": "refusal_site",
+            "record": "availability_site" if availability else "refusal_site",
             "site": site,
             "code": str(refusal_code),
             "roadmap": roadmap,

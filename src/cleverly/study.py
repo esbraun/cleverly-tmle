@@ -3659,7 +3659,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         drtmle_item = _variant_roadmap("drtmle", self.functional, design)
         if clustered and not known:
             record_refusal_site(
-                "study.ctmle_clustered", RefusalReason.IMPLEMENTATION_GAP, "F22", flagged=True
+                "study.ctmle_clustered",
+                RefusalReason.IMPLEMENTATION_GAP,
+                "F22",
+                flagged=True,
+                availability=True,
             )
         collaborative_blocker = (
             KNOWN_CTMLE_REFUSAL

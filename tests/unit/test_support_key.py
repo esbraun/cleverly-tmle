@@ -13,6 +13,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
@@ -24,16 +25,22 @@ from cleverly._support import (
     Support,
     SupportKey,
     SupportRow,
-    classify,
     classify_key,
     combine_support,
     point_key,
     recording_directory,
 )
 from cleverly.data.causal_data import CausalData
-from cleverly.datasets import make_clustered, make_linear_ate, make_missing_outcome_binary
+from cleverly.datasets import (
+    make_binary_outcome,
+    make_clustered,
+    make_linear_ate,
+    make_missing_outcome_binary,
+)
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.exceptions import CapabilityError
+from cleverly.interventions import Incremental, Shift, Static, Stochastic
+from cleverly.interventions.learned import LearnedRule
 from cleverly.longitudinal import LTMLE
 from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import LONGITUDINAL_N, longitudinal_learners
@@ -104,7 +111,7 @@ class TestPointKey:
         key, learners = key_of(TMLE(**linear_in_sample()), frame)
         assert key.kind == "point"
         assert key.engine == ("tmle",)
-        assert key.family == ("arm", "ate")
+        assert key.family == frozenset({"P1"})
         assert key.outcome == ("gaussian", "unbounded")
         assert key.missing == ("complete",)
         assert key.treatment == ("binary",)
@@ -122,9 +129,51 @@ class TestPointKey:
         assert learners["treatment"] is LogisticRegression
         assert learners["missingness"] is None
 
-    def test_the_estimands_are_sorted_and_named(self, frame: Any) -> None:
-        key, _ = key_of(TMLE(**linear_in_sample()), frame, ("ey1", "ate", "ey0"))
-        assert key.family == ("arm", "ate", "ey0", "ey1")
+    def test_the_estimand_names_map_to_their_families(self, frame: Any) -> None:
+        estimator = TMLE(**linear_in_sample())
+        names = {
+            "P1": ("ey1", "ate", "ey0"),
+            "P2": ("rr",),
+            "P3": ("att", "atc"),
+            "P4": ("ey_obs", "par", "paf"),
+        }
+        for family, estimands in names.items():
+            key, _ = key_of(estimator, frame, estimands)
+            assert key.family == frozenset({family}), estimands
+        key, _ = key_of(estimator, frame, ("ey1", "rr", "att", "par"))
+        assert key.family == frozenset({"P1", "P2", "P3", "P4"})
+
+    def test_a_regime_is_p5_and_a_known_stochastic_regime_is_p6(self, frame: Any) -> None:
+        deterministic = TMLE(
+            **linear_in_sample(interventions=(Static(0.0, name="never"), Static(1.0, name="all")))
+        )
+        stochastic = TMLE(
+            **linear_in_sample(
+                interventions=(
+                    Static(0.0, name="never"),
+                    Stochastic(
+                        lambda data: np.full(len(data), 0.5), name="tilt", density_kind="known"
+                    ),
+                )
+            )
+        )
+        assert key_of(deterministic, frame, ("ey_regime",))[0].family == frozenset({"P5"})
+        assert key_of(stochastic, frame, ("ey_regime",))[0].family == frozenset({"P6"})
+
+    def test_the_other_axes_map_to_one_family_each(self, frame: Any) -> None:
+        for kwargs, family in (
+            ({"incremental": [Incremental(2.0)]}, "P9"),
+            ({"policies": (Shift(0.5, cap=None),)}, "P7"),
+            ({"learned_rule": LearnedRule()}, "P11"),
+        ):
+            key, _ = key_of(TMLE(**linear_in_sample(**kwargs)), frame, ("ey_ipsi",))
+            assert key.family == frozenset({family}), kwargs
+
+    def test_a_binary_outcome_ignores_the_bounds_declaration(self) -> None:
+        data = make_binary_outcome(n=200, seed=1)[0]
+        for bounds in (None, (0.0, 1.0)):
+            key, _ = key_of(TMLE(**linear_in_sample(q_bounds=bounds)), data)
+            assert key.outcome == ("binomial",)
 
     @pytest.mark.parametrize(
         ("overrides", "splitting"),
@@ -180,9 +229,10 @@ class TestPointKey:
         key, _ = key_of(TMLE(**linear_in_sample()), stratified, strata=["S"])
         assert key.qualifiers == frozenset({"strata"})
 
-    def test_a_named_reference_is_a_qualifier(self, frame: Any) -> None:
-        key, _ = key_of(TMLE(**linear_in_sample(reference=0)), frame)
-        assert "reference_arm" in key.qualifiers
+    def test_a_named_reference_does_not_change_the_key(self, frame: Any) -> None:
+        plain, _ = key_of(TMLE(**linear_in_sample()), frame)
+        named, _ = key_of(TMLE(**linear_in_sample(reference=0)), frame)
+        assert plain == named
 
     def test_an_explicit_learner_class_is_read(self, frame: Any) -> None:
         class MyOutcome(LinearRegression):
@@ -231,8 +281,9 @@ class TestPointKey:
 class TestKeyAxes:
     def test_differing_axes_name_each_moved_axis_once(self, frame: Any) -> None:
         base, _ = key_of(TMLE(**linear_in_sample()), frame)
-        other, _ = key_of(TMLE(**linear_in_sample(cross_fit=True)), frame, ("ate", "ey1"))
-        assert base.differing_axes(other) == ("family", "splitting")
+        other, _ = key_of(TMLE(**linear_in_sample(cross_fit=True)), frame, ("ate", "rr"))
+        assert other.differing_axes(base) == ("family", "splitting")
+        assert base.differing_axes(other) == ("splitting",)
         assert base.differing_axes(base) == ()
 
     def test_to_json_round_trips_through_json(self, frame: Any) -> None:
@@ -248,8 +299,8 @@ def make_row(row_id: str, key: SupportKey, **kwargs: Any) -> SupportRow:
 
 class TestClassify:
     def test_no_rows_is_unmatched_with_no_nearest(self, frame: Any) -> None:
-        data = prepared(frame)
-        classification = classify(TMLE(**linear_in_sample()), data, ("ate",))
+        key, learners = key_of(TMLE(**linear_in_sample()), frame)
+        classification = classify_key(key, learners, rows=[])
         assert isinstance(classification, Classification)
         assert classification.row is None
         assert classification.nearest is None
@@ -271,7 +322,9 @@ class TestClassify:
 
     def test_an_unmatched_key_names_the_nearest_row_and_its_axes(self, frame: Any) -> None:
         base, learners = key_of(TMLE(**linear_in_sample()), frame)
-        far, _ = key_of(TMLE(**linear_in_sample(cross_fit=True, repeats=2)), frame, ("ey1",))
+        far, _ = key_of(
+            TMLE(**linear_in_sample(cross_fit=True, repeats=2, fluctuation="linear")), frame
+        )
         near, _ = key_of(TMLE(**linear_in_sample(cross_fit=True)), frame)
         rows = [make_row("FAR", far), make_row("NEAR", near)]
         classification = classify_key(base, learners, rows=rows)
@@ -327,8 +380,8 @@ class TestRecordSwitch:
         start, end = records
         assert start["source"] == "TMLE._fit_single"
         assert start["key"]["engine"] == ["tmle"]
-        assert start["label"] == "experimental"
-        assert start["row"] is None
+        assert start["label"] == "supported"
+        assert start["row"] == "T01.continuous"
         assert start["subdirectory"] == "fast"
         assert "test_support_key.py" in start["pytest"]
         assert end["statuses"] == ["influence_curve"]
@@ -355,7 +408,7 @@ class TestRecordSwitch:
         result.estimator.retarget(result.data, result.nuisance, estimands=("ey1",))
         records = read_records(tmp_path)
         assert [r["source"] for r in records] == ["TMLE.retarget", "TMLE.retarget"]
-        assert records[0]["key"]["family"] == ["arm", "ey1"]
+        assert records[0]["key"]["family"] == ["P1"]
 
     def test_a_refusal_site_is_recorded_and_the_refusal_still_raises(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -463,3 +516,37 @@ def read_records(directory: Path) -> list[dict[str, Any]]:
     for path in sorted(directory.glob("*.jsonl")):
         lines.extend(path.read_text(encoding="utf-8").splitlines())
     return [json.loads(line) for line in lines]
+
+
+class TestAvailabilityRecord:
+    def test_a_capability_row_records_under_its_own_kind(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The C-TMLE clustering row is built by a capability query, and no fit reaches it."""
+        from cleverly import ATE, CausalStudy, PointTreatment
+
+        data = make_clustered(n=200, seed=2)[0]
+        study = CausalStudy(
+            data,
+            design=PointTreatment(
+                outcome="Y", treatment="A", adjustment=("W1", "W2"), cluster="cluster"
+            ),
+        )
+        monkeypatch.setenv(RECORD_ENVIRONMENT_VARIABLE, str(tmp_path))
+        study.identify(ATE()).available_methods()
+        records = read_records(tmp_path)
+        assert records
+        assert {record["record"] for record in records} == {"availability_site"}
+        assert {record["site"] for record in records} == {"study.ctmle_clustered"}
+        assert all(record["flagged"] for record in records)
+
+    def test_a_fit_site_keeps_the_refusal_kind(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv(RECORD_ENVIRONMENT_VARIABLE, str(tmp_path))
+        _support.record_refusal_site("x", RefusalReason.IMPLEMENTATION_GAP, "X1")
+        _support.record_refusal_site("y", RefusalReason.IMPLEMENTATION_GAP, "X1", availability=True)
+        assert [r["record"] for r in read_records(tmp_path)] == [
+            "refusal_site",
+            "availability_site",
+        ]
