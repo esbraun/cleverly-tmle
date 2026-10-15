@@ -45,10 +45,6 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/shortfall.log",
     "0.9327": f"Wilson 95% lower end of the Step 7 slope coverage: {_PROBE}/sweep.log",
     "0.9474": f"Wilson 95% upper end of the same coverage: {_PROBE}/sweep.log",
-    "0.05": f"excess kurtosis of the Step 7 slope z-statistic over 4000 draws: {_PROBE}/shortfall.log",
-    "0.937": f"lowest Step 7 slope coverage over quartiles of the smallest fitted g: "
-    f"{_PROBE}/shortfall.log",
-    "0.945": f"highest Step 7 slope coverage over the same quartiles: {_PROBE}/shortfall.log",
     "0.01": "the study's fixed g_bounds (0.01, 0.99): tests/studies/canonical_point_msm.py G_BOUNDS; "
     f"also the true-g threshold, share below it 0.0112 for medium or high: {_PROBE}/shortfall.log",
     "0.734": "half the stored ate[high vs low], 1.4681 / 2, checked in check()",
