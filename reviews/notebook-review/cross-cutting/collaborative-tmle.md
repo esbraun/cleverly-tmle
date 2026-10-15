@@ -1,7 +1,9 @@
 # Cross-cutting findings from the collaborative TMLE tutorial revision
 
 The revision of `docs/examples/collaborative-tmle.ipynb` found these items outside its own files.
-Each needs one owner before anyone edits the shared file.
+Each needs one owner before anyone edits the shared file. X58 resolved items 5 to 7 in cleverly-tmle
+#330. For item 7, an ATE-only fit has no derived risk-ratio witness (X65), so a fit that requests
+`rr` reports the E-value.
 
 | item | file | finding | proposed change |
 | --- | --- | --- | --- |
