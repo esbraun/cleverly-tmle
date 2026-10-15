@@ -343,6 +343,9 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/estimators/_nuisance.py", "constant_folds applies to a binary"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "fit_treatment=False only supports"): _INTERNAL,
     ("src/cleverly/estimators/_nuisance.py", "has no trainable rows for a nuisance"): _SPLIT,
+    ("src/cleverly/estimators/_oat_stack.py", "has no outcome coefficients"): "an integrity "
+    "check of the fold record: the fit builds it only for ParametricOutcome and "
+    "ParametricMechanism, which record coefficients on every fold they fit",
     ("src/cleverly/estimators/_strata.py", "has no trainable rows for the outcome-adaptive"): (
         _SPLIT
     ),
