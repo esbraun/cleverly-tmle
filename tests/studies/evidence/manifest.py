@@ -131,8 +131,18 @@ def write_manifest(
     reference_metadata: Mapping[str, Any] | None = None,
     configuration: Mapping[str, Any] | None = None,
 ) -> None:
-    """Write the artefact manifest for one study."""
-    payload = {
+    """Write the artefact manifest for one study.
+
+    A record whose comparator is pending (:attr:`StudyRecord.comparator_state`) records no
+    reference provenance and an empty ``reference_sha256``, because no reference ran.  Its
+    ``comparator`` block names the pending implementation, the reason, the declared reference
+    metadata, and the digest of each reference source as declared at this run
+    (``declared_sources_sha256``).  No test gates those digests: a comparator fix made while
+    the runs are pending changes bytes that never ran.
+    """
+    pending = record.comparator_state == "pending"
+    files = tuple(reference_files)
+    payload: dict[str, Any] = {
         "schema_version": 2,
         "study": record.name,
         "slug": record.slug,
@@ -160,6 +170,7 @@ def write_manifest(
             ),
             "publication_policy": record.publication_policy,
             **({"truth_varies_by_replicate": True} if record.truth_varies_by_replicate else {}),
+            **({"paired_role": record.paired_role} if record.paired_role != "gated" else {}),
             **({"failure_bound": dict(record.failure_bound)} if record.failure_bound else {}),
             **(
                 {"accepted_reference_failure": record.accepted_reference_failure}
@@ -171,7 +182,76 @@ def write_manifest(
             "margins": record.margins.as_json(),
         },
         "study_module_sha256": study_module_hashes(record),
-        "reference_sha256": reference_hashes(reference_files),
+        "reference_sha256": {} if pending else reference_hashes(files),
         "sha256": hashes(artifacts),
     }
+    if pending:
+        payload["comparator"] = {
+            "status": "pending",
+            "implementation": record.pending_reference,
+            "reason": record.pending_reason,
+            "metadata": dict(reference_metadata or {}),
+            "declared_sources_sha256": reference_hashes(files),
+        }
     write_lines(path, json.dumps(payload, indent=2) + "\n")
+
+
+def comparator_findings(
+    record: StudyRecord,
+    manifest: Mapping[str, Any],
+    implementations: Iterable[str],
+    paired_rows: int,
+) -> list[str]:
+    """Every way the manifest and the published rows disagree with the record's comparator state.
+
+    ``implementations`` are the names in ``replicates.csv.gz``, and ``paired_rows`` is the row
+    count of ``equivalence.csv``.  An empty list means they agree.  A pending comparator is an
+    asserted state, not a skip: its manifest must say pending, it records no reference
+    provenance, and no row of the pending implementation and no paired row is published.  An
+    empty paired table would otherwise read as every paired verdict passed.
+    """
+    found: list[str] = []
+    published = set(implementations)
+    comparator = manifest.get("comparator")
+    reference = manifest["generated_with"].get("reference")
+    state = record.comparator_state
+    if state != "pending":
+        if comparator is not None:
+            found.append(
+                f"the record's comparator is {state}, but the manifest records one as pending"
+            )
+        if (reference is None) != (state == "none"):
+            found.append(
+                f"the record's comparator is {state}, but the manifest's reference is {reference!r}"
+            )
+        expected = set(record.implementations)
+        if published != expected:
+            found.append(f"the rows publish {sorted(published)}, not {sorted(expected)}")
+        if state == "none" and paired_rows:
+            found.append(
+                f"no comparator is declared, but {paired_rows} paired row(s) are published"
+            )
+        return found
+    if comparator is None or comparator.get("status") != "pending":
+        found.append("the record's comparator is pending, but the manifest does not say so")
+        return found
+    if comparator.get("implementation") != record.pending_reference:
+        found.append(
+            f"the manifest's pending comparator is {comparator.get('implementation')!r}, "
+            f"not {record.pending_reference!r}"
+        )
+    if comparator.get("reason") != record.pending_reason:
+        found.append("the manifest's pending reason is not the record's")
+    if not comparator.get("declared_sources_sha256"):
+        found.append("the pending manifest records no declared reference source")
+    if reference is not None:
+        found.append("a pending comparator has reference provenance, but no reference ran")
+    if manifest.get("reference_sha256"):
+        found.append("a pending comparator hashes reference sources as run, but none ran")
+    if record.pending_reference in published:
+        found.append(f"rows of the pending comparator {record.pending_reference} are published")
+    if published != {record.implementation}:
+        found.append(f"the rows publish {sorted(published)}, not only {record.implementation}")
+    if paired_rows:
+        found.append(f"{paired_rows} paired row(s) are published while the comparator is pending")
+    return found

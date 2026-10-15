@@ -22,11 +22,13 @@ from unittest import mock
 
 import numpy as np
 import pandas as pd
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LogisticRegression
 
 from cleverly.estimators import CTMLE, PropensityArrays
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.learners._l1_logistic import default_penalty_grid
+from cleverly.utils.bounds import expit
 
 N = 1_000
 COVARIATES = ("W1", "W2", "W3", "W4", "W5", "W6")
@@ -38,10 +40,12 @@ GRID_SIZE = 20
 GRID_TOP = 0.9
 GRID_BOTTOM = 0.002
 G_BOUNDS = (0.025, 0.975)
-#: R ``ctmle``'s ``alpha``, which bounds ``Q`` into ``[0.005, 0.995]`` (plan finding 7).
+#: R ``ctmle``'s ``alpha``, which bounds ``Q`` into ``[1 - alpha, alpha]`` (plan finding 7).
 ALPHA = 0.995
-#: The interior that keeps both sides' ``Q`` bounds no-ops.
-Q_INTERIOR = (0.005, 0.995)
+#: The open interval that keeps both sides' ``Q`` bounds no-ops: the bounds themselves, as
+#: both sides compute them.  ``1 - ALPHA`` is ``0.0050000000000000044`` in floating point, so
+#: the literal ``0.005`` would pass a value that the low bound clipped.
+Q_INTERIOR = (1.0 - ALPHA, ALPHA)
 #: The range the initial ``Q`` must lie in.
 Q_RANGE = (0.02, 0.98)
 #: The tolerance of the estimates and losses, which inherit R's ``glm`` fluctuation.
@@ -103,14 +107,128 @@ def draw_inputs(seed: int) -> tuple[pd.DataFrame, np.ndarray]:
     return frame, grid
 
 
-def _estimator(frame: pd.DataFrame) -> CTMLE:
-    placeholder = np.full(len(frame), float(frame["A"].mean()))
+class FixedLogit(ClassifierMixin, BaseEstimator):
+    """A logistic model with declared coefficients: ``fit`` learns nothing.
+
+    The prediction is ``expit(coef[0] + coef[1:] . x)``.  The replay of the registered study
+    uses it to give the package R's own fits: the outcome GLM through its ``coef(glm)``, read
+    on the design ``[A, W1, ..., Wp]`` the package passes an outcome learner, and the
+    ``SL.glm`` terminal of ``build_gn_seq`` on the covariates.
+
+    Parameters
+    ----------
+    coef : tuple of float
+        The intercept, then one coefficient per design column.
+    """
+
+    def __init__(self, coef: tuple[float, ...] = ()) -> None:
+        self.coef = coef
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> FixedLogit:
+        """Check the design width and store the classes; the coefficients stay fixed.
+
+        Parameters
+        ----------
+        X : array-like
+            The design.
+        y : array-like
+            The 0/1 target, which is not read.
+        sample_weight : array-like or None
+            Not read.
+
+        Returns
+        -------
+        FixedLogit
+            This model.
+        """
+        del y, sample_weight
+        width = np.asarray(X, dtype=float).shape[1]
+        if width + 1 != len(self.coef):
+            raise ValueError(f"{len(self.coef)} coefficients cannot read {width} design columns")
+        self.classes_ = np.array([0, 1])
+        return self
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        """``[1 - p, p]`` with ``p = expit(coef[0] + coef[1:] . x)``.
+
+        Parameters
+        ----------
+        X : array-like
+            The design.
+
+        Returns
+        -------
+        ndarray of float
+            Two columns, ``P(y = 0)`` and ``P(y = 1)``.
+        """
+        p = linear_logit(self.coef, np.asarray(X, dtype=float))
+        return np.column_stack([1.0 - p, p])
+
+
+def linear_logit(coef: Sequence[float], x: np.ndarray) -> np.ndarray:
+    """``expit(coef[0] + x @ coef[1:])``, the response of a logistic fit with an intercept.
+
+    Parameters
+    ----------
+    coef : sequence of float
+        The intercept, then one coefficient per column of ``x``.
+    x : ndarray of float
+        The ``(n, p)`` design.
+
+    Returns
+    -------
+    ndarray of float
+        One probability per row.
+    """
+    values = np.asarray(coef, dtype=float)
+    return np.asarray(expit(values[0] + x @ values[1:]), dtype=float)
+
+
+def _logistic() -> LogisticRegression:
+    return LogisticRegression(C=1e6, max_iter=5000, tol=1e-12)
+
+
+def estimator(
+    frame: pd.DataFrame,
+    *,
+    split: Any = None,
+    outcome_learner: Any = None,
+    treatment_candidates: Sequence[Any] | None = None,
+    treatment_learner: Any = None,
+) -> CTMLE:
+    """A ``learners`` fit with R's always-penalized construction criterion.
+
+    ``penalty=True``, ``loss="loglik"``, ``alpha=0.995`` and the ``(0.025, 0.975)`` bounds
+    match ``ctmleGeneral`` and ``ctmleGlmnet`` (plan 1.3).  The defaults are the fixture's:
+    one placeholder array pair, main-terms logistic regressions, and the fixture's folds.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        The sample, with ``Y``, ``A`` and the covariates.
+    split : array-like or None
+        The selection split, 0-based.  ``None`` reads the fixture's ``fold`` column.
+    outcome_learner : estimator or None
+        ``None`` is the unpenalized main-terms logistic regression.
+    treatment_candidates : sequence or None
+        ``None`` is one placeholder :class:`~cleverly.estimators.PropensityArrays` pair.
+    treatment_learner : estimator or None
+        The terminal.  ``None`` is the unpenalized main-terms logistic regression.
+
+    Returns
+    -------
+    CTMLE
+        The unfitted estimator.
+    """
+    if treatment_candidates is None:
+        placeholder = np.full(len(frame), float(frame["A"].mean()))
+        treatment_candidates = [PropensityArrays(full=placeholder, cv=placeholder)]
     return CTMLE(
         strategy="learners",
-        treatment_candidates=[PropensityArrays(full=placeholder, cv=placeholder)],
-        selection_split=frame["fold"].to_numpy() - 1,
-        outcome_learner=LogisticRegression(C=1e6, max_iter=5000, tol=1e-12),
-        treatment_learner=LogisticRegression(C=1e6, max_iter=5000, tol=1e-12),
+        treatment_candidates=list(treatment_candidates),
+        selection_split=frame["fold"].to_numpy() - 1 if split is None else split,
+        outcome_learner=_logistic() if outcome_learner is None else outcome_learner,
+        treatment_learner=_logistic() if treatment_learner is None else treatment_learner,
         cross_fit=False,
         penalty=True,
         loss="loglik",
@@ -122,40 +240,146 @@ def _estimator(frame: pd.DataFrame) -> CTMLE:
     )
 
 
+@dataclass
+class Capture:
+    """What :func:`_captured` records of the fits made inside its block.
+
+    Parameters
+    ----------
+    selectors : list
+        The analysis-sample ``_Selector`` of each fit.
+    paths : list of Path
+        The traced analysis-sample path of each fit, when tracing was asked for.
+    """
+
+    selectors: list[Any]
+    paths: list[Path]
+
+
 @contextlib.contextmanager
-def _captured() -> Iterator[list[Any]]:
-    """Record the analysis-sample selector of the fits made inside the block."""
-    held: list[Any] = []
+def _captured(*, trace: bool = False) -> Iterator[Capture]:
+    """Record the analysis-sample selector, and with ``trace`` its traced path.
+
+    The trace wraps :func:`~cleverly.estimators.ctmle._indexed_path` for the analysis sample
+    only, so it records each try the construction scores there, in order.  The selection
+    folds run the unwrapped function.
+    """
+    capture = Capture([], [])
     original = ctmle_module._Selector._indexed_candidates_path
+    construct = ctmle_module._indexed_path
 
     def spy(self: Any, rows: Any, train: Any, tag: str) -> Any:
         if train is None:
-            held.append(self)
-        return original(self, rows, train, tag)
+            capture.selectors.append(self)
+        if train is not None or not trace:
+            return original(self, rows, train, tag)
+        traced: list[Path] = []
+
+        def recorded(count: int, initial: Any, fluctuate: Any) -> list[Any]:
+            path = _trace(count, initial, fluctuate, construct)
+            traced.append(path)
+            return path.candidates
+
+        with mock.patch.object(ctmle_module, "_indexed_path", recorded):
+            out = original(self, rows, train, tag)
+        capture.paths.extend(traced)
+        return out
 
     with mock.patch.object(ctmle_module._Selector, "_indexed_candidates_path", spy):
-        yield held
+        yield capture
 
 
-def selector(frame: pd.DataFrame) -> Any:
-    """The package's analysis-sample selector on the fixture, with its initial fit.
+def selector(frame: pd.DataFrame, **keywords: Any) -> Any:
+    """The package's analysis-sample selector on one sample, with its initial fit.
 
     Parameters
     ----------
     frame : pandas.DataFrame
-        The fixture inputs.
+        The sample: the fixture inputs by default.
+    **keywords : Any
+        ``covariates=`` (default :data:`COVARIATES`), and the keywords of :func:`estimator`.
 
     Returns
     -------
     Any
         The ``_Selector`` of the analysis sample.
     """
-    data = frame[["Y", "A", *COVARIATES]]
-    with _captured() as held:
-        _estimator(frame).fit(data, outcome="Y", treatment="A", covariates=list(COVARIATES))
-    if len(held) != 1:
-        raise RuntimeError(f"expected one analysis-sample selector, captured {len(held)}")
-    return held[0]
+    chooser, _ = traced_fit(frame, trace=False, **keywords)
+    return chooser
+
+
+def traced_fit(
+    frame: pd.DataFrame,
+    *,
+    trace: bool = True,
+    covariates: Sequence[str] = COVARIATES,
+    **keywords: Any,
+) -> tuple[Any, Path | None]:
+    """Fit :func:`estimator` and return its analysis-sample selector and traced path.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        The sample.
+    trace : bool
+        Whether to trace the analysis-sample construction.
+    covariates : sequence of str
+        The covariate columns.
+    **keywords : Any
+        The keywords of :func:`estimator`.
+
+    Returns
+    -------
+    tuple
+        The ``_Selector`` and the :class:`Path`, or ``None`` without ``trace``.
+    """
+    _, capture = _fit(frame, trace=trace, covariates=covariates, **keywords)
+    return capture.selectors[0], capture.paths[0] if trace else None
+
+
+def public_fit(
+    frame: pd.DataFrame, *, covariates: Sequence[str] = COVARIATES, **keywords: Any
+) -> tuple[Any, Any, Path]:
+    """Fit :func:`estimator` and return its selection record, selector and traced path.
+
+    The registered study's replay reads the ``learners`` path of the public fit this way
+    (plan 3.4.2): the selection record gives the training losses, and the traced path the
+    accepted indices, the estimates and the score of each try.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        The sample.
+    covariates : sequence of str
+        The covariate columns.
+    **keywords : Any
+        The keywords of :func:`estimator`.
+
+    Returns
+    -------
+    tuple
+        The ``CTMLESelection``, the analysis-sample ``_Selector`` and the traced :class:`Path`.
+    """
+    result, capture = _fit(frame, trace=True, covariates=covariates, **keywords)
+    return result.single().extra["ctmle"], capture.selectors[0], capture.paths[0]
+
+
+def _fit(
+    frame: pd.DataFrame, *, trace: bool, covariates: Sequence[str], **keywords: Any
+) -> tuple[Any, Capture]:
+    names = list(covariates)
+    data = frame[["Y", "A", *names]]
+    with _captured(trace=trace) as capture:
+        result = estimator(frame, **keywords).fit(
+            data, outcome="Y", treatment="A", covariates=names
+        )
+    if len(capture.selectors) != 1:
+        raise RuntimeError(
+            f"expected one analysis-sample selector, captured {len(capture.selectors)}"
+        )
+    if trace and len(capture.paths) != 1:
+        raise RuntimeError(f"expected one traced path, captured {len(capture.paths)}")
+    return result, capture
 
 
 def initial_outcome(frame: pd.DataFrame) -> Any:
@@ -179,6 +403,9 @@ class Path:
         The scores of each round's tries.
     best : tuple of float
         The best score before each round.
+    tries : tuple
+        Every ``_Candidate`` the construction scored, in order, the off-path tries included:
+        a round's tries that lost, and the tries of round 1 that an acceptance discarded.
     """
 
     candidates: list[Any]
@@ -186,6 +413,7 @@ class Path:
     stopped: bool
     rounds: tuple[np.ndarray, ...]
     best: tuple[float, ...]
+    tries: tuple[Any, ...] = ()
 
     @property
     def estimates(self) -> np.ndarray:
@@ -228,16 +456,28 @@ def indexed_path(chooser: Any, columns: np.ndarray) -> Path:
         The path, its accepted indices and the score of each try.
     """
     propensities = _propensities(chooser, columns)
-    calls: list[tuple[int, int, float]] = []
 
     def fluctuate(index: int, initial: Any, n_steps: int) -> Any:
-        candidate = chooser._fluctuate(
+        return chooser._fluctuate(
             (), propensities[index], initial, chooser.all_rows, n_steps, str(index)
         )
-        calls.append((id(initial), index, float(candidate.risk)))
+
+    return _trace(len(propensities), chooser.base.outcome, fluctuate)
+
+
+def _trace(count: int, initial: Any, fluctuate: Any, construct: Any = None) -> Path:
+    """Run the indexed construction with ``fluctuate``, recording each try's score."""
+    calls: list[tuple[int, int, float]] = []
+    tries: list[Any] = []
+
+    def recorded(index: int, start: Any, n_steps: int) -> Any:
+        candidate = fluctuate(index, start, n_steps)
+        calls.append((id(start), index, float(candidate.risk)))
+        tries.append(candidate)
         return candidate
 
-    candidates = ctmle_module._indexed_path(len(propensities), chooser.base.outcome, fluctuate)
+    rule = ctmle_module._indexed_path if construct is None else construct
+    candidates = rule(count, initial, recorded)
     order: list[int] = []
     for key, _, _ in calls:
         if key not in order:
@@ -253,7 +493,7 @@ def indexed_path(chooser: Any, columns: np.ndarray) -> Path:
     stopped = bool(last[choice] > best_before[-1])
     if not stopped:
         accepted.append(starts[-1] + choice)
-    return Path(candidates, tuple(accepted), stopped, rounds, tuple(best_before))
+    return Path(candidates, tuple(accepted), stopped, rounds, tuple(best_before), tuple(tries))
 
 
 def final_step(
@@ -306,16 +546,75 @@ def final_candidate(
     tuple of (int, Any)
         The final index, from 0, and its candidate.
     """
+    index, candidate, _ = final_options(chooser, path, internal, final_columns, selected)
+    return index, candidate
+
+
+def final_options(
+    chooser: Any, path: Path, internal: np.ndarray, final_columns: np.ndarray, selected: int
+) -> tuple[int, Any, list[Any]]:
+    """The final step of :func:`final_candidate`, with every option it scored.
+
+    A spy on ``_fluctuate`` records each option in order, so a caller can read the option
+    losses that R's ``tmle_loss`` reports (``R/ctmle_glmnet.R``, line 323).
+
+    Parameters
+    ----------
+    chooser : Any
+        The analysis-sample ``_Selector``.
+    path : Path
+        The package path on R's internal arrays.
+    internal : ndarray of float
+        R's internal arrays, the candidates of ``path``.
+    final_columns : ndarray of float
+        R's explicit-lambda columns for each penalty below the selected one.
+    selected : int
+        The selected index, from 0.
+
+    Returns
+    -------
+    tuple of (int, Any, list)
+        The final index, from 0, its candidate, and each option in index order.
+    """
     count = internal.shape[1]
     if final_columns.shape[1] != count - selected - 1:
         raise ValueError("one final column is needed for each penalty below the selected one")
     columns = np.column_stack([internal[:, : selected + 1], final_columns])
     propensities = _propensities(chooser, columns)
     chooser._indexed = (propensities, [()] * count, [str(k) for k in range(count)])
-    outcome = chooser.final_step(path.candidates, selected)
+    options: list[Any] = []
+    original = chooser._fluctuate
+
+    def spy(*arguments: Any, **keywords: Any) -> Any:
+        option = original(*arguments, **keywords)
+        options.append(option)
+        return option
+
+    with mock.patch.object(chooser, "_fluctuate", spy):
+        outcome = chooser.final_step(path.candidates, selected)
     if outcome is None:
         raise ValueError("the selected index is the last; R's type-1 final step errors there")
-    return outcome
+    index, candidate = outcome
+    return index, candidate, options
+
+
+def option_margin(options: Sequence[Any]) -> float:
+    """The final step's deciding gap: second-smallest minus smallest loss, relative.
+
+    Parameters
+    ----------
+    options : sequence
+        The options :func:`final_options` records.
+
+    Returns
+    -------
+    float
+        The gap over ``max(1, |smallest|)``, or ``inf`` with one option.
+    """
+    losses = np.sort(np.array([float(option.loss) for option in options]))
+    if losses.size < 2:
+        return math.inf
+    return float(losses[1] - losses[0]) / max(1.0, abs(float(losses[0])))
 
 
 def separated(columns: np.ndarray, accepted: Sequence[int]) -> float:
@@ -347,12 +646,19 @@ def smallest_margin(path: Path) -> float:
     return smallest
 
 
-def interior(path: Path) -> bool:
-    """Whether every targeted ``Q`` lies strictly inside :data:`Q_INTERIOR`."""
+def interior(path: Path, extra: Sequence[Any] = (), *, arms: bool = True) -> bool:
+    """Whether every targeted ``Q`` lies strictly inside :data:`Q_INTERIOR`.
+
+    A value at a bound fails, so a value that the package's ``alpha`` bound clipped fails.
+    The check reads every try of ``path``, not only its candidates: a clipped try that lost
+    its round, or that an acceptance discarded, still moved a score that decided the path.
+    ``extra`` adds candidates outside the construction, such as the final step's options.
+    With ``arms=False`` only the observed rows are read: the rows the fluctuation is fitted on.
+    """
     low, high = Q_INTERIOR
-    for candidate in path.candidates:
+    for candidate in (*path.candidates, *path.tries, *extra):
         fit = candidate.targeted
-        for values in (fit.observed, *fit.arms.values()):
+        for values in (fit.observed, *(fit.arms.values() if arms else ())):
             if not (np.all(values > low) and np.all(values < high)):
                 return False
     return True

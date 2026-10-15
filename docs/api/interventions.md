@@ -6,7 +6,10 @@ treatment policy is a `Shift`, a `Scale`, a `Piecewise` map, a `ModifiedPolicy` 
 pieces, or a `RiskRatioTilt`. Pass it to `TMLE(policies=...)` or as a node of a longitudinal
 plan. `DynamicRegimen`
 defines a plan across the treatment nodes of a longitudinal fit. A node of that plan can be a
-rule. It can also be a `Stochastic` node that draws its arm from a known policy. `LearnedRule` declares a rule that the fit learns inside each training fold, and
+rule. It can also be a `Stochastic` node that draws its arm from a known policy. `each_node` writes
+one rule for every node of a long panel, and it returns one `NodeRule` per node.
+
+`LearnedRule` declares a rule that the fit learns inside each training fold, and
 `LearnedRuleRecord` records that fit.
 
 ```{eval-rst}
@@ -18,6 +21,8 @@ rule. It can also be a `Stochastic` node that draws its arm from a known policy.
    cleverly.interventions.Rule
    cleverly.interventions.Stochastic
    cleverly.longitudinal.DynamicRegimen
+   cleverly.longitudinal.each_node
+   cleverly.longitudinal.NodeRule
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
    cleverly.interventions.RegimeSet

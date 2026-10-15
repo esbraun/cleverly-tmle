@@ -476,6 +476,30 @@ class TestLearners:
         assert not np.array_equal(a.treatment_risk, b.treatment_risk)
         assert "no" in b.summary().splitlines()[-1]
 
+    def test_an_unordered_declaration_warns_and_names_the_candidate(self, frame: Any) -> None:
+        """The witness: the swapped order's loss rises by 26% at index 1, and only there."""
+        swapped = [LogisticRegression(C=0.05), LogisticRegression(C=0.001)]
+        options = {**IN_SAMPLE, "strategy": "learners", "treatment_candidates": swapped}
+        with pytest.warns(UserWarning, match=r"rises by more than 1% at candidate 1 \("):
+            result = CTMLE(**options).fit(frame, outcome="Y", treatment="A").single()
+        selection = result.extra["ctmle"]
+        assert selection.treatment_risk_increases == (1,)
+        assert selection.treatment_risk[1] > 1.2 * selection.treatment_risk[0]
+
+    def test_an_ordered_declaration_does_not_warn(self, frame: Any) -> None:
+        ordered = [LogisticRegression(C=0.001), LogisticRegression(C=0.05)]
+        options = {**IN_SAMPLE, "strategy": "learners", "treatment_candidates": ordered}
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = CTMLE(**options).fit(frame, outcome="Y", treatment="A").single()
+        assert not [w for w in caught if "least to the most adaptive" in str(w.message)]
+        assert result.extra["ctmle"].treatment_risk_increases == ()
+
+    def test_a_rise_within_one_percent_is_a_tie(self) -> None:
+        """A tie at 0.5% is not listed; 2% is, and so is every later rise, by its own index."""
+        assert ctmle_module._unordered_candidates([100.0, 100.5, 90.0]) == ()
+        assert ctmle_module._unordered_candidates([100.0, 102.0, 90.0, 95.0]) == (1, 3)
+
     def test_logistic_plugin_refuses(self, learners_fit: Any) -> None:
         with pytest.raises(CapabilityError, match=r"strategy='learners', which fits declared"):
             logistic_plugin(learners_fit)

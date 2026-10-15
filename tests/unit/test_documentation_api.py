@@ -43,6 +43,8 @@ EXAMPLE_TARGETS = (
     "cleverly.PointTreatment",
     "cleverly.LongitudinalTreatment",
     "cleverly.TimeToEvent",
+    "cleverly.LongPanel",
+    "cleverly.longitudinal.LongitudinalData.from_long_panel",
     "cleverly.IdentifiedEffect",
     # Estimands.
     "cleverly.ATE",

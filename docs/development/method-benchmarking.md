@@ -9,9 +9,12 @@ checks. Use this strategy when adding or changing a method-level row in the
 ## Begin with the scientific claim
 
 Record the identified parameter, estimator construction, governing source, supported
-compositions, and inference rule before choosing a comparator. An R package is an implementation
-witness: agreement can localize a discrepancy, but it cannot prove that the parameter, influence
-curve, or theorem is correct.
+compositions, and inference rule before choosing a comparator. Agreement with an R package is
+acceptance evidence for the claims the comparison covers, as
+[Theory and comparators](../architecture-invariants.md#theory-and-comparators) states.
+[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) adds the comparator-backed
+label to the evidence pages. Agreement does not prove that the parameter, influence curve, or
+theorem is correct.
 
 Give materially different estimators separate evidence rows. Ordinary TMLE, stacked CV-TMLE,
 fold-evaluated CV-TMLE, and fold-specific extensions may share a limit while differing in finite
@@ -89,6 +92,14 @@ A failure message can carry a container path. The record keeps it as written.
 Search for every maintained implementation of the parameter. Record what you found. Record why
 you rejected each candidate you did not use. A study that reports no comparator makes a claim
 about the field, and a reader cannot check that claim unless the study names what it examined.
+A study with no comparator is still eligible to register. It records the independent evidence
+that replaces the comparison, as [Theory and comparators](../architecture-invariants.md#theory-and-comparators)
+requires.
+
+A comparator phase can finish after the method merges. The method merges when its Python phases
+pass with their expected properties. Until the comparator results are registered, the evidence
+page labels the evidence "comparator runs pending". A later change
+registers the comparator results and fixes each defect that they show.
 
 Prefer the implementation that the governing source publishes. That implementation reports the
 influence curve the source derives. A separate package that reproduces the point estimate does
@@ -181,7 +192,7 @@ comparator has to reach.
 | R `ctmle` 0.1.2 | greedy and pre-ordered selectors for a binary treatment | Rejected. `ctmleDiscrete` and `ctmleGeneral` both document the treatment as a binary indicator. |
 | R `ctmle` 0.1.2 through `ctmleGeneral`, one arm against the rest | greedy and pre-ordered selectors on `1{A = a}` | Rejected, and not because the parameter differs. An arm mean under the indicator is the same parameter. Per-arm selection is a different mechanism from this package's joint multiclass selection, and the return value carries no influence curve, so a contrast would have no covariance. |
 | archived R `ctmle3` at `a4ea77b` | the outcome-adaptive treatment model | Used by the outcome-adaptive rows. It ships no greedy, ordered, or discrete selector. |
-| R `ctmle` 0.1.2 through `ctmleGlmnet` and `build_gn_seq` with `ctmleGeneral` | the binary lasso path and the declared candidate sequence | Used by the binary `canonical-ctmle-sequences` rows and by the fixture in `tests/canonical/ctmle_sequence_witness/`. The multinomial lasso has no comparator. `ctmletype = 3` is the C-TMLE0 comparator of the registered `ctmle-derivative` study and of the fixture in `tests/canonical/ctmle_derivative_witness/`. |
+| R `ctmle` 0.1.2 through `ctmleGlmnet` and `build_gn_seq` with `ctmleGeneral` | the binary lasso path and the declared candidate sequence | Used by the replay gates and the descriptive paired rows of the binary `canonical-ctmle-sequences` study, and by the fixture in `tests/canonical/ctmle_sequence_witness/`. The multinomial lasso has no comparator. `ctmletype = 3` is the declared C-TMLE0 comparator of the `ctmle-derivative` study, whose runs are pending, and of the fixture in `tests/canonical/ctmle_derivative_witness/`. |
 | Julia [`TMLE.jl` v0.20.4](https://doi.org/10.21105/joss.08446) | componentwise `GreedyStrategy` and dynamic `AdaptiveCorrelationStrategy` paths | Rejected as a canonical comparator and not planned as a roadmap priority. Its [`JointEstimand` method](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/estimators.jl#L294-L306) fits each requested component separately. The [adaptive strategy](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/covariate_based_strategies.jl#L46-L92) reorders covariates from the latest targeted residual. That differs from the fixed published preorder that `cleverly` uses. It has no native ratio target, so ratios require composition across separately selected components. The survey found no published multi-arm selector-aware theorem for either construction. The v0.20.4 [candidate fluctuation](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L195-L220) receives the complete data. Its [held-out loss](https://github.com/TARGENE/TMLE.jl/blob/dacc908df9addb174e24d4a7ec61a9a26ad46914/src/counterfactual_mean_based/collaborative_template.jl#L290-L314) is evaluated afterward, so the implementation is not suitable for a numerical comparison without a fold audit. |
 
 ### Multi-arm selector recommendation
@@ -295,6 +306,29 @@ missingness, weights, clusters, fold repeats, learner class, truncation, interva
 unsupported estimands. Validate changes with the complete fast suite and every registered study
 whose evaluated path a result-determining change can affect. Record each selected study and its
 regeneration command in the pull request.
+
+### Comparator runs pending
+
+A method merges when its Python studies pass. The comparator study does not block the merge or a
+dependent row, and a later change registers it. This is the owner's rule, and it applies
+[Theory and comparators](../architecture-invariants.md#theory-and-comparators).
+
+| step | what to do |
+| --- | --- |
+| register | Set `pending_reference` to the declared comparator name and leave `reference=None`. Set `pending_reason` to the reason and the item that owns the runs. Keep passing the `Reference` to `regenerate.main` |
+| regenerate | `regenerate.main` runs no reference process for a pending record. The Python phase, the independent tests, the failure accounting, the property families and every subject gate run as for any study. `equivalence.csv` has no rows |
+| manifest | `generated_with.reference` is `null` and `reference_sha256` is empty. The `comparator` block has `status: pending`, the comparator name, the reason, the reference metadata, and `declared_sources_sha256`. No test compares those digests with the tree |
+| document | The grid's canonical-implementation cell names the pending comparator. That cell, the paired cell and the study section carry the label "Python property evidence, with comparator runs pending". The paired cell reads 0/0 |
+| add the comparator | Move the name from `pending_reference` to `reference`, clear `pending_reason`, and regenerate the study with its reference |
+
+`tests/unit/test_method_evidence.py` asserts the pending state for every registered study through
+`manifest.comparator_findings`. It is a check, not a skip. A pending study that publishes a
+comparator row or a paired row fails, because an empty paired table would otherwise read as passed.
+`tests/unit/test_comparator_pending.py` holds the controls for each part.
+
+To rerun the property families against the committed Python rows, pass `--reuse-subject`. The
+driver offers the flag only when no reference process runs. It checks the committed rows against
+their manifest hash and the declared budget, and then it fits no subject model.
 
 ## Red cells
 
@@ -431,8 +465,10 @@ artifacts, or provenance conventions for each comparison.
    weights, clustering, missing outcomes, and a flexible learner are each such a composition.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
-row rests on the other two columns; a study with no property cells is not a validation row at
-all, because matching another implementation is not evidence that either one is right.
+row rests on the other two columns. A comparison is acceptance evidence for the claims it covers.
+Today the validation grid lists only a study with property cells.
+[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) owns the label and the
+grid row for a comparator-backed study.
 
 A study with no property cells can still register as a reporting study. It declares
 `publication_policy="reporting"` and an empty `property_cells`. It keeps its own page, with no

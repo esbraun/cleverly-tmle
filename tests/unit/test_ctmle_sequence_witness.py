@@ -24,6 +24,9 @@ from tests.canonical.ctmle_sequence_witness.regenerate import (
     FINAL_MOVE,
     HERE,
     OUTPUTS,
+    REBUILD_SOURCES,
+    SHARED,
+    SHARED_SOURCES,
     SOURCES,
     matrix,
     read,
@@ -307,3 +310,52 @@ class TestTheWitnessesBind:
     def test_the_decisions_have_margin(self, lasso_path: harness.Path) -> None:
         assert harness.smallest_margin(lasso_path) > harness.MARGIN
         assert harness.interior(lasso_path)
+
+    def test_the_trace_keeps_every_try(self, lasso_path: harness.Path) -> None:
+        """The clip flag reads each scored try, and the discarded tries are among them."""
+        assert len(lasso_path.tries) == sum(scores.size for scores in lasso_path.rounds)
+        np.testing.assert_array_equal(
+            [float(candidate.risk) for candidate in lasso_path.tries],
+            np.concatenate(lasso_path.rounds),
+        )
+        assert len(lasso_path.tries) > len(lasso_path.candidates)
+
+
+class TestTheRebuild:
+    """S1 of the X16 plan (3.4): the study's type-1 adapter agrees with ``ctmleGlmnet``.
+
+    ``regenerate.py`` runs ``rebuild_type1`` on every search seed where ``ctmleGlmnet``
+    completed, the kept seed included, and records the agreement in ``manifest.json``.
+    """
+
+    @pytest.fixture(scope="class")
+    def rebuild(self, manifest: dict[str, Any]) -> list[dict[str, Any]]:
+        if "rebuild" not in manifest:
+            pytest.skip("the committed manifest predates the rebuild check; rerun regenerate.py")
+        return list(manifest["rebuild"])
+
+    def test_every_completed_seed_agrees(
+        self, manifest: dict[str, Any], rebuild: list[dict[str, Any]]
+    ) -> None:
+        completed = {int(entry["seed"]) for entry in rebuild}
+        assert int(manifest["seed"]) in completed
+        # A seed R rejected after completing (``stage == "R"`` with no quirk-7 message) was
+        # checked too.
+        rejected = {
+            int(entry["seed"])
+            for entry in manifest["search"]
+            if entry["stage"] == "R" and "dimnames" not in entry["reason"]
+        }
+        assert rejected <= completed
+        assert all(entry["agrees"] for entry in rebuild)
+        assert all(entry["best_k"] == entry["rebuild_best_k"] for entry in rebuild)
+
+    def test_the_rebuild_sources_match_their_hashes(
+        self, manifest: dict[str, Any], rebuild: list[dict[str, Any]]
+    ) -> None:
+        del rebuild
+        expected = {name: _sha256(HERE / name) for name in REBUILD_SOURCES}
+        expected.update(
+            {f"../ctmle_sequences/{name}": _sha256(SHARED / name) for name in SHARED_SOURCES}
+        )
+        assert manifest["rebuild_sha256"] == expected

@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
+import cleverly
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
 from cleverly.datasets import make_longitudinal, make_longitudinal_survival
 from cleverly.interventions import Stochastic
@@ -203,7 +204,7 @@ def test_a_policy_fit_below_the_cluster_floor_reports_no_interval() -> None:
 
 
 def test_a_policy_closing_over_a_lambda_saves_as_a_rule_lambda_does(tmp_path: Any) -> None:
-    """Q12: the same refusal a rule written as a lambda meets."""
+    """Q12: a policy and a rule written as lambdas both save and load by value."""
 
     frame, _ = make_longitudinal(n=300, seed=43)
     frame = categorical_treatments(frame)
@@ -219,16 +220,15 @@ def test_a_policy_closing_over_a_lambda_saves_as_a_rule_lambda_does(tmp_path: An
             ),
         ),
     }
-    messages = []
     for label, plan in plans.items():
         result = LTMLE({label: plan}, **{**SETTINGS, "n_folds": 1, "simultaneous": False}).fit(
             frame, outcome="Y", **COLUMNS
         )
-        try:
-            result.save(tmp_path / f"{label}.joblib")
-        except TypeError as error:
-            messages.append(str(error))
-    assert len(messages) == 2 and messages[0] == messages[1]
+        path = tmp_path / f"{label}.joblib"
+        result.save(path)
+        loaded = cleverly.load(path)
+        key = f"ey_regimen[{label}]"
+        assert loaded[key].psi == result[key].psi
 
 
 def test_a_causal_study_states_positivity_where_the_policy_puts_mass() -> None:

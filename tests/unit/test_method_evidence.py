@@ -27,7 +27,7 @@ import pytest
 
 from tests.documents import pipe_table
 from tests.studies.evidence import descriptions, failures, property_verdicts
-from tests.studies.evidence.claims import load, quantities, thresholds, value
+from tests.studies.evidence.claims import citation, load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
     _CLOSE,
@@ -35,11 +35,13 @@ from tests.studies.evidence.document import (
     ACCURACY_COLUMNS,
     AGREEMENT_COLUMNS,
     GENERATED,
+    PENDING_LABEL,
     PROPERTY_COLUMNS,
     _section,
     render,
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
+from tests.studies.evidence.manifest import comparator_findings
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -206,8 +208,13 @@ def _property_summary(slug: str) -> pd.DataFrame:
 
 
 def _cheap(study: StudyRecord) -> StudyRecord:
+    """The record at the control budget, with its paired verdict computed.
+
+    A descriptive record publishes no ``passed`` column.  The mutation controls ask whether
+    the comparison *could* see a regression, so they read the gated form of its legs.
+    """
     margins = dataclasses.replace(study.margins, bootstrap_replicates=CONTROL_BOOTSTRAP)
-    return dataclasses.replace(study, margins=margins)
+    return dataclasses.replace(study, margins=margins, paired_role="gated")
 
 
 class TestArtifacts:
@@ -247,6 +254,18 @@ class TestArtifacts:
             == manifest["composite"]["carried_property_rows_sha256"]
         )
 
+    def test_the_manifest_and_the_rows_agree_with_the_comparator_state(
+        self, study: StudyRecord
+    ) -> None:
+        """A pending comparator is asserted, never skipped: no reference row and no paired row."""
+        manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
+        rows = pd.read_csv(study.artifact("replicates.csv.gz"), usecols=["implementation"])
+        paired = pd.read_csv(study.artifact("equivalence.csv"))
+        found = comparator_findings(
+            study, manifest, rows["implementation"].astype(str).unique(), len(paired)
+        )
+        assert found == [], f"{study.slug}: {found}"
+
     def test_the_manifest_hashes_every_published_result(self, study: StudyRecord) -> None:
         manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
         assert set(manifest["sha256"]) == {
@@ -256,7 +275,7 @@ class TestArtifacts:
             "performance-tests.csv",
             "property-replicates.csv.gz",
             "properties.csv",
-        } | set(study.extra_artifacts) | {
+        } | set(study.extra_artifacts) | set(study.property_artifacts) | {
             # The failure files exist only when a fit failed, and then both are hashed.
             name
             for name in (failures.FAILURES, failures.ACCOUNTING)
@@ -478,6 +497,11 @@ class TestPublishedVerdicts:
             int(lost.get((str(s), str(e)), 0))
             for s, e in published[["scenario", "estimand"]].itertuples(index=False)
         ] == published["dropped_replications"].astype(int).tolist()
+        if study.paired_role == "descriptive":
+            # The endpoints stay; the verdict does not.  No accounting row corrects it.
+            assert "passed" not in published.columns
+            assert set(published["comparison_conclusion"]) == {"descriptive"}
+            return
         gates = failures.cell_gates(_accounting(study), "equivalence")
         equivalent = published["paired_similarity"] & published["subject_not_inferior"]
         own = np.select(
@@ -1156,6 +1180,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "density_necessity",
         "learner_weight_necessity",
         "missingness_necessity",
+        # X16's three-arm pair: the positive cell's bias inside the margin, the control's
+        # outside it.
+        "multi_arm",
         "selector_necessity",
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
@@ -1886,8 +1913,13 @@ class TestTheMethodEvidenceGrid:
         """The 34/34 that counted a different study is why this is not read by eye."""
         cell = _grid()[study.name][column]
         found = COUNT.findall(cell)
-        assert len(found) == 1, f"{column!r} should carry exactly one count, found {found}"
         passed_name, total_name = COUNTED[column]
+        if column == "`cleverly` vs canonical" and study.paired_role == "descriptive":
+            # A descriptive comparison counts no passes, so its cell carries no count.
+            assert found == [], f"{column!r} is descriptive and carries no count, found {found}"
+            assert "descriptive" in cell, f"{column!r} must say the comparison is descriptive"
+            return
+        assert len(found) == 1, f"{column!r} should carry exactly one count, found {found}"
         data = load(study)
         passed, total = (int(part) for part in found[0])
         assert total == int(value(study, total_name, data)), (
@@ -1987,6 +2019,16 @@ class TestTheMethodEvidenceGrid:
         reference = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))[
             "generated_with"
         ].get("reference")
+        if study.comparator_state == "pending":
+            assert reference is None, "a pending comparator has no reference provenance"
+            assert PENDING_LABEL in cell, f"{study.slug}'s cell must carry {PENDING_LABEL!r}"
+            assert str(study.pending_reference) in cell, (
+                f"{study.slug}'s cell must name the pending comparator {study.pending_reference}"
+            )
+            assert "none claimed" not in cell.casefold(), (
+                f"{study.slug} declares a pending comparator; its cell must not read as none"
+            )
+            return
         if study.reference is None:
             assert reference is None, "the record claims no comparator but the manifest names one"
             assert "none claimed" in cell.casefold(), (
@@ -2060,7 +2102,7 @@ class TestTheQuotedMeasurements:
         for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
             name = row["quantity"].strip("`")
             quoted.add(name)
-            written = render(value(study, name, data), study.quoted_decimals.get(name))
+            written = citation(study, name, data, render)
             if row["value"] != written:
                 wrong.append(f"{name}: quoted {row['value']}, generator writes {written}")
         assert wrong == [], (
@@ -2179,7 +2221,7 @@ def _agreement_result(row: Any) -> str:
     by construction.
     """
     conclusion = str(row.comparison_conclusion)
-    if bool(row.passed):
+    if conclusion == "descriptive" or bool(row.passed):
         return conclusion
     return f"*{conclusion}*" if conclusion == "underpowered" else f"**{conclusion}**"
 
@@ -2252,6 +2294,16 @@ class TestThePublishedTestTables:
         assert _OPEN.format(name="agreement") not in section, (
             f"{study.slug} has no comparator but its section carries an agreement block"
         )
+        if study.comparator_state == "pending":
+            assert PENDING_LABEL in section, (
+                f"{study.slug}'s section must say {PENDING_LABEL!r} while its comparator runs "
+                f"are pending"
+            )
+            cell = _grid()[study.name]["`cleverly` vs canonical"]
+            assert "0/0" in cell and PENDING_LABEL in cell, (
+                f"{study.slug}'s paired cell must read 0/0 with {PENDING_LABEL!r}"
+            )
+            return
         assert "no canonical implementation is compared" in section.casefold(), (
             f"{study.slug} must say in its own section that no comparator is claimed"
         )
@@ -2259,11 +2311,10 @@ class TestThePublishedTestTables:
     def test_a_study_without_property_cells_is_a_reporting_study_off_the_grid(
         self, study: StudyRecord
     ) -> None:
-        """A study with no property cell is not a validation row, so the grid does not list it.
+        """A study with no property cell has no grid row until RM42 part (e) adds one.
 
-        ``method-benchmarking.md`` states the rule: matching another implementation, or a
-        coverage reading alone, is not evidence that a method is right.  Such a study still
-        registers, publishes its verdicts under ``reporting`` and carries its own page.
+        Such a study still registers, publishes its verdicts under ``reporting`` and carries its
+        own page.
         """
         if study.property_cells:
             pytest.skip("study declares property cells")

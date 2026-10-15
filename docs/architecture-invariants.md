@@ -9,21 +9,46 @@ document in the same change. Superseded rationale belongs in Git history.
 
 ## Validation and evidence
 
-Validate a derivation independently. Cross-language comparison against a canonical implementation
-is a bounded secondary check and never the acceptance criterion: implementations descended from
-one source share transcription errors, while derivative, exact-law, remainder, mutation, and score
-checks fail against distinct error classes. The
-[evidence manifest](technical-reference/evidence.md) records which instrument covers which
-estimand, in both directions. The `LTMLE` fixture is the scoped exception,
-because it pins cumulative-bound placement and a nonzero finite-sample targeting path that exact
-laws at `epsilon=0` cannot see. *Reconsider when* another named blind spot is demonstrated, the
-compared implementations target the same estimand, and the comparison has predetermined pass/fail
-actions.
+Validate each derivation independently. A comparison against a canonical implementation is
+acceptance evidence for the numerical and repeated-sampling claims it covers.
+[RM42](roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) adds the comparator-backed
+label to those claims on the evidence pages.
+
+A comparison does not replace an independent check of a changed term. Implementations descended
+from one source share transcription errors. Derivative, exact-law, remainder, mutation, and score
+checks fail against distinct error classes. So each changed mathematical term keeps its
+independent check, whether or not a comparison covers it.
+
+The [evidence manifest](technical-reference/evidence.md) records which instrument covers which
+estimand, in both directions. The `LTMLE` fixture is an example of a comparison that reaches a
+blind spot. It pins cumulative-bound placement and a nonzero finite-sample targeting path that
+exact laws at `epsilon=0` cannot see. *Reconsider when* the project owner changes the acceptance
+policy in [Theory and comparators](#theory-and-comparators).
 
 Keep feature selection separate from statistical certification. Evaluating a configuration on the
 draws that selected it makes the reported result selection-dependent, so a study that selects must
 certify on draws that did not do the selecting. *Reconsider when* a study performs no
 data-dependent selection, or uses disjoint selection and certification cohorts.
+
+### Theory and comparators
+
+This rule is the repository standard for every method, extension, validation study, and release
+decision. Other documents link here. Assess theory and comparator
+availability separately.
+
+| question | rule |
+| --- | --- |
+| No comparator exists, exact or related | This does not block implementation, study registration, or release. Use established theory or a documented natural extension, and validate each supported claim independently |
+| A comparator exists | Use it where it is informative. Its agreement is acceptance evidence for the claims it covers. Label each such claim as comparator-backed, and state what the comparison establishes and what differences remain. Each changed term keeps its independent check |
+| Fundamental theory is missing | This blocks the affected claim when the gap needs a new identification, regularity, or asymptotic argument. Scope the block to that method, configuration, or inference claim |
+| A comparator and missing theory | A comparator cannot replace missing fundamental theory. The absence of a comparator does not create a theoretical gap |
+| A planned comparator study has not run | This does not block a merge or a release when the method's Python studies pass with their expected properties. Label the evidence "comparator runs pending" beside its property evidence. When the comparator runs, register its results and act on its findings |
+
+A study without a comparator records that absence and names the independent evidence that replaces
+it. Do not invent a reference implementation, and do not claim parity to fill an evidence table.
+The independent evidence still checks the target, each changed mathematical term, and each claimed
+statistical property. The [roadmap's eligibility rules](roadmap.md#eligibility) apply this
+standard to method entry. *Reconsider when* the project owner changes the acceptance policy.
 
 ## Dataframes and labels
 
@@ -174,7 +199,7 @@ it from `NON_INFERENTIAL`. The estimator that stamps a parameter status names it
 `CONSTANT_NODE_STATUS`. [Inference status](technical-reference/inference.md#inference-status)
 gives the public contract. *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference)
 supplies the selector paths' influence curve, when a second parameter status is added, or when
-[F31](roadmap.md#f31-inference-at-a-boundary-node-estimate) supplies an interval at a boundary
+[X54](roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) supplies an interval at a boundary
 node, which would remove the one status that reads a fitted quantity.
 
 Where a configuration group serves more than one engine, a default that differs between them is
@@ -299,8 +324,11 @@ failures derive from `CleverlyError`, so callers never have to catch implementat
 derivation makes a currently point-only setting operational.
 
 Every causal result carries its `IdentifiedEffect`, normalized method, and structured
-`ParameterKey` mapping. Persistence round-trips the complete result graph with joblib, including
-the fitted arrays, estimator configuration, analysis data, and nuisance-estimator templates.
+`ParameterKey` mapping. Persistence round-trips the complete result graph with cloudpickle inside a
+joblib-readable gzip stream, including the fitted arrays, estimator configuration, analysis data,
+nuisance-estimator templates, and the rules and policy densities of each regimen. Importable
+objects are saved by reference. Lambdas, closures, and objects defined in `__main__` are saved by
+value, and they load only under the Python minor version that saved them.
 Loading therefore has pickle's arbitrary-code-execution risk and is restricted to trusted
 artifacts in compatible dependency environments. *Reconsider when* a safe, estimator-agnostic
 format can represent arbitrary third-party sklearn-compatible models without weakening replay.

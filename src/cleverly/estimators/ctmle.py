@@ -239,7 +239,7 @@ Neither design reports inference, because condition (v) of the theorem fails for
 estimated outcome regression. See ``docs/roadmap.md F18`` for the selector path and
 ``docs/roadmap.md F19`` for both outcome-adaptive designs. ``n_bootstrap=`` reruns the
 adaptive construction, but no reviewed theorem validates that bootstrap for a selector path or
-for either outcome-adaptive design.
+for either outcome-adaptive design, so every C-TMLE fit prints the bootstrap as a diagnostic.
 
 Fixed probability weights replace the empirical law by its normalized weighted version.
 The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,
@@ -327,6 +327,7 @@ from __future__ import annotations
 
 import copy
 import inspect
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -639,6 +640,14 @@ def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
 
+#: The tie tolerance of the declared-order check of ``strategy="learners"``: 1%.  A candidate
+#: whose treatment negative log likelihood exceeds the previous candidate's by at most this
+#: fraction of that loss is a tie.  The reason: a nested candidate with an uninformative extra
+#: covariate can rise by sampling noise under the propensity bounds.  On the instrument law of
+#: ``tests/studies/ctmle_sequence_properties.py`` the nested terminal rises by about 0.2%, and
+#: the unordered ``W1`` candidate of the study's first run by about 19%.
+_ORDER_TIE_TOLERANCE: Final[float] = 0.01
+
 #: The way out of a selection or nested split that cannot fit its nuisances.  The search
 #: draws those splits even in sample, so fitting in sample removes neither of them.
 #: ``strategy="oat"`` refuses a selector setting away from its default, and the ordinary
@@ -655,8 +664,83 @@ _DISCRETE_TREATMENT_REFUSAL = (
     "one Qbar prediction per arm, and a continuous dose has no finite arm vector."
 )
 
+#: Why CTMLE refuses ``policies=``.  Checked before the continuous-dose refusal, because a
+#: shift declares its treatment a dose even when the column holds two arms, and the dose
+#: refusal would then give the wrong reason on a binary treatment.
+_POLICIES_REFUSAL = (
+    "CTMLE and policies= are not combined. A modified treatment policy's mean averages "
+    "Qbar at the dose the policy assigns over the treatment law, so it reads g, and each "
+    "candidate g of the collaborative search defines a different parameter, as under "
+    "incremental=. docs/roadmap.md F5 tracks this stop. Use a plain TMLE, which fits "
+    "policies=."
+)
+
+#: Why CTMLE refuses ``interventions=``.  A named refusal rather than the ATT and ATC or
+#: estimand-axis message that a regime fit met before it.
+_REGIME_REFUSAL = (
+    "CTMLE and interventions= are not combined. A regime mean reads Qbar and the covariate "
+    "law only, so the collaborative template carries its point estimate through the "
+    "indicator 1{A = d(W)}, but no selection criterion for a regime target is implemented. "
+    "docs/roadmap.md X51 tracks the point estimate. Use a plain TMLE, which fits "
+    "interventions= with an interval."
+)
+
+#: Why CTMLE refuses ``msm=`` over discrete arms, for the reason of :data:`_REGIME_REFUSAL`.
+_MSM_REFUSAL = (
+    "CTMLE and msm= are not combined. A working model over discrete arms is a fixed "
+    "full-rank projection of the arm means, so the collaborative template carries its point "
+    "estimate, but no selection criterion for a vector projection is implemented. "
+    "docs/roadmap.md X51 tracks the point estimate. Use a plain TMLE, which fits msm=."
+)
+
 #: The selection split's refusal remedy in the words the nuisance fold loop closes with.
 _SELECTION_SPLIT_BACKSTOP = _POST_DRAW_REMEDY.format(remedy=_SELECTION_SPLIT_REMEDY)
+
+
+def _unordered_candidates(treatment_risk: Sequence[float] | FloatArray) -> tuple[int, ...]:
+    """The indices whose treatment loss rises above the previous candidate's by more than a tie.
+
+    ``ctmleGeneral`` requires a declared sequence ordered from the least to the most adaptive
+    candidate, with a decreasing treatment loss.  A rise of at most 1% of the previous loss
+    (``_ORDER_TIE_TOLERANCE``) counts as a tie, because a nested candidate with an
+    uninformative covariate can rise by sampling noise under the propensity bounds.
+
+    Parameters
+    ----------
+    treatment_risk : sequence of float
+        The treatment negative log likelihood of each candidate, in path order.
+
+    Returns
+    -------
+    tuple of int
+        Each index ``k`` whose loss exceeds the loss at ``k - 1`` by more than the tie.
+    """
+    risk = np.asarray(treatment_risk, dtype=float)
+    tolerance = _ORDER_TIE_TOLERANCE * np.abs(risk[:-1])
+    return tuple(int(k) + 1 for k in np.flatnonzero(np.diff(risk) > tolerance))
+
+
+def _warn_on_unordered_candidates(path: Sequence[_Candidate]) -> None:
+    """Warn when the declared candidates of ``strategy="learners"`` break the declared order.
+
+    The construction tries the candidates in their declared order, so a candidate that fits
+    the treatment worse than its predecessor can stop the search early.  The fit proceeds,
+    because a rise can also be a tie of sampling noise.
+    """
+    risk = [candidate.treatment_risk for candidate in path]
+    offending = _unordered_candidates(risk)
+    if not offending:
+        return
+    named = ", ".join(f"{index} ({path[index].label})" for index in offending)
+    warnings.warn(
+        "strategy='learners' needs treatment_candidates= ordered from the least to the most "
+        "adaptive, with a decreasing treatment loss. The treatment negative log likelihood "
+        f"rises by more than 1% at candidate {named}. The fit proceeds, but the search can stop "
+        "before a candidate that carries a confounder. Declare nested candidates, each one "
+        "adding covariates to the one before it.",
+        UserWarning,
+        stacklevel=2,
+    )
 
 
 @dataclass(frozen=True)
@@ -804,6 +888,20 @@ class CTMLESelection:
         sequence that breaks the order. :meth:`summary` reports it.
         """
         return bool(np.all(np.diff(self.treatment_risk) <= 0.0))
+
+    @property
+    def treatment_risk_increases(self) -> tuple[int, ...]:
+        """The candidates whose treatment loss rises above the previous candidate's.
+
+        A rise of at most 1% of the previous candidate's loss is a tie and is not listed.
+        A fit of ``strategy="learners"`` warns when this tuple is not empty.
+
+        Returns
+        -------
+        tuple of int
+            The indices into :attr:`path`, in path order.
+        """
+        return _unordered_candidates(self.treatment_risk)
 
     def summary(self) -> str:
         """A printable report of the selection.
@@ -1320,24 +1418,26 @@ default="greedy"
     def _bootstrap_inferential(self, data: CausalData) -> bool:
         """Whether the full-refit bootstrap interval is published as inference.
 
-        ``False`` on every ``"oat"`` fit. Theorem 1 of Benkeser, Cai and van der Laan (2020)
-        gives the influence curve of a superefficient estimator, and it does not cover the
-        bootstrap of that estimator. Every other strategy takes the :class:`~cleverly.TMLE`
-        answer.
+        ``False`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
+        Cai and van der Laan (2020) gives the influence curve of a superefficient estimator,
+        and it does not cover the bootstrap of that estimator. On a selector strategy, no
+        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The registered
+        study ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary
+        point-treatment :class:`~cleverly.TMLE` only. The percentile range prints as a
+        diagnostic.
 
         Parameters
         ----------
         data : CausalData
-            The prepared data.
+            The prepared data. It is not read.
 
         Returns
         -------
         bool
-            ``False`` for ``strategy="oat"``, otherwise the :class:`~cleverly.TMLE` answer.
+            ``False``.
         """
-        if self.strategy == "oat":
-            return False
-        return super()._bootstrap_inferential(data)
+        del data
+        return False
 
     def _admits_natural_course_with_missing(self) -> bool:
         """Whether this fit may target the natural course with missing outcomes.
@@ -1771,6 +1871,8 @@ default="greedy"
         cv_risk, selection_folds = selector.cross_validate(path)
         selected = int(np.argmin(cv_risk))
         chosen = path[selected]
+        if self.strategy == "learners":
+            _warn_on_unordered_candidates(path)
         final: int | None = None
         if self.strategy == "lasso":
             step = selector.final_step(path, selected)
@@ -2606,7 +2708,8 @@ default="greedy"
                 "incremental intervention each candidate g defines a different "
                 "parameter: Psi(delta) is built out of g. The search would be selecting "
                 "between estimands rather than between estimators of one, and the risk "
-                "it minimises would have no fixed target. Use a plain TMLE."
+                "it minimises would have no fixed target. Use a plain TMLE. "
+                "docs/roadmap.md F5 tracks this stop."
             )
         if data.has_strata and self.strategy == "derivative":
             raise CapabilityError(
@@ -2626,8 +2729,9 @@ default="greedy"
                 )
             )
             raise CapabilityError(
-                f"C-TMLE has no clustered result. {reason}; docs/roadmap.md F22 tracks this "
-                "stop. Drop id= from fit "
+                f"C-TMLE has no clustered result. {reason}; docs/roadmap.md X51 tracks the "
+                "point estimate with a cluster as the unit, and docs/roadmap.md F22 the "
+                "clustered interval. Drop id= from fit "
                 "(PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or "
                 "TMLEMethod), which has a clustered result."
             )
@@ -2635,13 +2739,22 @@ default="greedy"
         return super()._resolve_estimands_for_data(data)
 
     def _check_policies(self, data: CausalData) -> None:
-        """Refuse a continuous dose before the shift check can suggest a shift.
+        """Refuse each intervention keyword, then a continuous dose, before the shift check.
 
         ``TMLE._check_policies`` runs first in the preflight, and it answers a dose with no
-        ``policies=`` by suggesting one, which CTMLE does not fit.
+        ``policies=`` by suggesting one, which CTMLE does not fit.  ``policies=`` is asked
+        first, because a shift declares a dose even on a binary column.  ``interventions=``
+        and ``msm=`` over discrete arms are asked next, so neither meets the ATT and ATC
+        refusal of :meth:`_check_estimands` for a reason that is not its own.
         """
+        if self.policies:
+            raise CapabilityError(_POLICIES_REFUSAL)
         if data.is_continuous_treatment:
             raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
+        if self.interventions:
+            raise CapabilityError(_REGIME_REFUSAL)
+        if self.msm is not None:
+            raise CapabilityError(_MSM_REFUSAL)
         super()._check_policies(data)
 
     def _check_estimands(self, data: CausalData) -> None:

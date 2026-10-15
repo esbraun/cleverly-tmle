@@ -24,7 +24,8 @@ from typing import Any
 import pandas as pd
 
 from tests.studies.evidence import descriptions, property_verdicts
-from tests.studies.evidence.claims import load, value
+from tests.studies.evidence.claims import citation, load
+from tests.studies.evidence.comparison import DESCRIPTIVE_CONCLUSION
 from tests.studies.evidence.manifest import write_lines
 from tests.studies.evidence.registry import StudyRecord, registered
 
@@ -130,7 +131,8 @@ def _comparison_result(row: Any) -> str:
     design limit as a scientific result.
     """
     conclusion = str(getattr(row, "comparison_conclusion", "equivalent"))
-    if bool(row.passed):
+    # A descriptive paired row carries no ``passed`` column and states no verdict.
+    if conclusion == DESCRIPTIVE_CONCLUSION or bool(row.passed):
         return conclusion
     if conclusion == "underpowered":
         return f"*{conclusion}*"
@@ -276,6 +278,9 @@ def measured(row: Any) -> str:
         # cell, so the number that separates the two belongs in the column a reader reads.
         if family == "selector_necessity" and pd.notna(getattr(row, "rmse_ratio", None)):
             measured += f", RMSE ratio {render(float(row.rmse_ratio))}"
+            # A record that gates the ratio's bootstrap bound prints the bound it gates.
+            if pd.notna(getattr(row, "rmse_ratio_upper", None)):
+                measured += f", 99% upper {render(float(row.rmse_ratio_upper))}"
         # The randomizer projection's joint clause reads the spread ratio of its two arms.
         if family == "randomizer_projection" and pd.notna(
             getattr(row, "projection_sd_ratio", None)
@@ -515,6 +520,7 @@ _BIAS_GATED = frozenset(
         "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
+        "multi_arm",
         "robustness_contract",
         "policy_necessity",
         "projection_necessity",
@@ -584,6 +590,12 @@ def _replace_block(
     return changed, (start, stop + len(replacement) - (tail - head - 1))
 
 
+#: The label every grid cell and study section carries while a comparator's runs are pending
+#: (:attr:`~tests.studies.evidence.registry.StudyRecord.pending_reference`).  The owner's
+#: rule: a method merges on its Python evidence, and the comparator study follows.
+PENDING_LABEL = "Python property evidence, with comparator runs pending"
+
+
 def fill(record: StudyRecord) -> list[str]:
     """Rewrite a study's generated tables and its measured values.  Returns what changed."""
     document = record.document_path
@@ -627,7 +639,7 @@ def fill(record: StudyRecord) -> list[str]:
         if match is None:
             break
         quantity = match.group("quantity").strip("`")
-        rendered_value = render(value(record, quantity, data), record.quoted_decimals.get(quantity))
+        rendered_value = citation(record, quantity, data, render)
         if rendered_value != match.group("value"):
             changed.append(f"{quantity}: {match.group('value')} -> {rendered_value}")
         lines[index] = (

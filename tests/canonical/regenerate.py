@@ -792,6 +792,15 @@ def _arguments(study: ModuleType, here: Path, reference: Reference | None) -> ar
         action="store_true",
         help="refit the Python phase while retaining a compatible cached reference result",
     )
+    if reference is None:
+        parser.add_argument(
+            "--reuse-subject",
+            action="store_true",
+            help=(
+                "reuse the committed subject rows and records instead of refitting, for a "
+                "study with no reference process to run (its comparator is pending or absent)"
+            ),
+        )
     if reference is not None:
         parser.add_argument(
             "--skip-reference",
@@ -921,6 +930,54 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     )
 
 
+def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: Path) -> _Phase:
+    """The committed subject rows and records, checked against the committed manifest.
+
+    The subject-side analogue of ``--skip-reference``.  It serves a study that runs no
+    reference process, for example to rerun the property families against committed Python
+    rows while the comparator is pending.  The rows are read with round-trip float parsing, so
+    rewriting them keeps their bytes.  A study whose reference reads samples built from the
+    fit needs those samples, which are not committed, so the flag is offered only when no
+    reference process runs.
+    """
+    record = study.STUDY
+    manifest_path = here / "manifest.json"
+    if not manifest_path.exists():
+        raise RuntimeError("--reuse-subject needs a committed manifest and committed rows")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    configured = manifest["configuration"]
+    if (configured["replicates"], configured["n"]) != (arguments.replicates, arguments.n):
+        raise RuntimeError(
+            f"--reuse-subject: the committed rows are {configured['replicates']} x "
+            f"n={configured['n']}, not {arguments.replicates} x n={arguments.n}"
+        )
+    for name in ("replicates.csv.gz", failures.FAILURES):
+        path = here / name
+        recorded = manifest["sha256"].get(name)
+        if recorded is None:
+            if path.exists() and name != failures.FAILURES:
+                raise RuntimeError(f"--reuse-subject: the manifest does not hash {name}")
+            continue
+        if hashlib.sha256(path.read_bytes()).hexdigest() != recorded:
+            raise RuntimeError(f"--reuse-subject: {name} no longer matches its manifest hash")
+    committed = pd.read_csv(here / "replicates.csv.gz", float_precision="round_trip")
+    rows = committed.loc[committed["implementation"] == record.implementation].reset_index(
+        drop=True
+    )
+    if rows.empty:
+        raise RuntimeError(f"--reuse-subject: no committed {record.implementation} rows")
+    recorded_failures = failures.read(here / failures.FAILURES)
+    if recorded_failures is not None:
+        recorded_failures = recorded_failures.loc[
+            recorded_failures["implementation"] == record.implementation
+        ].reset_index(drop=True)
+        if recorded_failures.empty:
+            recorded_failures = None
+    print(f"reusing the committed {record.implementation} rows in {here}", flush=True)
+    RUN_NOTES.append(f"reused the committed {record.implementation} rows")
+    return _Phase(rows=rows, cached=True, subject_failures=recorded_failures)
+
+
 def _reference_key(reference: Reference, here: Path, phase: _Phase) -> str | None:
     """What a cached reference result must have been written under, or ``None``.
 
@@ -1034,14 +1091,28 @@ def _property_artifacts(
     arguments: argparse.Namespace,
     here: Path,
     paths: dict[str, Path],
+    record: StudyRecord,
 ) -> pd.DataFrame | None:
     """The property study, or the committed rows, or a schema-bearing placeholder.
 
     Returns the summary when it was computed, and ``None`` when the artefacts were reused or
     stubbed -- so the failure gate below can tell "every cell passed" from "no cell ran".
+
+    A record that declares ``property_artifacts`` gets its rows and those files from the
+    property module's ``generate_property_artifacts`` hook, from the same fits.
     """
     if not arguments.skip_properties:
-        rows = properties.generate_property_rows(n_jobs=arguments.jobs)
+        if record.property_artifacts:
+            rows, extras = properties.generate_property_artifacts(n_jobs=arguments.jobs)
+            if set(extras) != set(record.property_artifacts):
+                raise RuntimeError(
+                    f"{record.slug} produced property artifacts {sorted(extras)}, "
+                    f"expected {sorted(record.property_artifacts)}"
+                )
+            for name, frame in extras.items():
+                write_csv(frame, paths[name])
+        else:
+            rows = properties.generate_property_rows(n_jobs=arguments.jobs)
         write_csv(
             rows, paths["property-replicates.csv.gz"], compression={"method": "gzip", "mtime": 0}
         )
@@ -1049,7 +1120,7 @@ def _property_artifacts(
         write_csv(summary, paths["properties.csv"])
         return summary
 
-    names = ("property-replicates.csv.gz", "properties.csv")
+    names = ("property-replicates.csv.gz", "properties.csv", *record.property_artifacts)
     if all((here / name).exists() for name in names):
         for name in names:
             if paths[name].resolve() != (here / name).resolve():
@@ -1066,6 +1137,8 @@ def _property_artifacts(
         compression={"method": "gzip", "mtime": 0},
     )
     write_csv(pd.DataFrame(columns=["property", "cell", "passed"]), paths["properties.csv"])
+    for name in record.property_artifacts:
+        write_csv(pd.DataFrame(columns=["property", "cell"]), paths[name])
     return None
 
 
@@ -1082,6 +1155,24 @@ def main(
     run deletes its scratch and its checkpoints, unless it is a declared run, which keeps them
     for audit.
     """
+    # A pending comparator runs no reference process: the record pairs no rows, and the
+    # manifest records the declared runner bytes.  ``Reference`` is still required, so the
+    # pending manifest can name what the later comparator change will run.
+    pending = study.STUDY.comparator_state == "pending"
+    if pending and reference is None:
+        raise RuntimeError(
+            f"{study.STUDY.slug} declares a pending comparator "
+            f"({study.STUDY.pending_reference}) and passes no Reference, so its manifest "
+            "cannot record the declared reference sources"
+        )
+    declared_reference = reference if pending else None
+    if pending:
+        reference = None
+        print(
+            f"comparator {study.STUDY.pending_reference} is pending "
+            f"({study.STUDY.pending_reason}): no reference process runs",
+            flush=True,
+        )
     arguments = _arguments(study, here, reference)
     RUN_NOTES.clear()
     declared = dataclasses.replace(study.STUDY, replicates=arguments.replicates, n=arguments.n)
@@ -1104,7 +1195,15 @@ def main(
             token = _ACTIVE.set(context)
             try:
                 with replication.checkpoints(scratch / CHECKPOINTS):
-                    _regenerate(study, properties, arguments, here, reference, context)
+                    _regenerate(
+                        study,
+                        properties,
+                        arguments,
+                        here,
+                        reference,
+                        context,
+                        declared_reference=declared_reference,
+                    )
             finally:
                 _ACTIVE.reset(token)
     finally:
@@ -1119,6 +1218,8 @@ def _regenerate(
     here: Path,
     reference: Reference | None,
     context: RunContext,
+    *,
+    declared_reference: Reference | None = None,
 ) -> None:
     out = arguments.output
     out.mkdir(parents=True, exist_ok=True)
@@ -1143,7 +1244,11 @@ def _regenerate(
         )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
     scratch = context.scratch
-    phase = _python_phase(study, arguments, scratch)
+    phase = (
+        _committed_subject(study, arguments, here)
+        if getattr(arguments, "reuse_subject", False)
+        else _python_phase(study, arguments, scratch)
+    )
     rows = phase.rows
     if reference is not None:
         rows = pd.concat(
@@ -1189,7 +1294,12 @@ def _regenerate(
     # removal waits until here because ``--skip-reference`` reads the committed failure file.
     for name in set(OPTIONAL_ARTIFACT_NAMES) - set(optional):
         (out / name).unlink(missing_ok=True)
-    artifact_names = (*ARTIFACT_NAMES, *record.extra_artifacts, *optional)
+    artifact_names = (
+        *ARTIFACT_NAMES,
+        *record.extra_artifacts,
+        *record.property_artifacts,
+        *optional,
+    )
     paths = {name: out / name for name in artifact_names}
     write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
     summaries = summarize(rows, truth_varies=record.truth_varies_by_replicate)
@@ -1238,13 +1348,17 @@ def _regenerate(
         context.completed = True
         return
 
-    property_summary = _property_artifacts(properties, arguments, here, paths)
+    property_summary = _property_artifacts(properties, arguments, here, paths, record)
 
     write_manifest(
         out / "manifest.json",
         record,
         [paths[name] for name in artifact_names],
-        reference_files=() if reference is None else reference.files(here),
+        reference_files=(
+            reference.files(here)
+            if reference is not None
+            else (() if declared_reference is None else declared_reference.files(here))
+        ),
         reference_metadata=getattr(study, "REFERENCE_METADATA", None),
         configuration=study.CONFIGURATION,
     )
@@ -1267,7 +1381,10 @@ def _regenerate(
         ],
     }
     if reference is not None:
-        gates["paired similarity and non-inferiority"] = paired.loc[~paired["passed"]]
+        # A descriptive paired comparison states no verdict, so it gates nothing.  The
+        # reference's own truth rows still gate below.
+        if record.paired_role == "gated":
+            gates["paired similarity and non-inferiority"] = paired.loc[~paired["passed"]]
         # The subject's own verdict is gated unconditionally above.  This one is about the
         # *comparator*, and a study may declare in advance that its comparator fails its own
         # truth gates while remaining a usable similarity and non-inferiority reference --

@@ -55,9 +55,31 @@ ACCOUNTING_KEYS = ("table", "implementation", "scenario", "estimand", "leg")
 #: ``design_gap[binary_active/ate]:mean_design_gap``, as it quotes a row of :data:`ARTIFACTS`.
 DESIGN_GAP_FILE = "design-gap.csv"
 DESIGN_GAP = "design_gap"
+#: The fourth optional result file: the descriptive pairing of the replicates a comparator fit
+#: without an adapter, one row per scenario.  A page quotes a row as
+#: ``r_selection_summary[binary_lasso]:compared_replicates``.
+SELECTION_SUMMARY_FILE = "r-selection-summary.csv"
+SELECTION_SUMMARY = "r_selection_summary"
 OPTIONAL_ARTIFACTS: dict[str, tuple[str, tuple[str, ...]]] = {
     DESIGN_GAP: (DESIGN_GAP_FILE, ("scenario", "estimand")),
+    SELECTION_SUMMARY: (SELECTION_SUMMARY_FILE, ("scenario",)),
 }
+
+#: The columns of :data:`SELECTION_SUMMARY_FILE` that summarize the compared replicates.  With
+#: no compared replicate each is NaN, and :func:`citation` prints :data:`NO_COMPARISON`.
+COMPARED_STATISTICS = frozenset(
+    {
+        "mean_difference",
+        "sd_difference",
+        "ci_lower",
+        "ci_upper",
+        "max_abs_difference",
+        "rmse_cleverly",
+        "rmse_reference",
+    }
+)
+#: What a page prints for a statistic of zero compared replicates.
+NO_COMPARISON = "no replicate compared"
 
 #: The column that marks ``fit-diagnostics.csv`` as a score audit.  The per-arm
 #: outcome-adaptive study writes a file of the same name with the mechanism columns
@@ -151,7 +173,14 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
     def count(frame: pd.DataFrame) -> float:
         return float(len(frame))
 
+    # A descriptive paired comparison publishes no ``passed`` column, so it has no pass count.
+    paired_passed: dict[str, Callable[[Mapping[str, pd.DataFrame]], float]] = (
+        {}
+        if record.paired_role == "descriptive"
+        else {"paired_tests_passed": lambda data: float(data["equivalence"]["passed"].sum())}
+    )
     return {
+        **paired_passed,
         "max_targeting_displacement": lambda data: float(
             _displacement(data["replicates"], subject).max()
         ),
@@ -181,7 +210,6 @@ def _aggregates(record: StudyRecord) -> dict[str, Callable[[Mapping[str, pd.Data
             _subject(data["performance"], subject)["passed"].sum()
         ),
         "paired_tests_total": lambda data: count(data["equivalence"]),
-        "paired_tests_passed": lambda data: float(data["equivalence"]["passed"].sum()),
         "property_cells_total": lambda data: count(_scored(data["properties"])),
         # Both columns, not just the row's own.  A property whose claim needs more than one
         # cell -- ``crossfit_overfitting``, whose coverage-gain clause is about the pair --
@@ -637,6 +665,49 @@ def value(record: StudyRecord, name: str, data: Mapping[str, pd.DataFrame] | Non
     if column not in selected.columns:
         raise KeyError(f"{artifact} has no column {column!r}")
     return float(selected.iloc[0][column])
+
+
+def citation(
+    record: StudyRecord,
+    name: str,
+    data: Mapping[str, pd.DataFrame],
+    render: Callable[[float, int | None], str],
+) -> str:
+    """The text a measured-values table prints for one quantity.
+
+    Every quantity prints as ``render`` writes its value, at the precision the record
+    declares for it, except one case.  A statistic of the compared replicates in
+    :data:`SELECTION_SUMMARY_FILE` has no value when no replicate was compared: the mean, the
+    interval and the RMSEs are NaN, and a number would claim a comparison that did not
+    happen.  That case prints :data:`NO_COMPARISON` and no interval.
+
+    Parameters
+    ----------
+    record : StudyRecord
+        The study the table belongs to.
+    name : str
+        The quantity, in either form :func:`value` reads.
+    data : Mapping
+        The study's artefacts, as :func:`load` returns them.
+    render : callable
+        ``render(value, decimals)``, the generator's number format.
+
+    Returns
+    -------
+    str
+        The printed cell.
+    """
+    match = _REFERENCE.match(name)
+    if (
+        match is not None
+        and match.group("artifact") == SELECTION_SUMMARY
+        and match.group("column") in COMPARED_STATISTICS
+    ):
+        keys = match.group("keys")
+        compared = value(record, f"{SELECTION_SUMMARY}[{keys}]:compared_replicates", data)
+        if compared == 0:
+            return NO_COMPARISON
+    return render(value(record, name, data), record.quoted_decimals.get(name))
 
 
 _NUMBER = re.compile(r"^-?[\d,]+(?:\.(?P<decimals>\d+))?$")
