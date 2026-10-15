@@ -8,24 +8,27 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_longitudinal_multivalue as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import categorical_longitudinal_common as common
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
+    Necessity,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
 )
 from tests.studies.evidence.registry import StudyRecord
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 DOUBLE_ROBUST_REPLICATES = 1_200
@@ -73,6 +76,51 @@ NULL_PROBS = law.probabilities(NULL_OUTCOME)
 NULL_TRUTH = float(law.functional(NULL_PROBS, common.DYNAMIC_NAME))
 
 
+#: Each calibration label's positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(tuple(common.CONTRASTS))
+
+
+def _draw(key: tuple[Any, ...]) -> pd.DataFrame:
+    """The sample a key fits, which is a function of the key alone."""
+    _, _, property_name, _, _, n, _, seed, _ = key
+    if property_name == "crossfit_overfitting":
+        return law.sample(law.PROBS, n, seed, noise=True)
+    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
+    return law.sample(probs, n, seed)
+
+
+def _cells_of(key: tuple[Any, ...]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    _, _, property_name, cell_suffix, *_ = key
+    if property_name == "crossfit_overfitting":
+        return [f"{property_name}/{cell_suffix}"]
+    if property_name == "categorical_probability_necessity":
+        return [
+            f"{property_name}/third_arm__assigned_probability",
+            f"{property_name}/third_arm__binary_complement",
+        ]
+    if property_name == "rule_necessity":
+        return [
+            f"{property_name}/dynamic__declared_rule",
+            f"{property_name}/dynamic__reversed_rule",
+        ]
+    labels = ("dynamic",) if property_name in {"type_i_error", "power"} else tuple(common.CONTRASTS)
+    names = [f"{property_name}/{label}__{cell_suffix}" for label in labels]
+    if property_name == "targeting_necessity":
+        names += [f"{property_name}/{label}__untargeted" for label in labels]
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
+
+
+def _cell_of(key: tuple[Any, ...]) -> str:
+    return f"{key[2]}/{key[3]}"
+
+
+def _replicate_of(key: tuple[Any, ...]) -> int:
+    return int(key[4])
+
+
 def _replicate(
     record: StudyRecord,
     cross_fit: bool,
@@ -84,8 +132,35 @@ def _replicate(
     seed: int,
     configuration: str,
 ) -> list[dict[str, Any]]:
+    """One replicate of a payload, drawn and fitted."""
+    key = (
+        record,
+        cross_fit,
+        property_name,
+        cell_suffix,
+        replicate,
+        n,
+        requested,
+        seed,
+        configuration,
+    )
+    return _fit(key, _draw(key))
+
+
+def _fit(key: tuple[Any, ...], frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """The rows of one key, fitted on its drawn sample."""
+    (
+        record,
+        cross_fit,
+        property_name,
+        cell_suffix,
+        replicate,
+        n,
+        requested,
+        _seed,
+        configuration,
+    ) = key
     if property_name == "crossfit_overfitting":
-        frame = law.sample(law.PROBS, n, seed, noise=True)
         result = common.fit(frame, cross_fit=cross_fit, configuration=configuration)
         estimate = result[common.DYNAMIC_NAME]
         return [
@@ -101,9 +176,6 @@ def _replicate(
                 alpha=record.margins.alpha,
             )
         ]
-
-    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
-    frame = law.sample(probs, n, seed)
 
     if property_name == "categorical_probability_necessity":
         positive = common.fit(frame, cross_fit=cross_fit, configuration="mechanism_correct")
@@ -304,10 +376,29 @@ def _payloads(
     return payloads
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(
     record: StudyRecord, *, cross_fit: bool, n_jobs: int = STUDY_JOBS
 ) -> pd.DataFrame:
-    outcomes = map_parallel(_replicate, _payloads(record, cross_fit), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(record, cross_fit),
+        _fit,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -329,6 +420,32 @@ def generate_property_rows(
     )
 
 
+#: The three necessity declarations, read by the verdicts and by each adapter's rules.
+NECESSITIES = (
+    Necessity(
+        family="targeting_necessity",
+        labels=tuple(common.CONTRASTS),
+        arms=("targeted", "untargeted"),
+        column="targeting_displacement",
+        threshold=TARGETING_DISPLACEMENT,
+    ),
+    Necessity(
+        family="categorical_probability_necessity",
+        labels=("third_arm",),
+        arms=("assigned_probability", "binary_complement"),
+        column="categorical_probability_displacement",
+        threshold=CATEGORICAL_PROBABILITY_DISPLACEMENT,
+    ),
+    Necessity(
+        family="rule_necessity",
+        labels=("dynamic",),
+        arms=("declared_rule", "reversed_rule"),
+        column="rule_displacement",
+        threshold=RULE_DISPLACEMENT,
+    ),
+)
+
+
 def summarize_properties(
     rows: pd.DataFrame, record: StudyRecord, *, cross_fit: bool
 ) -> pd.DataFrame:
@@ -347,33 +464,8 @@ def summarize_properties(
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=record.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=tuple(common.CONTRASTS),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="categorical_probability_necessity",
-        labels=("third_arm",),
-        arms=("assigned_probability", "binary_complement"),
-        column="categorical_probability_displacement",
-        threshold=CATEGORICAL_PROBABILITY_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="rule_necessity",
-        labels=("dynamic",),
-        arms=("declared_rule", "reversed_rule"),
-        column="rule_displacement",
-        threshold=RULE_DISPLACEMENT,
-    )
+    for necessity in NECESSITIES:
+        necessity_verdicts(summary, rows, necessity)
     if cross_fit:
         crossfit_overfitting_verdicts(
             summary,

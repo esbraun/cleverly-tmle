@@ -12,6 +12,7 @@ not it can see anything.  Each one therefore has a deliberate mutation beside it
 from __future__ import annotations
 
 import dataclasses
+import math
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,7 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from tests.studies.evidence import red_cells
+from tests.studies.evidence import failures, property_failures, red_cells
 from tests.studies.evidence.comparison import empty_equivalence
 from tests.studies.evidence.red_cells import (
     BLOCKS,
@@ -286,9 +287,10 @@ def test_a_missing_verdict_is_refused(tmp_path: Path) -> None:
     for filename in FRAMES.values():
         pd.read_csv(record.artifact(filename)).to_csv(tmp_path / filename, index=False)
     copy = dataclasses.replace(record, artifacts=tmp_path)
-    # The failure accounting is read too, and is empty for a study whose comparator never failed.
-    assert set(frames(copy)) == {*FRAMES, "accounting"}
+    # Both failure accountings are read too, and are empty for a study where no fit failed.
+    assert set(frames(copy)) == {*FRAMES, "accounting", "property_accounting"}
     assert frames(copy)["accounting"].empty
+    assert frames(copy)["property_accounting"].empty
     blanked = pd.read_csv(tmp_path / FRAMES["equivalence"])
     blanked["passed"] = blanked["passed"].astype(object)
     blanked.loc[0, "passed"] = None
@@ -430,6 +432,90 @@ def test_a_diagnostic_row_is_never_red() -> None:
     )
 
 
+def _property_accounting(reason: str, *, complete_case: float = 0.01) -> pd.DataFrame:
+    """The accounting rows of the synthetic ``type_i_error/sharp_null`` cell."""
+    base = {
+        "property": "type_i_error",
+        "cell": "sharp_null",
+        "role": "positive",
+        "requested": 400,
+        "failed": 3,
+        "rate": 3 / 400,
+        "bound": 0.05,
+        "allowed": 20,
+        "imputation": "",
+        "gate_passed": False,
+        "reason": reason,
+    }
+    return pd.DataFrame(
+        [
+            {
+                **base,
+                "leg": "failure bound",
+                "complete_case": 3.0,
+                "worst_case": 20.0,
+                "leg_passed": True,
+            },
+            {
+                **base,
+                "leg": "rejection ceiling",
+                "complete_case": complete_case,
+                "worst_case": -0.02,
+                "imputation": "j=3 rejected",
+                "leg_passed": False,
+            },
+        ],
+        columns=list(property_failures.PROPERTY_ACCOUNTING_COLUMNS),
+    )
+
+
+def test_a_cell_red_only_by_its_property_accounting_names_it() -> None:
+    """A cell green at its complete cases and red under a worst case reads the accounting."""
+    tables = _synthetic(passed=False, property_passed=False)
+    tables["property_accounting"] = _property_accounting(failures.WORST_CASE_FAILS)
+    (row,) = red_rows(RECORD, tables)
+    assert row.fails_by == "failure accounting: worst case fails"
+    assert row.measured.endswith(", failures 3 of 400 (worst case fails)")
+    (finding,) = findings([row], {}, {RECORD.slug: "reporting"}, ["RM18-x"])
+    assert "has no owner" in finding
+
+
+def test_a_cell_red_at_its_complete_case_keeps_its_own_rule() -> None:
+    tables = _synthetic(passed=False, property_passed=False)
+    tables["property_accounting"] = _property_accounting(
+        failures.WORST_CASE_FAILS, complete_case=-0.01
+    )
+    (row,) = red_rows(RECORD, tables)
+    assert row.fails_by == "its own rule"
+    assert row.measured.endswith(", failures 3 of 400 (worst case fails)")
+    tables["property_accounting"] = _property_accounting(failures.COMPLETE_CASE_FAILS)
+    (row,) = red_rows(RECORD, tables)
+    assert row.fails_by == "its own rule"
+
+
+def test_a_not_accountable_cell_red_at_its_complete_case_keeps_its_own_rule() -> None:
+    """L5: a not-accountable cell's clause legs give the complete case, and it comes first."""
+    tables = _synthetic(passed=False, property_passed=False)
+    accounting = _property_accounting(failures.NOT_ACCOUNTABLE, complete_case=-0.01)
+    accounting.loc[1, ["worst_case", "imputation"]] = [math.nan, "complete case only"]
+    unaccountable = accounting.iloc[[0]].assign(
+        leg=property_failures.NOT_ACCOUNTABLE_LEG,
+        complete_case=math.nan,
+        worst_case=math.nan,
+        imputation="rejection ceiling",
+        leg_passed=False,
+    )
+    tables["property_accounting"] = pd.concat(
+        [accounting.iloc[[0]], unaccountable, accounting.iloc[[1]]], ignore_index=True
+    )
+    (row,) = red_rows(RECORD, tables)
+    assert row.fails_by == "its own rule"
+    # The mutation control: the same cell green at its complete case reads the accounting.
+    tables["property_accounting"].loc[2, ["complete_case", "leg_passed"]] = [0.01, True]
+    (row,) = red_rows(RECORD, tables)
+    assert row.fails_by == "failure accounting: failures not accountable"
+
+
 def test_a_failed_truth_row_is_red() -> None:
     (row,) = red_rows(RECORD, _synthetic(truth_passed=False))
     assert row.key == RedKey(RECORD.slug, "truth", "cleverly/law/ate")
@@ -437,8 +523,12 @@ def test_a_failed_truth_row_is_red() -> None:
 
 
 def test_an_accepted_reference_failure_is_not_red() -> None:
+    # The renamed reference declares no bound of its own; the bound does not enter this test.
     record = dataclasses.replace(
-        RECORD, reference="reference", accepted_reference_failure="declared in advance"
+        RECORD,
+        reference="reference",
+        accepted_reference_failure="declared in advance",
+        failure_bound={},
     )
     frames_ = _synthetic(truth_passed=False, implementation="reference")
     frames_["performance"] = pd.concat(

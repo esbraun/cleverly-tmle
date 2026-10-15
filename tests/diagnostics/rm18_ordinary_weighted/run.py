@@ -32,7 +32,7 @@ from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.canonical_weighted_ltmle import STUDY as ORDINARY
 from tests.studies.evidence.inference import Interval, bootstrap
 from tests.studies.evidence.properties import summarize_cells
-from tests.studies.evidence.property_verdicts import necessity_verdicts
+from tests.studies.evidence.property_verdicts import Necessity, necessity_verdicts
 
 HERE = Path(__file__).resolve().parent
 DESIGN = "ordinary-weighted"
@@ -311,11 +311,13 @@ def family_table(rows: pd.DataFrame, limit: float) -> list[dict[str, Any]]:
     necessity_verdicts(
         summary,
         rows,
-        family=FAMILY,
-        labels=tuple(weighted.CONTRASTS),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=weighted.NECESSITY_DISPLACEMENT,
+        Necessity(
+            family=FAMILY,
+            labels=tuple(weighted.CONTRASTS),
+            arms=("targeted", "untargeted"),
+            column="targeting_displacement",
+            threshold=weighted.NECESSITY_DISPLACEMENT,
+        ),
     )
     out = [
         shared.reading(

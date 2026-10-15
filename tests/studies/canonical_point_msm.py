@@ -56,6 +56,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="tmle3",
+    failure_bound={"cleverly": 0.01, "tmle3": 0.01},
     comparison="related target",
     modules=(
         "tests/studies/canonical_point_msm.py",

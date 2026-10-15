@@ -1221,15 +1221,24 @@ def test_the_simultaneous_band_and_its_control_are_powered() -> None:
     assert control >= 0.99
 
 
-def test_one_replication_of_each_fit_set_emits_exactly_the_declared_cells() -> None:
+def test_one_replication_of_each_fit_set_emits_exactly_the_declared_cells(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fit_sets = tuple((family, configuration, 1) for family, configuration, _ in properties.FIT_SETS)
-    rows = pd.DataFrame(
-        [
-            row
-            for (payload,) in properties._payloads(fit_sets)
-            for row in properties._replication(payload)
-        ]
-    )
+    keys = properties._payloads(fit_sets)
+    emitted_by_key = [properties._replication(payload) for (payload,) in keys]
+    # ``fit_properties`` stops the run unless each key's rows name exactly its ``_cells_of``
+    # without the derived calibration controls, so the declaration is checked fit set by fit set.
+    controls = {name for names in properties.DERIVED_CELLS.values() for name in names}
+    for key, emitted_rows in zip(keys, emitted_by_key, strict=True):
+        named = {f"{row['property']}/{row['cell']}" for row in emitted_rows}
+        cells = properties._cells_of(key)
+        assert len(cells) == len(set(cells))
+        assert set(cells) - controls == named, key
+        assert set(cells) & controls == {
+            control for name in named for control in properties.DERIVED_CELLS.get(name, ())
+        }
+    rows = pd.DataFrame([row for emitted_rows in emitted_by_key for row in emitted_rows])
     controls = properties.calibration_controls(
         rows,
         study.STUDY,
@@ -1241,6 +1250,18 @@ def test_one_replication_of_each_fit_set_emits_exactly_the_declared_cells() -> N
         positive_suffix="estimated_mechanisms",
     )
     rows = pd.concat([rows, controls], ignore_index=True)
+    # The property loop runs the same keys through ``fit_properties`` with the draw split, and
+    # publishes the same rows.
+    monkeypatch.setattr(properties, "_payloads", lambda: keys)
+    with replication.recording("subject") as recorded:
+        looped = properties.generate_property_rows(n_jobs=1)
+    assert recorded.failures is None
+    pd.testing.assert_frame_equal(
+        looped,
+        rows.loc[:, list(properties.REPLICATE_COLUMNS)].sort_values(
+            ["property", "cell", "replicate"], ignore_index=True
+        ),
+    )
     emitted = {
         (str(family), str(cell))
         for family, cell in rows[["property", "cell"]].itertuples(index=False)
