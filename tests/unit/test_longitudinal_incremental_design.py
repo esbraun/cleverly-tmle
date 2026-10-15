@@ -100,7 +100,7 @@ def test_the_declared_numbers() -> None:
         "survival_folds_5": 5,
     }
     assert s1.PAIRING_GATE == 1e-10
-    assert s1.STUDY.reference == "npcausal" and s2.STUDY.reference is None
+    assert s1.STUDY.pending_reference == "npcausal" and s2.STUDY.reference is None
     assert p1.REQUIREMENT_SIZES == (48_000, 96_000)
     assert p1.EFFICIENCY_RATIO_BAND == p2.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
     assert (p1.CALIBRATION_N, p1.CALIBRATION_REPLICATES) == (48_000, 3_000)
