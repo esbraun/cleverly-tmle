@@ -27,10 +27,25 @@ from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet, Stochastic
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
-from .longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult, Repeated
+from .longitudinal import (
+    IPSI,
+    LTMLE,
+    SDR,
+    LongitudinalData,
+    LongitudinalResult,
+    Repeated,
+    SequentialGComputation,
+    SequentialIPW,
+)
 from .longitudinal import estimator as _sequential
+from .longitudinal.estimator import (
+    BASELINE_MSM_REFUSAL,
+    BASELINE_TILT_REFUSAL,
+    IPW_MTP_REFUSAL,
+)
 from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, tilt_nodes
 from .methods import (
+    BASELINE_POINT_REFUSAL,
     IPSI_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
     SDR_POINT_REFUSAL,
@@ -38,7 +53,9 @@ from .methods import (
     CollaborativeTMLEMethod,
     DRTMLEMethod,
     EstimationMethod,
+    GComputationMethod,
     IPSIMethod,
+    IPWMethod,
     MethodAvailability,
     Runtime,
     SDRMethod,
@@ -3660,6 +3677,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         )
         collaborative = variants and not clustered and not known
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
+        gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         return (
             MethodAvailability("tmle", tmle, tmle_reason),
             MethodAvailability(
@@ -3682,6 +3700,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             ),
             MethodAvailability("sdr", sdr, sdr_reason),
             MethodAvailability("ipsi", ipsi, ipsi_reason),
+            MethodAvailability("gcomp", gcomp, gcomp_reason),
+            MethodAvailability("ipw", ipw, ipw_reason),
             MethodAvailability(
                 "riesz_tmle",
                 False,
@@ -3755,6 +3775,45 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             True,
             None,
         )
+
+    def _baseline_methods(self) -> tuple[bool, Refusal | None, bool, Refusal | None]:
+        """Whether ``gcomp`` and ``ipw`` fit this functional, each with its reason.
+
+        Both baselines fit longitudinal regimen means and contrasts only.  They refuse a
+        working model over regimens and an odds tilt whose mechanism is estimated.  ``ipw``
+        also refuses a modified treatment policy, which needs a density ratio it does not fit.
+        On a repeated outcome each is available only when its kind is in
+        ``REPEATED_OUTCOME_KINDS``, as the fit refuses it before any learner.
+        """
+        if not self.functional.longitudinal:
+            return False, BASELINE_POINT_REFUSAL, False, BASELINE_POINT_REFUSAL
+        if self.functional.msm is not None:
+            return False, BASELINE_MSM_REFUSAL, False, BASELINE_MSM_REFUSAL
+        gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_plan_methods()
+        if getattr(getattr(self._study, "data", None), "is_repeated", False):
+            kinds = _sequential.REPEATED_OUTCOME_KINDS
+            if "gcomp" not in kinds:
+                gcomp = False
+                gcomp_reason = _sequential.repeated_outcome_refusal("SequentialGComputation")
+            if "ipw" not in kinds:
+                ipw, ipw_reason = False, _sequential.repeated_outcome_refusal("SequentialIPW")
+        return gcomp, gcomp_reason, ipw, ipw_reason
+
+    def _baseline_plan_methods(self) -> tuple[bool, Refusal | None, bool, Refusal | None]:
+        """The two baselines' availability as the plan set allows."""
+        regimens = self.functional.interventions
+        if declares_tilt(regimens):
+            data = getattr(self._study, "data", None)
+            known = getattr(data, "known_mechanisms", None)
+            n_times = getattr(data, "n_times", 0)
+            declared = known is not None and all(
+                known.treatment_at(time) is not None for time in tilt_nodes(regimens, n_times)
+            )
+            if not declared:
+                return False, BASELINE_TILT_REFUSAL, False, BASELINE_TILT_REFUSAL
+        if declares_mtp(regimens):
+            return True, None, False, IPW_MTP_REFUSAL
+        return True, None, True, None
 
     def summary(self, *, protocol: ProtocolDetail = "full") -> str:
         """Return a readable identification summary.
@@ -3897,6 +3956,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "drtmle": DRTMLEMethod,
                 "sdr": SDRMethod,
                 "ipsi": IPSIMethod,
+                "gcomp": GComputationMethod,
+                "ipw": IPWMethod,
             }
             return constructors[method]().with_overrides(**overrides)
         if not isinstance(method, EstimationMethod):
@@ -4083,11 +4144,15 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
         functional = self.functional
-        engine = (
+        engine: type[Any] = (
             SDR
             if isinstance(method, SDRMethod)
             else IPSI
             if isinstance(method, IPSIMethod)
+            else SequentialGComputation
+            if isinstance(method, GComputationMethod)
+            else SequentialIPW
+            if isinstance(method, IPWMethod)
             else LTMLE
         )
         estimator = engine(
