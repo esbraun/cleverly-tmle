@@ -190,6 +190,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-competing-ltmle",
     reference="lmtp",
+    failure_bound={"cleverly-competing-ltmle": 0.01, "lmtp": 0.01},
     comparison="matching implementation",
     modules=(
         "tests/studies/canonical_ltmle_competing.py",

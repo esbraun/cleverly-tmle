@@ -75,6 +75,7 @@ from tests.studies.canonical_longitudinal_incremental_dropout import (
     REFERENCE,
     STUDY,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -85,14 +86,20 @@ from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     clustered_inference_verdicts,
     finish,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 
 N_FOLDS = 5
 N = 8_000
@@ -342,10 +349,27 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 # ---------------------------------------------------------------------------- rows
 
 
+def _draw_fit_set(payload: tuple[str, str, int, int, int]) -> pd.DataFrame:
+    """The sample one draw of one fit set fits, a function of the payload alone."""
+    family, stream, replicate, n, _ = payload
+    seed = _seed(family, stream, replicate)
+    if stream == "law_dc":
+        return law.sample(law.LAW_DC, n, seed)
+    if stream == "law_ck":
+        return law.sample_clustered(n, CLUSTER_SIZE, seed)
+    return law.sample(law.LAW_C, n, seed)
+
+
 def _fit_set_rows(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]]:
+    """Every row one draw of one fit set publishes, drawn and fitted in one call."""
+    return _fit_set_drawn(payload, _draw_fit_set(payload))
+
+
+def _fit_set_drawn(
+    payload: tuple[str, str, int, int, int], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
     """Every row one draw of one fit set publishes."""
     family, stream, replicate, n, requested = payload
-    seed = _seed(family, stream, replicate)
     common_row = {"replicate": replicate, "n": n, "requested": requested}
 
     def row(
@@ -362,7 +386,6 @@ def _fit_set_rows(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any
         )
 
     if stream == "law_dc":
-        frame = law.sample(law.LAW_DC, n, seed)
         result = _fit(frame, law.LAW_DC, horizons=[3])
         label = "competing_contrast_x2_h3"
         return [
@@ -375,7 +398,6 @@ def _fit_set_rows(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any
             )
         ]
     if stream == "law_ck":
-        frame = law.sample_clustered(n, CLUSTER_SIZE, seed)
         estimate = _fit(frame, law.LAW_CK.marginal, id="id")[MEAN_X2]
         return [
             row("mean_x2__cluster_robust", "positive", CLUSTER_TRUTH, estimate, family),
@@ -389,7 +411,6 @@ def _fit_set_rows(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any
                 **common_row,
             ),
         ]
-    frame = law.sample(law.LAW_C, n, seed)
     main = _fit(frame, law.LAW_C)
     slope = _fit(frame, law.LAW_C, reference=None, msm=MSM_LOG_DELTA)
     weighted = _fit(frame.assign(weight=weight(frame)), law.LAW_C, weights="weight")
@@ -434,9 +455,17 @@ def _fit_set_rows(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any
     ]
 
 
+def _draw_band(payload: tuple[int, int]) -> pd.DataFrame:
+    return law.sample(law.LAW_D, N, _seed(JOINT, BAND_LABEL, payload[0]))
+
+
 def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
+    """Every row one draw of the band publishes, drawn and fitted in one call."""
+    return _band_drawn(payload, _draw_band(payload))
+
+
+def _band_drawn(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     replicate, requested = payload
-    frame = law.sample(law.LAW_D, N, _seed(JOINT, BAND_LABEL, replicate))
     result = _fit(frame, law.LAW_D, horizons=list(HORIZONS), simultaneous=True)
     one_fold = _fit(frame, law.LAW_D, horizons=[3], n_folds=1)
     label = "survival_contrast_x2_h3"
@@ -476,14 +505,72 @@ def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
     ]
 
 
-def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+#: A fit-set key is ``("fit_set", payload)`` and a band key is ``("band", (replicate, requested))``.
+_Key = tuple[str, tuple[Any, ...]]
+
+
+def _fit_keys(budget: int | None) -> list[_Key]:
+    out: list[_Key] = []
     for family, stream, n, replicates in FIT_SETS:
         requested = replicates if budget is None else budget
-        out.extend(((_fit_set_rows, (family, stream, r, n, requested)),) for r in range(requested))
+        out.extend(("fit_set", (family, stream, r, n, requested)) for r in range(requested))
     band = REPLICATES if budget is None else budget
-    out.extend(((_band_rows, (r, band)),) for r in range(band))
+    out.extend(("band", (r, band)) for r in range(band))
     return out
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    kind, payload = key
+    return _draw_band(payload) if kind == "band" else _draw_fit_set(payload)
+
+
+def _fit_key(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    kind, payload = key
+    return list(_band_drawn(payload, frame) if kind == "band" else _fit_set_drawn(payload, frame))
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    kind, payload = key
+    calibration = "interval_calibration"
+    if kind == "band":
+        name = f"{calibration}/survival_contrast_x2_h3__correctly_specified"
+        return [
+            *(f"{JOINT}/{joint}" for joint in joint_cells(BAND_LABEL)),
+            name,
+            *DERIVED_CELLS[name],
+            f"{IN_SAMPLE}/survival_contrast_x2_h3__one_fold",
+        ]
+    family, stream = payload[:2]
+    if stream == "law_ck":
+        return [f"{family}/mean_x2__cluster_robust", f"{family}/mean_x2__iid_control"]
+    labels = (
+        ["competing_contrast_x2_h3"]
+        if stream == "law_dc"
+        else ["dropout_contrast_x2", "msm_log_delta", "weighted_contrast_x0_5"]
+    )
+    names = [f"{calibration}/{label}__correctly_specified" for label in labels]
+    names += [control for name in names for control in DERIVED_CELLS[name]]
+    if stream == "law_c":
+        names += [
+            "censoring_complete_case/mean_x2__complete_case",
+            f"{IN_SAMPLE}/dropout_contrast_x2__one_fold",
+        ]
+    return names
+
+
+def _cell_of(key: _Key) -> str:
+    kind, payload = key
+    return f"{JOINT}/{BAND_LABEL}" if kind == "band" else f"{payload[0]}/{payload[1]}"
+
+
+def _replicate_of(key: _Key) -> int:
+    kind, payload = key
+    return payload[0] if kind == "band" else payload[2]
 
 
 def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
@@ -491,9 +578,28 @@ def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
     return list(function(payload))
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(_run, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _fit_keys(budget),
+        _fit_key,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -591,3 +697,8 @@ __all__ = [
     "generate_property_rows",
     "summarize_properties",
 ]
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

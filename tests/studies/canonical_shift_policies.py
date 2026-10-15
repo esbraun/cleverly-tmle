@@ -143,6 +143,7 @@ STUDY = StudyRecord(
     publication_policy="reporting",
     implementation="cleverly",
     reference="lmtp",
+    failure_bound={"cleverly": 0.01, "lmtp": 0.01},
     comparison="different estimator",
     modules=(
         "tests/studies/canonical_shift_policies.py",

@@ -29,7 +29,11 @@ from tests.studies.evidence.properties import (
     spread_values,
     summarize_cells,
 )
-from tests.studies.evidence.property_verdicts import apply_shared_verdicts, necessity_verdicts
+from tests.studies.evidence.property_verdicts import (
+    Necessity,
+    apply_shared_verdicts,
+    necessity_verdicts,
+)
 from tests.studies.evidence.registry import Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, validate_replicates
 
@@ -313,12 +317,14 @@ class TestThePropertyStatistics:
         necessity_verdicts(
             summary,
             rows,
-            family="fold_locality",
-            labels=("law",),
-            arms=("positive", "control"),
-            column="displacement",
-            threshold=0.5,
-            truth_varies=True,
+            Necessity(
+                family="fold_locality",
+                labels=("law",),
+                arms=("positive", "control"),
+                column="displacement",
+                threshold=0.5,
+                truth_varies=True,
+            ),
         )
         assert summary["displacement"].iloc[0] == pytest.approx(0.0, abs=1e-9)
         assert not bool(summary["property_passed"].iloc[0])

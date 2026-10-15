@@ -182,11 +182,16 @@ def test_contraction_rates_keep_strict_direction_control_inversion_and_streams(
     scenarios = ("both_wrong", "treatment_correct", "outcome_correct")
     rows = pd.DataFrame(
         [
-            {"property": "double_robust_contraction", "cell": f"{scenario}_n{n}", "n": n}
+            {
+                "property": "double_robust_contraction",
+                "cell": f"{scenario}_n{n}",
+                "n": n,
+                "failed_replicates": 0,
+            }
             for scenario in scenarios
             for n in (20, 40, 80)
         ]
-        + [{"property": "other", "cell": "both_wrong_n999", "n": 999}]
+        + [{"property": "other", "cell": "both_wrong_n999", "n": 999, "failed_replicates": 0}]
     )
     calls = []
 
@@ -241,6 +246,7 @@ def test_contraction_rates_default_scenarios_are_the_shared_declared_ladder(monk
                 "property": property_verdicts.CONTRACTION_FAMILY,
                 "cell": f"{scenario}_n{n}",
                 "n": n,
+                "failed_replicates": 0,
             }
             for scenario in property_verdicts.CONTRACTION_SCENARIOS
             for n in (20, 40, 80)

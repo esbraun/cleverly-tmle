@@ -190,12 +190,13 @@ workers  wall time, Python phases
 =======  ===========================
 
 The declared run is ``--jobs 12 --reference-jobs 3``.  ``generate_property_rows`` is one
-``map_parallel`` call with no checkpoint, so a run that can be interrupted fits each fit set
-of :data:`~tests.studies.vector_mtp_properties.FIT_SETS` in replicate chunks, skips a chunk
-whose file exists, and then assembles the rows exactly as ``generate_property_rows`` does:
-the chunks in ``FIT_SETS`` order, then ``calibration_controls``, then the column order and the
-sort.  At a budget of two replications per fit set the assembled rows equal a single
-call's, byte for byte after decompression.
+:func:`~tests.studies.evidence.replication.fit_properties` call, which keeps a checkpoint per
+finished key inside the regeneration driver.  A run that fits each fit set of
+:data:`~tests.studies.vector_mtp_properties.FIT_SETS` in replicate chunks outside the driver
+gives the same rows when no fit fails: each key's rows depend on the key alone, and the
+chunks are assembled in ``FIT_SETS`` order before ``calibration_controls``, the column order
+and the sort.  At a budget of two replications per fit set the assembled rows and summary
+equal the driver's property phase, byte for byte.
 
 No ``R`` with ``lmtp`` runs in this container, so the reference phase is measured by the R smoke
 before the declared run.  Each replication makes 13 ``lmtp`` calls.  Each of the other three
@@ -366,6 +367,9 @@ STUDY = StudyRecord(
         "container lacks. The beta plans' Study queue owns them: item 30, the vector_mtp lmtp "
         "parity fixture, and then item 31, the R smoke and the declared R run"
     ),
+    # RM39b2 rev 3 section 6: the primary bound each side's next run applies, the pending
+    # comparator's included.
+    failure_bound={"cleverly-vector-mtp": 0.01, "lmtp": 0.01},
     modules=(
         "tests/studies/canonical_vector_mtp.py",
         "tests/studies/vector_mtp_properties.py",

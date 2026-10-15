@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Literal, overload
 
 import numpy as np
 import pandas as pd
 
 from cleverly.data import CausalData
+from tests.studies.evidence import property_failures as pf
 from tests.studies.evidence.inference import (
     Interval,
     percentile_interval,
@@ -23,19 +25,27 @@ from tests.studies.evidence.inference import (
 from tests.studies.evidence.properties import (
     PropertyCell,
     Rate,
-    bootstrap_draw_blocks,
     coverage_gain_interval,
+    largest_standardized_value,
     paired_displacement,
     rate,
     ratio_intervals,
-    require_complete,
+    require_accounted,
     se_ratio_interval,
     spread_values,
+    standardized_bias,
+    standardized_bias_draws,
     summarize_cells,
     summary_interval,
 )
 from tests.studies.evidence.registry import Margins, StudyRecord
+from tests.studies.evidence.replication import Witness
 from tests.studies.evidence.seeds import stream_seed
+
+#: The informative-failure witness every property module declares as ``PROPERTY_WITNESS``
+#: (RM39b2 rev 3, D3'f): the most extreme observation of a lost replicate's draw, placed among
+#: the survivors' by the accounting.  Reported, not gated.
+SAMPLE_WITNESS = Witness("largest absolute standardized value", largest_standardized_value)
 
 #: The contraction rate predicted by root-n asymptotics, the slower alternative the study must
 #: exclude, and the equivalence margin halfway between them.
@@ -440,7 +450,8 @@ def fitted_rate_row(
     Parameters
     ----------
     rows : pandas.DataFrame
-        The ladder's replication rows, already restricted to this cell's arm.
+        The ladder's replication rows, already restricted to this cell's arm.  The row's
+        ``failed_replicates`` is the sum of the rungs' stamped failures.
     record : StudyRecord
         Supplies the resampling budget, the confidence level and the seed stream.
     columns : Any
@@ -487,7 +498,10 @@ def fitted_rate_row(
             # are the largest and the sum, which read as one big cell; this is what the
             # published table shows instead.
             "rate_sizes": ";".join(f"{size:,}" for size in sizes),
-            "failed_replicates": 0,
+            # The rungs' recorded failures, which the driver stamps on their rows (RM39 b2).
+            "failed_replicates": int(
+                rows.groupby("cell", sort=True)["failed_replicates"].first().sum()
+            ),
             "slope": fitted.slope,
             "slope_ci_lower": fitted.interval.low,
             "slope_ci_upper": fitted.interval.high,
@@ -615,17 +629,19 @@ def _at_verdict_budget(rows: pd.DataFrame, verdict_replicates: int | None) -> pd
     A rung's coverage verdict is a one-sided exact interval against a fixed floor.  A rung
     whose budget was raised to resolve the fitted slope would also change its coverage gate
     with replications that claim never declared.  This returns the frame the *verdicts* are
-    computed from: the first ``verdict_replicates`` replications of every cell of
+    computed from: the replications ``0 .. verdict_replicates - 1`` of every cell of
     :data:`CONTRACTION_FAMILY`, ordered by ``replicate``, and every other family untouched.
     The slope is fitted from the full rows because its larger budget was declared for that
     purpose.
 
-    ``requested_replicates`` is rewritten to the truncated budget, because the published
-    ``replicates`` column and
-    :func:`~tests.studies.evidence.properties.require_complete` both read it, and a summary
-    that attributed a verdict to a budget it did not use would be the defect this function
-    exists to prevent.  The full ladder is checked for completeness first, so a rung that
-    lost replications still fails rather than being hidden by the truncation.
+    A rung keeps the ids below the budget and never refills a lost one from a later id, so a
+    lost replicate cannot change which replications the verdict reads.  ``requested_replicates``
+    is rewritten to the truncated budget and ``failed_replicates`` to the ids below it that the
+    rung lost, because the published ``replicates`` column and
+    :func:`~tests.studies.evidence.properties.require_accounted` both read them.  A loss at an
+    id at or above the budget therefore leaves the rung's verdict at no failures; the slope
+    row counts it.  The full ladder is checked first, so a rung whose gap its failure records
+    do not explain still fails rather than being hidden by the truncation.
     """
     if verdict_replicates is None:
         return rows
@@ -637,16 +653,18 @@ def _at_verdict_budget(rows: pd.DataFrame, verdict_replicates: int | None) -> pd
             f"verdict_replicates={verdict_replicates} was declared, but these rows publish no "
             f"{CONTRACTION_FAMILY} family whose verdicts it could be read at"
         )
-    require_complete(rows.loc[ladder])
+    require_accounted(rows.loc[ladder])
     rungs = []
     for cell, group in rows.loc[ladder].groupby("cell", sort=True):
-        if len(group) < verdict_replicates:
+        requested = int(group["requested_replicates"].iloc[0])
+        if requested < verdict_replicates:
             raise ValueError(
-                f"{CONTRACTION_FAMILY}/{cell} ran {len(group)} replications, fewer than the "
-                f"{verdict_replicates} its own verdict is declared to be read at"
+                f"{CONTRACTION_FAMILY}/{cell} requested {requested} replications, fewer than "
+                f"the {verdict_replicates} its own verdict is declared to be read at"
             )
-        rung = group.sort_values("replicate").head(verdict_replicates).copy()
+        rung = group.loc[group["replicate"] < verdict_replicates].sort_values("replicate").copy()
         rung["requested_replicates"] = verdict_replicates
+        rung["failed_replicates"] = verdict_replicates - len(rung)
         rungs.append(rung)
     return pd.concat([rows.loc[~ladder], *rungs], ignore_index=True)
 
@@ -839,11 +857,18 @@ def calibration_controls(
     An empty selection is a refusal, not an empty frame.  A caller whose suffix does not match
     its cells would otherwise derive zero controls in silence, and a study that publishes no
     control reads exactly like a study whose controls all passed.
+
+    The noise is drawn for the whole requested range and indexed by replicate, so a base
+    replicate that a recorded failure removed changes no other ``noise_control`` row (RM39
+    b2, F2).  ``Generator.normal`` fills its output in order, so with no failure the noise is
+    the one a draw sized to the rows gave.  The base rows of each label must hold unique,
+    ascending ids inside the requested range.
     """
     source = rows.loc[
         (rows["property"] == "interval_calibration")
         & rows["cell"].str.endswith(f"__{positive_suffix}")
     ]
+    scale = {label: efficiency_bounds[label] / np.sqrt(calibration_n) for label in labels}
     controls: list[pd.DataFrame] = []
     for label in labels:
         base = source.loc[source["cell"] == f"{label}__{positive_suffix}"].copy()
@@ -861,11 +886,97 @@ def calibration_controls(
         rng = np.random.default_rng(stream_seed(record, "efficiency_noise", label))
         noisy["cell"] = f"{label}__noise_control"
         noisy["role"] = "control"
-        noisy["estimate"] += rng.normal(
-            scale=efficiency_bounds[label] / np.sqrt(calibration_n), size=len(noisy)
-        )
+        noisy["estimate"] += indexed_noise(rng, base, label, scale=scale[label])
         controls.append(_recompute_interval_columns(noisy, critical))
     return pd.concat(controls, ignore_index=True)
+
+
+#: The two derived control kinds :func:`calibration_controls` writes beside each positive arm.
+CALIBRATION_CONTROL_KINDS = ("shrunken_se_control", "noise_control")
+
+
+def calibration_derived(
+    labels: Sequence[str],
+    *,
+    positive_suffix: str = "correctly_specified",
+    kinds: Sequence[str] = CALIBRATION_CONTROL_KINDS,
+) -> dict[str, tuple[str, ...]]:
+    """Each calibration positive arm's derived controls, as ``property/cell`` names.
+
+    The declaration a module with :func:`calibration_controls` publishes as ``DERIVED_CELLS``
+    and hands to ``fit_properties(derived=...)``.  A replicate that the positive arm lost is
+    also lost to its controls, so a record of that fit names all of them.
+
+    Parameters
+    ----------
+    labels : Sequence of str
+        The calibration labels, as :func:`calibration_controls` takes them.
+    positive_suffix : str
+        The positive arm's cell suffix.
+    kinds : Sequence of str
+        The control suffixes the module derives.
+
+    Returns
+    -------
+    dict
+        Each positive ``interval_calibration/<label>__<suffix>`` cell to its controls.
+    """
+    return {
+        f"interval_calibration/{label}__{positive_suffix}": tuple(
+            f"interval_calibration/{label}__{kind}" for kind in kinds
+        )
+        for label in labels
+    }
+
+
+def indexed_noise(
+    rng: np.random.Generator, base: pd.DataFrame, label: str, *, scale: float
+) -> np.ndarray:
+    """Normal noise for each base row, drawn over the requested range and indexed by replicate.
+
+    A base replicate that a recorded failure removed changes no other row's noise (RM39 b2,
+    F2; rev 3 G9).  ``Generator.normal`` fills its output in order, so with no failure the
+    noise equals a draw sized to the rows.
+
+    Parameters
+    ----------
+    rng : numpy.random.Generator
+        The label's noise stream.
+    base : pandas.DataFrame
+        The positive arm's rows, with unique ascending replicate ids.
+    label : str
+        The label, for the error message.
+    scale : float
+        The noise's standard deviation.
+
+    Returns
+    -------
+    numpy.ndarray
+        One noise value per base row, in the rows' order.
+    """
+    noise = rng.normal(scale=scale, size=_noise_size(base, label))
+    return noise[base["replicate"].to_numpy().astype(np.int64)]
+
+
+def _noise_size(base: pd.DataFrame, label: str) -> int:
+    """The requested range a label's noise is drawn over, after checking its replicate ids."""
+    requested = base["requested_replicates"].unique()
+    if len(requested) != 1:
+        raise ValueError(f"{label} has inconsistent requested replication counts")
+    size = int(requested[0])
+    ids = base["replicate"].to_numpy()
+    if (
+        len(ids) == 0
+        or np.any(np.diff(ids) <= 0)
+        or int(ids[0]) < 0
+        or int(ids[-1]) >= size
+        or not np.all(ids == np.round(ids))
+    ):
+        raise ValueError(
+            f"{label} calibration rows need unique, ascending replicate ids inside "
+            f"0..{size - 1} to index the noise by replicate"
+        )
+    return size
 
 
 def _recompute_interval_columns(rows: pd.DataFrame, critical: float) -> pd.DataFrame:
@@ -977,17 +1088,96 @@ def calibration_verdicts(
         summary.loc[index, "passed"] = bool(passed)
 
 
-def necessity_verdicts(
-    summary: pd.DataFrame,
-    rows: pd.DataFrame,
-    *,
-    family: str,
-    labels: Sequence[str],
-    arms: tuple[str, str],
-    column: str,
-    threshold: float,
-    truth_varies: bool = False,
-) -> None:
+@dataclass(frozen=True)
+class Necessity:
+    """One study's declaration of a necessity family: the verdict and its rule read it.
+
+    The module states each necessity family once, as a module constant, and passes the same
+    object to :func:`necessity_verdicts` (or :func:`alternative_target_necessity_verdicts`) and
+    to :func:`necessity_rule`.  The failure accounting therefore reads the labels, arms,
+    column and threshold the verdict read (rev 3 D3'd).
+
+    Parameters
+    ----------
+    family : str
+        The property the cells are filed under.
+    labels : tuple of str
+        The parameters the family reports.  Cell names are ``f"{label}__{arm}"``.
+    arms : tuple of str
+        The positive and control suffixes, in that order.
+    column : str
+        The summary column the joint displacement is published in.
+    threshold : float
+        The declared minimum displacement, in positive-arm empirical standard deviations.
+    truth_varies : bool
+        :attr:`StudyRecord.truth_varies_by_replicate`.  Given it, the displacement reads each
+        arm's error, each arm subtracting its own truth.
+    alternative_truths : Mapping or None
+        The exact control target of each label, for a control that estimates a different valid
+        parameter; ``None`` for an ordinary necessity family.
+    """
+
+    family: str
+    labels: tuple[str, ...]
+    arms: tuple[str, str]
+    column: str
+    threshold: float
+    truth_varies: bool = False
+    alternative_truths: Mapping[str, float] | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "labels", tuple(self.labels))
+        object.__setattr__(self, "arms", tuple(self.arms))
+        if len(self.arms) != 2:
+            raise ValueError(f"{self.family} declares {len(self.arms)} arms, not two")
+        if not self.labels:
+            raise ValueError(f"{self.family} declares no label")
+        if self.alternative_truths is not None:
+            missing = sorted(set(self.labels) - set(self.alternative_truths))
+            if missing:
+                raise ValueError(f"{self.family} has no alternative truth for {missing}")
+            if self.truth_varies:
+                raise ValueError(
+                    f"{self.family} reads one alternative truth per label, and declares a "
+                    "truth that varies by replication"
+                )
+
+    def label_of(self, cell: str) -> str:
+        """The label of one of the family's cells."""
+        for label in self.labels:
+            for arm in self.arms:
+                if cell == f"{label}__{arm}":
+                    return label
+        raise ValueError(f"{cell} is not a cell of {self.family}")
+
+
+def _displacement_verdicts(summary: pd.DataFrame, rows: pd.DataFrame, necessity: Necessity) -> None:
+    mask = summary["property"] == necessity.family
+    if not mask.any():
+        return
+    positive_arm, control_arm = necessity.arms
+    positive = mask & (summary["role"] == "positive")
+    control = mask & (summary["role"] == "control")
+    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
+    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+
+    displacement = min(
+        paired_displacement(
+            rows,
+            necessity.family,
+            f"{label}__{positive_arm}",
+            f"{label}__{control_arm}",
+            truth_varies=necessity.truth_varies,
+        )
+        for label in necessity.labels
+    )
+    summary.loc[mask, necessity.column] = displacement
+    summary.loc[mask, "property_passed"] = bool(
+        summary.loc[mask, "passed"].all() and displacement >= necessity.threshold
+    )
+
+
+def necessity_verdicts(summary: pd.DataFrame, rows: pd.DataFrame, necessity: Necessity) -> None:
     """Was the step load bearing, and did it carry the estimate the right way?
 
     A *necessity* family pairs a positive arm against a control that removes exactly one step
@@ -1005,68 +1195,39 @@ def necessity_verdicts(
     family reports, and an average lets a well-displaced label carry an inert one.
 
     Written here rather than per study for the reason
-    :func:`crossfit_overfitting_verdicts` is.  Seven property modules published this rule --
-    ``targeting_necessity`` in six of them, plus a survival recursion, a competing-risk
-    recursion and a projection measure -- and a rule written seven times is a rule that can be
-    changed in one of them.  The study supplies only its labels, its two arm suffixes, the
-    column it publishes the displacement in, and the threshold.
+    :func:`crossfit_overfitting_verdicts` is: a rule written in each study is a rule that can be
+    changed in one of them.  The study supplies only its :class:`Necessity` declaration, which
+    :func:`necessity_rule` reads as well.
 
     Parameters
     ----------
     summary : pandas.DataFrame
-        The cell summary, which this writes ``passed``, ``column`` and ``property_passed`` on.
+        The cell summary, which this writes ``passed``, the declared column and
+        ``property_passed`` on.
     rows : pandas.DataFrame
         The replication rows both arms were emitted from, paired on ``replicate``.
-    family : str
-        The property the cells are filed under.
-    labels : Sequence[str]
-        The parameters the family reports.  Cell names are ``f"{label}__{arm}"``.
-    arms : tuple[str, str]
-        The positive and control suffixes, in that order.
-    column : str
-        The summary column the joint displacement is published in.
-    threshold : float
-        The declared minimum displacement.
-    truth_varies : bool, optional
-        :attr:`StudyRecord.truth_varies_by_replicate`.  Given it, the displacement reads each
-        arm's error, each arm subtracting its own truth.
-    """
-    mask = summary["property"] == family
-    if not mask.any():
-        return
-    positive_arm, control_arm = arms
-    positive = mask & (summary["role"] == "positive")
-    control = mask & (summary["role"] == "control")
-    summary.loc[positive, "passed"] = summary.loc[positive, "bias_equivalent"]
-    summary.loc[control, "passed"] = summary.loc[control, "bias_discriminated"]
+    necessity : Necessity
+        The family's declaration.
 
-    displacement = min(
-        paired_displacement(
-            rows,
-            family,
-            f"{label}__{positive_arm}",
-            f"{label}__{control_arm}",
-            truth_varies=truth_varies,
+    Raises
+    ------
+    ValueError
+        When the declaration names alternative truths, which
+        :func:`alternative_target_necessity_verdicts` reads.
+    """
+    if necessity.alternative_truths is not None:
+        raise ValueError(
+            f"{necessity.family} declares alternative truths; "
+            "alternative_target_necessity_verdicts reads them"
         )
-        for label in labels
-    )
-    summary.loc[mask, column] = displacement
-    summary.loc[mask, "property_passed"] = bool(
-        summary.loc[mask, "passed"].all() and displacement >= threshold
-    )
+    _displacement_verdicts(summary, rows, necessity)
 
 
 def alternative_target_necessity_verdicts(
     summary: pd.DataFrame,
     rows: pd.DataFrame,
     record: StudyRecord,
-    *,
-    family: str,
-    labels: Sequence[str],
-    arms: tuple[str, str],
-    alternative_truths: Mapping[str, float],
-    column: str,
-    threshold: float,
+    necessity: Necessity,
 ) -> None:
     """Require a declared analysis choice to select between two exact targets.
 
@@ -1075,11 +1236,9 @@ def alternative_target_necessity_verdicts(
     wrong number. A population-target bias check proves the omission matters. It does not
     prove the control converges to the alternative target that explains the failure.
 
-    This helper adds that second direction to :func:`necessity_verdicts`, and it *calls* that
-    function rather than restating it.  The displacement rule, the arm-to-role mapping and
-    the joint clause are written once, in the place the module's own docstrings say they
-    belong: a rule written twice is a rule that can be changed in one of them.  What is added
-    here is the second direction alone, ANDed into the verdicts the shared rule wrote.
+    This helper adds that second direction to :func:`necessity_verdicts`, and it *calls* the
+    same displacement rule rather than restating it.  What is added here is the second
+    direction alone, ANDed into the verdicts the shared rule wrote.
 
     Three claims therefore hold together.  The positive arm must recover the study truth.
     The control must miss that truth and recover its declared alternative truth.  The paired
@@ -1094,50 +1253,40 @@ def alternative_target_necessity_verdicts(
         Paired replication rows for the positive and control arms.
     record : StudyRecord
         Supplies the standardized-bias margin and confidence level.
-    family : str
-        The property family that owns the paired cells.
-    labels : Sequence[str]
-        Parameter labels used as cell-name prefixes.
-    arms : tuple[str, str]
-        Positive and control cell suffixes, in that order.
-    alternative_truths : Mapping[str, float]
-        Exact control target for each label.
-    column : str
-        Summary column that publishes the minimum paired displacement.
-    threshold : float
-        Declared minimum displacement in positive-arm empirical standard deviations.
+    necessity : Necessity
+        The family's declaration, with its alternative truths.
+
+    Raises
+    ------
+    ValueError
+        When the declaration names no alternative truth, or the study's truth varies by
+        replication.
     """
+    family = necessity.family
     mask = summary["property"] == family
     if not mask.any():
         return
-    missing = sorted(set(labels) - set(alternative_truths))
-    if missing:
-        raise ValueError(f"{family} has no alternative truth for {missing}")
-    if column not in summary:
-        summary[column] = np.nan
+    if necessity.alternative_truths is None:
+        raise ValueError(f"{family} declares no alternative truth")
+    if necessity.column not in summary:
+        summary[necessity.column] = np.nan
 
-    necessity_verdicts(
-        summary,
-        rows,
-        family=family,
-        labels=labels,
-        arms=arms,
-        column=column,
-        threshold=threshold,
-    )
-    control_arm = arms[1]
+    _displacement_verdicts(summary, rows, necessity)
+
+    control_arm = necessity.arms[1]
     alternative_passed = alternative_target_verdicts(
         summary,
         rows,
         record,
         family=family,
         alternative_truths={
-            f"{label}__{control_arm}": float(alternative_truths[label]) for label in labels
+            f"{label}__{control_arm}": float(necessity.alternative_truths[label])
+            for label in necessity.labels
         },
     )
 
     # ANDed into what the shared rule already decided, rather than recomputed beside it.
-    # ``necessity_verdicts`` has written the displacement clause and every row's own bias
+    # ``_displacement_verdicts`` has written the displacement clause and every row's own bias
     # verdict; the only claim it cannot make is that the control reaches the target this
     # study declares for it.
     summary.loc[mask, "property_passed"] = bool(
@@ -1750,16 +1899,12 @@ def one_wrong_inference_verdicts(
             rung = f"{setting}_n{size}__{estimand}__first_order"
             errors = rows.loc[(rows["property"] == ONE_WRONG_FAMILY) & (rows["cell"] == rung)]
             values = (errors["estimate"] - errors["truth"]).to_numpy(dtype=float)
-            observed.append(float(np.mean(values) / np.std(values, ddof=1)))
-            rng = np.random.default_rng(stream_seed(record, ONE_WRONG_FAMILY, cell, size))
+            observed.append(standardized_bias(values))
             standardized.append(
-                np.concatenate(
-                    [
-                        block.mean(axis=1) / block.std(axis=1, ddof=1)
-                        for block in bootstrap_draw_blocks(
-                            values, replicates=margins.bootstrap_replicates, rng=rng
-                        )
-                    ]
+                standardized_bias_draws(
+                    values,
+                    replicates=margins.bootstrap_replicates,
+                    seed=stream_seed(record, ONE_WRONG_FAMILY, cell, size),
                 )
             )
         interval = percentile_interval(
@@ -1781,3 +1926,1080 @@ def one_wrong_inference_verdicts(
         )
         growth.append(built)
     return growth
+
+
+# ---- the failure accounting's family rules (RM39 part b2, rev 3 D3') -------------------------
+#
+# One declared clause tree per family whose whole verdict a function above computes.  Each
+# clause reads one statistic type and names its target, and every threshold is the name the
+# verdict function reads, never a copied number.  A module that adds a conjunct, or computes a
+# family itself, declares its own rule in ``PROPERTY_RULES``, which takes precedence over the
+# shared one here (D3'a).  The reproduction and differential tests of
+# ``tests/unit/test_method_evidence.py`` hold each rule to the function it restates.
+
+
+def _union_clauses() -> tuple[pf.Clause, ...]:
+    def band(ctx: pf.Context) -> tuple[float, float]:
+        return UNION_MODEL_SE_BAND
+
+    return (
+        pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+        pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
+        pf.se_point_clause(
+            "se ratio in union band", band=band, applies=pf.roles("positive", "control")
+        ),
+    )
+
+
+def _union_rule() -> pf.FamilyRule:
+    return pf.FamilyRule(
+        families=frozenset(UNION_MODEL_FAMILIES),
+        shared="robustness_verdicts",
+        clauses=_union_clauses(),
+    )
+
+
+def robustness_rule(
+    *, family: str = "double_robustness", alternative_truths: Mapping[str, float]
+) -> pf.FamilyRule:
+    """The rule of :func:`robustness_verdicts` and then :func:`alternative_target_verdicts`.
+
+    A module whose ``both_wrong`` control reads an exact limit declares this rule in its
+    ``PROPERTY_RULES`` with the mapping it passes to :func:`alternative_target_verdicts`.  The
+    rule is the shared union-model rule plus an S1 equivalence of each named control to its
+    limit, which feeds that row's ``passed``.
+
+    Parameters
+    ----------
+    family : str
+        The union-model family the controls are filed under.
+    alternative_truths : Mapping[str, float]
+        The exact limit of each control cell, by cell name.
+
+    Returns
+    -------
+    FamilyRule
+        The rule.
+
+    Raises
+    ------
+    ValueError
+        When ``family`` is no union-model family, or the mapping names no cell.
+    """
+    if family not in UNION_MODEL_FAMILIES:
+        raise ValueError(f"{family} is not a union-model family")
+    if not alternative_truths:
+        raise ValueError(f"{family} names no alternative target")
+    truths = {str(cell): float(value) for cell, value in alternative_truths.items()}
+
+    def alternative(ctx: pf.Context, row: pd.Series) -> float:
+        return truths[str(row["cell"])]
+
+    return pf.FamilyRule(
+        families=frozenset({family}),
+        shared="alternative_target_verdicts",
+        clauses=(
+            *_union_clauses(),
+            pf.bias_clause(
+                "alternative bias equivalent",
+                kind="equivalent",
+                applies=pf.cells(*truths),
+                prefix="alternative_bias",
+                truth=alternative,
+            ),
+        ),
+    )
+
+
+def _root_n_rule() -> pf.FamilyRule:
+    def floor(ctx: pf.Context) -> float:
+        return ctx.margins.coverage_floor
+
+    def sanity(ctx: pf.Context) -> tuple[float, float]:
+        return ctx.margins.se_ratio_sanity
+
+    return pf.FamilyRule(
+        families=frozenset({"root_n_and_efficiency"}),
+        shared="apply_shared_verdicts",
+        clauses=(
+            pf.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(floor),
+                applies=pf.roles("positive"),
+            ),
+            pf.se_point_clause("se ratio sanity", band=sanity, applies=pf.roles("positive")),
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+            pf.proportion_clause(
+                "coverage resolves",
+                statistic="S2",
+                judge=pf.resolve_judge,
+                applies=pf.roles("control"),
+            ),
+        ),
+    )
+
+
+def _rate_ladder(row: pd.Series) -> tuple[str, str, str, tuple[str, ...]]:
+    """The root-n ladder, statistic and seed labels of a ``root_n_rate`` row (:func:`_rate_row`)."""
+    cell = str(row["cell"])
+    label, suffix = cell.rsplit("__", 1) if "__" in cell else ("", cell)
+    statistic = {"empirical_sd": "spread", "reported_se": "reported"}[suffix]
+    prefix = f"{label}__" if label else ""
+    return (
+        "root_n_and_efficiency",
+        prefix,
+        statistic,
+        ("root_n_rate", *([label] if label else []), suffix),
+    )
+
+
+def _root_n_slope(ctx: pf.Context, row: pd.Series, interval: Interval) -> pf.Judged:
+    fitted = Rate(float(row["slope"]), interval)
+    low, high = ROOT_N_SLOPE - ROOT_N_SLOPE_MARGIN, ROOT_N_SLOPE + ROOT_N_SLOPE_MARGIN
+    passed = fitted.equivalent_to(ROOT_N_SLOPE, ROOT_N_SLOPE_MARGIN) and fitted.excludes(
+        EXCLUDED_SLOPE
+    )
+    return pf.Judged(min(interval.low - low, high - interval.high), bool(passed))
+
+
+def _rate_rule() -> pf.FamilyRule:
+    return pf.FamilyRule(
+        families=frozenset({"root_n_rate"}),
+        shared="apply_shared_verdicts",
+        clauses=(
+            pf.rate_slope_clause(
+                "slope in root-n band",
+                judge=_root_n_slope,
+                ladder=_rate_ladder,
+                applies=lambda ctx, row: True,
+            ),
+        ),
+    )
+
+
+def _testing_rules() -> tuple[pf.FamilyRule, ...]:
+    def ceiling(ctx: pf.Context) -> float:
+        return ctx.margins.alpha + ctx.margins.type_i_margin
+
+    def floor(ctx: pf.Context) -> float:
+        return ctx.margins.coverage_floor
+
+    def every(ctx: pf.Context, row: pd.Series) -> bool:
+        return True
+
+    return (
+        pf.FamilyRule(
+            families=frozenset({"type_i_error"}),
+            shared="apply_shared_verdicts",
+            clauses=(
+                pf.proportion_clause(
+                    "rejection ceiling",
+                    statistic="S3",
+                    judge=pf.ceiling_judge(ceiling),
+                    applies=every,
+                ),
+                pf.proportion_clause(
+                    "coverage floor", statistic="S2", judge=pf.floor_judge(floor), applies=every
+                ),
+            ),
+        ),
+        pf.FamilyRule(
+            families=frozenset({"power"}),
+            shared="apply_shared_verdicts",
+            clauses=(
+                pf.proportion_clause(
+                    "rejection floor",
+                    statistic="S3",
+                    judge=pf.floor_judge(lambda ctx: MINIMUM_POWER),
+                    applies=every,
+                ),
+            ),
+        ),
+        pf.FamilyRule(
+            families=frozenset({WARNING_RATE_FAMILY}),
+            shared="warning_rate_verdicts",
+            clauses=(
+                pf.proportion_clause(
+                    "false warnings under the ceiling",
+                    statistic="S3",
+                    judge=pf.ceiling_judge(ceiling),
+                    applies=pf.roles("positive"),
+                ),
+                pf.proportion_clause(
+                    "warnings above the ceiling",
+                    statistic="S3",
+                    judge=pf.above_judge(ceiling),
+                    applies=pf.roles("control"),
+                ),
+            ),
+        ),
+    )
+
+
+def _calibration_kind(row: pd.Series) -> str:
+    if str(row["role"]) == "positive":
+        return "positive"
+    return str(row["cell"]).rsplit("__", 1)[-1]
+
+
+def calibration_rule(*, efficiency_band: tuple[float, float] | None) -> pf.FamilyRule:
+    """The ``interval_calibration`` rule of :func:`calibration_verdicts` (rev 3 D3'd).
+
+    The band is the argument :func:`calibration_verdicts` receives, declared explicitly: a
+    module that passes a band declares ``calibration_rule(efficiency_band=...)`` in its
+    ``PROPERTY_RULES``, and the shared rule has none.
+
+    Parameters
+    ----------
+    efficiency_band : tuple of float or None
+        The study's ``EFFICIENCY_RATIO_BAND``, or ``None`` when the study claims no efficiency.
+
+    Returns
+    -------
+    FamilyRule
+        The rule.
+    """
+
+    def seed(ctx: pf.Context, row: pd.Series) -> int:
+        return stream_seed(ctx.record, "interval_calibration", str(row["cell"]))
+
+    def calibration_ratio(ctx: pf.Context) -> tuple[float, float]:
+        return ctx.margins.calibration_se_ratio
+
+    def band_of(ctx: pf.Context) -> tuple[float, float]:
+        assert efficiency_band is not None
+        return efficiency_band
+
+    def kind(name: str, *, band: bool | None = None) -> pf.Applies:
+        declared = efficiency_band is not None
+
+        def applies(ctx: pf.Context, row: pd.Series) -> bool:
+            return _calibration_kind(row) == name and (band is None or band == declared)
+
+        return applies
+
+    def leaves(side: Literal["below", "above"]) -> pf.Judge:
+        def judge(ctx: pf.Context, row: pd.Series, iv: Interval) -> pf.Judged:
+            low, high = ctx.margins.calibration_se_ratio
+            slack = low - iv.high if side == "below" else iv.low - high
+            return pf.Judged(slack, se_ratio_leaves_band(iv, (low, high), side))
+
+        return judge
+
+    clauses = [
+        pf.se_interval_clause(
+            "se ratio in calibration band",
+            which="se_ratio",
+            judge=pf.band_judge(calibration_ratio),
+            seed=seed,
+            applies=kind("positive"),
+        ),
+        pf.proportion_clause(
+            "coverage in calibration band",
+            statistic="S2",
+            judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+            applies=kind("positive"),
+        ),
+        *(
+            pf.se_interval_clause(
+                f"{which.replace('_', ' ')} in efficiency band",
+                which=which,
+                judge=pf.band_judge(band_of),
+                seed=seed,
+                applies=kind("positive", band=True),
+            )
+            for which in ("efficiency_empirical", "efficiency_reported")
+        ),
+        *(
+            pf.se_interval_clause(
+                f"se ratio {side} band",
+                which="se_ratio",
+                judge=leaves(side),
+                seed=seed,
+                applies=kind(control),
+            )
+            for control, side in SE_CONTROL_SIDES.items()
+        ),
+        pf.se_interval_clause(
+            "efficiency above band",
+            which="efficiency_empirical",
+            judge=pf.above_judge(lambda ctx: band_of(ctx)[1]),
+            seed=seed,
+            applies=kind("noise_control", band=True),
+        ),
+        pf.se_interval_clause(
+            "noise se ratio below band",
+            which="se_ratio",
+            judge=leaves("below"),
+            seed=seed,
+            applies=kind("noise_control", band=False),
+        ),
+    ]
+    return pf.FamilyRule(
+        families=frozenset({"interval_calibration"}),
+        shared="calibration_verdicts",
+        clauses=tuple(clauses),
+    )
+
+
+def _simultaneous_rule() -> pf.FamilyRule:
+    return pf.FamilyRule(
+        families=frozenset({"simultaneous_coverage"}),
+        shared="simultaneous_coverage_verdicts",
+        clauses=(
+            pf.proportion_clause(
+                "joint coverage in calibration band",
+                statistic="S2",
+                judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+                applies=pf.roles("positive"),
+            ),
+            pf.proportion_clause(
+                "joint coverage below nominal",
+                statistic="S2",
+                judge=pf.below_judge(lambda ctx: 1.0 - ctx.margins.alpha),
+                applies=pf.roles("control"),
+            ),
+        ),
+    )
+
+
+def _cell_seed(family: str) -> Callable[[pf.Context, pd.Series], int]:
+    return lambda ctx, row: stream_seed(ctx.record, family, str(row["cell"]))
+
+
+def _paired_rule(
+    family: str,
+    *,
+    positive: tuple[pf.Clause, ...],
+    control_ceiling: float,
+    gain_floor: float,
+    group: str = "pair",
+) -> pf.FamilyRule:
+    return pf.FamilyRule(
+        families=frozenset({family}),
+        shared="_paired_cell_verdicts",
+        clauses=(
+            *positive,
+            pf.se_interval_clause(
+                "control se ratio under its ceiling",
+                which="se_ratio",
+                judge=pf.ceiling_judge(lambda ctx: control_ceiling),
+                seed=_cell_seed(family),
+                applies=pf.roles("control"),
+            ),
+            pf.coverage_gain_clause(
+                "coverage gain",
+                floor=gain_floor,
+                seed=lambda ctx, row: stream_seed(ctx.record, family, "coverage_gain"),
+                applies=pf.roles("positive", "control"),
+                group=group,
+            ),
+        ),
+        group=group,
+    )
+
+
+def _overfit_judge(ctx: pf.Context, row: pd.Series, iv: Interval) -> pf.Judged:
+    high = ctx.margins.se_ratio_sanity[1]
+    return pf.Judged(
+        min(iv.low - OVERFIT_SE_FLOOR, high - iv.high),
+        _overfit_positive_rule(iv, Interval(0.0, 1.0), ctx.margins),
+    )
+
+
+def _paired_rules() -> tuple[pf.FamilyRule, ...]:
+    return (
+        _paired_rule(
+            "crossfit_overfitting",
+            positive=(
+                pf.se_interval_clause(
+                    "cross-fit se ratio honest",
+                    which="se_ratio",
+                    judge=_overfit_judge,
+                    seed=_cell_seed("crossfit_overfitting"),
+                    applies=pf.roles("positive"),
+                ),
+            ),
+            control_ceiling=OVERFIT_SE_CONTROL_CEILING,
+            gain_floor=OVERFIT_COVERAGE_GAIN,
+        ),
+        _paired_rule(
+            "clustered_inference",
+            positive=(
+                pf.se_interval_clause(
+                    "se ratio in calibration band",
+                    which="se_ratio",
+                    judge=pf.band_judge(lambda ctx: ctx.margins.calibration_se_ratio),
+                    seed=_cell_seed("clustered_inference"),
+                    applies=pf.roles("positive"),
+                ),
+                pf.proportion_clause(
+                    "coverage in calibration band",
+                    statistic="S2",
+                    judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+                    applies=pf.roles("positive"),
+                ),
+            ),
+            control_ceiling=CLUSTER_ROBUST_CONTROL_SE_CEILING,
+            gain_floor=CLUSTERED_COVERAGE_GAIN,
+        ),
+    )
+
+
+def _few_cluster_rule() -> pf.FamilyRule:
+    return pf.FamilyRule(
+        families=frozenset({FEW_CLUSTER_FAMILY}),
+        shared="few_cluster_reference_verdicts",
+        clauses=(
+            pf.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(lambda ctx: ctx.margins.coverage_floor),
+                applies=pf.roles("positive"),
+            ),
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+            pf.se_interval_clause(
+                "iid se ratio under its ceiling",
+                which="se_ratio",
+                judge=pf.below_judge(lambda ctx: FEW_CLUSTER_IID_CONTROL_CEILING),
+                seed=_cell_seed(FEW_CLUSTER_FAMILY),
+                applies=pf.roles("control"),
+                truth_varies=lambda ctx: False,
+            ),
+        ),
+    )
+
+
+def _contraction_ladder(row: pd.Series) -> tuple[str, str, str, tuple[str, ...]]:
+    """The ladder, statistic and seed labels of a contraction slope row (:func:`contraction_rates`)."""
+    scenario = str(row["cell"]).removeprefix("rate_")
+    return CONTRACTION_FAMILY, f"{scenario}_n", "bias", (CONTRACTION_FAMILY, scenario)
+
+
+def _is_slope(ctx: pf.Context, row: pd.Series) -> bool:
+    return str(row["cell"]).startswith("rate_")
+
+
+def _contraction_rule() -> pf.FamilyRule:
+    def floor(ctx: pf.Context) -> float:
+        return ctx.margins.coverage_floor
+
+    def rung(role: str) -> pf.Applies:
+        return lambda ctx, row: str(row["role"]) == role and not _is_slope(ctx, row)
+
+    def slope(role: str) -> pf.Applies:
+        return lambda ctx, row: str(row["role"]) == role and _is_slope(ctx, row)
+
+    return pf.FamilyRule(
+        families=frozenset({CONTRACTION_FAMILY}),
+        shared="contraction_verdicts",
+        clauses=(
+            pf.proportion_clause(
+                "rung coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(floor),
+                applies=rung("positive"),
+            ),
+            pf.proportion_clause(
+                "rung coverage below floor",
+                statistic="S2",
+                judge=pf.below_judge(floor),
+                applies=rung("control"),
+            ),
+            # OQ-6'a: each slope clause is one-sided with no complete-case side (L2).
+            pf.rate_slope_clause(
+                "bias contracts",
+                judge=pf.below_judge(lambda ctx: 0.0),
+                ladder=_contraction_ladder,
+                applies=slope("positive"),
+            ),
+            pf.rate_slope_clause(
+                "bias does not contract",
+                judge=lambda ctx, row, iv: pf.Judged(iv.high, bool(iv.high >= 0.0)),
+                ladder=_contraction_ladder,
+                applies=slope("control"),
+            ),
+        ),
+    )
+
+
+# ---- rules a module declares (rev 3 D3'a) ----------------------------------------------------
+#
+# Each factory below states the rule of a verdict function a module parameterizes, or of a
+# verdict the module computes itself in the same shape in several studies.  The module declares
+# the result in its ``PROPERTY_RULES`` with the same constants it passes to its verdict code.
+
+
+def necessity_rule(necessity: Necessity) -> pf.FamilyRule:
+    """The rule of :func:`necessity_verdicts` or :func:`alternative_target_necessity_verdicts`.
+
+    Each row's own clause is its S1 bias endpoint.  The family clause is S12, the least
+    displacement over labels with each arm's lost values in its survivor range and the scale
+    held (rev 3 OQ-6').  A control with a declared alternative truth adds an S1 equivalence to
+    that truth, which feeds the row and, through the family group, the joint verdict.
+
+    Parameters
+    ----------
+    necessity : Necessity
+        The declaration the module passes to the verdict function.
+
+    Returns
+    -------
+    FamilyRule
+        The rule, grouped by family.
+    """
+    clauses: list[pf.Clause] = [
+        pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+        pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
+        pf.displacement_clause(
+            "least displacement over labels",
+            column=necessity.column,
+            labels=necessity.labels,
+            arms=necessity.arms,
+            threshold=necessity.threshold,
+            truth_varies=necessity.truth_varies,
+        ),
+    ]
+    shared = "necessity_verdicts"
+    truths = necessity.alternative_truths
+    if truths is not None:
+
+        def alternative(ctx: pf.Context, row: pd.Series) -> float:
+            assert truths is not None
+            return float(truths[necessity.label_of(str(row["cell"]))])
+
+        clauses.append(
+            pf.bias_clause(
+                "alternative bias equivalent",
+                kind="equivalent",
+                applies=pf.roles("control"),
+                prefix="alternative_bias",
+                truth=alternative,
+            )
+        )
+        shared = "alternative_target_necessity_verdicts"
+    return pf.FamilyRule(
+        families=frozenset({necessity.family}),
+        shared=shared,
+        clauses=tuple(clauses),
+        group="family",
+    )
+
+
+def necessity_rules(*necessities: Necessity) -> tuple[pf.FamilyRule, ...]:
+    """:func:`necessity_rule` of each declaration, one rule per family.
+
+    Parameters
+    ----------
+    *necessities : Necessity
+        The module's declarations.
+
+    Returns
+    -------
+    tuple of FamilyRule
+        One rule per declaration.
+
+    Raises
+    ------
+    ValueError
+        When two declarations name the same family.
+    """
+    families = [necessity.family for necessity in necessities]
+    if len(set(families)) != len(families):
+        raise ValueError(f"a necessity family is declared twice: {families}")
+    return tuple(necessity_rule(necessity) for necessity in necessities)
+
+
+def _floor(ctx: pf.Context) -> float:
+    return ctx.margins.coverage_floor
+
+
+def _sanity(ctx: pf.Context) -> tuple[float, float]:
+    return ctx.margins.se_ratio_sanity
+
+
+def accuracy_rule(
+    family: str,
+    *,
+    shared: str,
+    floor: float | None = None,
+    band: tuple[float, float] | None = None,
+) -> pf.FamilyRule:
+    """A positive row's bias, coverage floor and SE band; a control row's discriminated bias.
+
+    The rule of ``known_mechanism_accuracy`` (``known_mechanism``, ``known_mechanism_drtmle``,
+    ``known_node_mechanisms``), and of ``ordinary_targeting`` and ``treatment_complete_case``
+    (``composite_drtmle``) with their declared floor and band.
+
+    Parameters
+    ----------
+    family : str
+        The property family.
+    shared : str
+        The function that computes the verdict.
+    floor : float or None
+        The coverage floor; the study's ``coverage_floor`` by default.
+    band : tuple of float or None
+        The SE-ratio band; the study's ``se_ratio_sanity`` by default.
+
+    Returns
+    -------
+    FamilyRule
+        The rule, grouped by row.
+    """
+    return pf.FamilyRule(
+        families=frozenset({family}),
+        shared=shared,
+        clauses=(
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+            pf.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(_floor if floor is None else lambda ctx: floor),
+                applies=pf.roles("positive"),
+            ),
+            pf.se_point_clause(
+                "se ratio in band",
+                band=_sanity if band is None else lambda ctx: band,
+                applies=pf.roles("positive"),
+            ),
+            pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
+        ),
+    )
+
+
+def coverage_floor_rule(family: str, *, shared: str) -> pf.FamilyRule:
+    """Every row's exact coverage interval at or above the floor (``bootstrap_coverage``).
+
+    Parameters
+    ----------
+    family : str
+        The property family.
+    shared : str
+        The function that computes the verdict.
+
+    Returns
+    -------
+    FamilyRule
+        The rule, grouped by row.
+    """
+    return pf.FamilyRule(
+        families=frozenset({family}),
+        shared=shared,
+        clauses=(
+            pf.proportion_clause(
+                "coverage floor", statistic="S2", judge=pf.floor_judge(_floor), applies=pf.every
+            ),
+        ),
+    )
+
+
+def requirement_rule(family: str, *, shared: str) -> pf.FamilyRule:
+    """A positive row's equivalent bias, a control row's discriminated bias, joint over the family.
+
+    The rule of ``mechanism_requirement`` (``incremental_intervention``).
+
+    Parameters
+    ----------
+    family : str
+        The property family.
+    shared : str
+        The function that computes the verdict.
+
+    Returns
+    -------
+    FamilyRule
+        The rule, grouped by family.
+    """
+    return pf.FamilyRule(
+        families=frozenset({family}),
+        shared=shared,
+        clauses=(
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+            pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
+        ),
+        group="family",
+    )
+
+
+#: The suffix of the full-curve cell of a score necessity family.
+FULL_EIF_SUFFIX = "__full_eif"
+
+
+def score_necessity_rule(
+    family: str, *, efficiency_band: tuple[float, float], shared: str
+) -> pf.FamilyRule:
+    """The full curve's SE-ratio interval inside the efficiency band; the control's below.
+
+    The rule of ``treatment_score_necessity`` (``incremental_intervention``) and
+    ``mechanism_term_necessity`` (``longitudinal_incremental``): S5 on the ``se_ratio``
+    interval of :func:`~tests.studies.evidence.properties.ratio_intervals`, with the seed
+    ``stream_seed(STUDY, family, cell)`` the verdict reads (rev 3 M2), joint over the family.
+
+    Parameters
+    ----------
+    family : str
+        The property family.
+    efficiency_band : tuple of float
+        The band the full curve's interval must lie inside.
+    shared : str
+        The function that computes the verdict.
+
+    Returns
+    -------
+    FamilyRule
+        The rule, grouped by family.
+    """
+
+    def seed(ctx: pf.Context, row: pd.Series) -> int:
+        return stream_seed(ctx.record, family, str(row["cell"]))
+
+    def full(ctx: pf.Context, row: pd.Series) -> bool:
+        return str(row["cell"]).endswith(FULL_EIF_SUFFIX)
+
+    def control(ctx: pf.Context, row: pd.Series) -> bool:
+        return not full(ctx, row)
+
+    return pf.FamilyRule(
+        families=frozenset({family}),
+        shared=shared,
+        clauses=(
+            pf.se_interval_clause(
+                "full curve in efficiency band",
+                which="se_ratio",
+                judge=pf.band_judge(lambda ctx: efficiency_band),
+                seed=seed,
+                applies=full,
+                truth_varies=lambda ctx: False,
+            ),
+            pf.se_interval_clause(
+                "control below calibration band",
+                which="se_ratio",
+                judge=pf.below_judge(lambda ctx: ctx.margins.calibration_se_ratio[0]),
+                seed=seed,
+                applies=control,
+                truth_varies=lambda ctx: False,
+            ),
+        ),
+        group="family",
+    )
+
+
+GENERATED_DESIGN_FAMILY = "generated_design"
+
+
+def generated_design_rule(*, group: str, shared: str) -> pf.FamilyRule:
+    """Each generated-design cell calibrated on the SE ratio and coverage, joint over its group.
+
+    The rule of ``generated_design`` (``ctmle_oat``, ``multi_arm_ctmle_oat`` and, per label,
+    ``ctmle_oat_per_arm``).  The SE-ratio interval's seed is
+    ``stream_seed(STUDY, "generated_design", *cell.split("__"))``, the verdict's own.  The
+    deficit interval is published and read by no verdict (rev 3 G2).
+
+    Parameters
+    ----------
+    group : str
+        ``family``, or ``label`` where the module declares one group per label.
+    shared : str
+        The function that computes the verdict.
+
+    Returns
+    -------
+    FamilyRule
+        The rule.
+    """
+
+    def seed(ctx: pf.Context, row: pd.Series) -> int:
+        return stream_seed(ctx.record, GENERATED_DESIGN_FAMILY, *str(row["cell"]).split("__"))
+
+    return pf.FamilyRule(
+        families=frozenset({GENERATED_DESIGN_FAMILY}),
+        shared=shared,
+        clauses=(
+            pf.se_interval_clause(
+                "se ratio in calibration band",
+                which="se_ratio",
+                judge=pf.band_judge(lambda ctx: ctx.margins.calibration_se_ratio),
+                seed=seed,
+                applies=pf.every,
+                truth_varies=lambda ctx: False,
+            ),
+            pf.proportion_clause(
+                "coverage in calibration band",
+                statistic="S2",
+                judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+                applies=pf.every,
+            ),
+        ),
+        group=group,
+    )
+
+
+def identity_rule(
+    family: str, *, column: str, cells: tuple[str, str], tolerance: float | None, shared: str
+) -> pf.FamilyRule:
+    """A sup-norm identity between two cells: not accountable (rev 3 section 2, R3-1).
+
+    ``max abs(left - right)`` over replicates is below ``tolerance``, or exactly zero when
+    ``tolerance`` is ``None``.  A range fill leaves the supremum unchanged, so a leg would be
+    vacuous; any lost replicate of either cell turns every row red.
+
+    Parameters
+    ----------
+    family : str
+        ``natural_course_identity`` or ``static_reduction``.
+    column : str
+        The summary column the supremum is published in.
+    cells : tuple of str
+        The two cells the supremum compares.
+    tolerance : float or None
+        The strict tolerance, or ``None`` for exact equality.
+    shared : str
+        The function that computes the verdict.
+
+    Returns
+    -------
+    FamilyRule
+        The rule, grouped by family.
+    """
+
+    def read(ctx: pf.Context, row: pd.Series) -> pf.Judged:
+        value = float(row[column])
+        if tolerance is None:
+            return pf.Judged(-value, bool(value == 0.0))
+        return pf.Judged(tolerance - value, bool(value < tolerance))
+
+    return pf.FamilyRule(
+        families=frozenset({family}),
+        shared=shared,
+        clauses=(
+            pf.unaccountable_clause(
+                "sup-norm identity",
+                statistic="sup-norm identity",
+                read=read,
+                applies=pf.every,
+                reads=lambda ctx, row: [(family, cell) for cell in cells],
+            ),
+        ),
+        group="family",
+    )
+
+
+def corrected_mar_rules(
+    *,
+    both_wrong_floor: Mapping[str, float] | None,
+    uncorrected_floor: float,
+    correction_ratio: float,
+    shared: str,
+) -> tuple[pf.FamilyRule, pf.FamilyRule]:
+    """The ``corrected_mar_inference`` and ``correction_necessity`` rules (rev 3 section 5.2).
+
+    ``corrected_mar_inference`` is the union rule plus, on a positive row, S2 at the coverage
+    floor and S4 inside the sanity band, and, on a control row where the study declares a floor,
+    S1f ``max(low, -high) >= floor[prefix]`` on the complete case's side.
+
+    ``correction_necessity``: the initial-score control's S1f ``L >= uncorrected_floor`` is
+    accountable.  The closed-score clause, ``U_closed <= ratio * L_initial``, is the fit's own
+    numerical success and is not accountable (H2, R3-1).
+
+    Parameters
+    ----------
+    both_wrong_floor : Mapping or None
+        Each control prefix's floor on ``|bias|``; ``None`` where the study declares none.
+    uncorrected_floor : float
+        The initial score's floor.
+    correction_ratio : float
+        The closed score's ceiling, as a share of the initial score's lower endpoint.
+    shared : str
+        The function that computes the verdicts.
+
+    Returns
+    -------
+    tuple of FamilyRule
+        The two rules.
+    """
+    union = _union_rule()
+    clauses = [
+        *union.clauses,
+        pf.proportion_clause(
+            "coverage floor",
+            statistic="S2",
+            judge=pf.floor_judge(_floor),
+            applies=pf.roles("positive"),
+        ),
+        pf.se_point_clause("se ratio sanity", band=_sanity, applies=pf.roles("positive")),
+    ]
+    if both_wrong_floor is not None:
+        floors = dict(both_wrong_floor)
+
+        def floor_of(ctx: pf.Context, row: pd.Series) -> float:
+            return float(floors[str(row["cell"]).split("__", 1)[0]])
+
+        clauses.append(
+            pf.bias_clause(
+                "bias clears the both-wrong floor",
+                kind="beyond",
+                applies=pf.roles("control"),
+                margin=floor_of,
+                strict=False,
+                statistic="S1f",
+            )
+        )
+    corrected = pf.FamilyRule(
+        families=frozenset({"corrected_mar_inference"}), shared=shared, clauses=tuple(clauses)
+    )
+
+    def initial(ctx: pf.Context, row: pd.Series) -> bool:
+        return str(row["cell"]).endswith("__initial_score_control")
+
+    def closed(ctx: pf.Context, row: pd.Series) -> bool:
+        return str(row["cell"]).endswith("__closed_score")
+
+    def initial_row(ctx: pf.Context, row: pd.Series) -> pd.Series:
+        summary = ctx.summary
+        selected = summary.loc[
+            (summary["property"] == row["property"])
+            & summary["cell"].astype(str).str.endswith("__initial_score_control")
+        ]
+        return selected.iloc[0]
+
+    def closed_read(ctx: pf.Context, row: pd.Series) -> pf.Judged:
+        ceiling = correction_ratio * float(initial_row(ctx, row)["bias_ci_lower"])
+        upper = float(row["bias_ci_upper"])
+        return pf.Judged(ceiling - upper, bool(upper <= ceiling))
+
+    def closed_reads(ctx: pf.Context, row: pd.Series) -> list[tuple[str, str]]:
+        return [(str(row["property"]), str(initial_row(ctx, row)["cell"]))]
+
+    necessity = pf.FamilyRule(
+        families=frozenset({"correction_necessity"}),
+        shared=shared,
+        clauses=(
+            pf.bias_clause(
+                "initial score above its floor",
+                kind="beyond",
+                applies=initial,
+                side=lambda ctx, row: 1,
+                margin=lambda ctx, row: uncorrected_floor,
+                strict=False,
+                statistic="S1f",
+            ),
+            pf.unaccountable_clause(
+                "closed score below the initial",
+                statistic="numerical success",
+                read=closed_read,
+                applies=closed,
+                reads=closed_reads,
+            ),
+        ),
+    )
+    return corrected, necessity
+
+
+def one_wrong_rule(
+    *, predicted_signs: Mapping[str, int], ladders: Mapping[str, tuple[int, ...]]
+) -> pf.FamilyRule:
+    """The rule of :func:`one_wrong_inference_verdicts` (rev 3 OQ-6'b).
+
+    C: S5 ``L > calibration_se_ratio[1]`` with the seed ``(ONE_WRONG_FAMILY, cell)``, S2 at the
+    floor, S1 equivalent.  V: S2 at the floor, S1 equivalent, S4 in the sanity band.  F: S1
+    beyond the held ``bias_margin`` on the declared side ``predicted_signs[stem]``, S4 in
+    :data:`UNION_MODEL_SE_BAND`.  G: S15 ``L > 0`` over the ladder's smallest and largest rungs,
+    each rung's draws from the seed ``(ONE_WRONG_FAMILY, cell, size)``.
+
+    Parameters
+    ----------
+    predicted_signs : Mapping
+        The declared bias sign of each stem.
+    ladders : Mapping
+        The ladder of each setting.
+
+    Returns
+    -------
+    FamilyRule
+        The rule, grouped by row.
+    """
+
+    def kind(*names: str) -> pf.Applies:
+        return lambda ctx, row: one_wrong_kind(str(row["cell"])) in names
+
+    def sign(ctx: pf.Context, row: pd.Series) -> int:
+        return int(predicted_signs[one_wrong_stem(str(row["cell"]))])
+
+    def rungs(ctx: pf.Context, row: pd.Series) -> tuple[tuple[str, int], tuple[str, int]]:
+        setting, estimand, _ = str(row["cell"]).split("__")
+        sizes = ladders[setting]
+        small, large = sizes[0], sizes[-1]
+        return (
+            (f"{setting}_n{small}__{estimand}__first_order", small),
+            (f"{setting}_n{large}__{estimand}__first_order", large),
+        )
+
+    def growth_seed(ctx: pf.Context, row: pd.Series, size: int) -> int:
+        return stream_seed(ctx.record, ONE_WRONG_FAMILY, str(row["cell"]), size)
+
+    def draws(ctx: pf.Context, values: np.ndarray, seed: int) -> np.ndarray:
+        return standardized_bias_draws(
+            values, replicates=ctx.margins.bootstrap_replicates, seed=seed
+        )
+
+    return pf.FamilyRule(
+        families=frozenset({ONE_WRONG_FAMILY}),
+        shared="one_wrong_inference_verdicts",
+        clauses=(
+            pf.se_interval_clause(
+                "se ratio above calibration band",
+                which="se_ratio",
+                judge=pf.above_judge(lambda ctx: ctx.margins.calibration_se_ratio[1]),
+                seed=_cell_seed(ONE_WRONG_FAMILY),
+                applies=kind("conservative"),
+                truth_varies=lambda ctx: False,
+            ),
+            pf.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=pf.floor_judge(_floor),
+                applies=kind("conservative", "valid"),
+            ),
+            pf.bias_clause(
+                "bias equivalent", kind="equivalent", applies=kind("conservative", "valid")
+            ),
+            pf.se_point_clause("se ratio sanity", band=_sanity, applies=kind("valid")),
+            pf.bias_clause(
+                "bias beyond margin on the predicted side",
+                kind="beyond",
+                applies=kind("first_order"),
+                side=sign,
+            ),
+            pf.se_point_clause(
+                "se ratio in union band",
+                band=lambda ctx: UNION_MODEL_SE_BAND,
+                applies=kind("first_order"),
+            ),
+            pf.growth_clause(
+                "standardized bias grows",
+                rungs=rungs,
+                sign=sign,
+                seed=growth_seed,
+                draws=draws,
+                judge=pf.above_judge(lambda ctx: 0.0),
+                applies=kind("growth"),
+            ),
+        ),
+    )
+
+
+#: The shared families' rules.  A module's ``PROPERTY_RULES`` entry for a family takes
+#: precedence (rev 3 D3'a).
+FAMILY_RULES: tuple[pf.FamilyRule, ...] = (
+    _union_rule(),
+    _root_n_rule(),
+    _rate_rule(),
+    *_testing_rules(),
+    calibration_rule(efficiency_band=None),
+    _simultaneous_rule(),
+    *_paired_rules(),
+    _few_cluster_rule(),
+    _contraction_rule(),
+)
