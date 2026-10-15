@@ -14,11 +14,11 @@ repeated fits on seeds outside every declared stream.
   at ``n0`` projects its standardized bias as :math:`(|b| + m)\\sqrt{n_0 / n}` and its SE-ratio
   deficit as :math:`(1 - \\min(r, 1)) n_0 / n`.  Every primary row passes its bias rule with
   probability at least 0.95 at 1,600 replications.  Every calibration cell passes with
-  probability at least 0.90 at 6,000, and the nine pass jointly, as the independent product,
-  with probability at least 0.95.  3,600 and 4,800 replications fail the family rule.
+  probability at least 0.90 at 24,000, and the nine pass jointly, as the independent product,
+  with probability at least 0.95.  3,600 and 4,800 replications fail the family rule, and 24,000 is declared for a joint predictive pass near 0.89.
 * **The joint predictive family.**  A bootstrap of the pilot samples draws the nine readings
   jointly, so the D pairs and the two law-I contrasts keep their correlation.  The nine
-  cells then pass together with probability about 0.55 at 6,000 replications.  That is
+  cells then pass together with probability about 0.89 at 24,000 replications.  That is
   declared, with the red-cell reading of
   :data:`~tests.studies.longitudinal_repeated_crossfit_properties.RED_CELL_POLICY`; it is not
   a sizing rule, because its shortfall is pilot uncertainty that replications cannot remove.
@@ -96,7 +96,7 @@ def test_the_declared_numbers() -> None:
     assert (s.PRIMARY_N, s.PRIMARY_REPLICATES, s.IPSI_N) == (8_000, 1_600, 80_000)
     assert (s.N_FOLDS, s.LEARNER_FOLDS, s.REPEATS, s.G_BOUNDS) == (5, 2, 3, (0.01, 1.0))
     assert (s.SEED, s.RESAMPLING_SEED) == (20261446, 2026144601)
-    assert (p.CALIBRATION_N, p.CALIBRATION_REPLICATES) == (8_000, 6_000)
+    assert (p.CALIBRATION_N, p.CALIBRATION_REPLICATES) == (8_000, 24_000)
     assert (p.STABILITY_TRIALS, p.RATE_REPLICATES, p.RATE_SIZES) == (
         400,
         800,
@@ -388,12 +388,13 @@ def test_law_i_at_40000_fails_the_rule() -> None:
     """The witness that law I's size was raised: at n = 40,000 its x2 contrast fails.
 
     The probe read +0.138 SD of bias on 600 samples there, so the primary bias rule passes with
-    0.61 and the x0.5 calibration cell with 0.70.
+    0.61 and the x0.5 calibration cell with 0.70 at the 6,000 replications of the first
+    declaration.  At 24,000 that cell passes at n = 40,000 too, so the witness keeps 6,000.
     """
     contrast = probe("i@40000", "law_i", s.I_CONTRASTS["contrast_x2"])
     assert bias_pass_probability(projected(contrast, 40_000)[0], s.PRIMARY_REPLICATES) < 0.7
     other = probe("i@40000", "law_i", s.I_CONTRASTS["contrast_x0_5"])
-    assert calibrated_pass_probability(other, 40_000, p.CALIBRATION_REPLICATES) < 0.8
+    assert calibrated_pass_probability(other, 40_000, 6_000) < 0.8
 
 
 @pytest.mark.parametrize("size", [size for size in p.RATE_SIZES if size != min(p.RATE_SIZES)])
@@ -455,7 +456,7 @@ def calibrated_many(bias: np.ndarray, ratio: np.ndarray, replicates: int) -> np.
 def test_the_vectorized_calibration_rule_is_the_scalar_one() -> None:
     bias = np.array([0.0, 0.03, 0.08, 0.2])
     ratio = np.array([1.0, 1.02, 0.97, 1.06])
-    for replicates in (3_600, 6_000):
+    for replicates in (3_600, 24_000):
         scalar = [calibrated_at(b, r, replicates) for b, r in zip(bias, ratio, strict=True)]
         np.testing.assert_allclose(calibrated_many(bias, ratio, replicates), scalar, atol=1e-12)
 
@@ -494,7 +495,7 @@ def joint_predictive_family(replicates: int = p.CALIBRATION_REPLICATES) -> float
 
 
 def test_the_joint_predictive_family_is_declared() -> None:
-    """About 0.55 at 6,000: declared beside the red-cell reading, not used to size the study.
+    """About 0.89 at 24,000: declared beside the red-cell reading, not used to size the study.
 
     The correlation credit is the witness that the draws are joint: the independent product
     of the nine predictive cells is lower.
@@ -504,12 +505,12 @@ def test_the_joint_predictive_family_is_declared() -> None:
     assert abs(joint - declared) <= DECLARED_TOLERANCE
     assert joint > float(np.prod(list(predictive_cells().values())))
     assert joint < FAMILY_PASS
-    assert "0.55 predictively" in " ".join(p.RED_CELL_POLICY)
+    assert "0.89 predictively" in " ".join(p.RED_CELL_POLICY)
 
 
 @pytest.mark.parametrize("replicates", [3_600, 4_800])
 def test_fewer_calibration_replications_fail_the_family_rule(replicates: int) -> None:
-    """The witness that 6,000 is the smallest multiple of 1,200 the family rule admits."""
+    """The witness that 3,600 and 4,800 replications fail the family rule."""
     assert float(np.prod(list(calibration_cells(replicates).values()))) < FAMILY_PASS
 
 
@@ -575,7 +576,7 @@ def band_reading(label: str, which: str) -> Any:
 
 @pytest.mark.parametrize("label", list(p.BANDS))
 def test_every_band_label_is_sized_for_its_gate(label: str) -> None:
-    """The band's joint coverage, moved one Monte Carlo SE either way, passes at 6,000."""
+    """The band's joint coverage, moved one Monte Carlo SE either way, passes at 24,000."""
     band = band_reading(label, "band_covered")
     for coverage in (band.value - band.value_se, band.value + band.value_se):
         probability = interval_pass_probability(coverage, p.CALIBRATION_REPLICATES, band_within)

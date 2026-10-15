@@ -1,7 +1,7 @@
 """Run one part of the declared ``longitudinal-repeated-crossfit`` run into its scratch.
 
 The declared run (``regenerate.py`` without ``--replicates``) fits the primary phase and every
-property fit set in one process, about 104 CPU-hours.  This entry fits one part of it, or the
+property fit set in one process, about 330 CPU-hours.  This entry fits one part of it, or the
 first replicates of one part, into the scratch and checkpoints the declared run will use.  The
 declared run then reuses every finished replicate and fits only the rest.
 

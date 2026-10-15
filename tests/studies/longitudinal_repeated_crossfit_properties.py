@@ -11,7 +11,7 @@ family                      cells, replications and size
 ``interval_calibration``    nine labels on laws D (``LTMLE`` and ``SDR``, static and dynamic
                             contrasts), I (odds x2 and x0.5 contrasts, n = 80,000), S (risk
                             difference at t = 2), C (static contrast) and M (``duration``);
-                            6,000 each at n = 8,000 unless named, with a derived
+                            24,000 each at n = 8,000 unless named, with a derived
                             ``shrunken_se_control`` (reported SE times 0.70) per label
 ``simultaneous_coverage``   the shipped band of each calibration fit and its pointwise
                             control: D-``LTMLE`` and D-``SDR`` (five names each), I (five),
@@ -166,7 +166,7 @@ RED_CELL_POLICY = (
     "10. A control that does not fail where it is declared to have power is a design defect "
     "and is fixed before any rerun.",
     "11. Each verdict is read beside its declared pass probability (PASS_PROBABILITIES). The "
-    "nine calibration cells pass jointly with probability 0.98 at the pilot reading and 0.55 "
+    "nine calibration cells pass jointly with probability 1.00 at the pilot reading and 0.89 "
     "predictively, with the pilot's correlated errors. A red calibration row is therefore "
     "likely and is read by rules 3 to 5.",
 )
@@ -175,23 +175,23 @@ RED_CELL_POLICY = (
 #: the pilot reading's uncertainty is integrated out.  ``calibration_family`` is the joint
 #: probability of the nine calibration cells, by a bootstrap of the pilot samples.
 PASS_PROBABILITIES: dict[str, float] = {
-    "interval_calibration/d_ltmle_static": 0.92,
-    "interval_calibration/d_ltmle_dynamic": 0.97,
-    "interval_calibration/d_sdr_static": 0.92,
-    "interval_calibration/d_sdr_dynamic": 0.97,
-    "interval_calibration/i_contrast_x2": 0.88,
-    "interval_calibration/i_contrast_x0_5": 0.86,
-    "interval_calibration/s_contrast_h2": 0.89,
-    "interval_calibration/c_static": 0.97,
-    "interval_calibration/m_duration": 0.97,
-    "interval_calibration/calibration_family": 0.55,
+    "interval_calibration/d_ltmle_static": 0.99,
+    "interval_calibration/d_ltmle_dynamic": 1.00,
+    "interval_calibration/d_sdr_static": 0.99,
+    "interval_calibration/d_sdr_dynamic": 1.00,
+    "interval_calibration/i_contrast_x2": 0.97,
+    "interval_calibration/i_contrast_x0_5": 0.96,
+    "interval_calibration/s_contrast_h2": 0.98,
+    "interval_calibration/c_static": 1.00,
+    "interval_calibration/m_duration": 1.00,
+    "interval_calibration/calibration_family": 0.89,
     "simultaneous_coverage/d_ltmle": 1.00,
     "simultaneous_coverage/d_sdr": 1.00,
-    "simultaneous_coverage/i_ipsi": 0.99,
+    "simultaneous_coverage/i_ipsi": 1.00,
     "simultaneous_coverage/s_ltmle": 1.00,
-    "simultaneous_coverage/c_ltmle": 0.99,
+    "simultaneous_coverage/c_ltmle": 1.00,
     "simultaneous_coverage/m_ltmle": 1.00,
-    "repeat_increment/h3": 0.96,
+    "repeat_increment/h3": 1.00,
     "repeat_stability/d_ltmle_static": 1.00,
     "repeat_stability/d_ltmle_dynamic": 1.00,
     "repeat_stability/d_sdr_static": 1.00,
@@ -214,7 +214,7 @@ PASS_PROBABILITIES: dict[str, float] = {
 #: declared names.  1e-8 is far above the first and more than four orders below the second.
 STABILITY_SPREAD_FLOOR = 1e-8
 
-CALIBRATION_REPLICATES = 6_000
+CALIBRATION_REPLICATES = 24_000
 CALIBRATION_N = study.PRIMARY_N
 IPSI_N = study.IPSI_N
 STABILITY_TRIALS = 400

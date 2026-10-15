@@ -48,12 +48,15 @@ the same `LOCALAPPDATA` as the declared run.
 
 ```bash
 python -m tests.canonical.longitudinal_repeated_crossfit.part --part primary --jobs 4
-python -m tests.canonical.longitudinal_repeated_crossfit.part --part calibration_i --first 1200 --jobs 4
+python -m tests.canonical.longitudinal_repeated_crossfit.part --part calibration_i --first 6000 --jobs 4
 ```
 
 Copy each part's finished checkpoints (`*.pkl.gz`) and `_key.json` out of the scratch when the
 machine can be lost. To resume elsewhere, put them back under the same key, delete `_lock` and
 every `.started`, `.kills` and `.tmp` marker, and run the part again.
+
+Each calibration part fits 24,000 replicates, about 75 CPU-hours. The whole declared run takes about
+330 CPU-hours. Run a calibration part in chunks of 6,000 with `--first`.
 
 The parts are `primary`, `calibration_d`, `calibration_i`, `calibration_s`, `calibration_c`,
 `calibration_m`, `rate_2000`, `rate_8000`, `rate_32000`, `ipsi_primary`, `stability_d` and
