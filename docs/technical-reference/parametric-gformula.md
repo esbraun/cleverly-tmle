@@ -49,7 +49,7 @@ study method.
 | --- | --- | --- |
 | point estimates and stacked interval, `GLM` models | shipped, status `influence_curve` | the unit witnesses [below](#validation) |
 | repeated-sampling evidence | registered study `parametric-gformula`. The method-evidence page `docs/technical-reference/method-evidence/parametric-gformula.md` lists the cells | Python property evidence |
-| a comparator run against `pygformula` or `gfoRmula` | not run. The packages fit different models ([below](#how-it-differs-from-gformula-and-pygformula)) | none |
+| the `pygformula` comparator run | pending. The packages fit different models ([below](#how-it-differs-from-gformula-and-pygformula)) | none |
 | a published analytic variance for the simulation form | none exists | [Inference](#inference) |
 | pooled-over-time models | not shipped. [X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks it | none |
 | a repeated outcome | refused. [X71](../roadmap.md#x71-repeated-outcomes-for-the-sequential-baselines) tracks it | none |
@@ -66,7 +66,7 @@ treatments. The fit estimates the following models. Each model has its own node 
 | covariate $L_{t,j}$, $t \ge 2$ | binary, categorical or Gaussian, given $H_t$ and the earlier columns of node $t$ | uncensored and event-free through node $t - 1$ |
 | outcome, end of study | the outcome at node $T$ given the full history | uncensored through node $T$ |
 | hazard at node $t$, survival | the baseline-category multinomial over {none, cause 1, ...} | uncensored through node $t$ and event-free before $t$ |
-| natural treatment at a tilt node, at a policy node $t \ge 2$, or (as a diagnostic) at a fixed-dose node | binary, categorical or Gaussian, given $H_t$ | uncensored and event-free through node $t - 1$ |
+| natural treatment at a tilt node, at a policy node $t \ge 2$, or (as a diagnostic) at a fixed-dose or rule-set dose node | binary, categorical or Gaussian, given $H_t$ | uncensored and event-free through node $t - 1$ |
 
 Every model is node-specific and uses main terms by default. `GLM(interactions=k)` adds products.
 The baseline and the node-1 covariates are each unit's observed values. A categorical covariate
@@ -81,11 +81,12 @@ forward in the declared order within a node. The regimen then sets the treatment
 | regimen at node $t$ | the simulated treatment |
 | --- | --- |
 | a static arm | the arm |
-| a known rule | the rule, read on the simulated history |
+| a known rule at a categorical node | the rule, read on the simulated history |
 | a known stochastic policy | a draw from the policy density on the simulated history |
 | an odds tilt $\delta$ | a draw from $\delta g / (\delta g + 1 - g)$, with $g$ the natural law. This includes node 1 |
 | a modified treatment policy | the policy applied to a natural draw from the fitted model. Node 1 takes the observed $A_1$ as the natural value |
 | a fixed dose at a continuous node | the dose |
+| a known rule at a continuous node | the dose that the rule sets on the simulated history. The rule draws nothing |
 
 Robins (1986), equation (4.7) in Section 4E, p. 1423 (Corollary 4.1), gives the formula that this
 simulation evaluates. Section 4I, pp. 1426 to 1427, gives the Monte Carlo evaluation. That
@@ -222,19 +223,26 @@ no score term. The summary line "known factors (declared, no learner)" then name
 `TestDeclaredNaturalTreatment` checks the draw against the exact law of a step-function mechanism
 that no main-terms logistic model reproduces.
 
-## Fixed doses and model reliance
+## Fixed doses, rule-set doses and model reliance
 
-`LTMLE` refuses a fixed number at a continuous node, because the nonparametric target is not
-pathwise differentiable. Under a parametric model the target is a smooth function of a finite
-parameter, and the delta method applies. `ParametricGFormula` accepts a fixed number at a
-continuous node, and the result states the reliance.
+`LTMLE` refuses a fixed number, and a rule that sets a dose, at a continuous node, because the
+nonparametric target is not pathwise differentiable. Under a parametric model the target is a
+smooth function of a finite parameter, and the delta method applies. `ParametricGFormula` accepts
+both kinds of node, and the result states the reliance.
+
+A rule at a continuous node must be a `DynamicRegimen` with `rule_kind="known"`. The fit calls the
+rule on the history frame of each simulated path and draws nothing. The dose is a function of
+the simulated covariates, so it has no score term of its own. The score term of each covariate
+model multiplies a functional that already includes the dose. A rule that returns a value that is not finite
+raises `DataError`.
 
 | item | content |
 | --- | --- |
-| `result.simulation.model_reliance` | always set when a plan holds a fixed dose. It says that the estimate and interval hold inside the fitted laws, which the fit extrapolates to the dose at every node |
-| support rows | for each fixed dose and node, the weighted share of simulated histories whose fitted mean dose lies more than 2 fitted standard deviations from the dose, and the weighted share of observed doses within 2 fitted standard deviations of the dose |
+| `result.simulation.model_reliance` | always set when a plan holds a fixed or rule-set dose. It says that the estimate and interval hold inside the fitted laws, which the fit extrapolates to the dose at every node |
+| support rows | for each fixed or rule-set dose and node, the weighted share of simulated histories whose fitted mean dose lies more than 2 fitted standard deviations from the dose, and the weighted share of observed doses within 2 fitted standard deviations of the dose |
+| support row of a rule | `dose` is `None`. The dose of each simulated history is the rule on that history. The window around each observed dose is centred on the rule on the observed history |
 | the dose models | fitted for the diagnostic only. They are not in the stack |
-| mechanism diagnostics | not available for any regimen of a fit with a fixed dose. A dose has no density ratio |
+| mechanism diagnostics | not available for any regimen of a fit with a fixed or rule-set dose. A dose has no density ratio |
 
 A large off-support share means that the model carries the estimate with little help from the
 data. The share is not a test. It reports where the extrapolation happens.
@@ -289,7 +297,6 @@ fit chooses the family of each model from its response.
 | a learner that nothing reads, such as `hazard_learner=` on an end-of-study outcome | `CapabilityError` |
 | a continuous outcome, a binomial `GLM`, and `q_bounds=None` | `CapabilityError`, as for `SequentialGComputation` |
 | a declared treatment mechanism with a missing value at a tilt or policy node | `CapabilityError` |
-| a rule that sets a continuous dose | `CapabilityError`, `implementation_gap`. [X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks it |
 | a repeated outcome | `CapabilityError`, `implementation_gap`. [X71](../roadmap.md#x71-repeated-outcomes-for-the-sequential-baselines) tracks it |
 | a truncation curve | `CapabilityError`, `api_redirection`. The estimate divides by no mechanism |
 | a regimen that leaves the span of an aliased `GLM` column | `DataError`, from the simulation |
@@ -314,7 +321,7 @@ references are to `gfoRmula` 1.1.1 and `pygformula` 1.2.0.
 The packages differ from this estimator in the model class. A comparison of estimates is a
 comparison of two model classes, unless the data come from a law where both are correct.
 `pygformula` cannot express node-specific covariate models, so a matching comparison needs a
-two-node panel for the covariate laws. No comparator run has been done.
+two-node panel for the covariate laws. The `pygformula` comparator run is pending.
 
 Pooled-over-time models with lag and cumulative-average terms are the default of both packages.
 [X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks them.
@@ -334,10 +341,10 @@ the law with complex-step arithmetic, so it does not share code with the simulat
 | W5 | the curve has mean zero | `TestProductionLawB` |
 | W6 | the contrast curve is the difference of the level curves, and common random numbers shrink the simulation part of a contrast | `TestProductionLawB` |
 | W9 | on a saturated law the estimate equals the nonparametric plug-in, and the statistical curve equals the efficient influence curve | `TestExactLaws` |
-| W10 | a fixed dose on a linear-Gaussian law: the estimate and delta-method standard error equal the closed form | `TestFixedDose` |
+| W10 | a fixed dose, and a rule that sets a dose from the simulated history, on a linear-Gaussian law: the estimate and delta-method standard error equal the closed form. The rule also meets the weight-derivative check and the exact production derivative | `TestFixedDose`, `TestRuleSetDose` |
 | share | the reported simulation variance equals the variance of the estimate across 300 seeds, for two levels and a contrast | `TestShareAgainstTheSeeds` |
 | cluster share | the share divides by the clustered variance of the curve | `TestClusterMonteCarloShare` |
-| support | the window share and the off-support share equal an independent least-squares computation, with and without weights | `TestFixedDose` |
+| support | the window share and the off-support share equal an independent least-squares computation, with and without weights, and for a rule | `TestFixedDose`, `TestRuleSetDose` |
 | declared mechanism | a declared step-function mechanism gives the exact value, and a fit that ignores the declaration misses it | `TestDeclaredNaturalTreatment` |
 | order, node 1 | the simulation uses the fit order and the observed node-1 covariates | `TestOrderAndNodeOne` |
 | refusals | each refusal arrives before any learner | `TestRefusals` |
@@ -360,6 +367,8 @@ witness fails.
 | the draw order reversed in the simulation only | `TestOrderAndNodeOne` |
 | a declared mechanism ignored | `TestDeclaredNaturalTreatment` |
 | a support window read in variance units | W10, `TestFixedDose` |
+| a rule-set dose read on the observed history in place of the simulated history | W3b and W10, `TestRuleSetDose` |
+| a rule-set support window centred at zero, or no support row for a rule | W10, `TestRuleSetDose` |
 
 No mutation simulates censoring. The estimator has no code path that does, because the plan
 intervenes on censoring.

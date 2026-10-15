@@ -615,7 +615,7 @@ regression backward through the nodes.
 | reason | choose |
 | --- | --- |
 | you need the forward-simulation form that `gfoRmula` and `pygformula` report, with an analytic interval | `ParametricGFormula` |
-| a plan fixes a continuous dose at a node | `ParametricGFormula`. `LTMLE` and `SequentialGComputation` refuse a fixed dose |
+| a plan fixes a continuous dose at a node, or sets it by a known rule | `ParametricGFormula`. `LTMLE` and `SequentialGComputation` refuse both |
 | you doubt the law of a time-varying covariate | `SequentialGComputation`, `LTMLE` or `SDR`. They model no covariate law |
 | you want a fit that a misspecified model of one kind cannot bias | `LTMLE` or `SDR` |
 
@@ -655,7 +655,8 @@ lower it. A fit with the same `random_state=` repeats exactly.
 
 A data-adaptive learner for any model that the estimate reads gives the status
 `adaptive_baseline_plugin`: the point estimate only. A fixed number at a continuous treatment node
-is a fixed dose. The result then states its model reliance and reports a support diagnostic. No
+is a fixed dose, and a `DynamicRegimen` rule with `rule_kind="known"` there sets the dose from the
+simulated history. The result then states its model reliance and reports a support diagnostic. No
 published analytic variance exists for the simulation form, so the interval is a natural
 extension. [Parametric g-formula](../technical-reference/parametric-gformula.md) gives the
 estimator, the argument, the settings, the refusals and the validation.

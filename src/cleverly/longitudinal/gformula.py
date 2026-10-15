@@ -103,7 +103,7 @@ __all__ = [
     "SupportRow",
     "Variable",
     "counter_uniforms",
-    "has_fixed_dose",
+    "has_set_dose",
     "monte_carlo_share",
     "normal_learner_refusal",
     "philox4x32",
@@ -128,8 +128,8 @@ _COL_BRANCH = 60002
 #: The most elements one chunk of simulated paths holds in its tables and score rows.
 _CHUNK_ELEMENTS = 20_000_000
 
-#: A fixed dose further than this many fitted standard deviations from the fitted mean dose of a
-#: simulated history lies off the support the model has seen.
+#: A fixed or rule-set dose further than this many fitted standard deviations from the fitted mean
+#: dose of a simulated history lies off the support the model has seen.
 SUPPORT_Z = 2.0
 
 _MASK32 = 0xFFFFFFFF
@@ -1026,8 +1026,8 @@ def natural_nodes(data: LongitudinalData, plans: Sequence[Plan]) -> dict[int, bo
     -------
     dict of int to bool
         By node counted from one, ``True`` for a tilt node or a modified treatment policy at a
-        node ``t >= 2`` (the draw is part of the estimate), ``False`` for a fixed dose (a model
-        for the support diagnostic only).
+        node ``t >= 2`` (the draw is part of the estimate), ``False`` for a fixed dose or a rule
+        that sets a dose (a model for the support diagnostic only).
     """
     needs: dict[int, bool] = {}
     for plan in plans:
@@ -1037,7 +1037,7 @@ def natural_nodes(data: LongitudinalData, plans: Sequence[Plan]) -> dict[int, bo
             kind, _ = plan_node(plan.regimen, node)
             if kind == "tilt" or (kind == "mtp" and node >= 2):
                 needs[node] = True
-            elif kind == "label" and data.is_continuous_node(node):
+            elif kind in ("label", "rule") and data.is_continuous_node(node):
                 needs.setdefault(node, False)
     return needs
 
@@ -1368,7 +1368,7 @@ def _categorical(probabilities: FloatArray, uniforms: FloatArray) -> FloatArray:
 
 @dataclass(frozen=True)
 class SupportRow:
-    """The support of a fixed dose at one continuous node.
+    """The support of a fixed or rule-set dose at one continuous node.
 
     Parameters
     ----------
@@ -1378,20 +1378,21 @@ class SupportRow:
         The node, counted from one.
     name : str
         The treatment column.
-    dose : float
-        The fixed dose.
+    dose : float or None
+        The fixed dose, or ``None`` when a rule sets the dose from the history.
     off_support : float
         The weighted share of simulated histories whose fitted mean dose lies more than
-        :data:`SUPPORT_Z` fitted standard deviations from the dose.
+        :data:`SUPPORT_Z` fitted standard deviations from the dose.  A rule sets the dose of
+        each simulated history.
     window : float
         The weighted share of observed doses within :data:`SUPPORT_Z` fitted standard deviations
-        of the dose.
+        of the dose.  A rule sets the dose of each observed history.
     """
 
     plan: str
     node: int
     name: str
-    dose: float
+    dose: float | None
     off_support: float
     window: float
 
@@ -1552,6 +1553,9 @@ class _Simulator:
                 self._record_support(paths, node, float(declared), path_weight)
             else:
                 value = np.full(n, float(self._code_of(node, declared)))
+        elif kind == "rule" and continuous:
+            value = self._rule_dose(paths, node, declared)
+            self._record_support(paths, node, value, path_weight)
         elif kind == "rule":
             returned = declared(self._history_frame(paths, node))
             arms = np.asarray(_as_array(returned), dtype=object)
@@ -1578,6 +1582,23 @@ class _Simulator:
             levels = self._levels[node - 1]
             assert levels is not None
             paths.labels[node] = levels[value.astype(np.int64)]
+
+    def _rule_dose(self, paths: _Paths, node: int, rule: Callable[[Any], Any]) -> FloatArray:
+        """The dose a known rule sets on each simulated history, which draws nothing."""
+        where = f"the rule at time {node} of regimen {self.plan.label!r}"
+        returned = rule(self._history_frame(paths, node))
+        try:
+            dose = np.asarray(_as_array(returned), dtype=float)
+        except (TypeError, ValueError) as error:
+            raise DataError(f"{where} returned a value that is not a number") from error
+        if dose.ndim != 1 or dose.shape[0] != paths.n:
+            raise DataError(
+                f"{where} returned {dose.shape} doses for {paths.n} simulated histories; it "
+                "must return one dose per row"
+            )
+        if not np.all(np.isfinite(dose)):
+            raise DataError(f"{where} returned a dose that is not finite on a simulated history")
+        return dose
 
     def _policy_density(self, paths: _Paths, node: int, declared: Stochastic) -> FloatArray:
         data = self.data
@@ -1657,9 +1678,12 @@ class _Simulator:
         return value
 
     def _record_support(
-        self, paths: _Paths, node: int, dose: float, path_weight: FloatArray
+        self, paths: _Paths, node: int, dose: float | FloatArray, path_weight: FloatArray
     ) -> None:
-        """Accumulate the weighted share of simulated histories off the fixed dose's support."""
+        """Accumulate the weighted share of simulated histories off the support of the dose.
+
+        ``dose`` is the fixed dose, or the dose a rule set on each simulated history.
+        """
         model = self.book.treatment.get(node)
         if model is None or not self.check_span:
             return
@@ -1863,16 +1887,20 @@ def _simulate_plan(
 
 
 def _support_rows(book: ModelBook, plan: Plan, simulator: _Simulator) -> list[SupportRow]:
-    """The support diagnostic of each fixed dose of a plan."""
+    """The support diagnostic of each fixed or rule-set dose of a plan.
+
+    A rule sets the dose of each observed history too, and that dose is the centre of its window.
+    """
     data = book.data
     rows: list[SupportRow] = []
     for node, off_support in sorted(simulator.off_support.items()):
         model = book.treatment[node]
-        _, declared = plan_node(plan.regimen, node)
-        dose = float(declared)
+        kind, declared = plan_node(plan.regimen, node)
+        dose = float(declared) if kind == "label" else None
+        centre = np.asarray(plan.values[:, node - 1], dtype=float) if dose is None else dose
         observed = data.treatment[:, node - 1]
         fit = model.rows & np.isfinite(observed)
-        near = np.abs(np.where(fit, observed, 0.0) - dose) <= SUPPORT_Z * np.sqrt(model.sigma2)
+        near = np.abs(np.where(fit, observed, 0.0) - centre) <= SUPPORT_Z * np.sqrt(model.sigma2)
         weights = np.where(fit, data.weights, 0.0)
         window = float(np.sum(weights * near) / np.sum(weights))
         rows.append(
@@ -1949,9 +1977,9 @@ class GFormulaReport:
     parametric : bool
         Whether every model the estimate reads is a GLM.
     model_reliance : str or None
-        The statement that a fixed continuous dose makes, ``None`` without one.
+        The statement that a fixed or rule-set continuous dose makes, ``None`` without one.
     support : tuple of SupportRow
-        The support of each fixed dose.
+        The support of each fixed or rule-set dose.
     monte_carlo_share : dict of str to float
         By parameter name, the share of the curve's variance that the simulation contributes.
     """
@@ -2004,6 +2032,14 @@ class GFormulaReport:
         if self.model_reliance is not None:
             lines.append(f"model reliance: {self.model_reliance}")
         for row in self.support:
+            if row.dose is None:
+                lines.append(
+                    f"  support of {row.plan} at {row.name!r}, rule-set dose: "
+                    f"{row.off_support:.1%} of simulated histories lie more than {SUPPORT_Z:g} "
+                    f"fitted SD from the fitted mean dose; {row.window:.1%} of observed doses "
+                    "lie in the same window around the rule's dose on the observed history"
+                )
+                continue
             lines.append(
                 f"  support of {row.plan} at {row.name!r}, dose {row.dose:g}: "
                 f"{row.off_support:.1%} of simulated histories lie more than {SUPPORT_Z:g} "
@@ -2118,7 +2154,7 @@ def _report(
     book: ModelBook,
     settings: GFormulaSettings,
     support: Sequence[SupportRow],
-    fixed_doses: bool,
+    set_doses: bool,
 ) -> GFormulaReport:
     models = tuple(
         ModelRecord(
@@ -2135,10 +2171,11 @@ def _report(
         for model in book.models
     )
     reliance = (
-        "a fixed continuous dose is not pathwise differentiable without a model. The estimate "
-        "and its interval hold inside the fitted parametric laws, which are extrapolated to "
-        "the fixed dose at every node. The interval does not cover a misspecified model."
-        if fixed_doses
+        "a fixed or rule-set continuous dose is not pathwise differentiable without a model. "
+        "The estimate and its interval hold inside the fitted parametric laws, which are "
+        "extrapolated to the dose at every node. The interval does not cover a misspecified "
+        "model."
+        if set_doses
         else None
     )
     return GFormulaReport(
@@ -2159,8 +2196,8 @@ def _report(
     )
 
 
-def has_fixed_dose(data: LongitudinalData, plans: Sequence[Plan]) -> bool:
-    """Whether any plan assigns a fixed dose at a continuous treatment node.
+def has_set_dose(data: LongitudinalData, plans: Sequence[Plan]) -> bool:
+    """Whether any plan sets a dose, by a number or a rule, at a continuous treatment node.
 
     Parameters
     ----------
@@ -2172,12 +2209,13 @@ def has_fixed_dose(data: LongitudinalData, plans: Sequence[Plan]) -> bool:
     Returns
     -------
     bool
-        ``True`` when a plan labels a continuous, non-held node with a number.
+        ``True`` when a plan labels a continuous, non-held node with a number or sets it by a
+        rule.
     """
     return any(
         data.is_continuous_node(node)
         and not data.is_held_node(node)
-        and plan_node(plan.regimen, node)[0] == "label"
+        and plan_node(plan.regimen, node)[0] in ("label", "rule")
         for plan in plans
         for node in range(1, data.n_times + 1)
     )
@@ -2226,7 +2264,7 @@ def run_gformula(
     projections = {model.key: book.projection(model) for model in book.stacked}
     built: dict[tuple[str, str | None, int], RegimenFit] = {}
     support: list[SupportRow] = []
-    fixed_doses = has_fixed_dose(data, plans)
+    set_doses = has_set_dose(data, plans)
     reference = settings.reference if settings.reference is not None else plans[0].label
     # The reference goes first, so that its copies are the only ones kept in memory: every
     # other plan reads the difference of its copies and the reference's, then drops them.
@@ -2260,7 +2298,7 @@ def run_gformula(
         for plan in plans
         for cell in cells
     }
-    report = _report(book, settings, support, fixed_doses)
+    report = _report(book, settings, support, set_doses)
     for fit_key, fit in fits.items():
         assert fit.simulation is not None
         fits[fit_key] = replace(fit, simulation=replace(fit.simulation, report=report))

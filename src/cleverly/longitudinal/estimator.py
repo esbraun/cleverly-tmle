@@ -174,7 +174,7 @@ from .gformula import (
     GFormulaReport,
     GFormulaSettings,
     declared_natural,
-    has_fixed_dose,
+    has_set_dose,
     monte_carlo_share,
     normal_learner_refusal,
     plan_node,
@@ -3670,9 +3670,9 @@ class _SequentialEstimator:
     #: ``"tmle"``, ``"sdr"`` or ``"ipsi"``: the recursion :func:`_run_recursion` runs.
     _estimator: ClassVar[str]
 
-    #: Whether a fixed dose at a continuous node is a regimen this estimator fits.  Only a
-    #: model-based estimator accepts one.
-    _allow_fixed_dose: ClassVar[bool] = False
+    #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
+    #: regimen this estimator fits.  Only a model-based estimator accepts one.
+    _allow_set_dose: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -4164,7 +4164,7 @@ class _SequentialEstimator:
         reference = self._reference(regimens)
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
-        plans = resolve_plans(regimens, prepared, allow_fixed_dose=self._allow_fixed_dose)
+        plans = resolve_plans(regimens, prepared, allow_set_dose=self._allow_set_dose)
         # An odds tilt node reads the mechanism, so each estimator decides here, before any
         # learner, whether it fits one.
         plans = self._resolve_tilts(prepared, plans)
@@ -6132,8 +6132,9 @@ class ParametricGFormula(_Baseline):
         treatment policies are accepted, and so is an odds tilt.  A tilt, and a modified
         treatment policy at a node ``t >= 2``, draw the natural treatment from a fitted model,
         or from the declared mechanism (``treatment_probabilities=``) of a node that has one.
-        A fixed number at a continuous treatment node is a fixed dose, which reads the model of
-        the dose and reports a support diagnostic.
+        A fixed number at a continuous treatment node is a fixed dose, and a known rule
+        (``rule_kind="known"``) there sets the dose from the simulated history.  Either reads
+        the model of the dose and reports a support diagnostic.
     n_draws : int
         The simulated histories per unit behind the estimate.
     n_derivative_draws : int or None
@@ -6181,9 +6182,9 @@ class ParametricGFormula(_Baseline):
     simulation redraws.  That node has no learner and no score term.  A unit with no declared
     value at such a node is refused.
 
-    A fit with a fixed dose reports no mechanism diagnostics for any regimen of the fit,
-    because a dose has no density ratio.  Fit the other regimens in a separate call to read
-    their diagnostics.
+    A fit with a fixed dose or a rule-set dose reports no mechanism diagnostics for any regimen
+    of the fit, because a dose has no density ratio.  Fit the other regimens in a separate call to
+    read their diagnostics.
 
     Examples
     --------
@@ -6207,7 +6208,7 @@ class ParametricGFormula(_Baseline):
     """
 
     _estimator: ClassVar[str] = "parametric_gformula"
-    _allow_fixed_dose: ClassVar[bool] = True
+    _allow_set_dose: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -6353,8 +6354,9 @@ class ParametricGFormula(_Baseline):
     ) -> Mechanism:
         """Fit the diagnostic mechanism, and degrade the diagnostics when it cannot fit.
 
-        A fixed dose has no density ratio, so a fit with one reports no mechanism diagnostics
-        and reads the support diagnostic of ``result.simulation`` instead.
+        A fixed dose or a rule-set dose has no density ratio, so a fit with one reports no
+        mechanism diagnostics and reads the support diagnostic of ``result.simulation``
+        instead.
 
         Parameters
         ----------
@@ -6374,7 +6376,7 @@ class ParametricGFormula(_Baseline):
         Mechanism
             The fitted mechanism, or one that holds ``nan`` everywhere.
         """
-        if has_fixed_dose(data, plans):
+        if has_set_dose(data, plans):
             return _unavailable_mechanism(data, plans)
         return self._fit_diagnostic_mechanism(
             data,

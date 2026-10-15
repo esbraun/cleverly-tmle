@@ -1646,13 +1646,11 @@ pooled model per covariate over all time rows, with lag and cumulative-average t
 history. A pooled model restricts the node-specific models, so it needs fewer parameters and it
 extrapolates over time. This row adds the pooled form to the shipped estimator.
 
-| part | what to add | evidence |
-| --- | --- | --- |
-| (a) | a pooled `GLM` for each covariate and for the outcome or hazard, fitted on long rows. Each row carries the time, the lag and the cumulative-average terms of the history that the caller declares. The score of a unit is the sum over its rows, and the information is the sum over all rows. The stacked equations, the score-function derivative and the simulation error stay as in [the shipped page](technical-reference/parametric-gformula.md) | exact laws on which the pooled model is correct, with the complex-step Gateaux check of the curve, and a mutation control that scores each row as a unit. A nonzero witness for each history term |
-| (b) | a rule that sets a continuous dose from the simulated history, in place of the refusal of such a rule | the closed form of a linear-Gaussian law with a history-dependent dose, and the Gateaux check |
-| (c) | the comparator run against `pygformula` 1.2.0 in its own environment, on fixtures whose model statements equal the shipped models. Node-specific models need two-node fixtures for the covariate laws, because `pygformula` pools the covariate models and the residual standard deviation | the gate of the registered study `parametric-gformula`: the difference of the estimates within 4 standard errors of the two simulations. A pending comparator never blocks the shipped estimator |
+| what to add | evidence |
+| --- | --- |
+| a pooled `GLM` for each covariate and for the outcome or hazard, fitted on long rows. Each row carries the time, the lag and the cumulative-average terms of the history that the caller declares. The score of a unit is the sum over its rows, and the information is the sum over all rows. The stacked equations, the score-function derivative and the simulation error stay as in [the shipped page](technical-reference/parametric-gformula.md) | exact laws on which the pooled model is correct, with the complex-step Gateaux check of the curve, and a mutation control that scores each row as a unit. A nonzero witness for each history term |
 
-Acceptance: the exact-law witnesses of part (a), the mutation controls, and a registered study
+Acceptance: the exact-law witnesses of the pooled model, the mutation controls, and a registered study
 cell for a law with a lag term.
 
 ### P1. EP learner

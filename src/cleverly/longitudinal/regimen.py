@@ -950,7 +950,7 @@ def resolve_plans(
     data: LongitudinalData,
     *,
     _collapse_point_masses: bool = True,
-    allow_fixed_dose: bool = False,
+    allow_set_dose: bool = False,
 ) -> tuple[Plan, ...]:
     """Evaluate every regimen against ``data``, once, before any nuisance is fitted.
 
@@ -969,9 +969,10 @@ def resolve_plans(
     _collapse_point_masses : bool, default=True
         Private.  ``False`` keeps a one-hot policy on the policy path, which a test uses to
         check that path against the rule it equals.
-    allow_fixed_dose : bool, default=False
-        Whether a fixed dose at a continuous node is resolved.  Only a model-based estimator
-        accepts one, because the nonparametric target is not pathwise differentiable.
+    allow_set_dose : bool, default=False
+        Whether a fixed dose or a known rule that sets a dose, at a continuous node, is
+        resolved.  Only a model-based estimator accepts one, because the nonparametric target is
+        not pathwise differentiable.
 
     Returns
     -------
@@ -979,18 +980,16 @@ def resolve_plans(
         One per regimen, in the order given.
     """
     return tuple(
-        _resolve_plan(
-            regimen, data, collapse=_collapse_point_masses, allow_fixed_dose=allow_fixed_dose
-        )
+        _resolve_plan(regimen, data, collapse=_collapse_point_masses, allow_set_dose=allow_set_dose)
         for regimen in regimens
     )
 
 
 def _resolve_plan(
-    regimen: RegimenSpec, data: LongitudinalData, *, collapse: bool, allow_fixed_dose: bool = False
+    regimen: RegimenSpec, data: LongitudinalData, *, collapse: bool, allow_set_dose: bool = False
 ) -> Plan:
     """One regimen's plan, with its policy densities evaluated and point masses collapsed."""
-    refuse_continuous_assignments(regimen, data, allow_fixed_dose=allow_fixed_dose)
+    refuse_continuous_assignments(regimen, data, allow_set_dose=allow_set_dose)
     values = data.encode_assignment(regimen.assignment(data), regimen.label)
     if not (isinstance(regimen, DynamicRegimen) and (regimen.has_policy or regimen.has_tilt)):
         return Plan(regimen, values)
@@ -1121,7 +1120,7 @@ def _resolve_mtp_node(
 
 
 def refuse_continuous_assignments(
-    regimen: RegimenSpec, data: LongitudinalData, *, allow_fixed_dose: bool = False
+    regimen: RegimenSpec, data: LongitudinalData, *, allow_set_dose: bool = False
 ) -> None:
     """Refuse a label, rule or known density at a continuous node, before any learner.
 
@@ -1135,9 +1134,9 @@ def refuse_continuous_assignments(
         The resolved regimen.
     data : LongitudinalData
         The validated panel.
-    allow_fixed_dose : bool, default=False
-        Accept a fixed dose, a number that is not a rule, at a continuous node.  A parametric
-        model gives that dose a finite-dimensional target.
+    allow_set_dose : bool, default=False
+        Accept a fixed dose, a number, or a known rule that sets a dose from the history, at a
+        continuous node.  A parametric model gives either a finite-dimensional target.
 
     Raises
     ------
@@ -1149,31 +1148,21 @@ def refuse_continuous_assignments(
     nodes = regimen.values if isinstance(regimen, Regimen) else regimen.plan
     for time, node in enumerate(nodes, start=1):
         if (
-            allow_fixed_dose
+            allow_set_dose
             and data.is_continuous_node(time)
-            and not callable(node)
-            and not _is_tilt(node)
-            and isinstance(node, (int, float, np.integer, np.floating))
-            and not isinstance(node, bool)
+            and not _is_drawn(node)
+            and (
+                callable(node)
+                or (
+                    isinstance(node, (int, float, np.integer, np.floating))
+                    and not isinstance(node, bool)
+                )
+            )
         ):
             continue
         if data.is_continuous_node(time) and _is_tilt(node):
             raise CapabilityError.from_refusal(
                 tilt_continuous_refusal(regimen.label, data.treatment_names[time - 1])
-            )
-        if allow_fixed_dose and data.is_continuous_node(time) and callable(node):
-            raise CapabilityError(
-                f"regimen {regimen.label!r} sets the continuous node "
-                f"{data.treatment_names[time - 1]!r} by a rule. The parametric g-formula "
-                "accepts a fixed number or a modified treatment policy at a continuous node. "
-                "A dose that depends on the simulated history is a valid regimen under the "
-                "fitted laws, and the simulation does not draw it yet.",
-                reason=RefusalReason.IMPLEMENTATION_GAP,
-                alternative=(
-                    "Declare a fixed dose or a modified treatment policy at that node, or fit "
-                    "a regimen per dose."
-                ),
-                roadmap="X73",
             )
         if data.is_continuous_node(time) and not _is_mtp(node):
             raise CapabilityError(

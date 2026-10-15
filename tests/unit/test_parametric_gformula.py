@@ -13,7 +13,8 @@ the simulation code they check.
 * W4, W5, W6: the Monte Carlo variance term, the mean of the curve, common random numbers.
 * W9: on a saturated law the estimate equals the nonparametric plug-in of
   ``SequentialGComputation``, and the statistical curve equals the efficient influence curve.
-* W10: a fixed dose on a linear-Gaussian law has a closed form.
+* W10: a fixed dose, and a rule that sets a dose from the history, on a linear-Gaussian law have
+  a closed form.
 * W11: the refusals before any learner.
 
 ``tests/unit/test_parametric_gformula.py`` also carries the Philox known-answer test, the status
@@ -1867,6 +1868,288 @@ class TestFixedDose:
         assert abs(edge["off1"] - edge["off1_unweighted"]) > 0.05
 
 
+# ------------------------------------------------------ law F: a rule that sets a continuous dose
+
+#: A rule is ``(h0, h1, g0, g1, g2)``: node 1 sets ``h0 + h1 W1`` and node 2 sets
+#: ``g0 + g1 L2 + g2 W1``.  ``g1`` is the nonzero witness: the dose at node 2 reads the history.
+RULES_F: dict[str, tuple[float, float, float, float, float]] = {
+    "hist": (0.2, 0.5, 0.3, 0.6, -0.4),
+    "far": (5.0, 0.5, 10.0, 1.2, -0.4),
+}
+
+
+def rule_plan(label: str, parameters: tuple[float, float, float, float, float]) -> DynamicRegimen:
+    """The known rule of ``parameters``, written on the history frame a rule is handed."""
+    h0, h1, g0, g1, g2 = parameters
+    return DynamicRegimen(
+        label,
+        (
+            lambda history: h0 + h1 * history["W1"],
+            lambda history: g0 + g1 * history["L2"] + g2 * history["W1"],
+        ),
+        rule_kind="known",
+    )
+
+
+def phi_rule(book: gf.ModelBook, plan: Any, theta: dict[str, np.ndarray]) -> np.ndarray:
+    """Law F's unit means under a rule: both models are linear and the rule is linear in ``L2``.
+
+    The rule reads ``L2`` at its conditional mean, complex-step ready, so the mean outcome is
+    the outcome model at the dose of that history.
+    """
+    data = book.data
+    w1 = data.baseline[:, 0]
+    _, first = gf.plan_node(plan.regimen, 1)
+    _, second = gf.plan_node(plan.regimen, 2)
+    a1 = np.asarray(first(pd.DataFrame({"W1": w1})), dtype=complex)
+    mean_l2 = linear(book, "covariate:2:L2", theta["covariate:2:L2"], np.column_stack([w1, a1]))
+    a2 = np.asarray(second(pd.DataFrame({"W1": w1, "L2": mean_l2})), dtype=complex)
+    x = np.column_stack([w1, a1, mean_l2, a2])
+    return linear(book, "outcome", theta["outcome"], x)[:, None]
+
+
+def closed_form_rule(
+    frame: pd.DataFrame, parameters: tuple[float, float, float, float, float]
+) -> tuple[float, np.ndarray]:
+    """The scaled estimate and curve under a rule, from two OLS fits and a mean.
+
+    The unit mean is linear in ``W1``, so the estimate is the mean outcome at the mean baseline.
+    The rule reads ``L2``, so the coefficient of ``L2`` in the law of ``L2`` carries the effect
+    ``b3 + b4 g1`` of the rule on the outcome.
+    """
+    lo, hi = BOUNDS_F
+    h0, h1, g0, g1, g2 = parameters
+    n = len(frame)
+    w1, a1 = frame["W1"].to_numpy(), frame["A1"].to_numpy()
+    rows1 = frame["C1"].to_numpy() == 1
+    rows2 = frame["C2"].to_numpy() == 1
+    l2, a2 = frame["L2"].to_numpy(), frame["A2"].to_numpy()
+    y = (frame["Y"].to_numpy() - lo) / (hi - lo)
+    x1 = np.column_stack([np.ones(n), w1, a1])
+    a, *_ = np.linalg.lstsq(x1[rows1], l2[rows1], rcond=None)
+    r1 = np.where(rows1, np.nan_to_num(l2) - x1 @ a, 0.0)
+    x2 = np.column_stack([np.ones(n), w1, a1, np.nan_to_num(l2), np.nan_to_num(a2)])
+    b, *_ = np.linalg.lstsq(x2[rows2], y[rows2], rcond=None)
+    r2 = np.where(rows2, np.nan_to_num(y) - x2 @ b, 0.0)
+
+    def doses(w: Any) -> tuple[Any, Any, Any]:
+        d1 = h0 + h1 * w
+        mean_l2 = a[0] + a[1] * w + a[2] * d1
+        return d1, mean_l2, g0 + g1 * mean_l2 + g2 * w
+
+    def at(w: Any) -> Any:
+        d1, mean_l2, d2 = doses(w)
+        return b[0] + b[1] * w + b[2] * d1 + b[3] * mean_l2 + b[4] * d2
+
+    w_bar = w1.mean()
+    psi = float(at(w_bar))
+    d1_bar, mean_bar, d2_bar = doses(w_bar)
+    info1 = (x1[rows1].T @ x1[rows1]) / n
+    info2 = (x2[rows2].T @ x2[rows2]) / n
+    grad_a = (b[3] + b[4] * g1) * np.array([1.0, w_bar, d1_bar])
+    grad_b = np.array([1.0, w_bar, d1_bar, mean_bar, d2_bar])
+    curve = (
+        at(w1)
+        - psi
+        + (x1 * r1[:, None]) @ np.linalg.solve(info1, grad_a)
+        + (x2 * r2[:, None]) @ np.linalg.solve(info2, grad_b)
+    )
+    return psi, curve
+
+
+def exact_rule_support(
+    frame: pd.DataFrame, parameters: tuple[float, float, float, float, float]
+) -> dict[str, float]:
+    """The support diagnostic of a rule on law F, by least squares and the normal distribution.
+
+    At node 1 the dose and the fitted mean dose read the baseline alone.  At node 2 the dose
+    minus the fitted mean dose is linear in the simulated ``L2``, so the share inside the window
+    integrates the normal distribution function.  The window shares centre on the dose the rule
+    sets on the observed history.
+    """
+    z = gf.SUPPORT_Z
+    h0, h1, g0, g1, g2 = parameters
+    n = len(frame)
+    w1, a1 = frame["W1"].to_numpy(), frame["A1"].to_numpy()
+    rows = frame["C1"].to_numpy() == 1
+    l2, a2 = frame["L2"].to_numpy(), frame["A2"].to_numpy()
+
+    def fit(x: np.ndarray, y: np.ndarray, use: np.ndarray) -> tuple[np.ndarray, float]:
+        coef, *_ = np.linalg.lstsq(x[use], y[use], rcond=None)
+        return coef, float(np.sqrt(np.mean((y[use] - x[use] @ coef) ** 2)))
+
+    everyone = np.ones(n, dtype=bool)
+    x1 = np.column_stack([np.ones(n), w1])
+    b1, s1 = fit(x1, a1, everyone)
+    bl, sl = fit(np.column_stack([np.ones(n), w1, a1]), np.nan_to_num(l2), rows)
+    x2 = np.column_stack([np.ones(n), w1, a1, np.nan_to_num(l2)])
+    b2, s2 = fit(x2, np.nan_to_num(a2), rows)
+    d1 = h0 + h1 * w1
+    mean_l2 = bl[0] + bl[1] * w1 + bl[2] * d1
+    # d2 - mean dose = c + k L2 on the simulated history.
+    c = g0 + g2 * w1 - (b2[0] + b2[1] * w1 + b2[2] * d1)
+    k = g1 - b2[3]
+    edges = np.sort(np.column_stack([(-z * s2 - c) / k, (z * s2 - c) / k]), axis=1)
+    inside = norm.cdf((edges[:, 1] - mean_l2) / sl) - norm.cdf((edges[:, 0] - mean_l2) / sl)
+    observed_dose = g0 + g1 * np.nan_to_num(l2) + g2 * w1
+    return {
+        "off1": float(np.mean(np.abs(d1 - x1 @ b1) / s1 > z)),
+        "window1": float(np.mean(np.abs(a1 - d1) <= z * s1)),
+        "off2": float(np.mean(1.0 - inside)),
+        "off2_se": float(np.sqrt(np.sum(inside * (1.0 - inside))) / n),
+        "window2": float(np.mean((np.abs(np.nan_to_num(a2) - observed_dose) <= z * s2)[rows])),
+        "window2_fixed": float(np.mean((np.abs(np.nan_to_num(a2) - g0) <= z * s2)[rows])),
+    }
+
+
+class TestRuleSetDose:
+    """W10: a rule that sets a continuous dose from the simulated history, on law F.
+
+    The rule is evaluated on each simulated history, draws nothing, and carries the model
+    reliance and the support diagnostic of a fixed dose.
+    """
+
+    N = 600
+
+    def _plans(self) -> list[DynamicRegimen]:
+        return [rule_plan(label, parameters) for label, parameters in RULES_F.items()]
+
+    def test_the_exact_curve_is_the_delta_method_curve(self) -> None:
+        frame = panel_f(self.N, seed=23)
+        result, store = run_exact(
+            frame,
+            self._plans(),
+            ROLES_F,
+            phi_rule,
+            covariate_types={"L2": "normal"},
+            q_bounds=BOUNDS_F,
+            n_draws=2,
+        )
+        # The dose is not drawn, so the natural-treatment models are fitted and not stacked.
+        assert {m.key for m in store["book"].stacked} == {"covariate:2:L2", "outcome"}
+        for label, parameters in RULES_F.items():
+            psi, curve = closed_form_rule(frame, parameters)
+            name = f"ey_regimen[{label}]"
+            assert result.psi(name) == pytest.approx(
+                BOUNDS_F[0] + (BOUNDS_F[1] - BOUNDS_F[0]) * psi, abs=1e-9
+            )
+            scaled = (BOUNDS_F[1] - BOUNDS_F[0]) * curve
+            np.testing.assert_allclose(result.influence_curves[name], scaled, rtol=0, atol=1e-8)
+            closed = np.sqrt(np.var(scaled, ddof=1) / self.N)
+            assert result.estimates[name].std_error == pytest.approx(closed, rel=1e-6)
+        # The nonzero witness: a rule that ignored ``L2`` would drop the term ``b4 g1``.
+        _, curve = closed_form_rule(frame, RULES_F["hist"])
+        _, flat = closed_form_rule(frame, (*RULES_F["hist"][:3], 0.0, RULES_F["hist"][4]))
+        assert np.max(np.abs(curve - flat)) > 0.01
+
+    def test_the_curve_is_the_gateaux_derivative(self) -> None:
+        frame = panel_f(150, seed=23)
+        result, store = run_exact(
+            frame,
+            self._plans()[:1],
+            ROLES_F,
+            phi_rule,
+            covariate_types={"L2": "normal"},
+            q_bounds=BOUNDS_F,
+            n_draws=2,
+        )
+        units = np.random.default_rng(1).choice(len(frame), 20, replace=False)
+        expected = gateaux_curve(store["book"], phi_rule, store["plan"], units=units)
+        np.testing.assert_allclose(
+            result.influence_curves["ey_regimen[hist]"][units],
+            (BOUNDS_F[1] - BOUNDS_F[0]) * expected,
+            rtol=0,
+            atol=1e-6,
+        )
+        assert np.max(np.abs(expected)) > 0.01
+
+    def test_the_production_terms_are_the_exact_terms(self) -> None:
+        """The score-function derivative of the model of ``L2`` carries the rule's reading of it."""
+        frame = panel_f(150, seed=23)
+        _, store = run_exact(
+            frame,
+            self._plans()[:1],
+            ROLES_F,
+            phi_rule,
+            covariate_types={"L2": "normal"},
+            q_bounds=BOUNDS_F,
+            n_draws=2,
+        )
+        assert_production_matches_exact(store, phi_rule, replicates=80)
+
+    def test_the_simulated_estimate_and_the_support_diagnostic(self) -> None:
+        frame = panel_f(self.N, seed=23, dose_scale=0.6)
+        draws = 200
+        result = fit_with(
+            frame,
+            self._plans(),
+            ROLES_F,
+            covariate_types={"L2": "normal"},
+            q_bounds=BOUNDS_F,
+            n_draws=draws,
+            reference="hist",
+        )
+        for label, parameters in RULES_F.items():
+            psi, _ = closed_form_rule(frame, parameters)
+            name = f"ey_regimen[{label}]"
+            truth = BOUNDS_F[0] + (BOUNDS_F[1] - BOUNDS_F[0]) * psi
+            assert abs(result.psi(name) - truth) <= 4.0 * monte_carlo_se(result, name)
+        report = result.simulation
+        assert report.model_reliance is not None
+        assert "rule-set" in report.model_reliance
+        rows = {(row.plan, row.node): row for row in report.support}
+        assert set(rows) == {("hist", 1), ("hist", 2), ("far", 1), ("far", 2)}
+        for label, parameters in RULES_F.items():
+            exact = exact_rule_support(frame, parameters)
+            assert rows[(label, 1)].dose is None
+            assert rows[(label, 1)].off_support == pytest.approx(exact["off1"], abs=1e-12)
+            assert rows[(label, 1)].window == pytest.approx(exact["window1"], abs=1e-12)
+            assert rows[(label, 2)].window == pytest.approx(exact["window2"], abs=1e-12)
+            band = 5.0 * exact["off2_se"] / np.sqrt(draws) + 1e-12
+            assert abs(rows[(label, 2)].off_support - exact["off2"]) <= band
+        # The nonzero witnesses: a window centred on the intercept alone, which is what a rule
+        # read as a fixed dose gives, differs from the window around the dose of the history.
+        near = exact_rule_support(frame, RULES_F["hist"])
+        assert abs(near["window2"] - near["window2_fixed"]) > 0.05
+        assert rows[("far", 1)].off_support > 0.9
+        assert rows[("far", 2)].off_support > 0.9
+        assert "rule-set dose" in result.summary()
+        assert "model reliance" in result.summary()
+
+    def test_a_rule_read_on_the_observed_history_is_caught(self, monkeypatch: Any) -> None:
+        """The control: the dose the rule sets on the observed history misses the closed form."""
+        frame = panel_f(self.N, seed=23, dose_scale=0.6)
+        name = "ey_regimen[far]"
+        psi, _ = closed_form_rule(frame, RULES_F["far"])
+        truth = BOUNDS_F[0] + (BOUNDS_F[1] - BOUNDS_F[0]) * psi
+        settings: dict[str, Any] = {
+            "covariate_types": {"L2": "normal"},
+            "q_bounds": BOUNDS_F,
+            "n_draws": 200,
+        }
+        honoured = fit_with(frame, [rule_plan("far", RULES_F["far"])], ROLES_F, **settings)
+        error = monte_carlo_se(honoured, name)
+        assert abs(honoured.psi(name) - truth) <= 4.0 * error
+
+        def observed_dose(self: Any, paths: Any, node: int, rule: Any) -> np.ndarray:
+            return np.asarray(self.plan.values[paths.units, node - 1], dtype=float)
+
+        monkeypatch.setattr(gf._Simulator, "_rule_dose", observed_dose)
+        mutant = fit_with(frame, [rule_plan("far", RULES_F["far"])], ROLES_F, **settings)
+        assert abs(mutant.psi(name) - truth) > 20.0 * error
+        assert abs(mutant.psi(name) - truth) > 0.1
+
+    def test_a_dose_that_is_not_finite_is_refused(self) -> None:
+        rule = DynamicRegimen(
+            "nan", (0.5, lambda history: history["L2"] * np.nan), rule_kind="known"
+        )
+        estimator = ParametricGFormula(
+            rule, covariate_types={"L2": "normal"}, q_bounds=BOUNDS_F, random_state=1, n_draws=2
+        )
+        with pytest.raises(DataError, match="not finite"):
+            quiet_fit(estimator, panel_f(200, seed=1), **ROLES_F)
+
+
 # ------------------------------------------------------------------------- the random numbers
 
 #: Known answers of Philox4x32-10 from the Random123 distribution (Salmon et al. 2011).
@@ -2071,16 +2354,6 @@ class TestRefusals:
             ParametricGFormula({"a": 1}, outcome_learner=NeverFit()).fit(panel(), **roles)
         assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         assert "X71" in str(raised.value)
-
-    def test_a_rule_at_a_continuous_node_is_an_implementation_gap_of_x73(self) -> None:
-        rule = DynamicRegimen("rule", (lambda history: history["W1"], 1.0), rule_kind="known")
-        estimator = ParametricGFormula(
-            rule, outcome_learner=NeverFit(), covariate_types={"L2": "normal"}, random_state=1
-        )
-        with pytest.raises(CapabilityError, match="by a rule") as raised:
-            quiet_fit(estimator, panel_f(200, seed=1), **ROLES_F)
-        assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert raised.value.refusal.roadmap == "X73"
 
     def test_a_binomial_glm_on_an_unbounded_outcome_is_refused(self) -> None:
         frame = panel_f(200, seed=3)
