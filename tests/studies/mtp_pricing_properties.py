@@ -134,10 +134,14 @@ assert tuple(CELLS) == study.CALIBRATION_LABELS
 
 PILOT_DRAWS = 2_000
 SCREEN_DRAWS = 2_000
-#: Calibration arms the screen declares ``reporting`` before the run (empty until it runs).
-#: Such an arm leaves the pooled rule, and it runs at its pilot's :data:`PILOT_DRAWS`
-#: replications, which are then its published rows (design review m2, m6).
-REPORTING_LABELS: frozenset[str] = frozenset()
+#: Calibration arms the screen declares ``reporting`` before the run.  Such an arm leaves the
+#: pooled rule, and it runs at its pilot's :data:`PILOT_DRAWS` replications, which are then its
+#: published rows (design review m2, m6).  The screen (2,000 draws per arm, 2026-10-15) read
+#: the declared 320-bin density outside :data:`~tests.studies.mtp_study_tools.LEARNER_BAND` at
+#: every ``tau``, on the conservative side: SE ratio 1.052 (``tau = 2``), 1.105 (3) and 1.079
+#: (5), coverage 0.96 to 0.965.  Owner: the learned-density sentence in
+#: ``docs/technical-reference/longitudinal-tmle.md``, which states these readings.
+REPORTING_LABELS: frozenset[str] = frozenset(f"up_learned_density_tau{t}" for t in common.HORIZONS)
 #: The pooled rule's arms: every gating calibration positive of both S2 records.
 POOLED_LABELS: tuple[str, ...] = (
     *(label for label in CELLS if label not in REPORTING_LABELS),
@@ -174,8 +178,10 @@ NOISE_SD: dict[str, float] = {
     "crossfit_sdr_learned_classifier_tau3": 0.98,
 }
 assert set(NOISE_SD) == set(CELLS)
-#: The screen's winner per ``tau``.  Provisional until :func:`learner_screen` runs; the
-#: declaration commit records the winner and the screen's numbers.
+#: The screen's winner per ``tau`` (2,000 draws per candidate, 2026-10-15).  The quadratic
+#: logistic has the smaller ``|bias| / SD`` of the candidates inside the band at every ``tau``:
+#: SE ratio 0.971, 0.997 and 0.968 at ``tau = 2, 3, 5``.  The depth-2 boosted classifier read
+#: 0.929 (outside the band), 0.960 and 0.933 (outside).
 SCREENED_CLASSIFIER: dict[int, str] = dict.fromkeys(common.HORIZONS, "quadratic_logistic")
 #: The declared more local alternative of ``classifier_split`` (M8.5).
 SPLIT_ALTERNATIVE = "boosted_depth4"
