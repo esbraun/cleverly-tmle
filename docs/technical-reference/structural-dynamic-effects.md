@@ -1,0 +1,305 @@
+# Structural dynamic effects
+
+## What this solves
+
+`StructuralNestedMean` fits a linear structural nested mean model (SNMM) by cross-fitted
+g-estimation. It reports the effect of each treatment node on the end-of-study outcome. It reports
+that effect as a coefficient matrix, and it lets the effect vary with declared features. It also
+reports the mean outcome at the reference level, and the mean and contrast of declared static
+regimens.
+
+The estimator is a separate method, not a second route to the `LTMLE` estimand. The coefficients
+are the parameters of a restricted model. A regimen level or contrast has the same estimand as
+the one `LTMLE` reports only when that model holds.
+
+| question | estimator | what it assumes |
+| --- | --- | --- |
+| What is the effect of a dose or an arm at node $t$, with later treatment at the reference? | `StructuralNestedMean` | the linear blip model of this page |
+| What is the mean outcome under a static regimen, with no model for the effect? | `LTMLE`, `SDR` | no structural model |
+| What is the value of a rule or a policy? | `LTMLE`, `SDR`, `IPSI` | no structural model |
+
+```python
+from cleverly.datasets import make_longitudinal
+from cleverly.learners import GLM
+from cleverly.longitudinal import snmm
+
+frame, _ = make_longitudinal(n=300, seed=0, censoring=False)
+result = snmm(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    regimens={"always": 1, "never": 0},
+    reference="never",
+    blip_features={1: ["W1"], 2: ["W1", "A1"]},
+    outcome_learner=GLM(family="binomial"),
+    treatment_learner=GLM(family="binomial"),
+    n_folds=2,
+    random_state=0,
+)
+print(result.summary())
+print(result.blip(2))
+print(result.check_model().summary())
+```
+
+`snmm()` is the one-call form. `result.blip(node)` returns the coefficient matrix of one node.
+`result.check_model()` compares the structural contrasts with the contrasts of `LTMLE`.
+
+## The model
+
+Write $H_t$ for the history before the treatment $A_t$ of node $t$. The history holds the baseline
+columns, the covariates through node $t$, and the earlier treatments. Write $Y(\bar a_t, 0)$ for the
+outcome with treatment $a$ through node $t$ and the reference level afterwards. The blip is
+
+$$
+\gamma_t(h_t, a_t) = E[Y(\bar a_{t-1}, a_t, 0) - Y(\bar a_{t-1}, 0, 0) \mid H_t = h_t, A_t = a_t]
+= c(a_t)^\top \Psi_t\, \phi_t(h_t).
+$$
+
+| symbol | meaning |
+| --- | --- |
+| $c(a_t)$ | the coding of the treatment. A binary node uses the indicator. A categorical node uses the indicators of the levels after the first sorted level. A continuous node uses the dose |
+| $\phi_t$ | the declared feature map of node $t$. The intercept is always a feature |
+| $\Psi_t$ | the matrix of constants that the fit estimates, with one row per coding component and one column per feature |
+| $Z_t$ | $\phi_t(H_t) \otimes c(A_t)$. The vector $\psi_t$ is $\mathrm{vec}(\Psi_t)$ in the order of the result names |
+
+A feature $\phi_t$ may read the baseline columns, the covariates through node $t$, the earlier
+treatments, and products of those. Result names have the form `blip[<treatment>:<component>:<feature>]`.
+
+Three assumptions apply beyond those of `LTMLE`.
+
+| assumption | statement |
+| --- | --- |
+| sequential exchangeability | the potential outcome $Y(\bar A_{t-1}, 0)$ is independent of $A_t$ given $H_t$ |
+| linear blip | the equation above holds with the declared features and constant $\Psi_t$ |
+| average positivity | $E[\tilde Z_{t,t} \tilde Z_{t,t}^\top]$ is positive definite, with the residuals of the estimating equation below |
+
+The model is a restriction. A blip that depends on an undeclared earlier treatment or covariate
+makes the coefficients answer a different question. Laws L and P in the validation table show the
+size of that error.
+
+## Identification of the static level and contrast
+
+Take a static regimen $a = (a_1, \dots, a_K)$ and a feature map $\phi_t$ that reads the baseline
+columns and the earlier treatments only.
+
+| step | statement | reason |
+| --- | --- | --- |
+| 1 | $Y(a) - Y(0) = \sum_t [Y(\bar a_t, 0) - Y(\bar a_{t-1}, 0)]$ | the telescoping sum |
+| 2 | $E[Y(\bar a_t, 0) - Y(\bar a_{t-1}, 0) \mid H_t] = \gamma_t(H_t, a_t)$ | exchangeability at node $t$ removes the conditioning on $A_t$ |
+| 3 | the mean of the term is $E[\gamma_t(H_t(\bar a_{t-1}), a_t)]$ | the iterated expectation over the history under the regimen. This is the static case of Lewis and Syrgkanis (2021), supplement Lemma 6 |
+| 4 | the mean is $c(a_t)^\top \Psi_t\, E[\phi_t(X_0, \bar a_{t-1})]$ | the earlier treatments are the constants $\bar a_{t-1}$, and treatment does not affect the baseline columns |
+| 5 | $E[Y - \sum_t \gamma_t(H_t, A_t)] = E[Y(0)]$ | backward induction over the nodes with consistency and the blip definition |
+
+The result is
+
+$$
+E[Y(a)] = E[Y(0)] + \sum_t c(a_t)^\top \Psi_t\, \bar\phi_t(a), \qquad
+\bar\phi_t(a) = E[\phi_t(X_0, \bar a_{t-1})].
+$$
+
+A contrast is the difference of two such levels. A feature that reads a covariate $L_t$ needs
+$E[\phi_t(H_t(\bar a))]$ in step 4. That mean depends on the law of $L_t$ under the regimen. The
+estimator does not estimate that law. [X72](../roadmap.md#x72-static-regimen-values-from-structural-blips-with-time-varying-features)
+tracks the gap. Lewis and Syrgkanis (2021), arXiv version, Corollary 9, gives the inference for
+that route.
+
+A static dose level is regular only under this model. The nonparametric model does not make a
+point dose pathwise differentiable. The estimator therefore requires each static dose and the
+reference dose 0 to lie in the observed range of its node.
+
+## The estimating equation
+
+Each fit cross-fits these nuisances on the full history $H_t$, one set per node $t$.
+
+| nuisance | definition | learner |
+| --- | --- | --- |
+| $q_t$ | $E[Y \mid H_t]$ | `outcome_learner` as a regression, or as a classifier for a binary outcome |
+| $m_{j,t}$ for $j \ge t$ | $E[Z_j \mid H_t]$ | `treatment_learner` as a classifier for a target in $\{0, 1\}$. `outcome_learner` as a regression for any other target |
+
+For $j > t$ the feature map $\phi_j$ reads treatments that $H_t$ does not hold. The estimator
+splits each feature into the factors that $H_t$ determines and the factors it does not. It
+regresses the product of the undetermined factors and the coding on $H_t$. It then multiplies the
+determined factors back in.
+
+The residuals are $\tilde Y_t = Y - q_t(H_t)$ and $\tilde Z_{j,t} = Z_j - m_{j,t}(H_t)$. The score
+of node $t$ is
+
+$$
+s_t(\psi) = \tilde Z_{t,t}\Big(\tilde Y_t - \sum_{j \ge t} \tilde Z_{j,t}^\top \psi_j\Big).
+$$
+
+The estimator solves $E_n[s_t] = 0$ from the last node to the first. Node $t$ uses the solved
+$\psi_j$ for $j > t$. The validity argument is short. At the true $\psi$, the quantity
+$Y - \sum_{j \ge t} Z_j^\top \psi_j$ has mean $E[Y(\bar A_{t-1}, 0) \mid H_t, A_t]$. By
+exchangeability that mean does not depend on $A_t$. The centered score therefore has mean zero
+given $(H_t, A_t)$, and $\tilde Z_{t,t}$ is a function of $(H_t, A_t)$.
+
+Every nuisance is a regression of an observed variable on $H_t$. No nuisance is fitted on an
+estimated index. The linear-remainder pattern therefore does not apply to this estimator. The
+remainder of node $t$ at the true $\psi$ is
+
+$$
+R_t = E[\delta_{t,t}\, \delta_q] - \sum_{j \ge t} E[\delta_{t,t}\, \delta_{j,t}^\top]\, \psi_j,
+$$
+
+where $\delta_q$ and $\delta_{j,t}$ are the out-of-fold errors of $q_t$ and $m_{j,t}$. Every
+term holds the error of the own-node treatment nuisance. The point is consistent when every
+own-node treatment nuisance converges, even if $q_t$ does not. A correct $q_t$ alone is not enough.
+
+## Influence curves
+
+The Jacobian $G$ is block upper triangular. Block $(t, j)$ for $j \ge t$ is
+$E_n[w\, \tilde Z_{t,t} \tilde Z_{j,t}^\top]$. It is the derivative of the score of node $t$ in
+$\psi_j$. Write $S_i$ for the stacked scores of unit $i$.
+
+| functional | estimate | influence curve of unit $i$ |
+| --- | --- | --- |
+| $\psi$ | the backward solution | $G^{-1} S_i$ |
+| $\mu_0 = E[Y(0)]$ | $E_n[Y - \sum_t Z_t^\top \psi_t]$ | $(u_i - \mu_0) - \sum_t E_n[Z_t]^\top \mathrm{IC}_{\psi_t,i}$, with $u_i = Y_i - \sum_t Z_{t,i}^\top \psi_t$ |
+| level of $a$ | $\mu_0 + \sum_t c(a_t)^\top \Psi_t \bar\phi_t(a)$ | the curve of $\mu_0$, plus $\sum_t c(a_t)^\top \Psi_t(\phi_{t,i} - \bar\phi_t(a))$, plus $\sum_t (\bar\phi_t(a) \otimes c(a_t))^\top \mathrm{IC}_{\psi_t,i}$ |
+| contrast | a difference of two levels | the difference of the two level curves. The $\mu_0$ terms cancel |
+
+The estimator divides the weights by their mean before it builds these curves. A known weight
+$w_i$ enters each mean and each regression. The curve carries the factor $w_i / E_n[w]$. The
+feature term uses the weighted unit deviation $\bar w_i(\phi_{t,i} - \bar\phi_t(a))$. With clusters, the
+curve sums within a cluster, and the cluster is the unit.
+
+The variance is $\mathrm{Var}_n(\mathrm{IC}) / n$. For $\psi$ this is the sandwich
+$G^{-1} \hat\Sigma G^{-\top} / n$ with $\hat\Sigma = E_n[S S^\top]$. The sample variance divides by
+$n - 1$. This differs from the $1/n$ of EconML by the factor $n / (n - 1)$.
+
+Two terms vanish at special laws. The feature term is zero when $\phi_t$ is constant. The term in
+$E_n[Z_t]$ is zero when $E_n[Z_t] = \bar\phi_t(a) \otimes c(a_t)$. The validation table lists the
+laws and the mutation controls that keep a nonzero witness for each.
+
+## Status
+
+| fit | status | what the result reports |
+| --- | --- | --- |
+| cross-fitted (`n_folds > 1`) | `influence_curve` | the curve and the intervals |
+| `n_folds=1` and every learner a `GLM` | `influence_curve` | the curve and the intervals |
+| `n_folds=1` and another learner | `adaptive_baseline_plugin` | the point estimate, and a diagnostic curve under `plugin_std_error` |
+| `weights_estimated=True` | `estimated_weight_plugin` | the curve as a diagnostic |
+| fewer than 20 clusters | `few_cluster_plugin` | as for `LTMLE` |
+
+The `influence_curve` status for a cross-fitted fit rests on Lewis and Syrgkanis (2021),
+supplement Theorem 8. It asks that each nuisance converge faster than $n^{-1/4}$ and that average
+positivity hold. The arXiv version, Theorem 4 and Theorem 8, states the product-rate form and the
+variance estimator $\hat J^{-1} \hat\Sigma \hat J^{-\top}$. A `GLM` fit in sample has an interval
+only when every `GLM` is correct. The mechanism-score terms of an in-sample fit are not built.
+No source read gives the condition for an in-sample data-adaptive fit.
+
+Every estimate carries the label "valid under the linear structural nested mean model with the
+declared blip features". The label appears in the summary, in the `model` column of
+`to_frame()`, and on every level and contrast row. It survives `save()` and `load()`. The status
+says the interval is an influence-curve interval. The label says what the interval is valid for.
+
+The few-cluster floor of 20 is inherited from `LTMLE`. No study measures it for this estimator.
+
+## The model check
+
+`check_model()` fits `LTMLE` on the same rows, weights, clusters and folds. Both estimators are
+asymptotically linear, so the difference of the two contrast vectors is asymptotically normal.
+Its mean is zero under the structural model. The check reports a joint Wald statistic on that
+difference, with one degree of freedom per contrast.
+
+| item | rule |
+| --- | --- |
+| scope | discrete static regimens. The fit must have the `influence_curve` status |
+| continuous node | refused with `invalid_declaration`. A static dose has no nonparametric counterpart |
+| feature that reads a covariate | refused with `implementation_gap` and X72 |
+| rank | when the smallest eigenvalue of the difference covariance is below `rank_floor` times the largest eigenvalue of the two contrast covariances, the check reports no test and names the reason |
+| reading | a rejection says the model fails for these contrasts. A non-rejection does not confirm the model |
+
+## Refusals
+
+| request | code | alternative |
+| --- | --- | --- |
+| a rule, a modified treatment policy or a known stochastic plan | `api_redirection` | `LTMLE` or `SDR` with the regimen |
+| an incremental policy | `api_redirection` | `IPSI` |
+| a censoring column, or a censored outcome | `api_redirection` | `LTMLE` or `SDR` |
+| a survival or competing-risk outcome | `api_redirection` | the survival paths of `LTMLE` |
+| a repeated outcome | `api_redirection` | `LTMLE` |
+| one baseline decision held over every node | `api_redirection` | `LTMLE` or `SDR` |
+| a declared treatment mechanism | `api_redirection` | `LTMLE` |
+| `msm=` | `api_redirection` | `LTMLE(regimens, msm=...)` |
+| a static level, a contrast or `check_model` when a feature reads a covariate | `implementation_gap`, X72 | `LTMLE` or `SDR`, or features that read baseline columns and earlier treatments |
+| a static dose outside the observed range of its node | `invalid_declaration` | a dose inside the range |
+| a dose node whose observed range excludes the reference dose 0 | `invalid_declaration` | recode the dose so that 0 is observed |
+| a diagonal Jacobian block below `min_eigenvalue` | `invalid_declaration` | drop a feature, merge levels, or check positivity |
+| a feature that reads a later covariate, a later treatment, or an unknown column | `invalid_declaration` | a feature of the history through node $t$ |
+| `check_model` on a status with no interval | `inference_gap` | cross-fit |
+
+`tests/unit/test_structural_nested_mean.py` (W7) pins the code of each refusal.
+
+## Comparator
+
+The comparator is EconML 0.17.0 `DynamicDML`. It solves the same estimating equation with three
+differences.
+
+| item | `DynamicDML` | `StructuralNestedMean` |
+| --- | --- | --- |
+| conditioning set | one period row, the Markov state | the full history $H_t$ |
+| effect modifiers | the first-period features only | baseline columns, earlier treatments and covariates |
+| weights, clusters, censoring | weights ignored, no clusters, no censoring | known weights and clusters, no censoring |
+
+The library and the test suite never install EconML. `tests/canonical/econml_dynamic_dml/` holds a
+container, a hash-pinned `requirements.txt`, the generator, and a committed fixture of seven
+cases. `tests/unit/test_structural_econml_parity.py` (W2) refits each case on the folds and
+nuisances that EconML used.
+
+| quantity | result |
+| --- | --- |
+| coefficients, binary, categorical and dose nodes, with and without features | equal to $10^{-8}$. The largest gap in the fixture is $10^{-14}$ |
+| coefficient covariance, scalar nodes | equal to $10^{-10}$ after the factor $n/(n-1)$ |
+| contrast error, scalar nodes, no features | equal to $10^{-9}$ after the same factor |
+| coefficient covariance, categorical nodes | differs. EconML fills the off-diagonal Jacobian blocks of a vector coding in the transposed order |
+| contrast error, categorical case | `cleverly` 0.1967 (on the EconML scale), EconML 0.1769, and a fixed-residual bootstrap 0.1956 |
+
+The generator recomputes both sandwiches from EconML's own residuals. The corrected block is
+$E[\tilde Z_{t,t} \tilde Z_{j,t}^\top]$, the derivative of equation $t$ in $\psi_j$. The two
+orientations agree for a scalar coding. `test_w2_applying_the_transposition_to_cleverly_reproduces_the_econml_covariance`
+shows that applying the transposition to the `cleverly` source reproduces the EconML covariance.
+
+The comparator study with replicates is a later phase.
+
+## Validation
+
+The evidence label is Python property evidence, with comparator runs pending.
+
+| id | what it checks | test |
+| --- | --- | --- |
+| W1 | on exact finite laws S2, S3, K, C, H and P, the coefficients, `ey_reference`, the levels and the contrasts equal the g-formula to $10^{-9}$ | `test_w1_exact_law_returns_the_truth` |
+| W1 | the product nuisances equal the conditional means of the law | `test_w1_product_nuisances_equal_the_conditional_means_of_the_law` |
+| W2 | the EconML parity fixture | `tests/unit/test_structural_econml_parity.py` |
+| W3 | each curve is the derivative of the estimator in the observation weights, with the nuisances held fixed | `test_w3_curves_are_the_derivative_of_the_estimator_in_the_weights` |
+| W4 | with too few declared features the structural contrast misses the regimen truth by a closed-form amount (laws L and P) | `test_w4_an_undeclared_covariate_blip_has_a_closed_form_limit` |
+| W5 | on law M the second treatment reads a covariate the period state omits, and the full history recovers the truth | `test_w5_the_full_history_removes_the_markov_restriction` |
+| W6 | the structural label survives `save()` and `load()` | `test_w6_the_structural_label_survives_save_and_load` |
+| W7 | each refusal carries its reason code | `test_w7_refusals_carry_their_reason_codes` |
+| M1 | dropping the adjustment for later blips fails W1 on S3 | `test_m1_dropping_the_later_blip_adjustment_misses_the_truth_by_its_limit` |
+| M2 | residualizing on the period state fails W5 | `test_m2_a_period_state_treatment_nuisance_misses_by_the_limit` |
+| M3 | a wrong reference level fails W1 on law K | `test_m3_the_wrong_reference_moves_the_level_blips_and_the_reference_mean` |
+| M4 | transposed Jacobian blocks fail W3 on law K. A scalar law cannot see the mutation | `test_m4_transposed_jacobian_blocks_fail_the_curve_check_on_a_vector_node` |
+| M5 | dropping the feature deviation term fails the contrast curve on law H | `test_m5_dropping_the_feature_mean_term_fails_the_contrast_curve` |
+| M6 | dropping the $E_n[Z_t]$ derivative fails the level curve on law H | `test_m6_dropping_the_mean_of_z_derivative_fails_the_level_curve_only` |
+| M7 | using the treatment mean in place of the product nuisance fails W1 on law P | `test_m7_the_treatment_mean_in_place_of_the_product_nuisance_fails_on_law_p` |
+
+The exact-law tests give each saturated `GLM` the exact probabilities as weights. A saturated
+learner then returns the population conditional means, so the fit returns the population solution.
+The truths come from an independent g-formula in `tests/discrete_law_structural.py`.
+
+No registered study exists yet. Until the container phase runs, the method has no repeated-sampling
+evidence and no comparator replicates. The model check has no size or power cell.
+
+## Sources
+
+| item | source |
+| --- | --- |
+| the model and the sequential exchangeability assumption | Lewis and Syrgkanis (2021), supplement, Appendix A, Assumption 1 and Assumption 2 |
+| the identification of a policy value from the blips | Lewis and Syrgkanis (2021), supplement, Lemma 6, after Robins (2004) |
+| the normal limit, with a linear blip | Lewis and Syrgkanis (2021), supplement, Theorem 8 |
+| the variance estimator and product rates | Lewis and Syrgkanis (2021), arXiv version, Theorem 4 and Theorem 8 |
+| the policy value inference for a covariate feature | Lewis and Syrgkanis (2021), arXiv version, Corollary 9 |

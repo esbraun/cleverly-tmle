@@ -605,6 +605,80 @@ With the same outcome learner, the g-computation estimate equals the untargeted 
 `LTMLE`. [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md) gives
 the estimators, the stacked influence curve, the settings, and the refusals.
 
+## Estimate structural blips
+
+`StructuralNestedMean` fits a linear structural nested mean model. Use it to report the effect of
+each treatment node on the end-of-study outcome, and to let that effect vary with declared
+features. It is a separate method. `LTMLE` and `SDR` fit no model for the effect.
+
+| you want | fit |
+| --- | --- |
+| the effect of node $t$ with later treatment at the reference, as a coefficient matrix | `StructuralNestedMean` |
+| the mean outcome under a static regimen, with no model for the effect | `LTMLE` or `SDR` |
+| the value of a rule, a policy or an incremental intervention | `LTMLE`, `SDR` or `IPSI` |
+
+Declare the features of each node in `blip_features`. A key is a node counted from one, or its
+treatment column. A value lists columns. A tuple of columns declares a product. The intercept is
+always a feature. A feature may read the baseline columns, the covariates through its node, and
+the earlier treatments.
+
+```python
+from cleverly.datasets import make_longitudinal
+from cleverly.learners import GLM
+from cleverly.longitudinal import StructuralNestedMean
+
+frame, _ = make_longitudinal(n=300, seed=0, censoring=False)
+result = StructuralNestedMean(
+    {"always": 1, "never": 0},
+    reference="never",
+    blip_features={1: ["W1"], 2: ["W1", "A1"]},
+    outcome_learner=GLM(family="binomial"),
+    treatment_learner=GLM(family="binomial"),
+    n_folds=2,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+)
+print(result.summary())
+print(result.blip(2))
+```
+
+`snmm()` is the one-call form. `result.blip(node)` returns the matrix of a node, with one row per
+feature and one column per coding component. A categorical node has one column for each level
+after the first sorted level. A continuous node has one column, the dose. The regimen levels and
+contrasts follow from the blips and the mean outcome at the reference level `ey_reference`.
+
+Read the result with this condition. The intervals are valid under the linear structural nested
+mean model with the declared blip features. Every row of the summary and of `to_frame()` carries
+that label. A blip that depends on an undeclared earlier treatment or covariate makes the
+coefficients answer a different question.
+
+Check the model against `LTMLE`.
+
+```python
+check = result.check_model()
+print(check.summary())
+```
+
+`check_model()` fits `LTMLE` on the same rows and folds. It reports a joint Wald statistic on the
+difference of the contrasts. A rejection says that the model fails for these contrasts. A
+non-rejection does not confirm the model.
+
+| the fit | what it reports |
+| --- | --- |
+| `n_folds > 1` | the influence-curve intervals |
+| `n_folds=1` and every learner a `GLM` | the influence-curve intervals, valid when every `GLM` is correct |
+| `n_folds=1` and another learner | the point estimate, with a diagnostic standard error |
+
+The estimator refuses a rule, a policy, censoring, survival and repeated outcomes. It refuses a
+static level, a contrast and `check_model` when a feature reads a time-varying covariate.
+[Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
+each refusal and its alternative.
+
 ## Estimate an incremental intervention over time
 
 Pass `IncrementalEffect` to `identify()` and `method="ipsi"` to `estimate()`. Each

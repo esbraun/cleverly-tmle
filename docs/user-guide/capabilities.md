@@ -16,9 +16,16 @@ family also includes Kennedy's incremental estimator `IPSI`.
 | `IPSI` | the treatment mechanism | the influence curve of the incremental estimator |
 | `SequentialGComputation` | the outcome and pseudo-outcome regressions | the stacked curve when every regression is a `GLM`. Otherwise the point only |
 | `SequentialIPW` | the treatment and censoring mechanisms | the stacked curve when every mechanism is a `GLM`. Otherwise the point only |
+| `StructuralNestedMean` | the outcome and treatment regressions on the full history, with a linear blip model | the influence curve, valid under the linear structural nested mean model with the declared blip features |
 
 The two sequential baselines are reference estimators. They refuse `n_folds > 1` and `msm=`.
 [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md#refusals) lists
+every refusal.
+
+`StructuralNestedMean` reports blip coefficients and static regimen contrasts. It refuses a rule, a
+policy, censoring, survival and repeated outcomes. It refuses a static contrast when a feature
+reads a time-varying covariate.
+[Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
 every refusal.
 
 ## Why a request can be refused
