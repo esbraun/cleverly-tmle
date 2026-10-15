@@ -1071,6 +1071,11 @@ default="greedy"
     selection_split : tuple of int or None, default=None
         Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
         selection split. ``selection_folds`` must equal ``V``.
+    patience : int or None, default=None
+        Stop the cross-validated scoring of the candidate path after this many candidates
+        score worse than the best so far, as ``patience`` does in R ``ctmle``. ``None`` reads
+        the whole path. It applies to ``"greedy"``, ``"ordered"``, ``"discrete"``,
+        ``"lasso"`` and ``"learners"``. The fit keeps its ``working_mechanism_plugin`` status.
 
     See Also
     --------
@@ -1107,6 +1112,11 @@ default="greedy"
     >>> method.name, method.selection_folds
     ('collaborative_tmle', 3)
 
+    Stop the scoring of the candidate path once two candidates score worse than the best so far:
+
+    >>> CollaborativeTMLEMethod(strategy="greedy", patience=2).patience
+    2
+
     The collaborative fields are additions.  Everything :class:`TMLEMethod` configures is
     still configured the same way:
 
@@ -1130,6 +1140,7 @@ default="greedy"
     lambdas: tuple[float, ...] | None = None
     treatment_candidates: tuple[Any, ...] | None = None
     selection_split: tuple[int, ...] | None = None
+    patience: int | None = None
     name: str = "collaborative_tmle"
 
     def __post_init__(self) -> None:
@@ -1180,6 +1191,7 @@ default="greedy"
             "lambdas": self.lambdas,
             "treatment_candidates": self.treatment_candidates,
             "selection_split": self.selection_split,
+            "patience": self.patience,
         }
 
 

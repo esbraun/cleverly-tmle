@@ -327,8 +327,9 @@ from __future__ import annotations
 
 import copy
 import inspect
+import numbers
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -853,6 +854,13 @@ class CTMLESelection:
     restricted_pool : tuple of str or None
         The subset of covariates the design declares with ``treatment_adjustment=``, or
         ``None`` for a design that declares none. :meth:`summary` names it.
+    patience : int or None
+        The ``patience=`` the search ran with, or ``None`` when it read the whole path.
+    stopped_at : int or None
+        The index into :attr:`path` of the last candidate the search fitted and scored, when
+        the patience counter stopped it. ``None`` when the counter never triggered, and always
+        ``None`` without :attr:`patience`. When it is set, :attr:`path` and every array that
+        runs along it end at this index.
     """
 
     strategy: CTMLEStrategy
@@ -874,6 +882,8 @@ class CTMLESelection:
     labels: tuple[str, ...] = ()
     final: int | None = None
     restricted_pool: tuple[str, ...] | None = None
+    patience: int | None = None
+    stopped_at: int | None = None
 
     @property
     def reported(self) -> int:
@@ -994,6 +1004,8 @@ class CTMLESelection:
         ]
         if self.restricted_pool is not None:
             header.insert(-1, pool_line(self.restricted_pool))
+        if self.patience is not None:
+            header.insert(-1, self._patience_line())
         chosen = self.selected_covariates
         footer = [""]
         if indexed:
@@ -1018,6 +1030,19 @@ class CTMLESelection:
             )
         return "\n".join([*header, table, *footer])
 
+    def _patience_line(self) -> str:
+        """The summary line that states what ``patience=`` did to the path."""
+        assert self.patience is not None
+        if self.stopped_at is None:
+            return (
+                f"patience = {self.patience}: the counter never triggered, so the search read "
+                "every candidate"
+            )
+        return (
+            f"patience = {self.patience}: the counter stopped the search after candidate "
+            f"{self.stopped_at + 1}, and later candidates were not fitted or scored"
+        )
+
     def describe(self) -> str:
         """One sentence naming the strategy, the candidate the search cut at, and its target.
 
@@ -1037,6 +1062,11 @@ class CTMLESelection:
             f"C-TMLE {self.strategy} selected candidate {self.selected + 1} of "
             f"{len(self.path)} for {self.estimand}"
         )
+        if self.stopped_at is not None:
+            sentence += (
+                f"; patience={self.patience} stopped the search after candidate "
+                f"{self.stopped_at + 1}"
+            )
         if self.final is not None:
             sentence += f"; the final step used candidate {self.final + 1}"
         return sentence
@@ -1293,6 +1323,49 @@ class _Candidate:
     label: str = ""
 
 
+class _PatienceCounter:
+    """The ``patience`` counter of R ``ctmle``'s ``ctmleDiscrete``, one risk at a time.
+
+    ``functions_discrete.R`` keeps a pointer, the smallest risk seen, and a count. A risk
+    above the pointer adds one to the count, and the search is done when the count reaches
+    ``patience``. A risk at or below the pointer moves the pointer to it and resets the count,
+    so a tie resets. The count is not a run length: a worse risk after a reset adds one, and a
+    later worse risk adds another, whatever lies between them that stays above the pointer.
+    A risk that is not finite counts as worse.
+
+    Parameters
+    ----------
+    patience : int
+        The count at which the search stops.
+    """
+
+    def __init__(self, patience: int) -> None:
+        self.patience = patience
+        self.pointer = np.inf
+        self.count = 0
+
+    def offer(self, risk: float) -> bool:
+        """Read the risk of the next position.
+
+        Parameters
+        ----------
+        risk : float
+            The cross-validated risk of the position.
+
+        Returns
+        -------
+        bool
+            Whether the search stops at this position.
+        """
+        value = float(risk) if np.isfinite(risk) else np.inf
+        if value > self.pointer:
+            self.count += 1
+            return self.count >= self.patience
+        self.pointer = value
+        self.count = 0
+        return False
+
+
 class CTMLE(TMLE):
     """Collaborative TMLE for a discrete point treatment.
 
@@ -1387,6 +1460,20 @@ default="greedy"
         Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
         selection split, on every selector strategy.  ``selection_folds`` must equal ``V``.
         It refuses ``repeats > 1`` and ``n_bootstrap > 0``.
+    patience : int or None, default=None
+        Stop the cross-validated scoring of the candidate path early, as ``patience`` does in
+        R ``ctmle``'s ``ctmleDiscrete``. The search keeps the smallest cross-validated risk
+        seen so far. A candidate whose risk is above it adds one to a count, and a candidate
+        at or below it moves the smallest risk and resets the count. The search stops at the
+        candidate where the count reaches ``patience``, fits no later candidate in the
+        full-sample path or in any selection fold, and selects the smallest risk among the
+        candidates it scored. ``None`` reads the whole path. It applies to ``"greedy"``,
+        ``"ordered"``, ``"discrete"``, ``"lasso"`` and ``"learners"``, and the selector
+        statuses are unchanged. The scored candidates equal those of the whole path, but
+        the selection can differ from the whole-path selection, whose smallest risk may lie
+        past the stop. ``ctmle`` takes the last of tied smallest risks and scores the rest of
+        its batch after the trigger. This class takes the first of ties and scores nothing
+        after the trigger. ``"oat"`` and ``"derivative"`` score no path and refuse it.
     **kwargs : Any
         The keyword arguments of :class:`~cleverly.TMLE`: the learners, the fold policy,
         the bounds and the targeting controls.
@@ -1572,6 +1659,7 @@ default="greedy"
         lambdas: Sequence[float] | None = None,
         treatment_candidates: Sequence[Any] | None = None,
         selection_split: Sequence[int] | None = None,
+        patience: int | None = None,
         **kwargs: Any,
     ) -> None:
         if kwargs.get("learned_rule") is not None:
@@ -1606,6 +1694,7 @@ default="greedy"
         self.lambdas = lambdas
         self.treatment_candidates = treatment_candidates
         self.selection_split = selection_split
+        self.patience = patience
         self._validate_ctmle_settings()
         if self.strategy == "ordered" and self.ordering is None and self.preorder is None:
             self.preorder = "logistic"
@@ -1632,6 +1721,19 @@ default="greedy"
             raise ValueError(
                 f"preorder must be 'logistic' or 'partial_correlation'; got {self.preorder!r}"
             )
+        if self.patience is not None:
+            if (
+                isinstance(self.patience, bool)
+                or not isinstance(self.patience, numbers.Integral)
+                or self.patience < 1
+            ):
+                raise ValueError(f"patience must be a positive integer; got {self.patience!r}")
+            if not is_selector_strategy(self.strategy):
+                raise ValueError(
+                    "patience= stops the cross-validated scoring of a candidate path, and "
+                    f"strategy={self.strategy!r} scores no path. It applies to 'greedy', "
+                    "'ordered', 'discrete', 'lasso' and 'learners'"
+                )
         if self.strategy == "discrete" and not self.candidates:
             raise ValueError("strategy='discrete' needs an explicit candidates= list")
         if self.strategy != "discrete" and self.candidates is not None:
@@ -1960,8 +2062,14 @@ default="greedy"
             return self._outcome_adaptive_nuisances(data, base, seed=seed)
         selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)
 
-        path = selector.build_path(train=None, tag="full")
-        cv_risk, selection_folds = selector.cross_validate(path)
+        stopped_at: int | None = None
+        if self.patience is None:
+            path = selector.build_path(train=None, tag="full")
+            cv_risk, selection_folds = selector.cross_validate(path)
+        else:
+            path, cv_risk, selection_folds, stopped_at = selector._cross_validate_patient(
+                int(self.patience)
+            )
         selected = int(np.argmin(cv_risk))
         chosen = path[selected]
         if self.strategy == "learners":
@@ -2011,6 +2119,8 @@ default="greedy"
             restricted_pool=(
                 None if data.treatment_covariate_names is None else data.mechanism_covariate_names
             ),
+            patience=self.patience,
+            stopped_at=stopped_at,
         )
         return nuisance, {"ctmle": selection}
 
@@ -3308,6 +3418,35 @@ class _Selector:
         rows = self.all_rows if train is None else train
         if self.est.strategy in _INDEXED_STRATEGIES:
             return self._indexed_candidates_path(rows, train, tag)
+        return list(self._lazy_path(rows, train, tag))
+
+    def iter_path(self, train: IntArray | None, tag: str) -> Iterator[_Candidate]:
+        """The candidate sequence of :meth:`build_path`, one position at a time.
+
+        Position ``k`` is fitted when the iterator reaches it, and not before. A
+        ``patience=`` search stops reading a branch at its stop position, so the later
+        positions are never fitted. Reading the whole iterator gives the list
+        :meth:`build_path` returns.
+
+        Parameters
+        ----------
+        train : ndarray of int or None
+            The selection-fold training rows, or ``None`` on the analysis sample.
+        tag : str
+            The search branch, ``"full"`` or ``"cv<fold>"``.
+
+        Returns
+        -------
+        iterator of _Candidate
+            The candidates in path order.
+        """
+        rows = self.all_rows if train is None else train
+        if self.est.strategy in _INDEXED_STRATEGIES:
+            return self._indexed_candidates_iter(rows, train, tag)
+        return self._lazy_path(rows, train, tag)
+
+    def _lazy_path(self, rows: IntArray, train: IntArray | None, tag: str) -> Iterator[_Candidate]:
+        """The covariate-set strategies' candidates, fitted as the reader reaches them."""
         if self.est.strategy == "discrete":
             return self._discrete_path(rows, train, tag)
         order = self._ordering(rows, train) if self.est.strategy == "ordered" else None
@@ -3443,9 +3582,10 @@ class _Selector:
             out.append(Propensity(self._cache[key], data.arm_codes))
         return out
 
-    def _indexed_candidates_path(
+    def _indexed_fluctuator(
         self, rows: IntArray, train: IntArray | None, tag: str
-    ) -> list[_Candidate]:
+    ) -> tuple[int, Callable[[int, InitialFit, int], _Candidate]]:
+        """The candidate count of an indexed branch and the scoring callable of its path rule."""
         propensities, covariates, labels = self.indexed_propensities(train, tag)
         self._indexed = (propensities, covariates, labels)
 
@@ -3454,7 +3594,19 @@ class _Selector:
                 covariates[index], propensities[index], initial, rows, n_steps, labels[index]
             )
 
-        return _indexed_path(len(propensities), self.base.outcome, fluctuate)
+        return len(propensities), fluctuate
+
+    def _indexed_candidates_path(
+        self, rows: IntArray, train: IntArray | None, tag: str
+    ) -> list[_Candidate]:
+        count, fluctuate = self._indexed_fluctuator(rows, train, tag)
+        return _indexed_path(count, self.base.outcome, fluctuate)
+
+    def _indexed_candidates_iter(
+        self, rows: IntArray, train: IntArray | None, tag: str
+    ) -> Iterator[_Candidate]:
+        count, fluctuate = self._indexed_fluctuator(rows, train, tag)
+        return _indexed_path_iter(count, self.base.outcome, fluctuate)
 
     def final_step(
         self, path: Sequence[_Candidate], selected: int
@@ -3500,13 +3652,13 @@ class _Selector:
         best = int(np.argmin(losses))
         return selected + 1 + best, options[best]
 
-    def _discrete_path(self, rows: IntArray, train: IntArray | None, tag: str) -> list[_Candidate]:
+    def _discrete_path(
+        self, rows: IntArray, train: IntArray | None, tag: str
+    ) -> Iterator[_Candidate]:
         assert self.est.candidates is not None
-        path = []
         for names in self.est.candidates:
             covariates = tuple(names)
-            path.append(self._candidate(covariates, self.base.outcome, rows, train, tag, 1))
-        return path
+            yield self._candidate(covariates, self.base.outcome, rows, train, tag, 1)
 
     def _forward_path(
         self,
@@ -3514,7 +3666,7 @@ class _Selector:
         train: IntArray | None,
         tag: str,
         order: tuple[str, ...] | None,
-    ) -> list[_Candidate]:
+    ) -> Iterator[_Candidate]:
         """Build a nested sequence, greedily or in a fixed order.
 
         The two searches differ only in how the next covariate is picked; both retry from
@@ -3522,7 +3674,7 @@ class _Selector:
         """
         pool = list(order) if order is not None else list(self.data.mechanism_covariate_names)
         first = self._candidate((), self.base.outcome, rows, train, tag, 1)
-        path = [first]
+        yield first
 
         base_fit = self.base.outcome
         current = first
@@ -3547,9 +3699,8 @@ class _Selector:
                 continue
             stepped = False
             pool.remove(best.covariates[-1])
-            path.append(best)
+            yield best
             current = best
-        return path
 
     def _candidate(
         self,
@@ -3686,22 +3837,7 @@ class _Selector:
         dimension = len(self.target_names)
         influence = np.zeros((len(path), data.n, dimension))
         for fold, (train, test) in enumerate(folds):
-            train_folds, train_mask = self._nested_folds(train)
-            fold_base = self._selection_base(train_folds, train_mask)
-            fold_data = data.subset(train)
-            fold_bounds = resolve_g_bounds(
-                self.est.g_bounds, self.est._bounds_n(fold_data), for_att=False
-            )
-            fold_selector = _Selector(
-                self.est,
-                data,
-                fold_base,
-                fold_bounds,
-                self.intermediate_value,
-                seed=self.seed,
-                train_folds=train_folds,
-                train_mask=train_mask,
-            )
+            fold_selector = self._fold_selector(train)
             fold_path = fold_selector.build_path(train=train, tag=f"cv{fold}")
             if len(fold_path) < len(path):
                 raise RuntimeError(
@@ -3720,6 +3856,105 @@ class _Selector:
         if not self.est.penalty:
             return loss, folds
         return loss + np.array([_penalty_of(row) for row in influence]), folds
+
+    def _fold_selector(self, train: IntArray) -> _Selector:
+        """The selector of one selection fold: nuisances and bounds fitted on ``train`` alone."""
+        data = self.data
+        train_folds, train_mask = self._nested_folds(train)
+        fold_base = self._selection_base(train_folds, train_mask)
+        fold_data = data.subset(train)
+        fold_bounds = resolve_g_bounds(
+            self.est.g_bounds, self.est._bounds_n(fold_data), for_att=False
+        )
+        return _Selector(
+            self.est,
+            data,
+            fold_base,
+            fold_bounds,
+            self.intermediate_value,
+            seed=self.seed,
+            train_folds=train_folds,
+            train_mask=train_mask,
+        )
+
+    def _cross_validate_patient(
+        self, patience: int
+    ) -> tuple[list[_Candidate], FloatArray, Folds, int | None]:
+        """Build the path and score it position by position until the patience counter stops it.
+
+        The full-sample path and every selection fold's path are read lazily, one position at
+        a time and in step. Position ``k`` is scored as :meth:`cross_validate` scores it: the
+        loss of the candidate at ``k`` in each fold, summed over the folds in fold order, plus
+        the penalty of the influence curve pooled over the folds' validation rows. The
+        :class:`_PatienceCounter` reads that risk. When the counter triggers at ``k``, no
+        later position is fitted or scored, and the path ends at ``k``. When it never
+        triggers, every position is scored and the result equals :meth:`cross_validate`
+        bit for bit.
+
+        Parameters
+        ----------
+        patience : int
+            The number of positions that may score worse than the best so far, counted from
+            the last position that did not, before the search stops.
+
+        Returns
+        -------
+        path : list of _Candidate
+            The full-sample candidates at the scored positions.
+        risk : ndarray
+            The cross-validated risk of each of those positions.
+        folds : Folds
+            The selection split, as :meth:`cross_validate` returns it.
+        stopped_at : int or None
+            The position at which the counter triggered, or ``None`` when the search read
+            the whole path.
+
+        Raises
+        ------
+        RuntimeError
+            When a selection fold's path ends before the full-sample path does.
+        """
+        data = self.data
+        folds = self.est._selection_partition(data, self.seed)
+        dimension = len(self.target_names)
+        full = self.iter_path(train=None, tag="full")
+        fold_selectors = [self._fold_selector(train) for train, _ in folds]
+        fold_paths = [
+            fold_selector.iter_path(train=train, tag=f"cv{fold}")
+            for fold, (fold_selector, (train, _)) in enumerate(
+                zip(fold_selectors, folds, strict=True)
+            )
+        ]
+        counter = _PatienceCounter(patience)
+        path: list[_Candidate] = []
+        risks: list[float] = []
+        stopped_at: int | None = None
+        for candidate in full:
+            index = len(path)
+            path.append(candidate)
+            loss = 0.0
+            influence = np.zeros((data.n, dimension))
+            for fold, (_, test) in enumerate(folds):
+                fold_selector = fold_selectors[fold]
+                try:
+                    fold_candidate = next(fold_paths[fold])
+                except StopIteration:
+                    raise RuntimeError(
+                        f"selection fold {fold} produced {index} candidates but the "
+                        f"full-sample search produced at least {index + 1}; the candidate "
+                        "sequence must have the same length in every fold"
+                    ) from None
+                loss += fold_selector.loss(fold_candidate.targeted, test)
+                curve = np.asarray(
+                    fold_selector.influence(fold_candidate.targeted, fold_candidate.submodel, test),
+                    dtype=float,
+                )
+                influence[test] = curve.reshape(test.size, dimension)
+            risks.append(loss + _penalty_of(influence) if self.est.penalty else loss)
+            if counter.offer(risks[-1]):
+                stopped_at = index
+                break
+        return path, np.array(risks, dtype=float), folds, stopped_at
 
     def _nested_folds(self, train: IntArray) -> tuple[Folds, BoolArray]:
         """Inner cross-fit on ``train`` plus one full-training fit for validation rows."""
@@ -3853,7 +4088,35 @@ def _indexed_path(
     list of _Candidate
         The ``count`` candidates in index order.
     """
-    path: list[_Candidate | None] = [None] * count
+    return list(_indexed_path_iter(count, initial, fluctuate))
+
+
+def _indexed_path_iter(
+    count: int,
+    initial: InitialFit,
+    fluctuate: Callable[[int, InitialFit, int], _Candidate],
+) -> Iterator[_Candidate]:
+    """:func:`_indexed_path`, yielding each candidate once its position is settled.
+
+    A pass fluctuates every remaining candidate, and the accepted one settles its own
+    position and every position before it. The iterator yields those positions in index
+    order and runs the next pass only when the reader asks for the position after them.
+    After a stop, the remaining candidates are the fluctuations of the last pass.
+
+    Parameters
+    ----------
+    count : int
+        The number of candidates.
+    initial : InitialFit
+        The initial outcome regression.
+    fluctuate : callable
+        As for :func:`_indexed_path`.
+
+    Yields
+    ------
+    _Candidate
+        Candidate ``k`` at position ``k``.
+    """
     current = initial
     best = np.inf
     start = 0
@@ -3867,16 +4130,12 @@ def _indexed_path(
         if scores[choice] > best:
             break
         best = float(scores[choice])
-        for offset in range(choice + 1):
-            path[start + offset] = tries[offset]
+        yield from tries[: choice + 1]
         current = tries[choice].targeted
         start += choice + 1
         accepted += 1
         tries = []
-    for offset, candidate in enumerate(tries):
-        path[start + offset] = candidate
-    assert all(candidate is not None for candidate in path)
-    return [candidate for candidate in path if candidate is not None]
+    yield from tries
 
 
 def _derivative_array(index: int, entry: Any, data: CausalData) -> FloatArray:
