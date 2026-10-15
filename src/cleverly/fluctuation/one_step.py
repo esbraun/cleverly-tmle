@@ -37,8 +37,10 @@ from .._typing import BoolArray, FloatArray
 from ..exceptions import ConvergenceWarning
 from ._score import (
     STOP_CONTEXT_MISSING,
+    BestIterate,
     StopContext,
     absolute_score_weights,
+    iterate_norm,
     quasi_loglik,
     relative_score,
     ruled_warning,
@@ -75,6 +77,7 @@ def solve_one_step(
     warn: bool = True,
     stopping: str = "relative",
     stop: StopContext | None = None,
+    iterate: str = "last",
 ) -> Fluctuation:
     """Walk the universal least-favorable submodel until the score vanishes.
 
@@ -94,8 +97,13 @@ def solve_one_step(
     stop : StopContext, optional
         The units and outcome range a declared rule computes its threshold from.  A
         declared rule without one raises ``ValueError``.
+    iterate : {"last", "best"}
+        Which iterate is reported.  ``"last"`` runs the shipped walk below, untouched.
+        ``"best"`` runs :func:`_solve_one_step_ruled`, which keeps the iterate of smallest raw
+        score norm.  The walk accepts a step only when the norm does not rise, so that iterate
+        is the last one, and a tie takes the later iterate.
     """
-    if stopping != "relative":
+    if stopping != "relative" or iterate == "best":
         return _solve_one_step_ruled(
             outcome,
             initial,
@@ -110,6 +118,7 @@ def solve_one_step(
             warn=warn,
             stopping=stopping,
             stop=stop,
+            iterate=iterate,
         )
     y = np.asarray(outcome, dtype=float).reshape(-1)
     n = y.shape[0]
@@ -204,15 +213,24 @@ def _solve_one_step_ruled(
     warn: bool,
     stopping: str,
     stop: StopContext | None,
+    iterate: str = "last",
 ) -> Fluctuation:
-    """:func:`solve_one_step` with the stop test replaced by a declared stopping rule.
+    """:func:`solve_one_step` under a declared stopping rule, a best iterate, or both.
 
-    The walk is the shipped one, step for step, including the halving on an overshoot.  It
-    ends at the first accepted step where the largest score over its threshold is at most
-    one, so a rule that is looser than ``tol`` stops the same walk earlier.  ``tol`` is not
-    read.
+    The walk is the shipped one, step for step, including the halving on an overshoot.  Under a
+    declared rule it ends at the first accepted step where the largest score over its threshold
+    is at most one, so a rule that is looser than ``tol`` stops the same walk earlier, and
+    ``tol`` is not read.  Under ``stopping="relative"`` it tests ``tol`` on the relative score
+    as the shipped walk does.
+
+    Under ``iterate="best"`` each accepted step is offered to a
+    :class:`~cleverly.fluctuation._score.BestIterate` by the 2-norm of its raw score vector.  The
+    walk accepts a step only when that norm does not rise, so the smallest norm is the last
+    accepted step's, and a step of equal norm replaces its predecessor (``last_on_ties``).  The
+    best iterate is the last one.
     """
-    if stop is None:
+    declared = stopping != "relative"
+    if declared and stop is None:
         raise ValueError(STOP_CONTEXT_MISSING)
     y = np.asarray(outcome, dtype=float).reshape(-1)
     n = y.shape[0]
@@ -236,9 +254,13 @@ def _solve_one_step_ruled(
     score_before = score
     norm = float(np.linalg.norm(score))
     trace.append(relative_score(score, scale))
-    thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+    thresholds: FloatArray | None = None
+    ratio: float | None = None
+    if stop is not None and declared:
+        thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+    best = BestIterate(last_on_ties=True) if iterate == "best" else None
 
-    while steps < max_steps and ratio > 1.0:
+    while steps < max_steps and (ratio > 1.0 if ratio is not None else trace[-1] > tol):
         if norm == 0.0:
             break
         direction = score / norm
@@ -259,22 +281,40 @@ def _solve_one_step_ruled(
         norm = candidate_norm
         loglik = quasi_loglik(y[mask], current.observed[mask], fit_weights[mask])
         trace.append(relative_score(score, scale))
-        thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+        if stop is not None and declared:
+            thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
         steps += 1
+        if best is not None:
+            best.offer(
+                steps, iterate_norm(score), (epsilon, current, score, loglik, thresholds, ratio)
+            )
 
-    converged = bool(ratio <= 1.0)
+    reported: int | None = None
+    if best is not None:
+        reported = steps if best.k is None else best.k
+        if best.state is not None:
+            epsilon, current, score, loglik, thresholds, ratio = best.state
+
+    if ratio is not None:
+        converged = bool(ratio <= 1.0)
+    else:
+        converged = bool(relative_score(score, scale) <= tol)
     if not converged and warn:
-        warnings.warn(
-            ruled_warning(
+        if ratio is not None:
+            message = ruled_warning(
                 stopping,
                 steps,
                 ratio,
                 f"the walk took steps of at most {step_size:g}. Try a smaller step_size, or "
                 "check res.diagnostics.support() for a positivity violation.",
-            ),
-            ConvergenceWarning,
-            stacklevel=3,
-        )
+            )
+        else:
+            message = (
+                f"one-step targeting stopped after {steps} step(s) with a relative score of "
+                f"{relative_score(score, scale):.3g} > {tol:g}. Try a smaller step_size, or "
+                "check res.diagnostics.support() for a positivity violation."
+            )
+        warnings.warn(message, ConvergenceWarning, stacklevel=3)
     return Fluctuation(
         epsilon=epsilon,
         targeted=current,
@@ -296,6 +336,7 @@ def _solve_one_step_ruled(
         stopping=stopping,
         thresholds=thresholds,
         rule_ratio=ratio,
+        best_iterate=reported,
     )
 
 

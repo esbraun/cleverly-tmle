@@ -612,6 +612,7 @@ def fit_regimens_msm(
     stopping: str = "relative",
     step_bound: float | None = None,
     step_search: bool = True,
+    iterate: str = "last",
 ) -> MSMRegimenFit:
     r"""Target every declared cell against one working model, and project.
 
@@ -654,6 +655,9 @@ def fit_regimens_msm(
     **A step bound** (``step_bound=``) bounds each node's stacked iteration by the constrained
     step along the normalised score vector of the working-model terms, as for a point fit with
     several score columns.  ``step_search`` chooses whether the step searches its length.
+
+    **A best iterate** (``iterate="best"``) reports, at each node, the iterate of the stacked
+    walk whose score vector over the working-model terms has the smallest 2-norm.
     """
     plan_of = {plan.label: plan for plan in plans}
     missing = sorted({cell.label for cell in model.cells} - set(plan_of))
@@ -751,6 +755,7 @@ def fit_regimens_msm(
                     ),
                     step_bound=step_bound,
                     step_search=step_search,
+                    iterate=iterate,
                 )
             targeted = np.split(fluctuation.targeted.arms[_REGIMEN_ARM], len(live))
             for position, k in enumerate(live):

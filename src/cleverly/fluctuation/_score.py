@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -37,6 +37,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..inference.influence import ParameterEstimate
 
 __all__ = [
+    "ITERATES",
     "LINEAR_RULE_REFUSAL",
     "RESIDUAL_LINE",
     "RULE_FAILURE_LINE",
@@ -44,10 +45,13 @@ __all__ = [
     "STEP_SEARCH_REFUSAL",
     "STOPPING_RULES",
     "STOP_CONTEXT_MISSING",
+    "BestIterate",
     "StopContext",
     "absolute_score_weights",
+    "check_iterate",
     "check_step_bound",
     "check_stopping_rule",
+    "iterate_norm",
     "quasi_loglik",
     "relative_score",
     "residual_line",
@@ -66,7 +70,10 @@ __all__ = [
 #: The values of ``Targeting(stopping=)``, shipped rule first.
 STOPPING_RULES = ("relative", "scaled_var", "sample_size")
 
-#: The refusal of a stopping rule (and, once they exist, an iterate or a step bound) beside
+#: The values of ``Targeting(iterate=)``, shipped choice first.
+ITERATES = ("last", "best")
+
+#: The refusal of a stopping rule, an iterate or a step bound beside
 #: ``fluctuation="linear"``, which solves the score equation in one closed-form step.
 LINEAR_RULE_REFUSAL = Refusal(
     RefusalReason.INVALID_DECLARATION,
@@ -144,6 +151,65 @@ def quasi_loglik(y: FloatArray, p: FloatArray, weights: FloatArray) -> float:
     """Weighted binomial quasi-log-likelihood, valid for ``y`` in ``[0, 1]``."""
     q = np.clip(p, 1e-15, 1.0 - 1e-15)
     return float(np.sum(weights * (y * np.log(q) + (1.0 - y) * np.log(1.0 - q))))
+
+
+def check_iterate(iterate: object, fluctuation: FluctuationKind | str) -> None:
+    """Refuse an iterate that does not exist, or that its fluctuation cannot take.
+
+    Raises
+    ------
+    ValueError
+        If ``iterate`` is not one of :data:`ITERATES`.
+    MethodConfigurationError
+        If ``iterate="best"`` meets ``fluctuation="linear"``, which solves the score equation
+        in one closed-form step and so has no iterates to choose between.
+    """
+    if iterate not in ITERATES:
+        raise ValueError(f"iterate must be 'last' or 'best'; got {iterate!r}")
+    if iterate != "last" and fluctuation == "linear":
+        raise MethodConfigurationError.from_refusal(LINEAR_RULE_REFUSAL)
+
+
+def iterate_norm(score: FloatArray) -> float:
+    """The statistic a best iterate is ranked by: the 2-norm of the raw score vector.
+
+    The score is on the reported scale, ``P_n S`` per column.  The outcome range that turns it
+    into the outcome's units is one positive constant for the whole walk, so it moves no
+    ranking and is not applied.  The relative statistic of the default stopping test is not
+    used here: it divides each column by its own scale, which ``tmle3`` does not.
+    """
+    return float(np.linalg.norm(score))
+
+
+class BestIterate:
+    """The best-so-far snapshot of one targeting walk (``Targeting(iterate="best")``).
+
+    A walk offers each iterate ``k >= 1`` with its norm (:func:`iterate_norm`) and the state
+    to report if it wins.  The initial fit is not offered, so it is never reported while a
+    step exists.  An offer replaces the snapshot when its norm is strictly smaller, so the
+    first of tied iterates wins, as in ``tmle3``.  The one-step walk never raises its norm, so
+    there ``last_on_ties=True`` makes a tie take the later iterate, and the reported iterate is
+    the last one.
+
+    Parameters
+    ----------
+    last_on_ties : bool
+        Whether an iterate with a norm equal to the snapshot's replaces it.
+    """
+
+    def __init__(self, last_on_ties: bool = False) -> None:
+        self.last_on_ties = last_on_ties
+        self.k: int | None = None
+        self.norm = math.inf
+        self.state: tuple[Any, ...] | None = None
+
+    def offer(self, k: int, norm: float, state: tuple[Any, ...]) -> None:
+        """Keep iterate ``k`` when its norm beats the snapshot's."""
+        better = norm <= self.norm if self.last_on_ties else norm < self.norm
+        if better:
+            self.k = k
+            self.norm = norm
+            self.state = state
 
 
 def check_stopping_rule(stopping: object, fluctuation: FluctuationKind | str) -> None:

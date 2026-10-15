@@ -106,6 +106,7 @@ from .._typing import (
     FoldStrata,
     GBounds,
     IntArray,
+    IterateChoice,
     Learner,
     ParameterAxis,
     StoppingRule,
@@ -134,6 +135,7 @@ from ..exceptions import (
 )
 from ..fluctuation._score import (
     StopContext,
+    check_iterate,
     check_step_bound,
     check_stopping_rule,
     relative_score,
@@ -745,6 +747,10 @@ class TMLE:
         ``step_bound=None`` takes the full Newton step. A positive number replaces it by the
         ``tmle3`` constrained step of at most that length, along the normalised score;
         ``step_search=False`` takes the whole bound. See :class:`cleverly.Targeting`.
+    iterate:
+        ``"last"`` (default) reports the iterate at which the targeting walk stopped.
+        ``"best"`` reports the iterate of smallest raw score norm, as ``tmle3``'s
+        ``use_best`` does; see :class:`cleverly.Targeting`.
     run_id:
         An identifier of your own -- an experiment id, a ticket number -- recorded on
         :attr:`TMLEResult.provenance`.  The library records no git commit of its own:
@@ -885,6 +891,7 @@ class TMLE:
         stopping: StoppingRule = "relative",
         step_bound: float | None = None,
         step_search: bool = True,
+        iterate: IterateChoice = "last",
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -942,6 +949,7 @@ class TMLE:
         self.stopping = stopping
         self.step_bound = step_bound
         self.step_search = step_search
+        self.iterate = iterate
         self.random_state = random_state
         self.n_jobs = n_jobs
         self._validate_settings()
@@ -1002,6 +1010,7 @@ class TMLE:
                 "targeting='one_step' walks a logistic submodel and cannot be combined with "
                 "fluctuation='linear'"
             )
+        check_iterate(self.iterate, self.fluctuation)
         check_stopping_rule(self.stopping, self.fluctuation)
         check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.targeting)
         if not 0.0 < self.alpha_sig < 1.0:
@@ -4019,6 +4028,7 @@ class TMLE:
             stopping=self.stopping,
             step_bound=self.step_bound,
             step_search=self.step_search,
+            iterate=self.iterate,
         )
 
     def _fold_strata(self, data: CausalData) -> FloatArray | None:
@@ -4626,6 +4636,7 @@ class TMLE:
                     score_scale=fold_fluctuation.score_scale,
                     thresholds=fold_fluctuation.thresholds,
                     rule_ratio=fold_fluctuation.rule_ratio,
+                    best_iterate=fold_fluctuation.best_iterate,
                 )
             )
             masses.append(float(data.weights[test].sum()))

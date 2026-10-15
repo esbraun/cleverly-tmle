@@ -82,7 +82,14 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
-from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner, StoppingRule
+from .._typing import (
+    BoolArray,
+    CumulativeGBounds,
+    FloatArray,
+    IterateChoice,
+    Learner,
+    StoppingRule,
+)
 from ..exceptions import (
     CapabilityError,
     CleverlyError,
@@ -96,6 +103,7 @@ from ..exceptions import (
     RefusalReason,
 )
 from ..fluctuation._score import (
+    check_iterate,
     check_step_bound,
     check_stopping_rule,
     residual_line,
@@ -230,6 +238,7 @@ SDR_REFUSED_SETTINGS: tuple[str, ...] = (
     "stopping",
     "step_bound",
     "step_search",
+    "iterate",
 )
 
 
@@ -899,6 +908,8 @@ class _LongitudinalReplayRecipe:
     step_bound: float | None = None
     #: Whether a bounded step searches its length.
     step_search: bool = True
+    #: Which iterate of each node's walk a TMLE fit reports: ``"last"``, or ``"best"``.
+    iterate: str = "last"
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a persisted recipe, then retake ownership of its plan matrices.
@@ -969,6 +980,7 @@ def _replay_recipe(
     stopping: str = "relative",
     step_bound: float | None = None,
     step_search: bool = True,
+    iterate: str = "last",
 ) -> _LongitudinalReplayRecipe:
     """Freeze resolved plans and clone the unfitted recursive learner specifications.
 
@@ -1002,6 +1014,7 @@ def _replay_recipe(
         stopping=stopping,
         step_bound=step_bound,
         step_search=step_search,
+        iterate=iterate,
     )
 
 
@@ -2775,6 +2788,7 @@ def _run_recursion(
     stopping: str = "relative",
     step_bound: float | None = None,
     step_search: bool = True,
+    iterate: str = "last",
 ) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
     """Run the backward recursion over every reported cell, and file the fits by key.
 
@@ -2834,6 +2848,8 @@ def _run_recursion(
         step.  Only a TMLE fit reads it.
     step_search : bool
         Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate of each node's walk is reported.  Only a TMLE fit reads it.
 
     Returns
     -------
@@ -2885,6 +2901,7 @@ def _run_recursion(
         "stopping": stopping,
         "step_bound": step_bound,
         "step_search": step_search,
+        "iterate": iterate,
     }
     # ``None`` on a single-event or end-of-study fit, so the comprehension below is one
     # loop deeper for every fit and a second code path for none.
@@ -3538,6 +3555,7 @@ class _SequentialEstimator:
             "stopping": "relative",
             "step_bound": None,
             "step_search": True,
+            "iterate": "last",
         }
 
     def _pseudo_learner(self) -> Learner:
@@ -4437,6 +4455,12 @@ class LTMLE(_SequentialEstimator):
         With ``step_bound``, ``True`` takes the length that minimises the node's weighted mean
         quasi-loss over ``(0, step_bound]``, and ``False`` takes the whole bound.  It needs
         ``step_bound``.
+    iterate : {"last", "best"}
+        Which iterate of a node's targeting walk is reported.  ``"last"`` reports the iterate at
+        which the walk stopped.  ``"best"`` reports the iterate ``k >= 1`` whose score has the
+        smallest 2-norm, the first of any tie, and judges the node's ``converged`` there.  A
+        bounded step without a search can oscillate around the root, which is where the two
+        differ.
     random_state : int or None
         The seed of the outer split.  A default learner, and a
         :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
@@ -4500,6 +4524,7 @@ class LTMLE(_SequentialEstimator):
         stopping: StoppingRule = "relative",
         step_bound: float | None = None,
         step_search: bool = True,
+        iterate: IterateChoice = "last",
         **refused: Any,
     ) -> None:
         self.alpha = alpha
@@ -4508,6 +4533,7 @@ class LTMLE(_SequentialEstimator):
         self.stopping = stopping
         self.step_bound = step_bound
         self.step_search = step_search
+        self.iterate = iterate
         super().__init__(
             regimens,
             reference=reference,
@@ -4545,6 +4571,7 @@ class LTMLE(_SequentialEstimator):
             )
         if self.max_iter < 1:
             raise ValueError(f"max_iter must be at least 1; got {self.max_iter}")
+        check_iterate(self.iterate, "logistic")
         check_stopping_rule(self.stopping, "logistic")
         check_step_bound(self.step_bound, self.step_search, "logistic")
 
@@ -4557,6 +4584,7 @@ class LTMLE(_SequentialEstimator):
             "stopping": self.stopping,
             "step_bound": self.step_bound,
             "step_search": self.step_search,
+            "iterate": self.iterate,
         }
 
 
@@ -4639,8 +4667,8 @@ class SDR(_SequentialEstimator):
     ratio : {"density", "classifier"}
         How a continuous node's policy ratio is estimated, as for :class:`LTMLE`.
     **refused : Any
-        ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound`` and ``step_search``,
-        which raise :class:`MethodConfigurationError` because the estimator fits no
+        ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search`` and
+        ``iterate``, which raise :class:`MethodConfigurationError` because the estimator fits no
         fluctuation, and each point-treatment keyword that :class:`LTMLE` refuses.
 
     See Also
@@ -4784,6 +4812,7 @@ IPSI_REFUSED_SETTINGS: tuple[str, ...] = (
     "stopping",
     "step_bound",
     "step_search",
+    "iterate",
     "targeting",
     "fluctuation",
 )
@@ -4870,9 +4899,9 @@ class IPSI(_SequentialEstimator):
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     **refused : Any
         ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search``,
-        ``targeting`` and ``fluctuation``, which raise :class:`MethodConfigurationError` because
-        the estimator fits no fluctuation, and each point-treatment keyword that :class:`LTMLE`
-        refuses.
+        ``iterate``, ``targeting`` and ``fluctuation``, which raise
+        :class:`MethodConfigurationError` because the estimator fits no fluctuation, and each
+        point-treatment keyword that :class:`LTMLE` refuses.
 
     See Also
     --------
@@ -5203,6 +5232,7 @@ def _refit_bound(
         stopping=recipe.stopping,
         step_bound=recipe.step_bound,
         step_search=recipe.step_search,
+        iterate=recipe.iterate,
     )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.

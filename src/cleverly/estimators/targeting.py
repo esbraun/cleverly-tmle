@@ -34,6 +34,7 @@ from .._typing import (
     FloatArray,
     FluctuationKind,
     IntArray,
+    IterateChoice,
     StoppingRule,
     TargetingMethod,
 )
@@ -42,6 +43,7 @@ from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..fluctuation._score import (
     STOP_CONTEXT_MISSING,
     StopContext,
+    check_iterate,
     check_step_bound,
     check_stopping_rule,
     quasi_loglik,
@@ -320,8 +322,12 @@ class TargetingSpec:
     #: Under a bound, ``True`` minimises the quasi-loss along the step's direction over
     #: ``[0, step_bound]`` and ``False`` takes the whole bound.
     step_search: bool = True
+    #: Which iterate of the targeting walk is reported: ``"last"``, or ``"best"``, the iterate of
+    #: smallest raw score norm.
+    iterate: IterateChoice = "last"
 
     def __post_init__(self) -> None:
+        check_iterate(self.iterate, self.fluctuation)
         check_stopping_rule(self.stopping, self.fluctuation)
         check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.targeting)
 
@@ -497,10 +503,12 @@ def solve_submodel(
     fails loudly instead of judging the score on a threshold it had to invent.
 
     A ``spec.step_bound`` takes the bounded walk of
-    :func:`~cleverly.fluctuation.iterative.solve_fluctuation` under either rule.  Without a
-    bound and under ``stopping="relative"`` the shipped solvers run untouched.
+    :func:`~cleverly.fluctuation.iterative.solve_fluctuation` under either rule, and
+    ``spec.iterate="best"`` reports the iterate of smallest raw score norm
+    (:class:`~cleverly.fluctuation._score.BestIterate`).  Without a bound, with
+    ``stopping="relative"`` and ``iterate="last"`` the shipped solvers run untouched.
     """
-    if spec.stopping != "relative" or spec.step_bound is not None:
+    if spec.stopping != "relative" or spec.step_bound is not None or spec.iterate == "best":
         if spec.stopping != "relative" and stop is None:
             raise ValueError(STOP_CONTEXT_MISSING)
         return _solve_submodel_ruled(
@@ -548,7 +556,7 @@ def _solve_submodel_ruled(
     carry: Sequence[CarryItem],
     stop: StopContext | None,
 ) -> Fluctuation:
-    """:func:`solve_submodel` under a declared stopping rule or a step bound."""
+    """:func:`solve_submodel` under a declared stopping rule, a step bound or a best iterate."""
     if spec.targeting == "one_step":
         if carry:
             raise CapabilityError.from_refusal(ONE_STEP_NESTED_REFUSAL)
@@ -565,6 +573,7 @@ def _solve_submodel_ruled(
             warn=warn,
             stopping=spec.stopping,
             stop=stop,
+            iterate=spec.iterate,
         )
     return solve_fluctuation(
         scaled,
@@ -583,6 +592,7 @@ def _solve_submodel_ruled(
         stop=stop,
         step_bound=spec.step_bound,
         step_search=spec.step_search,
+        iterate=spec.iterate,
     )
 
 

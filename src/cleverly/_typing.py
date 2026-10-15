@@ -21,6 +21,7 @@ __all__ = [
     "FoldStrata",
     "GBounds",
     "IntArray",
+    "IterateChoice",
     "Learner",
     "ParameterAxis",
     "StoppingRule",
@@ -47,6 +48,10 @@ TargetingMethod = Literal["iterative", "one_step"]
 #: How the outer test of a targeting step decides that the score equation is solved.
 #: ``"relative"`` is the shipped rule; the other two are the ``tmle3`` rules.
 StoppingRule = Literal["relative", "scaled_var", "sample_size"]
+
+#: Which iterate of a targeting walk is reported: the last, or the one of smallest raw score
+#: norm (``tmle3``'s ``use_best``).
+IterateChoice = Literal["last", "best"]
 TargetingScheme = Literal["pooled", "fold"]
 
 #: What the outer cross-fitting folds are balanced on.  ``"none"`` draws a split that

@@ -9,12 +9,13 @@ from ._typing import (
     FluctuationKind,
     FoldStrata,
     GBounds,
+    IterateChoice,
     StoppingRule,
     TargetingMethod,
     TargetingScheme,
 )
 from .exceptions import MethodConfigurationError, Refusal, RefusalReason
-from .fluctuation._score import check_step_bound, check_stopping_rule
+from .fluctuation._score import check_iterate, check_step_bound, check_stopping_rule
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
@@ -378,6 +379,17 @@ class Targeting:
         minimises the weighted mean quasi-loss along the step, as ``tmle3`` does with
         ``optim_delta_epsilon``. ``False`` takes the whole bound, as ``delta_epsilon`` does.
         It needs ``step_bound``.
+    iterate : {"last", "best"}, default="last"
+        Which iterate of the targeting walk the fit reports. ``"last"`` reports the iterate
+        at which the walk stopped. ``"best"`` is ``use_best`` of ``tmle3``: it reports the
+        iterate ``k >= 1`` whose raw score vector has the smallest 2-norm, the first of any
+        tie. The initial fit is never reported while a step exists. The walk still stops by
+        the rule, ``n_iter`` and ``trace`` describe the whole walk, and ``converged`` is
+        judged at the reported iterate. ``Fluctuation.best_iterate`` records the index. The
+        best iterate differs from the last on a walk that oscillates, such as
+        ``step_search=False``. On ``algorithm="one_step"`` the norm never rises, so the best
+        iterate is the last. It is refused beside ``fluctuation="linear"``, which has no
+        iterates.
 
     See Also
     --------
@@ -416,8 +428,10 @@ class Targeting:
     stopping: StoppingRule = "relative"
     step_bound: float | None = None
     step_search: bool = True
+    iterate: IterateChoice = "last"
 
     def __post_init__(self) -> None:
+        check_iterate(self.iterate, self.fluctuation)
         check_stopping_rule(self.stopping, self.fluctuation)
         check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.algorithm)
 
@@ -624,6 +638,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "stopping": "stopping",
         "step_bound": "step_bound",
         "step_search": "step_search",
+        "iterate": "iterate",
     },
     "inference": {
         "alpha": "alpha",
@@ -865,6 +880,7 @@ class TMLEMethod:
                     "stopping": targeting.stopping,
                     "step_bound": targeting.step_bound,
                     "step_search": targeting.step_search,
+                    "iterate": targeting.iterate,
                 }
             )
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a
@@ -899,6 +915,7 @@ class TMLEMethod:
                 "stopping": targeting.stopping,
                 "step_bound": targeting.step_bound,
                 "step_search": targeting.step_search,
+                "iterate": targeting.iterate,
                 "n_bootstrap": inference.n_bootstrap,
                 "bootstrap_resampling": inference.bootstrap_resampling,
             }
@@ -1166,8 +1183,8 @@ class SDRMethod(TMLEMethod):
         training rows.
     targeting : Targeting
         ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter``, ``tol``,
-        ``stopping``, ``step_bound`` and ``step_search`` are refused, because the estimator
-        fits no fluctuation.
+        ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
+        estimator fits no fluctuation.
     inference : Inference
         Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
         with no percentile inference.
@@ -1223,13 +1240,22 @@ class SDRMethod(TMLEMethod):
             ("stopping", "stopping"),
             ("step_bound", "step_bound"),
             ("step_search", "step_search"),
+            ("iterate", "iterate"),
         ):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(engine_name))
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol", "stopping", "step_bound", "step_search"):
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "stopping",
+            "step_bound",
+            "step_search",
+            "iterate",
+        ):
             del kwargs[engine_name]
         return kwargs
 
@@ -1255,8 +1281,8 @@ class IPSIMethod(TMLEMethod):
         training rows.
     targeting : Targeting
         ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter``, ``tol``,
-        ``stopping``, ``step_bound`` and ``step_search`` are refused, because the estimator
-        fits no fluctuation.
+        ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
+        estimator fits no fluctuation.
     inference : Inference
         Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
         with no percentile inference.
@@ -1312,12 +1338,21 @@ class IPSIMethod(TMLEMethod):
             "stopping",
             "step_bound",
             "step_search",
+            "iterate",
         ):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(IPSI_NO_FLUCTUATION)
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol", "stopping", "step_bound", "step_search"):
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "stopping",
+            "step_bound",
+            "step_search",
+            "iterate",
+        ):
             del kwargs[engine_name]
         return kwargs
