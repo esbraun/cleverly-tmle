@@ -279,6 +279,10 @@ def test_a_vector_column_reads_a_single_value_and_a_missing_one() -> None:
 def test_the_committed_replay_verdict_is_the_rule_s_output() -> None:
     compared_path = study.ARTIFACTS / study.REPLAY_FILE
     summary_path = study.ARTIFACTS / study.REPLAY_SUMMARY_FILE
+    if study.STUDY.comparator_state == "pending":
+        # The replay reads R's arrays, so a pending comparator publishes none of it.
+        assert not compared_path.exists() and not summary_path.exists()
+        return
     if not (compared_path.exists() and summary_path.exists()):
         pytest.skip("replay.csv is written by the study run")
     compared = pd.read_csv(compared_path, float_precision="round_trip")
@@ -291,6 +295,9 @@ def test_the_committed_replay_verdict_is_the_rule_s_output() -> None:
 def test_a_red_committed_replay_gate_reaches_its_owner() -> None:
     """A red gate in the committed summary fails here until the roadmap lists its owner."""
     summary_path = study.ARTIFACTS / study.REPLAY_SUMMARY_FILE
+    if study.STUDY.comparator_state == "pending":
+        assert not summary_path.exists(), "a pending comparator publishes no replay gate"
+        return
     if not summary_path.exists():
         pytest.skip("replay-summary.csv is written by the study run")
     committed = pd.read_csv(summary_path, float_precision="round_trip")

@@ -506,8 +506,27 @@ def test_the_study_imports_without_its_declaration_inputs() -> None:
 
 
 def test_the_paired_comparison_is_descriptive() -> None:
-    assert study.STUDY.paired_role == "descriptive"
     assert study.STUDY.property_artifacts == (study.PROPERTY_SELECTION_FILE,)
+    if study.STUDY.comparator_state == "pending":
+        # No R row exists, so nothing is paired and no side artefact is declared.  The change
+        # that registers the R runs restores both, and this branch then stops applying.
+        assert study.STUDY.pending_reference == study.REFERENCE
+        assert "Study queue item 9" in study.STUDY.pending_reason
+        assert study.STUDY.extra_artifacts == ()
+        return
+    assert study.STUDY.paired_role == "descriptive"
+    assert study.STUDY.extra_artifacts == study.REFERENCE_SIDE_ARTIFACTS
+
+
+def test_a_pending_comparator_writes_no_side_artefact_and_gates_no_replay() -> None:
+    if study.STUDY.comparator_state != "pending":
+        pytest.skip("the R runs are registered")
+    subject = pd.DataFrame({"implementation": [study.IMPLEMENTATION] * 2})
+    assert study.extra_artifacts(subject) == {}
+    assert study.scientific_failures({}) == {}
+    with_reference = pd.DataFrame({"implementation": [study.IMPLEMENTATION, study.REFERENCE]})
+    with pytest.raises(RuntimeError, match="pending"):
+        study.extra_artifacts(with_reference)
 
 
 # --------------------------------------------------------------- the R runner and its rows
