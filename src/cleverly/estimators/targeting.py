@@ -401,7 +401,7 @@ def build_submodel(
         # it eagerly would refuse a shift fit on behalf of a builder that discards it.
         arm_fractions=(
             None
-            if data.is_continuous_treatment
+            if data.treatment_kind == "vector" or data.is_continuous_treatment
             else (data.arm_fractions if arm_fractions is None else arm_fractions)
         ),
         reference=reference,
@@ -409,7 +409,9 @@ def build_submodel(
         intermediate_density=intermediate_density,
         selection=selection,
         regimes=None if nuisance.regimes is None else nuisance.regimes.values,
-        policies=None if nuisance.policies is None else nuisance.policies.design_at(propensity),
+        policies=(
+            None if nuisance.policies is None else nuisance.policies.design_at(propensity, bounds)
+        ),
         # The covariate needs only h * (dm/deta) * phi; the factors are wanted apart one
         # layer up, in the projection itself. See cleverly.msm.MSMSet.weighted_design_at,
         # which is the identity link's beta-free array whenever the link is the identity.

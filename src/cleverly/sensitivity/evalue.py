@@ -408,7 +408,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             alternative=NO_ALTERNATIVE,
             roadmap="F16",
         )
-    if result.data.is_continuous_treatment:
+    if not result.data.has_arms:
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
             "an E-value requires a discrete arm contrast",
