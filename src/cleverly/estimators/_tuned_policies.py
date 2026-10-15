@@ -75,6 +75,7 @@ __all__ = [
     "PointTuning",
     "declares_tuned",
     "in_sample_policies",
+    "point_tuned_component_refusal",
     "refuse_tuned_compositions",
     "resolve_point_policies",
 ]
@@ -103,6 +104,33 @@ def declares_tuned(policies: Sequence[object]) -> bool:
 def _composition(reason: str, remedy: str) -> CapabilityError:
     return CapabilityError(
         f"a point-treatment policy with a data-tuned cap is not combined with {reason}. {remedy}"
+    )
+
+
+def point_tuned_component_refusal(policy: object, component: str) -> str:
+    """The refusal of a tuned cap at a component of a point vector treatment.
+
+    Parameters
+    ----------
+    policy : JointPolicy
+        The joint policy.
+    component : str
+        Its tuned component.
+
+    Returns
+    -------
+    str
+        The text.
+    """
+    return (
+        f"policy {getattr(policy, 'name', policy)!r} tunes the cap of component "
+        f"{component!r} of a point vector treatment. The point tuned-cap construction "
+        "fits its tuner on a treatment of one dose and predicts the derivative probes at "
+        "that dose alone; it does not resolve a component's tuner on the frame its map "
+        "reads, or set the component inside the assigned vector. LTMLE and SDR fit this "
+        "map at a mixed node: declare the vector as one node, "
+        "treatment=[[...components...]] with baseline= the covariates, or declare the cap "
+        "as a number"
     )
 
 

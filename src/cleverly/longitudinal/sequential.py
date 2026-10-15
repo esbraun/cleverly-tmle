@@ -1804,20 +1804,36 @@ def _mixed_node_ratios(
         node = plan.regimen.plan[time - 1]  # type: ignore[union-attr]
         assert isinstance(node, JointPolicy)
         branches = [probability for probability, _ in joint_branches(node)]
+
+        def stacked(
+            values: tuple[FloatArray, ...], branches: list[float] = branches
+        ) -> tuple[tuple[float, FloatArray], ...]:
+            return tuple(
+                (probability, data.component_design(time, target))
+                for probability, target in zip(branches, values, strict=True)
+            )
+
+        # A cross-fitted tuned plan: outer fold k's classifier stacks fold k's map, at its
+        # training tuner, as at a node of one dose (``_classifier_numerator``).
+        by_fold = None
+        if plan.fold_plans and not folds.is_single:
+            by_fold = []
+            for fold_plan in plan.fold_plans:
+                own = fold_plan.carry_targets(time)
+                assert own is not None
+                by_fold.append(stacked(own))
         (numerator,) = classifier_ratio(
             treatment_learner,
             history,
             observed,
-            tuple(
-                (probability, data.component_design(time, target))
-                for probability, target in zip(branches, targets, strict=True)
-            ),
+            stacked(targets) if by_fold is None else by_fold[0],
             data.weights,
             folds,
             evaluate_at=[observed],
             fit_mask=fit_at,
             groups=data.cluster,
             n_jobs=n_jobs,
+            assigned_by_fold=by_fold,
         )
         numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
 
@@ -1857,14 +1873,25 @@ def _mixed_node_density(
         component_atom_layout(components, data.component_atoms(time)),
     )
     branches: list[JointBranch] = []
-    owners: list[tuple[str, float, int]] = []
+    # ``(plan, probability, branch, fold)``: the fold whose rows a branch's ratio serves,
+    # ``None`` for every row.  A fold-average plan reads, at a row of fold k, fold k's map
+    # at its training tuner; every other plan reads its own map.
+    owners: list[tuple[str, float, int, int | None]] = []
+    sources: list[tuple[Plan, int | None]] = []
     for plan in plans:
-        node = plan.regimen.plan[time - 1]  # type: ignore[union-attr]
-        assert isinstance(node, JointPolicy)
-        for probability, mapping in joint_branches(node):
-            owners.append((plan.label, probability, len(branches)))
-            branches.append(JointBranch(node.name, mapping, node.order))
-    targets = [target for plan in plans for target in (plan.carry_targets(time) or ())]
+        own: list[tuple[Plan, int | None]] = (
+            [(fold_plan, k) for k, fold_plan in enumerate(plan.fold_plans)]
+            if plan.fold_average
+            else [(plan, None)]
+        )
+        for source, fold in own:
+            node = source.regimen.plan[time - 1]  # type: ignore[union-attr]
+            assert isinstance(node, JointPolicy)
+            for probability, mapping in joint_branches(node):
+                owners.append((plan.label, probability, len(branches), fold))
+                branches.append(JointBranch(node.name, mapping, node.order))
+            sources.append((source, fold))
+    targets = [target for source, _ in sources for target in (source.carry_targets(time) or ())]
     evaluations = [JointEvaluation(natural, tuple(range(len(branches))))] + [
         JointEvaluation(np.asarray(target, dtype=float)) for target in targets
     ]
@@ -1886,12 +1913,18 @@ def _mixed_node_density(
     safe = np.where(doses > 0.0, doses, 1.0)
     for plan in plans:
         numerator = np.zeros(data.n)
-        for label, probability, branch in owners:
-            if label == plan.label:
-                numerator = numerator + probability * induced[:, branch]
+        owner = None if plan.folds is None else np.asarray(plan.folds.assignment)
+        for label, probability, branch, fold in owners:
+            if label != plan.label:
+                continue
+            term = probability * induced[:, branch]
+            if fold is not None:
+                assert owner is not None
+                term = np.where(owner == fold, term, 0.0)
+            numerator = numerator + term
         ratio = np.where(doses > 0.0, numerator / safe, 0.0)
         numerators[plan.label][time] = np.where(at_risk, ratio, 0.0)
-    for (_, _, branch), target, index in zip(
+    for (_, _, branch, _), target, index in zip(
         owners, targets, range(1, len(targets) + 1), strict=True
     ):
         moved = at_risk & np.any(np.asarray(target) != natural, axis=1)
@@ -2090,6 +2123,7 @@ def outcome_design(
     arm: int | None = None,
     *,
     dose: FloatArray | None = None,
+    component: int | None = None,
 ) -> FloatArray:
     """The outcome regression's design at node ``time`` of ``plan``.
 
@@ -2117,7 +2151,11 @@ def outcome_design(
     dose : FloatArray or None
         At a continuous policy node, the ``(n,)`` dose to set the current block to, in
         place of a branch's: a tuned node's boundary or last moved dose.  ``None`` reads
-        ``arm``.
+        ``arm``.  At a mixed node it sets the dose component ``component`` of branch
+        ``arm`` (default the first), and every other component keeps the value the branch
+        assigns.
+    component : int or None
+        At a mixed node, the column of the dose component that ``dose`` sets.
 
     Returns
     -------
@@ -2137,14 +2175,15 @@ def outcome_design(
             # its own indicators.  At the current node a prediction sets the components to
             # the values one branch of the joint policy assigns.
             targets = plan.carry_targets(node)
-            blocks.append(
-                data.component_design(
-                    node,
-                    targets[int(arm)]  # type: ignore[arg-type]
-                    if current and targets is not None
-                    else None,
-                )
-            )
+            values = None
+            if current and targets is not None:
+                values = np.array(targets[0 if arm is None else int(arm)], dtype=float)
+                if dose is not None:
+                    # A tuned component's probe: the full assigned vector with that
+                    # component set to the boundary or to the last moved dose.
+                    assert component is not None
+                    values[:, component] = np.asarray(dose, dtype=float)
+            blocks.append(data.component_design(node, values))
             continue
         if data.is_continuous_node(node):
             # A dose enters as itself.  At the current node a prediction sets it to the dose
@@ -2235,8 +2274,13 @@ def _fit_node_regression(
         predict_designs["history"] = design
     tuning = _population_tuning(plan, time)
     if tuning is not None:
-        predict_designs["probe_boundary"] = outcome_design(data, plan, time, dose=tuning.boundary)
-        predict_designs["probe_edge"] = outcome_design(data, plan, time, dose=tuning.edge)
+        column = tuned_column(data, tuning)
+        predict_designs["probe_boundary"] = outcome_design(
+            data, plan, time, dose=tuning.boundary, component=column
+        )
+        predict_designs["probe_edge"] = outcome_design(
+            data, plan, time, dose=tuning.edge, component=column
+        )
     carry = carry_plan if carry_plan is not None and policy_node else None
     if carry is not None:
         for code in levels:
@@ -2317,6 +2361,48 @@ def _fit_node_regression(
         probes=probes,
         carry_marginal=carry_marginal,
     )
+
+
+def tuned_column(data: LongitudinalData, tuning: Any) -> int | None:
+    """The column of a tuned dose component among its node's components, or ``None``.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    tuning : NodeTuning
+        The tuned node.
+
+    Returns
+    -------
+    int or None
+        ``None`` at a node of one dose.
+    """
+    if tuning.component is None:
+        return None
+    names = [component.name for component in data.node_components(tuning.time)]
+    return names.index(tuning.component)
+
+
+def tuned_dose(data: LongitudinalData, tuning: Any) -> FloatArray:
+    """``(n,)`` the natural value of a tuned dose: the node's dose, or the component's.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    tuning : NodeTuning
+        The tuned node.
+
+    Returns
+    -------
+    ndarray
+        The natural dose, zero where the node is missing.
+    """
+    column = tuned_column(data, tuning)
+    if column is None:
+        return np.nan_to_num(data.node_codes(tuning.time), nan=0.0)
+    return np.nan_to_num(data.node_values(tuning.time)[:, column], nan=0.0)
 
 
 def _population_tuning(plan: Plan, time: int) -> Any:
@@ -2748,7 +2834,7 @@ def tuning_term(
         derivative = cap_derivative(
             weights=data.weights,
             prefix=prefix,
-            dose=np.nan_to_num(data.node_codes(tuning.time), nan=0.0),
+            dose=tuned_dose(data, tuning),
             edge=tuning.edge,
             high=step.probes[:, 0],
             low=step.probes[:, 1],

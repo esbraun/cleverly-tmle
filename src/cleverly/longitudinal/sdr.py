@@ -52,6 +52,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import partial
+from typing import Any
 
 import numpy as np
 
@@ -452,7 +453,22 @@ def fit_fold_mechanisms(
                 evaluated.append(fold_plan)
                 carry.append(None)
                 continue
-            evaluated.append(_at_full_sample_tuner(data, plan, fold_plan, mechanism, ratio))
+            evaluated.append(
+                _at_full_sample_tuner(
+                    data,
+                    plan,
+                    fold_plan,
+                    mechanism,
+                    ratio,
+                    refit=partial(
+                        _mixed_numerator,
+                        data,
+                        fit_rows=outer_train,
+                        treatment_learner=treatment_learner,
+                        density_bins=density_bins,
+                    ),
+                )
+            )
             carry.append(fold_plan)
         return FoldMechanism(mechanism, tuple(evaluated), tuple(carry)), profile
 
@@ -465,19 +481,53 @@ def fit_fold_mechanisms(
     return tuple(fold for fold, _ in outcomes)
 
 
+def _mixed_numerator(
+    data: LongitudinalData,
+    plan: Plan,
+    time: int,
+    *,
+    fit_rows: BoolArray,
+    treatment_learner: Learner,
+    density_bins: int | None,
+) -> FloatArray:
+    """One fold's joint density at a mixed node, evaluated under ``plan``'s map."""
+    from .sequential import _mixed_node_density
+
+    at_risk = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+    numerators: dict[str, dict[int, FloatArray]] = {plan.label: {}}
+    _mixed_node_density(
+        data,
+        [plan],
+        time,
+        at_risk,
+        numerators,
+        fit_at=at_risk & fit_rows,
+        treatment_learner=treatment_learner,
+        folds=Folds.single(data.n),
+        density_bins=density_bins,
+        n_jobs=1,
+    )
+    return numerators[plan.label][time]
+
+
 def _at_full_sample_tuner(
     data: LongitudinalData,
     plan: Plan,
     fold_plan: Plan,
     mechanism: Mechanism,
     ratio: str,
+    *,
+    refit: Any = None,
 ) -> Plan:
     """A population-target plan at :math:`\\theta_n`, with one fold's ratio numerators.
 
     On the density route each tuned node's ratio is the fold's density evaluated under the
     map at :math:`\\theta_n`; on the classifier route it is the fold's classifier, fitted
     at the fold's own map, at the observed dose.  Every other node keeps the fold plan's
-    numerator, since its map does not depend on a tuner.
+    numerator, since its map does not depend on a tuner.  At a mixed node the induced
+    joint density is not a function of the stored component densities alone, so
+    ``refit(plan, time)`` fits the fold's joint density again, on the same rows, and
+    evaluates it under the map at :math:`\\theta_n`.
     """
     from dataclasses import replace
 
@@ -488,6 +538,9 @@ def _at_full_sample_tuner(
     if ratio == "density":
         for tuning in plan.tuning:
             time = tuning.time
+            if tuning.component is not None:
+                numerators[time - 1] = refit(plan, time)
+                continue
             density = mechanism.densities[(time, data.treatment_names[time - 1])]
             dose = np.nan_to_num(data.node_codes(time), nan=0.0)
             frame = lazy_frame(partial(data.policy_frame, time))

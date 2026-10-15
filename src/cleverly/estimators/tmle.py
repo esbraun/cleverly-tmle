@@ -186,6 +186,7 @@ from ..interventions.policy import (
     preflight_point_policies,
     preflight_vector_policies,
     refuse_policy_declarations,
+    tuned_component,
     vector_msm_refusal,
     vector_route_refusal,
     whole_vector_refusal,
@@ -233,6 +234,7 @@ from ._strata import (
 from ._tuned_policies import (
     declares_tuned,
     in_sample_policies,
+    point_tuned_component_refusal,
     refuse_tuned_compositions,
     resolve_point_policies,
 )
@@ -3087,6 +3089,10 @@ class TMLE:
             # :meth:`_refuse_vector_compositions` admits joint policies only.  The
             # undeclared atoms (R-b4) and a declared component support are checked here,
             # before any learner (X40 parts (a) and (b)).
+            for policy in self.policies or ():
+                found = tuned_component(policy)
+                if found is not None:
+                    raise CapabilityError(point_tuned_component_refusal(policy, found[0]))
             if self.policies:
                 preflight_vector_policies(
                     tuple(self.policies), data, ratio=self.ratio, density_bins=self.density_bins

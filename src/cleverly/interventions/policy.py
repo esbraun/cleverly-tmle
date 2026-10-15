@@ -151,8 +151,10 @@ __all__ = [
     "Shift",
     "Support",
     "check_policy_support",
+    "component_source",
     "refuse_policy_declarations",
     "resolve_tuned_policy",
+    "tuned_component",
     "tuned_policy",
 ]
 
@@ -981,15 +983,8 @@ def refuse_policy_declarations(policies: Iterable[object]) -> None:
             refuse_tuned_declarations(policy)
             continue
         if isinstance(policy, JointPolicy):
-            for component in policy.components.values():
-                if isinstance(component, (Shift, Scale)) and is_tuner(component.cap):
-                    raise CapabilityError(
-                        f"policy {policy.name!r} tunes a component's cap from the treatment "
-                        "law. A tuned cap applies to a Shift or Scale at a node of one dose; "
-                        "inside a JointPolicy the tuner would read one component's law given "
-                        "the others, which this release does not resolve. Declare the "
-                        "component's cap as a number"
-                    )
+            # A tuned component meets R-e1 and R-e2 as a tuned map of one dose does; the
+            # fit resolves it (``cleverly.longitudinal.regimen.resolve_tuned_plans``).
             refuse_policy_declarations(
                 component
                 for _, components in joint_branches(policy)
@@ -1079,6 +1074,104 @@ def tuned_cap_parts(
     else:
         edge, slope = boundary / float(policy.factor), 1.0 / float(policy.factor)
     return boundary, edge, fitted.design(frame, n), slope
+
+
+def tuned_component(policy: object) -> tuple[str, Shift | Scale] | None:
+    """The one component of a :class:`JointPolicy` whose cap is a tuner, or ``None``.
+
+    Parameters
+    ----------
+    policy : object
+        A declared policy.
+
+    Returns
+    -------
+    tuple or None
+        ``(component name, tuned map)``, or ``None`` when no component is tuned.
+
+    Raises
+    ------
+    CapabilityError
+        If the policy has a randomizer and a tuned component, or tunes two components.
+    """
+    if not isinstance(policy, JointPolicy):
+        return None
+    branches = joint_branches(policy)
+    tuned = sorted(
+        {
+            name
+            for _, components in branches
+            for name, component in components.items()
+            if tuned_policy(component)
+        }
+    )
+    if not tuned:
+        return None
+    if len(branches) > 1:
+        raise CapabilityError(
+            f"policy {policy.name!r} tunes the cap of component {tuned[0]!r} inside a "
+            "randomized JointPolicy. A tuned cap's curve term is derived for one "
+            "deterministic map, as at a node of one dose: each branch of a randomizer would "
+            "need its own derivative term, weighted by the branch probability, which this "
+            "release does not build. Declare one JointPolicy without a randomizer, or the "
+            "cap as a number"
+        )
+    if len(tuned) > 1:
+        raise CapabilityError(
+            f"policy {policy.name!r} tunes the caps of the components {tuned}. The curve "
+            "carries one derivative term per tuned map, and this release builds one per "
+            "node. Tune one component and declare the other caps as numbers"
+        )
+    ((_, components),) = branches
+    return tuned[0], cast(Shift | Scale, components[tuned[0]])
+
+
+def component_source(
+    policy: JointPolicy,
+    name: str,
+    components: Sequence[JointComponent],
+    natural: FloatArray,
+    frame_with: FrameWith,
+    where: str,
+) -> GuardedSource:
+    """The guarded frame a dose component's map reads: what its tuner may read too.
+
+    A dose map reads the natural categorical components and the natural doses before it
+    in the policy's order (:class:`JointPolicy`).  The tuner of its cap reads the same
+    frame, so the tuned map stays triangular.
+
+    Parameters
+    ----------
+    policy : JointPolicy
+        The joint policy.
+    name : str
+        The dose component.
+    components : sequence of JointComponent
+        The node's components.
+    natural : ndarray
+        ``(n, d)`` natural values.
+    frame_with : callable
+        Builds the node's policy frame with extra columns.
+    where : str
+        The node, for the refusals.
+
+    Returns
+    -------
+    GuardedSource
+        The frame, which refuses a read of any other component.
+    """
+    names = [component.name for component in components]
+    doses = dose_order(policy.name, policy.order, components, where)
+    position = [components[index].name for index in doses].index(name)
+    labels = {
+        component.name: component.labels(natural[:, index])
+        for index, component in enumerate(components)
+    }
+    readable = {other.name: labels[other.name] for other in components if not other.continuous}
+    readable.update(
+        {components[index].name: labels[components[index].name] for index in doses[:position]}
+    )
+    return guarded_source(frame_with, readable, set(names) - set(readable))
 
 
 def resolve_tuned_policy(
