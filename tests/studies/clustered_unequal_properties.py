@@ -34,7 +34,6 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.inference import influence_variance
-from cleverly.utils.parallel import map_parallel
 from tests.conftest import OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies import clustered_unequal_laws as laws
@@ -51,6 +50,7 @@ from tests.studies.clustered_unequal_cvtmle import (
     fit_cleverly,
     tmle_settings,
 )
+from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.properties import PropertyCell, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
@@ -58,6 +58,7 @@ from tests.studies.evidence.property_verdicts import (
     clustered_inference_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 TARGET = "ate"
@@ -162,8 +163,7 @@ def _iid(estimate: Any) -> float:
     return float(np.sqrt(influence_variance(estimate.influence_curve)))
 
 
-def _covariate_fit(seed: int) -> tuple[Any, float]:
-    frame = laws.draw_cluster_covariate(COVARIATE_CLUSTERS, np.random.default_rng(seed))
+def _covariate_fit(frame: pd.DataFrame) -> tuple[Any, float]:
     result = (
         TMLE(
             outcome_learner=LogisticRegression(C=1e6, max_iter=1000),
@@ -185,8 +185,8 @@ def _covariate_fit(seed: int) -> tuple[Any, float]:
     return result[COVARIATE_TARGET], laws.covariate_truth()[COVARIATE_TARGET]
 
 
-def _informative_fit(kind: str, seed: int) -> tuple[Any, float]:
-    frame, truth = draw_from_seed(INFORMATIVE, PRIMARY_N, seed)
+def _informative_fit(kind: str, drawn: Any) -> tuple[Any, float]:
+    frame, truth = drawn
     if kind == "stacked":
         return fit_cleverly(frame, INFORMATIVE)[TARGET], truth[TARGET]
     if kind == "fold_evaluated":
@@ -208,12 +208,19 @@ def _informative_fit(kind: str, seed: int) -> tuple[Any, float]:
     raise KeyError(kind)
 
 
-def _pair_rows(payload: tuple[int, int, int, str, str, str]) -> list[dict[str, Any]]:
-    replicate, requested, seed, positive, control, kind = payload
+def _draw_pair(payload: tuple[int, int, int, str, str, str]) -> Any:
+    seed, kind = payload[2], payload[5]
     if kind == "covariate_fold_evaluated":
-        estimate, truth = _covariate_fit(seed)
+        return laws.draw_cluster_covariate(COVARIATE_CLUSTERS, np.random.default_rng(seed))
+    return draw_from_seed(INFORMATIVE, PRIMARY_N, seed)
+
+
+def _pair_rows(payload: tuple[int, int, int, str, str, str], drawn: Any) -> list[dict[str, Any]]:
+    replicate, requested, _, positive, control, kind = payload
+    if kind == "covariate_fold_evaluated":
+        estimate, truth = _covariate_fit(drawn)
     else:
-        estimate, truth = _informative_fit(kind, seed)
+        estimate, truth = _informative_fit(kind, drawn)
     robust = replicate_row(
         property_name=CLUSTERED,
         cell=positive,
@@ -239,9 +246,13 @@ def _pair_rows(payload: tuple[int, int, int, str, str, str]) -> list[dict[str, A
     return [robust, iid]
 
 
-def _weighting_rows(payload: tuple[int, int, int]) -> list[dict[str, Any]]:
-    replicate, requested, seed = payload
-    frame, _ = draw_from_seed(INFORMATIVE, PRIMARY_N, seed)
+def _draw_informative(payload: tuple[int, int, int]) -> Any:
+    return draw_from_seed(INFORMATIVE, PRIMARY_N, payload[2])
+
+
+def _weighting_rows(payload: tuple[int, int, int], drawn: Any) -> list[dict[str, Any]]:
+    replicate, requested, _ = payload
+    frame, _ = drawn
     truth = laws.informative_truth()
     fits = {
         "unweighted": fit_cleverly(frame, INFORMATIVE)[TARGET],
@@ -271,9 +282,9 @@ def cluster_mean_standard_error(curve: Any, cluster: Any) -> float:
     return float(np.sqrt(np.var(means, ddof=1) / means.size))
 
 
-def _aggregation_rows(payload: tuple[int, int, int]) -> list[dict[str, Any]]:
-    replicate, requested, seed = payload
-    frame, truth = draw_from_seed(INFORMATIVE, PRIMARY_N, seed)
+def _aggregation_rows(payload: tuple[int, int, int], drawn: Any) -> list[dict[str, Any]]:
+    replicate, requested, _ = payload
+    frame, truth = drawn
     estimate = fit_cleverly(frame, INFORMATIVE)[TARGET]
     cluster = frame["cluster"].to_numpy()
     rules = {
@@ -316,14 +327,59 @@ def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
     return out
 
 
-def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
-    function, payload = job
-    return list(function(payload))
+def _draw(key: tuple[Any, ...]) -> Any:
+    function, payload = key[0]
+    return _draw_pair(payload) if function is _pair_rows else _draw_informative(payload)
+
+
+def _run(key: tuple[Any, ...], drawn: Any) -> list[dict[str, Any]]:
+    function, payload = key[0]
+    return list(function(payload, drawn))
+
+
+def _cells_of(key: tuple[Any, ...]) -> list[str]:
+    """The ``property/cell`` names the key's rows fill."""
+    function, payload = key[0]
+    if function is _pair_rows:
+        return [f"{CLUSTERED}/{payload[3]}", f"{CLUSTERED}/{payload[4]}"]
+    if function is _weighting_rows:
+        return [f"{WEIGHTING}/{cell}" for cell, *_ in WEIGHTING_CELLS]
+    return [f"{AGGREGATION}/cluster_sum", f"{AGGREGATION}/cluster_mean"]
+
+
+def _cell_of(key: tuple[Any, ...]) -> str:
+    """The fit set a key belongs to: a pair, the weighting fits or the aggregation fit."""
+    function, payload = key[0]
+    if function is _pair_rows:
+        return f"{CLUSTERED}/{payload[3]}"
+    return f"{WEIGHTING if function is _weighting_rows else AGGREGATION}/paired"
+
+
+def _replicate_of(key: tuple[Any, ...]) -> int:
+    return int(key[0][1][0])
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each family for a pre-run check."""
-    outcomes = map_parallel(_run, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _run,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+    )
     return pd.DataFrame([row for rows in outcomes for row in rows])
 
 
@@ -372,3 +428,36 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 def exact_propensity() -> OracleTreatment:
     """The exact treatment mechanism of the informative law."""
     return OracleTreatment(ExactPropensity())
+
+
+#: The pairs that share a ``clustered_inference`` joint verdict (RM39b2 rev 3, section 5.0).
+PROPERTY_GROUPS = {
+    "clustered_inference": tuple((positive, control) for positive, control, _ in PAIRS)
+}
+
+
+def _weighting_rule() -> property_failures.FamilyRule:
+    """``estimand_weighting``: S2 at the floor, or S2 under the ceiling, joint over the family."""
+    return property_failures.FamilyRule(
+        families=frozenset({WEIGHTING}),
+        shared="estimand_weighting_verdicts",
+        clauses=(
+            property_failures.proportion_clause(
+                "coverage floor",
+                statistic="S2",
+                judge=property_failures.floor_judge(lambda ctx: ctx.margins.coverage_floor),
+                applies=property_failures.roles("positive"),
+            ),
+            property_failures.proportion_clause(
+                "coverage under the control ceiling",
+                statistic="S2",
+                judge=property_failures.below_judge(lambda ctx: CONTROL_COVERAGE_CEILING),
+                applies=property_failures.roles("control"),
+            ),
+        ),
+        group="family",
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (_weighting_rule(),)

@@ -60,6 +60,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-clustered-cvtmle",
     reference="lmtp",
+    failure_bound={"cleverly-clustered-cvtmle": 0.01, "lmtp": 0.01},
     comparison="different estimator",
     modules=(
         "tests/studies/canonical_clustered_tmle.py",
