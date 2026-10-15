@@ -754,8 +754,9 @@ def test_m_b6_without_its_rule_the_witness_reaches_the_learners(
         _undeclared(rule)
 
 
-#: The rules whose witness has a declared-atom oracle a fast fit can reach: (A) declares
-#: its one atom, and (C) declares the grid's 60 recorded values as atoms.
+#: The rules whose witness has a declared-atom oracle: (A) declares its one atom, and (B) and
+#: (C) declare the grid's recorded values as atoms.  Rule (D) has none: no moving policy keeps
+#: 200 list-price atoms on declared atoms.
 ORACLES = {
     "A": (
         ModifiedPolicy(
@@ -770,6 +771,20 @@ ORACLES = {
     ),
     # The cap holds 8.1, whose upper neighbour 8.2 has no row in this sample.
     "C": (Shift(0.1, cap=8.0, name="up"), "classifier"),
+    # The 0.02 grid against 320 bins (m4): the density route with every recorded value declared.
+    # The moved interval [5.0, 5.4) has all its images on recorded values.
+    "B": (
+        ModifiedPolicy(
+            "up",
+            pieces=(
+                Piece(-INF, 5.0),
+                Piece(5.0, 5.4, lambda a, h: a + 0.2, lambda b, h: b - 0.2, lambda b, h: 1.0),
+                Piece(5.4, INF),
+            ),
+            policy_kind="known",
+        ),
+        "density",
+    ),
 }
 
 
@@ -781,13 +796,17 @@ def test_m_b6_without_its_rule_the_fit_misses_its_declared_atom_oracle(
     dose = _witness(rule)
     frame = doses.dose_frame(dose, 1, jump=1.0, atom=6.37)
     atoms = (6.37,) if rule == "A" else tuple(np.unique(dose))
+    bins = WITNESSES[rule][2] if rule == "B" else None
 
     def fit(**declared: Any) -> float:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = TMLE(policies=[NATURAL, policy], ratio=ratio, **doses.point_learners()).fit(
-                frame, outcome="Y", treatment="A", covariates=["W"], **declared
-            )
+            result = TMLE(
+                policies=[NATURAL, policy],
+                ratio=ratio,
+                density_bins=bins,
+                **doses.point_learners(),
+            ).fit(frame, outcome="Y", treatment="A", covariates=["W"], **declared)
         return float(result.single()["ey_policy[up]"].psi)
 
     oracle = fit(dose_atoms=atoms)
