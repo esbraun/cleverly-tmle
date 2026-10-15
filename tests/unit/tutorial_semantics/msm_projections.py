@@ -12,13 +12,16 @@ from dataclasses import replace
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
+from scipy.stats import norm
 from sklearn.dummy import DummyRegressor
 
 from cleverly import MSMProjection
 from cleverly.datasets import navigation_protocol
 from cleverly.msm import MSM
 from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
+from tests.documents import ROOT
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -68,6 +71,65 @@ UNPRINTED_DECIMALS = {
 }
 
 
+def _log_value(text: str, pattern: str) -> str:
+    """Return the first group of ``pattern`` in a committed probe log."""
+    match = re.search(pattern, text)
+    assert match, f"the probe log no longer contains {pattern!r}"
+    return match.group(1)
+
+
+def _assert_unprinted_sources() -> None:
+    """Each decimal in UNPRINTED_DECIMALS equals the committed file that holds it."""
+    sweep = (ROOT / _PROBE / "sweep.log").read_text(encoding="utf-8")
+    shortfall = (ROOT / _PROBE / "shortfall.log").read_text(encoding="utf-8")
+    cover = r"= ([0-9.]+) \(Wilson 95% ([0-9.]+) to ([0-9.]+)\)"
+    slope = re.search(r"slope_cover: 3762/4000 " + cover, sweep)
+    assert slope and slope.groups() == ("0.9405", "0.9327", "0.9474")
+    assert _log_value(sweep, r"weighted_cover: 3762/4000 = ([0-9.]+)") == "0.9405"
+    assert _log_value(sweep, r"oracle_slope_cover: 3755/4000 = ([0-9.]+)") == "0.9387"
+    assert _log_value(sweep, r"step_slope_cover: 3782/4000 = ([0-9.]+)") == "0.9455"
+    assert _log_value(sweep, r"per-contact slope, fitted g: mean SE / empirical SD ([0-9.]+)") == (
+        "0.984"
+    )
+    assert _log_value(sweep, r"per-contact slope, true g: mean SE / empirical SD ([0-9.]+)") == (
+        "0.986"
+    )
+    assert _log_value(sweep, r"per-step slope, fitted g: mean SE / empirical SD ([0-9.]+)") == (
+        "0.997"
+    )
+    assert _log_value(shortfall, r"2 Phi\(1\.96 x 0\.984\) - 1 = ([0-9.]+)") == "0.946"
+    assert f"{2 * norm.cdf(1.96 * 0.984) - 1:.3f}" == "0.946"
+    # "About one patient in a hundred has a true probability below 0.01."
+    share = float(_log_value(shortfall, r"g\(high\) below 0\.01: ([0-9.]+)"))
+    assert 0.005 < share < 0.02
+
+    from tests.discrete_law import G
+    from tests.studies.canonical_point_msm import G_BOUNDS
+
+    assert G_BOUNDS == (0.01, 0.99)
+    assert (float(G.min()), float(G.max())) == (0.25, 0.6)
+
+    summary = pd.read_csv(ROOT / _STUDY / "summary.csv")
+    primary = summary[(summary["implementation"] == "cleverly") & (summary["estimand"] == "msm[a]")]
+    assert len(primary) == 1
+    assert f"{primary['coverage'].iloc[0]:.4f}" == "0.9463"
+    assert f"{primary['se_ratio'].iloc[0]:.4f}" == "0.9969"
+    properties = pd.read_csv(ROOT / _STUDY / "properties.csv").set_index(["property", "cell"])
+    calibration = properties.loc[("interval_calibration", "a__correctly_specified")]
+    assert f"{calibration['coverage_ci_lower']:.4f}" == "0.9357"
+    assert f"{calibration['coverage_ci_upper']:.4f}" == "0.9641"
+    assert f"{calibration['se_ratio_ci_lower']:.4f}" == "0.9537"
+    assert f"{calibration['se_ratio_ci_upper']:.4f}" == "1.0430"
+    declared = properties.loc[("projection_necessity", "W__declared_weights")]
+    assert f"{declared['bias_ci_lower']:.6f}" == "-0.000906"
+    assert f"{declared['bias_ci_upper']:.4f}" == "0.0018"
+    assert f"{declared['bias_margin']:.4f}" == "0.0045"
+    uniform = properties.loc[("projection_necessity", "W__uniform_weights")]
+    assert f"{uniform['bias_ci_lower']:.4f}" == "-0.1150"
+    assert f"{uniform['bias_ci_upper']:.4f}" == "-0.1129"
+    assert f"{uniform['bias_margin']:.4f}" == "0.0035"
+
+
 def _weighted_projection(design: np.ndarray, weights: np.ndarray, means: np.ndarray) -> np.ndarray:
     """Solve the weighted normal equations of the three-point projection."""
     return np.linalg.solve(design.T @ (weights[:, None] * design), design.T @ (weights * means))
@@ -75,6 +137,7 @@ def _weighted_projection(design: np.ndarray, weights: np.ndarray, means: np.ndar
 
 def check(namespace: dict[str, Any]) -> None:
     """The projection tutorial's protocol, codings, failure mode, weights, and control hold."""
+    _assert_unprinted_sources()
     effect = namespace["arm_means_effect"]
     fitted = namespace["arm_result"]
     study, method = namespace["study"], namespace["method"]
