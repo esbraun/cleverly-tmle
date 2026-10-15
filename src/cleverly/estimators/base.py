@@ -20,10 +20,12 @@ from .._inference_status import (
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
     InferenceStatus,
+    is_labelled,
     status_record,
     supplies_inference,
 )
 from .._refusal import NO_ALTERNATIVE
+from .._support import Classification
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
 from ..exceptions import (
@@ -51,6 +53,8 @@ from ..inference.influence import (
     reference_label,
     spread_name,
     stamp_inference,
+    support_column,
+    support_notes,
 )
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
@@ -420,7 +424,10 @@ class CVTargeting:
         return {name: float(np.sqrt(value)) for name, value in self.variance.items()}
 
     def stamped(
-        self, status: InferenceStatus, reference: ClusterReference | None = None
+        self,
+        status: InferenceStatus,
+        reference: ClusterReference | None = None,
+        classification: Classification | None = None,
     ) -> CVTargeting:
         """This report with both fold-level reports declaring ``status``.
 
@@ -435,6 +442,8 @@ class CVTargeting:
             The rows each estimate reads on a clustered fit, which set the Student t
             reference of an inferential estimate. The fold-evaluated report reads it with
             :meth:`~cleverly.inference.influence.ClusterReference.with_fold_evaluated`.
+        classification : Classification or None, default=None
+            The classification of the fit, which gives each estimate its support.
 
         Returns
         -------
@@ -450,23 +459,25 @@ class CVTargeting:
         )
         return replace(
             self,
-            pooled=stamp_inference(self.pooled, status, reference),
-            fold_evaluated=stamp_inference(self.fold_evaluated, status, fold_reference),
+            pooled=stamp_inference(self.pooled, status, reference, classification),
+            fold_evaluated=stamp_inference(
+                self.fold_evaluated, status, fold_reference, classification
+            ),
         )
 
     def to_frame(self, data: CausalData | None = None) -> Any:
         """One row per estimand: both reports, the CV standard error and the spread.
 
         The two standard-error columns take their names from
-        :func:`~cleverly.inference.influence.spread_name`. At a non-inferential status
-        the frame also carries an ``inference`` column naming it, and the columns read
-        ``cv_plugin_std_err`` and ``pooled_plugin_std_err``.
+        :func:`~cleverly.inference.influence.spread_name`. At a labelled status the frame
+        also carries an ``inference`` column naming it. At a status that withholds its
+        interval the columns read ``cv_plugin_std_err`` and ``pooled_plugin_std_err``.
         """
         names = list(self.variance)
         errors = self.plugin_std_error
         status = self.inference
         payload: dict[str, Any] = {"estimand": names}
-        if not supplies_inference(status):
+        if is_labelled(status):
             payload["inference"] = [status for _ in names]
         payload |= {
             "fold_evaluated_psi": [self.fold_evaluated[name].psi for name in names],
@@ -529,6 +540,8 @@ class CVTargeting:
         if not supplies_inference(status):
             # The fit's own sentence, as ``TMLEResult.summary`` prints it under its table.
             header.append(status_record(status).reason)
+        elif is_labelled(status):
+            header.append(f"experimental: {status_record(status).shown_reason}")
         header.append("")
         epsilon_lines = ["", "common fluctuation coefficients:"]
         for group, eps in self.epsilon.items():
@@ -1565,10 +1578,15 @@ class TMLEResult:
         t_reference = has_t_reference(self.estimates)
         rows = []
         record = status_record(status) if diagnostic else None
+        support_cells = support_column(self.estimates)
         if record is not None:
             for name, estimate in self.estimates.items():
                 rows.append([name, f"{estimate.psi:.5g}", f"{estimate.plugin_std_error:.4g}"])
-            table = format_table(["estimand", "psi", record.summary_label], rows)
+            headers = ["estimand", "psi", record.summary_label]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
         else:
             for name, estimate in self.estimates.items():
                 if not estimate.supplies_inference:
@@ -1596,19 +1614,24 @@ class TMLEResult:
                         *([reference_label(estimate)] if t_reference else []),
                     ]
                 )
-            table = format_table(
-                [
-                    "estimand",
-                    "psi",
-                    "std_err",
-                    f"{level} CI",
-                    "p_value",
-                    *(["df"] if t_reference else []),
-                ],
-                rows,
-            )
+            headers = [
+                "estimand",
+                "psi",
+                "std_err",
+                f"{level} CI",
+                "p_value",
+                *(["df"] if t_reference else []),
+            ]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
 
         parts = [*header, *facts, "", table]
+        notes = support_notes(self.estimates)
+        if notes:
+            parts.append("")
+            parts.extend(notes)
         if t_reference:
             parts.append("")
             assert data.cluster is not None
@@ -1683,7 +1706,11 @@ class TMLEResult:
                 label = spread_name("std_err", status)
                 share = f"{value / error:.0%} of {label}" if error > 0 else f"{label} unavailable"
                 parts.append(f"  {name:<5s} {value:.4g}  ({share})")
-        if self.simultaneous is None and diagnostic and len(self.estimates) > 1:
+        if (
+            self.simultaneous is None
+            and (diagnostic or (is_labelled(status) and not t_reference))
+            and len(self.estimates) > 1
+        ):
             # Stated rather than left blank: a reader who asked for bands, or who knows
             # they are the default, would otherwise have to guess why none are here.
             parts.append("")

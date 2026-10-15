@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from ._inference_status import supplies_inference
+from ._inference_status import is_labelled, supplies_inference
 from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
@@ -89,7 +89,8 @@ class VariableImportanceResult:
         """One row per candidate/parameter, in the order of the entries.
 
         A run sorts its entries by adjusted p-value. An ordinary result emits ``std_err``,
-        ``ci_lower``, ``ci_upper``, ``p_value`` and ``p_value_adjusted``. A result whose
+        ``ci_lower``, ``ci_upper``, ``p_value`` and ``p_value_adjusted``. A result at a
+        labelled status adds an ``inference`` column that names the status. A result whose
         entries supply no inference emits an ``inference`` column and the three spread
         columns under their
         diagnostic names, as ``TMLEResult.to_frame`` does. It emits neither p-value column.
@@ -116,7 +117,7 @@ class VariableImportanceResult:
             "parameter": [entry.parameter for entry in self.entries],
             "psi": [entry.estimate.psi for entry in self.entries],
         }
-        if not inferential:
+        if is_labelled(status):
             payload["inference"] = [status] * len(self.entries)
         names = list(spreads[0]) if spreads else []
         payload.update({name: [spread[name] for spread in spreads] for name in names})

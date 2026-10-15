@@ -3,14 +3,15 @@
 A fit is *supported* when a registered study covers its configuration, and *experimental*
 otherwise. This module holds the pieces of that decision that do not depend on any fitted
 estimate: the :class:`Support` record, the :class:`SupportKey` read from an estimator and its
-data before any learner runs, :func:`classify`, which matches a key against :data:`ROWS`, and
+data before any learner runs, :func:`classify`, which matches a key against the registered rows, and
 :func:`combine_support`, which says what a derived estimate carries.
 
-Nothing here changes an output. The only effect of the module is the record switch. When the
-environment variable :data:`RECORD_ENVIRONMENT_VARIABLE` names a directory, each
-classification and each refusal site that a later change will move appends one JSON line to
-``<directory>/<pid>.jsonl``. With the variable unset, no classification runs and no call here
-touches an estimator.
+A fit classifies itself before any learner runs. :func:`support_for` then computes what each
+estimate carries from the classification, the estimate's final status and its reference. The
+record switch is a measurement aid. When the environment variable
+:data:`RECORD_ENVIRONMENT_VARIABLE` names a directory, each classification and each refusal site
+that a later change will move appends one JSON line to ``<directory>/<pid>.jsonl``. The switch
+changes no output.
 
 The module imports the standard library, :mod:`cleverly._refusal` and
 :mod:`cleverly._inference_status` at module level. The key readers import the cluster counter
@@ -31,6 +32,7 @@ from ._inference_status import (
     FEW_CLUSTER_THRESHOLD,
     MINIMUM_INTERVAL_CLUSTERS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
+    STATUS_RECORDS,
     supplies_inference,
 )
 from ._refusal import Refusal
@@ -48,6 +50,8 @@ __all__ = [
     "SupportRow",
     "classify",
     "classify_key",
+    "classify_longitudinal_fit",
+    "classify_point_fit",
     "combine_support",
     "longitudinal_key",
     "point_key",
@@ -56,8 +60,7 @@ __all__ = [
     "recording_directory",
     "regimen_kinds",
     "registered_rows",
-    "start_longitudinal_record",
-    "start_point_record",
+    "support_for",
 ]
 
 #: The environment variable that turns the phase-1 record on. Its value is a directory.
@@ -753,6 +756,105 @@ def classify_key(
     return Classification(key, learners, None, nearest, tuple(conditions))
 
 
+_KIND_NAMES: Final[Mapping[str, str]] = {
+    "point": "point estimate",
+    "wald": "Wald interval",
+    "wald_t": "Student t interval",
+}
+
+
+def _sentence(text: str) -> str:
+    """``text`` as a sentence: opened with a capital letter and closed with a full stop."""
+    text = text.strip()
+    text = text[:1].upper() + text[1:]
+    return text if text.endswith(".") else text + "."
+
+
+def support_for(
+    classification: Classification | None,
+    status: str,
+    reference_df: int | None = None,
+) -> Support:
+    """What one estimate carries, from its fit's classification and its final status.
+
+    Called where the status is final: ``stamp_inference`` for a point fit, and the longitudinal
+    estimate builders after the parameter status. The estimate needs a ``point`` kind of the
+    matched row when its status withholds the interval, a ``wald_t`` kind when it reads a t
+    reference, and a ``wald`` kind otherwise. A shown status, a missing row, a missing kind and
+    each group-A condition make the estimate experimental. Each adds its reason, and a
+    condition or a shown status adds its roadmap id as evidence.
+
+    Parameters
+    ----------
+    classification : Classification or None
+        The classification of the fit, or ``None`` for an estimate built outside a classified
+        fit, which keeps :data:`UNCLASSIFIED`.
+    status : str
+        The final inference status of the estimate.
+    reference_df : int or None, default None
+        The degrees of freedom of the estimate's t reference, or ``None`` for the normal
+        reference.
+
+    Returns
+    -------
+    Support
+        ``supported`` with the row's evidence and limits when nothing makes the estimate
+        experimental, and ``experimental`` with every reason otherwise.
+
+    Examples
+    --------
+    >>> from cleverly._support import support_for
+    >>> support_for(None, "influence_curve").label
+    'experimental'
+    """
+    if classification is None:
+        return UNCLASSIFIED
+    record = None if status == "influence_curve" else STATUS_RECORDS[status]
+    withheld = record is not None and record.interval == "withheld"
+    kind = "point" if withheld else ("wald_t" if reference_df is not None else "wald")
+    row = classification.row
+    reasons: list[str] = []
+    evidence: list[str] = []
+    if row is None:
+        text = "No registered study covers this configuration."
+        if classification.nearest is not None:
+            nearest_id, axes = classification.nearest
+            nearest = next((r for r in registered_rows() if r.id == nearest_id), None)
+            study = "" if nearest is None or not nearest.evidence else f" ({nearest.evidence[0]})"
+            text += f" Nearest row: {nearest_id}{study}, differing on {', '.join(axes)}."
+        reasons.append(text)
+    elif kind not in row.kinds:
+        reasons.append(f"Row {row.id} licenses no {_KIND_NAMES[kind]} for this estimate.")
+    for condition in classification.conditions:
+        reasons.append(_sentence(condition.condition))
+        if condition.roadmap is not None:
+            evidence.append(condition.roadmap)
+    if record is not None and record.interval == "shown":
+        applied = {status}
+        if classification.key.dependence == "below_floor":
+            applied.add("few_cluster_plugin")
+        for name, shown in STATUS_RECORDS.items():
+            if name in applied and shown.shown_reason is not None:
+                reasons.append(shown.shown_reason)
+                evidence.append(shown.reopened_by)
+    if reasons:
+        return Support(
+            "experimental",
+            " ".join(reasons),
+            _unique(evidence),
+            row=None if row is None else row.id,
+            limits=() if row is None else row.limits,
+        )
+    assert row is not None
+    return Support(
+        "supported",
+        f"Row {row.id} covers this configuration.",
+        row.evidence,
+        row=row.id,
+        limits=row.limits,
+    )
+
+
 def classify(
     estimator: Any,
     data: Any,
@@ -934,7 +1036,7 @@ def _record_error(directory: Path, source: str, error: Exception) -> None:
     )
 
 
-def start_point_record(
+def classify_point_fit(
     estimator: Any,
     data: Any,
     estimands: Sequence[str],
@@ -942,10 +1044,11 @@ def start_point_record(
     source: str,
     conditions: Sequence[Refusal] = (),
 ) -> Classification | None:
-    """Classify a point-treatment fit and record it. Returns ``None`` with the switch off.
+    """Classify a point-treatment fit before any learner runs.
 
-    With the switch off this reads one environment variable and touches nothing else, so a
-    fit runs exactly as it did before. A classifier failure is recorded and swallowed.
+    A classifier failure never reaches the caller. It is recorded when the switch is on, and
+    the function returns ``None``, so the fit runs and its estimates carry
+    :data:`UNCLASSIFIED`.
 
     Parameters
     ----------
@@ -965,19 +1068,18 @@ def start_point_record(
     Classification or None
         The classification, to pass to :func:`record_fit` with the finished result.
     """
-    directory = recording_directory()
-    if directory is None:
-        return None
     try:
         classification = classify(estimator, data, estimands, conditions)
     except Exception as error:
-        _record_error(directory, source, error)
+        directory = recording_directory()
+        if directory is not None:
+            _record_error(directory, source, error)
         return None
     record_fit(classification, source=source)
     return classification
 
 
-def start_longitudinal_record(
+def classify_longitudinal_fit(
     estimator: Any,
     data: Any,
     *,
@@ -988,7 +1090,9 @@ def start_longitudinal_record(
     has_msm: bool,
     regimen_kinds: Iterable[str],
 ) -> Classification | None:
-    """Classify a longitudinal fit and record it. Returns ``None`` with the switch off.
+    """Classify a longitudinal fit before any mechanism is fitted.
+
+    A classifier failure never reaches the caller, as in :func:`classify_point_fit`.
 
     Parameters
     ----------
@@ -1014,9 +1118,6 @@ def start_longitudinal_record(
     Classification or None
         The classification, to pass to :func:`record_fit` with the finished result.
     """
-    directory = recording_directory()
-    if directory is None:
-        return None
     try:
         key, learners = longitudinal_key(
             estimator,
@@ -1029,7 +1130,9 @@ def start_longitudinal_record(
         )
         classification = classify_key(key, learners)
     except Exception as error:
-        _record_error(directory, source, error)
+        directory = recording_directory()
+        if directory is not None:
+            _record_error(directory, source, error)
         return None
     record_fit(classification, source=source)
     return classification

@@ -1,4 +1,4 @@
-"""Every non-inferential status reaches every report a plain clustered fit publishes.
+"""Every labelled status reaches every report a plain clustered fit publishes.
 
 RM20 gives ordinary TMLE fits their first non-inferential statuses. RM12 followed its one
 status through the reports a selector-path collaborative fit reaches, and two reports lay
@@ -6,7 +6,7 @@ outside that path: the fold-level ``CVTargeting`` report and the omitted-variabl
 RM11 refuses the bound on collaborative fits, and a collaborative fit builds no
 fold-level report, so neither report had met a status before.
 
-Each class here forces one status from :data:`~cleverly._inference_status.NON_INFERENTIAL`
+Each class here forces one status from :data:`~cleverly._inference_status.STATUS_RECORDS`
 on the ordinary estimator's hook and fits a clustered TMLE with ``cv_evaluation=True``.
 The forced hook reaches every status on one fit, the clustered statuses of
 ``tests/unit/test_cluster_status.py`` included, so a status added to the table is checked
@@ -14,6 +14,11 @@ here with no new test. The fit has 40 equal clusters, so its own hook gives it
 ``"influence_curve"`` and only the forced status applies. Every report must
 then publish no inferential name and no confidence-limit text, and every operation must
 answer or refuse by the reason of the status.
+
+A status that withholds its interval publishes no inferential name and no confidence-limit
+text. A status that shows its interval answers every accessor and names itself, with the
+experimental label, in each report. :class:`TestAShownStatusReachesEveryReport` checks the
+second kind.
 
 Two mutation controls prove the checks can fail. A fit whose stamp skips the fold-level
 reports must fail the fold-report check. An omitted-variable module that ignores the
@@ -28,7 +33,8 @@ from typing import Any
 
 import pytest
 
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly import variable_importance
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
@@ -72,9 +78,13 @@ def fit(frame: Any, **overrides: Any) -> Any:
     return estimator(**overrides).fit(frame, outcome="Y", treatment="A", id="cluster").single()
 
 
-@pytest.fixture(scope="module", params=list(NON_INFERENTIAL))
+WITHHELD = [name for name, record in STATUS_RECORDS.items() if record.interval == "withheld"]
+SHOWN = [name for name, record in STATUS_RECORDS.items() if record.interval == "shown"]
+
+
+@pytest.fixture(scope="module", params=WITHHELD)
 def status(request: pytest.FixtureRequest) -> Iterator[str]:
-    """One status, forced on the ordinary hook for as long as its tests run."""
+    """One withheld status, forced on the ordinary hook for as long as its tests run."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(TMLE, "_inference_status", lambda self, data: request.param)
         yield request.param
@@ -116,7 +126,7 @@ class TestTheEstimatesAndTheirReports:
             assert_refused_by(status, raised)
 
     def test_the_summary_prints_the_record(self, result: Any, status: str) -> None:
-        record = NON_INFERENTIAL[status]
+        record = STATUS_RECORDS[status]
         text = result.summary()
         assert record.summary_label in text
         assert record.reason in text
@@ -173,7 +183,7 @@ class TestTheCombinedReports:
             assert_no_inferential_text(item.detail)
         evalue = report["evalue"]
         assert evalue.status is AssessmentStatus.UNAVAILABLE
-        assert NON_INFERENTIAL[status].reason in evalue.detail
+        assert STATUS_RECORDS[status].reason in evalue.detail
         assert_no_inferential_text(report.summary())
 
     def test_the_diagnostics_battery_answers(self, result: Any, status: str) -> None:
@@ -219,3 +229,95 @@ class TestASavedResultLoadsAsSaved:
     def test_every_report_keeps_the_status(self, result: Any, status: str, route: str) -> None:
         assert result.cv_targeting is not None
         assert_round_trips(result, status, route)
+
+
+@pytest.fixture(scope="module", params=SHOWN)
+def shown(request: pytest.FixtureRequest) -> Iterator[str]:
+    """One shown status, forced on the ordinary hook for as long as its tests run."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(TMLE, "_inference_status", lambda self, data: request.param)
+        yield request.param
+
+
+@pytest.fixture(scope="module")
+def shown_result(shown: str, frame: Any) -> Any:
+    return fit(frame)
+
+
+class TestAShownStatusReachesEveryReport:
+    """A shown status keeps every interval and labels each report that prints one."""
+
+    def test_the_fit_answers_under_the_status(self, shown_result: Any, shown: str) -> None:
+        assert shown_result.inference_status == shown
+        estimate = shown_result["ate"]
+        assert estimate.inference == shown
+        low, high = estimate.ci
+        assert low < high
+        assert 0.0 <= estimate.pvalue <= 1.0
+        assert estimate.support.label == "experimental"
+        assert STATUS_RECORDS[shown].shown_reason in estimate.support.reason
+
+    def test_the_summary_and_the_frame_name_the_status(self, shown_result: Any, shown: str) -> None:
+        text = shown_result.summary()
+        assert STATUS_RECORDS[shown].shown_reason in text
+        assert "95% CI" in text
+        frame = shown_result.to_frame()
+        assert {"std_err", "ci_lower", "ci_upper", "p_value"} <= set(frame.columns)
+        assert list(frame["inference"]) == [shown]
+        assert list(frame["support"]) == ["experimental"]
+
+    def test_the_fold_level_reports_carry_the_status_and_answer(
+        self, shown_result: Any, shown: str
+    ) -> None:
+        report = shown_result.cv_targeting
+        assert report.inference == shown
+        for name in report.pooled:
+            for estimates in (report.pooled, report.fold_evaluated):
+                assert estimates[name].inference == shown
+                assert estimates[name].support.label == "experimental"
+                low, high = estimates[name].ci
+                assert low < high
+
+    def test_the_omitted_variable_bound_keeps_its_limits_and_names_the_status(
+        self, shown_result: Any, shown: str
+    ) -> None:
+        bound = omitted_variable_bounds(shown_result, "ate")
+        assert bound.inference == shown
+        assert bound.ci_lower < bound.ci_upper
+        row = bound.to_dict()
+        assert row["inference"] == shown
+        assert {"ci_lower", "ci_upper"} <= set(row)
+        assert robustness_value(shown_result, "ate")["inference"] == shown
+
+    def test_the_batteries_answer_and_the_evalue_is_available(
+        self, shown_result: Any, shown: str, frame: Any
+    ) -> None:
+        for battery in (shown_result.sensitivity, shown_result.diagnostics):
+            report = battery.run_all(include_retargets=True, include_refits=True)
+            for item in report.items:
+                assert DECLINED not in item.detail, item
+        # ``ey0`` beside ``ate`` gives the E-value its reference-arm mean.
+        with_reference = fit(frame, estimands=("ate", "ey0"))
+        assert with_reference.sensitivity.capability("evalue").available
+        assert_assessment_note(shown_result, shown)
+        assessment = shown_result.assess()
+        for item in assessment.validation.items:
+            assert DECLINED not in item.detail, item
+
+    def test_variable_importance_runs(self, shown: str, frame: Any) -> None:
+        entries = variable_importance(
+            frame,
+            outcome="Y",
+            candidates=["A"],
+            covariates=["W1", "W2"],
+            estimator=estimator(),
+            id="cluster",
+        )
+        assert set(entries.to_frame()["inference"]) == {shown}
+
+    @pytest.mark.parametrize("route", ROUTES)
+    def test_a_saved_result_loads_with_its_status_and_interval(
+        self, shown_result: Any, shown: str, route: str
+    ) -> None:
+        restored = assert_round_trips(shown_result, shown, route)
+        assert restored["ate"].support == shown_result["ate"].support

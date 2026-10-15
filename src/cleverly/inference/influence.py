@@ -61,9 +61,11 @@ import numpy as np
 from .._inference_status import (
     T_REFERENCE_BOOTSTRAP_NOTE,
     InferenceStatus,
+    is_labelled,
     status_record,
     supplies_inference,
 )
+from .._support import UNCLASSIFIED, Classification, Support, support_for
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import refuse_inference
 from ..fluctuation.iterative import InitialFit
@@ -101,6 +103,7 @@ __all__ = [
     "counterfactual_means",
     "has_t_reference",
     "ipsi_means",
+    "is_labelled",
     "make_estimate",
     "median_estimates",
     "minimum_reference_df",
@@ -116,6 +119,8 @@ __all__ = [
     "spread_name",
     "stamp_inference",
     "supplies_inference",
+    "support_column",
+    "support_notes",
 ]
 
 Scale = Literal["level", "difference", "ratio", "fraction"]
@@ -440,15 +445,21 @@ def stamp_inference(
     estimates: Mapping[str, ParameterEstimate],
     status: InferenceStatus,
     reference: ClusterReference | None = None,
+    classification: Classification | None = None,
 ) -> dict[str, ParameterEstimate]:
-    """Give each estimate of a report the status and the reference its configuration gives.
+    """Give each estimate of a report the status, reference and support its fit gives.
 
-    The one stamp. Under a non-inferential ``status`` every estimate declares ``status``
-    and keeps the normal reference of its diagnostic. Under ``"influence_curve"`` every
-    estimate keeps the status it was built with, and, when ``reference`` is given, takes
-    the degrees of freedom of the rows it reads. ``TMLE._retarget_detailed`` applies it to
-    the fit's estimates, and :meth:`~cleverly.estimators.CVTargeting.stamped` to both
-    fold-level reports.
+    The one stamp. Under a status that withholds its interval, every estimate declares
+    ``status`` and keeps the normal reference of its diagnostic. Under a status that shows its
+    interval, every estimate that carries no status of its own declares ``status`` and takes
+    the degrees of freedom of the rows it reads. Under ``"influence_curve"`` every estimate
+    keeps the status it was built with, and, when ``reference`` is given, takes the degrees of
+    freedom too. ``TMLE._retarget_detailed`` applies it to the fit's estimates, and
+    :meth:`~cleverly.estimators.CVTargeting.stamped` to both fold-level reports.
+
+    When ``classification`` is given, each estimate also takes the
+    :class:`~cleverly._support.Support` that :func:`~cleverly._support.support_for` computes
+    from its final status and reference.
 
     Parameters
     ----------
@@ -459,23 +470,38 @@ def stamp_inference(
     reference : ClusterReference or None, default=None
         The rows each estimate reads, on a clustered fit. ``None`` keeps every
         :attr:`ParameterEstimate.reference_df` as built.
+    classification : Classification or None, default=None
+        The classification of the fit. ``None`` keeps every :attr:`ParameterEstimate.support`
+        as built.
 
     Returns
     -------
     dict of str to ParameterEstimate
-        ``estimates`` in the same order. Under any other status each estimate is a copy
-        that declares ``status``. Every array and number is unchanged.
+        ``estimates`` in the same order. Every array and number is unchanged.
     """
+    stamped: dict[str, ParameterEstimate]
     if not supplies_inference(status):
-        return {
+        stamped = {
             name: replace(estimate, inference=status, reference_df=None)
             for name, estimate in estimates.items()
         }
-    if reference is None:
-        return dict(estimates)
+    else:
+        stamped = {}
+        for name, estimate in estimates.items():
+            changes: dict[str, Any] = {}
+            if is_labelled(status) and estimate.inference == "influence_curve":
+                changes["inference"] = status
+            if reference is not None:
+                changes["reference_df"] = reference.reference_df(name)
+            stamped[name] = replace(estimate, **changes) if changes else estimate
+    if classification is None:
+        return stamped
     return {
-        name: replace(estimate, reference_df=reference.reference_df(name))
-        for name, estimate in estimates.items()
+        name: replace(
+            estimate,
+            support=support_for(classification, estimate.inference, estimate.reference_df),
+        )
+        for name, estimate in stamped.items()
     }
 
 
@@ -574,9 +600,11 @@ class ParameterEstimate:
         :doc:`inference reference </technical-reference/inference>` lists each status
         and its reason.
         ``"influence_curve"`` is the ordinary case, and :attr:`std_error`, :attr:`ci`
-        and :attr:`pvalue` answer. At any other status those three accessors raise
-        with the status's reason, and :attr:`plugin_std_error` and
-        :attr:`plugin_interval` report the retained diagnostic.
+        and :attr:`pvalue` answer. A status whose record shows its interval answers the
+        same three accessors, and the estimate carries the experimental label. At any
+        other status those three accessors raise with the status's reason, and
+        :attr:`plugin_std_error` and :attr:`plugin_interval` report the retained
+        diagnostic.
     transform : Transform or None
         A monotone map that the interval and the test are computed on, set by
         ``contrast(..., transform=)``. ``None`` for every estimate a fit reports.
@@ -585,6 +613,12 @@ class ParameterEstimate:
         :attr:`plugin_interval`, or ``None`` for the normal reference. A clustered fit
         with fewer than 40 clusters with positive weight mass sets it to the cluster
         count minus 2, per estimate.
+    support : Support
+        What the package states about the evidence behind this estimate: the label
+        ``"supported"`` or ``"experimental"``, the reason, the evidence and the support row.
+        A fit sets it from its classification. An estimate built outside a classified fit
+        is experimental. ``repr`` and ``summary()`` print the word ``experimental`` for an
+        experimental estimate.
 
     Attributes
     ----------
@@ -650,6 +684,7 @@ class ParameterEstimate:
     inference: InferenceStatus = "influence_curve"
     transform: Transform | None = None
     reference_df: int | None = None
+    support: Support = UNCLASSIFIED
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -756,8 +791,8 @@ class ParameterEstimate:
     def supplies_inference(self) -> bool:
         """Whether the package supplies inference for this estimate.
 
-        ``True`` when :attr:`inference` is ``"influence_curve"``, which is when
-        :attr:`std_error`, :attr:`ci` and :attr:`pvalue` answer.
+        ``True`` when :attr:`inference` is ``"influence_curve"`` or a status that shows its
+        interval, which is when :attr:`std_error`, :attr:`ci` and :attr:`pvalue` answer.
         """
         return supplies_inference(self.inference)
 
@@ -934,18 +969,22 @@ class ParameterEstimate:
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation.
 
-        An estimate the package supplies inference for emits ``std_err``, ``ci_lower``,
-        ``ci_upper`` and ``p_value``. One whose :attr:`supplies_inference` is ``False``
-        emits ``inference`` naming its status, and
-        ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper`` in
-        their place. Its bootstrap columns are ``bootstrap_sd``, ``bootstrap_range_lower``
-        and ``bootstrap_range_upper`` rather than ``bootstrap_std_err``,
-        ``bootstrap_ci_lower`` and ``bootstrap_ci_upper``. The bootstrap columns take the
-        same diagnostic names when :attr:`BootstrapSummary.inferential` is ``False``. A
-        transformed estimate adds ``transform`` and ``transform_psi``, the estimate on the
-        transform's scale. An estimate with a Student t reference adds ``reference_df``,
-        and its bootstrap columns take the diagnostic names. Exactly one of ``std_err`` and
-        ``inference`` is always present, so a programmatic consumer has a total test.
+        ``support`` is always present, and is ``"supported"`` or ``"experimental"``. An
+        experimental estimate adds ``support_reason`` and ``support_evidence``, the evidence
+        joined by ``;``, and an estimate whose support states limits adds ``support_limits``.
+        ``inference`` is present for every status except ``"influence_curve"``, and names it.
+        An estimate the package supplies inference for, either at ``"influence_curve"`` or at a
+        status that shows its interval, emits ``std_err``, ``ci_lower``, ``ci_upper`` and
+        ``p_value``. One whose :attr:`supplies_inference` is ``False`` emits
+        ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper`` in their
+        place, and no ``p_value``. Its bootstrap columns are ``bootstrap_sd``,
+        ``bootstrap_range_lower`` and ``bootstrap_range_upper`` rather than
+        ``bootstrap_std_err``, ``bootstrap_ci_lower`` and ``bootstrap_ci_upper``. The bootstrap
+        columns take the same diagnostic names when :attr:`BootstrapSummary.inferential` is
+        ``False``. A transformed estimate adds ``transform`` and ``transform_psi``, the estimate
+        on the transform's scale. An estimate with a Student t reference adds ``reference_df``,
+        and its bootstrap columns take the diagnostic names. ``std_err`` is present exactly when
+        :attr:`supplies_inference` is ``True``, so a programmatic consumer has a total test.
 
         Returns
         -------
@@ -953,7 +992,13 @@ class ParameterEstimate:
             A JSON-compatible mapping of every reported field.
         """
         row: dict[str, Any] = {"estimand": self.name, "psi": self.psi}
-        if not self.supplies_inference:
+        row["support"] = self.support.label
+        if self.support.label == "experimental":
+            row["support_reason"] = self.support.reason
+            row["support_evidence"] = ";".join(self.support.evidence)
+        if self.support.limits:
+            row["support_limits"] = ";".join(self.support.limits)
+        if is_labelled(self.inference):
             row["inference"] = self.inference
         row.update(self.spread_columns())
         if self.reference_df is not None:
@@ -975,20 +1020,67 @@ class ParameterEstimate:
         return row
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        marker = " [experimental]" if self.support.label == "experimental" else ""
         if not self.supplies_inference:
             low, high = self.plugin_interval
             return (
                 f"{self.name}: {self.psi:.5g} ({status_record(self.inference).summary_label} "
                 f"{self.plugin_std_error:.4g}, plug-in interval [{low:.5g}, {high:.5g}]; "
-                "a diagnostic, and no confidence interval or p-value is reported)"
+                "a diagnostic, and no confidence interval or p-value is reported)" + marker
             )
         low, high = self.ci
         reference = "" if self.reference_df is None else f"t({self.reference_df}) "
         return (
             f"{self.name}: {self.psi:.5g} (se {self.std_error:.4g}, "
             f"{reference}{(1 - self.alpha) * 100:g}% CI [{low:.5g}, {high:.5g}], "
-            f"p={self._reported_pvalue():.3g})"
+            f"p={self._reported_pvalue():.3g})" + marker
         )
+
+
+def support_column(estimates: Mapping[str, ParameterEstimate]) -> list[str] | None:
+    """The ``support`` cell of each estimate, or ``None`` when every estimate is supported.
+
+    A summary adds the column only when an estimate is experimental, so a fully supported
+    report prints the table it always printed.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The report, keyed by estimand.
+
+    Returns
+    -------
+    list of str or None
+        ``"supported"`` or ``"experimental"`` per estimate, in report order, or ``None``.
+    """
+    labels: list[str] = [estimate.support.label for estimate in estimates.values()]
+    return labels if "experimental" in labels else None
+
+
+def support_notes(estimates: Mapping[str, ParameterEstimate]) -> list[str]:
+    """One ``experimental:`` note per distinct reason among the experimental estimates.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The report, keyed by estimand.
+
+    Returns
+    -------
+    list of str
+        The notes in first-seen order. A reason that covers only some estimates names them.
+        The list is empty when every estimate is supported.
+    """
+    reasons: dict[str, list[str]] = {}
+    for name, estimate in estimates.items():
+        if estimate.support.label == "experimental":
+            reasons.setdefault(estimate.support.reason, []).append(name)
+    notes = []
+    for reason, names in reasons.items():
+        covers_all = len(names) == len(estimates)
+        head = "experimental" if covers_all else f"experimental ({', '.join(names)})"
+        notes.append(f"{head}: {reason}")
+    return notes
 
 
 @dataclass(frozen=True)
@@ -1059,6 +1151,7 @@ def make_estimate(
     covariance_rule: CovarianceRule = "centered",
     inference: InferenceStatus = "influence_curve",
     reference_df: int | None = None,
+    support: Support = UNCLASSIFIED,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1099,11 +1192,15 @@ def make_estimate(
         Degrees of freedom of a Student t reference, which a derived estimate computes
         with :func:`minimum_reference_df`. ``None`` takes the normal reference. A fitted
         report's own estimates take theirs from :func:`stamp_inference`.
+    support : Support, default=UNCLASSIFIED
+        The support the estimate carries. A caller that builds an estimate inside a classified
+        fit passes the support of that fit.
 
     Returns
     -------
     ParameterEstimate
-        The estimate, declaring ``covariance_rule``, ``inference`` and ``reference_df``.
+        The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df`` and
+        ``support``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     if covariance_rule == "second_moment":
@@ -1130,6 +1227,7 @@ def make_estimate(
         covariance_rule=covariance_rule,
         inference=inference,
         reference_df=reference_df if supplies_inference(inference) else None,
+        support=support,
     )
 
 
@@ -1199,6 +1297,13 @@ def median_estimates(
                 "repeats; a median over draws is inferential output or it is not, and "
                 "combining the two would report one draw's refusal under another's name"
             )
+        supports = {part.support for part in parts}
+        if len(supports) != 1:
+            raise ValueError(
+                f"{name} carries different support records across repeats; a median over "
+                "draws estimates one configuration, and combining two would label the median "
+                "with one draw's evidence"
+            )
         scale = parts[0].scale
         if scale == "ratio":
             # ``points`` and ``median_point`` are on the reporting scale, which for a
@@ -1244,6 +1349,7 @@ def median_estimates(
             covariance_rule=parts[0].covariance_rule,
             inference=parts[0].inference,
             reference_df=minimum_reference_df(parts),
+            support=parts[0].support,
         )
     return out
 

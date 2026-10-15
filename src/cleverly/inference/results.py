@@ -15,6 +15,7 @@ from typing import Any, Literal, Protocol, TypeVar
 import numpy as np
 
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
+from .._support import combine_support
 from .._typing import FloatArray
 from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapResult
@@ -267,6 +268,7 @@ def smooth_contrast(
         covariance_rule=rule,
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
+        support=combine_support(estimates[key].support for key in chosen),
     )
     return estimate if transform is None else replace(estimate, transform=transform)
 
@@ -396,6 +398,7 @@ def ratio_contrast(
         covariance_rule=rule,
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
+        support=combine_support(estimates[key].support for key in chosen),
     )
 
 

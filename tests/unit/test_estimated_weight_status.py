@@ -1,4 +1,4 @@
-"""A guarded DR-TMLE fit with weights declared estimated withholds its interval.
+"""A guarded DR-TMLE fit with weights declared estimated shows a labelled interval.
 
 No result read here gives the reduced-dimension regressions of an estimated weight, so ``DRTMLE`` with a non-empty ``guard`` and ``weights_estimated=True`` takes the
 ``"estimated_weight_plugin"`` status, and X50 in the roadmap holds the reopen route. The
@@ -20,7 +20,8 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly import variable_importance
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.datasets import make_binary_outcome
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
 from cleverly.estimators.ctmle import per_arm_parametric_support
@@ -29,18 +30,15 @@ from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     ROUTES,
     assert_assessment_note,
-    assert_evalue_unavailable,
     assert_keeps_inference,
     assert_round_trips,
-    assert_variable_importance_refuses,
-    assert_withholds,
+    assert_shows_interval,
 )
-from tests.unit._natural_course_support import never_fit_learners
 
 pytestmark = pytest.mark.xdist_group("estimated_weight_status")
 
 STATUS = "estimated_weight_plugin"
-RECORD = NON_INFERENTIAL[STATUS]
+RECORD = STATUS_RECORDS[STATUS]
 
 #: ``ey0`` beside ``ate`` gives the E-value its reported reference-arm mean, so the
 #: control's E-value row is available and the status fit's row is the one that is not.
@@ -67,15 +65,21 @@ def result(frame: Any) -> Any:
     return fit(frame)
 
 
-class TestAnEstimatedWeightDRTMLEReportsNoInterval:
-    def test_the_estimates_withhold_their_inference(self, result: Any) -> None:
-        assert_withholds(result, STATUS)
+class TestAnEstimatedWeightDRTMLEShowsALabelledInterval:
+    def test_the_estimates_show_the_plug_in_wald_interval_under_the_label(
+        self, result: Any
+    ) -> None:
+        assert_shows_interval(result, STATUS, None)
+        support = result["ate"].support
+        assert RECORD.shown_reason in support.reason
+        assert "X50" in support.evidence
+        assert RECORD.shown_reason in result.summary()
 
     def test_the_nuisance_report_and_the_assessment_carry_the_note(self, result: Any) -> None:
         assert_assessment_note(result, STATUS)
 
-    def test_the_evalue_is_unavailable_with_the_reason(self, result: Any) -> None:
-        assert_evalue_unavailable(result, STATUS)
+    def test_the_evalue_is_available(self, result: Any) -> None:
+        assert result.sensitivity.capability("evalue").available
 
     def test_the_score_verdict_does_not_claim_an_interval(self, result: Any) -> None:
         check = result.score_verdict
@@ -157,17 +161,21 @@ class TestTheWeightTextAgreesWithTheStatus:
         assert "influence-curve" not in message
 
 
-class TestVariableImportanceRefusesBeforeItFits:
-    def test_the_refusal_reads_the_prepared_weight_declaration(self, frame: Any) -> None:
-        """A data-dependent status still refuses before the first learner is fitted."""
-        assert_variable_importance_refuses(
-            STATUS,
+class TestVariableImportanceNamesTheStatus:
+    def test_the_frame_names_the_shown_status(self, frame: Any) -> None:
+        """A shown status does not refuse: the importance table carries the status column."""
+        entries = variable_importance(
             frame,
+            outcome="Y",
+            candidates=["A"],
             covariates=["W1", "W2", "W3"],
-            estimator=DRTMLE(**linear_in_sample(**never_fit_learners())),
+            estimator=DRTMLE(**linear_in_sample()),
             weights="w",
             weights_estimated=True,
         )
+        table = entries.to_frame()
+        assert set(table["inference"]) == {STATUS}
+        assert {"std_err", "p_value", "p_value_adjusted"} <= set(table.columns)
 
 
 class TestTheStatusIsTheHooksToWithhold:
@@ -178,7 +186,7 @@ class TestTheStatusIsTheHooksToWithhold:
     ) -> None:
         monkeypatch.setattr(DRTMLE, "_inference_status", TMLE._inference_status)
         with pytest.raises(AssertionError):
-            assert_withholds(fit(frame), STATUS)
+            assert_shows_interval(fit(frame), STATUS, None)
 
     def test_a_hook_that_ignores_the_guard_fails_the_guard_control(
         self, frame: Any, monkeypatch: pytest.MonkeyPatch
@@ -188,7 +196,7 @@ class TestTheStatusIsTheHooksToWithhold:
 
         monkeypatch.setattr(DRTMLE, "_inference_status", ignores_guard)
         # The mutant still passes the status fit, so only the control can catch it.
-        assert_withholds(fit(frame), STATUS)
+        assert_shows_interval(fit(frame), STATUS, None)
         with pytest.raises(AssertionError):
             assert_keeps_inference(fit(frame, guard=()))
 
@@ -217,7 +225,7 @@ class TestAPerArmCTMLEFitTakesTheGeneratedDesignStatus:
         )
         assert verdict.admitted is False
         assert result.inference_status == "generated_design_plugin"
-        assert NON_INFERENTIAL["generated_design_plugin"].reopened_by == "F19"
+        assert STATUS_RECORDS["generated_design_plugin"].reopened_by == "F19"
 
     def test_the_status_text_names_each_row_for_its_estimator(self) -> None:
         assert RECORD.reopened_by == "X50"

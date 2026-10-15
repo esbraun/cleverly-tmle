@@ -57,6 +57,7 @@ from tests.conftest import linear_in_sample
 from tests.unit._inference_status_support import (
     LONGITUDINAL_N,
     LONGITUDINAL_NODES,
+    assert_shows_interval,
     longitudinal_learners,
 )
 from tests.unit._inference_status_support import cluster_labels as labels
@@ -201,8 +202,8 @@ class TestTheBoundaries:
 
     def test_nine_clusters_take_the_status(self) -> None:
         result = fit_k(9)
-        assert result.inference_status == "few_cluster_plugin"
-        assert set(reference_dfs(result).values()) == {None}
+        assert set(reference_dfs(result).values()) == {7}
+        assert_shows_interval(result, "few_cluster_plugin", 7)
 
     def test_an_at_or_below_threshold_fails_the_forty_cluster_control(
         self, monkeypatch: pytest.MonkeyPatch
@@ -281,33 +282,32 @@ class TestTheStratumCount:
 
 
 class TestAFewClusterStratumDoesNotCrash:
-    def test_a_three_cluster_stratum_gives_the_status_and_normal_diagnostics(self) -> None:
+    def test_a_three_cluster_stratum_shows_a_t_interval_on_its_own_degrees_of_freedom(
+        self,
+    ) -> None:
+        """Each estimate reads its own rows: the three-cluster stratum has one degree left."""
+        from scipy import stats
+
         result = fit_strata(stratified(13, small=3))
         assert result.inference_status == "few_cluster_plugin"
-        assert set(reference_dfs(result).values()) == {None}
+        assert set(reference_dfs(result).values()) == {1, 8, 11}
         for estimate in result.estimates.values():
-            low, _ = estimate.plugin_interval
-            assert low == pytest.approx(
-                estimate.psi - 1.959963984540054 * estimate.plugin_std_error
-            )
+            quantile = stats.t.ppf(0.975, estimate.reference_df)
+            low, high = estimate.ci
+            assert low == pytest.approx(estimate.psi - quantile * estimate.plugin_std_error)
+            assert high == pytest.approx(estimate.psi + quantile * estimate.plugin_std_error)
 
-    def test_a_reference_computed_before_the_status_fails(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_a_stamp_that_drops_the_reference_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         original = influence_module.stamp_inference
 
-        def eager(estimates: Any, status: Any, reference: Any = None) -> Any:
-            stamped = original(estimates, status, reference)
-            if reference is None:
-                return stamped
-            return {
-                name: influence_module.replace(e, reference_df=reference.reference_df(name))
-                for name, e in stamped.items()
-            }
+        def normal_reference(
+            estimates: Any, status: Any, reference: Any = None, classification: Any = None
+        ) -> Any:
+            return original(estimates, status, None, classification)
 
-        monkeypatch.setattr(tmle_module, "stamp_inference", eager)
-        with pytest.raises((AssertionError, ValueError)):
-            self.test_a_three_cluster_stratum_gives_the_status_and_normal_diagnostics()
+        monkeypatch.setattr(tmle_module, "stamp_inference", normal_reference)
+        with pytest.raises(AssertionError):
+            self.test_a_three_cluster_stratum_shows_a_t_interval_on_its_own_degrees_of_freedom()
 
 
 def curve_estimate(name: str, df: int | None, psi: float = 0.4) -> Any:
@@ -558,8 +558,7 @@ class TestTheLongitudinalDerivedEstimates:
     def test_the_longitudinal_floor_is_twenty(self, clusters: int, status: str) -> None:
         result = _ltmle_end_of_study(clusters)
         assert result.inference_status == status
-        expected = {None} if status == "few_cluster_plugin" else {clusters - 2}
-        assert set(reference_dfs(result).values()) == expected
+        assert set(reference_dfs(result).values()) == {clusters - 2}
 
 
 class TestBandsRefuseTheTReference:

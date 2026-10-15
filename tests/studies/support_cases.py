@@ -174,8 +174,8 @@ def capture(run: Callable[[], Any]) -> Observed:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with (
-            mock.patch.object(longitudinal, "start_longitudinal_record", at_longitudinal),
-            mock.patch.object(point, "start_point_record", at_point),
+            mock.patch.object(longitudinal, "classify_longitudinal_fit", at_longitudinal),
+            mock.patch.object(point, "classify_point_fit", at_point),
         ):
             try:
                 run()

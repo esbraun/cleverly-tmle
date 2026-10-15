@@ -29,7 +29,7 @@ from ._assessment_cache import (
     _unpack_cached,
 )
 from ._declarations import declarations_pass
-from ._inference_status import precedent_status, status_record, supplies_inference
+from ._inference_status import is_labelled, precedent_status, status_record, supplies_inference
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import (
@@ -3106,14 +3106,14 @@ def _nuisance_item(
         # report publishes no spread and holds no status, so the note is read off the
         # result here. An interpreter called without a result adds none.
         status = "influence_curve" if _result is None else _result.inference_status
-        if not supplies_inference(status):
+        if is_labelled(status):
             detail += f"; {status_record(status).assessment_note}"
         elif _result is not None:
             # A parameter status sits beside an inferential fit status, so it is read per
             # estimate: the note names how many parameters carry it.
             flagged: dict[str, int] = {}
             for estimate in _result.estimates.values():
-                if not estimate.supplies_inference:
+                if is_labelled(estimate.inference):
                     flagged[estimate.inference] = flagged.get(estimate.inference, 0) + 1
             for flagged_status, count in flagged.items():
                 detail += f"; {count} parameter(s): {status_record(flagged_status).assessment_note}"

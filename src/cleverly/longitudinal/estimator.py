@@ -80,11 +80,21 @@ from .._inference_status import (
     PARAMETER_STATUSES,
     T_REFERENCE_NOTE,
     InferenceStatus,
+    is_labelled,
     precedent_status,
     status_record,
     supplies_inference,
 )
-from .._support import record_fit, regimen_kinds, start_longitudinal_record
+from .._support import (
+    UNCLASSIFIED,
+    Classification,
+    Support,
+    classify_longitudinal_fit,
+    combine_support,
+    record_fit,
+    regimen_kinds,
+    support_for,
+)
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..exceptions import (
     CapabilityError,
@@ -115,6 +125,8 @@ from ..inference.influence import (
     make_estimate,
     reference_label,
     spread_name,
+    support_column,
+    support_notes,
 )
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..inference.results import (
@@ -2286,7 +2298,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Returns
         -------
         dataframe
-            One row per regimen and horizon, with the incidences summed over causes.
+            One row per regimen and horizon, with the incidences summed over causes. The
+            ``support`` column holds the label of the combined incidences, and a fit with a
+            labelled status adds the ``inference`` column.
         """
         if not self.data.is_competing:
             if self.data.is_repeated:
@@ -2310,7 +2324,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # that reads a constant-node incidence is a diagnostic, as ``rmst()`` of one is.
         status = self.inference_status
         column = spread_name("std_err", status)
-        totals: list[tuple[str, float, float, float, InferenceStatus]] = []
+        totals: list[tuple[str, float, float, float, InferenceStatus, str]] = []
         for regimen in self.config.regimens:
             for horizon in self.config.horizons:
                 names = [
@@ -2329,6 +2343,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                         total,
                         float(np.sqrt(variance[0, 0])),
                         inference_status(self.estimates, names),
+                        combine_support([self[name].support for name in names]).label,
                     )
                 )
         flagged = [row[4] for row in totals if not supplies_inference(row[4])]
@@ -2338,7 +2353,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "regimen": [row[0] for row in totals],
             "time": [row[1] for row in totals],
             "total": [row[2] for row in totals],
-            **({"inference": [row[4] for row in totals]} if mixed else {}),
+            "support": [row[5] for row in totals],
+            **(
+                {"inference": [row[4] for row in totals]}
+                if mixed or any(is_labelled(row[4]) for row in totals)
+                else {}
+            ),
             column: [np.nan if mixed and row[4] != status else row[3] for row in totals],
             **(
                 {plugin: [row[3] if row[4] != status else np.nan for row in totals]}
@@ -2448,9 +2468,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             ``time``
                 The horizon, as an integer node index, or as the grid time :math:`g_k` on a
                 fit with a time grid.
+            ``support``
+                ``"supported"`` or ``"experimental"``, the label of the estimate the row
+                reads. :attr:`~cleverly.inference.ParameterEstimate.support` gives its reason.
             ``inference``
-                The inference status of each row, on a fit whose status supplies no
-                inference, or on a fit with a parameter that carries its own status.
+                The inference status of each row, on a fit with a labelled status, shown or
+                withheld, or with a parameter that carries one.
             ``psi``, ``std_err``, ``ci_lower``, ``ci_upper``
                 The estimate, its standard error, and its confidence interval, under
                 the requested view.  On a fit whose status supplies no inference the
@@ -2520,7 +2543,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # row's inferential columns hold NaN and its plug-in columns hold the diagnostic.
         flagged = [e.inference for e in self.estimates.values() if not e.supplies_inference]
         mixed = supplies_inference(status) and bool(flagged)
-        diagnostic = not supplies_inference(status) or mixed
+        diagnostic = (
+            not supplies_inference(status)
+            or mixed
+            or any(is_labelled(e.inference) for e in self.estimates.values())
+        )
         std_name, low_name, high_name = (
             spread_name(name, status) for name in ("std_err", "ci_lower", "ci_upper")
         )
@@ -2536,6 +2563,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             **({"cause": []} if competing else {}),
             "time": [],
             "psi": [],
+            "support": [],
             **({"inference": []} if diagnostic else {}),
             std_name: [],
             low_name: [],
@@ -2579,6 +2607,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 rows["cause"].append(cause)
             rows["time"].append(self._time_of(int(horizon)))
             rows["psi"].append(float(psi))
+            rows["support"].append(estimate.support.label)
             if diagnostic:
                 rows["inference"].append(estimate.inference)
             withheld = mixed and not estimate.supplies_inference
@@ -2722,12 +2751,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         t_reference = has_t_reference(self.estimates)
         rows = []
         marked: dict[str, Any] = {}
+        support_cells = support_column(self.estimates)
         if record is not None:
             # The whole interval column is refused, so it is not printed with a dash under
             # it: a heading would still tell a reader an interval belongs there.
             for name, estimate in self.estimates.items():
                 rows.append([name, f"{estimate.psi:.4f}", f"{estimate.plugin_std_error:.4f}"])
-            table = format_table(["parameter", "estimate", record.summary_label], rows)
+            headers = ["parameter", "estimate", record.summary_label]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
         else:
             for name, estimate in self.estimates.items():
                 if not estimate.supplies_inference:
@@ -2756,17 +2790,18 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                         *([reference_label(estimate)] if t_reference else []),
                     ]
                 )
-            table = format_table(
-                [
-                    "parameter",
-                    "estimate",
-                    "std. error",
-                    f"{level} CI",
-                    "p-value",
-                    *(["df"] if t_reference else []),
-                ],
-                rows,
-            )
+            headers = [
+                "parameter",
+                "estimate",
+                "std. error",
+                f"{level} CI",
+                "p-value",
+                *(["df"] if t_reference else []),
+            ]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
         # ``"level"`` is the scale of every mean, the rule ``to_frame`` reads as well.
         contrast = any(estimate.scale != "level" for estimate in self.estimates.values())
         facts = list(self.config.describe(contrast=contrast))
@@ -2799,6 +2834,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             f"({self.data.n_times} time points, n = {self.n})",
             "",
             table,
+            *(["", *support_notes(self.estimates)] if support_cells is not None else []),
             # The refusal's own reason, as ``TMLEResult.summary`` prints it.
             *(["", record.summary_note()] if record is not None else []),
             *(
@@ -2852,7 +2888,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 f"{truncated:.1%} at t={truncated_time}"
             )
         lines.extend(f"  {line}" for line in self._targeting_lines())
-        if self.simultaneous is None and record is not None and len(self.estimates) > 1:
+        if (
+            self.simultaneous is None
+            and (record is not None or (is_labelled(status) and not t_reference))
+            and len(self.estimates) > 1
+        ):
             # Stated rather than left blank, as on a point-treatment fit: the bands are on
             # by default, so a reader would otherwise have to guess why none are here.
             lines.append("")
@@ -3568,6 +3608,7 @@ def _estimates(
     *,
     alpha_sig: float,
     inference: InferenceStatus,
+    classification: Classification | None = None,
 ) -> _Reported:
     """Compose every reported name, its estimate, its index and its fits, in one pass.
 
@@ -3617,6 +3658,7 @@ def _estimates(
         name = parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
         index[name] = (fit.regimen.label, fit.cause, fit.horizon)
         contributors[name] = (fit,)
+        status = _parameter_status(inference, fit)
         estimates[name] = make_estimate(
             name,
             scaler.unscale_level(fit.psi_scaled),
@@ -3625,8 +3667,9 @@ def _estimates(
             cluster=data.cluster,
             scale="level",
             alpha=alpha_sig,
-            inference=_parameter_status(inference, fit),
+            inference=status,
             reference_df=reference_df,
+            support=_support_of(classification, status, reference_df),
         )
     for fit in fits.values():
         if fit.regimen.label == reference.label:
@@ -3639,6 +3682,7 @@ def _estimates(
         name = parameter_name(CONTRAST_HEAD, arm=_index(contrast, fit.cause, fit.horizon, curve))
         index[name] = (contrast, fit.cause, fit.horizon)
         contributors[name] = (fit, base)
+        status = _parameter_status(inference, fit, base)
         estimates[name] = make_estimate(
             name,
             scaler.unscale_difference(fit.psi_scaled - base.psi_scaled),
@@ -3647,10 +3691,20 @@ def _estimates(
             cluster=data.cluster,
             scale="difference",
             alpha=alpha_sig,
-            inference=_parameter_status(inference, fit, base),
+            inference=status,
             reference_df=reference_df,
+            support=_support_of(classification, status, reference_df),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
+
+
+def _support_of(
+    classification: Classification | None, status: InferenceStatus, reference_df: int | None
+) -> Support:
+    """The support of one estimate: the default without a classification, else the computed one."""
+    if classification is None:
+        return UNCLASSIFIED
+    return support_for(classification, status, reference_df)
 
 
 def _parameter_status(inference: InferenceStatus, *read: RegimenFit) -> InferenceStatus:
@@ -3724,6 +3778,7 @@ def _msm_estimates(
     *,
     alpha_sig: float,
     inference: InferenceStatus,
+    classification: Classification | None = None,
 ) -> _Reported:
     """One estimate per working-model term per cause, and no contrasts.
 
@@ -3749,6 +3804,8 @@ def _msm_estimates(
     inference : str
         The inference status every coefficient declares, for the reason
         :func:`_estimates` gives.
+    classification : Classification or None, default None
+        The fit's classification, as in :func:`_estimates`.
 
     Returns
     -------
@@ -3778,6 +3835,7 @@ def _msm_estimates(
                 alpha=alpha_sig,
                 inference=inference,
                 reference_df=reference_df,
+                support=_support_of(classification, inference, reference_df),
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
 
@@ -4288,7 +4346,7 @@ class _SequentialEstimator:
         preflight_terminal_outcomes(prepared, plans, horizons, folds)
         # A bootstrap replicate carries its fit's label and never classifies.
         classification = (
-            start_longitudinal_record(
+            classify_longitudinal_fit(
                 self,
                 prepared,
                 source=f"{type(self).__name__}.fit",
@@ -4474,10 +4532,22 @@ class _SequentialEstimator:
         with phase("influence_curve"):
             reported = (
                 _estimates(
-                    prepared, fits, scaler, reference, alpha_sig=self.alpha_sig, inference=status
+                    prepared,
+                    fits,
+                    scaler,
+                    reference,
+                    alpha_sig=self.alpha_sig,
+                    inference=status,
+                    classification=classification,
                 )
                 if model is None
-                else _msm_estimates(prepared, msm_fits, alpha_sig=self.alpha_sig, inference=status)
+                else _msm_estimates(
+                    prepared,
+                    msm_fits,
+                    alpha_sig=self.alpha_sig,
+                    inference=status,
+                    classification=classification,
+                )
             )
         estimates = reported.estimates
         _warn_parameter_statuses(estimates)
@@ -4501,6 +4571,7 @@ class _SequentialEstimator:
                     reference,
                     alpha_sig=self.alpha_sig,
                     inference=status,
+                    classification=classification,
                 ).estimates
                 bands = _project_bands(self._bands(before, prepared, status), reported.index)
             else:
@@ -4784,12 +4855,14 @@ class _SequentialEstimator:
         with few clusters.  :meth:`LongitudinalResult.summary` states the omission.
         ``status`` is the one the fit stamped on ``estimates``.
         """
-        if not supplies_inference(status):
+        if is_labelled(status):
             return None
-        # A parameter with its own non-inferential status, such as a constant-node risk,
-        # stays out of the band, which is then a joint statement over the others.
+        # A parameter with its own labelled status, such as a constant-node risk, stays out of
+        # the band, which is then a joint statement over the others.
         estimates = {
-            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
+            name: estimate
+            for name, estimate in estimates.items()
+            if not is_labelled(estimate.inference)
         }
         if not self.simultaneous or len(estimates) < 2:
             return None
@@ -6422,7 +6495,10 @@ def _refit_bound(
             f"longitudinal replay at bounds {bounds} omitted reported parameters {missing}"
         )
     return _BoundReplay(
-        estimates={name: reported.estimates[name] for name in result.estimates},
+        estimates={
+            name: replace(reported.estimates[name], support=result.estimates[name].support)
+            for name in result.estimates
+        },
         fits=fits,
         msm_fits=msm_fits,
         contributors={name: reported.contributors[name] for name in result.estimates},

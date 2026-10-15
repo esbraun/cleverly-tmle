@@ -38,16 +38,16 @@ from cleverly._inference_status import (
     MINIMUM_INTERVAL_CLUSTERS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     NO_T_REFERENCE_BANDS,
-    NON_INFERENTIAL,
+    STATUS_RECORDS,
 )
 from cleverly.datasets import make_longitudinal_competing
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import DataError
 from cleverly.inference import cluster as cluster_module
 from cleverly.learners.crossfit import Folds, random_partition
 from cleverly.longitudinal import LTMLE
 from tests.studies import canonical_ltmle_crossfit as subject_study
 from tests.studies import clustered_longitudinal_laws as law
-from tests.unit._inference_status_support import cluster_labels
+from tests.unit._inference_status_support import assert_shows_interval, cluster_labels
 from tests.unit.test_longitudinal_msm import DOSE
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 
@@ -594,11 +594,12 @@ class TestEveryTargetKind:
         assert {e.reference_df for e in result.estimates.values()} == {19}
 
     def test_the_cross_fitted_floor_is_the_smallest_measured_count(self) -> None:
-        """20 clusters keep t(18) and 19 withhold the interval, cross-fitted and in sample.
+        """20 clusters keep t(18) and 19 show a labelled t(17), cross-fitted and in sample.
 
         ``few-cluster-cross-fitted-ltmle`` measures 20 and 30 clusters, and
         ``clustered-few-cluster-tmle`` measures in-sample ``LTMLE`` from 20, so every ``LTMLE``
-        fit below 20 reports no interval. A point-treatment fit keeps the floor of 10.
+        fit below 20 reports its interval under the experimental label. A point-treatment fit
+        keeps the floor of 10.
         """
         assert MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS == 20
         kept = fit_law(20)
@@ -606,13 +607,10 @@ class TestEveryTargetKind:
         assert {e.reference_df for e in kept.estimates.values()} == {18}
         withheld = fit_law(19)
         assert withheld.inference_status == "few_cluster_plugin"
-        for estimate in withheld.estimates.values():
-            assert estimate.reference_df is None
-            with pytest.raises(CapabilityError):
-                _ = estimate.ci
-        reason = NON_INFERENTIAL["few_cluster_plugin"].reason
-        assert "fewer than 20 on a longitudinal fit" in reason
-        assert "X54" in reason and "F28" in reason
+        assert_shows_interval(withheld, "few_cluster_plugin", 17)
+        reason = STATUS_RECORDS["few_cluster_plugin"].reason
+        assert "one below 20 on a longitudinal fit" in reason
+        assert "X54" in reason
         assert fit_law(19, n_folds=1).inference_status == "few_cluster_plugin"
         in_sample = fit_law(20, n_folds=1)
         assert {e.reference_df for e in in_sample.estimates.values()} == {18}

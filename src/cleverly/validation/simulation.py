@@ -40,8 +40,9 @@ from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 import numpy as np
 
 from .._inference_status import (
-    NON_INFERENTIAL,
+    STATUS_RECORDS,
     InferenceStatus,
+    is_labelled,
     precedent_status,
     status_record,
     supplies_inference,
@@ -394,7 +395,7 @@ class EstimandSummary:
         # the columns it always carried, and a summary of a diagnostic carries
         # ``inference`` and names its mean spread through ``spread_name``.
         row: dict[str, Any] = {"estimand": self.estimand}
-        if not supplies_inference(self.inference):
+        if is_labelled(self.inference):
             row["inference"] = self.inference
         if self.status_counts:
             row["mixed_statuses"] = self.mixed_statuses
@@ -436,7 +437,7 @@ def summarize_replications(
     counts: Counter[str] = Counter(record.inference for record in selected)
     status = precedent_status(counts)
     # The table order, then "influence_curve", which has no record and comes last.
-    order = [*NON_INFERENTIAL, "influence_curve"]
+    order = [*STATUS_RECORDS, "influence_curve"]
     return EstimandSummary(
         estimand=estimand,
         truth=float(np.mean([record.truth for record in selected])),
@@ -578,6 +579,10 @@ class StudyResult:
                 f"{summary.estimand}: the replicates took more than one status "
                 f"({summary.mixed_statuses}), and every column reads them as the "
                 f"{_diagnostic_noun(status for status, _ in summary.status_counts)}"
+                if any(not supplies_inference(status) for status, _ in summary.status_counts)
+                else f"{summary.estimand}: the replicates took more than one status "
+                f"({summary.mixed_statuses}), and every column reads the interval each "
+                "replicate reported"
                 for summary in self.summaries.values()
                 if summary.status_counts
             ),

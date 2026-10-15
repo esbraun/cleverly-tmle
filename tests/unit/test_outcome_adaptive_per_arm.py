@@ -49,7 +49,7 @@ from scipy.stats import norm
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CollaborativeTMLEMethod
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.datasets import make_missing_outcome
 from cleverly.estimators import CTMLE
 from cleverly.estimators import ctmle as ctmle_module
@@ -816,8 +816,8 @@ def test_no_reachable_text_calls_the_curve_efficient() -> None:
         result.extra["ctmle"].summary(),
         result.extra["ctmle"].describe(),
         result.diagnostics.nuisance_models().summary(),
-        NON_INFERENTIAL["generated_design_plugin"].reason,
-        NON_INFERENTIAL["generated_design_plugin"].assessment_note,
+        STATUS_RECORDS["generated_design_plugin"].reason,
+        STATUS_RECORDS["generated_design_plugin"].assessment_note,
     ]
     for text in texts:
         assert "efficien" not in text.lower(), text

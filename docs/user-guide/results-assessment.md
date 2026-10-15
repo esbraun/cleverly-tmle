@@ -76,8 +76,9 @@ print(point.psi, point.std_error, point.ci, point.pvalue)
 
 A collaborative fit refuses `std_error`, `ci`, and `pvalue` with `CapabilityError` at every
 `strategy`. A `DRTMLE` fit with a `guard` and varying weights declared estimated
-(`weights_estimated=True`) refuses them too. A clustered fit refuses them below 10 clusters, or 20 for longitudinal TMLE,
-with positive weight mass. The property `result.inference_status` gives the status of the fit, and
+(`weights_estimated=True`) reports them under the experimental label. A clustered fit refuses them
+below 3 clusters with positive weight mass, and reports them under the experimental label from 3
+to 9 clusters, or to 19 for longitudinal TMLE. The property `result.inference_status` gives the status of the fit, and
 `point.supplies_inference` gives it for one estimate.
 
 Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of

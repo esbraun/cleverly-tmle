@@ -61,7 +61,7 @@ from .. import discrete_law_longitudinal_ipsi as law
 from ._inference_status_support import (
     LONGITUDINAL_NODES,
     assert_keeps_inference,
-    assert_withholds,
+    assert_shows_interval,
     cluster_labels,
     longitudinal_learners,
 )
@@ -407,10 +407,10 @@ def _clustered(panel: Any, k: int | None, n_folds: int) -> Any:
 
 
 @pytest.mark.parametrize("n_folds", [1, 5])
-def test_nineteen_clusters_withhold_the_interval(panel: Any, n_folds: int) -> None:
+def test_nineteen_clusters_show_a_labelled_t_interval(panel: Any, n_folds: int) -> None:
     result = _clustered(panel, 19, n_folds)
     assert result.config.estimator == "ipsi"
-    assert_withholds(result, "few_cluster_plugin")
+    assert_shows_interval(result, "few_cluster_plugin", 17)
 
 
 @pytest.mark.parametrize("n_folds", [1, 5])

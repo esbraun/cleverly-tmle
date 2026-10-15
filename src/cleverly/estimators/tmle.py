@@ -95,9 +95,9 @@ import numpy as np
 from .._inference_status import (
     HELD_OUT_SCALE,
     InferenceStatus,
-    supplies_inference,
+    is_labelled,
 )
-from .._support import record_fit, record_refusal_site, start_point_record
+from .._support import Classification, classify_point_fit, record_fit, record_refusal_site
 from .._typing import (
     BoolArray,
     EstimandName,
@@ -1675,7 +1675,7 @@ class TMLE:
         builds no band, so it is allowed.
         """
         estimands = self._preflight_fit_configuration(data)
-        classification = start_point_record(self, data, estimands, source="TMLE._fit_single")
+        classification = classify_point_fit(self, data, estimands, source="TMLE._fit_single")
 
         extra: dict[str, Any] = {}
         if shared is not None:
@@ -1725,6 +1725,7 @@ class TMLE:
                 intermediate_value=intermediate_value,
                 g_bounds=config.g_bounds,
                 g_bounds_conditional=config.g_bounds_conditional,
+                classification=classification,
             )
             per_repeat.append(estimates)
             repeats.append(
@@ -1780,7 +1781,7 @@ class TMLE:
         if (
             self.simultaneous
             and len(estimates) > 1
-            and supplies_inference(result.inference_status)
+            and not is_labelled(result.inference_status)
             and not has_t_reference(estimates)
         ):
             refuse_after_repeats(
@@ -3660,7 +3661,7 @@ class TMLE:
         mechanisms, which is the other denominator in the clever covariate and so the
         other bound whose influence on the answer is worth sweeping.
         """
-        classification = start_point_record(self, data, tuple(estimands), source="TMLE.retarget")
+        classification = classify_point_fit(self, data, tuple(estimands), source="TMLE.retarget")
         estimates, fluctuations, _ = self._retarget_detailed(
             data,
             nuisance,
@@ -3671,6 +3672,7 @@ class TMLE:
             missingness=missingness,
             nuisance_bound=nuisance_bound,
             alpha_sig=alpha_sig,
+            classification=classification,
         )
         record_fit(classification, estimates=estimates, source="TMLE.retarget")
         return estimates, fluctuations
@@ -3687,8 +3689,14 @@ class TMLE:
         missingness: FloatArray | None = None,
         nuisance_bound: float | None = None,
         alpha_sig: float | None = None,
+        classification: Classification | None = None,
     ) -> tuple[dict[str, ParameterEstimate], dict[str, Fluctuation], CVTargeting | None]:
         """:meth:`retarget`, plus the fold-level report when targeting went fold by fold.
+
+        ``classification`` is the fit's :class:`~cleverly._support.Classification`. Each
+        estimate takes its support from it at the stamp. ``None`` leaves every estimate
+        with the default support, which a bootstrap replicate wants because it reports
+        point estimates only.
 
         The extra return value is what :meth:`fit` puts on ``result.cv_targeting``.  It
         is kept out of :meth:`retarget` so that the sensitivity analyses, which call
@@ -3957,7 +3965,7 @@ class TMLE:
                 fold_evaluated_report, len(indices)
             )
         ordered = stamp_inference(
-            _in_report_order(estimates, requested), status, headline_reference
+            _in_report_order(estimates, requested), status, headline_reference, classification
         )
         detail = (
             CVTargeting(
@@ -3970,7 +3978,7 @@ class TMLE:
                 pooled=_in_report_order(pooled_report, requested),
                 fold_evaluated=_in_report_order(fold_evaluated_report, requested),
                 backend=data.backend,
-            ).stamped(status, cluster_reference)
+            ).stamped(status, cluster_reference, classification)
             if indices
             else None
         )

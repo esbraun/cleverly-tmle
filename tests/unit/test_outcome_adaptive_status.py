@@ -30,7 +30,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_missing_outcome, make_multi_arm
 from cleverly.estimators import CTMLE, TMLE
@@ -54,7 +54,7 @@ from tests.unit._source_mutation import mutate
 pytestmark = pytest.mark.xdist_group("outcome_adaptive_status")
 
 STATUS = "generated_design_plugin"
-RECORD = NON_INFERENTIAL[STATUS]
+RECORD = STATUS_RECORDS[STATUS]
 
 
 def _binary() -> Any:
