@@ -48,7 +48,10 @@ al.  For the ATT and the ATC the curve of the doubly robust ``nu^2`` also carrie
 conditioning arm ``c``.  The paper gives this kind of term for the estimate only (Online
 Appendix A, "Statistical Inference", Equation (15)).  :func:`_conditioning_share_influence`
 holds this package's derivation.
-The plug-in estimator of ``nu^2`` has no derived curve, so its bounds publish no limits
+The plug-in estimator of ``nu^2`` squares the fitted representer, so its curve needs the score
+of the fitted treatment mechanism.  Its bounds publish limits when the mechanism is declared
+known, or is a scikit-learn ``LogisticRegression`` with no penalty or a fixed L2 penalty
+(:mod:`cleverly.sensitivity._mechanism_stack`).  For any other learner they publish no limits
 (docs/roadmap.md F26).
 
 Scope: the bound applies to the linear functionals this library estimates -- the
@@ -565,8 +568,9 @@ class SensitivityElements:
     psi_nu2 : ndarray or None
         Influence curve of ``nu2`` under the doubly robust estimator: the score of Lemma 3
         of Chernozhukov et al. (2026), plus the influence of the conditioning share for the
-        ATT and the ATC.  ``None`` under the plug-in estimator, whose curve no derivation
-        in a source this package cites gives (docs/roadmap.md F26).
+        ATT and the ATC.  Under the plug-in estimator it adds the term of the fitted mechanism.
+        ``None`` under the plug-in estimator when the mechanism is neither declared known nor
+        a qualifying ``LogisticRegression`` (docs/roadmap.md F26).
     psi_max_bias : ndarray or None
         Influence curve of ``max_bias``, as in Theorem 4 of the same paper, so the
         bias-adjusted bounds get confidence limits rather than being treated as known
@@ -621,7 +625,9 @@ def sensitivity_elements(
         :math:`E[\alpha^2]` (``"plugin"``).  Both are consistent; ``"auto"`` picks the
         doubly robust form wherever the functional's :math:`m(O, \alpha)` has a closed
         form, which is all of :data:`LINEAR_ESTIMANDS`.  Only the doubly robust form has
-        a derived influence curve, so only it gives the bounds confidence limits.
+        a derived influence curve for any mechanism learner.  The plug-in form gives the
+        bounds confidence limits only for a declared known mechanism or a qualifying
+        ``LogisticRegression``.
 
     Returns
     -------
@@ -1046,8 +1052,8 @@ class SensitivityBounds:
     ci_lower : float
         Lower one-sided confidence limit of the adjusted bound. It refuses at a
         non-inferential status, where :attr:`plugin_interval_lower` keeps the diagnostic.
-        It refuses under the plug-in estimator of ``nu^2``, which has no derived standard
-        error (docs/roadmap.md F26).
+        It refuses under the plug-in estimator of ``nu^2`` for a mechanism that is neither
+        declared known nor a qualifying ``LogisticRegression`` (docs/roadmap.md F26).
     ci_upper : float
         Upper one-sided confidence limit of the adjusted bound. It follows ``ci_lower``.
     level : float
@@ -1238,9 +1244,9 @@ class SensitivityBounds:
         the three quantities read off the influence curve take the names
         :func:`~cleverly.inference.influence.spread_name` gives them:
         ``plugin_interval_lower``, ``plugin_interval_upper`` and
-        ``robustness_value_plugin_interval``.  When no derivation in a source this package
-        cites gives the limits' standard error, the mapping carries ``nu2_estimator`` and
-        omits those three keys under every name.
+        ``robustness_value_plugin_interval``.  When the plug-in estimator has no curve for the
+        fit's mechanism, the mapping carries ``nu2_estimator`` and ``limit_refusal`` and omits
+        those three keys under every name.
 
         Returns
         -------
@@ -1471,8 +1477,8 @@ def omitted_variable_bounds(
         Adjusted bounds, their confidence limits, and the robustness values. Under
         ``nu2_estimator="plugin"`` the bounds, ``max_bias`` and the point robustness value
         are reported, and the one-sided limits and the confidence-limit robustness value
-        refuse when read, because no derivation in a source this package cites gives their
-        standard error (docs/roadmap.md F26). A zero bias scale also leaves the point
+        refuse when read, unless the mechanism is declared known or is a qualifying
+        ``LogisticRegression`` (docs/roadmap.md F26). A zero bias scale also leaves the point
         bounds available but refuses the limits, whose square-root derivative is undefined.
         An unreachable robustness threshold is ``None``.
 
@@ -2045,9 +2051,10 @@ def robustness_value(
     non-inferential status ``"rva"`` takes the name
     :func:`~cleverly.inference.influence.spread_name` gives it, ``"rv_plugin_interval"``,
     and the mapping opens with ``"inference"`` naming the status, as
-    :meth:`SensitivityBounds.to_dict` does.  Under ``nu2_estimator="plugin"`` no
-    derivation gives the confidence bound's standard error, so the mapping carries
-    ``"nu2_estimator"`` and no confidence-limit value under any name (docs/roadmap.md F26).
+    :meth:`SensitivityBounds.to_dict` does.  Under ``nu2_estimator="plugin"`` the
+    mapping carries ``"nu2_estimator"``.  It carries ``"limit_refusal"`` and no
+    confidence-limit value under any name when the mechanism is neither declared known nor a
+    qualifying ``LogisticRegression`` (docs/roadmap.md F26).
 
     Parameters
     ----------
@@ -2070,8 +2077,9 @@ def robustness_value(
         The strength that moves the point estimate to the null, the one that moves the
         confidence limit there, and ``max_bias``. A threshold is ``None`` when unreachable.
         At a non-inferential status, also the
-        status under ``"inference"``. Under the plug-in estimator, ``"nu2_estimator"``
-        in place of the confidence-limit value.
+        status under ``"inference"``. Under the plug-in estimator, ``"nu2_estimator"``, and
+        ``"limit_refusal"`` in place of the confidence-limit value when the mechanism does not
+        qualify.
 
     Raises
     ------

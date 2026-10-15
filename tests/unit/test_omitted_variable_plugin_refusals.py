@@ -26,6 +26,7 @@ import copy
 import dataclasses
 import pickle
 import re
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,7 @@ from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.inference.cluster import influence_variance
 from cleverly.interventions import Incremental
 from cleverly.learners import SuperLearner, random_partition
+from cleverly.sensitivity import _mechanism_stack as mechanism_stack
 from cleverly.sensitivity import omitted_variable
 from cleverly.sensitivity._mechanism_stack import MechanismRefusal, plugin_mechanism_term
 from cleverly.sensitivity.omitted_variable import (
@@ -250,6 +252,14 @@ def assert_refusal(
     assert bound.to_dict()["limit_refusal"] == stored.text
     assert bound.to_dict()["nu2_estimator"] == "plugin"
     assert stored.text in bound.summary()
+
+
+@pytest.fixture
+def out_of_fold() -> Iterator[None]:
+    """Lift the ``cross_fit`` refusal, so that a cross-fitted fit reaches the fold checks."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(mechanism_stack, "OUT_OF_FOLD_REFUSED", False)
+        yield
 
 
 # ------------------------------------------------------------------ the learner clauses
@@ -456,12 +466,36 @@ class TestEveryLearnerClauseHasAQualifyingTwin:
         )
         assert bound_of(fit_binary(learner)).limit_refusal is None
 
-    def test_a_multinomial_cross_fitted_model_opens_the_limits(self) -> None:
-        result = fit_three_arm()
+    def test_a_multinomial_model_opens_the_limits(self) -> None:
+        result = fit_three_arm(cross_fit=False)
         for estimand in ("ey[1.0]", "ate[2.0 vs 0.0]"):
             bound = bound_of(result, estimand)
             assert bound.limit_refusal is None and bound.plugin_mechanism == "logistic"
             assert np.isfinite(bound.ci_lower)
+
+    def test_cross_fit(self) -> None:
+        assert_refusal(
+            bound_of(fit_three_arm(), "ey[1.0]"),
+            key="cross_fit",
+            text=full_text(
+                "the treatment mechanism was fitted out of fold, and the out-of-fold "
+                "E_n[alpha_hat^2] carries a second-order bias that the stacked curve does not "
+                "cover",
+                learner=False,
+            ),
+            alternative=(
+                "Fit the bound with nu2_estimator='doubly_robust', which has derived limits for "
+                "a cross-fitted fit, or fit the TMLE with cross_fit=False."
+            ),
+            roadmap=None,
+        )
+
+    def test_the_cross_fitted_stack_opens_when_the_refusal_is_lifted(
+        self, out_of_fold: None
+    ) -> None:
+        """The stack handles folds; the refusal, not the stack, stops a cross-fitted fit."""
+        bound = bound_of(fit_three_arm(), "ate[2.0 vs 0.0]")
+        assert bound.limit_refusal is None and np.isfinite(bound.ci_lower)
 
     def test_the_summary_names_the_stacked_mechanism(self) -> None:
         summary = bound_of(fit_binary(LogisticRegression(max_iter=1000))).summary()
@@ -546,7 +580,7 @@ class TestEveryFoldClauseCarriesNoRoadmapItem:
             roadmap=None,
         )
 
-    def test_missing_arm(self) -> None:
+    def test_missing_arm(self, out_of_fold: None) -> None:
         """A fold whose training rows hold one arm fewer fits a model of fewer classes.
 
         The package refuses a declared split with such a fold before the fit, so the capture is
@@ -568,7 +602,7 @@ class TestEveryFoldClauseCarriesNoRoadmapItem:
             roadmap=None,
         )
 
-    def test_a_fold_that_fitted_no_model_is_a_missing_arm(self) -> None:
+    def test_a_fold_that_fitted_no_model_is_a_missing_arm(self, out_of_fold: None) -> None:
         result = fit_three_arm()
         fits = result.repeats[0].nuisance.treatment_fits
         constant = describe_mechanism(ConstantFit(value=1.0))
@@ -606,7 +640,7 @@ class TestEveryFoldClauseCarriesNoRoadmapItem:
         bound = bound_of(with_nuisance(result, treatment_fits=(corrupted,)))
         assert bound.limit_refusal.key == "score_not_zero"
 
-    def test_a_record_of_the_wrong_length_is_a_mismatch(self) -> None:
+    def test_a_record_of_the_wrong_length_is_a_mismatch(self, out_of_fold: None) -> None:
         result = fit_three_arm()
         fits = result.repeats[0].nuisance.treatment_fits
         bound = bound_of(with_nuisance(result, treatment_fits=fits[:1]), "ey[1.0]")

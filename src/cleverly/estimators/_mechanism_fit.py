@@ -7,7 +7,7 @@ inside the fold worker and returns a :class:`MechanismFit` of plain arrays and s
 record survives a process pool and a pickle round trip, and it holds no fitted estimator.
 
 The record describes; it does not judge.  Which records admit a stacked curve is the rule of
-:func:`cleverly.sensitivity._mechanism_stack.mechanism_limit_refusal`.
+:func:`cleverly.sensitivity._mechanism_stack.plugin_mechanism_term`.
 """
 
 from __future__ import annotations

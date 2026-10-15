@@ -29,7 +29,7 @@ run.
 | standard error of $\nu^2$ | `sqrt(influence_variance(psi_nu2))` |
 | standard error of a bound | `(lower - ci_lower) / z_0.95` for a lower bound, and `(ci_upper - upper) / z_0.95` for an upper bound |
 | primary interval | the estimate plus or minus 1.959964 standard errors |
-| independent rebuild | each replicate rebuilds the curve of $\nu^2$ from the captured coefficients and the data. The run refuses a replicate whose rebuilt curve departs from the package curve by more than $10^{-8}$ of its scale |
+| independent rebuild | each replicate rebuilds the curve of $\nu^2$ from the captured coefficients and the data. The run stops if a rebuilt curve departs from the package curve by more than $10^{-8}$ of its scale. A replicate on which the package withholds the limits counts as a failed replicate |
 | Monte Carlo inference | 99% intervals around every declared endpoint |
 
 | scenario | fit | parameters |
@@ -107,7 +107,7 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 | No truncation is active | The binary law moves a cell with probability below $10^{-21}$ per row. The three-arm law moves one with probability $7 \times 10^{-7}$ per row. The exact-law witness covers an active clip |
 | No weights, clusters, pipelines or grouped folds | The exact-law witnesses cover these compositions. This row does not |
 | One sample size and one strength | The row covers $n = 1000$ and $c_Y = c_D = 0.5$, $\rho = 1$ |
-| The ridge scenario uses $C = 1$ only | The predicted first-order shrinkage of $\nu^2$ is at most 0.05 of its standard error on this law |
+| The ridge scenario uses $C = 1$ only | The predicted first-order shrinkage of $\nu^2$ is at most 0.05 of its standard error on this law. Over 150 replicates the ATE fraction had mean 0.050 and maximum 0.073. The `penalty_bias` gate refuses above 0.1 |
 | Point treatment only | The bound refuses longitudinal fits, so the row covers none |
 
 ## Reproduction

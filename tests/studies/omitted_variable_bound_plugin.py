@@ -70,6 +70,7 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly.datasets import make_linear_ate
 from cleverly.datasets.synthetic import linear_dgp
 from cleverly.estimators import TMLE
+from cleverly.exceptions import DataError
 from cleverly.inference.cluster import influence_variance
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from tests.parallel import STUDY_JOBS
@@ -217,7 +218,8 @@ CONFIGURATION = {
     "strength": {"cf_y": CF_Y, "cf_d": CF_D, "rho": RHO},
     "primary_rows": "nu2: estimate = nu2, std_error = sqrt(influence_variance(psi_nu2)); "
     "lower and upper: estimate = the bound, std_error = (lower - ci_lower) / z_0.95 and "
-    "(ci_upper - upper) / z_0.95; interval = estimate +/- 1.959964 std_error",
+    "(ci_upper - upper) / z_0.95, each checked against the rebuilt curve; "
+    "interval = estimate +/- 1.959964 std_error",
     "controls": {
         "inflated_se_control": "the estimated-mechanism scenarios' ATT and ATC rows, with the "
         "package curve minus the independently rebuilt mechanism term",
@@ -663,8 +665,8 @@ def rebuild(result: Any, scenario: str, token: str, elements: Any) -> Rebuilt:
 
     The mechanism comes from the captured coefficients (an estimated mechanism) or from the
     law (a known one).  The representer, ``nu^2``, the share term and the mechanism term are
-    this module's.  Any departure beyond :data:`REBUILD_TOLERANCE` raises, so a replicate
-    whose control would read a different curve than declared is recorded as a failure.
+    this module's.  Any departure beyond :data:`REBUILD_TOLERANCE` raises ``RuntimeError``
+    from this module, which stops the run: a departure is a defect, not a property of a sample.
     """
     _, group, arm_code, versus_code = PARAMETERS[scenario][token]
     nuisance = result.repeats[0].nuisance
@@ -794,6 +796,10 @@ def parameter_rows(
     )
     elements = ov.sensitivity_elements(result, name, nu2_estimator="plugin")
     expected = "known" if scenario == "binary_known" else "logistic"
+    if elements.limit_refusal is not None:
+        # A sample on which the package withholds the limits (for example the
+        # penalty_bias gate) is a failed replicate, counted against FAILURE_BOUND.
+        raise DataError(f"the plug-in bound of {name!r} refused: {elements.limit_refusal.key}")
     if elements.plugin_mechanism != expected or elements.psi_nu2 is None:
         raise RuntimeError(f"the plug-in bound of {name!r} did not stack the {expected} mechanism")
     rebuilt = rebuild(result, scenario, token, elements)

@@ -77,13 +77,15 @@ NO_CLIP = (1e-6, 1.0 - 1e-6)
 
 @pytest.fixture(scope="module", autouse=True)
 def _no_penalty_gate() -> Iterator[None]:
-    """Lift the ``penalty_bias`` gate, which several ridge witnesses at small n would meet.
+    """Lift the ``penalty_bias`` gate and the ``cross_fit`` refusal.
 
-    These witnesses test the curve of the penalized functional.  The gate is a separate
-    finite-sample check, and ``test_omitted_variable_plugin_refusals.py`` pins it.
+    These witnesses test the curve of the penalized and of the cross-fitted functional.  The
+    gate and the refusal are separate finite-sample stops, and
+    ``test_omitted_variable_plugin_refusals.py`` pins them.
     """
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(ov, "PENALTY_BIAS_FRACTION", np.inf)
+        patch.setattr(ms, "OUT_OF_FOLD_REFUSED", False)
         yield
 
 

@@ -18,8 +18,9 @@ could not fail.
   narrower than the known mechanism's (predicted ratios 0.38 and 0.85), so the interval must
   fall below the band.
 
-The replicate count is the smallest multiple of 400 whose family-wise pass probability under
-perfect calibration reaches 0.95 (``tests/unit/test_omitted_variable_plugin_design.py``).
+The replicate count is the plan's 10,000.  Under perfect calibration its family-wise pass
+probability exceeds 0.999, and the smallest multiple of 400 that reaches 0.95 is 3,600
+(``tests/unit/test_omitted_variable_plugin_design.py``).
 """
 
 from __future__ import annotations
@@ -55,8 +56,8 @@ from tests.studies.omitted_variable_bound_plugin import (
 )
 
 #: Replications per property cell.  Every cell of a scenario reads the same draws.  The design
-#: test pins this as the smallest multiple of 400 that reaches a family-wise pass probability
-#: of 0.95 under perfect calibration.
+#: test checks that this reaches a family-wise pass probability of 0.95 under perfect
+#: calibration, and that it is at least the smallest multiple of 400 that does.
 PROPERTY_REPLICATES = 10_000
 
 

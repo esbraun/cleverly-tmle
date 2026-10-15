@@ -54,6 +54,7 @@ from ..estimators._mechanism_fit import MechanismFit
 __all__ = [
     "CONDITION_LIMIT",
     "MISMATCH_TOLERANCE",
+    "OUT_OF_FOLD_REFUSED",
     "PENALTY_BIAS_FRACTION",
     "ROOT_TOLERANCE",
     "MechanismRefusal",
@@ -75,6 +76,12 @@ MISMATCH_TOLERANCE = 1e-8
 #: The largest first-order shrinkage of ``nu^2`` by a fixed L2 penalty, as a fraction of the
 #: standard error of ``nu^2``.
 PENALTY_BIAS_FRACTION = 0.1
+
+#: Whether a cross-fitted mechanism refuses the limits.  Out of fold, E_n[alpha_hat^2] carries
+#: a second-order bias that the stacked curve does not cover; a pilot of the registered study
+#: measured it at 1.44 standard deviations of the estimate at n = 1000.  The stack itself
+#: handles folds, and the witnesses lift this to test that curve.
+OUT_OF_FOLD_REFUSED = True
 
 #: Relative eigenvalue cutoff below which a direction counts as outside the design's range.
 _RANK_CUTOFF = 1e-12
@@ -99,6 +106,12 @@ _UNCITED = (
 _DOUBLY_ROBUST = (
     "Fit the bound with nu2_estimator='doubly_robust', which has derived limits for any "
     "mechanism learner."
+)
+
+
+_DOUBLY_ROBUST_CROSS_FIT = (
+    "Fit the bound with nu2_estimator='doubly_robust', which has derived limits for a "
+    "cross-fitted fit, or fit the TMLE with cross_fit=False."
 )
 
 
@@ -618,6 +631,13 @@ def plugin_mechanism_term(
     refusal = _learner_refusal(fits[0])
     if refusal is not None:
         return refusal
+    if OUT_OF_FOLD_REFUSED and nuisance.folds.n_folds > 1:
+        return _refusal(
+            "cross_fit",
+            "the treatment mechanism was fitted out of fold, and the out-of-fold "
+            "E_n[alpha_hat^2] carries a second-order bias that the stacked curve does not cover",
+            _DOUBLY_ROBUST_CROSS_FIT,
+        )
     folds = _stacks(fits, nuisance, data)
     if isinstance(folds, MechanismRefusal):
         return folds
