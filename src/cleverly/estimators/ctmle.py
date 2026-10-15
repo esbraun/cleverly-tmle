@@ -1525,7 +1525,12 @@ class CTMLE(TMLE):
                     "the full-sample predictions and the out-of-fold predictions, and pass "
                     "the split those out-of-fold predictions used as selection_split=. A "
                     "single array fitted on every row would score a mechanism that saw the "
-                    "validation rows."
+                    "validation rows.",
+                    reason=RefusalReason.API_REDIRECTION,
+                    alternative=(
+                        "Pass PropensityArrays(full=..., cv=...) with selection_split=, or "
+                        "pass the learner that produced the array."
+                    ),
                 )
             resolve_learner(entry, task="classification")
         if not has_arrays:
@@ -1534,13 +1539,18 @@ class CTMLE(TMLE):
             raise CapabilityError(
                 "PropensityArrays candidates need selection_split=, the fold labels their "
                 "cv= predictions were fitted under. selection_folds= draws a new split, which "
-                "those predictions do not respect."
+                "those predictions do not respect.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass the fold labels of the cv= predictions as selection_split=.",
             )
         if self.cross_fit:
             raise CapabilityError(
                 "PropensityArrays candidates are fitted on the analysis sample, and a "
-                "cross-fitted fit needs one fit for each outer fold. Fit with "
-                "cross_fit=False, or pass the learner that produced the arrays."
+                "cross-fitted fit needs one fit for each outer fold.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    "Fit with cross_fit=False, or pass the learner that produced the arrays."
+                ),
             )
 
     def _validate_selection_split(self) -> None:
@@ -1550,12 +1560,16 @@ class CTMLE(TMLE):
         if self.repeats > 1:
             raise CapabilityError(
                 "selection_split= fixes the selection folds, and repeats= redraws them for "
-                "each repeat. Use repeats=1 with a declared split."
+                "each repeat.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Use repeats=1 with a declared split.",
             )
         if self.n_bootstrap:
             raise CapabilityError(
                 "selection_split= labels the analysis rows, and a bootstrap resample changes "
-                "the rows. Use n_bootstrap=0 with a declared split."
+                "the rows.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Use n_bootstrap=0 with a declared split.",
             )
         declared = _declared_fold_count(self.selection_split)
         if declared is not None and declared != self.selection_folds:
@@ -2269,7 +2283,9 @@ class CTMLE(TMLE):
         if self._has_arrays():
             raise CapabilityError(
                 "a refit adds, replaces or perturbs a column, and the PropensityArrays "
-                "candidates were fitted on the original columns. Pass learners to refit."
+                "candidates were fitted on the original columns.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass learners as treatment_candidates= to refit.",
             )
         if self.strategy == "discrete" and self.candidates is not None:
             recorded = set(data.added_covariates)

@@ -40,7 +40,7 @@ from scipy.special import expit
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 from .._typing import FloatArray, IntArray
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, RefusalReason
 
 __all__ = [
     "KKT_TOLERANCE",
@@ -704,7 +704,9 @@ def penalty_path(
             raise L1ConvergenceError(
                 f"the L1-penalized propensity at penalty {shown} did not converge in "
                 f"{layer}. The unpenalized end of the path has no maximum when the "
-                "training rows separate the arms. Pass lambdas= that ends above 0."
+                "training rows separate the arms.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass lambdas= that ends above 0.",
             )
         fits.append(
             L1Fit(
