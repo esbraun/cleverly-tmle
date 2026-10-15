@@ -118,8 +118,10 @@ class LongitudinalStageRow:
     max_weight: float
     effective_n: float
     share_truncated: float
+    #: The fitted fluctuation parameters; ``()`` on a node with no fluctuation.
     epsilon: tuple[float, ...]
-    converged: bool
+    #: Whether the fluctuation solved its score; ``None`` on a node with no fluctuation.
+    converged: bool | None
     #: On an SDR fit, the node's transform diagnostics; ``None`` on a TMLE fit.
     sdr: SDRNodeRow | None = None
     #: On an IPSI fit, the node's tilt diagnostics; ``None`` on every other fit.
@@ -228,8 +230,13 @@ class LongitudinalDiagnostics:
     cumulative mechanism and not the ratio.  A truncated row therefore need not carry a large
     ratio.
 
-    **On an SDR fit** the targeting columns ``epsilon`` and ``converged`` are absent,
-    because the estimator fits no fluctuation.  Five columns take their place.
+    **On a fit with no fluctuation** the targeting columns ``epsilon`` and ``converged`` are
+    absent, because no node holds a fluctuation parameter or a solver verdict.  This holds
+    for ``SequentialGComputation`` and ``SequentialIPW``, whose nodes are untargeted, and for
+    SDR and IPSI.  A row of such a node has ``epsilon=()`` and ``converged=None``.  A frame
+    that mixes such rows with targeted rows holds ``nan`` and ``None`` in the bare rows.
+
+    **On an SDR fit** five columns replace the targeting columns.
     ``target_outside``, ``target_min`` and ``target_max`` describe the node's regression
     targets on its followers.  ``prediction_outside`` is the share of the node's predictions
     at the observed arm outside ``[0, 1]``.  ``bound_binding`` is the share of partial
@@ -287,9 +294,12 @@ class LongitudinalDiagnostics:
                 ):
                     payload[name] = [getattr(row.ipsi, name) for row in self.rows]
             return emit_frame(payload, data, backend=self.backend)
-        for position, name in enumerate(self.epsilon_names):
-            payload[name] = [row.epsilon[position] for row in self.rows]
-        payload["converged"] = [row.converged for row in self.rows]
+        if any(row.epsilon for row in self.rows):
+            for position, name in enumerate(self.epsilon_names):
+                payload[name] = [
+                    row.epsilon[position] if row.epsilon else float("nan") for row in self.rows
+                ]
+            payload["converged"] = [row.converged for row in self.rows]
         return emit_frame(payload, data, backend=self.backend)
 
 
@@ -648,10 +658,12 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                         if step.fluctuation is None
                         else tuple(float(value) for value in step.fluctuation.epsilon)
                     ),
-                    converged=bool(
-                        hazard.converged
+                    converged=(
+                        bool(hazard.converged)
                         if step is None
-                        else step.fluctuation is None or step.fluctuation.converged
+                        else None
+                        if step.fluctuation is None
+                        else bool(step.fluctuation.converged)
                     ),
                     sdr=None if step is None else _sdr_node_row(step),
                     ipsi=None if step is None else _ipsi_node_row(result, fit, step),

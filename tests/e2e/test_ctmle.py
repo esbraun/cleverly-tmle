@@ -480,7 +480,15 @@ class TestDownstreamMachineryStillWorks:
             if design == "shared"
             else "C-TMLE outcome-adaptive fit used one Qbar feature per arm in 2 binary mechanisms"
         )
-        assert oat.extra["ctmle"].describe() == sentence
+        refusal = oat.extra["ctmle"].stacked_refusal
+        if design == "shared":
+            assert oat.extra["ctmle"].describe() == sentence
+        else:
+            # The default outcome learner is outside the stacked interval of X58.
+            assert refusal is not None and "outcome_learner" in refusal
+            assert (
+                oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval (X58): {refusal}"
+            )
         assert sentence in diagnostics.summary()
         assert sentence in oat.diagnostics.run_all()["nuisance_models"].detail
 

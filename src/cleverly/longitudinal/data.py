@@ -83,6 +83,7 @@ from typing import Any, Literal, TypeAlias
 
 import numpy as np
 
+from .._refusal import NO_ALTERNATIVE
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.known_mechanism import (
     KnownNodeMechanisms,
@@ -1393,8 +1394,11 @@ class LongitudinalData:
 
         if baseline is None:
             raise DataError(
-                "baseline= is empty; a longitudinal fit adjusts for the baseline covariates "
-                "at every node, and with none of them there is nothing to adjust for"
+                "baseline= is empty. A longitudinal fit needs at least one baseline covariate, "
+                "because the package fits no intercept-only nuisance design.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=NO_ALTERNATIVE,
+                roadmap="X63",
             )
         w, w_names, dropped = check_covariates(
             np.asarray(baseline, dtype=float), list(baseline_names)
