@@ -1,0 +1,16 @@
+policy none           MC 0.52800 se 0.00029 truth 0.52754 z +1.59
+policy discount       MC 0.45972 se 0.00029 truth 0.45958 z +0.48
+policy shipping       MC 0.58704 se 0.00028 truth 0.58655 z +1.71
+policy win_back       MC 0.59953 se 0.00028 truth 0.59973 z -0.70
+policy win_back_ship  MC 0.62684 se 0.00028 truth 0.62685 z -0.01
+elapsed 28s
+elapsed 133s
+logged HT-IPW level    none           0.52648 se 0.00102 truth 0.52754 z -1.04
+logged HT-IPW level    discount       0.45919 se 0.00127 truth 0.45958 z -0.31
+logged HT-IPW level    shipping       0.58641 se 0.00127 truth 0.58655 z -0.11
+logged HT-IPW level    win_back       0.59856 se 0.00083 truth 0.59973 z -1.40
+logged HT-IPW level    win_back_ship  0.62555 se 0.00093 truth 0.62685 z -1.41
+logged HT-IPW contrast discount       -0.06729 se 0.00158 truth -0.06796 z +0.43
+logged HT-IPW contrast shipping       0.05993 se 0.00163 truth 0.05901 z +0.56
+logged HT-IPW contrast win_back       0.07208 se 0.00132 truth 0.07218 z -0.08
+logged HT-IPW contrast win_back_ship  0.09907 se 0.00136 truth 0.09931 z -0.18

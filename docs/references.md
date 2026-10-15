@@ -1885,6 +1885,17 @@ sizes only the cluster sum is the delta-method variance of the row mean
   main text, so this package did not read it. The main-text locators follow v6. The published
   appendix cites "C.7. Proof of Theorem 2" and "C.10. Proof of Lemma 3 and Theorem 4", which
   match v6.
+- Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician* 56(1):29-38.
+  Section 1 treats a partial M-estimator as an M-estimator by stacking. Section 3 gives the
+  two-stage instrumental-variable example and its lower-triangular Jacobian. This package read the
+  submitted version, so it cites sections and no pages. [Parametric per-arm
+  intervals](technical-reference/collaborative-tmle.md#parametric-per-arm-intervals) uses the
+  triangular structure.
+- van der Vaart (1998), *Asymptotic Statistics*, Cambridge University Press, Section 5.3, Theorem
+  5.21 (p. 52). A Z-estimator is asymptotically linear under a Lipschitz condition on the estimating
+  function, differentiability of the mean estimating function at the limit with a nonsingular
+  derivative, consistency, and a near-zero sample equation. This package read the theorem through
+  secondary sources, not the book, and it quotes no wording.
 - Saul & Hudgens (2020), [*The Calculus of M-Estimation in R with geex*](https://www.jstatsoft.org/article/view/v092i02),
   *Journal of Statistical Software* 92(2), DOI 10.18637/jss.v092.i02. Its general stacked
   estimating-equation method computes a sandwich variance for specified smooth equations. It
