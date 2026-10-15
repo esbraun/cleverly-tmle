@@ -104,8 +104,8 @@ This program differs from the health program in four ways.
 ## Real data
 
 The [TWINS analysis](twins-causal-inference.ipynb) sits outside the program and is the only
-real-data example. Its outcome is first-year infant mortality. It compares several estimators on
-one question, then adds a semi-synthetic longitudinal section with a known truth.
+real-data example. It estimates the effect of maternal smoking on first-year mortality among twins
+of smoking mothers (ATT). It also shows why the adjustment set stops before birth weight.
 
 ```{toctree}
 :maxdepth: 1
