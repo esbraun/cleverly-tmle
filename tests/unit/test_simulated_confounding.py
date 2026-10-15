@@ -30,6 +30,7 @@ from cleverly import (
     RiskRatio,
 )
 from cleverly import study as study_module
+from cleverly._refusal import Refusal
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -2175,7 +2176,7 @@ def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
     capability = mar_result.sensitivity.capability("simulated_confounding")
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.reason == reason
+    assert capability.refusal == reason
     assert _fit_wide_refusal(mar_result) == reason
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(
@@ -2184,7 +2185,7 @@ def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
             benchmark_covariates=("W1",),
             random_state=29,
         )
-    assert str(refusal.value) == reason
+    assert str(refusal.value) == reason.message()
 
 
 def test_fit_wide_refusals_have_one_order_and_match_assessment(
@@ -2220,7 +2221,7 @@ def test_fit_wide_refusals_have_one_order_and_match_assessment(
         capability = result.sensitivity.capability("simulated_confounding")
         assert not capability.available, name
         assert capability.status is AssessmentStatus.UNAVAILABLE, name
-        assert capability.reason == reason, name
+        assert capability.refusal == reason, name
         assert _fit_wide_refusal(result) == reason, name
         with pytest.raises(CapabilityError) as refusal:
             simulated_confounding(
@@ -2229,7 +2230,7 @@ def test_fit_wide_refusals_have_one_order_and_match_assessment(
                 benchmark_covariates=("W1",),
                 random_state=29,
             )
-        assert str(refusal.value) == reason, name
+        assert str(refusal.value) == reason.message(), name
 
 
 def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
@@ -2299,17 +2300,17 @@ def test_each_missing_science_refusal_says_its_own_thing() -> None:
     on one. Verified by performing both mutations.
     """
     for constant, fragment in _REFUSAL_WITNESSES:
-        assert fragment in constant, fragment
+        assert fragment in constant.condition, fragment
     # Distinctive, not merely present: a fragment that matched two constants would pass a
     # swap of those two.
     for constant, fragment in _REFUSAL_WITNESSES:
-        matched = [other for other, _ in _REFUSAL_WITNESSES if fragment in other]
+        matched = [other for other, _ in _REFUSAL_WITNESSES if fragment in other.condition]
         assert matched == [constant], fragment
 
 
 #: The roadmap rows each missing-science refusal cites (docs/technical-reference/hard-stop-review.md).
 #: A declarable law cites X47 or X48; a part that stays in the research queue cites its F row.
-_REFUSAL_CITATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+_REFUSAL_CITATIONS: tuple[tuple[Refusal, tuple[str, ...]], ...] = (
     (_LONGITUDINAL_REFUSAL, ("X48", "F13")),
     (_MULTI_ARM_REFUSAL, ("X47",)),
     (_MISSING_OUTCOME_REFUSAL, ("X47", "F12")),
@@ -2321,8 +2322,10 @@ _REFUSAL_CITATIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 @pytest.mark.parametrize(("constant", "rows"), _REFUSAL_CITATIONS)
-def test_each_missing_science_refusal_cites_its_rows(constant: str, rows: tuple[str, ...]) -> None:
-    cited = re.findall(r"docs/roadmap\.md ([A-Z]+\d+)", constant)
+def test_each_missing_science_refusal_cites_its_rows(
+    constant: Refusal, rows: tuple[str, ...]
+) -> None:
+    cited = re.findall(r"docs/roadmap\.md ([A-Z]+\d+)", constant.condition)
     assert cited == list(rows)
 
 
@@ -2338,7 +2341,7 @@ def test_a_missing_treatment_fit_refuses_before_calibration_draw_or_refit(
     assert _fit_wide_refusal(result) == _MISSING_TREATMENT_REFUSAL
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(result, grid=_grid(), random_state=29)
-    assert str(refusal.value) == _MISSING_TREATMENT_REFUSAL
+    assert str(refusal.value) == _MISSING_TREATMENT_REFUSAL.message()
 
 
 #: Objects that declare a family and nothing the later rules read.  ``CausalResult`` is a
@@ -2373,8 +2376,9 @@ def test_a_shapeless_point_object_refuses_rather_than_raises(probe: Any, fragmen
     An unknown family hears its own name rather than the longitudinal missing-law stop,
     which is a claim about a family this object never declared.
     """
-    reason = _fit_wide_refusal(probe)
-    assert reason is not None
+    refusal_record = _fit_wide_refusal(probe)
+    assert refusal_record is not None
+    reason = refusal_record.message()
     assert fragment in reason
     assert "longitudinal" not in reason
     with pytest.raises(CapabilityError) as refusal:

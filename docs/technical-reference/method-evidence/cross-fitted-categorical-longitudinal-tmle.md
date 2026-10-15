@@ -57,17 +57,19 @@ compares two constructions.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point law with three treatment levels at both nodes | `ate_regimen[high vs low]` | difference in mean outcome between the plans "assign the high arm at both times" against "assign the low arm at both times" | -0.000334 | 0.0410 | 0.9796 | 0.0017 | 0.0105 vs 0.0500 | equivalent |
-| two-time-point law with three treatment levels at both nodes | `ate_regimen[respond vs low]` | difference in mean outcome between the plans "assign standard first, then high if L2 equals one and low otherwise" against "assign the low arm at both times" | -0.000643 | 0.0917 | 0.9794 | -0.000500 | 0.0111 vs 0.0500 | equivalent |
-| two-time-point law with three treatment levels at both nodes | `ate_regimen[standard vs low]` | difference in mean outcome between the plans "assign the standard arm at both times" against "assign the low arm at both times" | -0.0015 | 0.2074 | 0.9566 | -0.0050 | 0.0204 vs 0.0500 | equivalent |
-| two-time-point law with three treatment levels at both nodes | `ate_regimen[step_down vs low]` | difference in mean outcome between the plans "assign high first, then standard" against "assign the low arm at both times" | 0.000201 | 0.0256 | 0.9776 | -0.0040 | 0.0187 vs 0.0500 | equivalent |
-| two-time-point law with three treatment levels at both nodes | `ey_regimen[high]` | mean outcome under the plan assign the high arm at both times | 0.000286 | 0.0459 | 0.9858 | -0.0040 | 0.0117 vs 0.0500 | equivalent |
-| two-time-point law with three treatment levels at both nodes | `ey_regimen[low]` | mean outcome under the plan assign the low arm at both times | 0.000620 | 0.1213 | 0.9708 | 0 | 0.0135 vs 0.0500 | equivalent |
-| two-time-point law with three treatment levels at both nodes | `ey_regimen[respond]` | mean outcome under the plan assign standard first, then high if L2 equals one and low otherwise | -0.000023 | 0.0048 | 0.9984 | -0.0037 | 0.0082 vs 0.0500 | equivalent |
-| two-time-point law with three treatment levels at both nodes | `ey_regimen[standard]` | mean outcome under the plan assign the standard arm at both times | -0.000836 | 0.1680 | 0.9437 | -0.0102 | 0.0191 vs 0.0500 | equivalent |
-| two-time-point law with three treatment levels at both nodes | `ey_regimen[step_down]` | mean outcome under the plan assign high first, then standard | 0.000821 | 0.1404 | 0.9799 | -0.000250 | 0.0282 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point law with three treatment levels at both nodes | `ate_regimen[high vs low]` | difference in mean outcome between the plans "assign the high arm at both times" against "assign the low arm at both times" | -0.000334 | 0.0410 | 0.9796 | 0.0017 | different estimator | 0.0105 vs 0.0500 | equivalent |
+| two-time-point law with three treatment levels at both nodes | `ate_regimen[respond vs low]` | difference in mean outcome between the plans "assign standard first, then high if L2 equals one and low otherwise" against "assign the low arm at both times" | -0.000643 | 0.0917 | 0.9794 | -0.000500 | different estimator | 0.0111 vs 0.0500 | equivalent |
+| two-time-point law with three treatment levels at both nodes | `ate_regimen[standard vs low]` | difference in mean outcome between the plans "assign the standard arm at both times" against "assign the low arm at both times" | -0.0015 | 0.2074 | 0.9566 | -0.0050 | different estimator | 0.0204 vs 0.0500 | equivalent |
+| two-time-point law with three treatment levels at both nodes | `ate_regimen[step_down vs low]` | difference in mean outcome between the plans "assign high first, then standard" against "assign the low arm at both times" | 0.000201 | 0.0256 | 0.9776 | -0.0040 | different estimator | 0.0187 vs 0.0500 | equivalent |
+| two-time-point law with three treatment levels at both nodes | `ey_regimen[high]` | mean outcome under the plan assign the high arm at both times | 0.000286 | 0.0459 | 0.9858 | -0.0040 | different estimator | 0.0117 vs 0.0500 | equivalent |
+| two-time-point law with three treatment levels at both nodes | `ey_regimen[low]` | mean outcome under the plan assign the low arm at both times | 0.000620 | 0.1213 | 0.9708 | 0 | different estimator | 0.0135 vs 0.0500 | equivalent |
+| two-time-point law with three treatment levels at both nodes | `ey_regimen[respond]` | mean outcome under the plan assign standard first, then high if L2 equals one and low otherwise | -0.000023 | 0.0048 | 0.9984 | -0.0037 | different estimator | 0.0082 vs 0.0500 | equivalent |
+| two-time-point law with three treatment levels at both nodes | `ey_regimen[standard]` | mean outcome under the plan assign the standard arm at both times | -0.000836 | 0.1680 | 0.9437 | -0.0102 | different estimator | 0.0191 vs 0.0500 | equivalent |
+| two-time-point law with three treatment levels at both nodes | `ey_regimen[step_down]` | mean outcome under the plan assign high first, then standard | 0.000821 | 0.1404 | 0.9799 | -0.000250 | different estimator | 0.0282 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

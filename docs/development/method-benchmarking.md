@@ -12,8 +12,8 @@ Record the identified parameter, estimator construction, governing source, suppo
 compositions, and inference rule before choosing a comparator. Agreement with an R package is
 acceptance evidence for the claims the comparison covers, as
 [Theory and comparators](../architecture-invariants.md#theory-and-comparators) states.
-[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) adds the comparator-backed
-label to the evidence pages. Agreement does not prove that the parameter, influence curve, or
+A study that names a reference is comparator-backed: its page and its grid row carry that label,
+and its `StudyRecord` declares a `comparison` kind. Agreement does not prove that the parameter, influence curve, or
 theorem is correct.
 
 Give materially different estimators separate evidence rows. Ordinary TMLE, stacked CV-TMLE,
@@ -306,6 +306,29 @@ unsupported estimands. Validate changes with the complete fast suite and every r
 whose evaluated path a result-determining change can affect. Record each selected study and its
 regeneration command in the pull request.
 
+### Comparator runs pending
+
+A method merges when its Python studies pass. The comparator study does not block the merge or a
+dependent row, and a later change registers it. This is the owner's rule, and it applies
+[Theory and comparators](../architecture-invariants.md#theory-and-comparators).
+
+| step | what to do |
+| --- | --- |
+| register | Set `pending_reference` to the declared comparator name and leave `reference=None`. Set `pending_reason` to the reason and the item that owns the runs. Keep passing the `Reference` to `regenerate.main` |
+| regenerate | `regenerate.main` runs no reference process for a pending record. The Python phase, the independent tests, the failure accounting, the property families and every subject gate run as for any study. `equivalence.csv` has no rows |
+| manifest | `generated_with.reference` is `null` and `reference_sha256` is empty. The `comparator` block has `status: pending`, the comparator name, the reason, the reference metadata, and `declared_sources_sha256`. No test compares those digests with the tree |
+| document | The grid's canonical-implementation cell names the pending comparator. That cell, the paired cell and the study section carry the label "Python property evidence, with comparator runs pending". The paired cell reads 0/0 |
+| add the comparator | Move the name from `pending_reference` to `reference`, clear `pending_reason`, and regenerate the study with its reference |
+
+`tests/unit/test_method_evidence.py` asserts the pending state for every registered study through
+`manifest.comparator_findings`. It is a check, not a skip. A pending study that publishes a
+comparator row or a paired row fails, because an empty paired table would otherwise read as passed.
+`tests/unit/test_comparator_pending.py` holds the controls for each part.
+
+To rerun the property families against the committed Python rows, pass `--reuse-subject`. The
+driver offers the flag only when no reference process runs. It checks the committed rows against
+their manifest hash and the declared budget, and then it fits no subject model.
+
 ## Red cells
 
 Diagnose every red cell before you route it. The table gives the route for each diagnosis.
@@ -442,12 +465,16 @@ artifacts, or provenance conventions for each comparison.
 
 If a registered study has no canonical comparator, its cross-implementation cell says so and its
 row rests on the other two columns. A comparison is acceptance evidence for the claims it covers.
-Today the validation grid lists only a study with property cells.
-[RM42](../roadmap.md#rm42-acceptance-status-and-refusal-reasons) part (e) owns the label and the
-grid row for a comparator-backed study.
+A comparator-backed study starts that cell with "comparator-backed".
 
-A study with no property cells can still register as a reporting study. It declares
-`publication_policy="reporting"` and an empty `property_cells`. It keeps its own page, with no
-properties block, and the red-cell ledger reads its verdicts. The validation grid does not list
-it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
+The grid lists a study that declares property cells or a reference. A comparator-backed study with no property cells reads
+"0/0 cells; the row rests on the comparison and the truth tests" in its theory-properties cell.
+Each such study declares `comparison` and, where one equivalence row differs, `comparison_overrides`
+with the key `scenario:estimand` or `scenario:*`. The kind is one of three: matching implementation,
+different estimator, or related target. The agreement block of the page prints the kind of each row.
+
+A study with no property cells and no reference can still register as a reporting study. It
+declares `publication_policy="reporting"` and an empty `property_cells`. It keeps its own page,
+with no properties block, and the red-cell ledger reads its verdicts. The validation grid does not
+list it. `tests/unit/test_method_evidence.py` checks each of these facts. The learned-rule boundary
 study is the example.

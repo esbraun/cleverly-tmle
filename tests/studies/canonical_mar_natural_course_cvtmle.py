@@ -95,6 +95,7 @@ STUDY = StudyRecord(
     efficiency_bounds={"ey_obs": EFFICIENCY_SD},
     calibration_efficiency_ratio=False,
     reference="tmle-r-population-mean",
+    comparison="matching implementation",
 )
 
 REFERENCE_METADATA = {

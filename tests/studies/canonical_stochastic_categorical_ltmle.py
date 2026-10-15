@@ -142,6 +142,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stochastic-categorical-ltmle",
     reference="lmtp",
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_stochastic_categorical_ltmle.py",
         "tests/studies/stochastic_categorical_ltmle_properties.py",

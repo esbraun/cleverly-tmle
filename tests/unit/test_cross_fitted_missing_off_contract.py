@@ -160,9 +160,9 @@ def assert_refused_before_any_learner(
     assert message.startswith(_CROSS_FITTED_MISSING_CONTRACTS), message
     # The clause names the contracts without claiming them for this fit's treatment.
     assert "both apply to a discrete treatment only" in message
-    assert f"no audited result covers {composition.surface} targets" in message
+    assert f"No audited result covers {composition.surface} targets" in message
     assert "X53 in docs/roadmap.md" in message
-    assert message.endswith(_IN_SAMPLE_ARM_INDEXED_REMEDY), message
+    assert message.endswith(f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}."), message
     assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
 
 
@@ -268,5 +268,5 @@ class TestTheNeighbouringRefusalsKeepTheirOwnSentences:
             cde.fit(cde.estimator(True, learners(), estimands=["par"]))
         message = str(raised.value)
         assert message.startswith("NaturalCourseMean, PAR and PAF"), message
-        assert message.endswith("intermediate= is not implemented"), message
+        assert "intermediate= is not implemented for these targets." in message, message
         assert "X53" not in message

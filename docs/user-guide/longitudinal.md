@@ -219,7 +219,8 @@ Each refusal raises `DataError` before any learner. A message about one unit nam
 | rows after a customer left, or rows that stop with no censoring 0 and no event | a customer who is censored or has the event leaves for good. Declare `censoring=` |
 | an event value on a row whose censoring is 0 | the order at a node is $A_t, C_t, Y_t$. Record an event as censoring 1 and event 1. Record a loss after an event-free interval as censoring 0 and a missing event |
 | a `baseline`, `cluster` or `weights` column that varies within a customer, or is recorded only after the first row | a later value would let a rule at an earlier node read the future |
-| an `outcome` that varies within a customer | an end-of-study outcome holds one value per unit. A per-row outcome is `event=` |
+| an `outcome` that varies within a customer | an end-of-study outcome holds one value per unit. A per-row event indicator is `event=` |
+| `outcome=Repeated([...])` | a long panel takes one outcome column. Declare a repeated outcome on a wide frame |
 | one column in two roles, or a covariate that equals the outcome or the row's event | a rule could read the outcome under another name |
 | a time-varying column with no value at a node after its first recorded node | the column would leave that node's adjustment set |
 | a treatment that never changes within a customer | that is one baseline decision held over every node. Build the wide frame and declare `treatment="A"` |
@@ -407,6 +408,51 @@ interval with correctly specified cell-mean nuisances on finite binary laws, at 
 design is licensed as inference only after its cells are green. Until then the summary prints
 `bootstrap sd` and a percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of
 their inputs.
+
+## Repeated outcomes
+
+A repeated outcome is measured at every node and can return to zero. Declare it with
+`Repeated([...])` as the `outcome`. The fit reports the mean of the outcome at every horizon.
+
+```python
+from cleverly import RegimeContrast, Repeated
+from cleverly.datasets import make_longitudinal_repeated
+
+frame, truth = make_longitudinal_repeated(n=1_500, seed=7)
+study = CausalStudy(
+    frame,
+    design=LongitudinalTreatment(
+        outcome=Repeated(["Y1", "Y2", "Y3"]),
+        treatment=("A1", "A2", "A3"),
+        baseline=("W",),
+        time_varying=((), ("L2",), ("L3",)),
+        censoring=("C1", "C2", "C3"),
+    ),
+)
+means = study.estimate(
+    RegimeContrast({"never": 0, "always": 1}, reference="never"),
+    outcome_learner=LogisticRegression(max_iter=1000),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+)
+print(means.curve(scale="mean")[["estimand", "psi", "ci_lower", "ci_upper"]])
+```
+
+| item | value |
+| --- | --- |
+| result keys | `ey_regimen[d @ t=h]` and `ate_regimen[d vs ref @ t=h]` at every horizon `h` |
+| `curve(scale="mean")` | one row for each reported key and horizon. It is the only scale |
+| survival view | not available. A repeated outcome has no absorbing event |
+| missing `Y_t` on an uncensored row | refused. Encode the loss as `C_t = 0` |
+| `SDR` and `IPSI` | refused before any learner |
+
+`truth` holds the exact mean at each horizon, under the names the fit reports. In the generator, `W`
+takes three values and every later node is binary. The fit can therefore check its curve against
+`truth`.
+[Repeated outcomes](../technical-reference/longitudinal-tmle.md#repeated-outcomes) gives the
+estimator, its conditions, and its evidence. The
+[repeated-outcome study](../technical-reference/method-evidence/repeated-outcome-longitudinal-tmle.md)
+checks its intervals against exact truths. Its comparison with R `ltmle` 1.3-0 is pending.
 
 ## Competing risks
 
