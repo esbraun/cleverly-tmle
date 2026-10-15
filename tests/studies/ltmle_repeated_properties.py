@@ -854,25 +854,20 @@ def _paired_rows(
 _Payload = tuple[str, str, int, int, int]
 
 
-def _draw(family: str, configuration: str, replicate: int, requested: int, seed: int) -> Any:
+def _draw(payload: _Payload) -> pd.DataFrame:
     """One replication's sample, drawn outside the fit."""
+    family, configuration, _, _, seed = payload
     return sample(configuration, seed, family_n(family))
 
 
 def _replication(payload: _Payload) -> list[dict[str, Any]]:
     """One replication's rows, drawn and fitted in one call: the pilots' and the timer's form."""
-    return _fit_drawn(*payload, _draw(*payload))
+    return _fit_drawn(payload, _draw(payload))
 
 
-def _fit_drawn(
-    family: str,
-    configuration: str,
-    replicate: int,
-    requested: int,
-    seed: int,
-    frame: pd.DataFrame,
-) -> list[dict[str, Any]]:
+def _fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
     """One replication's rows from its drawn sample."""
+    family, configuration, replicate, requested, _ = payload
     n = family_n(family)
     rows: list[dict[str, Any]] = []
     if family in {"interval_calibration", "small_sample_calibration"}:

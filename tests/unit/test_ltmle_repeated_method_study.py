@@ -1221,7 +1221,9 @@ def test_the_simultaneous_band_and_its_control_are_powered() -> None:
     assert control >= 0.99
 
 
-def test_one_replication_of_each_fit_set_emits_exactly_the_declared_cells() -> None:
+def test_one_replication_of_each_fit_set_emits_exactly_the_declared_cells(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fit_sets = tuple((family, configuration, 1) for family, configuration, _ in properties.FIT_SETS)
     keys = properties._payloads(fit_sets)
     emitted_by_key = [properties._replication(payload) for (payload,) in keys]
@@ -1248,6 +1250,18 @@ def test_one_replication_of_each_fit_set_emits_exactly_the_declared_cells() -> N
         positive_suffix="estimated_mechanisms",
     )
     rows = pd.concat([rows, controls], ignore_index=True)
+    # The property loop runs the same keys through ``fit_properties`` with the draw split, and
+    # publishes the same rows.
+    monkeypatch.setattr(properties, "_payloads", lambda: keys)
+    with replication.recording("subject") as recorded:
+        looped = properties.generate_property_rows(n_jobs=1)
+    assert recorded.failures is None
+    pd.testing.assert_frame_equal(
+        looped,
+        rows.loc[:, list(properties.REPLICATE_COLUMNS)].sort_values(
+            ["property", "cell", "replicate"], ignore_index=True
+        ),
+    )
     emitted = {
         (str(family), str(cell))
         for family, cell in rows[["property", "cell"]].itertuples(index=False)
