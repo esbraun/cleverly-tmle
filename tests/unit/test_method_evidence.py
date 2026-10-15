@@ -1373,6 +1373,13 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Four rules keyed by the cell's last segment: a conservative SE ratio, accuracy, a
         # one-sided bias control and a growth control.  Checked row by row below.
         property_verdicts.ONE_WRONG_FAMILY,
+        # A declared-red control that answers to the calibration SE-ratio and coverage bands
+        # of a positive cell, so its expected failure is the positive rule's.
+        "misspecification_control",
+        # Diagnostic-role SE readings whose powered cells answer to an SE-ratio interval
+        # outside the calibration band on a predicted side; the other cells report.
+        "first_node_se",
+        "fixed_mechanism_se",
     }
 )
 
@@ -1396,6 +1403,8 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "censoring_complete_case",
         "in_sample_fit",
         "one_wrong_reported",
+        # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
+        "adaptive_learners",
     }
 )
 
@@ -2652,6 +2661,8 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:policy_displacement": lambda s: s.properties().POLICY_DISPLACEMENT,
     "margin:inverse_displacement": lambda s: s.properties().INVERSE_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
+    "margin:subject_failure_bound": lambda s: s.runner().FAILURE_BOUND,
+    "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
 }
 
 

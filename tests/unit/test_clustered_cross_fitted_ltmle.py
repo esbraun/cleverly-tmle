@@ -669,7 +669,7 @@ class TestEveryTargetKind:
             monkeypatch.setattr(
                 longitudinal_estimator,
                 "_inference_status",
-                lambda data, folds: cluster_module.cluster_inference_status(data.cluster),
+                lambda data, folds, **_: cluster_module.cluster_inference_status(data.cluster),
             )
             original_df = cluster_module.cluster_reference_df
             monkeypatch.setattr(
