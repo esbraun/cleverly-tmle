@@ -79,6 +79,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-multi-arm-mar-drtmle",
     reference="drtmle-r-multi-arm-mar",
+    comparison="different estimator",
     publication_policy="reporting",
     modules=(
         "tests/studies/canonical_multi_arm_mar_drtmle.py",

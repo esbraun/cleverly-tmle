@@ -30,7 +30,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression, QuantileRegressor
 
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import (
     DoseQuantile,
     LinearQuantileRegression,
@@ -202,13 +202,13 @@ R_E2 = (
     "dose quantile, or LinearQuantileRegression with its estimating equation). A learner of "
     "growing dimension has no such curve in any result this package uses. Declare "
     "target='fold_average', which estimates the average over folds of the means under each "
-    "fold's own map, or tune the boundary with DoseQuantile or LinearQuantileRegression"
+    "fold's own map, or tune the boundary with DoseQuantile or LinearQuantileRegression."
 )
 R_E3 = (
     "policy '+1' tunes its map with the outcome. A map chosen to optimize the outcome is a "
     "learned policy, whose value needs a limiting-policy condition and its own contract "
     "(docs/roadmap.md X11). A data-tuned map in this release reads the treatment law only: a "
-    "dose quantile or a learned support boundary"
+    "dose quantile or a learned support boundary."
 )
 R_E4 = (
     "target='fold_average' builds each fold's map on that fold's training rows and "
@@ -1280,8 +1280,9 @@ def _atom_refusal(where: str) -> str:
         "quantile does not move with the law while its level stays inside the atom's jump, "
         "and it is not pathwise differentiable at the jump's edge. The influence function of "
         "the tuner and the derivative of the mean in the cap both need a density of the dose "
-        "at the cap, and this release does not derive them at an atom. Declare the cap as a "
-        "number, or tune the cap at a node with no declared atoms"
+        "at the cap, and this release does not derive them at an atom. X40 in "
+        "docs/roadmap.md tracks this. Declare the cap as a number, or tune the cap at a node "
+        "with no declared atoms."
     )
 
 
@@ -1299,6 +1300,7 @@ def test_m3_a_tuned_cap_at_a_declared_atom_is_refused_before_any_learner(
             [_regimen(target)], **_settings(**_raising(), n_folds=2 if target[0] == "f" else 1)
         ).fit(held, dose_atoms={"A1": (3.0,)}, **COLUMNS)
     assert str(caught.value) == _atom_refusal("the node 'A1'")
+    assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
 
 
 def test_m3_a_tuned_cap_at_a_node_without_atoms_ignores_another_node_atoms(frame: Any) -> None:

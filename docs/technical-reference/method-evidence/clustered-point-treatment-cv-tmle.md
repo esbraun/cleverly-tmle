@@ -91,11 +91,13 @@ records the pinned `ife` behavior and the archive it pins.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with ten rows per cluster and shared effect modification | `ate` | average treatment effect | -0.000005 | 0.000986 | 1.0031 | -0.0012 | 0.0020 vs 0.0500 | equivalent |
-| binary-outcome law with ten rows per cluster and shared effect modification | `ey0` | counterfactual mean under no treatment | 0.000049 | 0.0183 | 1.0016 | -0.0013 | 0.0026 vs 0.0500 | equivalent |
-| binary-outcome law with ten rows per cluster and shared effect modification | `ey1` | counterfactual mean under treatment | 0.000044 | 0.0084 | 1.0006 | 0.0012 | 0.0021 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law with ten rows per cluster and shared effect modification | `ate` | average treatment effect | -0.000005 | 0.000986 | 1.0031 | -0.0012 | different estimator | 0.0020 vs 0.0500 | equivalent |
+| binary-outcome law with ten rows per cluster and shared effect modification | `ey0` | counterfactual mean under no treatment | 0.000049 | 0.0183 | 1.0016 | -0.0013 | different estimator | 0.0026 vs 0.0500 | equivalent |
+| binary-outcome law with ten rows per cluster and shared effect modification | `ey1` | counterfactual mean under treatment | 0.000044 | 0.0084 | 1.0006 | 0.0012 | different estimator | 0.0021 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

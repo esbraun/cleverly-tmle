@@ -538,6 +538,9 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         "jacobian_necessity",
         "ratio_necessity",
         "rule_necessity",
+        "repeated_outcome_necessity",
+        "outcome_history_necessity",
+        "full_history_necessity",
     }:
         declared["margin:necessity_displacement"] = record.properties().NECESSITY_DISPLACEMENT
     if "policy_necessity" in record.property_cells:

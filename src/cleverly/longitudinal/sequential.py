@@ -131,7 +131,7 @@ from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
 from ..estimators._nuisance import cross_fit_predictions, fit_mixed_density
-from ..exceptions import CapabilityError, DataError, LongitudinalError
+from ..exceptions import CapabilityError, DataError, LongitudinalError, RefusalReason
 from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
@@ -232,9 +232,16 @@ _CROSS_FIT_NODE_REMEDY = (
 #: depends on the value -- ``check_arms`` requires only that it be a float, and
 #: ``check_matching_arms`` only that the fit and the submodel agree on it.
 _REGIMEN_ARM = 0.0
-#: The fluctuation keys of a tuned node's predictions at its boundary and last moved dose.
-#: Negative, so they collide with neither the observed arm nor a policy arm.
-_PROBE_ARMS = (-1.0, -2.0)
+
+
+def _probe_arms(width: int) -> tuple[float, ...]:
+    """The fluctuation keys of a tuned node's ``width`` probe predictions.
+
+    Each tuning slot of the node (:func:`_probe_slots`) has two: its boundary and its last
+    moved dose.  The keys are negative, so they collide with neither the observed arm nor a
+    policy arm.
+    """
+    return tuple(-1.0 - float(index) for index in range(width))
 
 
 def _policy_arm(code: int) -> float:
@@ -1367,9 +1374,12 @@ def preflight_known_mechanisms(
                     f"{plan.label!r} leaves the truncation bounds g_bounds=[{lower:.4g}, "
                     f"{upper:.4g}] first at node {time} on {int(np.count_nonzero(moved))} "
                     f"following row(s) (smallest {float(np.min(values)):.4g}). Truncating a "
-                    "known design mechanism moves the estimate with no variance reason. Pass "
-                    "g_bounds=(lower, upper) that contains every declared cumulative "
-                    "probability, such as a lower bound below the smallest one."
+                    "known design mechanism moves the estimate with no variance reason.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        "Pass g_bounds=(lower, upper) that contains every declared cumulative "
+                        "probability, such as a lower bound below the smallest one."
+                    ),
                 )
 
 
@@ -1932,17 +1942,27 @@ def _mixed_node_density(
     return parts
 
 
-def seed_carried(data: LongitudinalData, scaler: OutcomeScaler) -> FloatArray:
-    r""":math:`\bar Q_{k+1}`, what the backward recursion starts from.
+def seed_carried(data: LongitudinalData, scaler: OutcomeScaler, *, horizon: int) -> FloatArray:
+    r""":math:`\bar Q_{h+1}`, what the backward recursion from horizon ``h`` starts from.
 
     On a survival fit it is zero, so that the composition at the first node visited
-    returns :math:`Y_k` exactly and the two statements of the recursion are one.  On an
-    end-of-study fit it is the scaled outcome, filled at the rows no node reads.
+    returns :math:`Y_h` exactly and the two statements of the recursion are one.  On an
+    end-of-study fit it is the scaled outcome, filled at the rows no node reads, and the
+    only horizon is ``T``.  On a repeated outcome it is the scaled :math:`Y_h`, the outcome
+    of the panel truncated after node ``h``, filled where the unit was censored by then.
+
+    ``horizon`` is required, so that a caller cannot seed every horizon of a repeated
+    outcome with the last node's value by omission.
     """
     if data.is_survival:
         return np.zeros(data.n)
-    observed_outcome = data.uncensored_through(data.n_times)
-    scaled = np.where(observed_outcome, scaler.scale(np.nan_to_num(data.outcome, nan=0.0)), _FILLER)
+    if not data.is_repeated and horizon != data.n_times:
+        raise LongitudinalError(
+            f"an end-of-study outcome has one horizon, t={data.n_times}; got t={horizon}"
+        )
+    observed_outcome = data.uncensored_through(horizon)
+    values = np.nan_to_num(data.outcome_at(horizon), nan=0.0)
+    scaled = np.where(observed_outcome, scaler.scale(values), _FILLER)
     return np.clip(scaled, 0.0, 1.0)
 
 
@@ -2272,15 +2292,13 @@ def _fit_node_regression(
         # A dose has no level to select the observed-arm prediction from, so it is
         # predicted at the observed dose; the branches are predicted at their own doses.
         predict_designs["history"] = design
-    tuning = _population_tuning(plan, time)
-    if tuning is not None:
+    slots = _probe_slots(plan, time)
+    for index, (tuning, branch, _) in enumerate(slots):
         column = tuned_column(data, tuning)
-        predict_designs["probe_boundary"] = outcome_design(
-            data, plan, time, dose=tuning.boundary, component=column
-        )
-        predict_designs["probe_edge"] = outcome_design(
-            data, plan, time, dose=tuning.edge, component=column
-        )
+        for side, dose in enumerate((tuning.boundary, tuning.edge)):
+            predict_designs[f"probe_{2 * index + side}"] = outcome_design(
+                data, plan, time, arm=branch, dose=dose, component=column
+            )
     carry = carry_plan if carry_plan is not None and policy_node else None
     if carry is not None:
         for code in levels:
@@ -2334,11 +2352,11 @@ def _fit_node_regression(
     )
     probes = (
         None
-        if tuning is None
+        if not slots
         else np.column_stack(
             [
-                np.where(at_risk, predictions["probe_boundary"], _FILLER),
-                np.where(at_risk, predictions["probe_edge"], _FILLER),
+                np.where(at_risk, predictions[f"probe_{index}"], _FILLER)
+                for index in range(2 * len(slots))
             ]
         )
     )
@@ -2405,12 +2423,19 @@ def tuned_dose(data: LongitudinalData, tuning: Any) -> FloatArray:
     return np.nan_to_num(data.node_values(tuning.time)[:, column], nan=0.0)
 
 
-def _population_tuning(plan: Plan, time: int) -> Any:
-    """The population-target tuning record of a node, or ``None``."""
-    for tuning in plan.tuning:
-        if tuning.time == time and tuning.influence is not None:
-            return tuning
-    return None
+def _probe_slots(plan: Plan, time: int) -> tuple[tuple[Any, int, float], ...]:
+    """``(tuning, branch, probability)`` of each population-target tuning slot of a node.
+
+    A node regression's probes hold two columns per slot, in this order: the prediction at
+    the branch's assigned values with the tuned dose at its boundary, and at its last moved
+    dose.
+    """
+    return tuple(
+        (tuning, branch, probability)
+        for tuning in plan.tuning
+        if tuning.time == time and tuning.influence is not None
+        for branch, probability in tuning.slots
+    )
 
 
 def prepare_node(
@@ -2582,8 +2607,9 @@ def _fluctuate_node(
         the same coefficient as ``initial`` and is filed under :func:`_policy_arm`.  The
         score reads ``initial`` alone, so the columns change no coefficient.
     probes : FloatArray or None
-        ``(n, 2)`` predictions of a tuned node at its boundary and last moved dose, moved
-        by the same coefficient and filed under :data:`_PROBE_ARMS`.
+        ``(n, 2S)`` predictions of a tuned node at the boundary and last moved dose of each
+        of its ``S`` tuning slots, moved by the same coefficient and filed under
+        :func:`_probe_arms`.
 
     Returns
     -------
@@ -2598,7 +2624,7 @@ def _fluctuate_node(
             initial_arms[_policy_arm(code)] = arms[:, code]
             submodel_arms[_policy_arm(code)] = intercept
     if probes is not None:
-        for key, column in zip(_PROBE_ARMS, probes.T, strict=True):
+        for key, column in zip(_probe_arms(probes.shape[1]), probes.T, strict=True):
             initial_arms[key] = column
             submodel_arms[key] = intercept
     constant = constant_target(pseudo_outcome, fitted_on)
@@ -2831,18 +2857,24 @@ def tuning_term(
         influence = tuning.influence
         before = by_time.get(tuning.time - 1)
         prefix = np.ones(data.n) if before is None else np.asarray(before.clever, dtype=float)
-        derivative = cap_derivative(
-            weights=data.weights,
-            prefix=prefix,
-            dose=tuned_dose(data, tuning),
-            edge=tuning.edge,
-            high=step.probes[:, 0],
-            low=step.probes[:, 1],
-            gradient=tuning.gradient,
-            slope=tuning.slope,
-            at_risk=step.at_risk,
-            rule=tuning.fitted.tuner.bandwidth,
-        )
+        # The node's value is linear in its slots' terms: each tuned component of each
+        # branch adds its own Leibniz term, weighted by the branch probability.
+        derivative = np.zeros(np.shape(tuning.gradient)[1])
+        for index, (slot, _, probability) in enumerate(_probe_slots(plan, tuning.time)):
+            if slot is not tuning:
+                continue
+            derivative = derivative + probability * cap_derivative(
+                weights=data.weights,
+                prefix=prefix,
+                dose=tuned_dose(data, tuning),
+                edge=tuning.edge,
+                high=step.probes[:, 2 * index],
+                low=step.probes[:, 2 * index + 1],
+                gradient=tuning.gradient,
+                slope=tuning.slope,
+                at_risk=step.at_risk,
+                rule=tuning.fitted.tuner.bandwidth,
+            )
         derivatives.append(derivative)
         term = term + data.weights * (influence @ derivative)
     return term, tuple(derivatives)
@@ -2964,7 +2996,10 @@ def fit_regimen(
     and the pseudo-outcome carried back is composed with that node's event indicator:
     a unit that had the event contributes a one and a unit that did not contributes the
     later node's targeted prediction.  Seeding :math:`\\bar{Q}_{k+1} = 0` makes the two
-    statements one, since at ``k`` the composition is exactly :math:`Y_k`.
+    statements one, since at ``k`` the composition is exactly :math:`Y_k`.  On a repeated
+    fit it is the horizon ``h`` of a mean :math:`E[Y_h^d]`.  The recursion starts at ``h``
+    seeded with the observed :math:`Y_h`, which is the end-of-study recursion on the panel
+    truncated after ``h``.
 
     ``cause`` names which absorbing state the parameter is the incidence *of*, on a fit
     that declared competing risks, and is ``None`` when there is one.  It changes the
@@ -2999,7 +3034,7 @@ def fit_regimen(
             n_jobs=n_jobs,
         )
     cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
-    carried = seed_carried(data, scaler)
+    carried = seed_carried(data, scaler, horizon=horizon)
     # Once per regimen, not once per node: the masks are prefix scans of one conjunction,
     # and rebuilding them at every node is what made this pass quadratic in T.
     masks = plan.masks(data)
@@ -3074,7 +3109,9 @@ def _targeted_step(
     probes = (
         None
         if node.probes is None
-        else np.column_stack([fluctuation.targeted.arms[key] for key in _PROBE_ARMS])
+        else np.column_stack(
+            [fluctuation.targeted.arms[key] for key in _probe_arms(node.probes.shape[1])]
+        )
     )
     return SequentialStep(
         time=node.time,
@@ -3181,7 +3218,7 @@ def _untargeted_recursion_in_fold(
     """
     inner = Folds.single(data.n)
     outputs: _FoldOutputs = {}
-    carried = seed_carried(data, scaler)
+    carried = seed_carried(data, scaler, horizon=cell.horizon)
     # A cross-fitted tuned plan: the fold's own recursion runs under the map at its own
     # training tuner, so its regressions are fixed given its training rows.  The held-out
     # predictions read the plan's own doses.
@@ -3328,7 +3365,8 @@ def untargeted_fold_recursions(
                 if constant:
                     constant_folds.setdefault(time, []).append(fold + 1)
                 if probe is not None:
-                    probes.setdefault(time, np.full((data.n, 2), _FILLER))[test] = probe
+                    width = np.shape(probe)[1]
+                    probes.setdefault(time, np.full((data.n, width), _FILLER))[test] = probe
         stitched.append(
             StitchedInitial(
                 initial=initial,
@@ -3514,7 +3552,7 @@ def _pooled_targeting(
         One step per node, in time order.
     """
     steps: list[SequentialStep] = []
-    carried = seed_carried(data, scaler)
+    carried = seed_carried(data, scaler, horizon=horizon)
     for time in range(horizon, 0, -1):
         node = pooled_node_inputs(
             data, plan, stitched, masks, cumulative, numerator, carried, time, cause

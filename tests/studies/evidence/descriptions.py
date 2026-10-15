@@ -68,6 +68,18 @@ ARMS: dict[str, str] = {
     "ate_1_vs_0": "difference of arm 1 and arm 0",
     "ate_2_vs_0": "difference of arm 2 and arm 0",
     "ate_regimen": "contrast of always against never",
+    # The repeated-outcome study's parameters, one label per plan and horizon.
+    **{
+        f"{plan}_t{horizon}": f"{words} at horizon t = {horizon}, repeated binary outcome"
+        for plan, words in (
+            ("never", "mean under never"),
+            ("always", "mean under always"),
+            ("rule", "mean under the rule that treats after an outcome"),
+            ("always_vs_never", "contrast of always against never"),
+            ("rule_vs_never", "contrast of the rule against never"),
+        )
+        for horizon in (1, 2, 3)
+    },
     "survival_t5": "difference of arm 1 and arm 0 at visit 5, five-visit held law",
     "rmst_5": "RMST difference up to visit 5, five-visit held law",
     "competing_t4": "difference in the death incidence at visit 4, two causes",
@@ -745,6 +757,10 @@ SCENARIOS: dict[str, str] = {
         "the three-level law with known stochastic policies at both nodes"
     ),
     "censored_survival_curve": "two-time-point absorbing-event law with monotone censoring",
+    "censored_repeated_outcome": (
+        "three-time-point law with a three-valued baseline covariate, a repeated binary outcome "
+        "that reads the two previous nodes, and monotone censoring"
+    ),
     "censored_competing_risk_curve": (
         "two-time-point, two-cause competing-risk law with monotone censoring"
     ),
@@ -867,6 +883,15 @@ ESTIMANDS: dict[str, str] = {
     "rr": "marginal risk ratio, reported on the log scale",
 }
 
+#: The plans of the repeated-outcome study, which has three treatment times rather than two.
+REPEATED_REGIMENS: dict[str, str] = {
+    "never": "treat at no time",
+    "always": "treat at every time",
+    "treat then treat after an outcome": (
+        "treat at the first time, then treat at each later time after an outcome of one"
+    ),
+}
+
 #: The bracketed half of a longitudinal estimand key.
 REGIMENS: dict[str, str] = {
     "arm0": "assign arm 0 at baseline and hold it",
@@ -899,6 +924,9 @@ REGIMENS: dict[str, str] = {
     "standard": "assign the standard arm at both times",
     "step_down": "assign high first, then standard",
     "treat then continue if l2 positive": "treat, then continue only if L2 is positive",
+    "treat then treat after an outcome": (
+        "treat first, then treat at each later time only if the previous outcome was one"
+    ),
     "+0.25": "shift dose by 0.25",
     "+0.5 capped": "shift dose by 0.5 subject to the declared cap",
     "natural course": "leave the observed treatment mechanism unchanged",
@@ -1143,6 +1171,22 @@ PROPERTIES: dict[str, str] = {
     "competing_risk_recursion_necessity": (
         "the cumulative-incidence recursion uses all-cause survival rather than survival from "
         "the target cause alone"
+    ),
+    "small_sample_calibration": (
+        "the SE ratio and coverage of the in-sample fits at n = 2,000, where few units follow "
+        "the rule to the last node, reported rather than gated"
+    ),
+    "repeated_outcome_necessity": (
+        "reading the repeated outcome as an absorbing event targets the cumulative maximum "
+        "rather than the mean at the horizon, both arms at n = 8,000"
+    ),
+    "outcome_history_necessity": (
+        "leaving the earlier outcomes out of every history targets a different g-formula, "
+        "because the earlier outcomes confound the later nodes"
+    ),
+    "full_history_necessity": (
+        "an outcome regression that reads the full history, rather than the previous node "
+        "alone, determines the target when the outcome depends on two nodes back"
     ),
     "survival_recursion_necessity": (
         "the absorbing-event recursion is what produces cumulative risk, not an analysis "
@@ -1800,6 +1844,64 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "regression projected on the stratum's rows",
         "bias interval must fall entirely outside the margin",
     ),
+    ("interval_calibration", "estimated_mechanisms"): (
+        "n = 8,000, in sample, main-terms logistic mechanisms estimated, quasibinomial GLM outcome "
+        "regressions, every horizon",
+        "SE-ratio and coverage intervals inside the calibration bands",
+    ),
+    ("interval_calibration", "crossfit_glm"): (
+        "n = 8,000, five folds, main-terms logistic mechanisms estimated, quasibinomial GLM outcome "
+        "regressions",
+        "SE-ratio and coverage intervals inside the calibration bands",
+    ),
+    ("interval_calibration", "crossfit_boosted"): (
+        "n = 8,000, five folds, main-terms logistic mechanisms estimated, a depth-2 booster of 50 rounds "
+        "with an L2 penalty for both outcome learners",
+        "SE-ratio and coverage intervals inside the calibration bands",
+    ),
+    ("interval_calibration", "continuous_gaussian"): (
+        "n = 8,000, the three-value outcome law, least-squares outcome regressions, main-terms logistic "
+        "mechanisms estimated",
+        "SE-ratio and coverage intervals inside the calibration bands",
+    ),
+    ("small_sample_calibration", "estimated_mechanisms"): (
+        "the in-sample binary calibration arm at n = 2,000",
+        "reported, no verdict",
+    ),
+    ("small_sample_calibration", "continuous_gaussian"): (
+        "the in-sample continuous calibration arm at n = 2,000",
+        "reported, no verdict",
+    ),
+    ("repeated_outcome_necessity", "repeated"): (
+        "the repeated-outcome fit, mechanisms estimated, GLM outcome regressions",
+        "bias interval inside the equivalence margin",
+    ),
+    ("repeated_outcome_necessity", "absorbing_reading"): (
+        "an end-of-study fit of the maximum of the outcomes through the horizon, cell means "
+        "with a GLM on an unseen cell",
+        "bias interval outside the margin, and inside it around the maximum's own truth",
+    ),
+    ("outcome_history_necessity", "repeated"): (
+        "the repeated-outcome fit, mechanisms estimated, GLM outcome regressions",
+        "bias interval inside the equivalence margin",
+    ),
+    ("outcome_history_necessity", "history_free"): (
+        "an end-of-study fit with no earlier outcome in any history, cell-mean outcome "
+        "regressions: the earlier outcomes are confounders, and the fit leaves them out of "
+        "the outcome regression and both mechanisms",
+        "bias interval outside the margin, and inside it around the coarse g-formula",
+    ),
+    ("full_history_necessity", "full_history"): (
+        "an outcome regression of cell means on the full history, with intercept-only "
+        "mechanisms, so the regression alone carries the estimate",
+        "bias interval inside the equivalence margin",
+    ),
+    ("full_history_necessity", "markov_history"): (
+        "the same fit with the outcome regression on the previous node only, "
+        "[W, Y_{t-1}, L_t], and the same intercept-only mechanisms",
+        "bias interval outside the margin, and inside it around the exact limit of the "
+        "previous-node fit",
+    ),
     ("rule_necessity", "declared"): (
         "the declared covariate-dependent rule assigns both treatment arms",
         "bias interval inside the equivalence margin",
@@ -2235,6 +2337,51 @@ ARM_CELLS.update(
         for arm in ("par", "paf")
     }
 )
+ARM_CELLS.update(
+    {
+        ("rule_necessity", arm, "reversed_rule"): (
+            "the same fit treats after a zero outcome instead of after an outcome of one",
+            "bias interval must fall entirely outside the margin, and inside it around the "
+            "reversed rule's own truth",
+        )
+        for arm in ("rule_t2", "rule_t3")
+    }
+)
+ARM_CELLS.update(
+    {
+        ("double_robustness", label, "both_wrong"): (
+            "outcome regression of cell means on the baseline covariate alone, and "
+            "intercept-only treatment and censoring mechanisms",
+            "bias interval must fall entirely outside the margin, and inside it around the "
+            "exact limit of that fit, with the reported standard error still on the scale of "
+            "the empirical spread",
+        )
+        for label in (
+            "never_t3",
+            "always_t3",
+            "rule_t3",
+            "always_vs_never_t3",
+            "rule_vs_never_t3",
+        )
+    }
+)
+ARM_CELLS.update(
+    {
+        ("targeting_necessity", label, "untargeted"): (
+            "the iterated cell means on the baseline covariate among the units that followed "
+            "the plan, with no fluctuation step",
+            "bias interval must fall entirely outside the margin, and inside it around the "
+            "baseline-only plug-in limit",
+        )
+        for label in (
+            "never_t3",
+            "always_t3",
+            "rule_t3",
+            "always_vs_never_t3",
+            "rule_vs_never_t3",
+        )
+    }
+)
 ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (
     "the outcome regression, treatment mechanism and observation mechanism are correct",
     "SE ratio and coverage intervals both inside their calibration bands",
@@ -2335,11 +2482,16 @@ def scenario(key: str) -> str:
         raise Undescribed(f"no description for scenario {key!r}") from None
 
 
-def estimand(key: str) -> str:
-    """What an estimand key names, including a bracketed longitudinal regimen."""
+def estimand(key: str, *, outcome_kind: str = "absorbing") -> str:
+    """What an estimand key names, including a bracketed longitudinal regimen.
+
+    ``outcome_kind`` is the study record's declaration.  It decides the wording of a
+    horizon-indexed contrast, which reads the same on a survival and a repeated outcome.
+    """
     stratum = _STRATUM.match(key)
     if stratum is not None:
-        return f"{estimand(stratum.group('base'))}, in stratum {stratum.group('stratum')}"
+        base = estimand(stratum.group("base"), outcome_kind=outcome_kind)
+        return f"{base}, in stratum {stratum.group('stratum')}"
     match = _PARAMETERISED.match(key)
     if match is None:
         try:
@@ -2382,7 +2534,8 @@ def estimand(key: str) -> str:
     # ``outcome_kind``, and that is out of reach here: this function is handed a key, not a
     # record.  The notation is sufficient while these two constructions are the only ones that
     # index by horizon.  A third would need its own infix, or this function would need the
-    # record -- it must not be added by widening one of the two branches below.
+    # record -- it must not be added by widening one of the two branches below.  The repeated
+    # outcome is that third construction, and the record's ``outcome_kind`` settles it.
     if _CAUSE in argument:
         plan_and_cause, horizon = argument.rsplit(_HORIZON, 1)
         plan, cause = plan_and_cause.rsplit(_CAUSE, 1)
@@ -2396,9 +2549,31 @@ def estimand(key: str) -> str:
                 f"incidence; {name!r} has no cause-specific description"
             )
         return f"{incidence} {regimen(plan)} at horizon t = {horizon}"
+    if outcome_kind == "repeated":
+        if name not in {"ey_regimen", "ate_regimen"}:
+            raise Undescribed(f"{key!r} is not a parameter of a repeated outcome")
+        plan, horizon = argument.rsplit(_HORIZON, 1)
+        mean = (
+            "mean of the repeated outcome under the plan"
+            if name == "ey_regimen"
+            else "difference in the mean of the repeated outcome between the plans"
+        )
+        return f"{mean} {_repeated_plans(plan)} at horizon t = {horizon}"
     if name == "ate_regimen":
         parameter = "difference in cumulative risk between the plans"
     return f"{parameter} {regimen(argument, point=point)}"
+
+
+def _repeated_plans(argument: str) -> str:
+    """A plan or a contrast of two plans of the repeated-outcome study, in words."""
+    labels = argument.split(" vs ", 1)
+    try:
+        words = [REPEATED_REGIMENS[label] for label in labels]
+    except KeyError:
+        raise Undescribed(f"no description for repeated-outcome plan {argument!r}") from None
+    if len(words) == 1:
+        return words[0]
+    return f'"{words[0]}" against "{words[1]}"'
 
 
 def regimen(argument: str, *, point: bool = False) -> str:

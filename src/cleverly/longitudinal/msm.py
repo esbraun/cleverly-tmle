@@ -99,7 +99,7 @@ import numpy as np
 from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import FloatArray, Learner
 from ..estimators.targeting import ProjectionFluctuation
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..fluctuation.iterative import (
     Fluctuation,
     InitialFit,
@@ -122,7 +122,6 @@ from .data import LongitudinalData
 from .regimen import Plan
 from .sequential import (
     _FILLER,
-    _PROBE_ARMS,
     _REGIMEN_ARM,
     FoldRecursionCell,
     Mechanism,
@@ -131,6 +130,7 @@ from .sequential import (
     SequentialStep,
     _carried,
     _policy_arm,
+    _probe_arms,
     constant_target,
     pooled_node_inputs,
     prepare_node,
@@ -164,16 +164,23 @@ _UNSOLVED = 1e-6
 _EVALUATED_FUNCTIONS_DECLARATION = FunctionDeclaration(
     field="functions_kind",
     meaning="It records whether the source MSM design and projection weights were declared known.",
-    undeclared=(
+    undeclared=Refusal(
+        RefusalReason.INFERENCE_GAP,
         "the saved longitudinal MSM projection has no proof that its design and projection "
         "weights were declared known. Its evaluated arrays and point estimates remain "
-        "available, but a replay or interval cannot treat those functions as fixed. "
-        "Refit the original MSM with design_kind='known' and, when weights= is callable, "
-        "weights_kind='known' to restore inference."
+        "available, but a replay or interval cannot treat those functions as fixed.",
+        alternative=(
+            "Refit the original MSM with design_kind='known' and, when weights= is callable, "
+            "weights_kind='known' to restore inference."
+        ),
     ),
-    estimated=(
+    estimated=Refusal(
+        RefusalReason.INFERENCE_GAP,
         "the saved longitudinal MSM projection does not declare known design and projection "
-        "weights. Refit the original MSM with fixed functions declared known to restore inference."
+        "weights.",
+        alternative=(
+            "Refit the original MSM with fixed functions declared known to restore inference."
+        ),
     ),
 )
 
@@ -496,29 +503,31 @@ def _check_support(link: Link, data: LongitudinalData) -> None:
 
     Checked against the observed outcome rather than against the predictions, and against
     the *event* indicators on a survival fit, where the parameter is a cumulative
-    incidence and so lives in ``[0, 1]`` whatever the link.  The reasoning is
+    incidence and so lives in ``[0, 1]`` whatever the link.  A repeated outcome is checked
+    over every node's observed values.  The reasoning is
     :func:`cleverly.msm._check_support`'s.
     """
     if link.support is None or data.is_survival:
         return
-    observed = np.asarray(data.outcome, dtype=float)[
-        np.asarray(data.uncensored_through(data.n_times), dtype=bool)
-    ]
+    # Every horizon's observed values on a repeated outcome: one working model spans the
+    # curve, so the link must reach every node's outcome, not only the last one's.
+    observed = data.observed_outcomes()
     observed = observed[np.isfinite(observed)]
     if observed.size == 0:  # pragma: no cover - an all-missing outcome fails much earlier
         return
     low, high = float(np.min(observed)), float(np.max(observed))
+    name = "/".join(data.repeated_names) if data.is_repeated else data.outcome_name
     if link.support == "nonnegative" and low < 0.0:
         raise DataError(
             f"link={link.name!r} models the counterfactual mean as exp(beta' phi), which "
-            f"is positive, and {data.outcome_name} takes the value {low:g}. A log-link "
+            f"is positive, and {name} takes the value {low:g}. A log-link "
             "working model needs a non-negative outcome -- a risk, a count or a rate. Use "
             "link='identity' for an outcome that can be negative."
         )
     if link.support == "unit" and (low < 0.0 or high > 1.0):
         raise DataError(
             f"link='logit' models the counterfactual mean as a probability, and "
-            f"{data.outcome_name} ranges over [{low:g}, {high:g}]. A logit working model "
+            f"{name} ranges over [{low:g}, {high:g}]. A logit working model "
             "needs an outcome in [0, 1] -- a binary outcome or a proportion. Note that "
             "the projection is solved on the outcome's own scale, so that its "
             "coefficients are reported in the units they were declared in."
@@ -659,7 +668,7 @@ def fit_regimens_msm(
     ) -> tuple[list[list[SequentialStep]], list[Fluctuation], FloatArray]:
         """One lockstep pass at ``beta``, over the nodes ``node_inputs`` supplies."""
         fluctuation_design = model.fluctuation_design_at(beta)
-        carried = [seed_carried(data, scaler) for _ in model.cells]
+        carried = [seed_carried(data, scaler, horizon=cell.horizon) for cell in model.cells]
         steps: list[list[SequentialStep]] = [[] for _ in model.cells]
         nodes: list[Fluctuation] = []
         for time in range(max(cell.horizon for cell in model.cells), 0, -1):
@@ -681,9 +690,12 @@ def fit_regimens_msm(
                     f"every follower of regimen(s) {pinned} holds one outcome value, 0 or 1, at "
                     f"time {time}, such as a node with no event. A per-regimen fit reads that "
                     "node's regression as the value and does not fluctuate it, but the "
-                    "pooled working-model fluctuation would move the value into its bounds. "
-                    "Fit without msm=, or report horizons at which every regimen's followers "
-                    "have an event"
+                    "pooled working-model fluctuation would move the value into its bounds.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        "Fit without msm=, or report horizons at which the followers of every "
+                        "regimen hold both outcome values."
+                    ),
                 )
             initial = np.concatenate([prepared[k].initial for k in live])
             stacked_design = np.concatenate([fluctuation_design[:, k, :] for k in live])
@@ -726,7 +738,7 @@ def fit_regimens_msm(
                     else np.column_stack(
                         [
                             np.split(fluctuation.targeted.arms[key], len(live))[position]
-                            for key in _PROBE_ARMS
+                            for key in _probe_arms(node.probes.shape[1])
                         ]
                     )
                 )
@@ -897,10 +909,13 @@ def _stacked_arms(
         # A tuned node's boundary and last-moved-dose probes move by the coefficient of
         # their own cell's block, as its observed-arm prediction does.  A cell without
         # probes stacks its observed-arm prediction, which no reader takes.
-        for position, key in enumerate(_PROBE_ARMS):
+        width = max(node.probes.shape[1] for node in nodes if node.probes is not None)
+        for position, key in enumerate(_probe_arms(width)):
             initial_arms[key] = np.concatenate(
                 [
-                    node.initial if node.probes is None else node.probes[:, position]
+                    node.initial
+                    if node.probes is None or position >= node.probes.shape[1]
+                    else node.probes[:, position]
                     for node in nodes
                 ]
             )
@@ -1240,13 +1255,16 @@ def project_sdr_cells(
             raise CapabilityError(
                 f"the working model's {link} projection of the IPSI estimates did not "
                 "converge. A one-step estimate can leave [0, 1], so a "
-                f"{link} link can have no finite solution. Use the identity link"
+                f"{link} link can have no finite solution.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Use the identity link.",
             )
         raise CapabilityError(
             f"the working model's {link} projection of the SDR transforms did not converge. "
             "An SDR transform can leave [0, 1] (Díaz et al. 2023, Section 5.3), so a "
-            f"{link} link can have no finite solution. Use the identity link, or fit "
-            "LTMLE(msm=...)"
+            f"{link} link can have no finite solution.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Use the identity link, or fit LTMLE(msm=...).",
         )
     beta = projection.beta
     bracket = raw - model.fitted(beta)

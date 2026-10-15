@@ -170,7 +170,7 @@ def test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_wor
     capability = randomized_fit.sensitivity.capability("simulated_confounding")
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.reason == reason
+    assert capability.refusal == reason
     assert _fit_wide_refusal(randomized_fit) == reason
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(
@@ -179,7 +179,7 @@ def test_randomized_missing_outcome_fit_refuses_simulated_confounding_before_wor
             benchmark_covariates=("W1",),
             random_state=17,
         )
-    assert str(refusal.value) == reason
+    assert str(refusal.value) == reason.message()
 
 
 def test_the_reduced_fit_record_names_the_construction_that_ran(randomized_fit) -> None:
@@ -482,7 +482,7 @@ def test_cross_fitted_missing_outcomes_are_refused(arms: int) -> None:
             delta="Delta",
         )
     assert str(caught.value).endswith(
-        "pass cross_fit=False (CrossFitting(enabled=False) on DRTMLEMethod)"
+        "Pass cross_fit=False (CrossFitting(enabled=False) on DRTMLEMethod)."
     )
 
 

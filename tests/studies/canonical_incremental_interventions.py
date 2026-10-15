@@ -49,6 +49,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="npcausal",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_incremental_interventions.py",
         "tests/studies/incremental_intervention_properties.py",

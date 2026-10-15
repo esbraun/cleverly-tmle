@@ -111,7 +111,7 @@ import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from itertools import pairwise
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypeAlias, cast
 
 import numpy as np
 
@@ -119,7 +119,13 @@ from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.causal_data import CausalData
 from ..data.weighting import effective_sample_size, format_score_load
-from ..exceptions import CapabilityError, DataError, PositivityWarning
+from ..exceptions import (
+    CapabilityError,
+    DataError,
+    PositivityWarning,
+    Refusal,
+    RefusalReason,
+)
 from ..learners.crossfit import Folds
 from ..learners.density import ConditionalDensity, MixedDensity, warn_if_unresolved
 from .support import _intervention_loads, _InterventionLoadRow
@@ -150,12 +156,16 @@ __all__ = [
     "Scale",
     "Shift",
     "Support",
+    "TunedMap",
+    "TunedSlot",
     "check_policy_support",
     "component_source",
     "refuse_policy_declarations",
     "resolve_tuned_policy",
-    "tuned_component",
+    "tuned_components",
+    "tuned_maps",
     "tuned_policy",
+    "with_resolved_component",
 ]
 
 _QUANTILES = (0.01, 0.05, 0.5, 0.95, 0.99)
@@ -204,16 +214,25 @@ _ATOM_TOLERANCE = 1e-12
 _POLICY_DECLARATION = FunctionDeclaration(
     field="policy_kind",
     meaning="It declares whether the modified treatment policy d(a, h) is a known function.",
-    undeclared=(
+    undeclared=Refusal(
+        RefusalReason.INVALID_DECLARATION,
         "a modified treatment policy d(a, h) can close over any estimate, and no code can "
-        "inspect a closure, so its status is a declaration. Declare "
-        "ModifiedPolicy(..., policy_kind='known') when d is fixed before the fit and chosen "
-        "without reading the analysis sample"
+        "inspect a closure, so its status is a declaration.",
+        alternative=(
+            "Declare ModifiedPolicy(..., policy_kind='known') when d is fixed before the fit "
+            "and chosen without reading the analysis sample."
+        ),
     ),
-    estimated=(
-        "A policy fitted to the analysis sample makes the estimand data-dependent; Díaz et "
-        "al. (2023) Theorem 2 assumes d does not depend on P. For an odds tilt of the fitted "
-        "mechanism, put Incremental nodes in IPSI(regimens=...) from cleverly.longitudinal"
+    estimated=Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        "A policy fitted to the analysis sample makes the estimand data-dependent. Díaz et "
+        "al. (2023) Theorem 2 assumes d does not depend on P.",
+        alternative=(
+            "For an odds tilt of the fitted mechanism, put Incremental nodes in "
+            "IPSI(regimens=...) from cleverly.longitudinal."
+        ),
+        # X40 part (e) holds a data-tuned modification built on training rows.
+        roadmap="X40",
     ),
 )
 
@@ -236,7 +255,9 @@ def _refuse_unresolved(policy: Shift | Scale) -> float | None:
         raise CapabilityError(
             f"policy {policy.name!r} reads its cap from the treatment law "
             f"({type(cap).__name__}), so it has no map until a fit resolves the tuner "
-            "on the units at risk. Pass it to a fit, which resolves it before any learner"
+            "on the units at risk.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Pass it to a fit, which resolves it before any learner.",
         )
     return None if cap is None else float(cap)
 
@@ -716,9 +737,13 @@ class ModifiedPolicy:
         if self.randomizer is not None and not isinstance(self.randomizer, Randomizer):
             raise CapabilityError(
                 f"policy {self.name!r} draws a continuous randomizer. The estimator "
-                "integrates a randomizer with finitely many values of known probability; "
-                "discretize it. runif() < delta is a two-point randomizer and is accepted: "
-                "Randomizer((True, False), (delta, 1 - delta))"
+                "integrates a randomizer with finitely many values of known probability.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Discretize it. runif() < delta is a two-point randomizer and is "
+                    "accepted: Randomizer((True, False), (delta, 1 - delta))."
+                ),
+                roadmap="X64",
             )
         if (self.pieces is None) == (self.apply is None):
             raise DataError(
@@ -894,8 +919,10 @@ class JointPolicy:
         if self.randomizer is not None and not isinstance(self.randomizer, Randomizer):
             raise CapabilityError(
                 f"policy {self.name!r} draws a continuous randomizer. The estimator "
-                "integrates a randomizer with finitely many values of known probability; "
-                "discretize it as Randomizer(values, probabilities)"
+                "integrates a randomizer with finitely many values of known probability.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Discretize it as Randomizer(values, probabilities).",
+                roadmap="X64",
             )
         if not isinstance(self.components, Mapping):
             raise DataError(
@@ -995,11 +1022,20 @@ def refuse_policy_declarations(policies: Iterable[object]) -> None:
         kind: object = policy.policy_kind
         _POLICY_DECLARATION.check(kind)
         if kind is None:
-            raise CapabilityError(f"policy {policy.name!r}: {_POLICY_DECLARATION.undeclared}")
+            undeclared = _POLICY_DECLARATION.undeclared
+            raise CapabilityError.from_refusal(
+                replace(undeclared, condition=f"policy {policy.name!r}: {undeclared.condition}")
+            )
         if kind == "estimated":
-            raise CapabilityError(
-                f"policy {policy.name!r} is declared as estimated from the sample. "
-                + _POLICY_DECLARATION.estimated
+            estimated = _POLICY_DECLARATION.estimated
+            raise CapabilityError.from_refusal(
+                replace(
+                    estimated,
+                    condition=(
+                        f"policy {policy.name!r} is declared as estimated from the sample. "
+                        f"{estimated.condition}"
+                    ),
+                )
             )
 
 
@@ -1026,7 +1062,7 @@ def refuse_tuned_declarations(policy: Shift | Scale) -> None:
         and isinstance(cap, SupportBoundary)
         and not cap.finite_dimensional
     ):
-        raise CapabilityError(population_refusal(policy.name, cap))
+        raise CapabilityError.from_refusal(population_refusal(policy.name, cap))
 
 
 def tuned_policy(policy: object) -> bool:
@@ -1076,8 +1112,32 @@ def tuned_cap_parts(
     return boundary, edge, fitted.design(frame, n), slope
 
 
-def tuned_component(policy: object) -> tuple[str, Shift | Scale] | None:
-    """The one component of a :class:`JointPolicy` whose cap is a tuner, or ``None``.
+class TunedSlot(NamedTuple):
+    """One place a tuned map enters a joint policy: a component in one branch.
+
+    Parameters
+    ----------
+    branch : int
+        The branch of :func:`joint_branches`.
+    probability : float
+        The branch's known probability.
+    component : str
+        The tuned dose component.
+    policy : Shift or Scale
+        The declared tuned map, the object the policy holds.
+    """
+
+    branch: int
+    probability: float
+    component: str
+    policy: Shift | Scale
+
+
+def tuned_components(policy: object) -> tuple[TunedSlot, ...]:
+    """Every component of a :class:`JointPolicy` whose cap is a tuner, in every branch.
+
+    The value of a joint policy is linear in its components' terms: the curve carries one
+    derivative term per slot, and a slot in branch ``b`` carries the branch probability.
 
     Parameters
     ----------
@@ -1086,44 +1146,92 @@ def tuned_component(policy: object) -> tuple[str, Shift | Scale] | None:
 
     Returns
     -------
-    tuple or None
-        ``(component name, tuned map)``, or ``None`` when no component is tuned.
-
-    Raises
-    ------
-    CapabilityError
-        If the policy has a randomizer and a tuned component, or tunes two components.
+    tuple of TunedSlot
+        In branch order and then component order.  Empty when no component is tuned or the
+        policy is not a :class:`JointPolicy`.
     """
     if not isinstance(policy, JointPolicy):
-        return None
-    branches = joint_branches(policy)
-    tuned = sorted(
-        {
-            name
-            for _, components in branches
-            for name, component in components.items()
-            if tuned_policy(component)
-        }
+        return ()
+    return tuple(
+        TunedSlot(branch, probability, name, cast(Shift | Scale, component))
+        for branch, (probability, components) in enumerate(joint_branches(policy))
+        for name, component in components.items()
+        if tuned_policy(component)
     )
-    if not tuned:
-        return None
-    if len(branches) > 1:
-        raise CapabilityError(
-            f"policy {policy.name!r} tunes the cap of component {tuned[0]!r} inside a "
-            "randomized JointPolicy. A tuned cap's curve term is derived for one "
-            "deterministic map, as at a node of one dose: each branch of a randomizer would "
-            "need its own derivative term, weighted by the branch probability, which this "
-            "release does not build. Declare one JointPolicy without a randomizer, or the "
-            "cap as a number"
+
+
+#: A tuned map of a node: its component (``None`` for a policy of one dose), the declared
+#: map, and the ``(branch, probability)`` of each branch that applies it.
+TunedMap: TypeAlias = "tuple[str | None, Shift | Scale, tuple[tuple[int, float], ...]]"
+
+
+def tuned_maps(policy: object) -> tuple[TunedMap, ...]:
+    """The tuned maps of a policy: the policy itself, or a joint policy's tuned components.
+
+    One entry per component and declared object.  An object that a randomizer applies in
+    several branches is one tuner, fitted once, with one slot per branch.
+
+    Parameters
+    ----------
+    policy : object
+        A declared policy.
+
+    Returns
+    -------
+    tuple of tuple
+        ``(component, map, slots)`` per tuned map, with ``slots`` the ``(branch,
+        probability)`` of each branch of :func:`joint_branches` that applies it.
+    """
+    if isinstance(policy, (Shift, Scale)) and tuned_policy(policy):
+        return ((None, policy, ((0, 1.0),)),)
+    grouped: dict[tuple[str, int], tuple[str, Shift | Scale, list[tuple[int, float]]]] = {}
+    for slot in tuned_components(policy):
+        entry = grouped.setdefault(
+            (slot.component, id(slot.policy)), (slot.component, slot.policy, [])
         )
-    if len(tuned) > 1:
-        raise CapabilityError(
-            f"policy {policy.name!r} tunes the caps of the components {tuned}. The curve "
-            "carries one derivative term per tuned map, and this release builds one per "
-            "node. Tune one component and declare the other caps as numbers"
-        )
-    ((_, components),) = branches
-    return tuned[0], cast(Shift | Scale, components[tuned[0]])
+        entry[2].append((slot.branch, slot.probability))
+    return tuple((name, tuned, tuple(slots)) for name, tuned, slots in grouped.values())
+
+
+def with_resolved_component(
+    policy: object, component: str | None, tuned: Shift | Scale, resolved: object
+) -> Any:
+    """A policy with its tuned map at ``component`` replaced by the resolved map.
+
+    In a randomized joint policy the map is replaced in every branch that holds it.  A
+    policy of one dose is the resolved map itself.
+
+    Parameters
+    ----------
+    policy : object
+        The policy that holds the tuned map.
+    component : str or None
+        The tuned component, ``None`` for a policy of one dose.
+    tuned : Shift or Scale
+        The declared tuned map, the object the policy holds.
+    resolved : object
+        The map at a fitted tuner.
+
+    Returns
+    -------
+    object
+        The policy with the map replaced.
+    """
+    if not isinstance(policy, JointPolicy):
+        return resolved
+
+    def swap(components: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            name: resolved if name == component and value is tuned else value
+            for name, value in components.items()
+        }
+
+    components = (
+        swap(policy.components)
+        if policy.randomizer is None
+        else {label: swap(branch) for label, branch in policy.components.items()}
+    )
+    return replace(policy, components=components)
 
 
 def component_source(
@@ -1990,7 +2098,8 @@ def policy_branches(policy: object) -> tuple[tuple[float, _Branch], ...]:
             f"policy {policy.name!r} is a JointPolicy, which declares one policy per component "
             "of a vector treatment. This route reads a treatment of one column. A "
             "JointPolicy applies at a vector node of a longitudinal fit, or at a point "
-            "treatment=[...] of several columns"
+            "treatment=[...] of several columns.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     raise DataError(
         f"{policy!r} is not a modified treatment policy. Declare Shift, Scale, Piecewise, "
@@ -2222,15 +2331,17 @@ def check_continuous_policy(
     if isinstance(policy, RiskRatioTilt):
         raise CapabilityError(
             f"policy {name!r} at {where} is a risk-ratio tilt, which sets a binary treatment. "
-            "It has no density ratio on a continuous dose"
+            "It has no density ratio on a continuous dose.",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if isinstance(policy, ModifiedPolicy) and policy.pieces is None:
         raise CapabilityError(
             f"policy {name!r} at {where} declares apply= on a continuous treatment. A policy on "
             "a continuous dose declares pieces (Díaz et al. 2023, Assumption 4): an apply= "
             "that maps an interval to one dose is not pathwise differentiable (Section 4, "
-            "journal page 850), and no ratio route can tell that it does not. Declare "
-            "pieces=(Piece(...), ...)"
+            "journal page 850), and no ratio route can tell that it does not.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Declare pieces=(Piece(...), ...).",
         )
     if not isinstance(policy, (Shift, Scale, Piecewise, ModifiedPolicy)):
         return
@@ -2284,10 +2395,14 @@ def _collapse_refusal(
         f"{value:g}, so the law of the assigned dose has an atom that the observed law lacks, "
         f"and no density ratio exists. The mean then contains the mean under the static dose "
         f"{value:g}, which is not pathwise differentiable (Díaz et al. 2023, Section 4, journal "
-        f"page 850), so no root-n interval exists. If the dose has a recorded point mass at "
-        f"{value:g}, declare it with dose_atoms and the piece with Piece({lower:g}, {upper:g}, "
-        f"to_atom={value:g}). Otherwise use a piecewise map that moves every dose, or collapse "
-        "the dose into categories and declare the policy on a categorical node"
+        f"page 850), so no root-n interval exists.",
+        reason=RefusalReason.DIFFERENT_ESTIMAND,
+        alternative=(
+            f"If the dose has a recorded point mass at {value:g}, declare it with dose_atoms "
+            f"and the piece with Piece({lower:g}, {upper:g}, to_atom={value:g}). Otherwise "
+            "use a piecewise map that moves every dose, or collapse the dose into categories "
+            "and declare the policy on a categorical node."
+        ),
     )
 
 
@@ -2335,13 +2450,15 @@ def _check_atom_images(
         bad = rows & (_atom_index(image, atoms) < 0)
         if bad.any():
             moved_to = float(image[np.flatnonzero(bad)[0]])
-            raise CapabilityError(atom_image_refusal(name, where, atom, moved_to, describe=label))
+            raise CapabilityError.from_refusal(
+                atom_image_refusal(name, where, atom, moved_to, describe=label)
+            )
 
 
 def atom_image_refusal(
     name: str, where: str, atom: float, moved_to: float, *, describe: str, note: str = ""
-) -> str:
-    """The R-b3 text: a policy moves a declared atom to a dose with no recorded mass.
+) -> Refusal:
+    """The R-b3 refusal: a policy moves a declared atom to a dose with no recorded mass.
 
     Parameters
     ----------
@@ -2360,18 +2477,23 @@ def atom_image_refusal(
 
     Returns
     -------
-    str
-        The text.
+    Refusal
+        A :attr:`~cleverly._refusal.RefusalReason.DIFFERENT_ESTIMAND` record, as for the
+        collapse it reaches.
     """
-    return (
+    return Refusal(
+        RefusalReason.DIFFERENT_ESTIMAND,
         f"policy {name!r} at {where} moves the declared atom {atom:g} to {moved_to:g} "
         f"({describe}). The natural dose has no recorded mass at {moved_to:g}, so every row "
         f"that holds the dose {atom:g} receives a dose where the observed law has no "
         "mass. The law of the assigned dose then has an atom that the observed law "
         "lacks, and no density ratio exists: this is the failure of a collapse (Díaz et "
-        "al. 2023, Section 4, journal page 850) reached from the atom. Hold the atom in "
-        "place (a cap or a piece that keeps it), send it to another declared atom, or, "
-        f"if the dose has recorded mass at {moved_to:g}, declare it in dose_atoms{note}"
+        "al. 2023, Section 4, journal page 850) reached from the atom.",
+        alternative=(
+            "Hold the atom in place (a cap or a piece that keeps it), send it to another "
+            f"declared atom, or, if the dose has recorded mass at {moved_to:g}, declare it in "
+            f"dose_atoms{note or '.'}"
+        ),
     )
 
 
@@ -3025,7 +3147,8 @@ def _check_monotone(
                 f"{stop[row]:g}) of a continuous treatment by a map that is not strictly "
                 "monotone there. Equation (3) of Díaz et al. (2023) needs a strictly monotone "
                 "smooth map on each piece (Assumption 4). Split the interval into pieces on "
-                "which the map is strictly monotone" + note
+                "which the map is strictly monotone" + (note or "."),
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         for point, image in zip(grid, mapped, strict=True):
             with np.errstate(all="ignore"):
@@ -4239,7 +4362,15 @@ class PolicySet:
         everyone = np.ones(data.n, dtype=bool)
         if data.treatment_kind == "vector":
             return cls._evaluate_vector(
-                declared, names, data, learner, folds, frame, reference=reference, n_jobs=n_jobs
+                declared,
+                names,
+                data,
+                learner,
+                folds,
+                frame,
+                reference=reference,
+                n_jobs=n_jobs,
+                by_fold=by_fold,
             )
         a = np.asarray(data.treatment, dtype=float).reshape(-1)
         owners: list[tuple[int, float]] = []
@@ -4346,13 +4477,15 @@ class PolicySet:
         *,
         reference: str | None,
         n_jobs: int,
+        by_fold: Sequence[Sequence[object]] | None = None,
     ) -> PolicySet:
         """:meth:`evaluate_by_classifier` on a vector treatment with a continuous component.
 
         Each policy is a :class:`JointPolicy`, applied component by component by
         :func:`joint_assignments`.  The stacked classifier reads
         :meth:`~cleverly.data.CausalData.component_design` beside the covariates, so it sees
-        every component.  ``shifted`` is ``(n, C, d)``.
+        every component.  ``shifted`` is ``(n, C, d)``.  ``by_fold`` holds, per outer fold,
+        the policies that fold's classifier stacks, as on a dose.
         """
         from ..learners.density_ratio import classifier_ratio
 
@@ -4364,6 +4497,14 @@ class PolicySet:
         count = shifted.shape[1]
         observed = data.component_design()
         assigned = [data.component_design(shifted[:, c]) for c in range(count)]
+        fold_assigned: list[list[FloatArray]] | None = None
+        if by_fold is not None:
+            fold_assigned = []
+            for fold_policies in by_fold:
+                own = _vector_setup(tuple(fold_policies), data).assigned
+                if len(own) != count:
+                    raise ValueError("each fold's policies need the branches of policies=")
+                fold_assigned.append([data.component_design(values) for values in own])
         ratio = np.zeros((data.n, count))
         ratio_at = np.zeros((data.n, count, count))
         for c in range(count):
@@ -4377,6 +4518,9 @@ class PolicySet:
                 evaluate_at=[observed, *assigned],
                 groups=data.cluster,
                 n_jobs=n_jobs,
+                assigned_by_fold=(
+                    None if fold_assigned is None else [((1.0, fold[c]),) for fold in fold_assigned]
+                ),
             )
             ratio[:, c] = evaluated[0]
             for s in range(count):
@@ -4964,7 +5108,7 @@ def _vector_setup(declared: tuple[object, ...], data: CausalData) -> _VectorSetu
     assert data.treatment_components is not None
     for policy in declared:
         if not isinstance(policy, JointPolicy):
-            raise CapabilityError(whole_vector_refusal(policy, data.treatment_name))
+            raise CapabilityError.from_refusal(whole_vector_refusal(policy, data.treatment_name))
     components = tuple(
         JointComponent(name, levels)
         for name, levels in zip(data.component_names, data.component_levels, strict=True)
@@ -5090,9 +5234,15 @@ def _discrete_components(
     """The component arrays on a categorical treatment, by the discrete formula."""
     if data.has_missing_treatment:
         raise CapabilityError(
-            "a modified treatment policy on a categorical treatment reads the level each unit "
-            "received, and this fit declares a missing treatment. The policy mean with an "
-            "unrecorded treatment is a parameter this package has not derived"
+            f"When the missingness of {data.treatment_name} may depend on "
+            f"{data.treatment_name}, P({data.treatment_name} = a | W) is not identified; only "
+            f"P({data.treatment_name} = a | Delta_A = 1, W) is. policies= reads "
+            f"P({data.treatment_name} | W).",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Drop the rows with a missing treatment, which assumes the treatment is "
+                "missing completely at random, and fit TMLE(policies=)."
+            ),
         )
     levels = tuple(data.arm_label(code) for code in data.arm_codes)
     observed = np.asarray(data.treatment, dtype=float).astype(np.int64)
@@ -5123,39 +5273,81 @@ def _same(values: FloatArray) -> FloatArray:
     return values
 
 
-def vector_route_refusal(treatment: str) -> str:
+def vector_route_refusal(treatment: str) -> Refusal:
     """Why a vector treatment with a continuous component needs ``policies=``.
 
     It is the reason a continuous dose has: no arms, so no arm-indexed estimand names a
     parameter of it.
+
+    Parameters
+    ----------
+    treatment : str
+        The treatment name.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
     """
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"treatment {treatment!r} is a vector with a continuous component, so it has no arms "
-        "and none of the arm-indexed estimands name a parameter it has. Say which values to "
-        "compare with policies=[JointPolicy(name, components={column: policy, ...}, "
-        "policy_kind='known'), ...]; JointPolicy(name, components={}, policy_kind='known') "
-        "is the natural course, whose mean is E[Y]"
+        "and none of the arm-indexed estimands name a parameter it has.",
+        alternative=(
+            "Say which values to compare with policies=[JointPolicy(name, "
+            "components={column: policy, ...}, policy_kind='known'), ...]. "
+            "JointPolicy(name, components={}, policy_kind='known') is the natural course, "
+            "whose mean is E[Y]."
+        ),
     )
 
 
-def vector_msm_refusal(treatment: str) -> str:
-    """Why ``msm=`` refuses a vector treatment with a continuous component."""
-    return (
+def vector_msm_refusal(treatment: str) -> Refusal:
+    """Why ``msm=`` refuses a vector treatment with a continuous component.
+
+    Parameters
+    ----------
+    treatment : str
+        The treatment name.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"treatment {treatment!r} is a vector with a continuous component, and msm= projects "
         "the dose-response curve of one dose: MSM(doses=...) declares a grid on one dose "
         "axis, and the clever covariate integrates over it by the trapezoid rule. A vector "
         "has no one dose axis, and this package defines no integration grid or cubature "
-        "over a vector. Fit the policy means and contrasts with "
-        "policies=[JointPolicy(...), ...]"
+        "over a vector.",
+        alternative="Fit the policy means and contrasts with policies=[JointPolicy(...), ...].",
     )
 
 
-def whole_vector_refusal(policy: object, treatment: str) -> str:
-    """The refusal of a policy declared on a vector treatment with a dose as a whole."""
-    return (
+def whole_vector_refusal(policy: object, treatment: str) -> Refusal:
+    """The refusal of a policy declared on a vector treatment with a dose as a whole.
+
+    Parameters
+    ----------
+    policy : object
+        The declared policy.
+    treatment : str
+        The treatment name.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"policy {describe_policy(policy)} is declared on the vector treatment {treatment!r} "
-        "as a whole. A vector with a continuous component takes one policy per component: "
-        "declare JointPolicy(name, components={column: policy, ...}, policy_kind='known')"
+        "as a whole. A vector with a continuous component takes one policy per component.",
+        alternative=(
+            "Declare JointPolicy(name, components={column: policy, ...}, policy_kind='known')."
+        ),
     )
 
 

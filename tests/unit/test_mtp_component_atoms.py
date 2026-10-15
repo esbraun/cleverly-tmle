@@ -9,8 +9,10 @@ and its complex-step Gateaux derivative.
 
 - T-b1 analog: every plan is exact on both ratio routes for ``TMLE``, ``LTMLE`` and ``SDR``,
   and the witnesses are nonzero.  Every grid dose declared an atom is exact for every plan
-  of the geometric law.  A collapse to an atom is exact on the classifier route and refused
-  on the density route.
+  of the geometric law.  A collapse to an atom is exact on the classifier route.  On the
+  density route it is exact at the last dose, and refused at an earlier one.
+- M-b1 analog at the last dose: dropping the interval's mass, or reading the binned density
+  as a mass, breaks the collapse's exactness.
 - M-b1 and M-b2 analogs: dropping the atom paths, or reading the continuous density at an
   atom, moves the curve by more than ``CAUGHT``.
 - R-b3: an atom sent off the atoms is refused on the observed frame, and on a counterfactual
@@ -113,6 +115,7 @@ D1_UP_IF = (
 D2_HELD = (Piece(-INF, 3.0, route.double, route.halve, route.half_slope), Piece(3.0, INF))
 D2_IF = (Piece(-INF, small_d1, route.double, route.halve, route.half_slope), Piece(small_d1, INF))
 FLAG = ModifiedPolicy("flag", apply=route.set_flag, policy_kind="known")
+COLLAPSE_D2 = (Piece(-INF, 1.5), Piece(1.5, 6.0, to_atom=8.0), Piece(6.0, INF))
 
 
 def _components(label: str) -> dict[str, Any]:
@@ -133,6 +136,8 @@ def _components(label: str) -> dict[str, Any]:
     if label == "collapse to atom":
         pieces = (Piece(-INF, 1.5), Piece(1.5, 6.0, to_atom=1.0), Piece(6.0, INF))
         return {"D1": _known("collapse", pieces)}
+    if label == "collapse last dose":
+        return {"D2": _known("collapse last", COLLAPSE_D2)}
     raise KeyError(label)
 
 
@@ -259,11 +264,94 @@ def test_t_b1_a_collapse_to_an_atom_is_exact_on_the_classifier_route(estimator: 
 
 
 def test_a_collapse_to_an_atom_is_refused_on_the_density_route() -> None:
-    text = joint_module.collapse_refusal("collapse", 1.0)
+    text = joint_module.collapse_refusal("collapse", 1.0).message()
     with pytest.raises(CapabilityError, match=re.escape(text) + "$"):
         _point(("natural", "collapse to atom"), "density")
     with pytest.raises(CapabilityError, match=re.escape(text) + "$"):
         _long(LTMLE, ("natural", "collapse to atom"), "density")
+
+
+COLLAPSE_LAST = ("natural", "collapse last dose")
+
+
+@ESTIMATORS
+@RATIOS
+def test_t_b1_a_collapse_at_the_last_dose_is_exact_on_both_routes(
+    estimator: Any, ratio: str
+) -> None:
+    """The mass of ``[1.5, 6)`` at dose 2's atom 8 is a finite sum of binned densities."""
+    psi, curve = _fit(estimator, COLLAPSE_LAST, ratio)
+    assert psi < EXACT
+    assert curve < EXACT
+    # The nonzero witness: the collapse moves the parameter.
+    assert abs(law.truth("collapse last dose") - law.truth("natural")) > 1e-3
+
+
+def _drop_collapse_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation: the atom of the last dose receives no mass from the interval."""
+    monkeypatch.setattr(joint_module, "_collapse_paths", lambda *args, **kwargs: [])
+
+
+def _density_as_mass(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation: each bin adds its density, not its density times the overlap."""
+    original = joint_module._collapse_paths
+
+    def mutated(*args: Any, **kwargs: Any) -> Any:
+        return [
+            (betas, reach, np.where(reach, 1.0, 0.0))
+            for betas, reach, _ in original(*args, **kwargs)
+        ]
+
+    monkeypatch.setattr(joint_module, "_collapse_paths", mutated)
+
+
+@pytest.mark.parametrize(
+    "mutation", [_drop_collapse_paths, _density_as_mass], ids=["no mass", "density as mass"]
+)
+@pytest.mark.parametrize("estimator", [TMLE, LTMLE], ids=["tmle", "ltmle"])
+def test_m_b1_the_last_dose_collapse_mutations_fail_t_b1(
+    monkeypatch: pytest.MonkeyPatch, mutation: Any, estimator: Any
+) -> None:
+    mutation(monkeypatch)
+    psi, curve = _fit(estimator, COLLAPSE_LAST, "density")
+    assert max(psi, curve) > CAUGHT
+
+
+def flag_if_high_d2(a: Any, h: Any) -> np.ndarray:
+    return np.where(np.asarray(h["D2"], dtype=float) >= 8.0, 1, np.asarray(a))
+
+
+def test_a_last_dose_collapse_that_another_map_reads_is_refused() -> None:
+    """A categorical map that reads the collapsed dose varies over the interval."""
+    policy = JointPolicy(
+        "flag reads the collapse",
+        components={
+            "F": ModifiedPolicy("flag", apply=flag_if_high_d2, policy_kind="known"),
+            "D2": _known("collapse last", COLLAPSE_D2),
+        },
+        policy_kind="known",
+    )
+    with pytest.raises(CapabilityError, match="a categorical map reads"):
+        _point(("natural", "flag reads the collapse"), "density", plans=_with(policy))
+
+
+def test_a_collapse_at_the_last_column_but_not_the_last_in_order_is_refused() -> None:
+    policy = JointPolicy(
+        "collapse first in order",
+        components={"D2": _known("collapse last", COLLAPSE_D2)},
+        order=("D2", "D1"),
+        policy_kind="known",
+    )
+    text = joint_module.collapse_refusal("collapse last", 8.0).message()
+    with pytest.raises(CapabilityError, match=re.escape(text) + "$"):
+        _point(("natural", "collapse first in order"), "density", plans=_with(policy))
+
+
+def _with(policy: JointPolicy) -> Any:
+    def plans(label: str) -> JointPolicy:
+        return policy if label == policy.name else joint(label)
+
+    return plans
 
 
 # ------------------------------------------------------------------ M-b1, M-b2
@@ -336,7 +424,9 @@ OFF_THE_ATOMS = JointPolicy(
 def _rb3(where: str, note: str = "") -> str:
     from cleverly.interventions.policy import atom_image_refusal
 
-    return atom_image_refusal("d1 half up", where, 1.0, 1.5, describe="d1 half up", note=note)
+    return atom_image_refusal(
+        "d1 half up", where, 1.0, 1.5, describe="d1 half up", note=note
+    ).message()
 
 
 @RATIOS

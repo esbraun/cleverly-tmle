@@ -36,7 +36,7 @@ from cleverly.estimators import (
     TMLE,
 )
 from cleverly.estimators import _tuned_policies as tuned_module
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import (
     DoseQuantile,
     LinearQuantileRegression,
@@ -807,8 +807,10 @@ def test_m3_a_point_tuned_cap_with_declared_atoms_is_refused_before_any_learner(
             "jump, and it is not pathwise differentiable at the jump's edge. The influence "
             "function of the tuner and the derivative of the mean in the cap both need a "
             "density of the dose at the cap, and this release does not derive them at an atom. "
-            "Declare the cap as a number, or tune the cap at a node with no declared atoms"
+            "X40 in docs/roadmap.md tracks this. Declare the cap as a number, or tune the cap "
+            "at a node with no declared atoms."
         )
+        assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
 
 
 # ------------------------------------------------------------------ m2: fold maps meet the pre-fit checks

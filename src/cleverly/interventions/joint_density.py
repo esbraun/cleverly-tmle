@@ -68,10 +68,13 @@ ratio of a dose of one column (:func:`~cleverly.interventions.policy.mixed_ratio
 each conditional factor.  The ratio exists when every atom image on every frame is a
 declared atom (R-b3, checked here on the frames the formula reads, and on the observed
 frame by :func:`~cleverly.interventions.policy.check_continuous_policy`).  A piece that
-sends an interval to an atom (``Piece(..., to_atom=)``) is refused on this route: the mass
-it sends integrates every later factor over the interval, because those factors condition
-on the collapsed dose, and that integral is not a finite sum over preimages.  The
-classifier route takes such a piece.
+sends an interval to an atom (``Piece(..., to_atom=)``) is refused on this route at any dose
+but the last: the mass it sends integrates every later factor over the interval, because
+those factors condition on the collapsed dose, and that integral is not a finite sum over
+preimages.  At the last dose, in the column order and in the policy's order, no later
+factor or dose map reads the dose, and the mass is the integral of its binned density over
+the interval: a finite sum over the bins (:func:`_collapse_paths`).  A categorical map
+that reads that dose is refused.  The classifier route takes such a piece at any dose.
 
 The remainder of the estimator is the product of the ratio error and the outcome
 regression's error, as for a scalar continuous node.  No regression is fitted on an
@@ -92,7 +95,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import MAX_TREATMENT_LEVELS, arm_indicators, atom_block
-from ..exceptions import CapabilityError, DataError, PositivityWarning
+from ..exceptions import CapabilityError, DataError, PositivityWarning, Refusal, RefusalReason
 from ..learners.crossfit import Folds
 from ..learners.density import (
     ConditionalDensity,
@@ -105,6 +108,7 @@ from ..learners.density import (
 )
 from ..learners.super_learner import SuperLearnerDiagnostics
 from .policy import (
+    ForbiddenRead,
     FrameSource,
     FrameWith,
     JointComponent,
@@ -160,16 +164,24 @@ class ExplicitPiece:
         ``inverse(b, frame)``, the value the piece's map sends to ``b``.
     derivative : callable or None
         ``derivative(b, frame)``, the derivative of the inverse.
+    to_atom : float or None
+        The declared atom a collapsing piece sends its whole interval to, ``None`` for a
+        piece that maps values one to one.
+    bounds : callable or None
+        ``bounds(frame, n)``, the ``(lower, upper)`` ends of a collapsing piece's interval
+        on every row.
     """
 
     member: Callable[[FloatArray, FrameSource], BoolArray]
     inverse: Callable[[FloatArray, FrameSource], FloatArray] | None = None
     derivative: Callable[[FloatArray, FrameSource], FloatArray] | None = None
+    to_atom: float | None = None
+    bounds: Callable[[FrameSource, int], tuple[FloatArray, FloatArray]] | None = None
 
     @property
     def identity(self) -> bool:
         """Whether the piece leaves its values unchanged."""
-        return self.inverse is None
+        return self.inverse is None and self.to_atom is None
 
 
 def _finite(values: FloatArray) -> BoolArray:
@@ -224,6 +236,12 @@ def _declared_piece(branch: _PieceBranch, index: int) -> ExplicitPiece:
     def member(values: FloatArray, frame: FrameSource) -> BoolArray:
         return _member(values, *branch.bounds(piece, frame, values.size), piece.closed)
 
+    if piece.to_atom is not None:
+
+        def bounds(frame: FrameSource, n: int) -> tuple[FloatArray, FloatArray]:
+            return branch.bounds(piece, frame, n)
+
+        return ExplicitPiece(member, to_atom=float(piece.to_atom), bounds=bounds)
     if piece.map is None:
         return ExplicitPiece(member)
     inverse, derivative = piece.inverse, piece.derivative
@@ -305,17 +323,15 @@ def explicit_pieces(policy: object | None) -> tuple[ExplicitPiece, ...]:
     if isinstance(policy, ModifiedPolicy) and policy.pieces is not None:
         assert not isinstance(policy.pieces, Mapping)
         branch = _PieceBranch(policy.name, policy.pieces)
-        collapsed = [piece.to_atom for piece in branch.pieces if piece.to_atom is not None]
-        if collapsed:
-            raise CapabilityError(collapse_refusal(policy.name, float(collapsed[0])))
         return tuple(_declared_piece(branch, index) for index in range(len(branch.pieces)))
     raise CapabilityError(
         f"policy {getattr(policy, 'name', policy)!r} has no density ratio on a dose: declare "
-        "a Shift, Scale, Piecewise or ModifiedPolicy with pieces"
+        "a Shift, Scale, Piecewise or ModifiedPolicy with pieces.",
+        reason=RefusalReason.INVALID_DECLARATION,
     )
 
 
-def collapse_refusal(name: str, atom: float) -> str:
+def collapse_refusal(name: str, atom: float) -> Refusal:
     """The refusal of a piece that sends an interval to an atom, on the density route.
 
     Parameters
@@ -327,17 +343,23 @@ def collapse_refusal(name: str, atom: float) -> str:
 
     Returns
     -------
-    str
-        The text.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.API_REDIRECTION` record: the classifier
+        route fits the policy.
     """
-    return (
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
         f"policy {name!r} sends an interval of a component of a vector treatment to the "
-        f"declared atom {atom:g} (Piece(..., to_atom={atom:g})), which the density route does "
-        "not evaluate. The induced mass at the atom integrates the factors of the later "
-        "components over that interval, because each later factor conditions on the "
-        "collapsed dose, and that integral is not a finite sum over preimages. Pass "
-        "ratio='classifier', which estimates the ratio without a density, or map the "
-        "interval by a smooth piece"
+        f"declared atom {atom:g} (Piece(..., to_atom={atom:g})), which the density route "
+        "evaluates only at the last dose of the node. The induced mass at the atom "
+        "integrates the factors of the later components over that interval, because each "
+        "later factor conditions on the collapsed dose, and that integral is not a finite "
+        "sum over preimages. At the last dose, in the node's column order and in the "
+        "policy's order, the mass is the integral of one binned density, a finite sum.",
+        alternative=(
+            "Pass ratio='classifier', which estimates the ratio without a density, declare "
+            "the dose last, or map the interval by a smooth piece."
+        ),
     )
 
 
@@ -429,7 +451,8 @@ class NodeLayout:
                 f"{self.where} holds {len(cells)} observed cells of its categorical "
                 f"components, and a categorical treatment holds at most "
                 f"{MAX_TREATMENT_LEVELS} levels. The density of the node sums over these "
-                "cells; collapse a categorical component"
+                "cells; collapse a categorical component.",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         return cells
 
@@ -901,6 +924,7 @@ def _enumerate(
     requests: _Requests,
     observed_range: Sequence[tuple[float, float]],
     coverage: Sequence[FloatArray] = (),
+    edges: Sequence[Sequence[float] | None] = (),
 ) -> list[_Term]:
     """The terms of the induced density of one branch at one value of the node.
 
@@ -908,6 +932,12 @@ def _enumerate(
     branch's order, piece by piece, on frames that hold the candidate cell and the earlier
     preimages.  Each path keeps its validity, its Jacobian, and the categorical image of
     ``(c, beta)``, which must equal the value's categorical part.
+
+    A piece that sends an interval to an atom adds, at that atom, the continuous mass of the
+    interval (:func:`_collapse_paths`).  It is evaluated at the last dose alone, in the
+    node's column order and in the policy's order: no later factor conditions on the dose,
+    and no later dose map reads it, so the mass is the integral of one binned density.
+    ``edges`` holds each dose's bin edges.
     """
     components = layout.components
     names = layout.names
@@ -925,14 +955,14 @@ def _enumerate(
             names[index]: layout.labels(index, cell_codes[:, j])
             for j, index in enumerate(categorical)
         }
-        # (betas by dose column index, valid, Jacobian)
-        paths: list[tuple[dict[int, FloatArray], BoolArray, FloatArray]] = [
-            ({}, layout.rows.copy(), np.ones(layout.n))
+        # (betas by dose column index, valid, Jacobian, the collapsed dose or None)
+        paths: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = [
+            ({}, layout.rows.copy(), np.ones(layout.n), None)
         ]
         for position, index in enumerate(order):
             earlier = order[:position]
-            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray]] = []
-            for betas, valid, jacobian in paths:
+            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = []
+            for betas, valid, jacobian, collapsed in paths:
                 readable = dict(cell_labels)
                 readable.update({names[e]: betas[e] for e in earlier})
                 frame = guarded_source(layout.frame_with, readable, set(names) - set(readable))
@@ -946,6 +976,10 @@ def _enumerate(
                 at_atom = _atom_index(b, atoms) if atoms else np.full(layout.n, -1, dtype=np.int64)
                 preimages: list[tuple[FloatArray, BoolArray]] = []
                 for piece in pieces[index]:
+                    if piece.to_atom is not None:
+                        # A collapsing piece has no preimage of a value: its mass at the
+                        # atom is added below.
+                        continue
                     if piece.identity:
                         beta, slope = b.copy(), np.ones(layout.n)
                     else:
@@ -962,11 +996,13 @@ def _enumerate(
                             {**betas, index: np.where(kept, beta, layout.natural[:, index])},
                             kept,
                             jacobian * np.abs(np.where(kept, slope, 0.0)),
+                            collapsed,
                         )
                     )
                 if atoms:
                     grown.extend(
-                        _atom_paths(
+                        (*path, collapsed)
+                        for path in _atom_paths(
                             branch.name,
                             policy,
                             atoms,
@@ -976,6 +1012,28 @@ def _enumerate(
                             frame,
                             checked,
                             f"component {names[index]!r} of {where}",
+                        )
+                    )
+                collapsing = [piece for piece in pieces[index] if piece.to_atom is not None]
+                if collapsing:
+                    if index != doses[-1] or index != order[-1]:
+                        raise CapabilityError.from_refusal(
+                            collapse_refusal(
+                                str(getattr(policy, "name", branch.name)),
+                                float(collapsing[0].to_atom or 0.0),
+                            )
+                        )
+                    grown.extend(
+                        (*path, names[index])
+                        for path in _collapse_paths(
+                            collapsing,
+                            b,
+                            atoms,
+                            at_atom,
+                            (betas, valid, jacobian),
+                            index,
+                            frame,
+                            edges[doses.index(index)] if edges else None,
                         )
                     )
                 if isinstance(policy, ModifiedPolicy) and checked.any():
@@ -997,9 +1055,12 @@ def _enumerate(
                 # A map that caught its own refused read still refuses.
                 frame.check()
             paths = grown
-        for betas, valid, jacobian in paths:
+        for betas, valid, jacobian, collapsed in paths:
             dose_values = np.column_stack([betas[index] for index in doses])
-            image = _image(layout, branch, cell_codes, dose_values, valid)
+            if collapsed is None:
+                image = _image(layout, branch, cell_codes, dose_values, valid)
+            else:
+                image = _collapsed_image(layout, branch, cell_codes, dose_values, valid, collapsed)
             hit = valid & np.all(image == target_codes, axis=1)
             weight = np.where(hit, jacobian, 0.0)
             factors = []
@@ -1053,7 +1114,7 @@ def _atom_paths(
         bad = checked & (target < 0)
         if bad.any():
             first = float(image[np.flatnonzero(bad)[0]])
-            raise CapabilityError(
+            raise CapabilityError.from_refusal(
                 atom_image_refusal(
                     name, where, float(atom), first, describe=name, note=_COUNTERFACTUAL_ATOMS
                 )
@@ -1061,6 +1122,88 @@ def _atom_paths(
         hit = valid & (at_atom >= 0) & (target == at_atom)
         out.append(({**betas, index: source}, hit, np.where(hit, jacobian, 0.0)))
     return out
+
+
+def _collapsed_image(
+    layout: NodeLayout,
+    branch: JointBranch,
+    cell_codes: FloatArray,
+    dose_values: FloatArray,
+    valid: BoolArray,
+    collapsed: str,
+) -> FloatArray:
+    """:func:`_image` on a collapse path, where no categorical map may read the dose."""
+    try:
+        return _image(layout, branch, cell_codes, dose_values, valid, hidden=(collapsed,))
+    except ForbiddenRead as error:
+        raise CapabilityError(
+            f"policy {branch.name!r} at {layout.where} collapses an interval of {collapsed!r} "
+            f"to an atom, and a categorical map reads {error}. On the density route the mass "
+            "of the interval is one integral of the dose's binned density only when no other "
+            "map reads the collapsed dose.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Pass ratio='classifier', or drop the read.",
+        ) from error
+
+
+def _collapse_paths(
+    pieces: Sequence[ExplicitPiece],
+    b: FloatArray,
+    atoms: tuple[float, ...],
+    at_atom: IntArray,
+    path: tuple[dict[int, FloatArray], BoolArray, FloatArray],
+    index: int,
+    frame: FrameSource,
+    edges: Sequence[float] | None,
+) -> list[tuple[dict[int, FloatArray], BoolArray, FloatArray]]:
+    r"""The paths of the last dose that a collapsing piece sends to the evaluated atom.
+
+    At an atom value :math:`b = a` of the last dose, a piece that sends :math:`I(h)` to
+    :math:`a` adds :math:`(1 - \sum_j p_j) \int_{I(h)} f(s)\,ds`.  The binned density is
+    constant on each bin, so the integral is
+    :math:`\sum_m f(s_m) |I(h) \cap B_m|`, exactly: one path per bin :math:`B_m`, read at a
+    point :math:`s_m` inside it that is no atom, with weight the overlap length.  The
+    atoms inside :math:`I(h)` reach :math:`a` by their own paths (:func:`_atom_paths`).
+    """
+    betas, valid, jacobian = path
+    out: list[tuple[dict[int, FloatArray], BoolArray, FloatArray]] = []
+    if edges is None:
+        # Every row at risk holds an atom of this dose, so it has no continuous mass.
+        return out
+    grid = np.asarray(edges, dtype=float)
+    left, right = grid[:-1], grid[1:]
+    n = b.size
+    for piece in pieces:
+        assert piece.bounds is not None and piece.to_atom is not None
+        lower, upper = piece.bounds(frame, n)
+        target = _atom_index(np.array([piece.to_atom]), atoms)[0] if atoms else -1
+        hit = valid & (at_atom >= 0) & (at_atom == target)
+        for m in range(left.size):
+            with np.errstate(invalid="ignore"):
+                overlap = np.clip(
+                    np.minimum(upper, right[m]) - np.maximum(lower, left[m]), 0.0, None
+                )
+            reach = hit & (np.nan_to_num(overlap) > 0.0)
+            if not reach.any():
+                continue
+            point = _bin_point(left[m], right[m], atoms)
+            out.append(
+                (
+                    {**betas, index: np.full(n, point)},
+                    reach,
+                    np.where(reach, jacobian * np.nan_to_num(overlap), 0.0),
+                )
+            )
+    return out
+
+
+def _bin_point(left: float, right: float, atoms: tuple[float, ...]) -> float:
+    """A point strictly inside a bin that is no declared atom."""
+    for share in (0.5, 1.0 / 3.0, 2.0 / 3.0):
+        point = left + share * (right - left)
+        if _atom_index(np.array([point]), atoms)[0] < 0:
+            return float(point)
+    raise AssertionError("three points of one bin cannot all be atoms")
 
 
 #: How the atom-image check reads a counterfactual frame, appended to its refusal.
@@ -1098,6 +1241,7 @@ def _image(
     cell_codes: FloatArray,
     dose_values: FloatArray,
     valid: BoolArray,
+    hidden: tuple[str, ...] = (),
 ) -> FloatArray:
     """The categorical part of the branch's value at natural ``(c, beta)``: ``(n, n_cat)``.
 
@@ -1110,6 +1254,9 @@ def _image(
     refused.  That refusal is conservative and deliberate: a categorical map must return a
     level at every value of the components it reads (Díaz et al. 2023, Assumption 1), and a
     frame of zero estimated density can have positive true density.
+
+    ``hidden`` names doses a categorical map may not read: a collapsed dose, whose natural
+    value runs over an interval on the path.
     """
     names = layout.names
     columns = []
@@ -1124,8 +1271,12 @@ def _image(
         if policy is None:
             columns.append(cell_codes[:, j])
             continue
-        readable = {key: value for key, value in natural.items() if key != component.name}
-        source = guarded_source(layout.frame_with, readable, (component.name,))
+        readable = {
+            key: value
+            for key, value in natural.items()
+            if key != component.name and key not in hidden
+        }
+        source = guarded_source(layout.frame_with, readable, (component.name, *hidden))
         columns.append(
             _categorical_component(
                 branch.name,
@@ -1239,7 +1390,14 @@ def evaluate_joint_density(
     for e, evaluation in enumerate(evaluations):
         for b in evaluation.branches:
             induced_terms[(e, b)] = _enumerate(
-                layout, branches[b], evaluation.values, cells, requests, observed_range, coverage
+                layout,
+                branches[b],
+                evaluation.values,
+                cells,
+                requests,
+                observed_range,
+                coverage,
+                dose_edges,
             )
     observed_factors: list[tuple[tuple[int, Hashable, int], ...]] = []
     targets = np.zeros((n, len(evaluations)), dtype=np.int64)

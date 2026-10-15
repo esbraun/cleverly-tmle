@@ -20,11 +20,13 @@ probabilities. The dynamic rule assigns both arms and differs from either static
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome law with a covariate-dependent deterministic rule | `ate_regime[rule vs never]` | difference in means under the regimes "follow the covariate-dependent rule" against "assign no treatment" | -0.000025 | 0.0091 | 1.0009 | 0.0012 | 0.0054 vs 0.0500 | equivalent |
-| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[never]` | mean under the regime assign no treatment | 0.000029 | 0.0132 | 1.0011 | 0 | 0.000900 vs 0.0500 | equivalent |
-| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[rule]` | mean under the regime follow the covariate-dependent rule | 0.000003 | 0.0013 | 0.9957 | 0.0013 | 0.0044 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law with a covariate-dependent deterministic rule | `ate_regime[rule vs never]` | difference in means under the regimes "follow the covariate-dependent rule" against "assign no treatment" | -0.000025 | 0.0091 | 1.0009 | 0.0012 | different estimator | 0.0054 vs 0.0500 | equivalent |
+| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[never]` | mean under the regime assign no treatment | 0.000029 | 0.0132 | 1.0011 | 0 | different estimator | 0.000900 vs 0.0500 | equivalent |
+| binary-outcome law with a covariate-dependent deterministic rule | `ey_regime[rule]` | mean under the regime follow the covariate-dependent rule | 0.000003 | 0.0013 | 0.9957 | 0.0013 | different estimator | 0.0044 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

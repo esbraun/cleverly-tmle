@@ -66,7 +66,7 @@ import numpy as np
 
 from .._declarations import FunctionKind
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..interventions.base import (
     _RULE_DECLARATION,
     Stochastic,
@@ -80,8 +80,6 @@ from ..interventions.policy import (
     ForbiddenRead,
     JointComponent,
     JointPolicy,
-    Scale,
-    Shift,
     check_continuous_policy,
     component_source,
     describe_policy,
@@ -93,8 +91,8 @@ from ..interventions.policy import (
     refuse_policy_declarations,
     resolve_tuned_policy,
     tuned_cap_parts,
-    tuned_component,
-    tuned_policy,
+    tuned_maps,
+    with_resolved_component,
 )
 from ..interventions.tuning import (
     FOLD_AVERAGE_ONE_FOLD,
@@ -1114,6 +1112,10 @@ class NodeTuning:
     component : str or None
         At a mixed node, the tuned dose component of the node's
         :class:`~cleverly.interventions.JointPolicy`; ``None`` at a node of one dose.
+    slots : tuple of tuple
+        ``(branch, probability)`` of each branch of the node's policy in which this map
+        sets the dose.  The curve carries one derivative term per slot, weighted by the
+        branch probability.  ``((0, 1.0),)`` at a deterministic node.
     """
 
     time: int
@@ -1127,6 +1129,7 @@ class NodeTuning:
     slope: float
     at_risk: BoolArray
     component: str | None = None
+    slots: tuple[tuple[int, float], ...] = ((0, 1.0),)
 
 
 #: What a fold-average plan appends to its regimen's label in every reported name.
@@ -1151,30 +1154,17 @@ def declares_tuned(regimens: Sequence[RegimenSpec]) -> bool:
     return any(_tuned(regimen) for regimen in regimens)
 
 
-def _tuned_map(node: object) -> Shift | Scale | None:
-    """The tuned map of a node: the node itself, or a joint policy's tuned component."""
-    if isinstance(node, (Shift, Scale)) and tuned_policy(node):
-        return node
-    found = tuned_component(node)
-    return None if found is None else found[1]
-
-
 def _tuned(regimen: RegimenSpec) -> bool:
-    return isinstance(regimen, DynamicRegimen) and any(
-        _tuned_map(node) is not None for node in regimen.plan
-    )
+    return isinstance(regimen, DynamicRegimen) and any(tuned_maps(node) for node in regimen.plan)
 
 
 def _regimen_target(regimen: DynamicRegimen) -> str | None:
-    targets = {
-        str(tuned.target)
-        for tuned in (_tuned_map(node) for node in regimen.plan)
-        if tuned is not None
-    }
+    targets = {str(tuned.target) for node in regimen.plan for _, tuned, _ in tuned_maps(node)}
     if len(targets) > 1:
         raise CapabilityError(
             f"regimen {regimen.label!r} declares the targets {sorted(targets)} on its tuned "
-            "maps. One regimen is one parameter, so its tuned maps declare one target"
+            "maps. One regimen is one parameter, so its tuned maps declare one target",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     return next(iter(targets)) if targets else None
 
@@ -1217,7 +1207,7 @@ def resolve_tuned_plans(
         R-e3 for a tuner that reads an outcome column, R-e4 for the fold-average target on
         one fold, a tuned cap at a node that does not hold one dose or a dose component, a
         tuned cap at a dose with declared atoms, and the joint compositions of
-        :func:`~cleverly.interventions.policy.tuned_component`.
+        :func:`~cleverly.interventions.policy.tuned_components`.
     """
     plans = []
     for regimen in regimens:
@@ -1244,29 +1234,32 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
         # report names it: ``ey_regimen[<label>, fold average]``.
         regimen = replace(regimen, label=f"{regimen.label}{FOLD_AVERAGE_SUFFIX}")
     tuned_nodes = [
-        (time, node, cast(Shift | Scale, _tuned_map(node)))
+        (time, node, component, tuned, slots)
         for time, node in enumerate(regimen.plan, start=1)
-        if _tuned_map(node) is not None
+        for component, tuned, slots in tuned_maps(node)
     ]
     refuse_outcome_tuners(
         [
             (tuned.name, cast(DoseQuantile | SupportBoundary, tuned.cap))
-            for _, _, tuned in tuned_nodes
+            for _, _, _, tuned, _ in tuned_nodes
         ],
         _outcome_columns(data),
     )
     if target == "fold_average" and folds.is_single:
-        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD)
-    sources = {time: _tuner_source(regimen, data, time, node) for time, node, _ in tuned_nodes}
+        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD, reason=RefusalReason.INVALID_DECLARATION)
+    sources = {
+        (time, component): _tuner_source(regimen, data, time, node, component)
+        for time, node, component, _, _ in tuned_nodes
+    }
     weights = data.weights
     tunings: list[NodeTuning] = []
     in_sample: dict[int, RuleNode] = {}
     by_fold: list[dict[int, RuleNode]] = [
         {} for _ in range(0 if folds.is_single else folds.n_folds)
     ]
-    for time, node, tuned in tuned_nodes:
+    for time, node, component, tuned, slots in tuned_nodes:
         tuner = cast(DoseQuantile | SupportBoundary, tuned.cap)
-        component, doses, frame = sources[time]
+        doses, frame = sources[time, component]
         reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
 
         fitted = _guarded(
@@ -1279,8 +1272,15 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
                 rows[train] = True
                 fold_fit = fit_tuner(tuner, doses, frame, reachable & rows, weights)
                 fold_fits.append(fold_fit)
-                by_fold[k][time] = _with_tuned(node, tuned, resolve_tuned_policy(tuned, fold_fit))
-        in_sample[time] = _with_tuned(node, tuned, resolve_tuned_policy(tuned, fitted))
+                by_fold[k][time] = with_resolved_component(
+                    by_fold[k].get(time, node),
+                    component,
+                    tuned,
+                    resolve_tuned_policy(tuned, fold_fit),
+                )
+        in_sample[time] = with_resolved_component(
+            in_sample.get(time, node), component, tuned, resolve_tuned_policy(tuned, fitted)
+        )
         influence = (
             tuner_influence(fitted, doses, frame, reachable, weights)
             if target == "population"
@@ -1300,6 +1300,7 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
                 slope=slope,
                 at_risk=reachable,
                 component=component,
+                slots=slots,
             )
         )
 
@@ -1320,9 +1321,9 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
 
 
 def _tuner_source(
-    regimen: DynamicRegimen, data: LongitudinalData, time: int, node: object
-) -> tuple[str | None, FloatArray, Callable[[], Any]]:
-    """The tuned dose of a node, its natural values and the frame its tuner reads.
+    regimen: DynamicRegimen, data: LongitudinalData, time: int, node: object, name: str | None
+) -> tuple[FloatArray, Callable[[], Any]]:
+    """The natural values of a node's tuned dose and the frame its tuner reads.
 
     At a node of one dose the tuner reads the node's dose and policy frame.  At a mixed
     node it reads the tuned component's natural dose and the frame that component's map
@@ -1333,9 +1334,7 @@ def _tuner_source(
     """
     where = f"the node {data.decision_name(time)!r}"
     if data.node_kind(time) == "mixed" and isinstance(node, JointPolicy):
-        found = tuned_component(node)
-        assert found is not None
-        name, _ = found
+        assert name is not None
         components = data.node_components(time)
         names = [component.name for component in components]
         if name not in names or not components[names.index(name)].continuous:
@@ -1343,11 +1342,14 @@ def _tuner_source(
                 f"regimen {regimen.label!r} tunes the cap of {name!r} at {where}, whose "
                 f"continuous components are "
                 f"{[c.name for c in components if c.continuous]}. A tuned cap reads a "
-                "quantile of a dose's law, so it applies to a continuous component"
+                "quantile of a dose's law, so it applies to a continuous component",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         atoms = data.component_atoms(time).get(name, ())
         if atoms:
-            raise CapabilityError(tuned_cap_at_atoms(f"component {name!r} of {where}", atoms))
+            raise CapabilityError.from_refusal(
+                tuned_cap_at_atoms(f"component {name!r} of {where}", atoms)
+            )
         natural = np.nan_to_num(data.node_values(time), nan=0.0)
         source = component_source(
             node,
@@ -1357,20 +1359,21 @@ def _tuner_source(
             lambda extra: data.policy_frame(time, extra),
             where,
         )
-        return name, natural[:, names.index(name)], source
+        return natural[:, names.index(name)], source
     if data.node_kind(time) != "continuous":
-        tuned = _tuned_map(node)
+        tuned = name if name is not None else str(getattr(node, "name", node))
         raise CapabilityError(
-            f"regimen {regimen.label!r} tunes the cap of "
-            f"{getattr(tuned, 'name', tuned)!r} at {where}, which is not one continuous dose "
+            f"regimen {regimen.label!r} tunes the cap of {tuned!r} at {where}, which is "
+            "not one continuous dose "
             "or a dose component of a mixed node. A tuned cap reads a quantile of the dose "
-            "law, which has a density only at a dose"
+            "law, which has a density only at a dose",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     atoms = data.node_atoms(time)
     if atoms:
-        raise CapabilityError(tuned_cap_at_atoms(where, atoms))
+        raise CapabilityError.from_refusal(tuned_cap_at_atoms(where, atoms))
     doses = np.nan_to_num(data.node_codes(time), nan=0.0)
-    return None, doses, lazy_frame(partial(data.policy_frame, time))
+    return doses, lazy_frame(partial(data.policy_frame, time))
 
 
 def _guarded(
@@ -1391,19 +1394,6 @@ def _guarded(
             "feature"
         ) from error
     return fitted
-
-
-def _with_tuned(node: object, tuned: Shift | Scale, resolved: object) -> RuleNode:
-    """A node with its tuned map replaced by the resolved map."""
-    if isinstance(node, JointPolicy):
-        from dataclasses import replace
-
-        components = {
-            name: resolved if component is tuned else component
-            for name, component in node.components.items()
-        }
-        return cast(RuleNode, replace(node, components=components))
-    return cast(RuleNode, resolved)
 
 
 def _stitched_plan(
@@ -1458,13 +1448,18 @@ def refuse_multi_arm_tilt_node(data: LongitudinalData, time: int) -> None:
     DataError
         If the node does not have exactly two levels.
     """
-    from ..interventions.incremental import multi_arm_tilt_message
+    from ..interventions.incremental import multi_arm_tilt_refusal
 
     levels = list(data.treatment_levels[time - 1])
     if len(levels) == 2:
         return
-    raise DataError(
-        multi_arm_tilt_message(f"node {data.treatment_names[time - 1]!r}", len(levels), levels)
+    raise DataError.from_refusal(
+        multi_arm_tilt_refusal(
+            f"node {data.treatment_names[time - 1]!r}",
+            len(levels),
+            levels,
+            alternative="A Stochastic node with density_kind='known' sets this node.",
+        )
     )
 
 
@@ -1601,13 +1596,15 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
             raise CapabilityError(
                 f"regimen {regimen.label!r} declares the JointPolicy {node.name!r} at the "
                 f"node {name!r}, which is one column. A JointPolicy declares one policy per "
-                "component of a vector node; declare the component's policy itself"
+                "component of a vector node.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Declare the component's policy itself.",
             )
         if kind == "mixed" and _is_tilt(node):
-            raise CapabilityError(tilt_mixed_message(regimen.label, name))
+            raise CapabilityError.from_refusal(tilt_mixed_refusal(regimen.label, name))
         if kind == "continuous" and _is_tilt(node):
-            raise CapabilityError(
-                tilt_continuous_message(regimen.label, data.treatment_names[time - 1])
+            raise CapabilityError.from_refusal(
+                tilt_continuous_refusal(regimen.label, data.treatment_names[time - 1])
             )
         if kind == "mixed":
             doses = [
@@ -1628,14 +1625,26 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
                 "continuous component takes a JointPolicy, one policy per component: a "
                 "static or dynamic value is not pathwise differentiable (Díaz et al. 2023, "
                 "Section 4), and a policy of one column does not say which component it "
-                "moves. Declare JointPolicy(name, components={...}, policy_kind='known')"
+                "moves.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Declare JointPolicy(name, components={...}, policy_kind='known'). It "
+                    "answers a different question: the mean outcome when the policy moves "
+                    "each received component."
+                ),
             )
         if kind == "continuous" and not _is_mtp(node):
             raise CapabilityError(
                 f"regimen {regimen.label!r} sets the continuous node "
                 f"{data.treatment_names[time - 1]!r} to a fixed dose or rule. A static dose on "
                 "a continuous treatment is not pathwise differentiable (Díaz et al. 2023, "
-                "Section 4). Declare a modified treatment policy at that node"
+                "Section 4), so no regular estimator of it exists.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Declare a modified treatment policy at that node. It answers a "
+                    "different question: the mean outcome when the policy moves each "
+                    "received dose."
+                ),
             )
 
 
@@ -1829,7 +1838,7 @@ def tilt_nodes(regimens: Any, n_times: int) -> frozenset[int]:
     return frozenset(times)
 
 
-def tilt_mix_message(label: str, node: str, kind: str) -> str:
+def tilt_mix_refusal(label: str, node: str, kind: str) -> Refusal:
     """The refusal of a tilt plan that also sets a node by a policy :class:`IPSI` cannot fit.
 
     Parameters
@@ -1843,17 +1852,20 @@ def tilt_mix_message(label: str, node: str, kind: str) -> str:
 
     Returns
     -------
-    str
-        The message.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.IMPLEMENTATION_GAP` record.
     """
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         f"regimen {label!r} sets node {node!r} by {kind}. IPSI estimates no density ratio "
         "for a modified treatment policy or a risk-ratio tilt, so it has no estimator for a "
-        "plan with such a node. Fit that plan without an odds tilt by LTMLE or SDR"
+        "plan with such a node.",
+        alternative="Fit that plan without an odds tilt by LTMLE or SDR.",
+        roadmap="F33",
     )
 
 
-def tilt_mixed_message(label: str, node: str) -> str:
+def tilt_mixed_refusal(label: str, node: str) -> Refusal:
     """The refusal of an odds tilt declared on a whole mixed vector node.
 
     Parameters
@@ -1865,21 +1877,24 @@ def tilt_mixed_message(label: str, node: str) -> str:
 
     Returns
     -------
-    str
-        The message.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
     """
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"regimen {label!r} sets the vector node {node!r}, which holds a continuous "
         "component, by an odds tilt. An odds tilt multiplies the odds of one categorical "
         "node, Kennedy (2019), Equation (1), and a node with a continuous component is not "
-        "one categorical node: its joint density has no odds to multiply. Declare the "
-        "component's policy inside a JointPolicy at that node, with the randomizer on the "
-        "JointPolicy and a label map per branch for a randomized categorical component, "
-        "and fit it by LTMLE"
+        "one categorical node: its joint density has no odds to multiply.",
+        alternative=(
+            "Declare the component's policy inside a JointPolicy at that node, with the "
+            "randomizer on the JointPolicy and a label map per branch for a randomized "
+            "categorical component, and fit it by LTMLE."
+        ),
     )
 
 
-def tilt_continuous_message(label: str, node: str) -> str:
+def tilt_continuous_refusal(label: str, node: str) -> Refusal:
     """The refusal of an odds tilt at a continuous node.
 
     Parameters
@@ -1891,13 +1906,14 @@ def tilt_continuous_message(label: str, node: str) -> str:
 
     Returns
     -------
-    str
-        The message.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
     """
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"regimen {label!r} sets the continuous node {node!r} by an odds tilt. An odds tilt "
-        "multiplies the odds of one of two arms, and a continuous dose has no such odds. "
-        "Declare a modified treatment policy at that node and fit it by LTMLE or SDR"
+        "multiplies the odds of one of two arms, and a continuous dose has no such odds.",
+        alternative="Declare a modified treatment policy at that node and fit it by LTMLE or SDR.",
     )
 
 
@@ -2118,10 +2134,14 @@ def _held_plan(label: str, plan: Any, n_times: int) -> Any:
                 "treatment node(s); a plan must say what happens at every one of them"
             )
         return Regimen(label, (nodes[0],)) if isinstance(plan, Regimen) else nodes[0]
-    raise ValueError(
+    raise CapabilityError(
         f"regimen {label!r} declares {len(nodes)} nodes, but this design has one treatment "
-        "decision, at baseline, held over every node. Declare one arm, or a one-node rule, "
-        "policy or modified treatment policy; the later nodes keep the baseline value"
+        "decision, at baseline, held over every node.",
+        reason=RefusalReason.DIFFERENT_ESTIMAND,
+        alternative=(
+            "Declare one arm, or a one-node rule, policy or modified treatment policy. The "
+            "later nodes keep the baseline value."
+        ),
     )
 
 

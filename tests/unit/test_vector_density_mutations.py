@@ -166,8 +166,8 @@ def test_m14_the_identity_piece_shortcut_is_caught(monkeypatch: pytest.MonkeyPat
     """
     edits = [
         (
-            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray]] = []\n",
-            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray]] = []\n"
+            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = []\n",
+            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = []\n"
             "            flags: list[bool] = []\n",
         ),
         (
@@ -175,8 +175,8 @@ def test_m14_the_identity_piece_shortcut_is_caught(monkeypatch: pytest.MonkeyPat
             "                    flags.append(piece.identity)\n                    grown.append(\n",
         ),
         (
-            "        for betas, valid, jacobian in paths:\n            dose_values",
-            "        for path_index, (betas, valid, jacobian) in enumerate(paths):\n"
+            "        for betas, valid, jacobian, collapsed in paths:\n            dose_values",
+            "        for path_index, (betas, valid, jacobian, collapsed) in enumerate(paths):\n"
             "            dose_values",
         ),
         (

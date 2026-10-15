@@ -22,6 +22,7 @@ from cleverly.exceptions import (
     DataError,
     LongitudinalError,
     MethodConfigurationError,
+    RefusalReason,
 )
 from cleverly.inference import make_estimate
 from cleverly.validation import (
@@ -179,7 +180,7 @@ class _Raising(_Estimator):
         KeyError("a bug"),
         ValueError("raised by this test module, not by a fitting library"),
         RuntimeError("raised by this test module, not by a fitting library"),
-        CapabilityError("not implemented"),
+        CapabilityError("not implemented", reason=RefusalReason.INVALID_DECLARATION),
         MethodConfigurationError("misdeclared"),
     ],
     ids=lambda error: type(error).__name__,

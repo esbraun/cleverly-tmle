@@ -29,7 +29,7 @@ from cleverly.assessment import AssessmentStatus, replayability
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, Refusal
 from cleverly.sensitivity.positivity import truncation_curve
 from tests import discrete_law as law
 from tests.conftest import OracleOutcome, OracleTreatment
@@ -45,19 +45,21 @@ PATHWISE = "pathwise derivative"
 E = TypeVar("E", bound=Exception)
 
 
-def assert_refused(build: Callable[[], Any], error: type[E], *fragments: str) -> E:
+def assert_refused(build: Callable[[], Any], error: type[E], *fragments: str | Refusal) -> E:
     """``build()`` raises ``error`` with every fragment, or this raises ``AssertionError``.
 
     Written out rather than as ``pytest.raises``, whose failure is not an
     ``AssertionError``, so that a mutation control can require it to fail.  It returns the
-    raised error, so a caller can check more of it without a second call.
+    raised error, so a caller can check more of it without a second call.  A fragment that is a
+    :class:`~cleverly.exceptions.Refusal` stands for its whole message.
     """
     try:
         build()
     except error as raised:
         message = str(raised)
         for fragment in fragments:
-            assert fragment in message, message
+            text = fragment.message() if isinstance(fragment, Refusal) else fragment
+            assert text in message, message
         return raised
     raise AssertionError(f"no {error.__name__} was raised")
 
@@ -66,7 +68,7 @@ def assert_refused_before_any_call(
     build: Callable[[], Any],
     spy: Any,
     function: str,
-    *fragments: str,
+    *fragments: str | Refusal,
     error: type[Exception] = CapabilityError,
 ) -> Exception:
     """``build()`` refuses before any learner fit and before any call of the spy ``function``.
@@ -97,7 +99,9 @@ def modified(item: Any, field: str, kind: Any) -> Any:
     return item
 
 
-def modified_states(undeclared: str, estimated: str) -> dict[str, tuple[Any, tuple[str, ...]]]:
+def modified_states(
+    undeclared: str | Refusal, estimated: str | Refusal
+) -> dict[str, tuple[Any, tuple[str | Refusal, ...]]]:
     """What a modified object can carry, and the fragments of the refusal each one meets."""
     return {"undeclared": (None, (undeclared,)), "estimated": ("estimated", (estimated, PATHWISE))}
 

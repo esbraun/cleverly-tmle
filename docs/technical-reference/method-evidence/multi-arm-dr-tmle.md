@@ -40,17 +40,19 @@ and solver status for every replication.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| three-arm binary-outcome law with shared cross-fitted nuisances | `ate[low vs high]` | difference in counterfactual means, low versus high | 0.000004 | 0.0011 | 1.0005 | 0 | 0.000613 vs 0.0500 | equivalent |
-| three-arm binary-outcome law with shared cross-fitted nuisances | `ate[medium vs high]` | difference in counterfactual means, medium versus high | 0.000003 | 0.000783 | 1.0004 | 0 | 0.000439 vs 0.0500 | equivalent |
-| three-arm binary-outcome law with shared cross-fitted nuisances | `ey[high]` | counterfactual mean under treatment arm 'high' | -0.000002 | 0.000684 | 1.0001 | 0 | 0.000263 vs 0.0500 | equivalent |
-| three-arm binary-outcome law with shared cross-fitted nuisances | `ey[low]` | counterfactual mean under treatment arm 'low' | 0.000002 | 0.000761 | 1.0010 | 0 | 0.0018 vs 0.0500 | equivalent |
-| three-arm binary-outcome law with shared cross-fitted nuisances | `ey[medium]` | counterfactual mean under treatment arm 'medium' | 0.000001 | 0.000416 | 1.0007 | 0 | 0.000528 vs 0.0500 | equivalent |
-| three-arm binary-outcome law with shared cross-fitted nuisances | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | 0.000031 | 0.0012 | 1.0005 | 0 | 0.000619 vs 0.0500 | equivalent |
-| three-arm binary-outcome law with shared cross-fitted nuisances | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | 0.000046 | 0.000879 | 1.0005 | 0 | 0.000450 vs 0.0500 | equivalent |
-| three-arm binary-outcome law with shared cross-fitted nuisances | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | 0.000012 | 0.0010 | 1.0004 | 0 | 0.000641 vs 0.0500 | equivalent |
-| three-arm binary-outcome law with shared cross-fitted nuisances | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | 0.000012 | 0.000795 | 1.0004 | 0.0012 | 0.000255 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `drtmle-r-multi-arm` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| three-arm binary-outcome law with shared cross-fitted nuisances | `ate[low vs high]` | difference in counterfactual means, low versus high | 0.000004 | 0.0011 | 1.0005 | 0 | matching implementation | 0.000613 vs 0.0500 | equivalent |
+| three-arm binary-outcome law with shared cross-fitted nuisances | `ate[medium vs high]` | difference in counterfactual means, medium versus high | 0.000003 | 0.000783 | 1.0004 | 0 | matching implementation | 0.000439 vs 0.0500 | equivalent |
+| three-arm binary-outcome law with shared cross-fitted nuisances | `ey[high]` | counterfactual mean under treatment arm 'high' | -0.000002 | 0.000684 | 1.0001 | 0 | matching implementation | 0.000263 vs 0.0500 | equivalent |
+| three-arm binary-outcome law with shared cross-fitted nuisances | `ey[low]` | counterfactual mean under treatment arm 'low' | 0.000002 | 0.000761 | 1.0010 | 0 | matching implementation | 0.0018 vs 0.0500 | equivalent |
+| three-arm binary-outcome law with shared cross-fitted nuisances | `ey[medium]` | counterfactual mean under treatment arm 'medium' | 0.000001 | 0.000416 | 1.0007 | 0 | matching implementation | 0.000528 vs 0.0500 | equivalent |
+| three-arm binary-outcome law with shared cross-fitted nuisances | `or[low vs high]` | marginal odds ratio, low versus high, reported on the log scale | 0.000031 | 0.0012 | 1.0005 | 0 | matching implementation | 0.000619 vs 0.0500 | equivalent |
+| three-arm binary-outcome law with shared cross-fitted nuisances | `or[medium vs high]` | marginal odds ratio, medium versus high, reported on the log scale | 0.000046 | 0.000879 | 1.0005 | 0 | matching implementation | 0.000450 vs 0.0500 | equivalent |
+| three-arm binary-outcome law with shared cross-fitted nuisances | `rr[low vs high]` | marginal risk ratio, low versus high, reported on the log scale | 0.000012 | 0.0010 | 1.0004 | 0 | matching implementation | 0.000641 vs 0.0500 | equivalent |
+| three-arm binary-outcome law with shared cross-fitted nuisances | `rr[medium vs high]` | marginal risk ratio, medium versus high, reported on the log scale | 0.000012 | 0.000795 | 1.0004 | 0.0012 | matching implementation | 0.000255 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

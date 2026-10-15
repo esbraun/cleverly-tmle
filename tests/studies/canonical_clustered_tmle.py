@@ -60,6 +60,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-clustered-cvtmle",
     reference="lmtp",
+    comparison="different estimator",
     modules=(
         "tests/studies/canonical_clustered_tmle.py",
         "tests/studies/clustered_tmle_properties.py",

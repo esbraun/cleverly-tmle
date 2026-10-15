@@ -259,7 +259,7 @@ def _recursion(
     known = set(mechanism.known_treatment_nodes)
     with phase("clever_covariate"):
         weights = _weights(data, tilted, mechanism, masks, propensity, horizon, g_bounds)
-    carried = seed_carried(data, scaler)
+    carried = seed_carried(data, scaler, horizon=horizon)
     nodes: list[_Node] = []
     for time in range(horizon, 0, -1):
         regression = _fit_node_regression(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .longitudinal import (
+    REPEATED_RULE_LABEL,
     RULE_LABEL,
     WEIGHTED_SELECTION_PROBABILITIES,
     competing_truth,
@@ -10,8 +11,10 @@ from .longitudinal import (
     longitudinal_truth,
     make_longitudinal,
     make_longitudinal_competing,
+    make_longitudinal_repeated,
     make_longitudinal_survival,
     make_longitudinal_weighted,
+    repeated_truth,
     rule_arm_at_node_two,
     survival_truth,
 )
@@ -58,6 +61,7 @@ from .synthetic import (
 __all__ = [
     "DGP",
     "GENERATORS",
+    "REPEATED_RULE_LABEL",
     "RULE_LABEL",
     "WEIGHTED_SELECTION_PROBABILITIES",
     "MultiArmDGP",
@@ -83,6 +87,7 @@ __all__ = [
     "make_linear_ate",
     "make_longitudinal",
     "make_longitudinal_competing",
+    "make_longitudinal_repeated",
     "make_longitudinal_survival",
     "make_longitudinal_weighted",
     "make_missing_outcome",
@@ -102,6 +107,7 @@ __all__ = [
     "nonlinear_dgp",
     "nonlinear_logit",
     "point_survival_truth",
+    "repeated_truth",
     "rule_arm_at_node_two",
     "sampling_probability",
     "shift_dgp",

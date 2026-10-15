@@ -360,6 +360,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-vector-mtp",
     pending_reference="lmtp",
+    comparison="matching implementation",
     pending_reason=(
         "the lmtp 1.5.4 runs have not run: they need R in the lmtp container, which this "
         "container lacks. The beta plans' Study queue owns them: item 30, the vector_mtp lmtp "

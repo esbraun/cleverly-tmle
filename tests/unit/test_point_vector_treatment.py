@@ -964,7 +964,8 @@ def test_a_known_mechanism_of_a_dose_vector_is_refused() -> None:
     assert str(caught.value) == (
         "treatment 'F+D' is a vector with a continuous component. treatment_probabilities= "
         "gives arm probabilities, and a continuous treatment has a conditional density, not "
-        "arms. A known density is not supported; fit without treatment_probabilities=."
+        "arms. A known density is not supported. X63 in docs/roadmap.md tracks this. Fit without "
+        "treatment_probabilities=."
     )
 
 
@@ -986,7 +987,7 @@ def test_a_policy_on_the_whole_vector_is_refused() -> None:
     with pytest.raises(CapabilityError) as caught:
         fit(policies=[UP])
     assert "is declared on the vector treatment 'F+D' as a whole" in str(caught.value)
-    assert "declare JointPolicy(name, components={column: policy, ...}" in str(caught.value)
+    assert "Declare JointPolicy(name, components={column: policy, ...}" in str(caught.value)
 
 
 def test_an_estimand_beside_the_policy_means_is_refused() -> None:
@@ -996,7 +997,7 @@ def test_an_estimand_beside_the_policy_means_is_refused() -> None:
         "treatment 'F+D' is a vector with a continuous component, and estimands= asks for "
         "['ate']. A policy fit reports ['ate_policy', 'ey_policy'], the policy means and "
         "their contrasts; every other registered estimand names an arm, and this treatment "
-        "has none"
+        "has none."
     )
 
 

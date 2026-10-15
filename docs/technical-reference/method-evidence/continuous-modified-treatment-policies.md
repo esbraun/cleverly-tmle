@@ -29,13 +29,15 @@ margins while keeping the unresolved comparison visible.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.25 vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.25" against "leave the observed treatment mechanism unchanged" | 0.000211 | 0.2745 | 1.0587 | 0.0088 | 0.0439 vs 0.0500 | **inconclusive** |
-| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.5 capped vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.5 subject to the declared cap" against "leave the observed treatment mechanism unchanged" | -0.000020 | 0.0123 | 1.0168 | -0.0012 | 0.0151 vs 0.0500 | equivalent |
-| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.25]` | mean under the modified treatment policy shift dose by 0.25 | 0.000211 | 0.0255 | 1.0019 | 0.0012 | 0.0024 vs 0.0500 | equivalent |
-| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.5 capped]` | mean under the modified treatment policy shift dose by 0.5 subject to the declared cap | -0.000020 | 0.0025 | 1.0007 | 0 | 0.0013 vs 0.0500 | equivalent |
-| continuous-dose law with uncapped and capped shifts | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | -1.162e-11 | 1.462e-09 | 1.0000 | 0 | 6.819e-11 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.25 vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.25" against "leave the observed treatment mechanism unchanged" | 0.000211 | 0.2745 | 1.0587 | 0.0088 | different estimator | 0.0439 vs 0.0500 | **inconclusive** |
+| continuous-dose law with uncapped and capped shifts | `ate_policy[+0.5 capped vs natural course]` | difference in means under the modified treatment policies "shift dose by 0.5 subject to the declared cap" against "leave the observed treatment mechanism unchanged" | -0.000020 | 0.0123 | 1.0168 | -0.0012 | different estimator | 0.0151 vs 0.0500 | equivalent |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.25]` | mean under the modified treatment policy shift dose by 0.25 | 0.000211 | 0.0255 | 1.0019 | 0.0012 | different estimator | 0.0024 vs 0.0500 | equivalent |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[+0.5 capped]` | mean under the modified treatment policy shift dose by 0.5 subject to the declared cap | -0.000020 | 0.0025 | 1.0007 | 0 | different estimator | 0.0013 vs 0.0500 | equivalent |
+| continuous-dose law with uncapped and capped shifts | `ey_policy[natural course]` | mean under the modified treatment policy leave the observed treatment mechanism unchanged | -1.162e-11 | 1.462e-09 | 1.0000 | 0 | different estimator | 6.819e-11 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
