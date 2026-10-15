@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import importlib
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -975,3 +976,106 @@ def test_m_e1_one_fold_map_everywhere_fails(
     result = _fold_average_on_two_copies(monkeypatch, (FOLD_CAPS[0], FOLD_CAPS[0]), estimator)
     with pytest.raises(AssertionError):
         _check_fold_average(result)
+
+
+# ------------------------------------------------------------------ msm= (B1 of the review)
+
+
+def _intercept_model() -> Any:
+    from cleverly.msm import MSM
+
+    return MSM(
+        design=lambda label, horizon, w: np.ones((len(w), 1)),
+        terms=("intercept",),
+        design_kind="known",
+    )
+
+
+def _hgb_settings() -> dict[str, Any]:
+    """Flexible regressions: the derivative of the (e2) term needs a consistent ``m_t``."""
+    from sklearn.ensemble import HistGradientBoostingRegressor as HGB
+
+    learner = HGB(max_iter=300, learning_rate=0.05, random_state=0)
+    return {"outcome_learner": learner, "pseudo_learner": learner}
+
+
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+@pytest.mark.parametrize("kind", ["quantile", "regression"])
+def test_b1_an_intercept_working_model_over_one_tuned_regimen_is_the_plain_fit(
+    estimator: type, kind: str, frame: Any
+) -> None:
+    """B1: the intercept MSM of one cell is that cell's estimate, and its curve is the cell's.
+
+    The cell's curve holds the tuner's chain-rule term, so the projection's curve must hold
+    it too (the estimating equation is stacked over cells, so the curve is linear in each
+    cell's curve).
+    """
+    plain = _fit(estimator, [_regimen("population", kind)], frame, n_folds=1)
+    projected = _fit(
+        estimator, [_regimen("population", kind)], frame, n_folds=1, msm=_intercept_model()
+    )
+    term = plain.fits["tuned"].tuning_term
+    assert term is not None
+    assert np.std(term) > 0.1 * np.std(plain.influence_curves["ey_regimen[tuned]"])
+    np.testing.assert_allclose(
+        projected.psi("msm_regimen[intercept]"), plain.psi("ey_regimen[tuned]"), atol=1e-10
+    )
+    np.testing.assert_allclose(
+        projected.influence_curves["msm_regimen[intercept]"],
+        plain.influence_curves["ey_regimen[tuned]"],
+        rtol=0,
+        atol=1e-9,
+    )
+
+
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+def test_b1_the_working_model_curve_moves_when_the_tuner_term_is_dropped(
+    estimator: type, frame: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-b1msm: the curve of the projection misses the cell's when the term is not added."""
+    from cleverly.longitudinal import msm as msm_module
+
+    kept = _fit(
+        estimator, [_regimen("population")], frame, n_folds=1, msm=_intercept_model()
+    ).influence_curves["msm_regimen[intercept]"]
+    monkeypatch.setattr(msm_module, "tuning_term", lambda data, plan, steps: (None, ()))
+    project = msm_module.project_sdr_cells
+
+    def without_term(data: Any, model: Any, fits: Any, *args: Any, **kwargs: Any) -> Any:
+        return project(
+            data, model, [replace(fit, tuning_term=None) for fit in fits], *args, **kwargs
+        )
+
+    # The SDR projection reads each cell's own ``tuning_term``.
+    monkeypatch.setattr(estimator_module, "project_sdr_cells", without_term)
+    dropped = _fit(
+        estimator, [_regimen("population")], frame, n_folds=1, msm=_intercept_model()
+    ).influence_curves["msm_regimen[intercept]"]
+    assert np.max(np.abs(kept - dropped)) > CAUGHT
+
+
+def test_b1_the_working_model_standard_error_is_the_oracle_standard_error() -> None:
+    """B1 on law Q: with consistent regressions the MSM interval has the oracle width.
+
+    ``sd(D_Psi) / sqrt(n)`` by quadrature, tuning term included.  Without the term the
+    standard error reads 0.8 of it (the probe of the review, 0.0088 against 0.0109 at
+    n = 1,500; the oracle at n = 8,000 is 0.00591).
+    """
+    n = 8_000
+    big = lawq.sample(n, 11)
+    result = _fit(
+        LTMLE,
+        [_regimen("population")],
+        big,
+        n_folds=1,
+        msm=_intercept_model(),
+        **_hgb_settings(),
+    )
+    curve = result.influence_curves["msm_regimen[intercept]"]
+    se = float(np.sqrt(np.mean(curve**2) / n))
+    oracle = lawq.LawQ().efficient_sd() / np.sqrt(n)
+    assert abs(se / oracle - 1.0) < 0.05
+    term = result.fits["tuned"].tuning_term
+    assert term is not None
+    without = float(np.sqrt(np.mean((curve - term) ** 2) / n))
+    assert abs(without / oracle - 1.0) > 0.1

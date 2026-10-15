@@ -442,6 +442,52 @@ class LawQ:
             term += float(np.sum(joint * tune**2))
         return float(np.sqrt(term)), float(np.sqrt(phi))
 
+    def efficient_sd(self) -> float:
+        """The SD of :math:`D_\\Psi = D_\\Phi + \\sum_t \\partial_t\\Phi' \\mathrm{IF}_t`, by quadrature.
+
+        Unlike :meth:`spreads`, the pieces are added before they are squared, so the
+        correlation between the tuning term and :math:`D_\\Phi` is in the answer.
+        """
+        derivative = (self.derivative(1), self.derivative(2))
+        psi = self.tuned_psi
+        w, fw = self.w_grid
+        c1 = self.cap(1, {"W": w})
+        splits = np.stack([c1 - DELTA, c1, np.full(w.size, A_RANGE[0] + DELTA)], axis=1)
+        a1, wa = _segments(*A_RANGE, splits)
+        ww = np.broadcast_to(w[:, None], a1.shape)
+        mass1 = fw[:, None] * self.g1(a1, w[:, None]) * wa
+        moved1 = np.where(a1 + DELTA <= c1[:, None], a1 + DELTA, a1)
+        piece0 = self.q1(ww, moved1) - psi
+        tune1 = self.influence(1, {"W": ww}, a1) @ derivative[0]
+        r1 = self.ratio1(a1, ww)
+        q_obs = self.q1(ww, a1)
+        second = 0.0
+        mean = 0.0
+        for l2 in (0.0, 1.0):
+            ll = np.full(a1.shape, l2)
+            p = self.p_l2(ww, a1)
+            mass2 = mass1 * (p if l2 else 1.0 - p)
+            h = {"W": ww, "A1": a1, "L2": ll}
+            c2 = self.cap(2, h)
+            a2, wb = _segments(*A_RANGE, np.stack([c2 - DELTA, c2], axis=-1))
+            w3, a13, l3 = ww[..., None], a1[..., None], ll[..., None]
+            g2 = self.g2(a2, w3, a13, l3)
+            moved2 = np.where(a2 + DELTA <= c2[..., None], a2 + DELTA, a2)
+            piece1 = r1[..., None] * (self.m(w3, a13, l3, moved2) - q_obs[..., None])
+            induced = self.g2(a2 - DELTA, w3, a13, l3) * (a2 <= c2[..., None]) + g2 * (
+                a2 > c2[..., None] - DELTA
+            )
+            r2 = np.where(g2 > 0.0, induced / np.where(g2 > 0.0, g2, 1.0), 0.0)
+            mu = self.m(w3, a13, l3, a2)
+            h2 = {key: np.broadcast_to(v[..., None], a2.shape) for key, v in h.items()}
+            tune2 = self.influence(2, h2, a2) @ derivative[1]
+            joint = mass2[..., None] * g2 * wb
+            noise = (r1[..., None] * r2) ** 2 * mu * (1.0 - mu) / 31.0
+            pre = piece0[..., None] + tune1[..., None] + piece1 + tune2
+            second += float(np.sum(joint * (pre**2 + noise)))
+            mean += float(np.sum(joint * pre))
+        return float(np.sqrt(second - mean**2))
+
     @staticmethod
     def _pick(path: str, **scores: np.ndarray) -> np.ndarray:
         if path in scores:
