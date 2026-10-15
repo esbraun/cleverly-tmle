@@ -357,16 +357,22 @@ def _at_every(
     cells = tuple(cells)
 
     def run() -> None:
-        escaped = []
+        escaped, wrong = [], []
         for law in LAWS:
             built = build(law)
             for cell in cells:
                 try:
                     check(law, built, cell)
                 except AssertionError as error:
-                    assert reason in str(error), (law.name, cell, str(error)[:200])
+                    if reason not in str(error):
+                        wrong.append((law.name, cell))
                 else:
                     escaped.append((law.name, cell))
+        # ``pytest.fail`` raises ``Failed``, which ``pytest.raises(AssertionError)`` does not
+        # catch, so a wrong reason fails the control.  An ``assert`` would put the reason text
+        # in its own message, and ``match=reason`` would accept it.
+        if wrong:
+            pytest.fail(f"cells failed for another reason: {wrong}", pytrace=False)
         assert not escaped, f"escaped the fault: {escaped}"
         raise AssertionError(f"{reason} at every cell")
 
@@ -507,6 +513,17 @@ def test_a_cell_witness_fails_when_the_library_is_unmutated(cells: Any) -> None:
     """Without a fault each cell passes, so the cell witness reports the escape and not a pass."""
     with pytest.raises(AssertionError, match="escaped the fault"):
         cells(ESTIMATE)()
+
+
+def test_a_cell_witness_with_the_wrong_reason_fails_the_control(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """N9 moves the E1 curve and leaves the estimate, so asking for ``estimate:`` must fail."""
+    censoring_factor_replaced_by_one(monkeypatch)
+    with pytest.raises(pytest.fail.Exception, match="another reason"):
+        e1_every_cell(ESTIMATE)()
+    with pytest.raises(AssertionError, match=CURVE):
+        e1_every_cell(CURVE)()
 
 
 @pytest.mark.parametrize(("apply", "witness", "reason"), PAIRS)
