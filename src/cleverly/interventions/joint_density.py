@@ -444,7 +444,8 @@ class NodeLayout:
         CapabilityError
             If more cells are observed than a categorical treatment may hold.
         """
-        codes = self.natural[np.ix_(self.rows, self.categorical)].astype(np.int64)
+        columns = np.asarray(self.categorical, dtype=np.intp)
+        codes = self.natural[np.ix_(self.rows, columns)].astype(np.int64)
         cells = tuple(sorted({tuple(int(v) for v in row) for row in codes})) or ((),)
         if len(cells) > MAX_TREATMENT_LEVELS:
             raise CapabilityError(
