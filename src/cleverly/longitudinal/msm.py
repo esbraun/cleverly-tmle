@@ -610,6 +610,8 @@ def fit_regimens_msm(
     n_jobs: int = 1,
     warn: bool = True,
     stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
 ) -> MSMRegimenFit:
     r"""Target every declared cell against one working model, and project.
 
@@ -648,6 +650,10 @@ def fit_regimens_msm(
     counts each subject once.  Counting the copies as separate units would shrink the threshold
     by ``sqrt(C)``.  The score columns are contrasts of the cells in this sense, so the
     threshold has no a priori bound as a coefficient's standard error.
+
+    **A step bound** (``step_bound=``) bounds each node's stacked iteration by the constrained
+    step along the normalised score vector of the working-model terms, as for a point fit with
+    several score columns.  ``step_search`` chooses whether the step searches its length.
     """
     plan_of = {plan.label: plan for plan in plans}
     missing = sorted({cell.label for cell in model.cells} - set(plan_of))
@@ -743,6 +749,8 @@ def fit_regimens_msm(
                         if stopping == "relative"
                         else StopContext(np.tile(subject, len(live)), scaler.range)
                     ),
+                    step_bound=step_bound,
+                    step_search=step_search,
                 )
             targeted = np.split(fluctuation.targeted.arms[_REGIMEN_ARM], len(live))
             for position, k in enumerate(live):

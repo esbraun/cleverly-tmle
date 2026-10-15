@@ -1897,6 +1897,8 @@ def _fluctuate_node(
     arms: FloatArray | None = None,
     stopping: str = "relative",
     stop: StopContext | None = None,
+    step_bound: float | None = None,
+    step_search: bool = True,
 ) -> Fluctuation:
     """Solve one node's intercept fluctuation with the clever covariate in the loss weight.
 
@@ -1936,13 +1938,19 @@ def _fluctuate_node(
     stop : StopContext, optional
         The units of the rows the node receives and the outcome range, which a declared rule
         computes its threshold from.  A declared rule without one raises ``ValueError``.
+    step_bound : float, optional
+        The longest step of one iteration.  ``None`` runs the shipped solve untouched.  A bound
+        runs :func:`_fluctuate_node_ruled`, whose solver takes the constrained step along
+        ``sign(s)``: the node has one coefficient.
+    step_search : bool
+        Under a bound, whether the step minimises the quasi-loss over ``[0, step_bound]``.
 
     Returns
     -------
     Fluctuation
         The solved fluctuation.  Its targeted predictions are filed under the regimen key.
     """
-    if stopping != "relative":
+    if stopping != "relative" or step_bound is not None:
         return _fluctuate_node_ruled(
             pseudo_outcome,
             initial,
@@ -1956,6 +1964,8 @@ def _fluctuate_node(
             arms=arms,
             stopping=stopping,
             stop=stop,
+            step_bound=step_bound,
+            step_search=step_search,
         )
     intercept = np.ones((len(pseudo_outcome), 1))
     initial_arms = {_REGIMEN_ARM: initial}
@@ -2013,8 +2023,10 @@ def _fluctuate_node_ruled(
     arms: FloatArray | None,
     stopping: str,
     stop: StopContext | None,
+    step_bound: float | None = None,
+    step_search: bool = True,
 ) -> Fluctuation:
-    """:func:`_fluctuate_node` under a declared stopping rule.
+    """:func:`_fluctuate_node` under a declared stopping rule, a step bound, or both.
 
     The node is the same intercept fluctuation with the same loss weight.  What changes is the
     outer test of :func:`~cleverly.fluctuation.iterative.solve_fluctuation`: the node stops when
@@ -2024,6 +2036,12 @@ def _fluctuate_node_ruled(
     receives, and the rows that are not followers contribute zero, so the threshold is the
     standard error of the node's score ``P_n S``.
 
+    A step bound takes the ``tmle3`` constrained step at the node.  The node has one coefficient,
+    so the step direction is ``sign(s)`` and the step is ``t* sign(s)`` with ``t*`` in
+    ``(0, step_bound]`` (:func:`~cleverly.fluctuation.iterative.solve_fluctuation`).  Under
+    ``stopping="relative"`` a bounded node needs no context and tests ``tol`` on the relative
+    score.
+
     A node whose regression already equals its one target value has a zero score at
     ``epsilon = 0``.  It is not solved, and it meets any rule, so it records ratio zero.
 
@@ -2031,10 +2049,14 @@ def _fluctuate_node_ruled(
     ----------
     pseudo_outcome, initial, loss_weights, fitted_on, label, time, alpha, max_iter, tol, arms
         As :func:`_fluctuate_node` reads them.
-    stopping : {"scaled_var", "sample_size"}
-        The declared rule.
-    stop : StopContext
-        The units and the outcome range.  ``None`` raises ``ValueError``.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule.
+    stop : StopContext, optional
+        The units and the outcome range.  ``None`` raises ``ValueError`` under a declared rule.
+    step_bound : float, optional
+        The longest step of one iteration.
+    step_search : bool
+        Whether a bounded step searches its length.
 
     Returns
     -------
@@ -2042,7 +2064,8 @@ def _fluctuate_node_ruled(
         The solved fluctuation, with :attr:`~cleverly.fluctuation.iterative.Fluctuation.stopping`,
         ``thresholds`` and ``rule_ratio`` filled.
     """
-    if stop is None:
+    declared = stopping != "relative"
+    if declared and stop is None:
         raise ValueError(STOP_CONTEXT_MISSING)
     intercept = np.ones((len(pseudo_outcome), 1))
     initial_arms = {_REGIMEN_ARM: initial}
@@ -2055,7 +2078,12 @@ def _fluctuate_node_ruled(
     if constant is not None and np.all(np.asarray(initial)[fitted_on] == constant):
         names = (f"epsilon[{label}, t={time}]",)
         zero = np.zeros(1)
-        thresholds, ratio = rule_ratio_at(zero, np.zeros((len(pseudo_outcome), 1)), stop, stopping)
+        thresholds: FloatArray | None = None
+        ratio: float | None = None
+        if declared and stop is not None:
+            thresholds, ratio = rule_ratio_at(
+                zero, np.zeros((len(pseudo_outcome), 1)), stop, stopping
+            )
         return Fluctuation(
             epsilon=zero,
             targeted=InitialFit(initial, initial_arms),
@@ -2086,6 +2114,8 @@ def _fluctuate_node_ruled(
         tol=tol,
         stopping=stopping,
         stop=stop,
+        step_bound=step_bound,
+        step_search=step_search,
     )
 
 
@@ -2290,6 +2320,8 @@ def fit_regimen(
     tol: float = 1e-10,
     n_jobs: int = 1,
     stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
 ) -> RegimenFit:
     """Run the backward recursion for one regimen, targeting at every node.
 
@@ -2325,6 +2357,10 @@ def fit_regimen(
     ``stopping`` is the rule that decides each node's score equation is solved.
     ``"relative"`` is the shipped test.  A declared rule gives every node the context of
     :func:`node_stop_context`, so each node's threshold is the standard error of its own score.
+
+    ``step_bound`` bounds the step of each node's targeting iteration (``None`` takes the full
+    Newton step), and ``step_search`` chooses whether a bounded step searches its length.  See
+    :func:`_fluctuate_node_ruled`.
     """
     horizon = data.n_times if horizon is None else horizon
     if not 1 <= horizon <= data.n_times:
@@ -2346,6 +2382,8 @@ def fit_regimen(
             tol=tol,
             n_jobs=n_jobs,
             stopping=stopping,
+            step_bound=step_bound,
+            step_search=step_search,
         )
     stop = None if stopping == "relative" else node_stop_context(data, scaler)
     cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
@@ -2385,6 +2423,8 @@ def fit_regimen(
                 tol=tol,
                 arms=node.initial_by_arm,
                 stopping=stopping,
+                step_bound=step_bound,
+                step_search=step_search,
                 stop=stop,
             )
         step = _targeted_step(node, fluctuation, regression_target=None)
@@ -2680,6 +2720,8 @@ def _fit_regimen_crossfit(
     tol: float,
     n_jobs: int,
     stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
 ) -> RegimenFit:
     """Run untargeted fold recursions, stitch them, and target once per node over all rows.
 
@@ -2727,6 +2769,10 @@ def _fit_regimen_crossfit(
         Parallel workers across the outer folds.
     stopping : {"relative", "scaled_var", "sample_size"}
         The rule that decides each node's pooled score equation is solved.
+    step_bound : float or None
+        The longest step of one iteration of a node's targeting.
+    step_search : bool
+        Whether a bounded step searches its length.
 
     Returns
     -------
@@ -2762,6 +2808,8 @@ def _fit_regimen_crossfit(
         max_iter=max_iter,
         tol=tol,
         stopping=stopping,
+        step_bound=step_bound,
+        step_search=step_search,
     )
     return _finish_regimen_fit(
         data,
@@ -2790,6 +2838,8 @@ def _pooled_targeting(
     max_iter: int,
     tol: float,
     stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
 ) -> tuple[SequentialStep, ...]:
     r"""Solve one fluctuation per node over every follower, from the horizon backwards.
 
@@ -2837,6 +2887,10 @@ def _pooled_targeting(
         The rule that decides each node's pooled score equation is solved.  A declared rule
         reads the units of all ``n`` rows, because the score is summed over every follower and
         averaged over every row (:func:`node_stop_context`).
+    step_bound : float or None
+        The longest step of one iteration of a node's targeting.
+    step_search : bool
+        Whether a bounded step searches its length.
 
     Returns
     -------
@@ -2864,6 +2918,8 @@ def _pooled_targeting(
                 tol=tol,
                 arms=node.initial_by_arm,
                 stopping=stopping,
+                step_bound=step_bound,
+                step_search=step_search,
                 stop=stop,
             )
         step = _targeted_step(

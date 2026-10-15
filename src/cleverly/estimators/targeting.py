@@ -42,6 +42,7 @@ from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..fluctuation._score import (
     STOP_CONTEXT_MISSING,
     StopContext,
+    check_step_bound,
     check_stopping_rule,
     quasi_loglik,
     relative_score,
@@ -313,9 +314,16 @@ class TargetingSpec:
     #: test against ``tol``.  A declared rule needs a
     #: :class:`~cleverly.fluctuation._score.StopContext` at every solve.
     stopping: StoppingRule = "relative"
+    #: The longest step of one outer iteration, in ``epsilon`` units; ``None`` takes the full
+    #: Newton step.  A bound replaces the Newton step by the ``tmle3`` constrained step.
+    step_bound: float | None = None
+    #: Under a bound, ``True`` minimises the quasi-loss along the step's direction over
+    #: ``[0, step_bound]`` and ``False`` takes the whole bound.
+    step_search: bool = True
 
     def __post_init__(self) -> None:
         check_stopping_rule(self.stopping, self.fluctuation)
+        check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.targeting)
 
 
 def build_submodel(
@@ -487,9 +495,13 @@ def solve_submodel(
     threshold from.  Under ``stopping="relative"`` it is not read.  Under a declared rule a
     missing ``stop`` raises ``ValueError``, so a call site that does not build the context
     fails loudly instead of judging the score on a threshold it had to invent.
+
+    A ``spec.step_bound`` takes the bounded walk of
+    :func:`~cleverly.fluctuation.iterative.solve_fluctuation` under either rule.  Without a
+    bound and under ``stopping="relative"`` the shipped solvers run untouched.
     """
-    if spec.stopping != "relative":
-        if stop is None:
+    if spec.stopping != "relative" or spec.step_bound is not None:
+        if spec.stopping != "relative" and stop is None:
             raise ValueError(STOP_CONTEXT_MISSING)
         return _solve_submodel_ruled(
             scaled, initial, submodel, weights, observed, spec, warn, carry, stop
@@ -534,9 +546,9 @@ def _solve_submodel_ruled(
     spec: TargetingSpec,
     warn: bool,
     carry: Sequence[CarryItem],
-    stop: StopContext,
+    stop: StopContext | None,
 ) -> Fluctuation:
-    """:func:`solve_submodel` under a declared stopping rule."""
+    """:func:`solve_submodel` under a declared stopping rule or a step bound."""
     if spec.targeting == "one_step":
         if carry:
             raise CapabilityError.from_refusal(ONE_STEP_NESTED_REFUSAL)
@@ -569,6 +581,8 @@ def _solve_submodel_ruled(
         carry=carry,
         stopping=spec.stopping,
         stop=stop,
+        step_bound=spec.step_bound,
+        step_search=spec.step_search,
     )
 
 

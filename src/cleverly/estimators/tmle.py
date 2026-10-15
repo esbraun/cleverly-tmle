@@ -134,6 +134,7 @@ from ..exceptions import (
 )
 from ..fluctuation._score import (
     StopContext,
+    check_step_bound,
     check_stopping_rule,
     relative_score,
     score_columns,
@@ -740,6 +741,10 @@ class TMLE:
         The rule that decides the score equation is solved: ``"relative"`` (default),
         ``"scaled_var"`` or ``"sample_size"``; see :class:`cleverly.Targeting`.
         ``"relative"`` tests the relative score norm against ``tol``, as before.
+    step_bound, step_search:
+        ``step_bound=None`` takes the full Newton step. A positive number replaces it by the
+        ``tmle3`` constrained step of at most that length, along the normalised score;
+        ``step_search=False`` takes the whole bound. See :class:`cleverly.Targeting`.
     run_id:
         An identifier of your own -- an experiment id, a ticket number -- recorded on
         :attr:`TMLEResult.provenance`.  The library records no git commit of its own:
@@ -878,6 +883,8 @@ class TMLE:
         max_iter: int = 20,
         tol: float = 1e-10,
         stopping: StoppingRule = "relative",
+        step_bound: float | None = None,
+        step_search: bool = True,
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
@@ -933,6 +940,8 @@ class TMLE:
         self.max_iter = max_iter
         self.tol = tol
         self.stopping = stopping
+        self.step_bound = step_bound
+        self.step_search = step_search
         self.random_state = random_state
         self.n_jobs = n_jobs
         self._validate_settings()
@@ -994,6 +1003,7 @@ class TMLE:
                 "fluctuation='linear'"
             )
         check_stopping_rule(self.stopping, self.fluctuation)
+        check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.targeting)
         if not 0.0 < self.alpha_sig < 1.0:
             raise ValueError(f"alpha_sig must lie in (0, 1); got {self.alpha_sig}")
         if not 0.0 < self.nuisance_bound < 0.5:
@@ -4007,6 +4017,8 @@ class TMLE:
             tol=self.tol,
             step_size=self.step_size,
             stopping=self.stopping,
+            step_bound=self.step_bound,
+            step_search=self.step_search,
         )
 
     def _fold_strata(self, data: CausalData) -> FloatArray | None:

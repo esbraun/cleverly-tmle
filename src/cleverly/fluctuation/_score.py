@@ -40,10 +40,13 @@ __all__ = [
     "LINEAR_RULE_REFUSAL",
     "RESIDUAL_LINE",
     "RULE_FAILURE_LINE",
+    "STEP_BOUND_ONE_STEP_REFUSAL",
+    "STEP_SEARCH_REFUSAL",
     "STOPPING_RULES",
     "STOP_CONTEXT_MISSING",
     "StopContext",
     "absolute_score_weights",
+    "check_step_bound",
     "check_stopping_rule",
     "quasi_loglik",
     "relative_score",
@@ -158,6 +161,76 @@ def check_stopping_rule(stopping: object, fluctuation: FluctuationKind | str) ->
             f"stopping must be 'relative', 'scaled_var' or 'sample_size'; got {stopping!r}"
         )
     if stopping != "relative" and fluctuation == "linear":
+        raise MethodConfigurationError.from_refusal(LINEAR_RULE_REFUSAL)
+
+
+#: The refusal of a step bound beside ``targeting="one_step"``, which already walks the universal
+#: least-favorable submodel in steps of ``step_size``.
+STEP_BOUND_ONE_STEP_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "algorithm='one_step' already walks the universal least-favorable submodel in steps of "
+    "step_size.",
+    "step_bound= bounds the steps of algorithm='iterative'.",
+)
+
+#: The refusal of ``step_search=False`` without a step bound, which has no step to choose.
+STEP_SEARCH_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "step_search= chooses how a bounded step is taken, so it needs step_bound=",
+)
+
+
+def check_step_bound(
+    step_bound: object,
+    step_search: object,
+    fluctuation: FluctuationKind | str,
+    targeting: str = "iterative",
+) -> None:
+    """Refuse a step bound that is malformed, or that its algorithm or fluctuation cannot take.
+
+    The checks run in this order, so each setting meets the most specific refusal first.
+
+    Parameters
+    ----------
+    step_bound : float or None
+        The longest step of one outer iteration, in ``epsilon`` units.  ``None`` takes the full
+        Newton step.
+    step_search : bool
+        Whether a bounded step minimises the quasi-loss along its direction (``True``) or takes
+        the whole bound (``False``).
+    fluctuation : {"logistic", "linear"}
+        The fluctuation the step belongs to.
+    targeting : {"iterative", "one_step"}
+        The algorithm the step belongs to.
+
+    Raises
+    ------
+    ValueError
+        If ``step_bound`` is not ``None`` or a positive finite number, or ``step_search`` is
+        not a bool.
+    MethodConfigurationError
+        If ``step_search=False`` has no ``step_bound``, if the bound meets ``targeting=
+        "one_step"``, or if it meets ``fluctuation="linear"``.
+    """
+    if step_bound is not None and not (
+        isinstance(step_bound, (int, float, np.integer, np.floating))
+        and not isinstance(step_bound, (bool, np.bool_))
+        and bool(np.isfinite(step_bound))
+        and step_bound > 0
+    ):
+        raise ValueError(
+            f"step_bound must be a positive finite number; got {step_bound!r}. "
+            "step_bound=None takes the full Newton step"
+        )
+    if not isinstance(step_search, (bool, np.bool_)):
+        raise ValueError(f"step_search must be True or False; got {step_search!r}")
+    if step_bound is None:
+        if not step_search:
+            raise MethodConfigurationError.from_refusal(STEP_SEARCH_REFUSAL)
+        return
+    if targeting == "one_step":
+        raise MethodConfigurationError.from_refusal(STEP_BOUND_ONE_STEP_REFUSAL)
+    if fluctuation == "linear":
         raise MethodConfigurationError.from_refusal(LINEAR_RULE_REFUSAL)
 
 
