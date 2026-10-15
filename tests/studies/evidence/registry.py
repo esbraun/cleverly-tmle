@@ -434,6 +434,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_crossfit_longitudinal_msm import (
         STUDY as CROSSFIT_LONGITUDINAL_MSM,
     )
+    from tests.studies.canonical_ctmle_derivative import STUDY as CANONICAL_CTMLE_DERIVATIVE
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_oat_per_arm import STUDY as CTMLE_OAT_PER_ARM
     from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
@@ -561,6 +562,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
         CANONICAL_CTMLE_SEQUENCES,
+        CANONICAL_CTMLE_DERIVATIVE,
         CANONICAL_CTMLE_OAT,
         CANONICAL_MULTI_ARM_CTMLE_OAT,
         CANONICAL_DRTMLE,

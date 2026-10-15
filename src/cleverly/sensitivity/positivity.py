@@ -1549,7 +1549,9 @@ def truncation_curve(
     observation- or intermediate-mechanism sweep uses ``(bound, 1)``.  On an ordinary,
     collaborative, or unguarded
     doubly-robust fit only the targeting step is re-run -- the nuisance fits are cached
-    -- so each bound costs a small fraction of the original fit.
+    -- so each bound costs a small fraction of the original fit.  A
+    ``CTMLE(strategy="derivative")`` fit also re-runs its derivative update at each bound,
+    because both of its mechanisms are bounded there.
 
     A **guarded DR-TMLE** fit is the exception, and it is why the combined report prices
     this operation per result rather than per operation.  Its targeting step alternates

@@ -766,7 +766,8 @@ class TMLEMethod:
             split_plan=cross.split_plan,
             n_bootstrap=self.inference.n_bootstrap,
             stratify_folds=cross.stratify_by,
-            collaborative=self._collaborative and getattr(self, "strategy", None) != "oat",
+            collaborative=self._collaborative
+            and getattr(self, "strategy", None) not in ("oat", "derivative"),
             option_name="enabled",
         )
         if refusal is not None:
@@ -948,12 +949,14 @@ class CollaborativeTMLEMethod(TMLEMethod):
         Seed, run identifier, and parallelism.
     name : str
         Stable method name.
-    strategy : {"greedy", "ordered", "discrete", "lasso", "learners", "oat"}, default="greedy"
+    strategy : {"greedy", "ordered", "discrete", "lasso", "learners", "derivative", "oat"}, \
+default="greedy"
         Collaborative search strategy. ``"greedy"``, ``"ordered"``, ``"discrete"``,
         ``"lasso"`` and ``"learners"`` report no confidence interval, no p-value and no
         standard error, with two exceptions that the Notes state. F18 in the roadmap holds
         the reason. ``"oat"`` reports no interval on either design, for the reason F19
-        holds.
+        holds. ``"derivative"`` is C-TMLE0. It selects nothing and reports the ordinary
+        TMLE interval.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None
@@ -977,11 +980,15 @@ class CollaborativeTMLEMethod(TMLEMethod):
     lambdas : tuple of float or None, default=None
         The penalty grid of ``strategy="lasso"``: two or more penalties, strictly
         decreasing, with 0 allowed only as the last value. ``None`` uses ``glmnet``'s default
-        grid with 0 appended.
+        grid with 0 appended. Under ``strategy="derivative"``, the pair ``(mechanism,
+        partner)`` of two different penalties, or ``None`` to choose the mechanism penalty by
+        cross-validation.
     treatment_candidates : tuple or None, default=None
         The declared candidates of ``strategy="learners"``, from the least to the most
         adaptive: unfitted learners, or :class:`~cleverly.estimators.PropensityArrays`
         pairs. ``treatment_learner`` on every covariate is appended as the last candidate.
+        Under ``strategy="derivative"``, the pair ``(mechanism, partner)`` of two unfitted
+        learners or two arrays of treatment probabilities.
     selection_split : tuple of int or None, default=None
         Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
         selection split. ``selection_folds`` must equal ``V``.
@@ -1009,6 +1016,10 @@ class CollaborativeTMLEMethod(TMLEMethod):
     ``strategy="oat"`` selects nothing, and it keeps the diagnostic only on either design:
     condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1, fails for an
     estimated outcome regression.
+
+    ``strategy="derivative"`` adds a derivative column for each arm to one TMLE update.
+    The columns contain the clever covariates, so the update solves the efficient influence
+    curve equation, and the fit reports the ordinary TMLE interval.
 
     Examples
     --------

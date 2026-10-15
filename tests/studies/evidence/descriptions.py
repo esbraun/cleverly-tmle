@@ -518,6 +518,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
     "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
     "cleverly-competing-ltmle": "`cleverly` competing-risk LTMLE",
+    "cleverly-ctmle-derivative": "`cleverly` C-TMLE0 derivative covariate",
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-ctmle-sequences": "`cleverly` C-TMLE lasso and declared-learner sequences",
@@ -638,6 +639,11 @@ SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
     "binary_lasso": "binary-outcome law, lasso candidate sequence",
     "binary_learners": "binary-outcome law, four declared lasso learners",
+    "binary_declared_pair": "binary-outcome law, both sides at one declared pair of penalties",
+    "binary_pipeline": "binary-outcome law, each side's own penalty cross-validation",
+    "binary_constant_q": (
+        "binary-outcome law, one declared pair of penalties, a constant outcome regression"
+    ),
     "survival": "five visits, a binary baseline treatment held over every node, visit dropout",
     "competing": "four visits, two competing causes, a held binary treatment, visit dropout",
     "three_arm": "three visits, three arms held over every node, a binary L_t at each later visit",
@@ -1547,6 +1553,24 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin, with the reported standard "
         "error still on the scale of the empirical spread",
     ),
+    ("double_robustness", "multi_arm_treatment_correct"): (
+        "three arms with a multinomial lasso and a constant outcome regression, on the "
+        "contrast of arm 1.0 against arm 0.0",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "missing_outcome_treatment_correct"): (
+        "outcomes missing at random with a correct response learner, and an outcome GLM "
+        "that omits a confounder",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "cross_fitted_treatment_correct"): (
+        "five cross-fitting folds, a consistent lasso mechanism, and an outcome GLM that "
+        "omits a confounder",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
     ("double_robustness", "both_wrong_lasso"): (
         "the lasso sequence with a constant outcome regression, so both nuisances are misspecified",
         "bias interval must fall entirely outside the margin",
@@ -1648,6 +1672,23 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("interval_calibration", "correctly_specified"): (
         "both nuisances are correctly specified",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "in_sample"): (
+        "the internal lasso is consistent for the main-terms treatment law, and the outcome "
+        "regression is a correct GLM",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "cross_fitted"): (
+        "the same law and nuisances, cross-fitted over five folds",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "multi_arm"): (
+        "three arms with a multinomial lasso, on the contrast of arm 1.0 against arm 0.0",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "missing_outcome"): (
+        "outcomes are missing at random, with a correct response learner",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
     ("interval_calibration", "flexible_learning"): (
