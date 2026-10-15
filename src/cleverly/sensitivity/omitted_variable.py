@@ -1336,10 +1336,16 @@ class SensitivityBounds:
 
 
 def _confounding_strength(cf_y: float, cf_d: float, rho: float) -> float:
-    """``|rho| sqrt(cf_y cf_d / (1 - cf_d))``, the multiplier on the bias scale."""
-    for name, value in (("cf_y", cf_y), ("cf_d", cf_d)):
-        if not 0.0 <= value < 1.0:
-            raise ValueError(f"{name} must lie in [0, 1); got {value}")
+    """``|rho| sqrt(cf_y cf_d / (1 - cf_d))``, the multiplier on the bias scale.
+
+    ``cf_y`` is the share ``eta^2`` of residual outcome variation, so it lies in ``[0, 1]``
+    and the bound is finite at ``cf_y = 1`` (Theorem 2 of Chernozhukov et al., 2026).
+    ``cf_d = 1`` divides by zero, so ``cf_d`` lies in ``[0, 1)``.
+    """
+    if not 0.0 <= cf_y <= 1.0:
+        raise ValueError(f"cf_y must lie in [0, 1]; got {cf_y}")
+    if not 0.0 <= cf_d < 1.0:
+        raise ValueError(f"cf_d must lie in [0, 1); got {cf_d}. At cf_d = 1 the bound is unbounded")
     if not 0.0 <= abs(rho) <= 1.0:
         raise ValueError(f"|rho| must lie in [0, 1]; got {rho}")
     return float(abs(rho) * np.sqrt(cf_y * cf_d / (1.0 - cf_d)))
@@ -1356,23 +1362,67 @@ def _one_sided_quantile(level: float, df: int | None = None) -> float:
     return one_sided_quantile(level, df)
 
 
+def _benchmark_strengths(
+    result: TMLEResult,
+    estimand: str,
+    benchmark: BenchmarkResult,
+    cf_y: float | None,
+    cf_d: float | None,
+) -> tuple[float, float]:
+    """The ``(cf_y, cf_d)`` a benchmark of this fit and estimand assigns to the bound.
+
+    The gains enter unchanged.  Remark 8 of Appendix E.5 of Chernozhukov et al.
+    (arXiv:2112.13398v6) states that, with ``k_Y = k_D = 1``, the gain metrics serve as
+    proxies for the sensitivity parameters themselves.  ``share = gain / (1 + gain)`` would
+    be a different, narrower calibration that no cited source gives.
+    """
+    if not isinstance(benchmark, BenchmarkResult):
+        raise TypeError(f"benchmark must be a BenchmarkResult; got {type(benchmark).__name__}")
+    supplied = [name for name, value in (("cf_y", cf_y), ("cf_d", cf_d)) if value is not None]
+    if supplied:
+        raise ValueError(
+            f"benchmark= sets cf_y and cf_d, so {' and '.join(supplied)} cannot also be passed"
+        )
+    if benchmark.estimand != estimand:
+        raise ValueError(
+            f"the benchmark is of {benchmark.estimand!r}, and this bound is of {estimand!r}. "
+            f"Pass estimand={benchmark.estimand!r}, or benchmark {estimand!r}"
+        )
+    if benchmark.psi_long != result[estimand].psi:
+        raise ValueError(
+            f"the benchmark was computed on another fit: its full-fit estimate is "
+            f"{benchmark.psi_long!r}, and this fit reports {result[estimand].psi!r}"
+        )
+    if benchmark.cf_d >= 1.0:
+        raise ValueError(
+            f"a confounder as strong as {list(benchmark.covariates)} has a cf_d gain of "
+            f"{benchmark.gain_d:.4g}. The bound is unbounded at cf_d = 1, so this benchmark "
+            "calibrates no finite bound"
+        )
+    return benchmark.cf_y, benchmark.cf_d
+
+
 def omitted_variable_bounds(
     result: TMLEResult,
     estimand: str = "ate",
     *,
-    cf_y: float = 0.03,
-    cf_d: float = 0.03,
+    cf_y: float | None = None,
+    cf_d: float | None = None,
     rho: float = 1.0,
     level: float = 0.95,
     null_hypothesis: float = 0.0,
     nu2_estimator: str = "auto",
+    benchmark: BenchmarkResult | None = None,
 ) -> SensitivityBounds:
     """Bias-adjusted bounds and robustness values for one estimand.
 
     Defaults follow the convention of assuming a confounder with ``cf_y = cf_d = 0.03``,
     with worst-case alignment (``rho = 1``).  Prefer
     reading :attr:`SensitivityBounds.robustness_value`, which needs no assumption at
-    all.
+    all.  ``benchmark=`` takes the strengths from a :func:`benchmark` of this fit
+    instead.  Its gain statistics are the published proxies for the two shares
+    (Chernozhukov et al., arXiv:2112.13398v6, Appendix E.5, Remark 8), so they enter the
+    bound unchanged.
 
     Parameters
     ----------
@@ -1380,19 +1430,25 @@ def omitted_variable_bounds(
         A fitted result.
     estimand : str
         Alias to bound.
-    cf_y : float
-        Assumed share of residual outcome variation the confounder explains.
-    cf_d : float
+    cf_y : float or None
+        Assumed share of residual outcome variation the confounder explains, in
+        ``[0, 1]``.  ``None`` means 0.03, or the benchmark's ``cf_y`` with ``benchmark=``.
+    cf_d : float or None
         Assumed share of the Riesz representer's second moment that only the confounder
-        adds. For the ATE it is the gain in precision of the treatment model.
+        adds, in ``[0, 1)``. For the ATE it is the gain in precision of the treatment
+        model.  ``None`` means 0.03, or the benchmark's ``cf_d`` with ``benchmark=``.
     rho : float
-        How adversarially the two are aligned. ``1.0`` is the worst case.
+        How adversarially the two are aligned. ``1.0`` is the worst case.  A benchmark
+        does not set it.  Pass ``rho=benchmark.rho`` to use the benchmark's alignment.
     level : float
         Coverage level of the reported limits.
     null_hypothesis : float
         Value the robustness values are measured against.
     nu2_estimator : {"auto", "doubly_robust", "plugin"}
         Which estimator of the Riesz second moment to use.
+    benchmark : BenchmarkResult or None
+        A benchmark of this fit and this estimand.  Its ``cf_y`` and ``cf_d`` become the
+        assumed strengths, so ``cf_y=`` and ``cf_d=`` must be omitted.
 
     Returns
     -------
@@ -1408,15 +1464,20 @@ def omitted_variable_bounds(
     Raises
     ------
     ValueError
-        If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`, if ``cf_y`` or
-        ``cf_d`` lies outside ``[0, 1)``, if ``|rho|`` exceeds one, or if ``level``
-        lies outside ``[0.5, 1)``.
+        If ``nu2_estimator`` is not one of :data:`NU2_ESTIMATORS`, if ``cf_y`` lies
+        outside ``[0, 1]`` or ``cf_d`` outside ``[0, 1)``, if ``|rho|`` exceeds one, or if
+        ``level`` lies outside ``[0.5, 1)``.  With ``benchmark=``, also if ``cf_y=`` or
+        ``cf_d=`` is passed, or if the benchmark is of another estimand or another fit.
     CapabilityError
         On every refusal :func:`sensitivity_elements` raises: a fit the rule table
         refuses, an estimand the bound does not cover, or a doubly robust estimate of
         ``nu^2`` that is not positive.
     """
     _one_sided_quantile(level)
+    if benchmark is not None:
+        cf_y, cf_d = _benchmark_strengths(result, estimand, benchmark, cf_y, cf_d)
+    cf_y = 0.03 if cf_y is None else cf_y
+    cf_d = 0.03 if cf_d is None else cf_d
     elements = sensitivity_elements(result, estimand, nu2_estimator=nu2_estimator)
     estimate = result[estimand]
     quantile = _one_sided_quantile(level, estimate.reference_df)
@@ -1571,13 +1632,16 @@ class BenchmarkResult:
         The observed covariates the strength is calibrated against.
     cf_y : float
         Gain in explained outcome variation from adjusting for those covariates,
-        ``(R^2_long - R^2_short) / (1 - R^2_long)``, clipped to ``[0, 1]``.
+        ``(R^2_long - R^2_short) / (1 - R^2_long)``, clipped to ``[0, 1]``.  The raw value
+        is :attr:`gain_y`.
     cf_d : float
         Gain in the Riesz representer's second moment from adjusting for those
-        covariates, ``(nu2_long - nu2_short) / nu2_short``, clipped to ``[0, 1]``. This
-        gain form is the benchmark convention of Chernozhukov et al.
-        (arXiv:2112.13398v6, Appendix E.5, Remark 8) and of DoubleML. It is not the share that
-        :func:`omitted_variable_bounds` takes as ``cf_d``.
+        covariates, ``(nu2_long - nu2_short) / nu2_short``, clipped to ``[0, 1]``.  The raw
+        value is :attr:`gain_d`.  Both gains are the benchmark convention of Chernozhukov
+        et al. (arXiv:2112.13398v6, Appendix E.5, Remark 8) and of DoubleML.  Remark 8
+        states that they serve as proxies for the shares that
+        :func:`omitted_variable_bounds` takes, so they enter it unchanged.  Pass the
+        whole record as ``benchmark=``.
     rho : float
         The implied alignment of the two.
     delta_psi : float
@@ -1597,6 +1661,11 @@ class BenchmarkResult:
     random_state : int or None
         Seed this benchmark ran under.  Pass it back to :func:`benchmark` to obtain the
         benchmark again.  ``None`` only on a record built without a seed.
+
+    Attributes
+    ----------
+    gain_y : float
+    gain_d : float
     """
 
     estimand: str
@@ -1617,6 +1686,28 @@ class BenchmarkResult:
     #: cache the first one.
     random_state: int | None = None
 
+    @property
+    def gain_y(self) -> float:
+        """The unclipped outcome gain, ``sigma2_short / sigma2_long - 1``.
+
+        A value above 1 says that a confounder as strong as the benchmark covariates would
+        explain all of the remaining outcome variation.  ``cf_y`` then holds the largest
+        share, 1.
+        """
+        if self.sigma2_long <= 0.0:
+            return float("inf")
+        return float(self.sigma2_short / self.sigma2_long - 1.0)
+
+    @property
+    def gain_d(self) -> float:
+        """The unclipped Riesz gain, ``nu2_long / nu2_short - 1``.
+
+        A value of 1 or more gives ``cf_d = 1``, at which the bound is unbounded.
+        """
+        if self.nu2_short <= 0.0:
+            return float("inf")
+        return float(self.nu2_long / self.nu2_short - 1.0)
+
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation.
 
@@ -1630,6 +1721,8 @@ class BenchmarkResult:
             "covariates": ", ".join(self.covariates),
             "cf_y": self.cf_y,
             "cf_d": self.cf_d,
+            "gain_y": self.gain_y,
+            "gain_d": self.gain_d,
             "rho": self.rho,
             "delta_psi": self.delta_psi,
             "psi_long": self.psi_long,
@@ -1658,9 +1751,25 @@ class BenchmarkResult:
                 ),
                 "",
                 f"implied cf_y = {self.cf_y:.4f}, cf_d = {self.cf_d:.4f}, rho = {self.rho:.4f}",
+                *self._clip_lines(),
                 f"the estimate moved by {self.delta_psi:+.5g} when these covariates were dropped",
             ]
         )
+
+    def _clip_lines(self) -> list[str]:
+        """One line for each gain that the record clips at 1."""
+        lines = []
+        if self.gain_y > 1.0:
+            lines.append(
+                f"cf_y is the gain {self.gain_y:.4g} clipped at 1: a confounder this strong "
+                "explains all remaining outcome variation"
+            )
+        if self.gain_d >= 1.0:
+            lines.append(
+                f"cf_d is the gain {self.gain_d:.4g} clipped at 1: the bound is unbounded "
+                "for a confounder this strong"
+            )
+        return lines
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return self.summary()
@@ -2024,7 +2133,8 @@ def contour_data(
     ------
     ValueError
         If ``bound`` is not ``"lower"`` or ``"upper"``, if ``nu2_estimator`` is not one
-        of :data:`NU2_ESTIMATORS`, if a grid value lies outside ``[0, 1)``, or if
+        of :data:`NU2_ESTIMATORS`, if a ``cf_y`` value lies outside ``[0, 1]`` or a
+        ``cf_d`` value outside ``[0, 1)``, or if
         ``|rho|`` exceeds one.
     CapabilityError
         On every refusal :func:`sensitivity_elements` raises: a fit the rule table
