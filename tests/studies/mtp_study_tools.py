@@ -23,9 +23,11 @@ design.py`` reproduces its recorded outputs.
 ``|rho_hat_j - 1| <= 2.576 sigma_P + 0.01`` (:func:`screen_half_width`).  An arm outside the
 band is diagnosed alone before ``R`` is set from the others.
 
-**Parts.**  :func:`run_in_parts` fits a list of keys in chunks, writes each finished chunk to
-its own compressed CSV, and skips a chunk whose file exists, so a run that a container restart
-stops resumes where it stopped.  The assembled rows do not depend on the chunking.
+**Parts.**  The pilots fit through :func:`run_in_parts`, which fits a list of keys in chunks,
+writes each finished chunk to its own compressed CSV, and skips a chunk whose file exists, so a
+run that a container restart stops resumes where it stopped.  The assembled rows do not depend
+on the chunking.  A study's own property loop runs through ``fit_properties``, which
+checkpoints each key (:func:`property_checkpoint`).
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Hashable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -329,6 +331,24 @@ def gating_findings(
 
 
 # ---------------------------------------------------------------------------- parts
+
+
+def property_checkpoint(default: Path | None = None) -> Path | Literal["ambient"] | None:
+    """Where a study's property loop keeps its finished keys, so a stopped run resumes.
+
+    Under ``tests/canonical/regenerate.py`` the loop runs inside the driver's checkpoint
+    context, whose scratch survives a container restart, and the answer is ``"ambient"``.
+    Outside it a caller names the directory, or the environment variable
+    ``CLEVERLY_STUDY_PARTS`` does, and without either nothing is kept.
+    """
+    from tests.studies.evidence.replication import checkpoint_root
+
+    if checkpoint_root() is not None:
+        return "ambient"
+    if default is not None:
+        return default
+    named = os.environ.get("CLEVERLY_STUDY_PARTS")
+    return Path(named) if named else None
 
 
 def parts_root(default: Path | None = None) -> Path | None:
