@@ -1201,8 +1201,8 @@ tests.studies.sdr_repeated_properties,full_history_necessity,alternative bias eq
 tests.studies.sdr_repeated_properties,full_history_necessity,bias equivalent,bias
 tests.studies.sdr_repeated_properties,full_history_necessity,least displacement over labels,positive_diffuse
 tests.studies.sdr_repeated_properties,interval_calibration,coverage at calibration floor,shift/0.7
-tests.studies.sdr_repeated_properties,interval_calibration,coverage in calibration band,bias
-tests.studies.sdr_repeated_properties,interval_calibration,noise se ratio below band,none
+tests.studies.sdr_repeated_properties,interval_calibration,coverage in calibration band,affine
+tests.studies.sdr_repeated_properties,interval_calibration,noise se ratio below band,se_high
 tests.studies.sdr_repeated_properties,interval_calibration,se ratio at calibration floor,se/0.05
 tests.studies.sdr_repeated_properties,interval_calibration,se ratio below band,se_high
 tests.studies.sdr_repeated_properties,interval_calibration,se ratio in calibration band,affine
