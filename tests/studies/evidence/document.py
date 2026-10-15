@@ -225,6 +225,7 @@ def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
             exact_efficiency=_has_exact_efficiency(row),
             role=str(row.role),
             nuisance_count=record.nuisance_count,
+            slug=record.slug,
             response_nuisance=(
                 "response_correct" in record.property_cells.get(str(row.property), ())
             ),
@@ -352,6 +353,13 @@ def measured(row: Any) -> str:
     if family in {"type_i_error", "power", property_verdicts.WARNING_RATE_FAMILY}:
         return (
             f"rejection {render(float(row.rejection_rate))}, "
+            f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
+        )
+    if family == "isotonic_projection":
+        # Reported, with no margin to read: the share of replications in which the projection
+        # moved the level.
+        return (
+            f"binding share {render(float(row.rejection_rate))}, "
             f"{_interval(row.rejection_ci_lower, row.rejection_ci_upper)}"
         )
     if family == "root_n_and_efficiency":

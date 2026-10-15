@@ -5,7 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
-from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, TargetingScheme
+from ._typing import (
+    FluctuationKind,
+    FoldStrata,
+    GBounds,
+    SurvivalModel,
+    TargetingMethod,
+    TargetingScheme,
+)
 from .exceptions import MethodConfigurationError, Refusal, RefusalReason
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
@@ -121,6 +128,12 @@ IPSI_NO_FLUCTUATION = Refusal(
     "fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or "
     "submodel.",
 )
+#: Why ``method="sdr"`` and ``method="ipsi"`` refuse the hazard and isotonic settings.
+SURVIVAL_CURVE_TMLE_ONLY = (
+    "survival_model=, a hazard targeting= algorithm, step_size= and isotonic= are settings of "
+    "the targeted fit, method='tmle'. The {method} estimator fits no hazard, and no "
+    "registered study measures its projected curve. Fit method='tmle', or remove them"
+)
 #: Why a point treatment refuses the IPSI estimator (R8 in ``test_ipsi_e2e.py``).
 IPSI_POINT_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
@@ -226,6 +239,11 @@ class ModelSpec:
         Absolute correlation threshold used by screening.
     min_retain : int or None
         Minimum number of covariates retained by screening.
+    survival_model : {"iterated_mean", "hazard"}
+        How a longitudinal fit models a survival curve.  ``"hazard"`` targets the
+        cause-specific hazards of a held baseline treatment; see
+        :class:`~cleverly.longitudinal.LTMLE`.  A point-treatment fit refuses
+        ``"hazard"``.
 
     See Also
     --------
@@ -252,6 +270,7 @@ class ModelSpec:
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
+    survival_model: SurvivalModel = "iterated_mean"
 
     def __post_init__(self) -> None:
         for name in (
@@ -379,6 +398,10 @@ class Targeting:
         Maximum targeting iterations.
     tol : float, default=1e-10
         Score-equation convergence tolerance.
+    isotonic : bool, default=False
+        Whether a longitudinal survival fit projects each curve's levels and band limits
+        onto a non-decreasing curve; see :class:`~cleverly.longitudinal.LTMLE`.  A
+        point-treatment fit refuses ``True``.
 
     See Also
     --------
@@ -408,6 +431,7 @@ class Targeting:
     step_size: float = 1e-3
     max_iter: int = 20
     tol: float = 1e-10
+    isotonic: bool = False
 
 
 @dataclass(frozen=True)
@@ -587,6 +611,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "screen_treatment": "screen_treatment",
         "screen_threshold": "screen_threshold",
         "min_retain": "min_retain",
+        "survival_model": "survival_model",
     },
     "cross_fitting": {
         "cross_fit": "enabled",
@@ -609,6 +634,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "step_size": "step_size",
         "max_iter": "max_iter",
         "tol": "tol",
+        "isotonic": "isotonic",
     },
     "inference": {
         "alpha": "alpha",
@@ -629,7 +655,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
 #: Point-engine settings with no longitudinal implementation. The public names are kept beside
 #: their normalized fields so an error names the declaration the caller wrote. ``cross_fit`` is
 #: deliberately absent: the longitudinal translation supports it by resolving ``False`` to
-#: ``n_folds=1``. All 18 settings below must either acquire a longitudinal derivation or remain
+#: ``n_folds=1``. All 14 settings below must either acquire a longitudinal derivation or remain
 #: explicit refusals; dropping one from the translation is never a supported interpretation.
 _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
@@ -644,10 +670,8 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("cross_fitting", "fold_evaluation", "cv_evaluation"),
     ("cross_fitting", "split_plan", "split_plan"),
     ("targeting", "fluctuation", "fluctuation"),
-    ("targeting", "algorithm", "targeting"),
     ("targeting", "nuisance_bound", "nuisance_bound"),
     ("targeting", "target_weights", "target_weights"),
-    ("targeting", "step_size", "step_size"),
 )
 
 
@@ -656,6 +680,17 @@ def _differs_from_default(value: Any, default: Any) -> bool:
     if default is None:
         return value is not None
     return bool(value != default)
+
+
+def _refuse_curve_settings(method: TMLEMethod, name: str) -> None:
+    """Refuse a hazard or isotonic setting on an estimator that is not the targeted fit."""
+    if (
+        method.models.survival_model != "iterated_mean"
+        or method.targeting.algorithm != "iterative"
+        or method.targeting.step_size != Targeting().step_size
+        or method.targeting.isotonic
+    ):
+        raise MethodConfigurationError(SURVIVAL_CURVE_TMLE_ONLY.format(method=name))
 
 
 @dataclass(frozen=True)
@@ -847,6 +882,10 @@ class TMLEMethod:
                     "censoring_learner": models.censoring_learner,
                     "n_bootstrap": inference.n_bootstrap,
                     "bootstrap_resampling": inference.bootstrap_resampling,
+                    "survival_model": models.survival_model,
+                    "targeting": targeting.algorithm,
+                    "step_size": targeting.step_size,
+                    "isotonic": targeting.isotonic,
                 }
             )
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a
@@ -856,6 +895,12 @@ class TMLEMethod:
             if common["n_multiplier"] == "auto":
                 common["n_multiplier"] = DEFAULT_LONGITUDINAL_MULTIPLIER
             return common
+        if models.survival_model != "iterated_mean" or targeting.isotonic:
+            raise MethodConfigurationError(
+                "survival_model= and isotonic= apply to a survival curve over time nodes, and "
+                "a point-treatment functional has no curve. Remove them, or declare a "
+                "longitudinal or TimeToEvent design"
+            )
         if common["n_multiplier"] == "auto":
             common["n_multiplier"] = DEFAULT_POINT_MULTIPLIER
         common.update(
@@ -1235,10 +1280,23 @@ class SDRMethod(TMLEMethod):
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(engine_name))
+        _refuse_curve_settings(self, "SDR")
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol"):
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "survival_model",
+            "targeting",
+            "step_size",
+            "isotonic",
+        ):
             del kwargs[engine_name]
         return kwargs
+
+
+#: The engine each baseline method configures, as the curve-setting refusal names it.
+_BASELINE_ENGINES = {"gcomp": "SequentialGComputation", "ipw": "SequentialIPW"}
 
 
 @dataclass(frozen=True)
@@ -1267,8 +1325,8 @@ class _BaselineMethod(TMLEMethod):
         Raises
         ------
         MethodConfigurationError
-            When ``longitudinal`` is false, or when a fluctuation setting differs from its
-            default.
+            When ``longitudinal`` is false, when a fluctuation setting differs from its
+            default, or when a survival-curve setting of the targeted fit is set.
         """
         if not longitudinal:
             raise MethodConfigurationError.from_refusal(BASELINE_POINT_REFUSAL)
@@ -1284,8 +1342,17 @@ class _BaselineMethod(TMLEMethod):
                 raise MethodConfigurationError.from_refusal(
                     baseline_no_fluctuation_refusal(engine_name)
                 )
+        _refuse_curve_settings(self, _BASELINE_ENGINES[self.name])
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol"):
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "survival_model",
+            "targeting",
+            "step_size",
+            "isotonic",
+        ):
             del kwargs[engine_name]
         return kwargs
 
@@ -1492,7 +1559,16 @@ class IPSIMethod(TMLEMethod):
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(IPSI_NO_FLUCTUATION)
+        _refuse_curve_settings(self, "IPSI")
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol"):
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "survival_model",
+            "targeting",
+            "step_size",
+            "isotonic",
+        ):
             del kwargs[engine_name]
         return kwargs

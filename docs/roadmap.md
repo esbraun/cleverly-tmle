@@ -132,7 +132,6 @@ not change the package version.
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | BP | C-TMLE0: one fluctuation with a derivative clever covariate | published support; pending source read | the shipped `lasso` and `learners` C-TMLE paths | [X30](#x30-c-tmle0-one-fluctuation-with-a-derivative-clever-covariate) |
-| BP | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; oracle diagnostic | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
@@ -144,7 +143,8 @@ not change the package version.
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
 | after beta | Natural and interventional mediation effects | published support; pending source read | target-specific identification and evidence | [X5](#x5-natural-and-interventional-mediation-effects) |
-| after beta | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts; X14 | [X6](#x6-continuous-time-survival-and-competing-risks) |
+| after beta | Continuous-time survival and competing risks | published support; pending source read | continuous-time intensity and targeting contracts | [X6](#x6-continuous-time-survival-and-competing-risks) |
+| after beta | Hazard targeting beyond a held baseline treatment | published support; pending source read | the shipped hazard targeting on a held baseline treatment | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) |
 | after beta | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | after beta | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | after beta | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
@@ -690,36 +690,6 @@ Acceptance:
   derivative columns;
 - a fixture against R `ctmle` type 3 in the pattern of `tests/canonical/ctmle_sequence_witness/`.
 
-### X14. Hazard-based and monotone survival curves
-
-The shipped survival fit targets each horizon in its own backward pass, so the reported curve is
-not constrained to be monotone. The
-[survival-curve evidence page](technical-reference/method-evidence/ordinary-survival-curve-longitudinal-tmle.md)
-states this limit.
-
-| part | what to add | published source | comparator |
-| --- | --- | --- | --- |
-| (a) hazard-based targeting | targeting of the discrete hazard at every horizon, so the curve is a product of targeted hazards | Benkeser, Carone and Gilbert (2018), *Statistics in Medicine* 37(2) | `survtmle` `method = "hazard"` |
-| (b) one-step whole-curve targeting | one targeting step that solves the score equations of every horizon together, with a simultaneous band over the curve | Cai and van der Laan (2020), *Biometrics* 76(3), the one-step survival paper. It is a different paper from their HAL bootstrap paper | MOSS |
-
-Both parts need a pinned commit of their comparator, because `survtmle` and MOSS are archived on
-CRAN. Part (b) supplies a one-step band over the whole curve. `tmle3` `tmle_survival` at the
-pinned `ed72f8a` is a second part (b) candidate. It takes constrained hazard steps, a binary
-treatment, and the grid $1, \dots, \max \tilde T$. A pairing must give it the grid of the
-`cleverly` fit.
-
-Both parts start from the
-[held point-treatment design](technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes) and from `TimeToEvent`, which carry the per-node
-indicators, the masks, the censoring and the grid. The `survtmle` runner of the
-`point-treatment-survival` study takes `method=`, so part (a) needs no new image. The
-[survival-curve study](technical-reference/method-evidence/ordinary-survival-curve-longitudinal-tmle.md)
-measures the band of the shipped per-horizon curve.
-
-Acceptance:
-
-- exact-law witnesses for each targeting construction;
-- a test that each curve is monotone on a law where per-horizon targeting is not;
-- a registered study with joint coverage over the horizons.
 
 ### X22. Targeting and fitting options
 
@@ -737,9 +707,15 @@ theory. Each option keeps every default fit bit-identical, and each changes a fi
 | (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
 | (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |
 | (i) separate treatment covariates | fit the treatment mechanism on a declared subset of the adjustment set | a smaller propensity model. A strict subset changes the remainder, so the item states its interval contract before it ships | `ctmle` `Wg` |
+| (j) pooled-over-time regressions | fit one hazard regression and one censoring regression over every node, with the node as a covariate, in place of one regression per node | a fit with fewer events per node. A pooled fit is a nuisance choice for `survival_model="hazard"` | `survtmle`, MOSS and `tmle3` `tmle_survival` |
 
 At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
 node's density ratio, which the fit stores as `RegimenFit.node_ratio`.
+
+Part (h) covers `survtmle` `method = "hazard"` as well as `method = "mean"`. On a fit with
+`survival_model="hazard"`, it bounds each node's cause-specific hazard. Part (j) applies to a fit
+with `survival_model="hazard"`, which today fits one hazard regression per node and cause and one censoring regression per
+node.
 
 Acceptance: for each part, a test that the default fit is bit-identical to the fit before the
 option, and a witness on a law where the option binds. Parts (d) and (e) also name their
@@ -1034,12 +1010,33 @@ Rytgaard, Eriksson and van der Laan (2023). Its last release is 1.0.5, and CRAN 
 
 That comparator takes a binary baseline treatment under a static or dynamic intervention, which
 bounds the paired cells a first study can claim. A discrete-time study is not evidence for a
-continuous-time interval, so the existing longitudinal rows do not transfer. The whole-curve
-targeting of [X14](#x14-hazard-based-and-monotone-survival-curves) comes first. On a discrete
-grid, a `concrete` intervention on the baseline treatment is a
+continuous-time interval, so the existing longitudinal rows do not transfer. The discrete-time
+whole-curve targeting has shipped as
+[hazard-based survival targeting](technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting),
+with `survival_model="hazard"` and `targeting="one_step"`. On a discrete grid, a `concrete` intervention on the baseline treatment is a
 [held point-treatment design](technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes) with a plan at node 1. A stochastic intervention is a
 [known stochastic policy](technical-reference/longitudinal-tmle.md#known-stochastic-policies) at
 that node.
+
+### X70. Hazard targeting beyond a held baseline treatment
+
+`LTMLE` with `survival_model="hazard"` supports one categorical baseline treatment held over every
+node, with baseline covariates only. The
+[hazard and isotonic survival refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)
+list each design it refuses. Each refusal names `survival_model="iterated_mean"` with
+`isotonic=True` as the working alternative.
+
+| part | what to add | published source |
+| --- | --- | --- |
+| (a) a treatment at several nodes | a hazard model and a fluctuation of the treatment mechanism at each decision node | Stitelman, De Gruttola and van der Laan (2012), *The International Journal of Biostatistics* 8(1) |
+| (b) covariates after baseline | a model and a fluctuation of each later covariate, beside the event and censoring hazards | Stitelman, De Gruttola and van der Laan (2012) |
+| (c) a continuous baseline treatment or a modified treatment policy | the hazards evaluated at the shifted dose, with the treatment density ratio in the clever covariate | Díaz and van der Laan (2012), *Biometrics* 68(2), for the point-treatment shift |
+| (d) a working model over the hazard curve | MSM coefficients over regimen and horizon cells from the targeted hazards | Rosenblum and van der Laan (2010), *The International Journal of Biostatistics* 6(2) |
+
+Acceptance:
+
+- exact-law witnesses for each new clever covariate, with a mutation control that drops it;
+- a registered study for each part, on a law where the per-horizon and the hazard fits differ.
 
 ### X7. Two-phase and outcome-dependent sampling
 
