@@ -149,7 +149,7 @@ class StudyRecord:
     #: The comparison implementation, or ``None`` for a study with no canonical comparator.
     reference: str | None = None
     #: What the comparison supports, from the roadmap's "Comparisons" table.  Required exactly
-    #: when ``reference`` is set.  ``docs/roadmap.md`` defines the three kinds, and the
+    #: when ``reference`` or ``pending_reference`` is set.  ``docs/roadmap.md`` defines the three kinds, and the
     #: decision rule is the one in ``docs/development/method-benchmarking.md``.
     comparison: (
         Literal["matching implementation", "different estimator", "related target"] | None
@@ -269,10 +269,12 @@ class StudyRecord:
                 "a record whose truth varies by replication cannot declare a reference: the "
                 "paired comparison reads one truth per cell"
             )
-        if (self.comparison is None) != (self.reference is None):
+        named = self.reference or self.pending_reference
+        if (self.comparison is None) != (named is None):
             raise ValueError(
-                "comparison is required exactly when reference is set; "
-                f"got reference={self.reference!r}, comparison={self.comparison!r}"
+                "comparison is required exactly when reference or pending_reference is set; "
+                f"got reference={self.reference!r}, pending_reference="
+                f"{self.pending_reference!r}, comparison={self.comparison!r}"
             )
         if self.comparison is not None and self.comparison not in COMPARISON_KINDS:
             raise ValueError(
