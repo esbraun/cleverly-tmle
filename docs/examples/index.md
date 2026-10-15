@@ -18,7 +18,7 @@ Start with [Point-treatment TMLE](point-treatment-tmle.ipynb).
 | [Intervention axes](interventions.ipynb) | target by risk, raise assigned navigation intensity, or change assignment odds | [entry](../technical-reference/point-treatment-tmle.md#variations) | three policies define three estimands. The intensity policy uses its own continuous law |
 | [Survey non-response](survey-nonresponse.ipynb) | many patients do not return the 30-day transition survey | [entry](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) | a complete-case fit estimates the effect standardized to the respondents' covariate distribution |
 | [Longitudinal TMLE](longitudinal-tmle.ipynb) | navigation at discharge and day seven | [entry](../technical-reference/longitudinal-tmle.md) | one regression cannot adjust for a time-varying confounder and preserve the causal path |
-| [Time-to-event outcomes](longitudinal-survival.ipynb) | plan exit, then readmission and death under repeated navigation | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | coding death as censoring estimates the readmission risk under a hypothetical removal of death. Its arm contrast is a controlled direct effect only under exchangeability and positivity for death given the recorded history. It is not the reported total effect, which leaves death alone |
+| [Time-to-event outcomes](longitudinal-survival.ipynb) | readmission, with death as a competing event and disenrollment as censoring | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | coding death as censoring estimates the readmission risk under a hypothetical removal of death. Its arm contrast is a controlled direct effect only under exchangeability and positivity for death given the recorded history. It is not the reported total effect, which leaves death alone |
 | [MSM projections](msm-projections.ipynb) | three navigation cadences summarized as one trend | [entry](../technical-reference/msm-projections.md) | a linear working model that misses the arm means still defines the parameter it reports |
 
 The health-program tutorials use observational assignment. A randomized offer would identify the
@@ -73,7 +73,7 @@ them can weaken consistency or no interference.
 | outcome | what it is | which pages use it |
 | --- | --- | --- |
 | transition experience | a 30-day patient-reported score, or its top-box indicator | every tutorial except time-to-event outcomes |
-| time-to-event outcomes | plan exit, readmission, or death | [time-to-event outcomes](longitudinal-survival.ipynb) |
+| time-to-event outcomes | readmission or death | [time-to-event outcomes](longitudinal-survival.ipynb) |
 
 The day-seven engagement score in [longitudinal TMLE](longitudinal-tmle.ipynb) is a time-varying
 confounder, not an outcome.
