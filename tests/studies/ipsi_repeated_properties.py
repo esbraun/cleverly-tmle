@@ -7,6 +7,15 @@ enumerated by :mod:`tests.studies.ltmle_repeated_law`.  The labels name the para
 ``ipsi_0.5_t3`` is the mean of ``Y_3`` under the odds tilt 0.5, and ``ipsi_0.5_vs_1.0_t3`` is
 its contrast with the natural course.  The five ``*_t3`` labels are the gated labels.
 
+What the in-sample arms do not exercise
+---------------------------------------
+
+In sample, the cell-means outcome learner reproduces every seen cell, so the outcome-residual
+correction of the one-step estimator is exactly zero on seen cells.  The in-sample cells
+therefore test the plug-in and the mechanism terms, and not the residual term.  Only the
+cross-fit arms and ``single_robustness`` exercise the residual term with a nonzero residual.
+Tests E5, E6, N9 and W1 cover that term exactly.
+
 Declared before any run
 -----------------------
 
@@ -125,6 +134,7 @@ from tests.studies.canonical_ipsi_repeated import (
     HISTORY_FREE_LABELS,
     JOINT_LABEL,
     LABELS,
+    PRIMARY_N,
     REFERENCE,
     REFERENCE_DELTA,
     SCENARIO_FOLDS,
@@ -162,8 +172,12 @@ from tests.studies.ltmle_repeated_properties import CellMeansBackoff, booster
 
 MARGINS = STUDY.margins
 N = 2_000
-#: The sample size of every ``interval_calibration`` arm and of the booster arm.
+#: The sample size of the in-sample and cross-fit ``interval_calibration`` arms and of the booster
+#: arm.  The C1 and C3 ``n`` rules act on this size.
 CALIBRATION_N = 8_000
+#: The sample size of the C6 arm (``continuous``).  It is declared apart from
+#: :data:`CALIBRATION_N`, so the C6 ``n`` rule doubles this size alone.
+CONTINUOUS_N = 8_000
 #: The sample size of N1 and N2.  The ``n`` rule may double them, twice at most.
 ABSORBING_N = 8_000
 HISTORY_FREE_N = 8_000
@@ -493,8 +507,15 @@ def sample(configuration: str, seed: int, n: int = N) -> pd.DataFrame:
     return frame
 
 
+def fit_n(family: str, configuration: str) -> int:
+    """The sample size of one fit set: the C6 arm has its own size."""
+    if family == "interval_calibration" and configuration == "continuous":
+        return CONTINUOUS_N
+    return family_n(family)
+
+
 def family_n(family: str) -> int:
-    """The sample size a property family draws."""
+    """The sample size a property family draws (the C6 arm: see :func:`fit_n`)."""
     if family in {"interval_calibration", "booster_calibration"}:
         return CALIBRATION_N
     if family == "repeated_outcome_necessity":
@@ -669,7 +690,16 @@ def _payloads(
         for replicate in range(replicates):
             seed = stream_seed(STUDY, "property_sample", family, configuration, replicate)
             payloads.append(
-                ((family, configuration, replicate, replicates, seed, family_n(family)),)
+                (
+                    (
+                        family,
+                        configuration,
+                        replicate,
+                        replicates,
+                        seed,
+                        fit_n(family, configuration),
+                    ),
+                )
             )
     return payloads
 
@@ -822,13 +852,19 @@ def effective_cells(labels: Sequence[str]) -> float:
 #: Pilot P4 (primary): the covered count and the standardized bias of each ``scenario/label``
 #: cell over :data:`PRIMARY_PILOT_REPLICATES` draws at ``n = PRIMARY_N`` from the pilot stream.
 PRIMARY_PILOT_REPLICATES = 2_000
+#: The sample size P4 ran at.  A recorded table must equal :data:`PRIMARY_N` of the same module.
+PRIMARY_PILOT_N = 8_000
 PRIMARY_PILOT_COVERED = {f"{scenario}/{name}": 1_900 for scenario in SCENARIOS for name in LABELS}
 PRIMARY_PILOT_BIASES = {f"{scenario}/{name}": 0.0 for scenario in SCENARIOS for name in LABELS}
+#: Mean reported standard error over the empirical spread of the estimate, by cell (reported).
+PRIMARY_PILOT_RATIOS = {f"{scenario}/{name}": 1.0 for scenario in SCENARIOS for name in LABELS}
 
 #: Pilot P5 (calibration): the SE ratio and the standardized bias of each gated calibration
 #: cell over :data:`CALIBRATION_PILOT_REPLICATES` draws per arm at :data:`CALIBRATION_N`, and the
 #: joint coverage of the C4 band over the C1 fits.
 CALIBRATION_PILOT_REPLICATES = 8_000
+#: The sample size each P5 arm ran at.  A recorded table must equal the arm's declared size.
+CALIBRATION_PILOT_N = {"in_sample": 8_000, "crossfit": 8_000, "continuous": 8_000}
 CALIBRATION_CELLS = (
     *(f"{name}__in_sample" for name in LABELS),
     *(f"{name}__crossfit" for name in GATED_LABELS),
@@ -836,6 +872,13 @@ CALIBRATION_CELLS = (
 )
 CALIBRATION_PILOT_RATIOS = dict.fromkeys(CALIBRATION_CELLS, 1.0)
 CALIBRATION_PILOT_BIASES = dict.fromkeys(CALIBRATION_CELLS, 0.0)
+#: The covered count of each calibration cell over the pilot draws of its arm (reported).
+CALIBRATION_PILOT_COVERED = dict.fromkeys(CALIBRATION_CELLS, 7_600)
+#: The empirical spread of each calibration cell's estimate (reported).  The placeholder is the
+#: efficiency bound over the root of the arm's size, which is the law's own spread.
+CALIBRATION_PILOT_SPREADS = {
+    cell: EFFICIENCY_SD[cell.split("__", 1)[0]] / 8_000**0.5 for cell in CALIBRATION_CELLS
+}
 CALIBRATION_PILOT_JOINT_COVERAGE = 0.95
 #: The realized fallback-read mass of the C6 arm at the third node, by tilt, from P5.  Reported.
 C6_FALLBACK_MASS: dict[str, float] = {}
@@ -858,7 +901,22 @@ def property_cells() -> dict[str, list[str]]:
 #: target (the truth for a positive arm, the control's own limit for a control) over
 #: :data:`PROPERTY_PILOT_REPLICATES` draws at the family's own size.
 PROPERTY_PILOT_REPLICATES = 2_000
+#: The sample size each P6 family ran at.  A recorded table must equal the family's declared size.
+PROPERTY_PILOT_N = {
+    "single_robustness": 2_000,
+    "repeated_outcome_necessity": 8_000,
+    "outcome_history_necessity": 8_000,
+}
 PROPERTY_PILOT_BIASES = {name: 0.0 for names in property_cells().values() for name in names}
+PROPERTY_PILOT_RATIOS = {name: 1.0 for names in property_cells().values() for name in names}
+PROPERTY_PILOT_COVERED = {name: 1_900 for names in property_cells().values() for name in names}
+#: The empirical spread of each cell's estimate.  The discrimination test reads the gaps of the
+#: controls in these spreads once the pilots are recorded.
+PROPERTY_PILOT_SPREADS = {
+    f"{family}/{cell}": EFFICIENCY_SD[cell.split("__", 1)[0]] / PROPERTY_PILOT_N[family] ** 0.5
+    for family, names in property_cells().items()
+    for cell in (key.split("/", 1)[1] for key in names)
+}
 
 
 def bias_target(family: str, cell: str) -> float:
@@ -1061,6 +1119,7 @@ def primary_pilot_task(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
                 "scenario": scenario,
                 "replicate": replicate,
                 "label": name,
+                "n": n,
                 "estimate": float(estimate.psi),
                 "std_error": float(estimate.std_error),
                 "covered": int(low <= TRUTH[estimand] <= high),
@@ -1092,9 +1151,100 @@ def property_pilot_task(payload: tuple[str, int, int]) -> list[dict[str, Any]]:
     return _replication((family, "paired", replicate, 0, seed, n))
 
 
+#: The units of each pilot.  A unit is one fit set the driver can run, re-run or override alone.
+PILOT_UNITS: dict[str, tuple[str, ...]] = {
+    "P4": SCENARIOS,
+    "P5": ("in_sample", "crossfit", "continuous"),
+    "P6": ("single_robustness", "repeated_outcome_necessity", "outcome_history_necessity"),
+}
+
+
+def pilot_declared_n(pilot: str, unit: str) -> int:
+    """The sample size the study declares now for a pilot unit.
+
+    A pilot row is current only when it was drawn at this size.  The ``n`` rules change the
+    constants this reads, and a re-pilot then draws fresh seeds because ``n`` is in the stream.
+    """
+    if pilot == "P4":
+        return PRIMARY_N
+    if pilot == "P5":
+        return CONTINUOUS_N if unit == "continuous" else CALIBRATION_N
+    return family_n(unit)
+
+
+def pilot_recorded_n(pilot: str, unit: str) -> int:
+    """The sample size the pinned pilot table of a unit was drawn at."""
+    if pilot == "P4":
+        return PRIMARY_PILOT_N
+    if pilot == "P5":
+        return CALIBRATION_PILOT_N[unit]
+    return PROPERTY_PILOT_N[unit]
+
+
 def _standardized_bias(group: pd.DataFrame, target: float) -> float:
     estimates = group["estimate"].to_numpy(dtype=float)
     return float((estimates.mean() - target) / estimates.std(ddof=1))
+
+
+def _cell_stats(group: pd.DataFrame, target: float) -> dict[str, float]:
+    """Everything plan 5.7 reads of one pilot cell: count, covered, SE ratio, bias, spread."""
+    estimates = group["estimate"].to_numpy(dtype=float)
+    spread = float(estimates.std(ddof=1))
+    return {
+        "draws": float(len(group)),
+        "covered": float(group["covered"].sum()),
+        "ratio": float(group["std_error"].mean() / spread),
+        "bias": float((estimates.mean() - target) / spread),
+        "spread": spread,
+    }
+
+
+def primary_cell_table(rows: pd.DataFrame) -> pd.DataFrame:
+    """P4: the statistics of each ``scenario/label`` cell."""
+    table = {}
+    for scenario in SCENARIOS:
+        for name in LABELS:
+            group = rows.loc[(rows["scenario"] == scenario) & (rows["label"] == name)]
+            table[f"{scenario}/{name}"] = _cell_stats(group, TRUTH[label_estimand(name)])
+    return pd.DataFrame.from_dict(table, orient="index")
+
+
+def calibration_cell_table(rows: pd.DataFrame) -> pd.DataFrame:
+    """P5: the statistics of each calibration cell."""
+    calibration = rows.loc[rows["property"] == "interval_calibration"]
+    table = {}
+    for cell in CALIBRATION_CELLS:
+        group = calibration.loc[calibration["cell"] == cell]
+        if group.empty:
+            raise ValueError(f"the calibration pilot has no rows for {cell}")
+        table[cell] = _cell_stats(group, float(group["truth"].iloc[0]))
+    return pd.DataFrame.from_dict(table, orient="index")
+
+
+def property_cell_table(rows: pd.DataFrame) -> pd.DataFrame:
+    """P6: the statistics of each ``family/cell`` around its target."""
+    table = {}
+    for family, names in property_cells().items():
+        for key in names:
+            cell = key.split("/", 1)[1]
+            group = rows.loc[(rows["property"] == family) & (rows["cell"] == cell)]
+            if group.empty:
+                raise ValueError(f"the property pilot has no rows for {key}")
+            table[key] = _cell_stats(group, bias_target(family, cell))
+    return pd.DataFrame.from_dict(table, orient="index")
+
+
+def pilot_row_sizes(pilot: str, rows: pd.DataFrame) -> dict[str, set[int]]:
+    """The sample sizes found in pilot rows, by unit.  Rows with no ``n`` column give none."""
+    if "n" not in rows.columns:
+        return {}
+    if pilot == "P4":
+        return {str(u): {int(v) for v in g["n"]} for u, g in rows.groupby("scenario")}
+    if pilot == "P6":
+        return {str(u): {int(v) for v in g["n"]} for u, g in rows.groupby("property")}
+    unit = rows["cell"].astype(str).str.rsplit("__", n=1).str[-1]
+    unit = unit.where(unit.isin(PILOT_UNITS["P5"]), "in_sample")
+    return {str(u): {int(v) for v in g["n"]} for u, g in rows.groupby(unit)}
 
 
 def summarize_primary_pilot(rows: pd.DataFrame) -> tuple[dict[str, int], dict[str, float], int]:
@@ -1103,19 +1253,15 @@ def summarize_primary_pilot(rows: pd.DataFrame) -> tuple[dict[str, int], dict[st
     Returns ``(covered, biases, replicates)``.  The bias is the mean error in empirical
     standard deviations of the estimate.
     """
-    covered: dict[str, int] = {}
-    biases: dict[str, float] = {}
-    counts = set()
-    for scenario in SCENARIOS:
-        for name in LABELS:
-            group = rows.loc[(rows["scenario"] == scenario) & (rows["label"] == name)]
-            key = f"{scenario}/{name}"
-            covered[key] = int(group["covered"].sum())
-            biases[key] = _standardized_bias(group, TRUTH[label_estimand(name)])
-            counts.add(len(group))
+    table = primary_cell_table(rows)
+    counts = set(table["draws"].astype(int))
     if len(counts) != 1:
         raise ValueError(f"the primary pilot cells hold different counts: {sorted(counts)}")
-    return covered, biases, counts.pop()
+    return (
+        {key: int(value) for key, value in table["covered"].items()},
+        {key: float(value) for key, value in table["bias"].items()},
+        counts.pop(),
+    )
 
 
 def summarize_calibration_pilot(
@@ -1123,21 +1269,11 @@ def summarize_calibration_pilot(
 ) -> dict[str, Any]:
     """P5: the SE ratio and standardized bias of each calibration cell, and the C4 coverage.
 
-    Returns a mapping with ``ratios``, ``biases``, ``joint_coverage``, ``replicates`` (the
-    smallest count over the arms) and ``fallback_mass`` (the mean mass by tilt).
+    Returns a mapping with ``ratios``, ``biases``, ``covered``, ``spreads``,
+    ``joint_coverage``, ``replicates`` (the smallest count over the arms) and
+    ``fallback_mass`` (the mean mass by tilt).
     """
-    ratios: dict[str, float] = {}
-    biases: dict[str, float] = {}
-    calibration = rows.loc[rows["property"] == "interval_calibration"]
-    counts = set()
-    for cell in CALIBRATION_CELLS:
-        group = calibration.loc[calibration["cell"] == cell]
-        if group.empty:
-            raise ValueError(f"the calibration pilot has no rows for {cell}")
-        estimates = group["estimate"].to_numpy(dtype=float)
-        ratios[cell] = float(group["std_error"].mean() / estimates.std(ddof=1))
-        biases[cell] = _standardized_bias(group, float(group["truth"].iloc[0]))
-        counts.add(len(group))
+    table = calibration_cell_table(rows)
     band = rows.loc[
         (rows["property"] == "simultaneous_coverage")
         & (rows["cell"] == f"{JOINT_LABEL}__simultaneous_band")
@@ -1147,10 +1283,12 @@ def summarize_calibration_pilot(
         for delta in masses[0]:
             mass[delta] = float(np.mean([entry[delta] for entry in masses]))
     return {
-        "ratios": ratios,
-        "biases": biases,
+        "ratios": {key: float(v) for key, v in table["ratio"].items()},
+        "biases": {key: float(v) for key, v in table["bias"].items()},
+        "covered": {key: int(v) for key, v in table["covered"].items()},
+        "spreads": {key: float(v) for key, v in table["spread"].items()},
         "joint_coverage": float(band["covered"].mean()),
-        "replicates": min(counts),
+        "replicates": int(table["draws"].min()),
         "fallback_mass": mass,
     }
 
@@ -1160,17 +1298,11 @@ def summarize_property_pilot(rows: pd.DataFrame) -> tuple[dict[str, float], int]
 
     Returns ``(biases, replicates)`` with the smallest count over the cells.
     """
-    biases: dict[str, float] = {}
-    counts = set()
-    for family, names in property_cells().items():
-        for key in names:
-            cell = key.split("/", 1)[1]
-            group = rows.loc[(rows["property"] == family) & (rows["cell"] == cell)]
-            if group.empty:
-                raise ValueError(f"the property pilot has no rows for {key}")
-            biases[key] = _standardized_bias(group, bias_target(family, cell))
-            counts.add(len(group))
-    return biases, min(counts)
+    table = property_cell_table(rows)
+    return (
+        {key: float(value) for key, value in table["bias"].items()},
+        int(table["draws"].min()),
+    )
 
 
 def apply_pilot_rules(
@@ -1214,7 +1346,7 @@ def time_fit_sets(seed: int = 0, n: int | None = None) -> dict[tuple[str, str], 
     """
     seconds: dict[tuple[str, str], float] = {}
     for family, configuration, _ in FIT_SETS:
-        size = family_n(family) if n is None else n
+        size = fit_n(family, configuration) if n is None else n
         start = time.perf_counter()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")

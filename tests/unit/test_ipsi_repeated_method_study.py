@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import norm
 
 from tests.canonical.ipsi_repeated import pilot
 from tests.studies import canonical_ipsi_repeated as study
@@ -294,10 +295,158 @@ def test_the_pilot_rules_applied_to_the_placeholder_tables_give_the_declared_siz
     assert not verdicts["c6_n_rule_fires"]
 
 
-def test_the_discrimination_checks_hold_their_share() -> None:
-    k = 55
-    assert k == 8 + 12 + 4 + 30 + 1
+def _arm_spread(family: str, cell: str, n: int) -> float:
+    """The spread of a cell's estimate: the pilot's once recorded, else the law's own."""
+    if study.PILOT_STATE == "recorded":
+        return properties.PROPERTY_PILOT_SPREADS[f"{family}/{cell}"]
+    name = cell.split("__", 1)[0]
+    return properties.EFFICIENCY_SD[name] / np.sqrt(n)
+
+
+def _joint_control_probability() -> float:
+    """P(the pointwise joint control's 99% interval lies below the nominal rate).
+
+    The control's exact limit is the joint coverage of fifteen pointwise intervals under the
+    law's correlation of the influence curves (plan 5.4).  A fixed-seed draw of the normal
+    vector gives that limit, and the interval is the Wald interval of the count.
+    """
+    correlation = properties.label_correlations(study.LABELS)
+    draws = np.random.default_rng(0).multivariate_normal(
+        np.zeros(len(study.LABELS)), correlation, size=200_000
+    )
+    critical = float(norm.ppf(1.0 - properties.MARGINS.alpha / 2.0))
+    limit = float(np.mean(np.all(np.abs(draws) <= critical, axis=1)))
+    replicates = properties.CALIBRATION_REPLICATES
+    z = float(norm.ppf(0.5 + properties.MARGINS.confidence_level / 2.0))
+    se = np.sqrt(limit * (1.0 - limit) / replicates)
+    nominal = 1.0 - properties.MARGINS.alpha
+    return float(norm.cdf((nominal - limit) / se - z))
+
+
+def _discrimination_probabilities() -> dict[str, float]:
+    """The pass probability of every control that must miss its truth, at the declared sizes."""
+    margins = properties.MARGINS
+    out: dict[str, float] = {}
+    controls = (
+        ("single_robustness", properties.ONE_STEP_LIMIT, study.SINGLE_ROBUSTNESS_ARMS[1]),
+        ("repeated_outcome_necessity", properties.ABSORBING_LIMIT, study.ABSORBING_ARMS[1]),
+        ("outcome_history_necessity", properties.HISTORY_FREE_LIMIT, study.HISTORY_FREE_ARMS[1]),
+    )
+    replicates = {
+        "single_robustness": properties.SINGLE_ROBUSTNESS_REPLICATES,
+        "repeated_outcome_necessity": properties.ABSORBING_REPLICATES,
+        "outcome_history_necessity": properties.HISTORY_FREE_REPLICATES,
+    }
+    for family, limits, arm in controls:
+        for name, limit in limits.items():
+            cell = f"{name}__{arm}"
+            spread = _arm_spread(family, cell, properties.family_n(family))
+            gap = (limit - study.TRUTH[study.label_estimand(name)]) / spread
+            out[f"{family}/{cell}"] = sizing.bias_discriminated_probability(
+                margins, gap, replicates[family]
+            )
+    for name in study.LABELS:
+        cell = f"{name}__in_sample"
+        ratio = properties.CALIBRATION_PILOT_RATIOS[cell]
+        for control, factor in (
+            ("shrunken_se_control", properties.SHRUNKEN_SE_FACTOR),
+            ("noise_control", 2.0**-0.5),
+        ):
+            out[f"interval_calibration/{name}__{control}"] = sizing.calibration_control_probability(
+                margins, properties.CALIBRATION_REPLICATES, factor * ratio
+            )
+    out["simultaneous_coverage/pointwise_joint_control"] = _joint_control_probability()
+    return out
+
+
+def test_every_control_is_discriminated_at_the_declared_sizes() -> None:
+    """The union bound gives each of 55 checks the pass probability 1 - 0.001 / 55.
+
+    The law gaps stand in for the pilot spreads while ``PILOT_STATE`` is "placeholder".  The
+    test reads the pilot spreads and ratios from the recorded tables once the state changes.
+    """
+    probabilities = _discrimination_probabilities()
+    floor = sizing.discrimination_floor(55)
+    assert floor == pytest.approx(1.0 - 0.001 / 55)
+    assert len(probabilities) == 4 + 6 + 2 + 30 + 1
+    assert len(probabilities) <= 55
+    below = {key: value for key, value in probabilities.items() if value < floor}
+    assert not below, below
     assert sizing.family_share(3) == pytest.approx(0.994556, abs=1e-6)
+
+
+def test_the_discrimination_check_fails_a_control_that_sits_on_the_truth() -> None:
+    """A mutation control: a gap of zero must not clear the floor, or the check is vacuous."""
+    floor = sizing.discrimination_floor(55)
+    probability = sizing.bias_discriminated_probability(
+        properties.MARGINS, 0.0, properties.SINGLE_ROBUSTNESS_REPLICATES
+    )
+    assert probability < floor
+    assert (
+        sizing.calibration_control_probability(
+            properties.MARGINS, properties.CALIBRATION_REPLICATES, 1.0
+        )
+        < floor
+    )
+
+
+def test_each_pilot_table_names_its_size_and_its_replicates() -> None:
+    """A recorded table must come from the declared pilot, at the current declared sizes."""
+    assert properties.PRIMARY_PILOT_N > 0
+    assert set(properties.CALIBRATION_PILOT_N) == set(properties.PILOT_UNITS["P5"])
+    assert set(properties.PROPERTY_PILOT_N) == set(properties.PILOT_UNITS["P6"])
+    if study.PILOT_STATE != "recorded":
+        assert study.PILOT_STATE == "placeholder"
+        return
+    assert properties.PRIMARY_PILOT_REPLICATES == 2_000
+    assert properties.CALIBRATION_PILOT_REPLICATES == 8_000
+    assert properties.PROPERTY_PILOT_REPLICATES == 2_000
+    for pilot_name, recorded in (
+        ("P4", dict.fromkeys(properties.PILOT_UNITS["P4"], properties.PRIMARY_PILOT_N)),
+        ("P5", properties.CALIBRATION_PILOT_N),
+        ("P6", properties.PROPERTY_PILOT_N),
+    ):
+        for unit, size in recorded.items():
+            assert size == properties.pilot_declared_n(pilot_name, unit)
+            assert size == properties.pilot_recorded_n(pilot_name, unit)
+
+
+def test_the_pins_cover_every_cell_the_pilots_report() -> None:
+    primary = {f"{s}/{n}" for s in study.SCENARIOS for n in study.LABELS}
+    assert set(properties.PRIMARY_PILOT_RATIOS) == primary == set(properties.PRIMARY_PILOT_COVERED)
+    cells = set(properties.CALIBRATION_CELLS)
+    assert set(properties.CALIBRATION_PILOT_COVERED) == cells
+    assert set(properties.CALIBRATION_PILOT_SPREADS) == cells
+    declared = {key for names in properties.property_cells().values() for key in names}
+    for table in (
+        properties.PROPERTY_PILOT_BIASES,
+        properties.PROPERTY_PILOT_RATIOS,
+        properties.PROPERTY_PILOT_COVERED,
+        properties.PROPERTY_PILOT_SPREADS,
+    ):
+        assert set(table) == declared
+
+
+def test_the_c6_arm_has_its_own_declared_size() -> None:
+    assert properties.CONTINUOUS_N == properties.CALIBRATION_N == 8_000
+    assert properties.fit_n("interval_calibration", "continuous") == properties.CONTINUOUS_N
+    assert properties.fit_n("interval_calibration", "crossfit") == properties.CALIBRATION_N
+    payload_sizes = {
+        configuration: payload[0][5]
+        for payload in properties._payloads()
+        for family, configuration in [(payload[0][0], payload[0][1])]
+        if family == "interval_calibration"
+    }
+    assert payload_sizes["continuous"] == properties.CONTINUOUS_N
+
+
+def test_doubling_the_c6_size_leaves_the_other_arms_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(properties, "CONTINUOUS_N", 16_000)
+    assert properties.fit_n("interval_calibration", "continuous") == 16_000
+    assert properties.fit_n("interval_calibration", "in_sample") == 8_000
+    assert properties.pilot_declared_n("P5", "continuous") == 16_000
+    assert properties.pilot_declared_n("P5", "crossfit") == 8_000
+    assert properties.fit_n("booster_calibration", "crossfit_boosted") == 8_000
 
 
 def test_the_declared_primary_run_is_refused_while_the_pilots_are_placeholders() -> None:
@@ -339,42 +488,156 @@ def test_the_fit_sets_emit_exactly_the_declared_cells() -> None:
 # ---------------------------------------------------------------------------- the pilot driver
 
 
-def test_the_pilot_task_lists_cover_every_cell() -> None:
-    assert len(pilot.task_list("P4", 3, None)) == 2 * 3
-    assert len(pilot.task_list("P5", 3, None)) == 3 * 3
-    assert len(pilot.task_list("P6", 3, None)) == 3 * 3
-    assert {task[2] for task in pilot.task_list("P6", 1, None)} == {
+@pytest.fixture
+def small_declared(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Declare a small size everywhere, so a pilot unit fits in a fraction of a second."""
+    for name in (
+        "PRIMARY_N",
+        "CALIBRATION_N",
+        "CONTINUOUS_N",
+        "ABSORBING_N",
+        "HISTORY_FREE_N",
+        "N",
+    ):
+        monkeypatch.setattr(properties, name, SMALL_N)
+
+
+def test_the_pilot_task_lists_cover_every_unit() -> None:
+    sizes = {unit: properties.pilot_declared_n("P6", unit) for unit in properties.PILOT_UNITS["P6"]}
+    tasks = pilot.task_list("P6", 3, sizes)
+    assert len(tasks) == 3 * 3
+    assert {task[2] for task in tasks} == {
         properties.N,
         properties.ABSORBING_N,
         properties.HISTORY_FREE_N,
     }
+    assert pilot.resolve_n("P5", ["in_sample", "continuous"], None, {}) == {
+        "in_sample": properties.CALIBRATION_N,
+        "continuous": properties.CONTINUOUS_N,
+    }
+    assert pilot.resolve_n("P5", ["in_sample", "continuous"], 100, {"continuous": 200}) == {
+        "in_sample": 100,
+        "continuous": 200,
+    }
 
 
-def test_the_pilot_driver_writes_parts_and_resumes(
+@pytest.mark.usefixtures("small_declared")
+def test_the_pilot_driver_writes_parts_records_the_plan_and_resumes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "p4"
-    written = pilot.run("P4", out, jobs=1, chunk=2, replicates=2, n=SMALL_N)
+    written = pilot.run("P4", out, jobs=1, chunk=2, replicates=2)
     assert written == 2
     assert len(list(out.glob("part-*.json"))) == 2
-    first = capsys.readouterr().out
-    assert first.count("[P4] part") == 2
-    again = pilot.run("P4", out, jobs=1, chunk=2, replicates=2, n=SMALL_N)
-    assert again == 0
+    assert not list(out.glob("*.tmp"))
+    assert capsys.readouterr().out.count("[P4] part") == 2
+    plan = json.loads((out / "plan.json").read_text())
+    assert plan["resolved_n"] == dict.fromkeys(study.SCENARIOS, SMALL_N)
+    assert set(plan["modules"]) == set(pilot.STUDY_FILES)
+    assert plan["head"]
+    assert pilot.run("P4", out, jobs=1, chunk=2, replicates=2) == 0
     assert "skipped" in capsys.readouterr().out
     with pytest.raises(SystemExit):
-        pilot.run("P4", out, jobs=1, chunk=2, replicates=3, n=SMALL_N)
-    parts = pilot.load_parts("P4", out)
-    assert len(parts) == 4
-    assert json.loads((out / "plan.json").read_text())["pilot"] == "P4"
+        pilot.run("P4", out, jobs=1, chunk=2, replicates=3)
+    with pytest.raises(SystemExit):
+        pilot.run("P4", out, jobs=1, chunk=2, replicates=2, n=SMALL_N + 1)
+    _, by_unit = pilot.load_parts("P4", out)
+    assert {unit: len(results) for unit, results in by_unit.items()} == dict.fromkeys(
+        study.SCENARIOS, 2
+    )
+    row = by_unit["repeated_folds_1"][0][0]
+    assert row["n"] == SMALL_N
 
 
+def test_a_part_that_exists_is_never_replaced(tmp_path: Path) -> None:
+    path = tmp_path / "part-00000000.json"
+    assert pilot._write_once(path, [1])
+    assert not pilot._write_once(path, [2])
+    assert json.loads(path.read_text()) == [1]
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.usefixtures("small_declared")
 def test_the_pilot_driver_runs_the_tail_down_to_an_index(tmp_path: Path) -> None:
     out = tmp_path / "p6"
-    pilot.run("P6", out, jobs=1, chunk=1, replicates=1, n=SMALL_N, start=2, descending=True)
+    pilot.run("P6", out, jobs=1, chunk=1, replicates=1, start=2, descending=True)
     assert [p.name for p in sorted(out.glob("part-*.json"))] == ["part-00000002.json"]
     with pytest.raises(SystemExit, match="missing"):
         pilot.load_parts("P6", out)
+
+
+@pytest.mark.usefixtures("small_declared")
+def test_a_unit_drawn_at_an_old_size_is_refused_until_it_is_rerun(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The N2 path: the n rule doubles HISTORY_FREE_N, only N2 is piloted again, and the
+    assembly reads the old directory for the other two families."""
+    first = tmp_path / "p6"
+    pilot.run("P6", first, jobs=1, chunk=3, replicates=2)
+    chosen, sizes = pilot.collect("P6", [first])
+    assert sizes["outcome_history_necessity"] == SMALL_N
+    monkeypatch.setattr(properties, "HISTORY_FREE_N", 2 * SMALL_N)
+    with pytest.raises(SystemExit, match="no directory supplies"):
+        pilot.collect("P6", [first])
+    assert "skipped outcome_history_necessity" in capsys.readouterr().out
+    second = tmp_path / "p6-n2"
+    pilot.run("P6", second, jobs=1, chunk=3, replicates=2, units=["outcome_history_necessity"])
+    chosen, sizes = pilot.collect("P6", [first, second])
+    assert sizes == {
+        "single_robustness": SMALL_N,
+        "repeated_outcome_necessity": SMALL_N,
+        "outcome_history_necessity": 2 * SMALL_N,
+    }
+    rows = pilot._flatten("P6", [r for unit in properties.PILOT_UNITS["P6"] for r in chosen[unit]])
+    table = properties.property_cell_table(rows)
+    assert set(table.index) == {k for names in properties.property_cells().values() for k in names}
+    assert set(properties.pilot_row_sizes("P6", rows)["outcome_history_necessity"]) == {2 * SMALL_N}
+    # The directory order does not matter for a unit that only one directory supplies.
+    assert pilot.collect("P6", [second, first])[1] == sizes
+
+
+@pytest.mark.usefixtures("small_declared")
+def test_rows_at_the_wrong_size_stop_the_assembly(tmp_path: Path) -> None:
+    out = tmp_path / "p4"
+    pilot.run("P4", out, jobs=1, chunk=2, replicates=1)
+    for part in out.glob("part-*.json"):
+        results = json.loads(part.read_text())
+        for result in results:
+            for row in result:
+                row["n"] = SMALL_N + 5
+        part.write_text(json.dumps(results))
+    with pytest.raises(SystemExit, match="the rows of"):
+        pilot.collect("P4", [out])
+
+
+@pytest.mark.usefixtures("small_declared")
+def test_an_older_plan_is_stamped_once_and_only_without_an_n_override(tmp_path: Path) -> None:
+    out = tmp_path / "old"
+    pilot.run("P4", out, jobs=1, chunk=2, replicates=2)
+    new_plan = json.loads((out / "plan.json").read_text())
+    legacy = {"pilot": "P4", "replicates": 2, "n": None, "chunk": 2, "tasks": 4}
+    (out / "plan.json").write_text(json.dumps(legacy))
+    with pytest.raises(SystemExit, match="stamp"):
+        pilot.load_parts("P4", out)
+    stamped = pilot.stamp("P4", out)
+    assert stamped["resolved_n"] == new_plan["resolved_n"]
+    assert stamped["stamped_from_legacy"] is True
+    with pytest.raises(SystemExit, match="already stamped"):
+        pilot.stamp("P4", out)
+    assert pilot.collect("P4", [out])[1] == new_plan["resolved_n"]
+    (out / "plan.json").write_text(json.dumps({**legacy, "n": 500}))
+    with pytest.raises(SystemExit, match="override"):
+        pilot.stamp("P4", out)
+
+
+@pytest.mark.usefixtures("small_declared")
+def test_the_p5_arms_run_one_at_a_time(tmp_path: Path) -> None:
+    out = tmp_path / "p5-continuous"
+    pilot.run("P5", out, jobs=1, chunk=2, replicates=2, units=["continuous"])
+    plan = json.loads((out / "plan.json").read_text())
+    assert plan["units"] == ["continuous"]
+    _, by_unit = pilot.load_parts("P5", out)
+    assert by_unit["continuous"][0]["mass"]
 
 
 def test_the_pilot_summaries_read_synthetic_rows() -> None:
@@ -388,6 +651,7 @@ def test_the_pilot_summaries_read_synthetic_rows() -> None:
                 "estimate": study.TRUTH[study.label_estimand(name)] + rng.normal(0, 0.01),
                 "std_error": 0.01,
                 "covered": int(rng.random() < 0.95),
+                "n": 1_000,
             }
             for scenario in study.SCENARIOS
             for name in study.LABELS
@@ -398,3 +662,9 @@ def test_the_pilot_summaries_read_synthetic_rows() -> None:
     assert replicates == 40
     assert set(covered) == {f"{s}/{n}" for s in study.SCENARIOS for n in study.LABELS}
     assert max(abs(value) for value in biases.values()) > 0.0
+    table = properties.primary_cell_table(rows)
+    assert list(table.columns) == ["draws", "covered", "ratio", "bias", "spread"]
+    assert (table["ratio"] > 0.5).all()
+    assert properties.pilot_row_sizes("P4", rows) == {
+        scenario: {1_000} for scenario in study.SCENARIOS
+    }
