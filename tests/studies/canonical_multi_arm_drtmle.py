@@ -86,6 +86,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-multi-arm-drtmle",
     reference="drtmle-r-multi-arm",
+    failure_bound={"cleverly-multi-arm-drtmle": 0.01, "drtmle-r-multi-arm": 0.01},
     comparison="matching implementation",
     publication_policy="reporting",
     extra_artifacts=("fit-diagnostics.csv",),

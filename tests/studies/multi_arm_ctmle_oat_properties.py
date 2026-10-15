@@ -18,6 +18,7 @@ from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import multi_arm_common, multi_arm_properties
 from tests.studies.canonical_multi_arm_ctmle_oat import STRATIFY_FOLDS, STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     PropertyBatch,
@@ -86,6 +87,16 @@ def sampling_batches() -> tuple[PropertyBatch, ...]:
     return (PropertyBatch("properties", cells(), _estimator),)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return sampling_batches()[0].run(n_jobs=n_jobs)
 
@@ -147,3 +158,9 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         summary.loc[mask, "passed"] = verdicts[cell]
         summary.loc[mask, "property_passed"] = joint
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (
+    property_verdicts.generated_design_rule(group="family", shared="summarize_properties"),
+)

@@ -32,8 +32,10 @@ A configuration reports several estimands from one fit, and a
 :func:`configuration_rows` fits once per replication and writes one row per estimand, in the
 X17 ``joint_rows`` pattern.  Each row's cell is ``<estimand slug>__<configuration>``.  The
 draws come from ``stream_seed(STUDY, "property_sample", family, configuration, replicate)``.
-A replication that raises is not redrawn: its rows are absent, every row of the configuration
-records the failed count, and the shared summary refuses the cell.
+Each configuration fits through :func:`~tests.studies.evidence.replication.fit_properties`.  A
+replication that raises is not redrawn: the driver records it, its rows are absent, the stamp
+gives every row of the configuration's cells the lost count, and the failure accounting judges
+each cell under :data:`FAILURE_BOUND`.
 
 **The scale of a ratio's standard error.**  Each row records the fit's
 ``plugin_std_error`` as :func:`~tests.studies.evidence.properties.replicate_row` reads it.  For
@@ -109,7 +111,6 @@ import numpy as np
 import pandas as pd
 
 from cleverly.targets import TARGETS, parameter_stem
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import oat_per_arm_extension_laws as laws
 from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
@@ -120,12 +121,14 @@ from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
     multi_cells,
     roles,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell, replicate_row
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     finish,
     robustness_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 #: Every property cell's budget, by condition (r): a cell whose true standardized bias is
@@ -257,15 +260,21 @@ def fit(configuration: Configuration, frame: pd.DataFrame) -> Any:
     )
 
 
-def _replication(payload: tuple[str, int, int]) -> list[dict[str, Any]] | None:
-    """One replication's rows, or ``None`` when the fit raised."""
-    name, replicate, requested = payload
+def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, Mapping[str, float]]:
+    """One replication's sample and truths, drawn outside the fit."""
+    name, replicate, _ = key
     configuration = CONFIGURATION_BY_NAME[name]
-    frame, truth = configuration.law.sample(configuration.n, configuration.seed(replicate))
-    try:
-        result = fit(configuration, frame)
-    except Exception:  # a raising replication is counted, never redrawn
-        return None
+    return configuration.law.sample(configuration.n, configuration.seed(replicate))
+
+
+def _replication(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, Mapping[str, float]]
+) -> list[dict[str, Any]]:
+    """One replication's rows, one per estimand of its configuration."""
+    name, replicate, requested = key
+    configuration = CONFIGURATION_BY_NAME[name]
+    frame, truth = drawn
+    result = fit(configuration, frame)
     alpha = STUDY.margins.alpha
     return [
         replicate_row(
@@ -281,6 +290,24 @@ def _replication(payload: tuple[str, int, int]) -> list[dict[str, Any]] | None:
         )
         for estimand, cell in zip(configuration.estimands, configuration.cells, strict=True)
     ]
+
+
+def _cells_of(key: tuple[str, int, int]) -> list[str]:
+    configuration = CONFIGURATION_BY_NAME[key[0]]
+    return [f"{configuration.family}/{cell}" for cell in configuration.cells]
+
+
+def _cell_of(key: tuple[str, int, int]) -> str:
+    configuration = CONFIGURATION_BY_NAME[key[0]]
+    return f"{configuration.family}/{configuration.name}"
+
+
+def _replicate_of(key: tuple[str, int, int]) -> int:
+    return key[1]
+
+
+def _seed_of(key: tuple[str, int, int]) -> int:
+    return CONFIGURATION_BY_NAME[key[0]].seed(key[1])
 
 
 def configuration_rows(
@@ -300,20 +327,33 @@ def configuration_rows(
     Returns
     -------
     DataFrame
-        :data:`~tests.studies.evidence.properties.REPLICATE_COLUMNS` rows, with the failed
-        count of the configuration on every row.
+        :data:`~tests.studies.evidence.properties.REPLICATE_COLUMNS` rows.  A replication
+        whose fit raised has no row; the driver's records and stamp account for it.
     """
     budget = configuration.replicates if replicates is None else replicates
-    outcomes = map_parallel(
+    outcomes = fit_properties(
+        [(configuration.name, replicate, budget) for replicate in range(budget)],
         _replication,
-        [((configuration.name, replicate, budget),) for replicate in range(budget)],
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
         n_jobs=n_jobs,
+        label=f"properties/{configuration.name}",
+        draw=_draw,
+        seed_of=_seed_of,
     )
-    failed = sum(outcome is None for outcome in outcomes)
-    rows = [row for outcome in outcomes if outcome is not None for row in outcome]
-    frame = pd.DataFrame(rows, columns=list(REPLICATE_COLUMNS))
-    frame["failed_replicates"] = failed
-    return frame
+    rows = [row for outcome in outcomes for row in outcome]
+    return pd.DataFrame(rows, columns=list(REPLICATE_COLUMNS))
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -398,6 +438,12 @@ def on_estimate_scale(rows: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+#: The rows :func:`summarize_properties` reads.  The failure accounting's candidates read the
+#: same scale (:func:`~tests.studies.evidence.property_failures.summary_rows`), so a ratio
+#: cell's SE-ratio candidates compare ``psi SE(log psi)`` with the spread of ``psi``.
+SUMMARY_ROWS = on_estimate_scale
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The published property table, from the committed replicate rows.
 
@@ -411,7 +457,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     DataFrame
         One row per cell, with its verdict, after :func:`on_estimate_scale`.
     """
-    summary, rates = apply_shared_verdicts(on_estimate_scale(rows), STUDY)
+    summary, rates = apply_shared_verdicts(SUMMARY_ROWS(rows), STUDY)
     robustness_verdicts(summary, family="robustness_contract")
     return finish(summary, rates)
 
