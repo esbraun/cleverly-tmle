@@ -1183,6 +1183,8 @@ BIAS_GATED_PROPERTIES = frozenset(
         "preimage_necessity",
         "image_necessity",
         "jacobian_necessity",
+        "branch_necessity",
+        "atom_necessity",
         "projection_necessity",
         "randomizer_projection",
         "ratio_necessity",

@@ -507,6 +507,8 @@ _BIAS_GATED = frozenset(
         "cde_robustness",
         "double_robustness",
         "mechanism_requirement",
+        "atom_necessity",
+        "branch_necessity",
         "cap_necessity",
         "competing_risk_recursion_necessity",
         "density_necessity",
