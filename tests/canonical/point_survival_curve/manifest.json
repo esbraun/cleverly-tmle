@@ -1,0 +1,143 @@
+{
+  "schema_version": 2,
+  "study": "point-treatment survival, one-step hazard targeting of the curve",
+  "slug": "point-survival-curve",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.3",
+      "cleverly_commit": "a0d5465d71f45cb53b4c4b6dee37e0201ff05a7f",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 2000,
+    "seed": 20261071,
+    "resampling_seed": 2026107101,
+    "publication_policy": "reporting",
+    "scenarios": {
+      "survival": [
+        "risk_regimen[arm0 @ t=1]",
+        "risk_regimen[arm1 @ t=1]",
+        "risk_regimen[arm0 @ t=2]",
+        "risk_regimen[arm1 @ t=2]",
+        "risk_regimen[arm0 @ t=3]",
+        "risk_regimen[arm1 @ t=3]",
+        "risk_regimen[arm0 @ t=4]",
+        "risk_regimen[arm1 @ t=4]",
+        "risk_regimen[arm0 @ t=5]",
+        "risk_regimen[arm1 @ t=5]",
+        "ate_regimen[arm1 vs arm0 @ t=1]",
+        "ate_regimen[arm1 vs arm0 @ t=2]",
+        "ate_regimen[arm1 vs arm0 @ t=3]",
+        "ate_regimen[arm1 vs arm0 @ t=4]",
+        "ate_regimen[arm1 vs arm0 @ t=5]"
+      ]
+    },
+    "construction": "held point-treatment survival, one-step hazard targeting of the curve",
+    "survival_model": "hazard",
+    "targeting": "one_step",
+    "step_size": 0.001,
+    "cross_fit": false,
+    "outcome_learner": "unpenalized logistic regression on W1, W2, A per node",
+    "treatment_learner": "unpenalized logistic regression on W1, W2",
+    "censoring_learner": "unpenalized logistic regression on W1, W2, A per node",
+    "regimens": [
+      "arm0",
+      "arm1"
+    ],
+    "reported_nodes": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_point_survival_curve.py": "23c9f30cd1609d27abc3fecbc5b774fe55079f4a01e7e7ce95330b724afff069",
+    "tests/studies/point_survival_curve_properties.py": "be1af2d1c3638b8b4ce25762e0be09ba2a9fee9a48cd315f3f62eb416240ecb0",
+    "tests/studies/canonical_point_survival_hazard.py": "b03865d7e4d3b58a6abee8ed59ab4caad2cf6ba5cc20142471388638f344195a",
+    "tests/studies/point_survival_hazard_properties.py": "bfa4d5ac31039c14dd7982a2cf8ee06d6077e0d05bc31cad6c3e4bb4658b336a",
+    "tests/studies/canonical_point_survival.py": "8e2c8f06106b411c1983df94ddf7216f128c042bc7af315a35eeda60313f4af5",
+    "tests/studies/point_survival_properties.py": "48f8f86dec8bb34a25809b90d0c2ea5f466de31dae1e833780f2629c80c38fcc",
+    "tests/studies/point_survival_common.py": "62af3d7ffb412864671a6bf2d0b5eda54420a0ca98775f7c657bf5fe160dac2b",
+    "tests/studies/ltmle_survival_properties.py": "1f3bb0a9d86c78b07cbc1fe9f38226333c1ca2831331b09477cf00ea4235c02c",
+    "tests/studies/canonical_ltmle.py": "3f15ff47823c8ff791fca05d12511f53786e4d89ad7bac4f954e5d735656ad6c",
+    "tests/studies/canonical_tmle.py": "e4b9de7e9064e4806324aa23a7a72d0b2c24c2826ff4f57e85571de09fd9b5e1",
+    "tests/discrete_law_survival.py": "58b8175fb1a2757cb38fdfa3a73e333adf63b4fb08365284e223da38a4e948c8",
+    "src/cleverly/datasets/survival_point.py": "138e133d67043844d55aa179dc2676eea7449672ddbc0cd6bac888c2739577e2",
+    "src/cleverly/longitudinal/hazard.py": "3d1394b06b5198a604ac77e389f731c97f98d2c39a97c91a0bfe69ae575eebdf",
+    "tests/studies/evidence/comparison.py": "cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15",
+    "tests/canonical/tmle3_survival/Dockerfile": "6252a289f85c6f8301262a14e128a0155378926d8e45421ca07e79b8aeeee8ea",
+    "tests/canonical/tmle3_survival/run_study.R": "fbadf454096081f8cb4172fad3f6a91bba469c88778579aac1072ae0b9d32203",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "d2874807644c875461ff8961c4ec9ab98f8fc27691f3661cf80409cceea2415e",
+    "summary.csv": "71d7ad401095e6399378e3c58862c3b44aa378d7e0d567491fe869c55969491e",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "78514d7bcb7ca6ee0e22bc66f822f7de550ef91f4b1386ef435e6f40646400e9",
+    "property-replicates.csv.gz": "4c45acaec3e4e30abd27660c561049266ed9e1c61341f3e279d03ef3b7168c00",
+    "properties.csv": "93209b5a105b17802f0b2370a6b0bc11ce686a9403f97ef908d55d6f21f61d8d"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "tmle3",
+    "reason": "the tmle3 comparator runs are queued as Study queue row 21 in TRACKER.md",
+    "metadata": {
+      "tmle3_commit": "ed72f8a20e64c914ab25ffe015d865f7a9963d27",
+      "sl3_commit": "0e8f2365bcbe54010b8120c04a7a2dcfc8119227",
+      "glmnet_version": "5.0",
+      "glmnet_tarball_sha256": "f0b23da6383a45d502cd138b64da6300422d9b8d7b2c4f14627d412cde79d2a0",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "tmle_survival per arm with target_times=1:5; tmle3_Update_survival with fit_method='l2', cvtmle=FALSE, convergence_type='sample_size', maxit=100, delta_epsilon=0.01, subclassed to repair the fit_lambda length test and the lambda.min.ratio retry; Lrnr_glm for A; Lrnr_stratified on t over Lrnr_glm for N and A_c; the contrast from the per-unit influence-curve difference",
+      "pairing": "read under the default margins; tmle3 takes ridge-penalized steps of at most delta_epsilon and stops at max |P_n D| <= 1/n"
+    },
+    "declared_sources_sha256": {
+      "tests/canonical/tmle3_survival/Dockerfile": "6252a289f85c6f8301262a14e128a0155378926d8e45421ca07e79b8aeeee8ea",
+      "tests/canonical/tmle3_survival/run_study.R": "fbadf454096081f8cb4172fad3f6a91bba469c88778579aac1072ae0b9d32203",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+    }
+  }
+}
