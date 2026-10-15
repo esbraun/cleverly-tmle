@@ -79,6 +79,8 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 PRIMARY_REPLICATES = 1_000
+#: The declared share of replicates one cell may lose to recordable fitting failures.
+FAILURE_BOUND = 0.01
 PRIMARY_N = 80_000
 SEED = 20261242
 RESAMPLING_SEED = 2026124201
@@ -144,7 +146,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-ipsi-dropout",
     reference=None,
-    failure_bound={"cleverly-ipsi-dropout": 0.01},
+    failure_bound={"cleverly-ipsi-dropout": FAILURE_BOUND},
     efficiency_bounds=EFFICIENCY_SD,
     modules=(
         "tests/studies/canonical_longitudinal_incremental_dropout.py",

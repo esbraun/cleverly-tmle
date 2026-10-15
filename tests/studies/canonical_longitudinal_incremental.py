@@ -70,6 +70,8 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 PRIMARY_REPLICATES = 1_000
+#: The declared share of replicates one cell may lose to recordable fitting failures.
+FAILURE_BOUND = 0.01
 PRIMARY_N = 96_000
 SEED = 20261241
 RESAMPLING_SEED = 2026124101
@@ -134,7 +136,7 @@ STUDY = StudyRecord(
         "the npcausal R phase runs on the local study queue (TRACKER item 9a) and registers "
         "in a later change; the owner's rule merges the method on its Python evidence"
     ),
-    failure_bound={"cleverly-ipsi": 0.01, "npcausal": 0.01},
+    failure_bound={"cleverly-ipsi": FAILURE_BOUND, "npcausal": FAILURE_BOUND},
     comparison="matching implementation",
     efficiency_bounds=EFFICIENCY_SD,
     modules=(
@@ -147,6 +149,11 @@ STUDY = StudyRecord(
         "tests/discrete_law_competing.py",
         "tests/discrete_law_longitudinal_ipsi.py",
         "tests/discrete_law_survival.py",
+        "tests/conftest.py",
+        "tests/discrete_law.py",
+        "tests/incrementals.py",
+        "tests/studies/intervention_study_helpers.py",
+        "tests/studies/point_study_helpers.py",
         "tests/longitudinal_ipsi.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",

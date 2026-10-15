@@ -233,6 +233,8 @@ from the committed results and checked at the precision printed.
 | `margin:iid_control_se_ceiling` | 0.8000 | independent-unit control SE-ratio ceiling |
 | `margin:clustered_coverage_gain` | 0.0300 | paired coverage-gain floor |
 | `margin:shrunken_se_factor` | 0.7000 | negative-control SE multiplier |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
 | `margin:efficiency_ratio_lower` | 0.9000 | exact-EIF ratio lower bound |
 | `margin:efficiency_ratio_upper` | 1.1000 | exact-EIF ratio upper bound |
 | `bound:ate_regimen[odds x0.5 vs natural course @ t=1]_standard_error` | 0.000359 | exact influence-curve standard error of this estimand at the primary n = 80,000 |
