@@ -242,8 +242,17 @@ def check(namespace: dict[str, Any]) -> None:
     assert strong.covariates == ("discharge_risk",)
     assert strong.sigma2_short > 2.0 * strong.sigma2_long
     assert strong.cf_y == 1.0 < strong.gain_y
-    strong_bounds = result.sensitivity.omitted_confounding(benchmark=strong)
-    assert np.isfinite(strong_bounds.lower) and strong_bounds.cf_y == 1.0
+    strong_bounds = namespace["strong_bounds"]
+    assert (strong_bounds.cf_y, strong_bounds.cf_d, strong_bounds.rho) == (1.0, strong.cf_d, 1.0)
+    # "The bound is finite there, because the treatment strength `cf_d` stays at 0.0282", and
+    # "both one-sided limits exclude zero" at the discharge_risk strengths too.
+    assert 0.0 < strong.cf_d < 0.05
+    assert 0.0 < strong_bounds.ci_lower < strong_bounds.lower < strong_bounds.psi
+    assert strong_bounds.bias > namespace["bounds"].bias
+    # "does not cover a confounder that changes the offer more": a larger cf_d at cf_y = 1
+    # moves the bound further, which is the nonzero witness of that sentence.
+    wider = result.sensitivity.omitted_confounding(cf_y=1.0, cf_d=2.0 * strong.cf_d, rho=1.0)
+    assert wider.bias > strong_bounds.bias
     # "Both lie below the robustness value", and the gains go to the bound unchanged, at rho = 1.
     benchmark = namespace["benchmark"]
     assert benchmark.covariates == ("medication_burden",)
