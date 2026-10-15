@@ -738,6 +738,10 @@ report shows `LONGITUDINAL_CONSTANT_TARGET` in place of its `hazard` row.
 | `tests/unit/test_hazard_refusals.py` | each refusal H1 to H11, by type and message, before any learner |
 | `tests/e2e/test_hazard_survival.py` | the `TimeToEvent` study path with three arms, two causes, a policy, weights, clusters and two folds. Also the replay, the bootstrap diagnostic, the summary, the nuisance report, and `save` and `load` |
 
+The registered study [point survival hazard](method-evidence/point-survival-hazard.md) validates
+the per-horizon algorithm on repeated samples of two exact laws. Its `survtmle` comparator runs
+are pending.
+
 ### The isotonic projection
 
 `isotonic=True` projects each survival or competing-risk curve onto a non-decreasing curve over the

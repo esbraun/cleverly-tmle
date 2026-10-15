@@ -87,6 +87,7 @@ ordinary-competing-risk-longitudinal-tmle
 cross-fitted-competing-risk-longitudinal-tmle
 point-treatment-survival
 cross-fitted-point-treatment-survival
+point-survival-hazard
 point-treatment-survival-policies
 known-treatment-mechanism
 known-mechanism-dr-tmle
