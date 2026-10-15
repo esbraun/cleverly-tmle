@@ -1,9 +1,7 @@
 """The design of the repeated-outcome SDR study, checked before any run.
 
-Pilots P1 and P3 and the cross-fit and booster arms of P2 are recorded.  The in-sample and
-continuous arms of P2 are pending a re-pilot at the doubled size, so the pilot state stays
-``"placeholder"``, and these tests state that.
-They assert that each declared size equals the declared rule applied to the pilot tables,
+Pilots P1, P2 and P3 are recorded, so the pilot state is ``"recorded"``, and these tests state
+that.  They assert that each declared size equals the declared rule applied to the pilot tables,
 that the declared run refuses to start, and that every control the study declares separates from
 the truth by a nonzero amount.  They also check the pending lmtp comparator declaration and the
 pairing columns that the later change reads.  The framework tests in
@@ -512,10 +510,9 @@ def test_the_correction_is_nonzero_at_both_fold_counts() -> None:
 # ---------------------------------------------------------------------------- the sizes
 
 
-def test_the_pilot_tables_are_recorded_except_the_pending_p2_arms() -> None:
-    """P1, P3 and the cross-fit and booster arms of P2 are pinned.  Two P2 arms are pending."""
-    assert study.PILOT_STATE == "placeholder"
-    assert set(properties.CALIBRATION_PILOT_PENDING_ARMS) == {"in_sample", "continuous"}
+def test_the_pilot_tables_are_recorded() -> None:
+    """P1, P2 and P3 are pinned, and each P2 arm names the size it ran at."""
+    assert study.PILOT_STATE == "recorded"
     # P1 and P3 are recorded: no cell holds the uniform planning value.
     assert len(set(properties.PRIMARY_PILOT_RATIOS.values())) > 20
     assert properties.PRIMARY_PILOT_RATIOS["repeated_folds_5/rule_t3"] == 1.036
@@ -525,30 +522,20 @@ def test_the_pilot_tables_are_recorded_except_the_pending_p2_arms() -> None:
     assert (
         properties.PROPERTY_PILOT_COVERED["full_history_necessity/never_t3__markov_history"] == 221
     )
-    # P2: the cross-fit and booster arms are recorded.
-    recorded = [
-        cell
-        for cell in properties.CALIBRATION_CELLS
-        if cell.rsplit("__", 1)[1] not in properties.CALIBRATION_PILOT_PENDING_ARMS
-        and not cell.endswith("__in_sample")
-    ]
-    assert len(recorded) == 10
+    # P2: every arm is recorded, and the 32,000 re-pilot rows carry the rule_t3 ratios.
+    assert len(properties.CALIBRATION_CELLS) == 13 + 5 + 5 + 5
     assert properties.CALIBRATION_PILOT_RATIOS["rule_t3__crossfit"] == 0.9815
     assert properties.CALIBRATION_PILOT_RATIOS["rule_t3__crossfit_boosted"] == 1.0036
     assert properties.CALIBRATION_PILOT_COVERED["rule_t3__crossfit"] == 7_520
-    # P2: the pending arms hold uniform planning values, not the 8,000 rows, which no longer
-    # describe a declared size.
-    pending = [
-        cell
-        for cell in properties.CALIBRATION_CELLS
-        if cell.endswith(("__in_sample", "__continuous"))
-    ]
-    assert len(pending) == 13 + 5
-    assert {properties.CALIBRATION_PILOT_RATIOS[cell] for cell in pending} == {1.0}
-    assert {properties.CALIBRATION_PILOT_BIASES[cell] for cell in pending} == {0.0}
-    assert {properties.CALIBRATION_PILOT_COVERED[cell] for cell in pending} == {7_600}
-    assert properties.CALIBRATION_PILOT_JOINT_COVERAGE == 0.95
-    # The pending arms name the size the re-pilot must draw.
+    assert properties.CALIBRATION_PILOT_RATIOS["rule_t3__in_sample"] == 0.9707
+    assert properties.CALIBRATION_PILOT_RATIOS["rule_vs_never_t3__in_sample"] == 0.9796
+    assert properties.CALIBRATION_PILOT_RATIOS["rule_t3__continuous"] == 0.9691
+    assert properties.CALIBRATION_PILOT_RATIOS["rule_vs_never_t3__continuous"] == 0.9689
+    assert properties.CALIBRATION_PILOT_COVERED["rule_t3__in_sample"] == 7_523
+    assert properties.CALIBRATION_PILOT_JOINT_COVERAGE == 0.9486
+    assert properties.CALIBRATION_REPLICATES == 38_000
+    assert properties.CALIBRATION_BUDGET_MET
+    # The arms ran at the sizes the study declares.
     assert properties.CALIBRATION_PILOT_N["in_sample"] == 32_000
     assert properties.CALIBRATION_PILOT_N["continuous"] == 32_000
     assert properties.CALIBRATION_PILOT_N["crossfit"] == 8_000
@@ -574,7 +561,7 @@ def test_the_in_sample_and_continuous_sizes_are_the_base_doubled_twice() -> None
     assert {c.n for c in joint if c.cell.startswith(properties.JOINT_LABEL)} == {32_000}
 
 
-def test_each_declared_size_is_the_rule_applied_to_the_placeholder_pilots() -> None:
+def test_each_declared_size_is_the_rule_applied_to_the_recorded_pilots() -> None:
     derived = properties.declared_sizes()
     assert derived["primary_replicates"] == study.PRIMARY_REPLICATES
     assert derived["calibration_replicates"] == properties.CALIBRATION_REPLICATES
@@ -585,7 +572,7 @@ def test_each_declared_size_is_the_rule_applied_to_the_placeholder_pilots() -> N
     assert derived["repeated_outcome_necessity"] == properties.ABSORBING_REPLICATES
     assert derived["outcome_history_necessity"] == properties.HISTORY_FREE_REPLICATES
     assert derived["full_history_necessity"] == properties.FULL_HISTORY_REPLICATES
-    # No rule fires on placeholder tables, so no size has doubled.
+    # No rule fires a further doubling on the recorded tables.
     assert not any(derived[key] for key in ("primary_n_rule", "c6_n_rule", "n1_n_rule"))
     assert properties.BOOSTER_REPLICATES == properties.CALIBRATION_REPLICATES
     assert study.STUDY.replicates == study.PRIMARY_REPLICATES
@@ -609,8 +596,9 @@ def test_each_declared_size_is_the_rule_applied_to_the_placeholder_pilots() -> N
         properties.ABSORBING_N_DOUBLINGS,
     ):
         assert doublings in (0, 1, 2)
-    # The recorded P1 and P3 pins fire no rule, so those sizes have not doubled.  The pending
-    # P2 arms doubled twice on the declared route, from the 8,000-draw pilot.
+    # The recorded P1 and P3 pins fire no rule, so those sizes have not doubled.  The P2 arms
+    # doubled twice on the declared route, from the 8,000-draw pilot, and the 32,000 re-pilot
+    # fires no further doubling.
     assert study.PRIMARY_N_DOUBLINGS == properties.ABSORBING_N_DOUBLINGS == 0
     assert properties.IN_SAMPLE_N_DOUBLINGS == properties.CONTINUOUS_N_DOUBLINGS == 2
     assert properties.CALIBRATION_N == 8_000
@@ -637,7 +625,7 @@ def test_the_union_bound_allocation_sums_to_the_study_failure_probability() -> N
     assert properties.C6_SHARE > sizing.C6_SHARE
 
 
-def test_the_pilot_rules_applied_to_the_placeholder_tables_give_the_declared_sizes() -> None:
+def test_the_pilot_rules_applied_to_the_recorded_tables_give_the_declared_sizes() -> None:
     primary = (
         properties.PRIMARY_PILOT_COVERED,
         properties.PRIMARY_PILOT_BIASES,
@@ -803,8 +791,7 @@ def _discrimination_probabilities() -> dict[str, float]:
 def test_every_control_is_discriminated_at_the_declared_sizes() -> None:
     """The union bound gives each of 74 checks the pass probability 1 - 0.001 / 74.
 
-    The law gaps stand in for the pilot spreads while ``PILOT_STATE`` is "placeholder".  The
-    test reads the pilot spreads and ratios from the recorded tables once the state changes.
+    The test reads the pilot spreads and ratios from the recorded tables.
     """
     probabilities = _discrimination_probabilities()
     floor = sizing.discrimination_floor(74)
@@ -925,12 +912,18 @@ def test_doubling_the_n1_size_leaves_the_other_families_alone(
     assert properties.pilot_declared_n("P3", "outcome_history_necessity") == 2_000
 
 
-def test_the_declared_primary_run_is_refused_while_the_pilots_are_placeholders() -> None:
+def test_the_declared_primary_run_is_refused_while_the_pilots_are_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(study, "PILOT_STATE", "placeholder")
     with pytest.raises(study.PlaceholderPilotsError, match="placeholder pilot tables"):
         study.draw_and_fit(replicates=study.PRIMARY_REPLICATES, n=study.PRIMARY_N, n_jobs=1)
 
 
-def test_the_declared_property_run_is_refused_while_the_pilots_are_placeholders() -> None:
+def test_the_declared_property_run_is_refused_while_the_pilots_are_placeholders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(study, "PILOT_STATE", "placeholder")
     with pytest.raises(study.PlaceholderPilotsError, match="placeholder pilot tables"):
         properties.generate_property_rows(n_jobs=1)
 

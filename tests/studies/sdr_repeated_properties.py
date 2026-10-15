@@ -147,8 +147,13 @@ pilot shows removes it, re-declared and re-run on fresh seeds.  A design change 
 study off the saturated regression that makes the in-sample cells test the plug-in and the
 mechanism terms.  So :data:`IN_SAMPLE_N` and :data:`CONTINUOUS_N` double twice, from 8,000 to
 32,000.  :data:`CALIBRATION_N` stays at 8,000, because the C3 and C5 arms show no shortfall.
-The C4 joint band reads the C1 rows, so it moves with :data:`IN_SAMPLE_N`.  The re-pilot at
-32,000 has not run, so the C1 and C6 pins of P2 are pending.
+The C4 joint band reads the C1 rows, so it moves with :data:`IN_SAMPLE_N`.
+
+The re-pilot at 32,000 ran.  The in-sample ``rule_t3`` ratio is 0.9707 and ``rule_vs_never_t3``
+is 0.9796.  The continuous ``rule_t3`` ratio is 0.9691 and ``rule_vs_never_t3`` is 0.9689.  All
+other in-sample and continuous ratios lie between 0.966 and 1.018.  The C4 joint coverage is
+0.9486.  The C6 ``n`` rule does not fire, so both sizes stay at 32,000.  The calibration rule
+gives :data:`CALIBRATION_REPLICATES` of 38,000 on the pinned values, under the cap of 50,000.
 
 Pilot P3 shows ratios below 1 in two families that gate bias only.  The ``double_robustness``
 cell ``rule_t3__outcome_correct`` has ratio 0.763 and ``full_history_necessity``
@@ -161,17 +166,10 @@ and they are not a shortfall.
 Pilot state
 -----------
 
-Pilots P1 and P3 and the cross-fit and booster arms of P2 are recorded.  The in-sample and
-continuous arms of P2 are pending, and their pins hold the planning values below.  The state
-stays ``"placeholder"`` until the re-pilot is recorded.
-
-While :data:`~tests.studies.canonical_sdr_repeated.PILOT_STATE` is ``"placeholder"``, the
-pending P2 cells and the C4 joint coverage hold declared uniform planning values (SE ratio 1,
-standardized bias 0, coverage 0.95), and the sizes that read them are planning sizes, not
-results.  A declared run is refused.  The pilot driver
-(``tests/canonical/sdr_repeated/pilot.py``) writes the pilot rows in resumable parts, and :func:`summarize_primary_pilot`,
-:func:`summarize_calibration_pilot` and :func:`summarize_property_pilot` turn them into these
-tables.
+Pilots P1, P2 and P3 are recorded, and the state is ``"recorded"``.  The pilot driver
+(``tests/canonical/sdr_repeated/pilot.py``) writes the pilot rows in resumable parts.
+:func:`summarize_primary_pilot`, :func:`summarize_calibration_pilot` and
+:func:`summarize_property_pilot` turn them into these tables.
 """
 
 from __future__ import annotations
@@ -329,13 +327,11 @@ INTERCEPT_G = frozenset({"both_wrong", "full_history", "markov_history"})
 
 # ---------------------------------------------------------------------------- declared sizes
 #
-# Each size is the rule applied to the pilot tables of the section "pilot tables" below: the
-# recorded P1 and P3 pins, the recorded cross-fit and booster pins of P2, and placeholder
-# values for the pending in-sample and continuous pins of P2.  A fast test re-derives every one
-# of them.
+# Each size is the rule applied to the recorded pilot tables of the section "pilot tables"
+# below.  A fast test re-derives every one of them.
 
 #: ``calibration_size`` on P2 (``CALIBRATION_BUDGET_MET`` is False when the rule reached the cap).
-CALIBRATION_REPLICATES = 4_000
+CALIBRATION_REPLICATES = 38_000
 CALIBRATION_BUDGET_MET = True
 #: ``property_replicates`` on P3 at the share ``family_share(6)``.
 DOUBLE_ROBUST_REPLICATES = 1_000
@@ -1252,10 +1248,8 @@ def effective_cells(labels: Sequence[str]) -> float:
 
 # ---------------------------------------------------------------------------- pilot tables
 #
-# PLACEHOLDER while ``PILOT_STATE`` is "placeholder".  These are declared uniform planning
-# values, not pilot results: every SE ratio is 1, every standardized bias is 0 and every
-# coverage is 0.95.  They exist so that the sizing rules run end to end and the declared run is
-# refused until the pilots replace them.  ``summarize_*_pilot`` produces the real tables.
+# These tables are pilot results.  ``summarize_*_pilot`` produces them, and the sizing rules
+# read them.
 
 #: Pilot P1 (primary): the covered count and the standardized bias of each ``scenario/label``
 #: cell over :data:`PRIMARY_PILOT_REPLICATES` draws at ``n = PRIMARY_N`` from the pilot stream.
@@ -1354,23 +1348,17 @@ PRIMARY_PILOT_BIASES = {
 #: cell over :data:`CALIBRATION_PILOT_REPLICATES` draws per arm, and the joint coverage of the
 #: C4 band over the C1 fits.
 #:
-#: PARTLY RECORDED.  The cross-fit and booster arms are recorded from the 8,000-draw pilot at
-#: ``n = 8,000``.  The in-sample and continuous arms are PENDING: the 8,000-draw pilot at
-#: ``n = 8,000`` showed a finite-sample shortfall (module docstring, "Pilot P2 finding"), the
-#: declared route doubled their size twice, and their rows at 32,000 are not yet drawn.  The
-#: pending cells hold uniform planning values (SE ratio 1, bias 0, coverage 0.95), as does the
-#: C4 joint coverage, which reads the in-sample fits.  The 8,000 rows are not pinned, because
-#: no table may describe a size the study no longer declares.
+#: The cross-fit and booster arms ran at ``n = 8,000``.  The in-sample and continuous arms ran
+#: at the doubled ``n = 32,000`` (module docstring, "Pilot P2 finding").  The 8,000-draw rows of
+#: those two arms are not pinned, because no table may describe a size the study no longer
+#: declares.
 CALIBRATION_PILOT_REPLICATES = 8_000
-#: The arms of P2 whose pins are pending the re-pilot at the doubled size.
-CALIBRATION_PILOT_PENDING_ARMS = ("in_sample", "continuous")
-#: The sample size each P2 arm ran at.  The pending arms hold the size the re-pilot must draw.
-#: A recorded table must equal the arm's declared size.
+#: The sample size each P2 arm ran at.  A recorded table must equal the arm's declared size.
 CALIBRATION_PILOT_N = {
-    "in_sample": IN_SAMPLE_N,
-    "crossfit": 8_000,
-    "continuous": CONTINUOUS_N,
-    BOOSTER_ARM: 8_000,
+    "crossfit": 8000,
+    "crossfit_boosted": 8000,
+    "in_sample": 32000,
+    "continuous": 32000,
 }
 CALIBRATION_CELLS = (
     *(f"{name}__in_sample" for name in LABELS),
@@ -1378,74 +1366,129 @@ CALIBRATION_CELLS = (
     *(f"{name}__continuous" for name in GATED_LABELS),
     *(f"{name}__{BOOSTER_ARM}" for name in GATED_LABELS),
 )
-_RECORDED_CALIBRATION_RATIOS = {
+CALIBRATION_PILOT_RATIOS = {
+    "never_t1__in_sample": 1.0155,
+    "never_t2__in_sample": 0.9955,
+    "never_t3__in_sample": 0.9858,
+    "always_t1__in_sample": 1.0002,
+    "always_t2__in_sample": 0.9833,
+    "always_t3__in_sample": 1.0036,
+    "rule_t2__in_sample": 0.9962,
+    "rule_t3__in_sample": 0.9707,
+    "always_vs_never_t1__in_sample": 1.0177,
+    "always_vs_never_t2__in_sample": 0.9913,
+    "always_vs_never_t3__in_sample": 0.995,
+    "rule_vs_never_t2__in_sample": 0.9979,
+    "rule_vs_never_t3__in_sample": 0.9796,
     "never_t3__crossfit": 1.0048,
     "always_t3__crossfit": 1.0058,
     "rule_t3__crossfit": 0.9815,
     "always_vs_never_t3__crossfit": 1.0102,
     "rule_vs_never_t3__crossfit": 0.9913,
+    "never_t3__continuous": 0.9659,
+    "always_t3__continuous": 0.9869,
+    "rule_t3__continuous": 0.9691,
+    "always_vs_never_t3__continuous": 0.97,
+    "rule_vs_never_t3__continuous": 0.9689,
     "never_t3__crossfit_boosted": 1.0056,
     "always_t3__crossfit_boosted": 0.9964,
     "rule_t3__crossfit_boosted": 1.0036,
     "always_vs_never_t3__crossfit_boosted": 1.0042,
     "rule_vs_never_t3__crossfit_boosted": 1.0015,
 }
-_RECORDED_CALIBRATION_BIASES = {
+CALIBRATION_PILOT_BIASES = {
+    "never_t1__in_sample": 0.0191,
+    "never_t2__in_sample": 0.0075,
+    "never_t3__in_sample": 0.021,
+    "always_t1__in_sample": -0.0014,
+    "always_t2__in_sample": 0.0055,
+    "always_t3__in_sample": 0.0094,
+    "rule_t2__in_sample": 0.0093,
+    "rule_t3__in_sample": -0.0022,
+    "always_vs_never_t1__in_sample": -0.0168,
+    "always_vs_never_t2__in_sample": -0.0027,
+    "always_vs_never_t3__in_sample": -0.0107,
+    "rule_vs_never_t2__in_sample": 0.0001,
+    "rule_vs_never_t3__in_sample": -0.0169,
     "never_t3__crossfit": 0.0015,
     "always_t3__crossfit": -0.0064,
     "rule_t3__crossfit": 0.01,
     "always_vs_never_t3__crossfit": -0.0052,
     "rule_vs_never_t3__crossfit": 0.0059,
+    "never_t3__continuous": 0.0098,
+    "always_t3__continuous": 0.0141,
+    "rule_t3__continuous": -0.0015,
+    "always_vs_never_t3__continuous": 0.0008,
+    "rule_vs_never_t3__continuous": -0.0084,
     "never_t3__crossfit_boosted": -0.003,
     "always_t3__crossfit_boosted": -0.0099,
     "rule_t3__crossfit_boosted": 0.0153,
     "always_vs_never_t3__crossfit_boosted": -0.0038,
     "rule_vs_never_t3__crossfit_boosted": 0.0127,
 }
-_RECORDED_CALIBRATION_COVERED = {
+#: The covered count of each calibration cell over the pilot draws of its arm (reported).
+CALIBRATION_PILOT_COVERED = {
+    "never_t1__in_sample": 7621,
+    "never_t2__in_sample": 7604,
+    "never_t3__in_sample": 7551,
+    "always_t1__in_sample": 7618,
+    "always_t2__in_sample": 7570,
+    "always_t3__in_sample": 7597,
+    "rule_t2__in_sample": 7604,
+    "rule_t3__in_sample": 7523,
+    "always_vs_never_t1__in_sample": 7612,
+    "always_vs_never_t2__in_sample": 7580,
+    "always_vs_never_t3__in_sample": 7587,
+    "rule_vs_never_t2__in_sample": 7601,
+    "rule_vs_never_t3__in_sample": 7560,
     "never_t3__crossfit": 7593,
     "always_t3__crossfit": 7606,
     "rule_t3__crossfit": 7520,
     "always_vs_never_t3__crossfit": 7612,
     "rule_vs_never_t3__crossfit": 7585,
+    "never_t3__continuous": 7532,
+    "always_t3__continuous": 7566,
+    "rule_t3__continuous": 7541,
+    "always_vs_never_t3__continuous": 7548,
+    "rule_vs_never_t3__continuous": 7531,
     "never_t3__crossfit_boosted": 7595,
     "always_t3__crossfit_boosted": 7578,
     "rule_t3__crossfit_boosted": 7579,
     "always_vs_never_t3__crossfit_boosted": 7609,
     "rule_vs_never_t3__crossfit_boosted": 7589,
 }
-_RECORDED_CALIBRATION_SPREADS = {
+#: The empirical spread of each calibration cell's estimate (reported).
+CALIBRATION_PILOT_SPREADS = {
+    "never_t1__in_sample": 0.00373758,
+    "never_t2__in_sample": 0.00508928,
+    "never_t3__in_sample": 0.0075317,
+    "always_t1__in_sample": 0.00246345,
+    "always_t2__in_sample": 0.00378451,
+    "always_t3__in_sample": 0.00592582,
+    "rule_t2__in_sample": 0.00418989,
+    "rule_t3__in_sample": 0.00700133,
+    "always_vs_never_t1__in_sample": 0.00443956,
+    "always_vs_never_t2__in_sample": 0.00633498,
+    "always_vs_never_t3__in_sample": 0.00955088,
+    "rule_vs_never_t2__in_sample": 0.00656875,
+    "rule_vs_never_t3__in_sample": 0.0102638,
     "never_t3__crossfit": 0.0154934,
     "always_t3__crossfit": 0.0120405,
     "rule_t3__crossfit": 0.0150922,
     "always_vs_never_t3__crossfit": 0.0195123,
     "rule_vs_never_t3__crossfit": 0.0216704,
+    "never_t3__continuous": 0.00619167,
+    "always_t3__continuous": 0.00476747,
+    "rule_t3__continuous": 0.00547518,
+    "always_vs_never_t3__continuous": 0.00783601,
+    "rule_vs_never_t3__continuous": 0.00824153,
     "never_t3__crossfit_boosted": 0.0150606,
     "always_t3__crossfit_boosted": 0.0120505,
     "rule_t3__crossfit_boosted": 0.0141239,
     "always_vs_never_t3__crossfit_boosted": 0.0192321,
     "rule_vs_never_t3__crossfit_boosted": 0.0206962,
 }
-CALIBRATION_PILOT_RATIOS = {
-    cell: _RECORDED_CALIBRATION_RATIOS.get(cell, 1.0) for cell in CALIBRATION_CELLS
-}
-CALIBRATION_PILOT_BIASES = {
-    cell: _RECORDED_CALIBRATION_BIASES.get(cell, 0.0) for cell in CALIBRATION_CELLS
-}
-#: The covered count of each calibration cell over the pilot draws of its arm (reported).
-CALIBRATION_PILOT_COVERED = {
-    cell: _RECORDED_CALIBRATION_COVERED.get(cell, 7_600) for cell in CALIBRATION_CELLS
-}
-#: The empirical spread of each calibration cell's estimate (reported).  A pending cell holds the
-#: efficiency bound over the root of the arm's size, which is the law's own spread.
-CALIBRATION_PILOT_SPREADS = {
-    cell: _RECORDED_CALIBRATION_SPREADS.get(
-        cell,
-        EFFICIENCY_SD[cell.split("__", 1)[0]] / CALIBRATION_PILOT_N[cell.split("__", 1)[1]] ** 0.5,
-    )
-    for cell in CALIBRATION_CELLS
-}
-CALIBRATION_PILOT_JOINT_COVERAGE = 0.95
+CALIBRATION_PILOT_JOINT_COVERAGE = 0.9486
 
 
 def property_cells() -> dict[str, list[str]]:

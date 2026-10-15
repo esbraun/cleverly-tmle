@@ -99,13 +99,13 @@ Declared before any run
 Pilot state
 -----------
 
-:data:`PILOT_STATE` is ``"placeholder"`` until pilots P1, P2 and P3 are run
-(``tests/canonical/sdr_repeated/README.md`` gives the commands).  While it is a placeholder, the
-pilot tables in :mod:`tests.studies.sdr_repeated_properties` hold declared uniform planning
-values, the sizes in this module are the rules applied to them, and a declared run is refused
-(:func:`require_recorded_pilots`).  The disposable smoke run with explicit ``--replicates`` and
-``--n`` is not a declared run.  The study stays unregistered until its artifacts and its row of
-the implementation validation grid exist.
+:data:`PILOT_STATE` is ``"recorded"``: pilots P1, P2 and P3 have run
+(``tests/canonical/sdr_repeated/README.md`` gives the commands).  The pilot tables in
+:mod:`tests.studies.sdr_repeated_properties` hold their results, and the sizes in this module
+are the rules applied to them.  :func:`require_recorded_pilots` refuses a declared run while the
+state is ``"placeholder"``.  The disposable smoke run with explicit ``--replicates`` and ``--n``
+is not a declared run.  The study stays unregistered until its artifacts and its row of the
+implementation validation grid exist.
 """
 
 from __future__ import annotations
@@ -158,9 +158,9 @@ from tests.studies.ltmle_repeated_properties import (
     CellMeansOn,
 )
 
-#: ``"placeholder"`` while the sizes below are the rules applied to declared uniform planning
-#: values, and ``"recorded"`` once pilots P1, P2 and P3 are pinned in the properties module.
-PILOT_STATE: Literal["placeholder", "recorded"] = "placeholder"
+#: ``"recorded"`` once pilots P1, P2 and P3 are pinned in the properties module.  The state is
+#: ``"placeholder"`` while the sizes below are the rules applied to declared planning values.
+PILOT_STATE: Literal["placeholder", "recorded"] = "recorded"
 
 #: The smallest multiple of 1,000 whose expected unseen-cell count is at most
 #: :data:`UNSEEN_CELL_BUDGET` at the declared replicates, doubled :data:`PRIMARY_N_DOUBLINGS`

@@ -26,12 +26,9 @@ The R side of PR C must read samples sharded by scenario and replicate, one file
 not one CSV of about 12 GB. `pairing_sample` in `canonical_sdr_repeated.py` builds one
 replicate's frame. The `shift__` columns are `int8` arm codes.
 
-Pilots P1 and P3 and the cross-fit and booster arms of P2 are recorded in
-`tests/studies/sdr_repeated_properties.py`. The in-sample and continuous arms of P2 are pending.
-Their pins hold uniform planning values until the re-pilot at 32,000 runs (see the next
-section). The marker `PILOT_STATE` in `tests/studies/canonical_sdr_repeated.py` reads
-`"placeholder"`, and the declared run refuses to start. The study stays unregistered until its
-artifacts and its row of the implementation validation grid exist.
+Pilots P1, P2 and P3 are recorded in `tests/studies/sdr_repeated_properties.py`. The marker
+`PILOT_STATE` in `tests/studies/canonical_sdr_repeated.py` reads `"recorded"`. The study stays
+unregistered until its artifacts and its row of the implementation validation grid exist.
 
 ## Finding of pilot P2: the in-sample n doubles
 
@@ -60,6 +57,20 @@ for a finite-sample shortfall is the `n` that a pilot shows removes it, re-run o
 design change would drop the saturated regression that the in-sample cells need. So
 `IN_SAMPLE_N` and `CONTINUOUS_N` each double twice, to 32,000. `CALIBRATION_N` stays at 8,000 for
 C3 and C5. The C4 joint band reads the C1 rows, so it moves with `IN_SAMPLE_N`.
+
+The re-pilot at 32,000 ran. These are its SE ratios:
+
+| arm | cell | SE ratio |
+| --- | --- | --- |
+| C1 in sample | `rule_t3` | 0.9707 |
+| C1 in sample | `rule_vs_never_t3` | 0.9796 |
+| C6 continuous | `rule_t3` | 0.9691 |
+| C6 continuous | `rule_vs_never_t3` | 0.9689 |
+| C1 and C6 | all other cells | 0.966 to 1.018 |
+
+The C4 joint coverage is 0.9486. The C6 `n` rule does not fire, so both sizes stay at 32,000.
+The calibration rule gives `CALIBRATION_REPLICATES = 38,000` on the pinned values. This is under
+the cap of 50,000.
 
 Pilot P3 also shows ratios below 1 under a wrong mechanism: 0.763 for `double_robustness`
 `rule_t3__outcome_correct` and 0.772 for `full_history_necessity` `rule_t3__full_history`. The
@@ -155,10 +166,11 @@ route doubles `IN_SAMPLE_N` alone. The C3 and C5 arms keep `CALIBRATION_N`.
 
 ### Re-pilot of P2 at the doubled size
 
-`IN_SAMPLE_N_DOUBLINGS = 2` and `CONTINUOUS_N_DOUBLINGS = 2` set both sizes to 32,000. Re-run
-the two units into a new directory, then assemble it with the old one. The old directory still
-supplies `crossfit` and `crossfit_boosted` at 8,000. `assemble` skips its `in_sample` and
-`continuous` rows, because they were drawn at 8,000.
+`IN_SAMPLE_N_DOUBLINGS = 2` and `CONTINUOUS_N_DOUBLINGS = 2` set both sizes to 32,000. The
+re-pilot ran with the commands below. It wrote the units into a new directory, and `assemble`
+read that directory with the old one. The old directory supplied `crossfit` and
+`crossfit_boosted` at 8,000. `assemble` skips the `in_sample` and `continuous` rows drawn at
+8,000.
 
 ```powershell
 uv run python -m tests.canonical.sdr_repeated.pilot run P2 `
@@ -184,7 +196,7 @@ correction is nonzero. Tests E2, E3 and N8' cover the correction exactly.
 ## Smoke study
 
 Run a disposable smoke study from the repository root. It uses explicit sizes and skips the
-property study, so the placeholder refusal does not apply. It checks the wiring only.
+property study, so the declared-run guard does not apply. It checks the wiring only.
 
 ```powershell
 uv run python -m tests.canonical.sdr_repeated.regenerate `
