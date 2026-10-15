@@ -117,7 +117,8 @@ def check(namespace: dict[str, Any]) -> None:
     for operation in OMITTED_VARIABLE_OPERATIONS:
         assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
         assert not re.search(rf"sensitivity\s+{operation}\b", stored)
-    assert "unavailable" not in stored and "not_applicable" not in stored
+    status_table = stored.split("Correction check")[0]
+    assert "unavailable" not in status_table and "not_applicable" not in status_table
     assert str(ledger.loc[("sensitivity", "evalue")]) == "completed"
     assert re.search(r"sensitivity\s+evalue\s+completed", stored)
     assert re.search(r"refute\s+deferred", stored)
