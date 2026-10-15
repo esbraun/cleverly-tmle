@@ -424,6 +424,61 @@ ARMS.update(
     }
 )
 
+#: The labels of ``parametric-gformula``: a method, a law and a target.  Mirrored from
+#: ``tests.studies.parametric_gformula_properties``, which this module cannot import;
+#: ``tests/unit/test_parametric_gformula_design.py`` pins that every cell resolves.
+_PGF_TARGETS = {
+    "g1_treat_all": "law G1, mean under treatment at all three times",
+    "g1_treat_none": "law G1, mean under no treatment",
+    "g1_rule": "law G1, mean under the rule A_t = L_t",
+    "g1_odds_x2": "law G1, mean under the odds tilt of two",
+    "g1_contrast": "law G1, treatment at all three times against none",
+    "g2_treat_all": "law G2, mean under treatment at all three times",
+    "g2_treat_none": "law G2, mean under no treatment",
+    "g2_policy_b": "law G2, mean under the known policy that treats with probability 0.3 + 0.4 B_t",
+    "g2_contrast": "law G2, treatment at all three times against none",
+    "g3_relapse_h2": "law G3, relapse incidence by t = 2 under treatment at all four times",
+    "g3_relapse_h4": "law G3, relapse incidence by t = 4 under treatment at all four times",
+    "g3_death_h4": "law G3, death incidence by t = 4 under treatment at all four times",
+    "g3_contrast_h4": "law G3, relapse incidence by t = 4, treatment at all four times against none",
+    "g4_shift": "law G4, mean under a dose raised by 0.5 at each of the three times",
+    "g4_dose": "law G4, mean under the fixed dose 0.5 at each of the three times",
+    "g4_contrast": "law G4, the raised dose against the natural course",
+}
+_PGF_PAIRS = {
+    "g1_treat_all": _PGF_TARGETS["g1_treat_all"],
+    "g1_treat_none": _PGF_TARGETS["g1_treat_none"],
+    "g1_contrast": _PGF_TARGETS["g1_contrast"],
+    "g2_treat_all": _PGF_TARGETS["g2_treat_all"],
+    "g2_treat_none": _PGF_TARGETS["g2_treat_none"],
+    "g2_contrast": _PGF_TARGETS["g2_contrast"],
+}
+_PGF_SHARED = {
+    "g1_treat_all": _PGF_TARGETS["g1_treat_all"],
+    "g1_contrast": _PGF_TARGETS["g1_contrast"],
+    "g1_rule": _PGF_TARGETS["g1_rule"],
+    "g1_odds_x2": _PGF_TARGETS["g1_odds_x2"],
+    "g2_treat_all": _PGF_TARGETS["g2_treat_all"],
+    "g2_contrast": _PGF_TARGETS["g2_contrast"],
+}
+ARMS.update(
+    {
+        **{f"nice_{key}": f"parametric g-formula: {words}" for key, words in _PGF_TARGETS.items()},
+        **{
+            f"pair_{key}": f"parametric g-formula against main-terms ICE: {words}"
+            for key, words in _PGF_PAIRS.items()
+        },
+        **{
+            f"target_{key}": f"parametric g-formula beside the targeted estimator: {words}"
+            for key, words in _PGF_SHARED.items()
+        },
+        "g4q_dose": (
+            "parametric g-formula with main-terms models: law G4Q, mean under the fixed dose 0.5, "
+            "where the outcome carries a quadratic dose term"
+        ),
+    }
+)
+
 #: Built from :data:`ARMS` rather than restated.  ``cell`` subscripts ``ARMS`` with whatever
 #: this matches, so a hand-maintained second list is a ``KeyError`` waiting for the study that
 #: extends one of them and not the other -- and that is the one lookup here which would not
@@ -2789,5 +2844,106 @@ CELLS.update(
             )
             for size in (1_000,)
         },
+    }
+)
+
+
+# -------------------------------------------------------------------- parametric-gformula
+IMPLEMENTATIONS["cleverly-parametric-gformula"] = (
+    "`cleverly` parametric g-formula (NICE), a forward simulation of node-specific GLMs"
+)
+SCENARIOS.update(
+    {
+        "g1_nice": (
+            "law G1: three nodes, a binary covariate, censoring and a binary end-of-study outcome"
+        ),
+        "g2_nice": (
+            "law G2: three nodes, a Gaussian then a binary covariate per node and a continuous "
+            "outcome"
+        ),
+        "g3_nice": ("law G3: four nodes, a binary covariate, censoring and two competing causes"),
+        "g4_nice": (
+            "law G4: three nodes, a Gaussian covariate and a continuous dose per node, and a "
+            "continuous outcome"
+        ),
+    }
+)
+REGIMENS.update(
+    {
+        "treat_all_4": "treat at each of the four times",
+        "treat_none_4": "treat at none of the four times",
+        "policy_b": "treat with probability 0.3 + 0.4 B_t at each of the three times",
+        "shift_half": "add 0.5 to the dose at each of the three times",
+        "dose_half": "assign the fixed dose 0.5 at each of the three times",
+    }
+)
+PROPERTIES.update(
+    {
+        "monte_carlo_accounting": (
+            "with one simulated history per unit, the interval that includes the simulation "
+            "error is calibrated, and a curve without that term is too narrow"
+        ),
+        "ice_necessity": (
+            "the main-terms ICE fit is biased where the parametric g-formula is not, on the "
+            "same draws"
+        ),
+        "ice_reported": (
+            "the main-terms ICE fit beside the parametric g-formula on the same draws, reported "
+            "without a verdict"
+        ),
+        "shared_target": (
+            "the targeted estimator beside the parametric g-formula on the same draws, reported "
+            "without a verdict"
+        ),
+        "extrapolation_report": (
+            "a main-terms fit extrapolates to a fixed dose where the outcome has a quadratic "
+            "dose term, reported without a verdict"
+        ),
+    }
+)
+CELLS.update(
+    {
+        ("monte_carlo_accounting", "n_draws_1"): (
+            "one simulated history per unit behind the estimate",
+            "bias inside the margin, SE-ratio and coverage intervals inside their calibration "
+            "bands",
+        ),
+        ("monte_carlo_accounting", "mc_removed"): (
+            "the estimate of the one-history fit, with the standard error of an independent fit "
+            "of 500 histories per unit, so the simulation term is absent from the curve",
+            "where gated, the SE-ratio interval must fall below the calibration band; otherwise "
+            "reported",
+        ),
+        ("ice_necessity", "nice"): (
+            "the parametric g-formula with main-terms models",
+            "bias inside the margin",
+        ),
+        ("ice_necessity", "ice"): (
+            "the main-terms ICE fit on the same draws",
+            "bias outside the margin, and displaced from the parametric g-formula by the "
+            "declared threshold",
+        ),
+        ("ice_reported", "nice"): (
+            "the parametric g-formula with main-terms models",
+            "reported only",
+        ),
+        ("ice_reported", "ice"): ("the main-terms ICE fit on the same draws", "reported only"),
+        ("shared_target", "nice"): (
+            "the parametric g-formula with main-terms models",
+            "reported only",
+        ),
+        ("shared_target", "ltmle"): (
+            "`LTMLE` with GLM nuisances on the same draws, which targets the same parameter",
+            "reported only",
+        ),
+        ("shared_target", "ipsi"): (
+            "`IPSI` with GLM nuisances on the same draws, which targets the same parameter",
+            "reported only",
+        ),
+        ("extrapolation_report", "main_terms"): (
+            "a main-terms model of a law with a quadratic dose term, fitted and extrapolated to "
+            "a fixed dose",
+            "reported only",
+        ),
     }
 )

@@ -38,7 +38,6 @@ every variable is linear, so a mean passes through the linear recursion (:func:`
 
 from __future__ import annotations
 
-import itertools
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -186,6 +185,26 @@ class Tilt(NodePlan):
         g = expit(var.eta(table, n))
         q = self.delta * g / (self.delta * g + 1.0 - g)
         return np.tile([0.0, 1.0], (n, 1)), np.column_stack([1.0 - q, q])
+
+
+@dataclass(frozen=True)
+class ShiftPlan(NodePlan):
+    """Assign the natural dose of the law plus ``delta``: a modified treatment policy.
+
+    The natural dose is a draw of the law's own model given the intervened history, so the plan
+    is a sampler only.  The closed form of a linear law is :func:`linear_means`.
+    """
+
+    delta: float
+
+    def branches(self, table: Mapping[str, np.ndarray], var: Var, n: int) -> tuple[Any, Any]:
+        raise NotImplementedError("a shifted dose is continuous: the sums do not enumerate it")
+
+    def draw(
+        self, table: Mapping[str, np.ndarray], var: Var, n: int, rng: np.random.Generator
+    ) -> np.ndarray:
+        natural = var.eta(table, n) + var.sd * rng.standard_normal(n)
+        return np.asarray(natural + float(self.delta), dtype=float)
 
 
 # ------------------------------------------------------------------------------------ the law
@@ -408,7 +427,9 @@ class Law:
             cols = {name: a[take] for name, a in cols.items()}
             cols[v.name] = np.concatenate([np.full(dead.size, np.nan), values])
             w = np.concatenate([w[dead], w[reps] * probs])
-            active = np.concatenate([np.zeros(dead.size, dtype=bool), np.ones(reps.size, dtype=bool)])
+            active = np.concatenate(
+                [np.zeros(dead.size, dtype=bool), np.ones(reps.size, dtype=bool)]
+            )
             if v.role == "censor":
                 active = active & (cols[v.name] == 1)
             if v.role == "event":
@@ -530,7 +551,12 @@ class Law:
         return out
 
     def monte_carlo(
-        self, plan: Mapping[int, NodePlan], n: int, seed: int, *, horizons: Sequence[int] | None = None
+        self,
+        plan: Mapping[int, NodePlan],
+        n: int,
+        seed: int,
+        *,
+        horizons: Sequence[int] | None = None,
     ) -> Any:
         """The regimen mean (or incidences) by forward simulation under ``plan``, with its SE.
 
@@ -583,7 +609,7 @@ class Law:
 
 
 def _history(*pairs: tuple[str, float]) -> dict[str, float]:
-    return {name: value for name, value in pairs}
+    return dict(pairs)
 
 
 def _g1() -> Law:
@@ -598,9 +624,7 @@ def _g1() -> Law:
     v += [
         Var("L2", "bern", "covariate", 2, -0.4, {"W": 0.5, "L1": 1.4, "A1": 0.8}),
         Var("A2", "bern", "treatment", 2, 0.0, {"W": 0.3, "L1": 0.3, "A1": 0.5, "L2": 0.6}),
-        Var(
-            "C2", "bern", "censor", 2, 2.5, {"W": 0.2, "L1": -0.2, "L2": -0.3, "A2": -0.3}
-        ),
+        Var("C2", "bern", "censor", 2, 2.5, {"W": 0.2, "L1": -0.2, "L2": -0.3, "A2": -0.3}),
     ]
     v += [
         Var(
@@ -648,7 +672,7 @@ G1 = _g1()
 def _g2() -> Law:
     """Law ``G2``: a Gaussian then a binary covariate per node, a Gaussian outcome.
 
-    The binary covariate :math:`B_t` reads :math:`Z_t` with slope 4, so the regimen mean is
+    The binary covariate :math:`B_t` reads :math:`Z_t` with slope 3, so the regimen mean is
     steep and nonlinear in each Gaussian draw.  The outcome reads the simulated nodes strongly
     and the observed history weakly, which gives the simulation a visible share of the interval
     at one simulated history per unit.
@@ -656,7 +680,7 @@ def _g2() -> Law:
     v: list[Var] = [Var("W", "gauss", "baseline", 0, 0.0)]
     v += [
         Var("Z1", "gauss", "covariate", 1, 0.0, {"W": 0.5}, sd=0.9),
-        Var("B1", "bern", "covariate", 1, -0.2, {"W": 0.4, "Z1": 4.0}),
+        Var("B1", "bern", "covariate", 1, -0.2, {"W": 0.4, "Z1": 3.0}),
         Var("A1", "bern", "treatment", 1, 0.0, {"W": 0.4, "Z1": 0.5, "B1": 0.7}),
     ]
     v += [
@@ -675,7 +699,7 @@ def _g2() -> Law:
             "covariate",
             2,
             -0.3,
-            {"W": 0.3, "Z1": 0.3, "B1": 0.4, "A1": 1.5, "Z2": 4.0},
+            {"W": 0.3, "Z1": 0.3, "B1": 0.4, "A1": 1.5, "Z2": 3.0},
         ),
         Var(
             "A2",
@@ -702,7 +726,7 @@ def _g2() -> Law:
             "covariate",
             3,
             -0.3,
-            {"W": 0.3, "B1": 0.3, "Z2": 0.3, "B2": 0.4, "A2": 1.5, "Z3": 4.0},
+            {"W": 0.3, "B1": 0.3, "Z2": 0.3, "B2": 0.4, "A2": 1.5, "Z3": 3.0},
         ),
         Var(
             "A3",
@@ -772,9 +796,7 @@ def _g3() -> Law:
         }
         if t >= 2:
             event[f"L{t - 1}"] = (0.3, 0.0)
-        v.append(
-            Var(f"E{t}", "cat", "event", t, (-2.2, -3.0), event, columns=(f"R{t}", f"D{t}"))
-        )
+        v.append(Var(f"E{t}", "cat", "event", t, (-2.2, -3.0), event, columns=(f"R{t}", f"D{t}")))
     return Law("G3", 4, tuple(v), cause_names=CAUSES)
 
 
@@ -885,11 +907,9 @@ def linear_means(law: Law, plan: Mapping[int, tuple[str, float]]) -> float:
     raise ValueError("the law has no outcome")
 
 
-def linear_gaussian_plan(
-    kind: str, value: float, n_times: int
-) -> dict[int, tuple[str, float]]:
+def linear_gaussian_plan(kind: str, value: float, n_times: int) -> dict[int, tuple[str, float]]:
     """The same ``(kind, value)`` at every node."""
-    return {t: (kind, value) for t in range(1, n_times + 1)}
+    return dict.fromkeys(range(1, n_times + 1), (kind, value))
 
 
 __all__ = [
@@ -899,6 +919,7 @@ __all__ = [
     "NodePlan",
     "Policy",
     "Rule",
+    "ShiftPlan",
     "Tilt",
     "Var",
     "linear_means",
