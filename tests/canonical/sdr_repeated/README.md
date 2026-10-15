@@ -20,6 +20,12 @@ can pair on the same draws:
 | `shift__<plan>__<node>__1` | the arm each unit takes at the node under the plan |
 | `fold` | the fold assignment of the fit |
 
+This change builds the pairing columns and checks them in every replicate. It commits none of
+them, because 2,400 replicates of 12,000 rows hold about 29 GB, and the container has 15 GB.
+The R side of PR C must read samples sharded by scenario and replicate, one file per fit, and
+not one CSV of about 12 GB. `pairing_sample` in `canonical_sdr_repeated.py` builds one
+replicate's frame. The `shift__` columns are `int8` arm codes.
+
 The pilot tables in `tests/studies/sdr_repeated_properties.py` are placeholders. The marker
 `PILOT_STATE` in `tests/studies/canonical_sdr_repeated.py` reads `"placeholder"`. The declared
 sizes follow the rules in `tests/studies/repeated_sizing.py` applied to those placeholders, so
@@ -52,7 +58,8 @@ P2 also yields the C4 joint coverage. The pilots draw from streams that no decla
 The sample size is part of each stream, so a pilot at a new `n` draws fresh seeds.
 
 `plan.json` in each directory records the arguments, the resolved sample size of each unit,
-the git HEAD, and the hash of each study module. A relaunch with other arguments or other
+the git HEAD, and the hash of each study file and estimator source file. `assemble` prints a
+WARNING and lists the files that differ when a directory's hashes differ from the current tree. A relaunch with other arguments or other
 module bytes stops. Use a new `--output` then.
 
 Run the pilots from the repository root. Run P2 per arm if you want to split it.
@@ -92,10 +99,11 @@ a part is missing. It refuses a table that no size up to 50,000 replications can
 
 ### After an `n` rule fires
 
-The `n` rules change one constant at a time: `PRIMARY_N`, `CONTINUOUS_N` or `ABSORBING_N`.
+The `n` rules change one constant at a time. Each has a doubling count beside its base size:
+`PRIMARY_N_DOUBLINGS`, `CONTINUOUS_N_DOUBLINGS` and `ABSORBING_N_DOUBLINGS`.
 Take N1 as the example. Its rule doubles `ABSORBING_N` to 16,000.
 
-1. Set `ABSORBING_N = 16_000` in `sdr_repeated_properties.py`.
+1. Set `ABSORBING_N_DOUBLINGS = 1` in `sdr_repeated_properties.py`.
 2. Run the family again. The default size is the new declared size.
 3. Assemble with both directories. The old P3 directory still supplies the other families
    at their sizes, and the new directory supplies N1. The `tau` reading pools all six families.
@@ -110,6 +118,13 @@ uv run python -m tests.canonical.sdr_repeated.pilot assemble P3 `
 The primary rule changes `PRIMARY_N`. The expected number of unseen-cell fits then still holds,
 because the count falls as `n` grows. The C6 rule doubles `CONTINUOUS_N` alone, and the C1, C3
 and C5 arms keep `CALIBRATION_N`. Run `--units continuous` in the same way.
+
+## What the sampled rows do not show
+
+The pairing plug-in misses the truth by 0.15 EIF-SE for `ey_regimen[rule @ t=2]` and by 0.24
+for `t=3` at `n = 12,000`. Both are below the 0.25 margin. No sampled row shows that the
+correction is needed for those two cells. Tests E2, E3 and N8' carry that claim exactly. The
+evidence page quotes them for the rule's means.
 
 ## What the in-sample arms do not test
 

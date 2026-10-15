@@ -258,12 +258,17 @@ def test_the_history_free_and_reversed_limits_are_nonzero_on_both_sides() -> Non
     assert history["never_t3"] == pytest.approx(-1.42, abs=0.01)
     assert history["always_t3"] == pytest.approx(0.73, abs=0.01)
     assert history["always_vs_never_t3"] == pytest.approx(1.56, abs=0.01)
-    reverse = {
-        name: _gap_in_se(properties.REVERSED_TRUTH[name], _truth(name), name, properties.N)
-        for name in properties.RULE_LABELS
-    }
-    assert reverse["rule_t2"] == pytest.approx(-3.39, abs=0.02)
-    assert reverse["rule_t3"] == pytest.approx(-2.14, abs=0.02)
+    # The control fits the reversed rule, so its gap reads in the reversed rule's own spread:
+    # -3.58 and -2.35 (plan section 5.3).  In the declared rule's spread, which is the unit of
+    # the paired displacement, the same gaps are -3.39 and -2.14.  The plan's pair is the one
+    # the discrimination check needs, and the second pair is the displacement's unit.
+    for name, own, declared in (("rule_t2", -3.58, -3.39), ("rule_t3", -2.35, -2.14)):
+        gap = properties.REVERSED_TRUTH[name] - _truth(name)
+        scale = np.sqrt(properties.N)
+        assert gap / (properties.REVERSED_EFFICIENCY_SD[name] / scale) == pytest.approx(
+            own, abs=0.01
+        )
+        assert gap / (properties.EFFICIENCY_SD[name] / scale) == pytest.approx(declared, abs=0.01)
 
 
 def test_the_longhand_uncorrected_plug_in_reads_the_plug_in_limit_on_a_large_sample() -> None:
@@ -531,8 +536,31 @@ def test_each_declared_size_is_the_rule_applied_to_the_placeholder_pilots() -> N
     assert not any(derived[key] for key in ("primary_n_rule", "c6_n_rule", "n1_n_rule"))
     assert properties.BOOSTER_REPLICATES == properties.CALIBRATION_REPLICATES
     assert study.STUDY.replicates == study.PRIMARY_REPLICATES
-    assert study.STUDY.n == study.PRIMARY_N == 12_000
-    assert properties.CALIBRATION_N == properties.CONTINUOUS_N == 8_000
+    assert study.STUDY.n == study.PRIMARY_N
+    # Each ``n`` is its base size times two to the recorded number of doublings.  A rule that
+    # fires moves the doubling count, so these lines hold at every pilot state.
+    assert study.PRIMARY_N == study.PRIMARY_N_BASE * 2**study.PRIMARY_N_DOUBLINGS
+    assert properties.CONTINUOUS_N == (
+        properties.CONTINUOUS_N_BASE * 2**properties.CONTINUOUS_N_DOUBLINGS
+    )
+    assert properties.ABSORBING_N == (
+        properties.ABSORBING_N_BASE * 2**properties.ABSORBING_N_DOUBLINGS
+    )
+    for doublings in (
+        study.PRIMARY_N_DOUBLINGS,
+        properties.CONTINUOUS_N_DOUBLINGS,
+        properties.ABSORBING_N_DOUBLINGS,
+    ):
+        assert doublings in (0, 1, 2)
+    if study.PILOT_STATE == "placeholder":
+        # No rule fires on placeholder tables, so no size has doubled.
+        assert (
+            study.PRIMARY_N_DOUBLINGS
+            == properties.CONTINUOUS_N_DOUBLINGS
+            == properties.ABSORBING_N_DOUBLINGS
+            == 0
+        )
+    assert properties.CALIBRATION_N == 8_000
 
 
 def test_the_property_instrument_has_six_families() -> None:
@@ -620,7 +648,9 @@ def test_the_n_rules_fire_on_a_biased_pilot_and_not_on_an_unbiased_one() -> None
 
 
 def test_the_primary_size_is_the_smallest_with_a_small_expected_number_of_unseen_cells() -> None:
-    assert study.minimum_primary_n(study.PRIMARY_REPLICATES) == study.PRIMARY_N
+    base = study.minimum_primary_n(study.PRIMARY_REPLICATES)
+    assert base * 2**study.PRIMARY_N_DOUBLINGS == study.PRIMARY_N
+    assert base == study.PRIMARY_N_BASE
     # The plan's pins for the smallest cell and the expected counts.
     assert study.cell_masses().min() == pytest.approx(0.0016, abs=1e-4)
     assert study.expected_unseen_cell_fits(2_400, 11_000) == pytest.approx(0.018, abs=5e-4)
@@ -688,6 +718,8 @@ def _discrimination_probabilities() -> dict[str, float]:
             cell = f"{name}__{arm}"
             n = properties.family_n(family)
             spread = _arm_spread(family, cell, n)
+            if arm == properties.RULE_ARMS[1] and study.PILOT_STATE != "recorded":
+                spread = properties.REVERSED_EFFICIENCY_SD[name] / np.sqrt(n)
             gap = (limit - _truth(name)) / spread
             out[f"miss/{family}/{cell}"] = sizing.bias_discriminated_probability(
                 margins, gap, _replicates(family)
@@ -698,13 +730,14 @@ def _discrimination_probabilities() -> dict[str, float]:
             # Its standard deviation is at most the sum of the two spreads over the positive's.
             positive = _arm_spread(family, f"{name}__{positive_arm}", n)
             noise = (spread + positive) / positive
+            displaced = (limit - _truth(name)) / positive
             threshold = (
                 properties.CORRECTION_DISPLACEMENT
                 if family == "correction_necessity"
                 else properties.NECESSITY_DISPLACEMENT
             )
             out[f"displacement/{family}/{cell}"] = float(
-                norm.cdf(np.sqrt(_replicates(family)) * (abs(gap) - threshold) / noise)
+                norm.cdf(np.sqrt(_replicates(family)) * (abs(displaced) - threshold) / noise)
             )
     for name in study.LABELS:
         ratio = properties.CALIBRATION_PILOT_RATIOS[f"{name}__in_sample"]
@@ -846,32 +879,74 @@ def test_the_declared_property_run_is_refused_while_the_pilots_are_placeholders(
 # ---------------------------------------------------------------------------- the drivers
 
 
-def test_draw_and_fit_returns_a_phase_result_with_the_pairing_columns() -> None:
+def test_draw_and_fit_returns_a_phase_result_without_samples() -> None:
     result = study.draw_and_fit(replicates=1, n=SMALL_N, n_jobs=1)
     assert isinstance(result, replication.PhaseResult)
+    # PR B commits no samples: the study is pending and PR C re-runs the Python side.
+    assert result.samples is None
     rows = result.rows
     assert set(rows["scenario"]) == set(study.SCENARIOS)
     for scenario in study.SCENARIOS:
         assert set(rows.loc[rows["scenario"] == scenario, "estimand"]) == set(study.ESTIMANDS)
-    samples = result.samples
-    assert samples is not None
-    assert len(samples) == 2 * SMALL_N
-    expected = {
-        f"{kind}__{plan}__{node}" + ("__1" if kind == "shift" else "")
-        for kind in ("ratio", "shift")
-        for plan in ("never", "always", study.slug(RULE_LABEL))
-        for node in (1, 2, 3)
-    }
-    assert expected <= set(samples.columns)
-    assert {"scenario", "replicate", "fold", "row"} <= set(samples.columns)
-    folds = samples.groupby("scenario")["fold"].nunique()
-    assert folds["repeated_folds_1"] == 1
-    assert folds["repeated_folds_5"] == 5
     assert result.truths is not None
     assert set(result.truths["estimand"]) == set(study.ESTIMANDS)
     # The initial estimate is the plug-in, and it differs from the estimate.
     assert (rows["initial_estimate"].notna()).all()
     assert (rows["initial_estimate"] != rows["estimate"]).all()
+
+
+def test_the_pairing_sample_holds_the_fold_and_numeric_pairing_columns() -> None:
+    for scenario, folds in study.SCENARIO_FOLDS.items():
+        frame, _ = study.draw_scenario(scenario, SMALL_N, 0)
+        result = study.fit_cleverly(frame, folds=folds)
+        sample = study.pairing_sample(frame, result, scenario, 0)
+        assert len(sample) == SMALL_N
+        expected = {
+            f"{kind}__{plan}__{node}" + ("__1" if kind == "shift" else "")
+            for kind in ("ratio", "shift")
+            for plan in ("never", "always", study.slug(RULE_LABEL))
+            for node in (1, 2, 3)
+        }
+        assert expected <= set(sample.columns)
+        assert {"scenario", "replicate", "fold", "row"} <= set(sample.columns)
+        assert sample["fold"].nunique() == folds
+        # No object column: a shift is an int8 arm code.
+        shifts = sample.filter(like="shift__")
+        assert (shifts.dtypes == np.int8).all()
+        assert not (sample.dtypes.astype(str) == "object").any()
+
+
+def test_the_primary_driver_returns_a_small_constant_payload_for_each_replicate() -> None:
+    """The declared run holds 4,800 payloads in the parent, so each must stay small.
+
+    A returned sample of 12,000 rows held 12 MB, and 2,400 replicates of it held 29 GB.  The
+    payload must not grow with ``n``.
+    """
+    import pickle
+
+    sizes = {}
+    for n in (SMALL_N, 3 * SMALL_N):
+        key = ("repeated_folds_5", 0, n)
+        payload = study._replicate(key, study._draw(key))
+        sizes[n] = len(pickle.dumps(payload))
+    assert sizes[SMALL_N] < 60_000
+    assert sizes[3 * SMALL_N] < 1.1 * sizes[SMALL_N]
+    # 2 scenarios x 5,200 replicates at the largest size the rules allow stay below 1 GB.
+    assert sizes[3 * SMALL_N] * 2 * 5_200 < 1e9
+
+
+def test_a_missing_plan_value_on_an_observed_unit_is_refused() -> None:
+    """A mutation control for the shift: NaN is legitimate only after the unit left."""
+    frame, _ = study.draw_scenario("repeated_folds_1", SMALL_N, 5)
+    result = study.fit_cleverly(frame, folds=1)
+    plan = study.plans_of(result)[0]
+    plan.values[0, 1] = np.nan  # unit 0 is still observed at node 2 unless it was censored
+    stayed = np.asarray(result.data.uncensored, dtype=bool)[:, 0]
+    if stayed[0]:
+        with pytest.raises(AssertionError, match="still observed"):
+            study.shifted_values(result, plan, 2)
+    else:  # pragma: no cover - seed dependent
+        pytest.skip("unit 0 is censored")
 
 
 def test_the_fit_sets_emit_exactly_the_declared_cells() -> None:
@@ -962,7 +1037,8 @@ def test_the_pilot_driver_writes_parts_records_the_plan_and_resumes(
     assert capsys.readouterr().out.count("[P1] part") == 2
     plan = json.loads((out / "plan.json").read_text())
     assert plan["resolved_n"] == dict.fromkeys(study.SCENARIOS, SMALL_N)
-    assert set(plan["modules"]) == set(pilot.STUDY_FILES)
+    assert set(plan["modules"]) == set(pilot.study_files())
+    assert "src/cleverly/longitudinal/sdr.py" in plan["modules"]
     assert plan["head"]
     assert pilot.run("P1", out, jobs=1, chunk=2, replicates=2) == 0
     assert "skipped" in capsys.readouterr().out
@@ -1068,6 +1144,28 @@ def test_a_plan_without_resolved_sizes_is_refused(tmp_path: Path) -> None:
 
 
 @pytest.mark.usefixtures("small_declared")
+@pytest.mark.usefixtures("small_declared")
+def test_assemble_warns_loudly_when_the_recorded_hashes_differ_from_the_tree(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "p1"
+    pilot.run("P1", out, jobs=1, chunk=2, replicates=1)
+    capsys.readouterr()
+    pilot.collect("P1", [out])
+    assert "WARNING" not in capsys.readouterr().out
+    plan = json.loads((out / "plan.json").read_text())
+    plan["modules"]["src/cleverly/longitudinal/sdr.py"] = "0" * 64
+    plan["modules"]["src/cleverly/longitudinal/removed.py"] = "1" * 64
+    plan["head"] = "0" * 40
+    (out / "plan.json").write_text(json.dumps(plan))
+    pilot.collect("P1", [out])
+    text = capsys.readouterr().out
+    assert text.count("WARNING") >= 2
+    assert "differs: src/cleverly/longitudinal/sdr.py" in text
+    assert "differs: src/cleverly/longitudinal/removed.py" in text
+    assert "0" * 40 in text
+
+
 def test_the_p2_arms_run_one_at_a_time(tmp_path: Path) -> None:
     out = tmp_path / "p2-booster"
     pilot.run("P2", out, jobs=1, chunk=2, replicates=2, units=[properties.BOOSTER_ARM])

@@ -56,19 +56,73 @@ ROOT = Path(__file__).resolve().parents[3]
 PLAN = "plan.json"
 DEFAULT_REPLICATES = {"P1": 2_000, "P2": 8_000, "P3": 2_000}
 DEFAULT_CHUNK = {"P1": 50, "P2": 100, "P3": 50}
-#: The modules whose bytes decide a pilot row.  The plan records their hashes.
+#: The files whose bytes decide a pilot row.  The plan records their hashes.
 STUDY_FILES = (
     "tests/studies/canonical_sdr_repeated.py",
     "tests/studies/sdr_repeated_properties.py",
     "tests/studies/ltmle_repeated_law.py",
     "tests/studies/ltmle_repeated_properties.py",
     "tests/studies/canonical_ltmle_repeated.py",
+    "tests/studies/canonical_ltmle.py",
+    "tests/studies/repeated_sizing.py",
+    "tests/studies/fractional_glm.py",
+    "tests/discrete_law_longitudinal.py",
+    "tests/discrete_law_longitudinal_multivalue.py",
+    "src/cleverly/datasets/longitudinal.py",
+)
+#: The estimator source trees that every fit runs.  Each ``*.py`` file in them is hashed.
+STUDY_TREES = (
+    "src/cleverly/longitudinal",
+    "src/cleverly/data",
+    "src/cleverly/inference",
+    "src/cleverly/interventions",
+    "src/cleverly/learners",
+    "src/cleverly/utils",
 )
 
 
+def study_files() -> list[str]:
+    """Every file whose hash the plan records: :data:`STUDY_FILES` and the estimator trees."""
+    names = set(STUDY_FILES)
+    for tree in STUDY_TREES:
+        names.update(path.relative_to(ROOT).as_posix() for path in (ROOT / tree).rglob("*.py"))
+    return sorted(names)
+
+
 def module_hashes() -> dict[str, str]:
-    """The SHA-256 of each study module, by repository path."""
-    return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in STUDY_FILES}
+    """The SHA-256 of each study file, by repository path."""
+    return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in study_files()}
+
+
+def drifted_files(recorded: Mapping[str, str]) -> list[str]:
+    """The files whose bytes differ from ``recorded``, added or removed files included."""
+    current = module_hashes()
+    return sorted(name for name in {*recorded, *current} if recorded.get(name) != current.get(name))
+
+
+def warn_on_drift(plan: Mapping[str, Any], output: Path) -> list[str]:
+    """Print a loud warning when a directory was written by other code than the current tree.
+
+    Returns the files that differ.  The assembly goes on, because a comment edit is harmless
+    and the reader judges the list.
+    """
+    drift = drifted_files(plan.get("modules", {}))
+    recorded_head = str(plan.get("head", "unknown"))
+    moved = recorded_head != git_head()
+    if drift or moved:
+        print(
+            f"WARNING: {output} was written by HEAD {recorded_head}; the tree is at {git_head()}.",
+            flush=True,
+        )
+    if drift:
+        print(
+            f"WARNING: {len(drift)} study file(s) differ from the hashes this directory "
+            "recorded, so its rows may not describe the current code:",
+            flush=True,
+        )
+        for name in drift:
+            print(f"  differs: {name}", flush=True)
+    return drift
 
 
 def git_head() -> str:
@@ -272,6 +326,7 @@ def collect(pilot: str, outputs: Sequence[Path]) -> tuple[dict[str, list[Any]], 
     sizes: dict[str, int] = {}
     for output in outputs:
         plan, by_unit = load_parts(pilot, output)
+        warn_on_drift(plan, output)
         for unit, results in by_unit.items():
             declared = props.pilot_declared_n(pilot, unit)
             recorded = int(plan["resolved_n"][unit])

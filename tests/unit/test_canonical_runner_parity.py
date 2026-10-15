@@ -61,6 +61,11 @@ ROOT_RUNNERS = tuple(
     )
 )
 
+#: Placeholder runners of studies whose comparator is pending.  Each only calls ``stop()``, so it
+#: publishes no row and answers to no row contract.  The change that registers the comparator
+#: replaces it with a real runner and moves it into the lists above.
+PENDING_STUBS = ("longitudinal_repeated_sdr_runner.R",)
+
 #: Every reference runner whose row a study publishes: one per study directory, plus the
 #: root runners.  These answer to the published-row contract.
 RUNNERS = tuple(sorted((*CANONICAL.glob("*/run_*.R"), *ROOT_RUNNERS)))
@@ -186,7 +191,15 @@ def test_every_root_runner_is_one_a_study_names() -> None:
         for match in _NAMED_RUNNER.finditer(regenerate.read_text(encoding="utf-8"))
         if "/" not in match.group("runner") and (CANONICAL / match.group("runner")).exists()
     }
-    assert named == {path.name for path in ROOT_RUNNERS}
+    assert named - set(PENDING_STUBS) == {path.name for path in ROOT_RUNNERS}
+
+
+@pytest.mark.parametrize("stub", PENDING_STUBS)
+def test_a_pending_stub_stops_and_names_the_change_that_replaces_it(stub: str) -> None:
+    source = (CANONICAL / stub).read_text(encoding="utf-8")
+    assert re.search(r"^stop\(", source, re.M)
+    assert "PR C" in source
+    assert "data.frame(" not in source
 
 
 def test_every_collector_is_checked_against_the_harness_contract() -> None:

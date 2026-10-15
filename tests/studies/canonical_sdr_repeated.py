@@ -16,16 +16,36 @@ of this change.  The record declares ``pending_reference="lmtp"``, so the regene
 no reference process, the registry holds the study as "comparator pending", and the evidence is
 labelled "Python property evidence, comparator run pending".  The merge reads the Python rows
 only: the truth gates on the 26 cleverly cells, and the fast-tier witnesses E2, E3 and N8' that
-carry the correction's exactness without R.  This change writes the pairing columns so that the
-change which registers lmtp can pair on the draws committed here (plan X32b, sections 5.3 and 5.5):
+carry the correction's exactness without R.  This change defines the pairing columns that the
+change registering lmtp pairs on (plan X32b, sections 5.3 and 5.5).  It builds and checks them in
+every replicate and commits none of them (see "Memory and PR C"):
 
 * ``ratio__<plan>__<node>``: the per-node ratio :math:`\\pi_t 1\\{C_t = 1\\} / (g_t c_t)` at the
   observed arm, zero where the unit leaves the plan.  :func:`check_ratios` asserts that its
   running products are the partial weights the engine reads.  The mechanisms are known
   (:class:`~tests.studies.canonical_ltmle_repeated.KnownRepeatedMechanism`), so the ratios do not
   depend on the fold, and the training-fold recursion equals ``lmtp::cf_sdr``;
-* ``shift__<plan>__<node>__1``: the arm each unit takes at the node under the plan;
+* ``shift__<plan>__<node>__1``: the arm code (``int8``) each unit takes at the node under the
+  plan.  A missing plan value is accepted only on a unit that left the study before the node;
 * ``fold``: the fold assignment of the fit, which the comparator receives as ``task$folds``.
+
+Memory and PR C
+---------------
+
+One replicate's sample (12,000 rows, about 34 columns) holds 12 MB, and 2,400 replicates of two
+scenarios would hold about 29 GB in the parent process, against 15 GB on the cloud container.
+PR B pairs nothing, so :func:`draw_and_fit` returns rows and truths only (``samples=None``).
+:func:`pairing_sample` builds one replicate's frame.  A fast test bounds the bytes that each
+replicate returns, independent of ``n``.  The R side of PR C must read samples sharded by
+scenario and replicate, one file per fit, and not one CSV of about 12 GB.
+
+What the sampled rows do not show
+---------------------------------
+
+The pairing plug-in misses the truth by 0.15 EIF-SE for ``ey_regimen[rule @ t=2]`` and 0.24 for
+``t=3`` at ``n = 12,000``, below the 0.25 margin.  No sampled row of the primary shows that
+the correction is needed for those two cells.  The fast-tier witnesses E2, E3 and N8' carry that
+claim exactly, and the evidence page quotes them for the rule's means.
 
 lmtp has no non-absorbing repeated-outcome mode.  Its pairing runs once per ``(plan, horizon)`` on
 the frame truncated after node ``h``.  That is the X32a reduction, applied by the study.
@@ -135,8 +155,13 @@ from tests.studies.ltmle_repeated_properties import (
 PILOT_STATE: Literal["placeholder", "recorded"] = "placeholder"
 
 #: The smallest multiple of 1,000 whose expected unseen-cell count is at most
-#: :data:`UNSEEN_CELL_BUDGET` at the declared replicates.  A fast test re-derives it.
-PRIMARY_N = 12_000
+#: :data:`UNSEEN_CELL_BUDGET` at the declared replicates, doubled :data:`PRIMARY_N_DOUBLINGS`
+#: times by the ``n`` rule.  A fast test re-derives both factors.
+PRIMARY_N_BASE = 12_000
+#: How many times the primary ``n`` rule has doubled the size (0, 1 or 2).  Each re-pilot at the
+#: doubled size either fires the rule again or ends the chain.
+PRIMARY_N_DOUBLINGS = 0
+PRIMARY_N = PRIMARY_N_BASE * 2**PRIMARY_N_DOUBLINGS
 #: From ``sdr_repeated_properties.primary_replicates`` on the primary pilot (see the module
 #: docstring, Pilot state).  A fast test re-derives it.
 PRIMARY_REPLICATES = 2_400
@@ -272,7 +297,7 @@ REFERENCE_METADATA = {
     "reference_construction": (
         "lmtp cf_sdr and theta_dr(is_sdr = TRUE), one call per plan and horizon on the panel "
         "truncated after node h (binomial outcome Y_h, the earlier Y_s as covariates), with the "
-        "per-node ratios, shifted values and fold assignment written beside each replicate; "
+        "per-node ratios, shifted values and fold assignment built from each replicate by pairing_sample; "
         "the outcome learner is cell means keyed on (Y_<t, A_<=t); no lmtp density ratio is "
         "fitted"
     ),
@@ -481,12 +506,26 @@ def check_ratios(result: Any, plan: Plan, ratios: np.ndarray) -> None:
 
 
 def shifted_values(result: Any, plan: Plan, node: int) -> np.ndarray:
-    """The arm each unit takes at ``node`` under ``plan``, for the comparator's shifted values."""
+    """The arm code each unit takes at ``node`` under ``plan``, as ``int8``.
+
+    The code indexes ``result.data.treatment_levels[node - 1]``, which is ``(0, 1)`` here, so the
+    code is the arm.  A missing plan value is legitimate only on a row that left the study
+    before ``node``, and the shift is 0 there (its ratio is 0 too).  A missing value on any
+    other row is refused.
+    """
     if plan.policy_targets or plan.mtp_assignments or plan.policy:
         raise AssertionError(f"plan {plan.label!r}: only a label or a rule is paired")
-    levels = np.asarray(result.data.treatment_levels[node - 1], dtype=object)
-    codes = np.nan_to_num(np.asarray(plan.values[:, node - 1], dtype=float)).astype(int)
-    return levels[codes]
+    raw = np.asarray(plan.values[:, node - 1], dtype=float)
+    missing = np.isnan(raw)
+    if node > 1:
+        at_risk = np.asarray(result.data.uncensored, dtype=bool)[:, node - 2]
+    else:
+        at_risk = np.ones(len(raw), dtype=bool)
+    if (missing & at_risk).any():
+        raise AssertionError(
+            f"plan {plan.label!r} at node {node}: a plan value is missing on a unit still observed"
+        )
+    return np.where(missing, 0, raw).astype(np.int8)
 
 
 def pairing_columns(result: Any) -> dict[str, np.ndarray]:
@@ -559,12 +598,13 @@ def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
     return draw_scenario(scenario, n, replicate)
 
 
-def _replicate(
-    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
-) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
-    scenario, replicate, _ = key
-    frame, truth = drawn
-    result = fit_cleverly(frame, folds=SCENARIO_FOLDS[scenario])
+def pairing_sample(frame: pd.DataFrame, result: Any, scenario: str, replicate: int) -> pd.DataFrame:
+    """The replicate's draw with its fold assignment and pairing columns.
+
+    PR B does not return this frame from the primary driver, because 2,400 replicates of it
+    hold about 29 GB.  The change that pairs lmtp builds it for one replicate at a time and
+    shards it by scenario and replicate.
+    """
     sample = frame.copy()
     for name, values in pairing_columns(result).items():
         sample[name] = values
@@ -572,25 +612,34 @@ def _replicate(
     sample.insert(0, "fold", result.folds.assignment)
     sample.insert(0, "replicate", replicate)
     sample.insert(0, "scenario", scenario)
+    return sample
+
+
+def _replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
+    result = fit_cleverly(frame, folds=SCENARIO_FOLDS[scenario])
+    # Every replicate builds the pairing columns, which runs ``check_ratios`` on each plan.  The
+    # columns are not kept.
+    pairing_columns(result)
     truths = [
         {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
         for name, value in truth.items()
     ]
-    return sample, truths, cleverly_rows(result, truth, scenario, replicate, n=len(frame))
+    return truths, cleverly_rows(result, truth, scenario, replicate, n=len(frame))
 
 
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
-    """Draw and fit every declared primary replication, and write the pairing columns.
+    """Draw and fit every declared primary replication, and check the pairing columns.
 
     The declared ``(replicates, n)`` is refused while the pilot tables are placeholders.  An
-    explicit smaller run is a smoke run and is not refused.  The sample of each replicate carries
-    the fold assignment and the pairing columns of the fit, so a failed fit leaves its replicate
-    without a sample.
+    explicit smaller run is a smoke run and is not refused.  Each replicate builds the pairing
+    columns and checks them, and returns rows and truths only: the result holds no samples.
     """
     if (replicates, n) == (PRIMARY_REPLICATES, PRIMARY_N):
         require_recorded_pilots("the declared primary run")
-    # Replicate-major, so every scenario of one replicate is contiguous in the sample archive and
-    # the comparator's runner reads them as one group.
     outcomes = replication.fit_primary(
         [
             (scenario, replicate, n)
@@ -600,12 +649,12 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
         _replicate,
         draw=_draw,
         n_jobs=n_jobs,
+        rows_at=1,
         implementation=STUDY.implementation,
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
-    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
-    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
+    truths = pd.DataFrame([row for rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, rows in outcomes.kept for row in rows])
     return replication.result(
-        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=None, truths=truths
     )

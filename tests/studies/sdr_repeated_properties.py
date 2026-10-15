@@ -18,6 +18,24 @@ a saturated regression has a vanishing correction on seen cells, so the in-sampl
 the plug-in and the mechanism terms.  The ``double_robustness`` and ``correction_necessity``
 families use a regression on ``W`` alone, whose correction is nonzero.
 
+The reversed-rule gaps
+----------------------
+
+The declared rule's efficient standard deviation is 0.747 at ``t = 2`` and 1.240 at ``t = 3``.
+The reversed rule's is 0.708 and 1.130.  The ``reversed_rule`` control fits the reversed rule, so
+its bias reads in its own spread: the gaps at ``n = 2,000`` are -3.58 and -2.35 EIF-SE, the
+values of plan section 5.3 (``allocation.py`` divides by ``eif_sd("reversed", h)``).  In the
+declared rule's spread, which is the unit of the paired displacement, the same gaps are -3.39 and
+-2.14.  The plan is right for the discrimination check, and the first draft of the fast test used
+the wrong unit.  :data:`REVERSED_EFFICIENCY_SD` carries the correct one.
+
+Declared extension to plan section 5.7
+--------------------------------------
+
+The C6 ``n`` rule reads the share ``1 - d/5`` (:data:`C6_SHARE`), one of the five ``SDR``
+calibration terms: C1, C3, C5, C6 and the C4 joint band.  Plan section 5.7 states the ``IPSI``
+share ``1 - d/4``.  This is a declared extension for ``SDR``, and the plan is to be amended.
+
 Declared before any run
 -----------------------
 
@@ -204,9 +222,15 @@ N = 2_000
 CALIBRATION_N = 8_000
 #: The sample size of the C6 arm (``continuous``).  It is declared apart from
 #: :data:`CALIBRATION_N`, so the C6 ``n`` rule doubles this size alone.
-CONTINUOUS_N = 8_000
+CONTINUOUS_N_BASE = 8_000
+#: How many times the C6 ``n`` rule has doubled :data:`CONTINUOUS_N` (0, 1 or 2).
+CONTINUOUS_N_DOUBLINGS = 0
+CONTINUOUS_N = CONTINUOUS_N_BASE * 2**CONTINUOUS_N_DOUBLINGS
 #: The sample size of N1, which the ``n`` rule may double, twice at most.
-ABSORBING_N = 8_000
+ABSORBING_N_BASE = 8_000
+#: How many times the N1 ``n`` rule has doubled :data:`ABSORBING_N` (0, 1 or 2).
+ABSORBING_N_DOUBLINGS = 0
+ABSORBING_N = ABSORBING_N_BASE * 2**ABSORBING_N_DOUBLINGS
 #: The sample size of N2.
 HISTORY_FREE_N = 2_000
 #: The sample size of N3.
@@ -296,6 +320,11 @@ MARKOV_LIMIT = {name: _sdr_value(name, "markov", "intercept") for name in GATED_
 #: The efficient influence curve's standard deviation of each label.  It scales the noise
 #: control.  The study claims no efficiency, so no efficiency band reads it.
 EFFICIENCY_SD = {name: efficiency_sd(law.BINARY, name) for name in LABELS}
+#: The efficient influence curve's standard deviation of the reversed rule, by rule label.  The
+#: ``reversed_rule`` control is a fit of another parameter, so its bias reads in its own spread.
+REVERSED_EFFICIENCY_SD = {
+    name: float(law.BINARY.eif_sd(REVERSED, label_parts(name)[2])) for name in RULE_LABELS
+}
 
 # ---------------------------------------------------------------------------- learners
 
@@ -1010,6 +1039,18 @@ def property_cells() -> dict[str, list[str]]:
     }
 
 
+def placeholder_spread(family: str, cell: str) -> float:
+    """The law's own spread of a cell's estimate at the family's size, before any pilot.
+
+    The positive arm and most controls estimate the label's parameter, so the efficient
+    standard deviation of the label stands in.  The ``reversed_rule`` control estimates the
+    reversed rule, and its own efficient standard deviation stands in.
+    """
+    name, arm = cell.split("__", 1)
+    scale = REVERSED_EFFICIENCY_SD[name] if arm == RULE_ARMS[1] else EFFICIENCY_SD[name]
+    return scale / PROPERTY_PILOT_N[family] ** 0.5
+
+
 #: Pilot P3 (property families): the standardized bias of each ``family/cell`` around its
 #: target (the truth for a positive arm, the control's own limit for a control) over
 #: :data:`PROPERTY_PILOT_REPLICATES` draws at the family's own size.
@@ -1029,8 +1070,7 @@ PROPERTY_PILOT_COVERED = {name: 1_900 for names in property_cells().values() for
 #: The empirical spread of each cell's estimate.  The discrimination test reads the gaps of the
 #: controls in these spreads once the pilots are recorded.
 PROPERTY_PILOT_SPREADS = {
-    key: EFFICIENCY_SD[key.split("/", 1)[1].split("__", 1)[0]]
-    / PROPERTY_PILOT_N[key.split("/", 1)[0]] ** 0.5
+    key: placeholder_spread(key.split("/", 1)[0], key.split("/", 1)[1])
     for names in property_cells().values()
     for key in names
 }
