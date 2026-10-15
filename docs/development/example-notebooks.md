@@ -48,19 +48,20 @@ Each code cell is followed by a markdown cell that starts with `**What this outp
 
 | order | cell id | type | contents | the output it shows |
 | --- | --- | --- | --- | --- |
-| 1 | `title` | markdown | the title as the only level-one heading, the applied question, who asks it, and a "What you will learn" table | none |
-| 2 | `plan` | markdown | "Why this method", and a table of the terms the page uses most | none |
+| 1 | `title` | markdown | the title as the only level-one heading, then the situation: the setting, the data, the treatment, the outcome, the time order, and which quantities are counterfactual. Add a compact causal graph where one applies, as [the situation step](#the-situation-step) describes. The learning table is optional. If you add one, list the decisions the problem teaches, not the features the page calls | none |
+| 2 | `plan` | markdown | the question, the target population, the intervention, and the estimand, before any code. The identification assumptions, each marked as checkable from data or as scientific judgment. "Why this method", with each method feature tied to a feature of the problem. A table of the terms the page uses most | none |
 | 3 | `setup` | code | the imports and the installed `cleverly` version | the version |
 | 4 | `data` | code | the data under the program's column names, as [the data step](#the-data-step) describes | the shape, the column names, the first rows, and the known truth of the synthetic law |
 | 5 | `association` | code | an unadjusted comparison, where confounding is part of the lesson | the naive contrast beside the truth |
 | 6 | `protocol` | code | the `StudyProtocol` for the question | `protocol.summary_lines()`, including the fingerprint |
 | 7 | `identify` | code | the `CausalStudy`, the design, and `study.identify(...)` | `effect.summary(protocol="fingerprint")`: the formula, the nuisances, the assumptions, and the protocol fingerprint |
 | 8 | one id per fit | code | each fit, with its method written out in full | `result.summary(protocol="fingerprint")` and the numbers the prose quotes |
-| 9 | `failure-mode` | code | the failure mode the [examples index](../examples/index.md#the-program) names for this tutorial | the numbers that show the failure |
+| 9 | `failure-mode` | code | the failure mode the [examples index](../examples/index.md#the-program) names for this tutorial. Before the code, name the mechanism that causes the difference and the estimand of each method, as [comparisons](#comparisons) requires | the numbers that show the failure |
 | 10 | `assessment` | code | `result.assess()` and the retained reports the page reads | the assessment summary and each report summary |
 | 11 | `sensitivity` | code | the sensitivity analysis that is derived for the fitted estimator and runs on this fit. [The sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names one for each kind of fit | the robustness value and the bounds, the E-value, the stress surface, the tipping point, or the benchmark refits |
-| 12 | `trust` | markdown | "How far to trust this": the layer table and the registered study that covers the construction. [The trust step](#the-trust-step) lists what each cited study row names | none |
-| 13 | `where-next` | markdown | the next tutorial and the related reference entries | none |
+| 12 | `trust` | markdown | "How far to trust this": the validation evidence, the layer table, and the registered study that covers the construction. [The trust step](#the-trust-step) lists what each cited study row names | none |
+| 13 | `interpret` | markdown | the answer to the question of row 2: what the estimate means, for which population and intervention, the reported interval, the evidence behind the reading, the assumptions that stay unverified, and the conclusions the analysis does not support | none |
+| 14 | `where-next` | markdown | the next tutorial and the related reference entries | none |
 
 A tutorial can add steps between rows 8 and 11, such as a second population or a truncation curve.
 Give each added step a heading, a code cell, and its reading. Keep every scientific claim of the
@@ -74,6 +75,27 @@ A tutorial notebook is an end-to-end example that works. Do not show a refusal a
 | a step that prints a capability list with unavailable rows | print only the rows that run |
 | a statistical failure mode that runs and prints numbers, such as an interval that misses | keep it. Row 9 of the outline is for this step |
 | a limit that the reading must name | write the requirement in one sentence, such as "Declare `q_bounds` for a cross-fitted continuous outcome" |
+
+### The situation step
+
+Draw a causal graph only when it informs identification, data construction, the estimator, or the
+reading. Every node and every arrow must do one of these jobs. Under the graph, give a table with
+one row for each arrow or absent arrow and what it asserts. Name each confounder, mediator,
+competing event, censoring variable, and effect modifier. State which assumptions the graph encodes
+and which it leaves open. A `text` fence renders the graph without an extra build dependency.
+
+### Comparisons
+
+Keep a comparison only when it teaches a real distinction. Do not add an estimator only as a
+reference value.
+
+| for each comparison | what to write |
+| --- | --- |
+| the estimands | the estimand of each method. Compare numbers only for methods that target the same estimand, or say that the difference is the lesson |
+| the assumptions | the assumptions that each method adds |
+| the mechanism | the feature of the law or problem that causes the difference, named before the output |
+| the evidence | the diagnostic, population quantity, or registered study that shows the mechanism |
+| the reading | what the difference shows. One simulated sample does not show a general property |
 
 ### The data step
 
