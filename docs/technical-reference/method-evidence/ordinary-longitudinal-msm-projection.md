@@ -35,10 +35,12 @@ the covariance created because every regimen fit uses the same sample.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| two-time-point law with monotone censoring and four projected treatment plans | `msm_regimen[(intercept)]` | longitudinal regimen MSM projection intercept coefficient | 0.000002 | 0.000370 | 1.0003 | 0 | 0.000171 vs 0.0500 | equivalent |
-| two-time-point law with monotone censoring and four projected treatment plans | `msm_regimen[duration]` | longitudinal regimen MSM projection treatment-duration coefficient | -8.634e-07 | 0.000362 | 1.0004 | 0 | 0.000181 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `ltmle projected regimen fits` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| two-time-point law with monotone censoring and four projected treatment plans | `msm_regimen[(intercept)]` | longitudinal regimen MSM projection intercept coefficient | 0.000002 | 0.000370 | 1.0003 | 0 | related target | 0.000171 vs 0.0500 | equivalent |
+| two-time-point law with monotone censoring and four projected treatment plans | `msm_regimen[duration]` | longitudinal regimen MSM projection treatment-duration coefficient | -8.634e-07 | 0.000362 | 1.0004 | 0 | related target | 0.000181 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

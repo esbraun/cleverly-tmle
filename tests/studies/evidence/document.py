@@ -50,6 +50,7 @@ AGREEMENT_COLUMNS = (
     "share of margin used",
     "RMSE ratio bound",
     "coverage difference",
+    "comparison kind",
     # The smallest calibration margin the design could have cleared, beside the declared one.
     # A reader cannot tell an unmet claim from an unmeetable one without it.
     "calibration resolution",
@@ -183,7 +184,7 @@ def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
 
 
 def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[str]:
-    """One row per paired comparison with the canonical implementation."""
+    """One row per paired comparison with the canonical implementation, led by a line that names it."""
     frame = data["equivalence"].sort_values(["scenario", "estimand"])
     rows = [
         (
@@ -194,12 +195,18 @@ def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[
             render(float(row.margin_utilization)),
             render(float(row.rmse_ratio_upper)),
             render(float(row.coverage_difference)),
+            str(record.comparison_kind(str(row.scenario), str(row.estimand))),
             _resolution(row),
             _comparison_result(row),
         )
         for row in frame.itertuples()
     ]
-    return _table(AGREEMENT_COLUMNS, rows)
+    lead = (
+        f"Comparator-backed: a paired comparison with `{record.reference}` on the same samples. "
+        "Each row reports estimate equivalence within the declared margin, the RMSE ratio "
+        "and the coverage difference, and names its comparison kind."
+    )
+    return [lead, "", *_table(AGREEMENT_COLUMNS, rows)]
 
 
 def property_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[str]:

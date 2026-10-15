@@ -123,7 +123,7 @@ is the authoritative inventory, and it names the evidence for each row.
 - Validate sequential-decision analyses over three to five decisions, and add pre-fit support
   checks for price policies.
 - Add a long-panel adapter, sequential g-computation and IPW baselines, and two applied tutorials.
-- Add an experimental status and a reason code on each refusal.
+- Add an experimental status.
 - After the beta, add EP learning and the nested Riesz engine where an analysis needs them.
 
 These are accepted directions, not implemented release claims. The

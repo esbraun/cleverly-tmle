@@ -72,7 +72,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, CleverlyError, RefusalReason
 from ..fluctuation.iterative import InitialFit
 from ..learners._fitting import Task, predict_mean
 from ..learners.crossfit import _POST_DRAW_REMEDY
@@ -160,7 +160,10 @@ def refuse_unsupported(kind: str, detail: str = "") -> None:
             "the reduced-dimension regressions read a per-arm mechanism g(a | W), and a "
             "continuous dose has no arms to index by: the mechanism is a conditional "
             "density and the reduction would have to condition on it rather than on a "
-            "probability. That is a different derivation, not a wider loop."
+            "probability. That is a different derivation, not a wider loop.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit TMLE on the continuous dose.",
+            roadmap="F5",
         )
     raise ValueError(f"unknown refusal {kind!r}")
 
@@ -941,9 +944,14 @@ def _stratified_column(
         except ValueError as error:
             # The preflight checks the outer training complements only.  A nested fold inside
             # one of them can still hold no trainable row of the stratum, so name the stratum.
-            raise ValueError(
-                f"inside baseline stratum {data.stratum_label(code)}: {error}"
-            ) from error
+            prefix = f"inside baseline stratum {data.stratum_label(code)}: "
+            if isinstance(error, CleverlyError):
+                # Keep the class and the reason code of the inner refusal.
+                inner = error.refusal
+                raise type(error).from_refusal(
+                    replace(inner, condition=prefix + inner.condition)
+                ) from error
+            raise ValueError(f"{prefix}{error}") from error
         out[inside] = values[inside]
         if at_companion is not None:
             assert companion_strata is not None

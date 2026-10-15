@@ -91,6 +91,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="ltmle",
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_ltmle_survival.py",
         "tests/studies/ltmle_survival_properties.py",

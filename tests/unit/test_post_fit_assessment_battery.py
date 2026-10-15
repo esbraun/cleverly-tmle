@@ -38,6 +38,7 @@ from cleverly.assessment import (
 )
 from cleverly.datasets import make_binary_outcome, make_multi_arm
 from cleverly.estimators import DRTMLE, TMLE
+from cleverly.exceptions import RefusalReason
 from cleverly.sensitivity._derived import _derived_risk_ratio
 from cleverly.sensitivity.evalue import (
     _DIRECT_EFFECT_REFUSAL,
@@ -1360,8 +1361,12 @@ def test_a_fixed_baseline_outside_the_parameter_space_is_refused_by_name(
         },
         parameter_keys={},
     )
-    with pytest.raises(CapabilityError, match=expected):
+    with pytest.raises(CapabilityError, match=expected) as raised:
         variant.sensitivity.evalue("ate")
+    # The fallback keeps the record of the exact route it falls back from: its code, and
+    # the alternative that fits the ratio as an estimand.
+    assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert raised.value.refusal.alternative
     # Refused while the branch is selected, which is what the battery reads to decide
     # availability, rather than raised after the row claims the analysis can run.
     with pytest.raises(CapabilityError, match=expected):
@@ -1496,15 +1501,15 @@ def test_cached_evalue_refusals_store_data_without_exception_tracebacks(tmp_path
     facade = result.sensitivity
     capability = facade.capability("evalue")
     assert not capability.available
-    assert facade._evalue_selections[None] == ("unavailable", capability.reason)
+    assert facade._evalue_selections[None] == ("unavailable", capability.refusal)
     path = tmp_path / "refused-facade.joblib"
     joblib.dump(facade, path)
     restored = joblib.load(path)
     assert restored.capability("evalue") == capability
     for candidate in (facade, restored):
-        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL)):
+        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL.message())):
             candidate.evalue()
-        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL)):
+        with pytest.raises(CapabilityError, match=re.escape(_DIRECT_EFFECT_REFUSAL.message())):
             candidate.evalue("ate")
         assert all(isinstance(value, tuple) for value in candidate._evalue_selections.values())
 

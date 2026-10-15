@@ -196,8 +196,8 @@ GUARD_INDEPENDENT: dict[str, tuple[Callable[[], Any], str]] = {
             delta="Delta",
             strata=["S"],
         ),
-        "does not establish its cross-validated extension (docs/roadmap.md F21); "
-        "pass cross_fit=False",
+        "does not establish its cross-validated extension. F21 in docs/roadmap.md tracks "
+        "this. Pass cross_fit=False",
     ),
 }
 
@@ -308,7 +308,7 @@ REMAINING: dict[str, tuple[Callable[[], Any], tuple[str, ...], type[Exception]]]
             strata_frame(),
             treatment="A",
         ),
-        ("cv_evaluation=True", "stratum-indexed fold average", "docs/roadmap.md X28"),
+        ("cv_evaluation=True", "stratum-indexed fold average", "X28 in docs/roadmap.md"),
         CapabilityError,
     ),
     "a DR-TMLE stratum with no trainable rows": (
@@ -461,7 +461,7 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
     ),
     "CTMLE incremental= citation": (
         lambda: _plain_fit(CTMLE(incremental=[Incremental(2.0)], **spies())),
-        "Use a plain TMLE. docs/roadmap.md F5 tracks this stop.",
+        "docs/roadmap.md F5 tracks this stop. Use a plain TMLE.",
     ),
     "CTMLE continuous dose": (
         lambda: _dose_fit(CTMLE(msm=MSM.linear(doses=DOSES), density_bins=6, **spies())),
@@ -782,12 +782,12 @@ def test_a_missing_treatment_composition_is_refused_before_any_learner(row: str)
 
 
 def test_a_missing_treatment_with_a_dose_is_refused_by_the_container() -> None:
-    """A conditional density has no composite indicator; the container refuses first."""
+    """The law of a dose given W is not identified; the container refuses first."""
     assert_refused_before_any_call(
         lambda: _fit_missing_treatment(TMLE(**_never(policies=[Shift(1.0, cap=None)]))),
         None,
         "learner",
-        "arm-coded treatment only",
+        "continuous-treatment target reads the law",
         error=DataError,
     )
 

@@ -45,12 +45,13 @@ to unmeasured confounding for that target.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 from .._inference_status import status_record
+from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from ..assessment import AssessmentStatus
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
@@ -74,13 +75,18 @@ _SMD_TO_LOG_RR = 1.81 / 2
 #: Why the standardized conversion stops on a fit with a response mechanism.  It names
 #: the quantity the conversion lacks, which is the *population* standard deviation of the
 #: outcome, and it says which E-value branches stay open.
-_STANDARDISED_MISSING_REFUSAL = (
+_STANDARDISED_MISSING_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "the standardized E-value has no population outcome standard deviation for a fit "
     "with a response mechanism. The conversion divides the difference by sd(Y) computed "
     "from the observed rows alone, and under missing at random the respondents' standard "
     "deviation estimates a different quantity from the population standard deviation the "
-    "estimate is standardized against. An E-value computed from a reported risk ratio or "
-    "odds ratio reads only the estimate and its interval, so it stays available."
+    "estimate is standardized against.",
+    alternative=(
+        "An E-value computed from a reported risk ratio or odds ratio reads only the "
+        "estimate and its interval, so it stays available."
+    ),
+    roadmap="X65",
 )
 
 #: Why every E-value branch stops on a fit that supplies no inference.  Each branch reads
@@ -100,19 +106,39 @@ _EVALUE_NEEDS_INFERENCE = "an E-value is built from the reported estimate and it
 #: estimand is resolved, so the row reads ``unavailable`` on every such fit with a discrete
 #: treatment, a multi-arm fit included, and no branch computes.  A continuous-treatment fit
 #: meets the check before it and reads ``not_applicable``, so it is refused as well.
-_DIRECT_EFFECT_REFUSAL = (
+_DIRECT_EFFECT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "this package has no implemented E-value bound for the fitted controlled direct "
     "effect and its confounding model. Applying the ordinary E-value conversion does "
     "not establish sensitivity to unmeasured treatment-outcome or intermediate-outcome "
     "confounding for this target, because its bias splits into one bounding factor per "
     "arm and the ordinary conversion inverts one factor. docs/roadmap.md X49 tracks the "
-    "E-value of their product"
+    "E-value of their product.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="X49",
 )
 
 
-def _evalue_inference_refusal(status: str) -> str:
+def _evalue_inference_refusal(status: str) -> Refusal:
     """The E-value refusal at a non-inferential status, built on that status's reason."""
-    return _EVALUE_NEEDS_INFERENCE + status_record(status).reason
+    record = status_record(status)
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
+        _EVALUE_NEEDS_INFERENCE + record.reason,
+        alternative=record.alternative,
+        roadmap=record.reopened_by,
+    )
+
+
+def _refuse(status: AssessmentStatus, refusal: Refusal) -> _EValueRefusal:
+    """Build the E-value refusal that carries one complete record."""
+    return _EValueRefusal(
+        status,
+        refusal.condition,
+        reason=refusal.reason,
+        alternative=refusal.alternative,
+        roadmap=refusal.roadmap,
+    )
 
 
 def evalue_from_rr(risk_ratio: float) -> float:
@@ -276,8 +302,17 @@ class _EValueRefusal(CapabilityError):
     import chain reads :mod:`cleverly.sensitivity`.
     """
 
-    def __init__(self, status: AssessmentStatus, reason: str) -> None:
-        super().__init__(reason)
+    def __init__(
+        self,
+        status: AssessmentStatus,
+        text: str,
+        /,
+        *,
+        reason: RefusalReason,
+        alternative: str | None = None,
+        roadmap: str | None = None,
+    ) -> None:
+        super().__init__(text, reason=reason, alternative=alternative, roadmap=roadmap)
         self.status = status
 
 
@@ -322,12 +357,14 @@ def _default_estimand(result: TMLEResult, keys: dict[str, Any]) -> str:
             raise _EValueRefusal(
                 AssessmentStatus.DEFERRED,
                 f"an E-value needs one contrast; choose an explicit estimand from {candidates}",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         if candidates:
             return candidates[0]
     raise _EValueRefusal(
         AssessmentStatus.NOT_APPLICABLE,
         "an E-value needs a supported two-arm contrast; this fit reports no such parameter",
+        reason=RefusalReason.INVALID_DECLARATION,
     )
 
 
@@ -366,26 +403,36 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             AssessmentStatus.UNAVAILABLE,
             "no longitudinal sensitivity derivation is registered for an E-value: the "
             "bounding factor needs a per-period latent law for a sequential g-formula "
-            "target (docs/roadmap.md F16 tracks this stop)",
+            "target (docs/roadmap.md F16 tracks this stop).",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
+            roadmap="F16",
         )
     if result.data.is_continuous_treatment:
         raise _EValueRefusal(
-            AssessmentStatus.NOT_APPLICABLE, "an E-value requires a discrete arm contrast"
+            AssessmentStatus.NOT_APPLICABLE,
+            "an E-value requires a discrete arm contrast",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if result.config.parameter_axis == "learned_rule":
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE,
-            "an E-value does not cover a learned-rule fit: " + LEARNED_RULE_EVALUE_REFUSAL,
+            "an E-value does not cover a learned-rule fit: " + LEARNED_RULE_EVALUE_REFUSAL + ".",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
+            roadmap="F27",
         )
     # Fit-wide and ahead of the estimand, so a level or a multi-arm default refuses here too.
     if declares_intermediate(result):
-        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _DIRECT_EFFECT_REFUSAL)
+        raise _refuse(AssessmentStatus.UNAVAILABLE, _DIRECT_EFFECT_REFUSAL)
     keys = arm_parameter_keys(result)
     explicit = estimand is not None
     source = _default_estimand(result, keys) if estimand is None else estimand
     if source not in result.estimates:
         raise _EValueRefusal(
-            AssessmentStatus.UNAVAILABLE, f"estimand {source!r} was not requested in this fit"
+            AssessmentStatus.UNAVAILABLE,
+            f"estimand {source!r} was not requested in this fit",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     key = keys.get(source)
     attributable = source.split("[", 1)[0] if key is None else key.estimand
@@ -393,33 +440,53 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
             "an E-value is defined for a two-arm risk ratio or contrast, and "
-            f"{attributable} compares the natural course with one reference arm",
+            f"{attributable} compares the natural course with one reference arm.",
+            reason=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative=(
+                "Call evalue(result, 'rr') or evalue(result, 'ate') on a fit that also "
+                "requests the two-arm contrast, such as estimands=('par', 'ate', 'rr')."
+            ),
         )
     if attributable == NATURAL_COURSE_TARGET:
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
             "an E-value is defined for a two-arm risk ratio or contrast, and ey_obs is the "
-            "natural-course mean, not a two-arm contrast",
+            "natural-course mean, not a two-arm contrast.",
+            reason=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative=(
+                "Call evalue(result, 'rr') or evalue(result, 'ate') on a fit that also "
+                "requests the two-arm contrast."
+            ),
         )
     if key is None:
         raise _EValueRefusal(
-            AssessmentStatus.UNAVAILABLE, f"estimand {source!r} has no structured parameter key"
+            AssessmentStatus.UNAVAILABLE,
+            f"estimand {source!r} has no structured parameter key",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if key.axis != "arm":
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
             f"an E-value needs an arm contrast, not the {key.axis!r} axis",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if key.reference is None:
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
             f"an E-value needs a two-arm contrast; target {key.estimand!r} has no reference arm",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if key.stratum is not None:
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
             "this package requires an unconditioned marginal arm contrast; this contrast "
-            "is conditional on a baseline stratum",
+            "is conditional on a baseline stratum.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=(
+                "Call evalue on the marginal alias of the same fit, or fit the stratum's "
+                "rows as their own study."
+            ),
+            roadmap="X65",
         )
     # Fit-wide rather than branch-scoped, unlike the standardized rule below: the reported
     # and derived ratio branches read ``estimate.ci`` and the Gaussian branch reads the
@@ -429,7 +496,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
     # fit without an intermediate variable, a level such as ``ey1`` stays ``not_applicable``
     # here too.
     if not result.estimates[source].supplies_inference:
-        raise _EValueRefusal(
+        raise _refuse(
             AssessmentStatus.UNAVAILABLE,
             _evalue_inference_refusal(result.estimates[source].inference),
         )
@@ -444,18 +511,26 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         # beside a call that raises.  Branch-scoped rather than fit-wide: the reported and
         # derived ratio branches read no standard deviation at all.
         if result.data.has_missing_outcome:
-            raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _STANDARDISED_MISSING_REFUSAL)
+            raise _refuse(AssessmentStatus.UNAVAILABLE, _STANDARDISED_MISSING_REFUSAL)
         return _EValueSelection(source, "gaussian_difference")
     if key.estimand in {"att", "atc"}:
         raise _EValueRefusal(
             AssessmentStatus.UNAVAILABLE,
             f"{key.estimand.upper()} needs a conditional baseline risk and a supported "
-            "conditional ratio target; neither is available",
+            "conditional ratio target; neither is available.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=(
+                "Call evalue(result, 'ate') for the marginal ATE of the same arms, which "
+                "describes a different population. On a gaussian outcome the standardized "
+                "ATT or ATC E-value runs."
+            ),
+            roadmap="F34",
         )
     if key.estimand not in {"ate", "or"}:
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
             f"an E-value has no supported two-arm contrast for target {key.estimand!r}",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     refusal = _risk_ratio_refusal(result, source, keys)
     if refusal is None:
@@ -464,14 +539,20 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
         return _EValueSelection(source, "reported_or")
     baseline = _baseline_mean(result, source, keys)
     if baseline is None or not np.isfinite(result[baseline].psi) or result[baseline].psi <= 0:
-        refusal += "; a finite positive reported reference-arm mean is also absent"
-        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, refusal)
+        raise _refuse(
+            AssessmentStatus.UNAVAILABLE,
+            replace(
+                refusal,
+                condition=refusal.condition.rstrip(".")
+                + "; a finite positive reported reference-arm mean is also absent.",
+            ),
+        )
     _reject_unusable_baseline(result[baseline], result[source], refusal)
     return _EValueSelection(source, "fixed_baseline_ate")
 
 
 def _reject_unusable_baseline(
-    baseline: ParameterEstimate, estimate: ParameterEstimate, refusal: str
+    baseline: ParameterEstimate, estimate: ParameterEstimate, refusal: Refusal
 ) -> None:
     """Refuse a fixed-baseline conversion whose ratio leaves the parameter space.
 
@@ -482,21 +563,30 @@ def _reject_unusable_baseline(
     the contrast arm, which is outside the risk-ratio parameter space. Both are refused
     by name rather than reported as an ordinary approximate E-value.
     """
+    # The inner record keeps its code, alternative and roadmap id: the fallback adds a
+    # reason why the approximate route fails too, and the exact route stays the remedy.
     error = baseline.std_error
     if not np.isfinite(error) or baseline.psi <= error:
-        raise _EValueRefusal(
+        raise _refuse(
             AssessmentStatus.UNAVAILABLE,
-            f"{refusal}; the reported reference-arm mean {baseline.psi:.4g} is not "
-            f"separated from zero by its own standard error {error:.4g}, so the "
-            "fixed-baseline conversion has no stable denominator",
+            replace(
+                refusal,
+                condition=f"{refusal.condition.rstrip('.')}; the reported reference-arm mean "
+                f"{baseline.psi:.4g} is not separated from zero by its own standard error "
+                f"{error:.4g}, so the fixed-baseline conversion has no stable denominator.",
+            ),
         )
     ratio = (baseline.psi + estimate.psi) / baseline.psi
     if not np.isfinite(ratio) or ratio <= 0:
-        raise _EValueRefusal(
+        raise _refuse(
             AssessmentStatus.UNAVAILABLE,
-            f"{refusal}; the reported difference {estimate.psi:.4g} against the "
-            f"reference-arm mean {baseline.psi:.4g} implies a nonpositive risk in the "
-            "contrast arm, which no risk ratio describes",
+            replace(
+                refusal,
+                condition=f"{refusal.condition.rstrip('.')}; the reported difference "
+                f"{estimate.psi:.4g} against the reference-arm mean {baseline.psi:.4g} "
+                "implies a nonpositive risk in the contrast arm, which no risk ratio "
+                "describes.",
+            ),
         )
 
 
@@ -572,7 +662,8 @@ def _standardising_sd(result: TMLEResult) -> tuple[float, bool]:
         raise CapabilityError(
             "cannot standardise the effect: a standard deviation needs at least two "
             f"observed rows of positive weight, and the reliability correction is "
-            f"{correction:.4g}"
+            f"{correction:.4g}",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     mean = float(np.average(observed, weights=weights))
     variance = float(np.sum(weights * (observed - mean) ** 2)) / correction
@@ -650,7 +741,10 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
     elif selection.branch == "gaussian_difference":
         sd, weighted = _standardising_sd(result)
         if not np.isfinite(sd) or sd <= 0:
-            raise CapabilityError("cannot standardise the effect: the outcome has no variance")
+            raise CapabilityError(
+                "cannot standardise the effect: the outcome has no variance",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
         rr = float(np.exp(_SMD_TO_LOG_RR * estimate.psi / sd))
         ci = (
             float(np.exp(_SMD_TO_LOG_RR * low / sd)),

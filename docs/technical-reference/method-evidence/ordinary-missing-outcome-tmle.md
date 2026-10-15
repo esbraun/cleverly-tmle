@@ -26,11 +26,13 @@ intervals.
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| binary-outcome observational law with MAR outcomes | `ate` | average treatment effect | 1.244e-09 | 2.566e-07 | 1.0000 | 0 | 5.149e-09 vs 0.0500 | equivalent |
-| binary-outcome observational law with MAR outcomes | `ey0` | counterfactual mean under no treatment | -8.769e-10 | 2.483e-07 | 1.0000 | 0 | 4.212e-09 vs 0.0500 | equivalent |
-| binary-outcome observational law with MAR outcomes | `ey1` | counterfactual mean under treatment | 3.675e-10 | 1.065e-07 | 1.0000 | 0 | 4.198e-09 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle-r` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome observational law with MAR outcomes | `ate` | average treatment effect | 1.244e-09 | 2.566e-07 | 1.0000 | 0 | matching implementation | 5.149e-09 vs 0.0500 | equivalent |
+| binary-outcome observational law with MAR outcomes | `ey0` | counterfactual mean under no treatment | -8.769e-10 | 2.483e-07 | 1.0000 | 0 | matching implementation | 4.212e-09 vs 0.0500 | equivalent |
+| binary-outcome observational law with MAR outcomes | `ey1` | counterfactual mean under treatment | 3.675e-10 | 1.065e-07 | 1.0000 | 0 | matching implementation | 4.198e-09 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

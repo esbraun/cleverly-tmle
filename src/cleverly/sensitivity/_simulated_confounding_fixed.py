@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from .._declarations import FunctionKind
+from .._refusal import Refusal, RefusalReason
 from .._typing import FloatArray
 from ..data import CausalData
 from ..exceptions import CapabilityError, DataError
@@ -45,22 +46,43 @@ _FIXED_TARGET_TYPES: dict[str, type] = {
 }
 
 
-def fixed_replay_refusal(estimator: Any, target: str) -> str | None:
+def fixed_replay_refusal(estimator: Any, target: str) -> Refusal | None:
     """Describe a fixed-policy boundary without evaluating user callbacks."""
     from ..estimators.tmle import TMLE
 
     if fixed_axis(target) is None:
         return None
     if type(estimator) is not TMLE:
-        return (
-            "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only"
+        # X50 holds the DR-TMLE regimes and MSMs, X51 the C-TMLE ones, and X66 part (g)
+        # the other estimators.
+        roadmap = {"drtmle": "X50", "collaborative_tmle": "X51"}.get(
+            getattr(estimator, "_assessment_method", ""), "X66"
+        )
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "simulated_confounding supports fixed regimes and MSMs under exact ordinary TMLE only.",
+            alternative="Fit the regimes or the MSM with the ordinary TMLE and replay that fit.",
+            roadmap=roadmap,
         )
     if target == "msm":
         model = estimator.msm
         if type(model) is not MSM or model.link not in {"identity", "log", "logit"}:
-            return "simulated_confounding supports exact MSM with identity, log, or logit link only"
+            return Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "simulated_confounding supports exact MSM with identity, log, or logit link only.",
+                alternative="Fit the MSM with the identity, log, or logit link.",
+                roadmap="X66",
+            )
     elif any(type(item) not in {Static, Rule, Stochastic} for item in estimator.interventions):
-        return "simulated_confounding supports exact Static, Rule, and Stochastic regimes only"
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "simulated_confounding supports exact Static, Rule, and Stochastic regimes only.",
+            alternative=(
+                "Write the regime as Static, Rule(..., rule_kind='known') or "
+                "Stochastic(..., density_kind='known')."
+            ),
+            roadmap="X66",
+        )
     return None
 
 
@@ -81,13 +103,17 @@ class _BaselineRows:
             or fingerprint_array(data.covariates) != self.fingerprint
         ):
             raise CapabilityError(
-                "fixed-policy replay requires the original baseline rows and arms"
+                "fixed-policy replay requires the original baseline rows and arms",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
 
     def check_frame(self, frame: Any) -> None:
         values = matrix_from_columns(as_frame(frame), self.names)
         if fingerprint_array(values) != self.fingerprint:
-            raise CapabilityError("fixed-policy replay requires the original baseline rows")
+            raise CapabilityError(
+                "fixed-policy replay requires the original baseline rows",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
 
 
 @dataclass(frozen=True)
@@ -118,7 +144,8 @@ class _FrozenArmFunction(_DataBoundArmFunction):
             index = self.baseline.levels.index(arm)
         except ValueError as cause:
             raise CapabilityError(
-                "fixed MSM replay requires the original treatment arms"
+                "fixed MSM replay requires the original treatment arms",
+                reason=RefusalReason.INVALID_DECLARATION,
             ) from cause
         return self.values[:, index].copy()
 
@@ -136,7 +163,10 @@ class _FrozenDoseFunction(_DataBoundArmFunction):
     def check_data(self, data: CausalData) -> None:
         self.baseline.check_data(data)
         if not data.is_continuous_treatment:
-            raise CapabilityError("continuous MSM replay requires continuous treatment")
+            raise CapabilityError(
+                "continuous MSM replay requires continuous treatment",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
 
     def __call__(self, dose: Any, frame: Any) -> Any:
         self.baseline.check_frame(frame)
@@ -145,7 +175,8 @@ class _FrozenDoseFunction(_DataBoundArmFunction):
                 index = self.doses.index(float(dose))
             except ValueError as cause:
                 raise CapabilityError(
-                    "continuous MSM replay requires its fixed dose grid"
+                    "continuous MSM replay requires its fixed dose grid",
+                    reason=RefusalReason.INVALID_DECLARATION,
                 ) from cause
             return self.values[:, index].copy()
         values = np.asarray(
@@ -324,25 +355,37 @@ def validate_fixed_replay(result: Any, estimand: str, key: Any) -> Any:
     axis = fixed_key_axis(key)
     error = "simulated_confounding found inconsistent fixed-policy parameter metadata"
     if axis is None or type(typed) is not _FIXED_TARGET_TYPES[key.estimand]:
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     # Preserve the declaration-specific refusal before the central provenance matcher.
     # Both are metadata-only checks: no policy callback, latent draw, or refit runs here.
     if axis == "regime" and (
         not _same_items(getattr(typed, "regimens", ()), functional.interventions)
         or getattr(typed, "reference", None) != functional.reference
     ):
-        raise CapabilityError(f"{error}: regime declarations disagree")
+        raise CapabilityError(
+            f"{error}: regime declarations disagree", reason=RefusalReason.INVALID_DECLARATION
+        )
     if axis == "msm" and getattr(typed, "model", None) is not functional.msm:
-        raise CapabilityError(f"{error}: MSM declarations disagree")
+        raise CapabilityError(
+            f"{error}: MSM declarations disagree", reason=RefusalReason.INVALID_DECLARATION
+        )
     registered = check_registered_target(result, key, axis, error)
     check_replay_declaration(result, key, error)
     check_only_declared_axis(
         result,
         key,
         axis,
-        "simulated_confounding cannot replay this fixed-policy composition; "
-        "only a point-treatment fixed regime or MSM without longitudinal, "
-        "intermediate, shift, incremental, or other counterfactual axes is supported",
+        Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "simulated_confounding cannot replay this fixed-policy composition; "
+            "only a point-treatment fixed regime or MSM without longitudinal, "
+            "intermediate, shift, incremental, or other counterfactual axes is supported.",
+            alternative=(
+                "Fit the fixed regime or the MSM alone, with no other counterfactual "
+                "keyword, intermediate= or horizons=, and call simulated_confounding on it."
+            ),
+            roadmap="X66",
+        ),
     )
     study = point_study_or_refuse(result, error)
     if (
@@ -350,7 +393,7 @@ def validate_fixed_replay(result: Any, estimand: str, key: Any) -> Any:
         or functional.treatment != study.design.treatment
         or functional.adjustment != tuple(study.design.adjustment)
     ):
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     try:
         replay, alias = (
             _freeze_msm(result, key, typed, functional)
@@ -358,9 +401,14 @@ def validate_fixed_replay(result: Any, estimand: str, key: Any) -> Any:
             else _freeze_regimes(result, key, typed, functional)
         )
     except DataError as cause:
-        raise CapabilityError(f"{error}: {cause}") from cause
+        raise CapabilityError(
+            f"{error}: {cause.refusal.condition}",
+            reason=cause.refusal.reason,
+            alternative=cause.refusal.alternative,
+            roadmap=cause.refusal.roadmap,
+        ) from cause
     check_alias(result, estimand, key, alias, error)
     estimate = result.estimates[estimand]
     if estimate.scale != registered.scale or estimate.inference_value != estimate.psi:
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     return replay
