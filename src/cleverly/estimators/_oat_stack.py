@@ -430,7 +430,9 @@ def corrected_curves(problem: StackProblem, theta: FloatArray) -> StackCurves:
         if not name.startswith("psi"):
             rconds[name] = _equilibrated_rcond(diagonal)
         if rconds.get(name, 1.0) == 0.0:
-            solved[:, block] = np.nan
+            # Zeros, not NaN: NaN times a structurally zero cross-arm entry of ``A_n`` is NaN,
+            # which would reach the arm whose stack held. The arm that reads this block fails.
+            solved[:, block] = 0.0
         else:
             solved[:, block] = np.linalg.solve(diagonal, rhs.T).T
         done.append(block)

@@ -293,6 +293,7 @@ import copy
 import inspect
 import warnings
 from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -562,6 +563,15 @@ _PER_ARM_PARAMETRIC_DATA: Final[tuple[tuple[str, Callable[[CausalData], bool], s
 )
 
 
+#: The estimands the stacked per-arm interval covers. X58 part (b) holds the others.
+STACKED_ESTIMANDS: Final[frozenset[str]] = frozenset({"ate", "rr", "or", "ey", "ey0", "ey1"})
+
+#: The estimands of the :meth:`CTMLE._estimates_for` call in progress, so that
+#: :meth:`CTMLE._corrections` reads the stack only for a call the stack covers. A
+#: :meth:`~cleverly.TMLE.retarget` can request names the estimator never declared.
+_REQUESTED: ContextVar[tuple[str, ...] | None] = ContextVar("_REQUESTED", default=None)
+
+
 def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdict:
     """Whether a per-arm outcome-adaptive fit publishes the stacked interval.
 
@@ -608,7 +618,7 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
             "q_bounds",
             "the stacked interval needs declared q_bounds for an outcome that is not binary",
         )
-    allowed = {"ate", "rr", "or", "ey", "ey0", "ey1"}
+    allowed = STACKED_ESTIMANDS
     requested = estimator.estimands
     if isinstance(requested, str):
         requested = (requested,)
@@ -898,6 +908,10 @@ class CTMLEOutcomeAdaptiveFit:
     stacked_interval : str or None
         The declared models of a fit that :func:`per_arm_parametric_support` admits, which
         then reports the stacked parametric curve. ``None`` for every other fit.
+    stacked_refusal : str or None
+        On a per-arm fit that :func:`per_arm_parametric_support` refuses, the first unmet
+        requirement of the stacked interval. ``None`` under the shared design and on an
+        admitted fit.
     """
 
     strategy: CTMLEStrategy
@@ -909,6 +923,7 @@ class CTMLEOutcomeAdaptiveFit:
     factors: tuple[str, ...] = ()
     risk_by_factor: dict[str, float] | None = None
     stacked_interval: str | None = None
+    stacked_refusal: str | None = None
 
     @property
     def treatment_risk_selected(self) -> float:
@@ -938,6 +953,8 @@ class CTMLEOutcomeAdaptiveFit:
                 sentence += f", inside each of {len(self.strata)} baseline strata"
             if self.stacked_interval is not None:
                 sentence += f". {_STACKED_INTERVAL_NOTE.format(models=self.stacked_interval)}"
+            if self.stacked_refusal is not None:
+                sentence += f". No stacked interval (X58): {self.stacked_refusal}"
             return sentence
         return (
             f"C-TMLE outcome-adaptive fit used {count} Qbar features in one categorical mechanism"
@@ -979,6 +996,8 @@ class CTMLEOutcomeAdaptiveFit:
             lines.append(f"fitted inside each baseline stratum: {'; '.join(self.strata)}")
         if self.stacked_interval is not None:
             lines.append(_STACKED_INTERVAL_NOTE.format(models=self.stacked_interval))
+        if self.stacked_refusal is not None:
+            lines.append(f"No stacked interval (X58): {self.stacked_refusal}")
         return "\n".join(lines)
 
 
@@ -1137,6 +1156,9 @@ class CTMLE(TMLE):
         """
         if not per_arm_parametric_support(self, data).admitted:
             return None
+        requested = _REQUESTED.get()
+        if requested is not None and not set(requested) <= STACKED_ESTIMANDS:
+            return None
         bounds = resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
         arms = tuple(float(arm) for arm in data.arm_codes)
         try:
@@ -1149,7 +1171,7 @@ class CTMLE(TMLE):
                 (float(bounds[0]), float(bounds[1])),
                 float(self.alpha),
             )
-        except (KeyError, ValueError, TypeError) as exc:
+        except (KeyError, IndexError, ValueError, TypeError) as exc:
             reason = f"the fit does not carry the parametric coefficients the stack reads ({exc})"
             zeros = np.zeros(data.n)
             return StackReport(
@@ -1196,24 +1218,41 @@ class CTMLE(TMLE):
         """Every estimand, with the stack-failure status on an estimate that reads a failed arm.
 
         The status is a parameter status: an arm mean of an arm whose stack held keeps the
-        fit's status. Every contrast of a binary fit reads both arms.
+        fit's status. Every contrast of a binary fit reads both arms. A call that requests an
+        estimand outside :data:`STACKED_ESTIMANDS`, which a retarget can do, reads no stack,
+        and every estimate it builds takes ``"generated_design_plugin"``.
         """
-        estimates = super()._estimates_for(
-            data,
-            nuisance,
-            group,
-            submodel,
-            fluctuation,
-            requested,
-            alpha_sig,
-            reference,
-            index=index,
-            drop_undefined=drop_undefined,
-            natural_course=natural_course,
-        )
-        if index is not None:
-            return estimates
-        report = self._stack_report(data, nuisance, fluctuation)
+        token = _REQUESTED.set(tuple(requested))
+        try:
+            estimates = super()._estimates_for(
+                data,
+                nuisance,
+                group,
+                submodel,
+                fluctuation,
+                requested,
+                alpha_sig,
+                reference,
+                index=index,
+                drop_undefined=drop_undefined,
+                natural_course=natural_course,
+            )
+            if index is not None:
+                return estimates
+            if (
+                not set(requested) <= STACKED_ESTIMANDS
+                and per_arm_parametric_support(self, data).admitted
+            ):
+                return {
+                    name: replace(
+                        estimate,
+                        inference=precedent_status([estimate.inference, "generated_design_plugin"]),
+                    )
+                    for name, estimate in estimates.items()
+                }
+            report = self._stack_report(data, nuisance, fluctuation)
+        finally:
+            _REQUESTED.reset(token)
         if report is None or not report.failures:
             return estimates
         held = {f"ey{arm:g}" for arm in data.arm_codes if float(arm) not in report.failures}
@@ -1892,6 +1931,7 @@ class CTMLE(TMLE):
             if per_arm and data.has_strata
             else ()
         )
+        verdict = per_arm_parametric_support(self, data)
         return nuisance, {
             "ctmle": CTMLEOutcomeAdaptiveFit(
                 strategy="oat",
@@ -1902,11 +1942,8 @@ class CTMLE(TMLE):
                 strata=strata,
                 factors=tuple(spec.label for spec in specs),
                 risk_by_factor=risk_by_factor,
-                stacked_interval=(
-                    _stacked_interval_models(self)
-                    if per_arm_parametric_support(self, data).admitted
-                    else None
-                ),
+                stacked_interval=(_stacked_interval_models(self) if verdict.admitted else None),
+                stacked_refusal=(None if verdict.admitted or not per_arm else verdict.detail),
             )
         }
 

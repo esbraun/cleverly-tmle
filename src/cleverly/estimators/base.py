@@ -1567,6 +1567,20 @@ class TMLEResult:
             table = format_table(["estimand", "psi", record.summary_label], rows)
         else:
             for name, estimate in self.estimates.items():
+                if not estimate.supplies_inference:
+                    # A parameter status beside an inferential fit status: the row prints
+                    # its point and withholds the rest, and a note below names the status.
+                    rows.append(
+                        [
+                            name,
+                            f"{estimate.psi:.5g}",
+                            "-",
+                            "-",
+                            "-",
+                            *(["-"] if t_reference else []),
+                        ]
+                    )
+                    continue
                 low, high = estimate.ci
                 rows.append(
                     [
@@ -1610,6 +1624,15 @@ class TMLEResult:
             # thing that belongs there.
             parts.append("")
             parts.append(record.summary_note())
+        else:
+            withheld: dict[str, list[str]] = {}
+            for name, estimate in self.estimates.items():
+                if not estimate.supplies_inference:
+                    withheld.setdefault(estimate.inference, []).append(name)
+            for flagged, names in withheld.items():
+                parts.append("")
+                parts.append(f"rows withheld ({', '.join(names)}): {flagged}")
+                parts.append(status_record(flagged).summary_note())
         if self.n_repeats > 1:
             # Printed under the table rather than left to the scope document, because a
             # reader who subtracts two rows of that table gets a third number the fit

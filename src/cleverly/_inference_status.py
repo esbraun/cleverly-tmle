@@ -249,7 +249,12 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="generated-design plug-in diagnostic",
             reopened_by="F19",
-            alternative="For an interval, fit TMLE.",
+            alternative=(
+                "For an interval, fit TMLE, or fit the in-sample per-arm design with "
+                "ParametricOutcome and ParametricMechanism and simultaneous=False (X58). "
+                "per_arm_parametric_support(estimator, data) in cleverly.estimators.ctmle "
+                "names the first requirement a fit does not meet."
+            ),
         ),
         "estimated_weight_plugin": StatusRecord(
             reason=(

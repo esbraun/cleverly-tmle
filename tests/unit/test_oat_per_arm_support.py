@@ -345,6 +345,33 @@ class TestTheFailureStatus:
         assert ctmle_module.STACK_FAILURE_STATUS == STACK_FAILURE_STATUS
 
 
+class TestABlockWithNoSolve:
+    def test_a_failed_arm_leaves_the_held_arm_finite(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        original = _oat_stack._equilibrated_rcond
+        calls: list[int] = []
+
+        def singular_gamma_one(diagonal: np.ndarray) -> float:
+            calls.append(1)
+            # The solve order is beta, gamma[0], eps[0], gamma[1]: the fourth call.
+            return 0.0 if len(calls) % 5 == 4 else original(diagonal)
+
+        monkeypatch.setattr(_oat_stack, "_equilibrated_rcond", singular_gamma_one)
+        with pytest.warns(DataWarning, match="gamma\\[1\\]"):
+            result = _fit_warning()
+        assert result["ey0"].inference == "influence_curve"
+        assert np.isfinite(result["ey0"].std_error)
+        assert result["ate"].inference == "stack_failure_plugin"
+        assert np.isfinite(result["ate"].plugin_std_error)
+
+
+def _fit_warning() -> Any:
+    return (
+        CTMLE(**_options())
+        .fit(_frame(), outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+        .single()
+    )
+
+
 class TestTheSummary:
     def test_an_admitted_fit_states_what_its_interval_covers(self, admitted_fit: Any) -> None:
         text = admitted_fit.summary()
@@ -352,13 +379,33 @@ class TestTheSummary:
         assert "covers the arm mean when the outcome model is correct" in text
         assert "No simultaneous band" in text
 
-    def test_another_fit_states_nothing(self) -> None:
+    def test_a_refused_per_arm_fit_names_the_unmet_requirement(self) -> None:
+        text = _fit(simultaneous=True).summary()
+        assert "stacked parametric curve" not in text
+        assert "No stacked interval (X58): the stacked interval needs simultaneous=False" in text
+
+    def test_the_refusal_names_the_parametric_route(self, admitted_fit: Any) -> None:
         result = _fit(outcome_learner=LogisticRegression())
-        assert "stacked parametric curve" not in result.summary()
+        with pytest.raises(CapabilityError, match="per_arm_parametric_support"):
+            _ = result["ate"].std_error
+
+    def test_a_shared_design_fit_states_nothing(self) -> None:
+        text = _fit(oat_design="shared", treatment_learner=LogisticRegression()).summary()
+        assert "stacked" not in text
 
     def test_the_note_survives_a_round_trip(self, admitted_fit: Any, tmp_path: Any) -> None:
         loaded = cleverly.load(admitted_fit.save(tmp_path / "fit.pkl"))
         assert loaded.summary() == admitted_fit.summary()
+
+
+class TestTheOutcomeScale:
+    def test_a_bounded_outcome_reports_the_stacked_curve_on_its_scale(self) -> None:
+        frame = quad.sample(quad.BINARY_ACTIVE, 1500, 33, bounded=(2.0, 10.0))
+        result = _fit(frame, q_bounds=(2.0, 10.0), estimands=("ey0", "ey1", "ate"))
+        stack = _oat_stack.fitted_stack(result)
+        curves = _oat_stack.corrected_curves(stack.problem, stack.theta).curves
+        expected = 8.0 * np.std(curves[:, 1] - curves[:, 0], ddof=1) / np.sqrt(result.n)
+        assert result["ate"].std_error == pytest.approx(expected, rel=1e-9)
 
 
 class TestRecomputation:
@@ -392,3 +439,35 @@ class TestRecomputation:
             )
         assert same["ate"].std_error == pytest.approx(fit["ate"].std_error, rel=1e-9)
         assert other["ate"].inference == "stack_failure_plugin"
+
+    def test_a_failed_fit_round_trips(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+        _failing(monkeypatch, {1})
+        with pytest.warns(DataWarning):
+            result = _fit_warning()
+        loaded = cleverly.load(result.save(tmp_path / "failed.pkl"))
+        assert loaded["ate"].inference == "stack_failure_plugin"
+        assert loaded["ey0"].inference == "influence_curve"
+        text = loaded.summary()
+        assert text == result.summary()
+        assert "rows withheld (ate, ey1, rr, or): stack_failure_plugin" in text
+
+    @pytest.mark.parametrize("estimand", ["att", "atc"])
+    def test_a_retarget_to_another_group_reads_no_stack(
+        self, admitted_fit: Any, estimand: str
+    ) -> None:
+        estimator = CTMLE(**_options())
+        data = _prepared(estimator)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fit = estimator.fit(data).single()
+            out, _ = estimator.retarget(data, fit.nuisance, estimands=(estimand,))
+        assert out[estimand].inference == "generated_design_plugin"
+
+    def test_a_retarget_to_an_uncovered_estimand_withholds_every_interval(self) -> None:
+        estimator = CTMLE(**_options())
+        data = _prepared(estimator)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            fit = estimator.fit(data).single()
+            out, _ = estimator.retarget(data, fit.nuisance, estimands=("ate", "ey_obs", "par"))
+        assert {estimate.inference for estimate in out.values()} == {"generated_design_plugin"}
