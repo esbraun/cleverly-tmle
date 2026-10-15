@@ -47,14 +47,16 @@ scenario and replicate, so the simulation error is independent of the sample and
 replicates.  A fixed seed in every replicate would correlate that error across the whole study.
 
 **Red-cell reading** (declared before any run).  The study publishes under ``reporting``.  The
-declared red set is empty: no cell is expected to fail.  The reported cells (the ICE contrast
-where not powered, the shared-target ``LTMLE`` and ``IPSI`` fits, ``G4Q``, and every
-``mc_removed`` cell) carry no verdict.  Each gated cell is sized for a pass chance of at least
-0.90 under perfect calibration, so some finite-sample reds are expected even for a perfect
-estimator.  The design test computes the count over the :data:`GATED_CELLS` gated cells, with the
-SE ratio of every cell at 1: :data:`EXPECTED_RED_COUNT` = 1.07 reds, and a chance of
-:data:`PROBABILITY_OF_A_RED` = 0.66 of at least one.  A red is therefore not a surprise.  No
-replicate count rises to hide it.
+declared red set is empty: no cell is expected to fail.  The reported cells (the ``G1`` ICE
+pairs, the shared-target ``LTMLE`` and ``IPSI`` fits, ``G4Q``, and every
+``mc_removed`` cell) carry no verdict.  Each gated calibration cell is sized for a pass chance of
+at least 0.95 at its shrunk SE ratio, and at least 0.925 with the posterior SD of that ratio
+(about 0.0085) counted, above the floor of 0.90.  Some finite-sample reds are therefore expected
+even for a perfect estimator.  The design test computes the count over the :data:`GATED_CELLS`
+gated cells, at the empirical-Bayes shrunk SE ratio of each cell (the ratios are near, not at,
+1), with the 42 gated derived-control cells counted: :data:`EXPECTED_RED_COUNT` = 1.26 reds, and
+a chance of :data:`PROBABILITY_OF_A_RED` = 0.72 of at least one.  Two reds read as expected.
+A red is therefore not a surprise.  No replicate count rises to hide it.
 
 A red row is a defect suspect.  It is a finite-sample red only when all three hold: its 99%
 SE-ratio interval contains 1, its coverage is consistent with 0.95, and the diagnosis finds no
@@ -110,11 +112,12 @@ PYGFORMULA = "1.2.0"
 PENDING_REASON = "pygformula comparator run, follow-up PR from X45"
 
 #: The expected count of finite-sample reds under perfect calibration, over :data:`GATED_CELLS`
-#: gated cells, and the chance of at least one.  The design test recomputes both from the
-#: replicates and the pilot noise of each cell (``expected_reds``).
-EXPECTED_RED_COUNT = 1.07
-PROBABILITY_OF_A_RED = 0.66
-GATED_CELLS = 72
+#: gated cells (72 measured cells and 42 derived controls), and the chance of at least one.  The
+#: design test recomputes both from the replicates, the shrunk SE ratio and the pilot noise of
+#: each cell (``expected_reds``).
+EXPECTED_RED_COUNT = 1.26
+PROBABILITY_OF_A_RED = 0.72
+GATED_CELLS = 114
 
 #: The simulated histories per unit behind each estimate: the estimator's default, declared.
 N_DRAWS = 10
@@ -267,7 +270,11 @@ def require_status(result: Any, names: Any) -> None:
 
 
 def simulation_seed(seed: int) -> int:
-    """The estimator's ``random_state``: the replicate's own seed, a valid 31-bit integer."""
+    """The estimator's ``random_state``: a stream seed reduced to a valid 31-bit integer.
+
+    The primary phase passes a seed of its ``primary_simulation`` stream, keyed by scenario and
+    replicate.  The property fit sets pass a seed of their ``property_simulation`` stream.
+    """
     return int(seed) % 2**31
 
 
@@ -666,7 +673,8 @@ CONFIGURATION = {
     "treatment_learner": "GLM()",
     "n_draws": N_DRAWS,
     "monte_carlo_control": {"n_draws": N_DRAWS_ONE, "m_prime": M_PRIME},
-    "simulation_stream": "Philox keyed by the replicate's own seed",
+    "simulation_stream": "Philox keyed by the primary_simulation stream (scenario, replicate) in the primary "
+    "phase and the property_simulation stream (fit set, replicate) in the property fit sets",
     "ladder": list(LADDER),
     "calibration_n": CALIBRATION_N,
     "reference": f"none yet; {REFERENCE} is pending",

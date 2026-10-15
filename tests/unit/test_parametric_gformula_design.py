@@ -20,16 +20,18 @@ facts; the laws supply the rest.  Each test below proves one item of the design.
 * **The D-terms.**  Each kind of derivative term (covariate, outcome, hazard, treatment and
   plug-in) carries a share of the standard error in some calibration label (contrasts
   included).  Dropping the term from that label's curve fails the calibration rule with chance
-  at least 0.95, with the uncertainty of the label's base SE ratio counted.
+  at least 0.95, with the posterior uncertainty of the label's base SE ratio counted.
 * **The ICE limit.**  The main-terms ICE fit converges to a value away from the truth on
   ``G2``, by an amount the paired fit set detects with power at least 0.95.
 * **The Monte Carlo accounting.**  The positive ``n_draws_1`` cells are calibration cells.  A
   pinned catch table gives the chance that each fails without the simulation term.  The
   ``mc_removed`` cells report, because none has a predictive power of 0.95.
 * **Sizing.**  The replicates of each calibration label give a pass probability of at least
-  0.90 under the SE-ratio rule.
-* **The red-cell reading.**  The expected count of finite-sample reds under perfect
-  calibration is computed and declared.
+  0.95 at the shrunk SE ratio under the SE-ratio rule.  With the empirical-Bayes posterior SD
+  of the ratio (about 0.0085) integrated, the pass probability is 0.925 to 0.95, above the
+  floor of 0.90 (``PREDICTIVE_PASS`` pins each label).
+* **The red-cell reading.**  The expected count of finite-sample reds is computed at the
+  shrunk SE ratios, with the gated derived controls counted, and declared.
 
 Pilot scripts and outputs: ``cleverly-beta-plans/reviews/x45/design-pilot/`` (the first design
 pilot), its ``review-probes/`` (the pre-queue review) and ``design-remediation/`` (the pilots of
@@ -495,12 +497,20 @@ def test_the_noise_scale_is_the_pilot_spread() -> None:
 
 
 def _shrink(table: dict[str, tuple[int, float, float]]) -> dict[str, float]:
-    """Each label's SE ratio shrunk toward the pooled mean, by the pilot's own spread.
+    """Each label's SE ratio shrunk toward the pooled mean, by the pilot's own spread."""
+    return _shrink_with_sd(table)[0]
+
+
+def _shrink_with_sd(
+    table: dict[str, tuple[int, float, float]],
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Each label's shrunk SE ratio and its empirical-Bayes posterior SD.
 
     ``table`` maps a label to ``(replicates, SE ratio, relative SD of the SE)``.  The ratios of
     several labels spread more than their sampling errors say (``tau`` below), so each label is
     pulled toward the precision-weighted mean by the share of its variance that is sampling
-    error.  This is the empirical-Bayes estimate of the true ratio of the label.
+    error.  This is the empirical-Bayes estimate of the true ratio of the label.  Its posterior
+    variance is the weight times the sampling variance of the pilot ratio.
     """
     labels = list(table)
     ratio = np.array([table[x][1] for x in labels])
@@ -510,12 +520,19 @@ def _shrink(table: dict[str, tuple[int, float, float]]) -> dict[str, float]:
     pooled = float(np.average(ratio, weights=1.0 / sampling))
     tau2 = max(0.0, float(np.var(ratio, ddof=1)) - float(sampling.mean()))
     weight = tau2 / (tau2 + sampling)
-    return dict(zip(labels, pooled + weight * (ratio - pooled), strict=True))
+    shrunk = pooled + weight * (ratio - pooled)
+    sd = np.sqrt(weight * sampling)
+    return dict(zip(labels, shrunk, strict=True)), dict(zip(labels, sd, strict=True))
 
 
 def _shrunk_ratios() -> dict[str, float]:
     """The shrunk SE ratio of each calibration label (``n_draws`` 10)."""
     return _shrink({x: (v[0], v[1], v[2]) for x, v in DESIGN_PILOT.items()})
+
+
+def _posterior_sds() -> dict[str, float]:
+    """The empirical-Bayes posterior SD of the true SE ratio of each calibration label."""
+    return _shrink_with_sd({x: (v[0], v[1], v[2]) for x, v in DESIGN_PILOT.items()})[1]
 
 
 def _pass_probability(replicates: int, label: str, ratio: float) -> float:
@@ -530,24 +547,73 @@ def _pass_probability(replicates: int, label: str, ratio: float) -> float:
     )
 
 
+#: The floor of the brief for the pass probability of a calibration label.
+PASS_FLOOR = 0.90
+
+
+def _predictive_pass_probability(replicates: int, label: str) -> float:
+    """The pass probability with the posterior uncertainty of the label's true ratio integrated."""
+    shrunk, sd = _shrunk_ratios()[label], _posterior_sds()[label]
+    return sum(
+        float(w) * _pass_probability(replicates, label, shrunk + sd * float(x))
+        for x, w in zip(_BASE_NODES, _BASE_WEIGHTS, strict=True)
+    )
+
+
+#: ``label -> posterior-predictive pass probability`` at the declared replicates, with the
+#: empirical-Bayes posterior SD (about 0.0085) of the true ratio integrated.  The labels named
+#: here sit at 0.925 to 0.94; every other label is higher.  The pass probability at the shrunk
+#: point alone is at least 0.958.
+PREDICTIVE_PASS: dict[str, float] = {
+    "nice_g1_treat_all": 0.9391,
+    "nice_g1_treat_none": 0.9369,
+    "nice_g1_rule": 0.9498,
+    "nice_g1_odds_x2": 0.9491,
+    "nice_g1_contrast": 0.9252,
+    "nice_g2_treat_all": 0.9402,
+    "nice_g2_treat_none": 0.9417,
+    "nice_g2_policy_b": 0.9474,
+    "nice_g2_contrast": 0.9414,
+    "nice_g3_relapse_h2": 0.941,
+    "nice_g3_relapse_h4": 0.9491,
+    "nice_g3_death_h4": 0.9462,
+    "nice_g3_contrast_h4": 0.9446,
+    "nice_g4_shift": 0.9437,
+    "nice_g4_dose": 0.9351,
+    "nice_g4_rule_dose": 0.9334,
+    "nice_g4_contrast": 0.9261,
+    "nice_g5_treat_all": 0.9389,
+    "nice_g5_treat_none": 0.937,
+    "nice_g5_odds_x2": 0.9419,
+    "nice_g5_contrast": 0.9441,
+}
+
+
 def test_each_calibration_label_is_sized_for_its_pass_probability() -> None:
-    """A label passes the SE-ratio rule with probability at least 0.95 at its law's replicates.
+    """A label passes the SE-ratio rule with probability at least 0.95 at the shrunk ratio.
 
     The true ratio of each label is its empirical-Bayes estimate from the pilot, and the SE
-    noise is the pilot's.  The floor of the brief is 0.90.  The next smaller multiple of 400
-    clears 0.90 only by 0.005 at its worst label and falls under 0.95 at every label, which
-    leaves no room for the spread of the pilot ratios, so the declared size is 2,400.
+    noise is the pilot's.  With the posterior SD of that ratio integrated, the pass probability
+    is 0.925 to 0.94 at the weakest labels, above the floor of 0.90 of the brief.  The next
+    smaller multiple of 400 clears 0.90 only by 0.005 at its worst label at the shrunk point and
+    falls under 0.95 at every label, so the declared size is 2,400.
     """
     shrunk = _shrunk_ratios()
     worst = {}
+    predictive = {}
     for label in study.CALIBRATION_LABELS:
         law = label.split("_")[1].upper()
         replicates = properties.CALIBRATION_REPLICATES[law]
         probability = _pass_probability(replicates, label, shrunk[label])
         assert probability >= 0.95, (label, replicates, probability)
+        predictive[label] = _predictive_pass_probability(replicates, label)
+        assert predictive[label] >= PASS_FLOOR, (label, replicates, predictive[label])
         worst[label] = _pass_probability(replicates - 400, label, shrunk[label])
     assert max(worst.values()) < 0.95
     assert set(properties.CALIBRATION_REPLICATES.values()) == {2_400}
+    assert set(PREDICTIVE_PASS) == set(predictive)
+    for label, pinned in PREDICTIVE_PASS.items():
+        assert predictive[label] == pytest.approx(pinned, abs=0.003), label
 
 
 def test_the_pilot_shows_no_calibration_cell_outside_the_band() -> None:
@@ -583,9 +649,12 @@ def _se_leg_pass(replicates: int, ratio: float, noise: float) -> float:
 
 
 def _base_sd(label: str) -> float:
-    """The sampling SD of the pilot's SE ratio of a label: the uncertainty of its base ratio."""
-    count, ratio, noise, _ = DESIGN_PILOT[label]
-    return ratio * math.sqrt(1.0 / (2.0 * (count - 1.0)) + noise**2 / count)
+    """The posterior SD of the label's true SE ratio: the uncertainty of its base ratio.
+
+    The catch is centred on the shrunk ratio, so it spreads by the posterior SD of that ratio,
+    not by the raw sampling SD of the pilot.
+    """
+    return _posterior_sds()[label]
 
 
 def _catch(replicates: int, factor: float, centre: float, spread: float, noise: float) -> float:
@@ -830,7 +899,8 @@ def label_shares(law: str, draws: int, first_seed: int) -> dict[str, dict[str, f
     }
 
 
-def test_every_derivative_term_kind_is_evidenced_by_a_label_that_would_catch_its_removal() -> None:
+def _best_evidence() -> dict[str, tuple[str, float]]:
+    """For each term kind, the label whose pinned share clears its floor by the most."""
     best: dict[str, tuple[str, float]] = {}
     margin: dict[str, float] = {}
     for label, kinds in TERM_SHARES.items():
@@ -839,6 +909,11 @@ def test_every_derivative_term_kind_is_evidenced_by_a_label_that_would_catch_its
             if share - floor > margin.get(kind, -1.0):
                 margin[kind] = share - floor
                 best[kind] = (label, share)
+    return best
+
+
+def test_every_derivative_term_kind_is_evidenced_by_a_label_that_would_catch_its_removal() -> None:
+    best = _best_evidence()
     assert set(best) == {
         "plug-in",
         "covariate/binary",
@@ -858,7 +933,7 @@ def test_every_derivative_term_kind_is_evidenced_by_a_label_that_would_catch_its
 
 
 def test_the_term_floor_is_the_share_the_rule_can_see() -> None:
-    """At 2,400 replicates a label with an ordinary pilot spread needs a share near 0.07 to 0.08."""
+    """At 2,400 replicates a label with an ordinary pilot spread needs a share near 0.06 to 0.07."""
     floors = {label: term_floor(label) for label in TERM_SHARES}
     assert min(floors.values()) > 0.04 and max(floors.values()) < 0.09, floors
     # A share of 0.03 (the former floor) is caught with a chance well under 0.95.
@@ -867,7 +942,12 @@ def test_the_term_floor_is_the_share_the_rule_can_see() -> None:
 
 @pytest.mark.parametrize("law", ["G1", "G2", "G3", "G4", "G5"])
 def test_a_recomputed_draw_shows_the_pinned_term_shares(law: str) -> None:
-    """Four fresh draws give each kind's share in each label within 0.07 of the 40-draw table."""
+    """Four fresh draws give each kind's share in each label within 0.07 of the 40-draw table.
+
+    The tolerance is wider than the margin of the weakest evidence over its floor (0.119 against
+    0.076 for the treatment tilt), so it cannot guard the claim.  Each share that is the best
+    evidence for its kind must also clear the computed floor of its label directly.
+    """
     found = label_shares(law, 4, 90_000)
     pinned = {x: TERM_SHARES[x] for x in TERM_SHARES if x.split("_")[1].upper() == law}
     assert set(found) == set(pinned)
@@ -875,6 +955,9 @@ def test_a_recomputed_draw_shows_the_pinned_term_shares(law: str) -> None:
         assert set(kinds) == set(pinned[label]), label
         for kind, share in kinds.items():
             assert share == pytest.approx(pinned[label][kind], abs=0.07), (label, kind)
+    for kind, (label, _) in _best_evidence().items():
+        if label in found:
+            assert found[label][kind] >= term_floor(label), (kind, label, found[label][kind])
 
 
 # ------------------------------------------------------------------- (d) the ICE limit
@@ -1040,6 +1123,14 @@ def _n1_shrunk() -> dict[str, float]:
     return {x: shrunk[f"n1:{x}"] for x in N1_PILOT}
 
 
+def _n1_posterior_sds() -> dict[str, float]:
+    """The empirical-Bayes posterior SD of the true ratio of each ``n_draws_1`` cell."""
+    table = {x: (v[0], v[1], v[2]) for x, v in DESIGN_PILOT.items()}
+    table |= {f"n1:{x}": (v[0], v[1], v[2]) for x, v in N1_PILOT.items()}
+    sd = _shrink_with_sd(table)[1]
+    return {x: sd[f"n1:{x}"] for x in N1_PILOT}
+
+
 def _n1_pass_probability(replicates: int, label: str) -> float:
     margins = study.STUDY.margins
     return calibration_pass_probability(
@@ -1056,11 +1147,12 @@ def mc_catch(label: str, replicates: int) -> float:
     """The chance that the positive ``n_draws_1`` cell fails when its curve lacks the simulation term.
 
     Removing a share ``s`` of the variance scales the SE ratio by ``sqrt(1 - s)``.  The base ratio
-    carries the sampling SD of its pilot, which the catch integrates over (:func:`_catch`).
+    carries the posterior SD of its shrunk ratio, which the catch integrates over (:func:`_catch`).
     """
-    count, ratio, noise, share = N1_PILOT[label]
-    spread = ratio * math.sqrt(1.0 / (2.0 * (count - 1.0)) + noise**2 / count)
-    return _catch(replicates, math.sqrt(1.0 - share), _n1_shrunk()[label], spread, noise)
+    _, _, noise, share = N1_PILOT[label]
+    return _catch(
+        replicates, math.sqrt(1.0 - share), _n1_shrunk()[label], _n1_posterior_sds()[label], noise
+    )
 
 
 def predicted_ratio(label: str, base: float) -> float:
@@ -1072,11 +1164,11 @@ def predicted_ratio(label: str, base: float) -> float:
 def control_power(label: str, replicates: int) -> float:
     """The predictive chance that the whole 99% SE-ratio interval of ``mc_removed`` is below the band.
 
-    The base ratio of the label is uncertain by the sampling SD of its pilot, so the power
+    The base ratio of the label is uncertain by the posterior SD of its shrunk ratio, so the power
     averages over it.  Treating the shrunk ratio as known would overstate the power.
     """
-    count, ratio, noise, _ = N1_PILOT[label]
-    base_sd = ratio * math.sqrt(1.0 / (2.0 * (count - 1.0)) + noise**2 / count)
+    noise = N1_PILOT[label][2]
+    base_sd = _n1_posterior_sds()[label]
     z = float(norm.ppf(0.5 + study.STUDY.margins.confidence_level / 2.0))
     low_edge = study.STUDY.margins.calibration_se_ratio[0]
     total = 0.0
@@ -1088,15 +1180,15 @@ def control_power(label: str, replicates: int) -> float:
 
 
 #: The chance that each positive ``n_draws_1`` cell fails without the simulation term, at the
-#: declared replicates, with the uncertainty of its base ratio counted.  A label is evidence for the
+#: declared replicates, with the posterior uncertainty of its base ratio counted.  A label is evidence for the
 #: term where the catch is at least :data:`CATCH_FLOOR`.
 MC_CATCH: dict[str, float] = {
     "nice_g2_treat_all": 1.0,
-    "nice_g2_treat_none": 0.972,
-    "nice_g4_shift": 0.859,
-    "nice_g4_dose": 0.626,
+    "nice_g2_treat_none": 0.9977,
+    "nice_g4_shift": 0.9433,
+    "nice_g4_dose": 0.6771,
     "nice_g5_treat_all": 1.0,
-    "nice_g5_treat_none": 0.995,
+    "nice_g5_treat_none": 0.9999,
     "nice_g5_odds_x2": 1.0,
 }
 #: The labels whose catch reaches the floor.  The two ``G4`` cells are positive calibration cells at
@@ -1350,31 +1442,35 @@ def expected_reds() -> tuple[float, float, int]:
     """The expected count of finite-sample reds under a perfectly calibrated estimator.
 
     Returns ``(expected count, chance of at least one, cells counted)``.  Each positive calibration
-    label and each positive ``n_draws_1`` cell passes with the chance of its replicates at a true
-    SE ratio of 1 and its own SE noise.  Each ``ice_necessity`` label passes with its two powers.
-    The ladder rungs and rate cells (20) and the primary rows (21) each pass at 0.99 or better by
+    label and each positive ``n_draws_1`` cell passes with the chance of its replicates at its
+    empirical-Bayes shrunk SE ratio and its own SE noise.  Each ``ice_necessity`` label passes
+    with its two powers.  Each derived control (a shrunken SE and added noise, on every
+    calibration label) passes when its curve is caught, with the base ratio uncertain.  The
+    ladder rungs and rate cells (20) and the primary rows (21) each pass at 0.99 or better by
     their tolerance rules, so they count at 0.99 here, which overstates their share of reds.
     """
     margins = study.STUDY.margins
     passes: list[float] = []
+    shrunk = _shrunk_ratios()
     for label, (_, _, noise, _) in DESIGN_PILOT.items():
         replicates = properties.CALIBRATION_REPLICATES[label.split("_")[1].upper()]
         passes.append(
             calibration_pass_probability(
                 replicates,
-                true_se_ratio=1.0,
+                true_se_ratio=shrunk[label],
                 se_noise=noise,
                 confidence_level=margins.confidence_level,
                 se_band=margins.calibration_se_ratio,
                 coverage_band=margins.calibration_coverage,
             )
         )
+    n1_shrunk = _n1_shrunk()
     for label, (_, _, noise, _) in N1_PILOT.items():
         replicates = properties.ACCOUNTING_REPLICATES[label.split("_")[1].upper()]
         passes.append(
             calibration_pass_probability(
                 replicates,
-                true_se_ratio=1.0,
+                true_se_ratio=n1_shrunk[label],
                 se_noise=noise,
                 confidence_level=margins.confidence_level,
                 se_band=margins.calibration_se_ratio,
@@ -1387,6 +1483,10 @@ def expected_reds() -> tuple[float, float, int]:
         )
         passes.append(discriminated * displaced)
     passes += [0.99] * (20 + sum(len(x) for x in study.ESTIMANDS.values()))
+    for label in DESIGN_PILOT:
+        replicates = properties.CALIBRATION_REPLICATES[label.split("_")[1].upper()]
+        for factor in (properties.SHRUNKEN_SE_FACTOR, 1.0 / math.sqrt(2.0)):
+            passes.append(mutant_catch(label, replicates, factor))
     expected = sum(1.0 - x for x in passes)
     return expected, 1.0 - float(np.prod(passes)), len(passes)
 
@@ -1400,6 +1500,9 @@ def test_the_declared_count_of_expected_reds() -> None:
     assert cells == study.GATED_CELLS
     assert f"{study.EXPECTED_RED_COUNT:.2f}" in str(study.__doc__)
     assert f"{study.PROBABILITY_OF_A_RED:.2f}" in str(study.__doc__)
+    # The reading is taken at the shrunk ratios and counts the 42 gated derived controls.
+    assert (study.EXPECTED_RED_COUNT, study.PROBABILITY_OF_A_RED) == (1.26, 0.72)
+    assert cells == 72 + 2 * len(DESIGN_PILOT)
 
 
 def test_the_two_derived_controls_are_caught_with_certainty() -> None:

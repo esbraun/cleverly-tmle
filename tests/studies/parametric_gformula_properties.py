@@ -2,8 +2,8 @@ r"""Property families of ``parametric-gformula`` (X45).
 
 Every fit is :func:`tests.studies.canonical_parametric_gformula.fit`.  Each draw is shared by
 every fit and every cell of its fit set, so the methods are paired within a law.  The
-estimator's ``random_state`` comes from the replicate's own stream
-(:func:`simulation_seed`), so the simulation error is independent across replicates.
+estimator's ``random_state`` comes from the ``property_simulation`` stream of the fit set and
+replicate (:func:`simulation_seed`), so the simulation error is independent across replicates.
 
 =============================  ===================================================================
 family                         cells, size and replications
@@ -92,8 +92,9 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 SHRUNKEN_SE_FACTOR = 0.70
 
 #: The replicates of each law's calibration fit set: the smallest multiple of 400 at which every
-#: label of the law passes the calibration rule with chance at least 0.95, above the floor of 0.90
-#: (``tests/unit/test_parametric_gformula_design.py``).
+#: label of the law passes the calibration rule with chance at least 0.95 at its shrunk SE ratio.
+#: With the posterior SD of that ratio counted the chance is at least 0.925, above the floor of
+#: 0.90 (``tests/unit/test_parametric_gformula_design.py``).
 CALIBRATION_REPLICATES: dict[str, int] = {
     "G1": 2_400,
     "G2": 2_400,
