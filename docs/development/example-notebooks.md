@@ -233,7 +233,7 @@ of the technical reference describes each one and says which of them is a bound.
 | MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients | a bound on each arm contrast, not on the MSM coefficient. The `msm` axis itself is refused |
 | a fit with missing outcomes | `missingness()` and `tipping_gamma()` | the tilt of the unobserved outcomes at which the estimate reaches its null |
 | longitudinal TMLE, with or without a time-to-event outcome | refit without one recorded covariate at a time, and print each move in standard errors | a benchmark, not a bound. Each move is signed and specific to the dropped covariate |
-| a regime, shift, or incremental intervention | `simulated_confounding()` with a treatment-only grid, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))` | the surface shows movement under one latent cause. It is not a bound. A fit that declares `q_bounds` needs the treatment-only grid |
+| a regime, shift, or incremental intervention | state that no omitted-variable bound exists for these contrasts ([X9](../roadmap.md#x9-omitted-variable-bounds-on-the-other-linear-functionals)). If the page runs `simulated_confounding()`, a fit that declares `q_bounds` admits only a treatment-only grid, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))`. One flip strength is enough | a treatment-only cell moves the estimate by misclassification of the treatment, not by confounding. It is not a bound. Say so in the reading, or omit the step |
 
 ### The trust step
 
