@@ -173,6 +173,7 @@ from .data import LongitudinalData, Repeated
 from .gformula import (
     GFormulaReport,
     GFormulaSettings,
+    declared_natural,
     has_fixed_dose,
     monte_carlo_share,
     normal_learner_refusal,
@@ -320,8 +321,8 @@ GFORMULA_PSEUDO_REFUSAL = Refusal(
 #: Why a parametric g-formula fit refuses a risk-ratio tilt.
 GFORMULA_RR_TILT_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
-    "the parametric g-formula simulates an odds tilt (Kennedy 2019) and a modified treatment "
-    "policy that moves a drawn dose, and no exact law checks its draw of a risk-ratio tilt.",
+    "the parametric g-formula simulates an odds tilt only (Kennedy 2019). It draws the tilted "
+    "treatment from the odds-tilted law, and it has no draw for a risk-ratio tilt.",
     alternative=(
         "Declare the tilt as Incremental(delta), whose draw is validated, or fit LTMLE or SDR "
         "for a risk-ratio tilt."
@@ -512,6 +513,10 @@ _ESTIMATOR_TITLE: dict[str, str] = {
 
 #: The estimators that fit no targeting step and read parametric nuisances for an interval.
 _BASELINES: frozenset[str] = frozenset({"gcomp", "ipw", "parametric_gformula"})
+
+#: Separates the simulation seed of the parametric g-formula from every other stream that
+#: ``random_state`` seeds.
+_SIMULATION_SEED_TAG = 0x47464D31
 
 #: The share of a parametric g-formula curve's variance above which the fit warns that the
 #: simulation error is large.
@@ -5453,6 +5458,57 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
     class is abstract: each baseline names the regressions its status reads.
     """
 
+    def _fit_diagnostic_mechanism(
+        self,
+        data: LongitudinalData,
+        plans: tuple[Plan, ...],
+        *,
+        treatment_learner: Learner,
+        censoring_learner: Learner,
+        folds: Folds,
+    ) -> Mechanism:
+        """Fit the diagnostic mechanism, and degrade the diagnostics when it cannot fit.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+        treatment_learner : Learner
+            The treatment mechanism learner.
+        censoring_learner : Learner
+            The censoring mechanism learner.
+        folds : Folds
+            The single in-sample fold.
+
+        Returns
+        -------
+        Mechanism
+            The fitted mechanism, or one that holds ``nan`` everywhere.
+
+        Warns
+        -----
+        PositivityWarning
+            When the mechanism cannot fit.
+        """
+        try:
+            return fit_mechanism(
+                data,
+                plans,
+                treatment_learner=treatment_learner,
+                censoring_learner=censoring_learner,
+                folds=folds,
+                n_jobs=self.n_jobs,
+                density_bins=self.density_bins,
+                ratio=self.ratio,
+            )
+        except DataError as error:
+            warnings.warn(
+                GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=5
+            )
+            return _unavailable_mechanism(data, plans)
+
     @abstractmethod
     def _parametric(
         self,
@@ -5742,22 +5798,13 @@ class SequentialGComputation(_Baseline):
         Mechanism
             The fitted mechanism, or one that holds ``nan`` everywhere.
         """
-        try:
-            return fit_mechanism(
-                data,
-                plans,
-                treatment_learner=treatment_learner,
-                censoring_learner=censoring_learner,
-                folds=folds,
-                n_jobs=self.n_jobs,
-                density_bins=self.density_bins,
-                ratio=self.ratio,
-            )
-        except DataError as error:
-            warnings.warn(
-                GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=4
-            )
-            return _unavailable_mechanism(data, plans)
+        return self._fit_diagnostic_mechanism(
+            data,
+            plans,
+            treatment_learner=treatment_learner,
+            censoring_learner=censoring_learner,
+            folds=folds,
+        )
 
     def _parametric(
         self,
@@ -6078,9 +6125,11 @@ class ParametricGFormula(_Baseline):
     ----------
     regimens : mapping, Regimen, DynamicRegimen, or sequence of regimens
         The regimens, as for :class:`LTMLE`.  Static, dynamic, known stochastic and modified
-        treatment policies are accepted, and so is an odds tilt, which reads a fitted natural
-        treatment model.  A fixed number at a continuous treatment node is a fixed dose, which
-        reads the model of the dose and reports a support diagnostic.
+        treatment policies are accepted, and so is an odds tilt.  A tilt, and a modified
+        treatment policy at a node ``t >= 2``, draw the natural treatment from a fitted model,
+        or from the declared mechanism (``treatment_probabilities=``) of a node that has one.
+        A fixed number at a continuous treatment node is a fixed dose, which reads the model of
+        the dose and reports a support diagnostic.
     n_draws : int
         The simulated histories per unit behind the estimate.
     n_derivative_draws : int or None
@@ -6099,14 +6148,16 @@ class ParametricGFormula(_Baseline):
         :class:`~cleverly.learners.GLM` of the outcome's family.
     hazard_learner : object or None
         The template of every hazard model of a survival outcome.  The default is a GLM.
+    pseudo_learner : object or None
+        Refused when given: the estimator fits no sequential pseudo-outcome regression.
     **kwargs : Any
         The settings of :class:`SequentialGComputation` that apply: ``reference``,
         ``horizons``, ``treatment_learner`` (the natural-treatment models and the diagnostic
         mechanism), ``censoring_learner``, ``g_bounds``, ``q_bounds``, ``alpha_sig``,
         ``simultaneous``, ``n_multiplier``, ``multiplier_kind``, ``random_state``,
         ``run_id``, ``n_jobs``, ``n_bootstrap``, ``bootstrap_resampling``, ``density_bins``
-        and ``ratio``.  ``n_folds`` must be ``1``.  ``pseudo_learner``, ``msm``, ``alpha``,
-        ``max_iter`` and ``tol`` are refused.
+        and ``ratio``.  ``n_folds`` must be ``1``.  ``msm``, ``alpha``, ``max_iter`` and
+        ``tol`` are refused.
 
     See Also
     --------
@@ -6118,6 +6169,17 @@ class ParametricGFormula(_Baseline):
     -----
     A repeated outcome is refused: roadmap row X71 tracks it.  The simulation draws come from a
     counter-based Philox generator keyed by ``random_state``, so a fit repeats exactly.
+
+    A declared treatment mechanism at a tilt node, or at a modified-treatment-policy node
+    ``t >= 2``, replaces the natural-treatment model.  The simulation reads the declared
+    probabilities of each unit as that unit's natural law at every simulated history, so the
+    draw is the declared law only when the declaration does not depend on a covariate that the
+    simulation redraws.  That node has no learner and no score term.  A unit with no declared
+    value at such a node is refused.
+
+    A fit with a fixed dose reports no mechanism diagnostics for any regimen of the fit,
+    because a dose has no density ratio.  Fit the other regimens in a separate call to read
+    their diagnostics.
 
     Examples
     --------
@@ -6181,7 +6243,7 @@ class ParametricGFormula(_Baseline):
         self.hazard_learner = hazard_learner
         #: The outcome learner as the caller declared it: ``None`` is a GLM of the data's family.
         self._declared_outcome = outcome_learner
-        #: A test hook that replaces the simulation with exact terms.
+        #: A test hook, not API, that replaces the simulation with exact terms.
         self._exact: Callable[..., Any] | None = None
         super().__init__(
             _tilt_shorthand(regimens),
@@ -6221,9 +6283,11 @@ class ParametricGFormula(_Baseline):
         CapabilityError
             When a plan holds a risk-ratio tilt, a covariate is untyped, a learner is declared
             that nothing reads, a learner carries a family the fit overrides, a Gaussian
-            covariate has a learner that is not a GLM, or a binomial GLM meets a continuous
-            outcome with no declared scale.
+            covariate has a learner that is not a GLM, a binomial GLM meets a continuous
+            outcome with no declared scale, or a declared treatment mechanism is missing for a
+            unit at a node whose natural treatment the simulation draws.
         """
+        declared_natural(data, plans)
         for plan in plans:
             for node in range(1, data.n_times + 1):
                 kind, spec = plan_node(plan.regimen, node)
@@ -6308,22 +6372,13 @@ class ParametricGFormula(_Baseline):
         """
         if has_fixed_dose(data, plans):
             return _unavailable_mechanism(data, plans)
-        try:
-            return fit_mechanism(
-                data,
-                plans,
-                treatment_learner=treatment_learner,
-                censoring_learner=censoring_learner,
-                folds=folds,
-                n_jobs=self.n_jobs,
-                density_bins=self.density_bins,
-                ratio=self.ratio,
-            )
-        except DataError as error:
-            warnings.warn(
-                GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=4
-            )
-            return _unavailable_mechanism(data, plans)
+        return self._fit_diagnostic_mechanism(
+            data,
+            plans,
+            treatment_learner=treatment_learner,
+            censoring_learner=censoring_learner,
+            folds=folds,
+        )
 
     def _parametric(
         self,
@@ -6405,14 +6460,19 @@ class ParametricGFormula(_Baseline):
         Parameters
         ----------
         data : LongitudinalData
-            The prepared panel.
+            The prepared panel, which the settings do not read.
 
         Returns
         -------
         GFormulaSettings
             The settings the simulation reads.
         """
-        seed = int(np.random.default_rng(self.random_state).integers(0, 2**62))
+        # A sequence of its own, so the seed shares nothing with the bootstrap's spawned children
+        # or with any other consumer of ``random_state``.
+        entropy = np.random.SeedSequence(self.random_state).entropy
+        assert isinstance(entropy, int)
+        child = np.random.SeedSequence([entropy, _SIMULATION_SEED_TAG])
+        seed = int(child.generate_state(1, dtype=np.uint64)[0]) >> 2
         return GFormulaSettings(
             n_draws=self.n_draws,
             n_derivative_draws=self.n_derivative_draws,
@@ -6423,6 +6483,7 @@ class ParametricGFormula(_Baseline):
             treatment_learner=self.treatment_learner,
             seed=seed,
             exact=self._exact,
+            reference=self.reference,
         )
 
     def _finish(

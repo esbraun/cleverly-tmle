@@ -599,10 +599,13 @@ class FitSimulation:
         The simulated histories per unit behind the estimate.
     n_derivative_draws : int
         The simulated histories per unit behind the derivatives.
-    copy_values : FloatArray
-        ``(n, n_derivative_draws)`` outcome functional of each derivative-stream copy, on the
-        ``[0, 1]`` scale.  The copies of two regimens share their uniforms, so a contrast reads
-        their difference.
+    variance : FloatArray
+        ``(n,)`` within-unit sample variance of the outcome functional over the
+        ``n_derivative_draws`` copies of the derivative stream, on the ``[0, 1]`` scale.
+    contrast_variance : FloatArray or None
+        ``(n,)`` within-unit sample variance of the difference between this regimen's copies and
+        the reference regimen's copies.  The two share their uniforms, so the difference carries
+        the contrast's own simulation variance.  ``None`` for the reference.
     exact : bool
         Whether a test supplied the exact terms in place of the simulation.
     report : object
@@ -611,7 +614,8 @@ class FitSimulation:
 
     n_draws: int
     n_derivative_draws: int
-    copy_values: FloatArray
+    variance: FloatArray
+    contrast_variance: FloatArray | None = None
     exact: bool = False
     report: Any = None
 

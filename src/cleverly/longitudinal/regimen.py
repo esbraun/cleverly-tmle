@@ -1161,6 +1161,20 @@ def refuse_continuous_assignments(
             raise CapabilityError.from_refusal(
                 tilt_continuous_refusal(regimen.label, data.treatment_names[time - 1])
             )
+        if allow_fixed_dose and data.is_continuous_node(time) and callable(node):
+            raise CapabilityError(
+                f"regimen {regimen.label!r} sets the continuous node "
+                f"{data.treatment_names[time - 1]!r} by a rule. The parametric g-formula "
+                "accepts a fixed number or a modified treatment policy at a continuous node. "
+                "A dose that depends on the simulated history is a valid regimen under the "
+                "fitted laws, and the simulation does not draw it yet.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Declare a fixed dose or a modified treatment policy at that node, or fit "
+                    "a regimen per dose."
+                ),
+                roadmap="X72",
+            )
         if data.is_continuous_node(time) and not _is_mtp(node):
             raise CapabilityError(
                 f"regimen {regimen.label!r} sets the continuous node "

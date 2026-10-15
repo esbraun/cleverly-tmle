@@ -41,6 +41,13 @@ A drawn variable's derivative is the score-function identity
 :math:`b` the leave-one-copy-out mean of the unit's other copies.  The baseline is independent of
 the copy's own draw, so the identity holds exactly.
 
+**A declared treatment mechanism.**  A tilt node, and a modified treatment policy at a node
+:math:`t \ge 2`, draw the natural treatment.  When the data declares that node's mechanism
+(``treatment_probabilities=``), the draw reads the declared probabilities of the unit, no
+natural-treatment model is fitted, and the node has no score term.  The declaration is a function
+of the unit's observed past, so the draw is the declared law only when that law does not depend
+on a covariate that the simulation redraws.
+
 The estimate extrapolates every model along the simulated histories.  It exists without
 positivity, so the mechanism diagnostics of the fit stay the check on overlap.
 """
@@ -922,9 +929,11 @@ class GFormulaSettings:
     seed : int
         The simulation seed.
     exact : callable or None
-        A test hook.  It is called with the :class:`ModelBook`, the plan and the cells, and
-        returns the exact :math:`\\Phi_i` and derivatives (:class:`ExactTerms`) in place of the
-        simulation.
+        A test hook, not API.  It is called with the :class:`ModelBook`, the plan and the
+        cells, and returns the exact :math:`\\Phi_i` and derivatives (:class:`ExactTerms`) in
+        place of the simulation.
+    reference : str or None
+        The label of the regimen every contrast is taken against.  ``None`` is the first plan.
     """
 
     n_draws: int
@@ -936,6 +945,7 @@ class GFormulaSettings:
     treatment_learner: Learner | None
     seed: int
     exact: Callable[..., ExactTerms] | None = None
+    reference: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1002,6 +1012,88 @@ def plan_node(regimen: Regimen | DynamicRegimen, time: int) -> tuple[str, Any]:
     return "label", node
 
 
+def natural_nodes(data: LongitudinalData, plans: Sequence[Plan]) -> dict[int, bool]:
+    """The nodes whose natural treatment the simulation reads, and whether the estimate does.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        The resolved plans.
+
+    Returns
+    -------
+    dict of int to bool
+        By node counted from one, ``True`` for a tilt node or a modified treatment policy at a
+        node ``t >= 2`` (the draw is part of the estimate), ``False`` for a fixed dose (a model
+        for the support diagnostic only).
+    """
+    needs: dict[int, bool] = {}
+    for plan in plans:
+        for node in range(1, data.n_times + 1):
+            if data.is_held_node(node):
+                continue
+            kind, _ = plan_node(plan.regimen, node)
+            if kind == "tilt" or (kind == "mtp" and node >= 2):
+                needs[node] = True
+            elif kind == "label" and data.is_continuous_node(node):
+                needs.setdefault(node, False)
+    return needs
+
+
+def declared_natural(data: LongitudinalData, plans: Sequence[Plan]) -> dict[int, FloatArray]:
+    """The declared natural-treatment law of each node the estimate draws a natural treatment at.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plans : sequence of Plan
+        The resolved plans.
+
+    Returns
+    -------
+    dict of int to FloatArray
+        By node, the ``(n, K)`` declared probabilities in arm-code order.  A node with no
+        declaration is absent.
+
+    Raises
+    ------
+    CapabilityError
+        When a declared node has a missing probability on a unit with positive weight.  The
+        simulation draws the natural treatment of every unit at the node, and a unit that left
+        the study before it has no declared value there.
+    """
+    known = data.known_mechanisms
+    if known is None:
+        return {}
+    weights = np.asarray(data.weights, dtype=float)
+    out: dict[int, FloatArray] = {}
+    for node, stacked in natural_nodes(data, plans).items():
+        declared = known.treatment_at(node)
+        if declared is None or not stacked:
+            continue
+        matrix = np.asarray(declared, dtype=float)
+        missing = (weights > 0.0) & ~np.all(np.isfinite(matrix), axis=1)
+        if np.any(missing):
+            name = data.treatment_names[node - 1]
+            raise CapabilityError(
+                f"treatment_probabilities at node {name!r} is missing for "
+                f"{int(np.count_nonzero(missing))} unit(s). The parametric g-formula draws the "
+                "natural treatment of every unit at a tilt or modified-treatment-policy node "
+                "from the declared law, including a unit that left the study earlier, and it "
+                "has no value to draw from for those units.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    "Declare the probabilities of every unit at that node, or drop the "
+                    "declaration there so that a natural-treatment model is fitted."
+                ),
+            )
+        out[node] = matrix
+    return out
+
+
 @dataclass
 class ModelBook:
     """Every model of a fit, with the observed design table they were fitted on.
@@ -1025,7 +1117,10 @@ class ModelBook:
     hazard : dict
         The hazard model of each node of a survival outcome.
     treatment : dict
-        The natural-treatment model of each node that needs one.
+        The natural-treatment model of each node that needs one and declares no mechanism.
+    known : dict
+        By node, the ``(n, K)`` declared natural-treatment law of a tilt or modified-treatment
+        node whose mechanism the data declares.  Such a node has no model and no score term.
     """
 
     data: LongitudinalData
@@ -1037,6 +1132,7 @@ class ModelBook:
     outcome: FittedModel | None
     hazard: dict[int, FittedModel]
     treatment: dict[int, FittedModel]
+    known: dict[int, FloatArray] = field(default_factory=dict)
     _projection: dict[str, FloatArray] = field(default_factory=dict)
 
     @property
@@ -1176,17 +1272,11 @@ def fit_models(
             outcome_family="binomial" if data.family == "binomial" else "gaussian",
         )
     treatment: dict[int, FittedModel] = {}
-    needs: dict[int, bool] = {}
-    for plan in plans:
-        for node in range(1, data.n_times + 1):
-            if data.is_held_node(node):
-                continue
-            kind, _ = plan_node(plan.regimen, node)
-            if kind == "tilt" or (kind == "mtp" and node >= 2):
-                needs[node] = True
-            elif kind == "label" and data.is_continuous_node(node):
-                needs.setdefault(node, False)
+    needs = natural_nodes(data, plans)
+    known = declared_natural(data, plans)
     for node, stacked in sorted(needs.items()):
+        if node in known:
+            continue
         rows = (
             data.uncensored_through(node - 1)
             & data.event_free_through(node - 1)
@@ -1211,10 +1301,26 @@ def fit_models(
             n_classes=n_levels,
             stack=stacked,
         )
-    return ModelBook(data, variables, layout, table, scaler, covariate, outcome, hazard, treatment)
+    return ModelBook(
+        data, variables, layout, table, scaler, covariate, outcome, hazard, treatment, known
+    )
 
 
 def normal_learner_refusal(argument: str, name: str) -> CapabilityError:
+    """The refusal of a learner that is not a GLM on a Gaussian response.
+
+    Parameters
+    ----------
+    argument : str
+        The keyword that carried the learner, such as ``"covariate_learner"``.
+    name : str
+        The Gaussian column.
+
+    Returns
+    -------
+    CapabilityError
+        The refusal, with the ``INVALID_DECLARATION`` code.
+    """
     return CapabilityError(
         f"{argument}= is not a GLM, and {name!r} is Gaussian. The forward draw of a Gaussian "
         "column needs the residual variance of the fit, and a learner other than a GLM gives "
@@ -1249,6 +1355,7 @@ class _Paths:
 
     @property
     def n(self) -> int:
+        """The number of simulated histories in the chunk."""
         return int(self.units.size)
 
 
@@ -1491,6 +1598,12 @@ class _Simulator:
         return density
 
     def _tilted(self, paths: _Paths, node: int, delta: float) -> FloatArray:
+        declared = self.book.known.get(node)
+        if declared is not None:
+            # A declared mechanism has no parameter, so the tilted draw has no score term.
+            natural = declared[paths.units, 1]
+            tilted = delta * natural / (delta * natural + 1.0 - natural)
+            return (self._uniforms(paths, node, _COL_TREATMENT) < tilted).astype(float)
         model = self.book.treatment[node]
         x = paths.table[:, : model.prefix]
         self._span(model, x)
@@ -1505,6 +1618,10 @@ class _Simulator:
         n = paths.n
         if node == 1:
             natural = np.nan_to_num(data.treatment[paths.units, 0], nan=0.0)
+        elif node in self.book.known:
+            natural = _categorical(
+                self.book.known[node][paths.units], self._uniforms(paths, node, _COL_NATURAL)
+            )
         else:
             model = self.book.treatment[node]
             x = paths.table[:, : model.prefix]
@@ -1694,6 +1811,7 @@ def _simulate_plan(
     data = book.data
     n, n_cells = data.n, len(cells)
     weights = np.asarray(data.weights, dtype=float)
+    total_weight = float(weights.sum())
     functional = _Functional(book, cells)
     if settings.exact is not None:
         terms = settings.exact(book, plan, list(cells))
@@ -1711,22 +1829,24 @@ def _simulate_plan(
     step = _chunk_units(n, m, book.layout.width)
     for first in range(0, n, step):
         units = np.arange(first, min(first + step, n), dtype=np.int64)
-        path_weight = np.repeat(weights[units], m) / (n * m)
+        path_weight = np.repeat(weights[units], m) / (total_weight * m)
         paths = estimate.simulate(units, m, path_weight)
         values = functional.evaluate(paths.table, span=estimate._span)
         phi[units] = values.reshape(units.size, m, n_cells).mean(axis=1)
     _refuse_aliased(plan, book, estimate)
     # Stream 1: the copies behind the derivatives, with the leave-one-copy-out baseline.
     m_d = settings.n_derivative_draws
-    derivative = _Simulator(book, plan, settings.seed, STREAM_DERIVATIVE)
+    derivative = _Simulator(book, plan, settings.seed, STREAM_DERIVATIVE, check_span=True)
     derivatives = functional.zero_derivatives()
     copy_values = np.zeros((n, m_d, n_cells))
     step = _chunk_units(n, m_d, book.layout.width)
     for first in range(0, n, step):
         units = np.arange(first, min(first + step, n), dtype=np.int64)
-        path_weight = np.repeat(weights[units], m_d) / (n * m_d)
+        path_weight = np.repeat(weights[units], m_d) / (total_weight * m_d)
         paths = derivative.simulate(units, m_d, path_weight)
-        values = functional.evaluate(paths.table, path_weight=path_weight, derivatives=derivatives)
+        values = functional.evaluate(
+            paths.table, span=derivative._span, path_weight=path_weight, derivatives=derivatives
+        )
         per_unit = values.reshape(units.size, m_d, n_cells)
         copy_values[units] = per_unit
         totals = np.repeat(per_unit.sum(axis=1), m_d, axis=0)
@@ -1737,6 +1857,7 @@ def _simulate_plan(
                 continue
             score = model.draw_score(paths.table[:, : model.prefix], draw.value, draw.tilt)
             derivatives[model.key] += np.einsum("nc,np->cp", adjusted * path_weight[:, None], score)
+    _refuse_aliased(plan, book, derivative)
     support = _support_rows(book, plan, estimate)
     return _PlanResult(phi, derivatives, copy_values, support)
 
@@ -1921,12 +2042,10 @@ def monte_carlo_share(
         return float("nan")
     first = simulations[0]
     assert first is not None
-    copies = np.asarray(first.copy_values, dtype=float)
-    if len(fits) == 2:
-        second = simulations[1]
-        assert second is not None
-        copies = copies - np.asarray(second.copy_values, dtype=float)
-    per_unit = copies.var(axis=1, ddof=1) / first.n_draws
+    copy_variance = first.contrast_variance if len(fits) == 2 else first.variance
+    if copy_variance is None:
+        return float("nan")
+    per_unit = np.asarray(copy_variance, dtype=float) / first.n_draws
     weights = np.asarray(data.weights, dtype=float)
     weights = weights / weights.mean()
     simulated = float(np.sum(weights**2 * per_unit))
@@ -2105,12 +2224,22 @@ def run_gformula(
     weights = np.asarray(data.weights, dtype=float)
     mean_weight = float(np.mean(weights))
     projections = {model.key: book.projection(model) for model in book.stacked}
-    fits: dict[tuple[str, str | None, int], RegimenFit] = {}
+    built: dict[tuple[str, str | None, int], RegimenFit] = {}
     support: list[SupportRow] = []
     fixed_doses = has_fixed_dose(data, plans)
-    for plan in plans:
+    reference = settings.reference if settings.reference is not None else plans[0].label
+    # The reference goes first, so that its copies are the only ones kept in memory: every
+    # other plan reads the difference of its copies and the reference's, then drops them.
+    reference_copies: FloatArray | None = None
+    for plan in sorted(plans, key=lambda candidate: candidate.label != reference):
         result = _simulate_plan(book, plan, cells, settings)
         support.extend(result.support)
+        variance = result.copy_values.var(axis=1, ddof=1)
+        contrast: FloatArray | None = None
+        if plan.label == reference:
+            reference_copies = result.copy_values
+        elif reference_copies is not None:
+            contrast = (result.copy_values - reference_copies).var(axis=1, ddof=1)
         psi = (weights @ result.phi) / weights.sum()
         for index, cell in enumerate(cells):
             curve = weights / mean_weight * (result.phi[:, index] - psi[index])
@@ -2119,12 +2248,18 @@ def run_gformula(
             simulation = FitSimulation(
                 n_draws=settings.n_draws,
                 n_derivative_draws=settings.n_derivative_draws,
-                copy_values=result.copy_values[:, :, index],
+                variance=variance[:, index],
+                contrast_variance=None if contrast is None else contrast[:, index],
                 exact=result.exact,
             )
-            fits[(plan.label, cell.cause, cell.horizon)] = _regimen_fit(
+            built[(plan.label, cell.cause, cell.horizon)] = _regimen_fit(
                 data, plan, mechanism, g_bounds, cell, float(psi[index]), curve, simulation
             )
+    fits = {
+        (plan.label, cell.cause, cell.horizon): built[(plan.label, cell.cause, cell.horizon)]
+        for plan in plans
+        for cell in cells
+    }
     report = _report(book, settings, support, fixed_doses)
     for fit_key, fit in fits.items():
         assert fit.simulation is not None

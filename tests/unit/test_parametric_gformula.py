@@ -30,6 +30,7 @@ from typing import Any, ClassVar
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import norm
 
 import cleverly
 from cleverly.exceptions import (
@@ -625,8 +626,7 @@ class TestClusterMonteCarloShare:
         name = "ey_regimen[always]"
         fit = result.fits["always"]
         curve = result.influence_curves[name]
-        copies = np.asarray(fit.simulation.copy_values, dtype=float)
-        per_unit = copies.var(axis=1, ddof=1) / 3
+        per_unit = np.asarray(fit.simulation.variance, dtype=float) / 3
         weights = np.asarray(result.data.weights, dtype=float)
         scaled = weights / weights.mean()
         simulated = float(np.sum(scaled**2 * per_unit))
@@ -816,6 +816,41 @@ def assert_production_matches_exact(
         for key, block in exact.derivatives.items():
             assert np.max(np.abs(block)) > nonzero, key
             assert_within_standard_errors(derivatives[key], block, label=f"{plan.label} {key}")
+
+
+class TestShareAgainstTheSeeds:
+    """S2: the reported Monte Carlo share is the variance the estimate shows across seeds.
+
+    The data are fixed and only the seed moves, so the across-seed variance of the estimate is
+    its simulation variance.  The reported ``se^2 * share`` predicts it, for the levels and for
+    the paired contrast.
+    """
+
+    SEEDS = 300
+
+    def test_the_simulation_variance_is_the_one_the_seeds_show(self) -> None:
+        frame = panel_b(300, seed=3)
+        estimates: dict[str, list[float]] = {}
+        implied: dict[str, list[float]] = {}
+        for seed in range(self.SEEDS):
+            result = fit_with(
+                frame, regimens_b("never", "always"), ROLES_B, n_draws=1, random_state=seed
+            )
+            for name, estimate in result.estimates.items():
+                estimates.setdefault(name, []).append(result.psi(name))
+                share = result.simulation.monte_carlo_share[name]
+                implied.setdefault(name, []).append(estimate.std_error**2 * share)
+        assert set(estimates) == {
+            "ey_regimen[never]",
+            "ey_regimen[always]",
+            "ate_regimen[always vs never]",
+        }
+        tolerance = 4.0 * np.sqrt(2.0 / (self.SEEDS - 1))
+        for name, values in estimates.items():
+            observed, predicted = np.var(values, ddof=1), np.mean(implied[name])
+            # The nonzero witness: the simulation moves the estimate at this size.
+            assert observed > 1e-6, name
+            assert abs(observed / predicted - 1.0) < tolerance, (name, observed, predicted)
 
 
 class TestProductionLawR:
@@ -1066,6 +1101,154 @@ class TestOddsTilt:
         _, store = run_exact(frame, tilts(), ROLES_B, phi_t, n_draws=2)
         store["plans"] = store["plans"][-2:]
         assert_production_matches_exact(store, phi_t, replicates=80)
+
+
+# ---------------------------------------------- law D: a declared natural-treatment mechanism
+#
+#   Law B with the treatment drawn from a declared law that is not main-terms logistic in
+#   anything the model sees: a step in the baseline.  A tilt node and a natural-course policy at
+#   node 2 draw the natural treatment from that law and fit no treatment model.
+
+
+def panel_d(n: int, seed: int) -> tuple[pd.DataFrame, np.ndarray]:
+    """Law B whose treatments follow declared step-function laws, and the ``(n, 2)`` laws."""
+    frame = panel_b(n, seed)
+    rng = np.random.default_rng(seed + 100)
+    w1, w2 = frame["W1"].to_numpy(), frame["W2"].to_numpy()
+    declared = np.column_stack(
+        [0.1 + 0.8 * (np.abs(w1) > 0.7), 0.15 + 0.7 * ((w2 == 1) != (w1 > 0))]
+    )
+    seen = frame["C1"].to_numpy() == 1
+    frame["A1"] = rng.binomial(1, declared[:, 0]).astype(float)
+    frame.loc[seen, "A2"] = rng.binomial(1, declared[:, 1])[seen].astype(float)
+    return frame, declared
+
+
+def roles_d(declared: np.ndarray) -> dict[str, Any]:
+    """The roles of law B with ``P(A_t = 1)`` declared at both nodes."""
+    return dict(ROLES_B, treatment_probabilities=declared)
+
+
+def phi_d(declared: np.ndarray, natural_course: bool = False) -> Callable[..., np.ndarray]:
+    """Law D's unit means: the declared law, tilted or as it is, replaces the treatment model.
+
+    The declared laws are constants of the oracle.  Only the ``L2`` and outcome models carry a
+    parameter.
+    """
+
+    def phi(book: gf.ModelBook, plan: Any, theta: dict[str, np.ndarray]) -> np.ndarray:
+        data = book.data
+        w1, w2 = data.baseline[:, 0], data.baseline[:, 1]
+        delta = 1.0 if natural_course else TILTS[plan.label]
+
+        def tilted(g: np.ndarray) -> np.ndarray:
+            return delta * g / (delta * g + 1.0 - g)
+
+        q1, q2 = tilted(declared[:, 0]), tilted(declared[:, 1])
+        if natural_course:
+            first = [(data.treatment[:, 0], np.ones(data.n))]
+        else:
+            first = [(np.zeros(data.n), 1.0 - q1), (np.ones(data.n), q1)]
+        total = np.zeros(data.n, dtype=complex)
+        for a1v, p1 in first:
+            x2 = np.column_stack([w1, w2, a1v])
+            p_l2 = expit(linear(book, "covariate:2:L2", theta["covariate:2:L2"], x2))
+            for l2, pl in ((0.0, 1.0 - p_l2), (1.0, p_l2)):
+                l2v = np.full(data.n, l2)
+                for a2, p2 in ((0.0, 1.0 - q2), (1.0, q2)):
+                    x = np.column_stack([w1, w2, a1v, l2v, np.full(data.n, a2)])
+                    total = total + p1 * pl * p2 * expit(
+                        linear(book, "outcome", theta["outcome"], x)
+                    )
+        return total[:, None]
+
+    return phi
+
+
+class TestDeclaredNaturalTreatment:
+    """A declared mechanism at a tilt or policy node is drawn from, and fits no learner."""
+
+    N = 100
+
+    def test_a_declared_tilt_node_has_no_model_and_no_score_term(self) -> None:
+        frame, declared = panel_d(self.N, seed=9)
+        result, store = run_exact(frame, tilts(), roles_d(declared), phi_d(declared), n_draws=2)
+        book = store["book"]
+        assert book.treatment == {}
+        assert set(book.known) == {1, 2}
+        assert {m.key for m in book.stacked} == {"covariate:2:L2", "outcome"}
+        assert not any(model.role == "treatment" for model in result.simulation.models)
+        assert "known factors (declared, no learner): A1, A2" in result.summary()
+        units = np.random.default_rng(2).choice(self.N, 25, replace=False)
+        for plan in store["plans"][-2:]:
+            expected = gateaux_curve(book, phi_d(declared), plan, units=units)
+            np.testing.assert_allclose(
+                result.influence_curves[f"ey_regimen[{plan.label}]"][units],
+                expected,
+                rtol=0,
+                atol=1e-6,
+            )
+            assert np.max(np.abs(expected)) > 0.05
+
+    def test_the_production_draw_of_a_declared_tilt_is_the_exact_law(self) -> None:
+        frame, declared = panel_d(self.N, seed=9)
+        _, store = run_exact(frame, tilts(), roles_d(declared), phi_d(declared), n_draws=2)
+        store["plans"] = store["plans"][-2:]
+        assert_production_matches_exact(store, phi_d(declared), replicates=80)
+
+    def test_a_declared_node_of_a_modified_policy_draws_the_declared_law(self) -> None:
+        """The natural course at node 2 draws ``A2`` from the declared law, node 1 is observed."""
+        frame, declared = panel_d(self.N, seed=9)
+        regimen = {"natural": Shift(0.0, cap=None)}
+        phi = phi_d(declared, natural_course=True)
+        _, store = run_exact(frame, regimen, roles_d(declared), phi, n_draws=2)
+        book = store["book"]
+        assert book.treatment == {}
+        assert set(book.known) == {2}
+        assert {m.key for m in book.stacked} == {"covariate:2:L2", "outcome"}
+        store["plans"] = store["plans"][-1:]
+        assert_production_matches_exact(store, phi, replicates=80)
+
+    def test_ignoring_the_declaration_is_caught_by_the_exact_value(self) -> None:
+        """The control: a fit that fits a logistic model to the same node misses the exact law.
+
+        The declared law is a step, so main-terms logistic models cannot reproduce it.  The
+        declared fit sits on the exact value within the simulation error, and the fit that
+        ignores the declaration sits far outside it.
+        """
+        frame, declared = panel_d(300, seed=3)
+        name = "ey_regimen[x2]"
+        plan = [Incremental(2.0, name="x2")]
+        exact, _ = run_exact(frame, plan, roles_d(declared), phi_d(declared), n_draws=2)
+        honoured = fit_with(frame, plan, roles_d(declared), n_draws=400)
+        ignored = fit_with(frame, plan, ROLES_B, n_draws=400)
+        error = monte_carlo_se(honoured, name)
+        assert abs(honoured.psi(name) - exact.psi(name)) <= 4.0 * error
+        assert abs(ignored.psi(name) - exact.psi(name)) > 20.0 * error
+        assert abs(ignored.psi(name) - exact.psi(name)) > 0.005
+        assert {m.key for m in ignored.simulation.models} >= {"treatment:1", "treatment:2"}
+
+    def test_a_unit_with_no_declared_value_is_refused_before_any_learner(self) -> None:
+        frame, declared = panel_d(300, seed=3)
+        declared = declared.copy()
+        declared[frame["C1"].to_numpy() == 0, 1] = np.nan
+        estimator = ParametricGFormula(
+            tilts(), outcome_learner=NeverFit(), random_state=1, simultaneous=False
+        )
+        with pytest.raises(CapabilityError, match="missing for") as raised:
+            quiet_fit(estimator, frame, **roles_d(declared))
+        assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "'A2'" in str(raised.value)
+
+    def test_a_static_regimen_reads_the_declaration_for_the_diagnostics_only(self) -> None:
+        """No tilt or policy node draws the treatment, so a missing value elsewhere is harmless."""
+        frame, declared = panel_d(300, seed=3)
+        declared = declared.copy()
+        declared[frame["C1"].to_numpy() == 0, 1] = np.nan
+        result = fit_with(frame, regimens_b("always"), roles_d(declared), n_draws=2)
+        assert result.simulation.models and "treatment" not in {
+            model.role for model in result.simulation.models
+        }
 
 
 # ---------------------------------------------------- law S: survival and competing risks
@@ -1451,20 +1634,61 @@ ROLES_F: dict[str, Any] = {
 BOUNDS_F = (-12.0, 16.0)
 
 
-def panel_f(n: int, seed: int) -> pd.DataFrame:
-    """Law F: linear-Gaussian, with censoring that depends on the history."""
+def panel_f(n: int, seed: int, dose_scale: float = 1.0) -> pd.DataFrame:
+    """Law F: linear-Gaussian, with censoring that depends on the history.
+
+    ``dose_scale`` is the standard deviation of the two dose equations.
+    """
     rng = np.random.default_rng(seed)
     w1 = rng.normal(size=n)
-    a1 = 0.3 * w1 + rng.normal(size=n)
+    a1 = 0.3 * w1 + dose_scale * rng.normal(size=n)
     c1 = rng.binomial(1, expit(1.8 - 0.2 * a1)).astype(float)
     l2 = 0.5 + 0.6 * w1 + 0.8 * a1 + rng.normal(scale=0.7, size=n)
-    a2 = 0.2 + 0.5 * a1 + 0.4 * l2 + rng.normal(size=n)
+    a2 = 0.2 + 0.5 * a1 + 0.4 * l2 + dose_scale * rng.normal(size=n)
     c2 = rng.binomial(1, expit(1.6 - 0.1 * a2)).astype(float)
     y = 1.0 + 0.5 * w1 + 0.7 * a1 + 0.6 * l2 + 0.9 * a2 + rng.normal(size=n)
     frame = pd.DataFrame({"W1": w1, "A1": a1, "C1": c1, "L2": l2, "A2": a2, "C2": c2, "Y": y})
     frame.loc[c1 == 0, ["L2", "A2", "C2", "Y"]] = np.nan
     frame.loc[(c1 == 1) & (c2 == 0), ["Y"]] = np.nan
     return frame
+
+
+def exact_support(frame: pd.DataFrame, d1: float, d2: float) -> dict[str, float]:
+    """The support diagnostic of the doses ``(d1, d2)`` of law F, by plain least squares.
+
+    The window shares are the observed doses within two fitted standard deviations of the dose.
+    The off-support share at node 1 depends on the baseline alone.  At node 2 the history draws
+    ``L2`` from its Gaussian law, so the share integrates the normal distribution function.
+    The second value is the standard error of the simulated share at node 2 per unit of
+    ``1 / sqrt(draws)``.
+    """
+    z = gf.SUPPORT_Z
+    n = len(frame)
+    w1, a1 = frame["W1"].to_numpy(), frame["A1"].to_numpy()
+    rows = frame["C1"].to_numpy() == 1
+    l2, a2 = frame["L2"].to_numpy(), frame["A2"].to_numpy()
+    x1 = np.column_stack([np.ones(n), w1])
+    b1, *_ = np.linalg.lstsq(x1, a1, rcond=None)
+    s1 = np.sqrt(np.mean((a1 - x1 @ b1) ** 2))
+    xl = np.column_stack([np.ones(n), w1, a1])
+    bl, *_ = np.linalg.lstsq(xl[rows], l2[rows], rcond=None)
+    sl = np.sqrt(np.mean((l2[rows] - xl[rows] @ bl) ** 2))
+    x2 = np.column_stack([np.ones(n), w1, a1, np.nan_to_num(l2)])
+    b2, *_ = np.linalg.lstsq(x2[rows], a2[rows], rcond=None)
+    s2 = np.sqrt(np.mean((a2[rows] - x2[rows] @ b2) ** 2))
+    mean_l2 = bl[0] + bl[1] * w1 + bl[2] * d1
+    centre = d2 - (b2[0] + b2[1] * w1 + b2[2] * d1) - b2[3] * mean_l2
+    spread = abs(b2[3]) * sl
+    inside = norm.cdf((centre + z * s2) / spread) - norm.cdf((centre - z * s2) / spread)
+    return {
+        "off1": float(np.mean(np.abs(d1 - x1 @ b1) / s1 > z)),
+        "window1": float(np.mean(np.abs(a1 - d1) <= z * s1)),
+        "window1_variance": float(np.mean(np.abs(a1 - d1) <= z * s1**2)),
+        "off2": float(np.mean(1.0 - inside)),
+        "off2_se": float(np.sqrt(np.sum(inside * (1.0 - inside))) / n),
+        "window2": float(np.mean(np.abs(a2[rows] - d2) <= z * s2)),
+        "window2_variance": float(np.mean(np.abs(a2[rows] - d2) <= z * s2**2)),
+    }
 
 
 def dose_plan(label: str, first: float, second: float) -> Regimen:
@@ -1552,14 +1776,16 @@ class TestFixedDose:
             assert result.estimates[name].std_error == pytest.approx(closed, rel=1e-6)
 
     def test_the_simulated_estimate_and_the_support_diagnostic(self) -> None:
-        frame = panel_f(self.N, seed=23)
+        # Narrow dose equations make a standard deviation differ from its square.
+        frame = panel_f(self.N, seed=23, dose_scale=0.6)
+        draws = 200
         result = fit_with(
             frame,
             self._plans(),
             ROLES_F,
             covariate_types={"L2": "normal"},
             q_bounds=BOUNDS_F,
-            n_draws=200,
+            n_draws=draws,
             reference="central",
         )
         for label, (d1, d2) in self.DOSES.items():
@@ -1571,7 +1797,20 @@ class TestFixedDose:
         assert report.model_reliance is not None
         rows = {(row.plan, row.node): row for row in report.support}
         assert set(rows) == {("central", 1), ("central", 2), ("far", 1), ("far", 2)}
-        assert rows[("central", 1)].off_support < 0.25
+        for label, (d1, d2) in self.DOSES.items():
+            exact = exact_support(frame, d1, d2)
+            # Node 1 reads the baseline alone, so its shares are deterministic.
+            assert rows[(label, 1)].off_support == pytest.approx(exact["off1"], abs=1e-12)
+            assert rows[(label, 1)].window == pytest.approx(exact["window1"], abs=1e-12)
+            assert rows[(label, 2)].window == pytest.approx(exact["window2"], abs=1e-12)
+            band = 5.0 * exact["off2_se"] / np.sqrt(draws) + 1e-12
+            assert abs(rows[(label, 2)].off_support - exact["off2"]) <= band
+        # The nonzero witnesses: a window read in variance units instead of standard deviation
+        # units, and the two regimens, differ from these shares.
+        central = exact_support(frame, *self.DOSES["central"])
+        assert abs(central["window1"] - central["window1_variance"]) > 0.05
+        assert abs(central["window2"] - central["window2_variance"]) > 0.05
+        assert rows[("central", 1)].off_support > 0.0
         assert rows[("far", 1)].off_support > 0.9
         assert rows[("far", 2)].off_support > 0.9
         assert "model reliance" in result.summary()
@@ -1781,6 +2020,16 @@ class TestRefusals:
             ParametricGFormula({"a": 1}, outcome_learner=NeverFit()).fit(panel(), **roles)
         assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
         assert "X71" in str(raised.value)
+
+    def test_a_rule_at_a_continuous_node_is_an_implementation_gap_of_x72(self) -> None:
+        rule = DynamicRegimen("rule", (lambda history: history["W1"], 1.0), rule_kind="known")
+        estimator = ParametricGFormula(
+            rule, outcome_learner=NeverFit(), covariate_types={"L2": "normal"}, random_state=1
+        )
+        with pytest.raises(CapabilityError, match="by a rule") as raised:
+            quiet_fit(estimator, panel_f(200, seed=1), **ROLES_F)
+        assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert raised.value.refusal.roadmap == "X72"
 
     def test_a_binomial_glm_on_an_unbounded_outcome_is_refused(self) -> None:
         frame = panel_f(200, seed=3)

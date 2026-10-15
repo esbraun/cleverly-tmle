@@ -162,19 +162,26 @@ def test_each_estimator_reduces_or_refuses(kind: type[_SequentialEstimator]) -> 
 
 
 #: The estimators whose reduction is not built.  Each is refused by the allowlist gate, which
-#: ``test_each_estimator_reduces_or_refuses`` checks, and the roadmap row names the work.
+#: ``test_each_estimator_reduces_or_refuses`` checks.  The strict xfail flips to a failure when the
+#: reduction lands, so the exemption leaves with the roadmap row.
 _NO_REDUCTION_YET = {"parametric_gformula": "X71 (b)"}
 
 
-@pytest.mark.parametrize(
-    "kind",
-    [
-        kind
+def _reduction_cases() -> list[Any]:
+    return [
+        pytest.param(
+            kind,
+            marks=pytest.mark.xfail(
+                strict=True, reason=_NO_REDUCTION_YET[getattr(kind, "_estimator", "tmle")]
+            ),
+        )
+        if getattr(kind, "_estimator", "tmle") in _NO_REDUCTION_YET
+        else kind
         for kind in _every_subclass()
-        if getattr(kind, "_estimator", "tmle") not in _NO_REDUCTION_YET
-    ],
-    ids=lambda kind: kind.__qualname__,
-)
+    ]
+
+
+@pytest.mark.parametrize("kind", _reduction_cases(), ids=lambda kind: kind.__qualname__)
 def test_an_allowlisted_kind_reduces(kind: type[_SequentialEstimator], monkeypatch: Any) -> None:
     """The allowlist is the only gate: add a kind to it and the fit reduces.
 
