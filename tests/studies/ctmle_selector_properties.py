@@ -28,7 +28,8 @@ from cleverly.estimators import CTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import bounded_cv_laws, canonical_properties
 from tests.studies.canonical_ctmle_selector import G_BOUNDS, STRATIFY_FOLDS, STUDY
-from tests.studies.evidence.properties import PropertyBatch, PropertyCell
+from tests.studies.evidence import property_failures, property_verdicts
+from tests.studies.evidence.properties import PropertyBatch, PropertyCell, paired
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
 
 SELECTOR_RMSE_RATIO = 0.50
@@ -166,8 +167,44 @@ def sampling_batches() -> tuple[PropertyBatch, ...]:
     return (PropertyBatch("properties", cells(), _estimator),)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     return sampling_batches()[0].run(n_jobs=n_jobs)
+
+
+def selector_rmse_ratio(collaborative: pd.DataFrame, control: pd.DataFrame) -> float:
+    """The collaborative arm's RMSE over the empty control's, on the replicates both kept.
+
+    A recorded failure may cost the arms different replicates, so the pair reads the
+    intersection through :func:`~tests.studies.evidence.properties.paired`.
+
+    Parameters
+    ----------
+    collaborative : pandas.DataFrame
+        The collaborative arm's rows.
+    control : pandas.DataFrame
+        The empty control's rows.
+
+    Returns
+    -------
+    float
+        ``sqrt(mean(e_collaborative ** 2) / mean(e_control ** 2))``.
+    """
+    collaborative, control = (
+        arm.sort_values("replicate") for arm in paired(collaborative, control)
+    )
+    collaborative_error = collaborative["estimate"].to_numpy() - collaborative["truth"].to_numpy()
+    control_error = control["estimate"].to_numpy() - control["truth"].to_numpy()
+    return float(np.sqrt(np.mean(collaborative_error**2) / np.mean(control_error**2)))
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -177,13 +214,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     # declared mechanism.  Same published value either way today; one of them is a coincidence.
     summary, rates = apply_shared_verdicts(rows, STUDY, extra_columns=("rmse_ratio",))
     necessity = rows.loc[rows["property"] == "selector_necessity"]
-    collaborative = necessity.loc[necessity["cell"] == "collaborative"].sort_values("replicate")
-    control = necessity.loc[necessity["cell"] == "empty_control"].sort_values("replicate")
-    if not np.array_equal(collaborative["replicate"], control["replicate"]):
-        raise ValueError("selector-necessity cells are not paired on replication")
-    collaborative_error = collaborative["estimate"].to_numpy() - collaborative["truth"].to_numpy()
-    control_error = control["estimate"].to_numpy() - control["truth"].to_numpy()
-    ratio = float(np.sqrt(np.mean(collaborative_error**2) / np.mean(control_error**2)))
+    ratio = selector_rmse_ratio(
+        necessity.loc[necessity["cell"] == "collaborative"],
+        necessity.loc[necessity["cell"] == "empty_control"],
+    )
     mask = summary["property"] == "selector_necessity"
     summary.loc[mask, "rmse_ratio"] = ratio
     positive = mask & (summary["role"] == "positive")
@@ -193,3 +227,30 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     joint = bool(summary.loc[mask, "passed"].all() and ratio <= SELECTOR_RMSE_RATIO)
     summary.loc[mask, "property_passed"] = joint
     return finish(summary, rates)
+
+
+def _selector_rule() -> property_failures.FamilyRule:
+    """``selector_necessity``: each arm's bias endpoint, and S13 on the RMSE ratio, jointly."""
+    return property_failures.FamilyRule(
+        families=frozenset({"selector_necessity"}),
+        shared="summarize_properties",
+        clauses=(
+            property_failures.bias_clause(
+                "bias equivalent", kind="equivalent", applies=property_failures.roles("positive")
+            ),
+            property_failures.bias_clause(
+                "bias discriminated", kind="beyond", applies=property_failures.roles("control")
+            ),
+            property_failures.rmse_ratio_clause(
+                "rmse ratio under its ceiling",
+                paths=(("collaborative", "empty_control"),),
+                statistic=selector_rmse_ratio,
+                threshold=SELECTOR_RMSE_RATIO,
+            ),
+        ),
+        group="family",
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (_selector_rule(),)

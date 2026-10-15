@@ -95,6 +95,10 @@ STUDY = StudyRecord(
     efficiency_bounds={"ey_obs": EFFICIENCY_SD},
     calibration_efficiency_ratio=False,
     reference="tmle-r-population-mean",
+    failure_bound={
+        "cleverly-stacked-mar-natural-course-cvtmle": 0.01,
+        "tmle-r-population-mean": 0.01,
+    },
     comparison="matching implementation",
 )
 

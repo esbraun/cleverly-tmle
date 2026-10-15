@@ -20,7 +20,8 @@ Three kinds of row can be red, and each is read the way the regeneration gates i
   ledger that trusted the column would inherit any hand edit to it.
 * A **property** row of ``properties.csv`` that fails its own rule *or* its family's joint
   clause, which is the rule ``claims.property_cells_passed`` counts by.  A diagnostic row
-  states no verdict and is never red.
+  states no verdict and is never red.  A row that only its property failure accounting
+  (``property-failure-accounting.csv``) turns red names the accounting in ``fails by``.
 * An **accounting** row of ``failure-accounting.csv``: a hook audit that the study's recorded
   fitting failures leave red.  A truth or paired cell that the accounting leaves red stays a
   truth or paired row, and its ``fails by`` names the accounting.
@@ -50,7 +51,7 @@ from typing import Any
 import pandas as pd
 
 from tests.documents import pipe_table
-from tests.studies.evidence import failures, property_verdicts
+from tests.studies.evidence import failures, property_failures, property_verdicts
 from tests.studies.evidence.comparison import ComparisonVerdict, comparison_verdict
 from tests.studies.evidence.document import _CLOSE, _OPEN, _table, measured, render
 from tests.studies.evidence.manifest import write_lines
@@ -626,8 +627,9 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     Returns
     -------
     dict
-        Each verdict table, keyed by its short name in :data:`FRAMES`, and the failure
-        accounting under ``accounting``, empty when the study recorded no failure.
+        Each verdict table, keyed by its short name in :data:`FRAMES`, the failure
+        accounting under ``accounting`` and the property failure accounting under
+        ``property_accounting``, each empty when the study recorded no failure.
 
     Raises
     ------
@@ -641,6 +643,12 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
         pd.read_csv(path, keep_default_na=False, na_values=[""])
         if path.exists()
         else pd.DataFrame(columns=list(failures.ACCOUNTING_COLUMNS))
+    )
+    path = record.artifact(property_failures.PROPERTY_ACCOUNTING)
+    tables["property_accounting"] = (
+        pd.read_csv(path, keep_default_na=False, na_values=[""])
+        if path.exists()
+        else pd.DataFrame(columns=list(property_failures.PROPERTY_ACCOUNTING_COLUMNS))
     )
     return tables
 
@@ -751,6 +759,43 @@ def _failures_measured(accounting: pd.DataFrame, table: str, key: tuple[str, ...
     return f", failures {int(first['failed'])} of {int(first['requested'])} ({first['reason']})"
 
 
+def _property_fails_by(accounting: pd.DataFrame) -> tuple[str | None, str]:
+    """A red property cell's accounting: what replaces its ``fails by``, and a measured suffix.
+
+    The suffix is ``, failures k of R (<reason>)`` whenever the cell has accounting rows.  The
+    accounting replaces ``fails by`` only when it alone turned the cell red: its gate failed,
+    and no clause fails at the complete case already.  A clause leg's ``leg_passed`` false
+    with a negative ``complete_case`` slack shows such a clause.  This holds for a
+    ``failures not accountable`` cell too, whose clause legs give the complete case alone.
+
+    Parameters
+    ----------
+    accounting : pandas.DataFrame
+        The cell's rows of ``property-failure-accounting.csv``.
+
+    Returns
+    -------
+    tuple
+        The ``fails by`` text, or ``None`` to keep the cell's own reading, and the suffix.
+    """
+    if accounting.empty:
+        return None, ""
+    first = accounting.iloc[0]
+    suffix = f", failures {int(first['failed'])} of {int(first['requested'])} ({first['reason']})"
+    if bool(first["gate_passed"]) or first["reason"] == failures.COMPLETE_CASE_FAILS:
+        return None, suffix
+    legs = (
+        property_failures.BOUND_LEG,
+        property_failures.NOT_ACCOUNTABLE_LEG,
+        property_failures.WITNESS_LEG,
+    )
+    clauses = accounting.loc[~accounting["leg"].isin(legs)]
+    failing = clauses.loc[~clauses["leg_passed"].astype(bool)]
+    if (failing["complete_case"].astype(float) < 0.0).any():
+        return None, suffix
+    return f"failure accounting: {first['reason']}", suffix
+
+
 def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[RedRow]:
     """Every red verdict one study's committed tables publish.
 
@@ -832,18 +877,29 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
             )
         )
 
+    property_accounting = tables.get("property_accounting")
+    if property_accounting is None:
+        property_accounting = pd.DataFrame(
+            columns=list(property_failures.PROPERTY_ACCOUNTING_COLUMNS)
+        )
     for row in tables["properties"].itertuples():
         if str(row.role) == property_verdicts.DIAGNOSTIC_ROLE:
             continue
         own, joint = bool(row.passed), bool(row.property_passed)
         if own and joint:
             continue
+        override, suffix = _property_fails_by(
+            property_accounting.loc[
+                (property_accounting["property"].astype(str) == str(row.property))
+                & (property_accounting["cell"].astype(str) == str(row.cell))
+            ]
+        )
         out.append(
             RedRow(
                 RedKey(record.slug, "property", f"{row.property}/{row.cell}"),
                 str(row.role),
-                "its own rule" if not own else "the family's joint clause",
-                measured(row),
+                override or ("its own rule" if not own else "the family's joint clause"),
+                measured(row) + suffix,
             )
         )
 

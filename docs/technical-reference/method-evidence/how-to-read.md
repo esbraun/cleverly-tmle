@@ -86,8 +86,31 @@ the same set, and each file answers the same question wherever it appears.
 | `properties.csv` | the theory-property cells and their controls |
 | `failures.csv` | each recorded fitting failure of either implementation, with its replicates, stage, and message. Present only when a fit failed |
 | `failure-accounting.csv` | each cell that lost a replicate, with each side's count and bound, its legs at the complete cases and at the worst case, and its gate. Present only when a fit failed |
+| `property-failures.csv` | each recorded fitting failure of a property cell, with its replicates, stage, and message. Present only when a property fit failed |
+| `property-failure-accounting.csv` | each property cell that lost a replicate, with its count, its bound, and one row for each declared clause. Present only when a property fit failed |
+| `property-failure-witnesses.csv` | the draw-level witness of each lost replicate. Present only when a property fit failed |
 
 A study page's Reproduction section adds only what is specific to that study.
+
+## Property cells that lost a replicate
+
+A property fit that raises a recordable error costs its cells one replicate each. The study
+declares `FAILURE_BOUND` (0.01) before the run, and a cell may lose `floor(bound * R)` replicates.
+The [property failure rules](../../development/method-benchmarking.md#property-fitting-failures)
+give the full contract. Read a cell in `property-failure-accounting.csv` with these columns.
+
+| column | what it holds |
+| --- | --- |
+| `leg` | `failure bound`, then one row for each clause of the cell's family rule. A clause with no candidate set reads `failures not accountable` |
+| `complete_case`, `worst_case` | the slack of the clause on the survivors and under its least favourable fill. A negative value fails |
+| `imputation` | the label of the leg. `support` fills a bounded variable over its full support and needs no assumption. `range` assumes that a lost value lies inside the survivor range, with the scale of the margin held |
+| `reason` | `within bound`, `bound exceeded`, `worst case fails`, `complete case fails`, or `failures not accountable` |
+| `informative-failure witness` rows | a statistic of the lost draw and its quantile among the survivors' draws. The witness is a report. No gate reads it |
+
+A green cell with a `range` leg rests on the range assumption. A green cell with only `support`
+legs does not. Three clauses are not accountable: `natural_course_identity`, `static_reduction`,
+and the closed-score clause of `correction_necessity`. A lost replicate turns each of them red at
+any bound.
 
 ## Terms
 
@@ -102,3 +125,5 @@ A study page's Reproduction section adds only what is specific to that study.
 | **SE ratio** | mean reported standard error divided by the empirical standard deviation. One means the reported uncertainty matches the real spread |
 | **share of margin used** | how much of a similarity margin a paired comparison consumed. Small means the two implementations agree far inside the bound |
 | **plug-in** | the estimate the same nuisance fits produce with no targeting fluctuation. The distance from it measures what targeting did |
+| **lost replicate** | a replication whose fit raised a recordable error. The cell keeps the survivors, and the accounting judges the verdict under the worst case of the lost values |
+| **leg** | one clause of a verdict, judged separately in the accounting. A `support` leg needs no assumption about the lost values. A `range` leg assumes that they lie inside the survivor range |
