@@ -152,6 +152,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stratified-drtmle",
     reference="drtmle-r-stratified",
+    failure_bound={"cleverly-stratified-drtmle": 0.01, "drtmle-r-stratified": 0.01},
     comparison="related target",
     publication_policy="reporting",
     modules=(

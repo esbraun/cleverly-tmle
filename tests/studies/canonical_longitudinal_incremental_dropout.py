@@ -121,6 +121,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-ipsi-dropout",
     reference=None,
+    failure_bound={"cleverly-ipsi-dropout": 0.01},
     efficiency_bounds=EFFICIENCY_SD,
     modules=(
         "tests/studies/canonical_longitudinal_incremental_dropout.py",

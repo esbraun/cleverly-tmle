@@ -11,7 +11,7 @@ import pytest
 from cleverly.inference import make_estimate
 from cleverly.validation import CoverageStudy
 from cleverly.validation._seeds import sample_seed_streams
-from tests.studies.evidence import properties
+from tests.studies.evidence import properties, replication
 from tests.studies.evidence.properties import PropertyCell, run_cells
 
 
@@ -158,17 +158,120 @@ def test_shared_property_roots_retain_paired_draws_at_unequal_budgets() -> None:
 def test_property_studies_pass_the_joint_plan_to_every_cell(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    called: dict[int, tuple[int, ...]] = {}
+    class Captured(Exception):
+        pass
 
-    class RecordedStudy:
-        def __init__(self, **kwargs: object) -> None:
-            called[int(kwargs["seed"])] = tuple(kwargs["sample_seeds"])
+    keyed: list[tuple[PropertyCell, int, int]] = []
 
-        def run(self) -> SimpleNamespace:
-            return SimpleNamespace(replications=(), n_failed=0)
+    def capture(keys: list[tuple[PropertyCell, int, int]], *args: object, **kwargs: object) -> None:
+        keyed.extend(keys)
+        raise Captured
 
-    monkeypatch.setattr(properties, "CoverageStudy", RecordedStudy)
+    monkeypatch.setattr(properties, "fit_properties", capture)
     cell = PropertyCell("witness", "first", _draw, _Estimator, _Estimator, 2, 73_000, 24_000)
-    run_cells((cell, replace(cell, cell="second", seed=24_200)), lambda cell: _Estimator, n_jobs=1)
+    with pytest.raises(Captured):
+        run_cells(
+            (cell, replace(cell, cell="second", seed=24_200)), lambda cell: _Estimator, n_jobs=1
+        )
+    called = {
+        root: tuple(seed for key_cell, _, seed in keyed if key_cell.seed == root)
+        for root in (24_000, 24_200)
+    }
     assert called == sample_seed_streams({24_000: 73_000, 24_200: 73_000})
     assert not set(called[24_000]) & set(called[24_200])
+    assert [replicate for key_cell, replicate, _ in keyed if key_cell.seed == 24_000] == list(
+        range(73_000)
+    )
+
+
+# ---- run_cells fits through fit_properties (RM39 part b2) --------------------------------------
+
+
+def _flaky(bad: set[int], error: type[Exception], alphas: dict[int, float] | None = None):  # type: ignore[no-untyped-def]
+    class Flaky(_Estimator):
+        def fit(self, frame: SimpleNamespace, **kwargs: object) -> Flaky:
+            if frame.seed in bad:
+                raise error("injected")
+            super().fit(frame, **kwargs)
+            alpha = (alphas or {}).get(frame.seed, 0.05)
+            self.estimates = {
+                "ate": make_estimate(
+                    "ate", frame.seed / 2**32, np.array([-1.0, 1.0]), n=2, alpha=alpha
+                )
+            }
+            return self
+
+    return Flaky
+
+
+def _witness() -> PropertyCell:
+    return PropertyCell("witness", "cell", _draw, _Estimator, _Estimator, 2, 6, 7)
+
+
+def test_run_cells_rows_equal_the_coverage_study_rows() -> None:
+    cell = _witness()
+    rows = run_cells((cell,), lambda cell: _Estimator, n_jobs=1)
+    study = CoverageStudy(
+        _draw,
+        _Estimator,
+        n=2,
+        n_replicates=6,
+        estimands=("ate",),
+        sample_seeds=sample_seed_streams({7: 6})[7],
+    ).run()
+    assert rows["replicate"].tolist() == list(range(6))
+    assert rows["estimate"].tolist() == [record.estimate for record in study.replications]
+    assert rows["std_error"].tolist() == [record.std_error for record in study.replications]
+    assert rows["covered"].tolist() == [int(record.covered) for record in study.replications]
+    assert rows["failed_replicates"].tolist() == [0] * 6
+    assert rows["requested_replicates"].tolist() == [6] * 6
+
+
+def test_run_cells_records_a_recordable_fit_error_and_drops_that_replicate() -> None:
+    cell = _witness()
+    bad = sample_seed_streams({7: 6})[7][2]
+    with replication.recording("subject") as recorded:
+        rows = run_cells(
+            (cell,),
+            lambda cell: _flaky({bad}, np.linalg.LinAlgError),
+            n_jobs=1,
+            label="properties/x",
+        )
+    assert rows["replicate"].tolist() == [0, 1, 3, 4, 5]
+    assert recorded.failures is not None
+    record = recorded.failures.iloc[0]
+    assert record["scenarios"] == "witness/cell"
+    assert record["replicates"] == "2"
+    assert record["group_id"] == "properties/x/witness/cell/r000000002"
+    assert record["class"] == "fitting_failure"
+    assert record["message"].startswith("LinAlgError: injected")
+    assert record["seed"] == str(bad)
+    with pytest.raises(RuntimeError, match="outside the regeneration driver"):
+        run_cells((cell,), lambda cell: _flaky({bad}, np.linalg.LinAlgError), n_jobs=1)
+
+
+def test_run_cells_stops_on_an_error_that_is_not_recordable() -> None:
+    bad = sample_seed_streams({7: 6})[7][3]
+    with replication.recording("subject"), pytest.raises(TypeError, match="injected"):
+        run_cells((_witness(),), lambda cell: _flaky({bad}, TypeError), n_jobs=1)
+
+
+def test_run_cells_refuses_replicates_that_report_different_alphas() -> None:
+    seed = sample_seed_streams({7: 6})[7][4]
+    with pytest.raises(RuntimeError, match="inconsistent alpha"):
+        run_cells((_witness(),), lambda cell: _flaky(set(), ValueError, {seed: 0.1}), n_jobs=1)
+
+
+def test_run_cells_names_a_derived_control_in_the_record_of_its_base() -> None:
+    cell = _witness()
+    bad = sample_seed_streams({7: 6})[7][1]
+    derived = {"witness/cell": ("witness/cell_control",)}
+    with replication.recording("subject") as recorded:
+        run_cells(
+            (cell,),
+            lambda cell: _flaky({bad}, np.linalg.LinAlgError),
+            n_jobs=1,
+            derived=derived,
+        )
+    assert recorded.failures is not None
+    assert recorded.failures.iloc[0]["scenarios"] == "witness/cell;witness/cell_control"

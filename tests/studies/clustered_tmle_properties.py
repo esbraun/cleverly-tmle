@@ -9,7 +9,6 @@ import pandas as pd
 from scipy.stats import norm
 
 from cleverly.inference import influence_variance
-from cleverly.utils.parallel import map_parallel
 from tests.conftest import OracleTreatment
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_clustered_tmle import (
@@ -22,6 +21,7 @@ from tests.studies.canonical_clustered_tmle import (
     law,
     outcome_learner,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import PropertyCell, control_row, replicate_row
 from tests.studies.evidence.property_verdicts import (
     CLUSTER_ROBUST_CONTROL_SE_CEILING,
@@ -30,6 +30,7 @@ from tests.studies.evidence.property_verdicts import (
     clustered_inference_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 
 #: Named here as well because the two thresholds are this study's declared margins, and
@@ -79,9 +80,17 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     )
 
 
+def _draw_replication(payload: tuple[int, int]) -> Any:
+    return draw_from_seed(SCENARIO, PRIMARY_N, payload[1])
+
+
 def _fit_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
-    replicate, seed = payload
-    frame, truth = draw_from_seed(SCENARIO, PRIMARY_N, seed)
+    return _fit_drawn(payload, _draw_replication(payload))
+
+
+def _fit_drawn(payload: tuple[int, int], drawn: Any) -> list[dict[str, Any]]:
+    replicate, _ = payload
+    frame, truth = drawn
     result = fit_cleverly(frame)
     estimate = result[TARGET]
     robust = replicate_row(
@@ -112,6 +121,28 @@ def _fit_replication(payload: tuple[int, int]) -> list[dict[str, Any]]:
     return [robust, iid]
 
 
+def _cells_of(key: tuple[tuple[int, int]]) -> list[str]:
+    return [f"{FAMILY}/{POSITIVE}", f"{FAMILY}/{CONTROL}"]
+
+
+def _cell_of(key: tuple[tuple[int, int]]) -> str:
+    return f"{FAMILY}/{POSITIVE}"
+
+
+def _replicate_of(key: tuple[tuple[int, int]]) -> int:
+    return key[0][0]
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Fit each draw once and derive both variance cells from its ATE influence curve."""
     payloads = [
@@ -123,7 +154,15 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         )
         for replicate in range(PROPERTY_REPLICATES)
     ]
-    outcomes = map_parallel(_fit_replication, payloads, n_jobs=n_jobs)
+    outcomes = fit_properties(
+        payloads,
+        splat_drawn(_fit_drawn),
+        cells_of=_cells_of,
+        draw=splat_draw(_draw_replication),
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+    )
     return pd.DataFrame([row for rows in outcomes for row in rows])
 
 

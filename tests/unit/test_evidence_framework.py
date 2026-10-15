@@ -32,11 +32,12 @@ from tests.studies.evidence.inference import (
     upper_bound,
 )
 from tests.studies.evidence.pairing import paired_wide
-from tests.studies.evidence.properties import Rate, rate, require_complete, summarize_cells
+from tests.studies.evidence.properties import Rate, rate, require_accounted, summarize_cells
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     ROOT_N_SLOPE_MARGIN,
     SE_CONTROL_SIDES,
+    Necessity,
     alternative_target_necessity_verdicts,
     alternative_target_verdicts,
     calibration_verdicts,
@@ -229,12 +230,14 @@ def test_an_alternative_target_control_must_recover_the_target_it_claims() -> No
         summary,
         rows,
         record,
-        family="weight_necessity",
-        labels=("ate",),
-        arms=("weighted", "omitted_control"),
-        alternative_truths={"ate": 1.0},
-        column="necessity_displacement",
-        threshold=0.5,
+        Necessity(
+            family="weight_necessity",
+            labels=("ate",),
+            arms=("weighted", "omitted_control"),
+            alternative_truths={"ate": 1.0},
+            column="necessity_displacement",
+            threshold=0.5,
+        ),
     )
     assert summary["passed"].all()
     assert summary["property_passed"].all()
@@ -244,12 +247,14 @@ def test_an_alternative_target_control_must_recover_the_target_it_claims() -> No
         changed,
         rows,
         record,
-        family="weight_necessity",
-        labels=("ate",),
-        arms=("weighted", "omitted_control"),
-        alternative_truths={"ate": 0.5},
-        column="necessity_displacement",
-        threshold=0.5,
+        Necessity(
+            family="weight_necessity",
+            labels=("ate",),
+            arms=("weighted", "omitted_control"),
+            alternative_truths={"ate": 0.5},
+            column="necessity_displacement",
+            threshold=0.5,
+        ),
     )
     control = changed.loc[changed["role"] == "control"]
     assert not bool(control["alternative_bias_equivalent"].iloc[0])
@@ -728,15 +733,16 @@ class TestReplicationAccounting:
             }
         )
 
-    def test_a_lost_replication_stops_the_summary(self) -> None:
-        rows = pd.DataFrame(
+    @staticmethod
+    def _short_rows(*, failed: int) -> pd.DataFrame:
+        return pd.DataFrame(
             {
                 "property": "p",
                 "cell": "c",
                 "replicate": [0, 1],
                 "n": 100,
                 "requested_replicates": 3,
-                "failed_replicates": 1,
+                "failed_replicates": failed,
                 "truth": 0.0,
                 "estimate": [0.1, -0.1],
                 "std_error": [0.1, 0.1],
@@ -744,34 +750,60 @@ class TestReplicationAccounting:
                 "rejected": [0, 0],
             }
         )
-        with pytest.raises(ValueError, match="fits failed"):
-            require_complete(rows)
+
+    def test_a_recorded_lost_replication_is_accepted(self) -> None:
+        # RM39 b2: the driver stamps the record, and the stamp explains the gap.
+        require_accounted(self._short_rows(failed=1))
+        summary = summarize_cells(
+            self._short_rows(failed=1).assign(role="positive"),
+            margin=0.25,
+            confidence_level=0.99,
+            alpha=0.05,
+        )
+        assert summary.loc[0, ["replicates", "failed_replicates"]].tolist() == [2, 1]
+
+    def test_a_lost_replication_without_its_stamp_stops_the_summary(self) -> None:
+        with pytest.raises(ValueError, match="do not explain"):
+            require_accounted(self._short_rows(failed=0))
+
+    def test_a_stamp_that_does_not_match_the_gap_stops_the_summary(self) -> None:
+        with pytest.raises(ValueError, match="do not explain"):
+            require_accounted(self._short_rows(failed=2))
+
+    def test_a_cell_that_lost_replications_needs_two_survivors(self) -> None:
+        rows = self._short_rows(failed=2).iloc[:1]
+        with pytest.raises(ValueError, match="two survivors"):
+            require_accounted(rows)
+
+    def test_a_complete_one_replication_cell_is_accepted(self) -> None:
+        rows = self._complete_rows().iloc[:1].assign(requested_replicates=1)
+        require_accounted(rows)
 
     def test_duplicate_and_missing_replication_ids_stop_the_summary(self) -> None:
         rows = self._complete_rows()
         rows.loc[1, "replicate"] = 0
         with pytest.raises(ValueError, match="duplicate or missing replicate ids"):
-            require_complete(rows)
+            require_accounted(rows)
 
     def test_fractional_replication_ids_stop_the_summary(self) -> None:
         rows = self._complete_rows()
         rows["replicate"] += 0.1
         with pytest.raises(ValueError, match="duplicate or missing replicate ids"):
-            require_complete(rows)
+            require_accounted(rows)
 
     @pytest.mark.parametrize("column", ["requested_replicates", "failed_replicates"])
     def test_inconsistent_replication_metadata_stops_the_summary(self, column: str) -> None:
         rows = self._complete_rows()
         rows.loc[1, column] = 17
         with pytest.raises(ValueError, match=f"inconsistent {column.split('_')[0]}"):
-            require_complete(rows)
+            require_accounted(rows)
 
     @pytest.mark.parametrize("column", ["requested_replicates", "failed_replicates"])
     def test_fractional_replication_metadata_stops_the_summary(self, column: str) -> None:
         rows = self._complete_rows()
         rows[column] = rows[column].astype(float) + 0.5
         with pytest.raises(ValueError, match="non-integer"):
-            require_complete(rows)
+            require_accounted(rows)
 
 
 class TestScoreAuditAccounting:
