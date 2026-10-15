@@ -13,7 +13,9 @@ the draw.  The values agree with the plan's table within that noise.
 
 from __future__ import annotations
 
+import functools
 import math
+import warnings
 from collections.abc import Sequence
 
 import numpy as np
@@ -359,18 +361,31 @@ def test_the_multi_arm_law_reports_its_truncation_share() -> None:
 
 
 #: The sample size at which a candidate's limit bias is read, and the factor by which index 0
-#: must clear the standardized-bias margin at the necessity cells' size.  At this seed index 0
-#: lies about 4.6 standard deviations from the truth, and index 1 about 0.08.
+#: must clear the standardized-bias margin at the necessity cells' size.  At this seed, along
+#: the nested path, index 0 lies about 4.8 standard deviations from the truth, index 1 about
+#: 0.14 and the terminal about 0.17.
 BIAS_N = 200_000
 BIAS_FACTOR = 4.0
+#: The first run's declared candidates, ``W2`` then ``W1``: the deliberate-mutation control.
+FIRST_RUN_COLUMNS = ((1,), (0,))
 
 
-def _standardized_bias(columns: tuple[int, ...]) -> float:
-    """The TMLE bias at one declared candidate, in standard deviations at the cell's ``n``.
+@functools.cache
+def _path_biases(columns: tuple[tuple[int, ...], ...]) -> tuple[tuple[float, ...], tuple[int, ...]]:
+    """The TMLE bias at each index of the path the package builds, in SD at the cell's ``n``.
 
-    The candidate is the propensity of a selector stuck at that index: the fit fluctuates the
-    cell's own outcome learner once along it.  The standard deviation at the cell's ``n`` is
-    the plug-in standard error at :data:`BIAS_N`, rescaled by the square root of the sizes.
+    The fit is the ``learners_collaborative`` cell's own estimator in sample at
+    :data:`BIAS_N`, with the declared candidates at ``columns``.  Each index's estimate is its
+    targeted fit along the built path, so an index fluctuates the targeted fit of the index
+    before it.  A standalone fit of each candidate misses that: index 1 of the first run's
+    declaration reads ``W1`` alone and lies about 0.08 SD from the truth standalone, but about
+    4.0 SD along the path.  The SD at the cell's ``n`` is the reported candidate's plug-in
+    standard error at :data:`BIAS_N`, rescaled by the square root of the sizes.
+
+    Returns
+    -------
+    tuple
+        The bias of each index, and the selection's ``treatment_risk_increases``.
     """
     law = bounded_cv_laws.instrument_dgp()
     (cell,) = [
@@ -378,33 +393,46 @@ def _standardized_bias(columns: tuple[int, ...]) -> float:
     ]
     assert cell.dgp.name == law.name and cell.outcome_learner is DummyRegressor
     frame, _ = law.sample(BIAS_N, seed=20261616, backend="pandas")
-    estimate = (
-        TMLE(
-            outcome_learner=DummyRegressor(),
-            treatment_learner=properties._main_terms(columns),
-            cross_fit=False,
-            estimands=("ate",),
-            g_bounds=study.G_BOUNDS,
-            q_bounds=bounded_cv_laws.Q_BOUNDS,
-            random_state=0,
-        )
-        .fit(frame, outcome="Y", treatment="A", covariates=list(law.covariate_names))
-        .single()["ate"]
+    estimator = properties._estimator(cell)()
+    estimator.cross_fit = False
+    estimator.treatment_candidates = [properties._main_terms(entry) for entry in columns]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with harness._captured(trace=True) as capture:
+            result = estimator.fit(
+                frame, outcome="Y", treatment="A", covariates=list(law.covariate_names)
+            ).single()
+    sd_at_cell = result["ate"].plugin_std_error * np.sqrt(BIAS_N / cell.n)
+    truth = law.truth()["ate"]
+    biases = tuple(
+        (harness.ate(candidate.targeted) - truth) / sd_at_cell
+        for candidate in capture.paths[0].candidates
     )
-    sd_at_cell = estimate.std_error * np.sqrt(BIAS_N / cell.n)
-    return (estimate.psi - law.truth()["ate"]) / sd_at_cell
+    return biases, result.extra["ctmle"].treatment_risk_increases
 
 
-def test_the_first_declared_learner_is_biased_on_the_necessity_law() -> None:
+def test_the_declared_learners_are_biased_only_at_index_0_along_the_built_path() -> None:
     """A nonzero witness: a selector that never leaves index 0 fails ``learners_collaborative``.
 
     Index 0 reads the instrument alone and omits the confounder, so its bias lies far outside
-    the standardized-bias margin.  The control: index 1, the confounder alone, lies inside it,
-    so the witness measures the omitted confounder and not the outcome learner.
+    the standardized-bias margin.  Index 1 adds the confounder and the terminal reads every
+    covariate, so both lie inside it along the path, and the treatment loss decreases.
     """
-    first, second = properties.LEARNER_COLUMNS
-    assert abs(_standardized_bias(first)) > BIAS_FACTOR * MARGIN
-    assert abs(_standardized_bias(second)) < MARGIN
+    biases, increases = _path_biases(properties.LEARNER_COLUMNS)
+    assert abs(biases[0]) > BIAS_FACTOR * MARGIN
+    assert all(abs(bias) < MARGIN for bias in biases[1:]), biases
+    assert increases == ()
+
+
+def test_the_first_run_declaration_is_biased_at_index_1_along_the_path() -> None:
+    """The mutation control: ``W2`` then ``W1`` breaks the order, and index 1 inherits index 0.
+
+    The path test above fails on this declaration, and the package's order warning names
+    index 1.
+    """
+    biases, increases = _path_biases(FIRST_RUN_COLUMNS)
+    assert abs(biases[1]) > BIAS_FACTOR * MARGIN
+    assert increases == (1,)
 
 
 # --------------------------------------------------------------- the declaration
@@ -677,14 +705,20 @@ def test_accepted_indices_read_the_blocks_of_n_steps() -> None:
 #: ``property-pilot.csv``.  The keys of ``study.STAND_INS`` hold stand-ins from other studies.
 DECLARED_GATES = {
     "double_robustness/lasso_outcome_correct": (-0.042, 1_200, "equivalent"),
-    "double_robustness/learners_outcome_correct": (-0.043, 1_200, "equivalent"),
+    "double_robustness/learners_outcome_correct": (-0.007, 1_200, "equivalent"),
     "double_robustness/lasso_treatment_correct": (-0.042, 1_200, "equivalent"),
-    "double_robustness/learners_treatment_correct": (-0.042, 1_200, "equivalent"),
+    "double_robustness/learners_treatment_correct": (-0.080, 1_200, "equivalent"),
     "double_robustness/both_wrong_lasso": (4.48, 1_200, "discriminated"),
-    "double_robustness/both_wrong_learners": (4.27, 1_200, "discriminated"),
+    "double_robustness/both_wrong_learners": (4.511, 1_200, "discriminated"),
     "selector_necessity/empty_control": (5.81, 800, "discriminated"),
     "multi_arm/lasso_treatment_correct": (-0.041, 1_200, "equivalent"),
     "multi_arm/empty_control": (2.761, 1_200, "discriminated"),
+}
+#: The declared expected red of the necessity family: ``learners_collaborative``'s bias clause
+#: (design review S3), by its pilot bias and replicates.  It is not a gate, so its pass
+#: probability enters no product.  The family's discriminating gate is the RMSE bound.
+DECLARED_EXPECTED_RED = {
+    "selector_necessity/learners_collaborative": (0.315, 800),
 }
 #: The rounding of a measured bias in :data:`DECLARED_GATES`.
 DECLARED_DIGITS = 3
@@ -805,10 +839,20 @@ def test_the_declared_gates_hold_the_property_pilot(property_pilot: pd.DataFrame
     its bias's distance outside the margin.
     """
     for key, row in property_pilot.iterrows():
+        if key in DECLARED_EXPECTED_RED:
+            bias, _ = DECLARED_EXPECTED_RED[key]
+            assert bias == round(float(row["bias_sd"]), DECLARED_DIGITS), key
+            continue
         bias, _, rule = DECLARED_GATES[key]
         assert bias == round(float(row["bias_sd"]), DECLARED_DIGITS), key
         gate_margin = MARGIN if rule == "equivalent" else abs(bias) - MARGIN
         assert row["bias_sd_mc_se"] < gate_margin / 10, key
+
+
+def test_the_expected_red_bias_clause_is_expected_to_fail() -> None:
+    """The nested declaration keeps the S3 expected red: its clause passes with probability < 0.05."""
+    for key, (bias, replicates) in DECLARED_EXPECTED_RED.items():
+        assert pass_probability(bias, replicates) < 0.05, key
 
 
 def test_the_pilot_seeds_miss_every_registered_replicate() -> None:
@@ -843,3 +887,40 @@ def test_a_full_run_refuses_a_stand_in(arguments: list[str], refused: bool) -> N
     else:
         regenerate.refuse_stand_ins(arguments, stand_ins)
     regenerate.refuse_stand_ins(arguments, frozenset())
+
+
+def test_the_expected_red_rows_are_declared_rows() -> None:
+    declared = {f"{cell.property}/{cell.cell}" for cell in properties.declared_cells()}
+    assert set(study.EXPECTED_RED_PROPERTIES) <= declared
+    assert set(study.EXPECTED_JOINT_CLAUSE_RED) <= set(study.EXPECTED_RED_PROPERTIES)
+    truth = {
+        f"{study.IMPLEMENTATION}/{scenario}/{estimand}"
+        for scenario, estimands in study.STUDY.scenarios.items()
+        for estimand in estimands
+    }
+    assert set(study.EXPECTED_RED_TRUTH) <= truth
+    assert set(DECLARED_EXPECTED_RED).isdisjoint(DECLARED_GATES)
+    assert set(DECLARED_EXPECTED_RED) <= set(study.EXPECTED_RED_PROPERTIES)
+
+
+def test_the_committed_red_set_is_the_expected_red_set() -> None:
+    """The run's red rows are the declared expected reds, each failing as declared.
+
+    ``learners_collaborative`` fails its own bias rule, and the family's other two cells fail
+    the joint clause only.  The RMSE bound of each collaborative cell passes, since it is the
+    family's discriminating gate.
+    """
+    if not study.STUDY.artifact("properties.csv").exists():
+        pytest.skip("the registered run has not been committed yet")
+    from tests.studies.evidence import red_cells
+
+    tables = red_cells.frames(study.STUDY)
+    red = {row.key.key: row.fails_by for row in red_cells.red_rows(study.STUDY, tables)}
+    assert set(red) == set(study.EXPECTED_RED)
+    for key in study.EXPECTED_JOINT_CLAUSE_RED:
+        assert red[key] == "the family's joint clause"
+    assert red["selector_necessity/learners_collaborative"] == "its own rule"
+    summary = tables["properties"].set_index(["property", "cell"])
+    for cell in ("lasso_collaborative", "learners_collaborative"):
+        bound = float(summary.loc[("selector_necessity", cell), "rmse_ratio_upper"])
+        assert bound <= properties.SELECTOR_RMSE_RATIO

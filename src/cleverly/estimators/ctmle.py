@@ -614,11 +614,12 @@ def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
 _LOSS_EPS = 1e-12
 
-#: The tie tolerance of the declared-order check of ``strategy="learners"``.  A candidate
+#: The tie tolerance of the declared-order check of ``strategy="learners"``: 1%.  A candidate
 #: whose treatment negative log likelihood exceeds the previous candidate's by at most this
-#: fraction of that loss is a tie.  A nested candidate with an uninformative extra covariate
-#: can rise by a fraction of a percent under the propensity bounds; an unordered candidate in
-#: ``tests/unit/test_ctmle_candidate_sequences.py`` rises by far more.
+#: fraction of that loss is a tie.  The reason: a nested candidate with an uninformative extra
+#: covariate can rise by sampling noise under the propensity bounds.  On the instrument law of
+#: ``tests/studies/ctmle_sequence_properties.py`` the nested terminal rises by about 0.2%, and
+#: the unordered ``W1`` candidate of the study's first run by about 19%.
 _ORDER_TIE_TOLERANCE: Final[float] = 0.01
 
 #: The way out of a selection or nested split that cannot fit its nuisances.  The search
@@ -674,8 +675,9 @@ def _unordered_candidates(treatment_risk: Sequence[float] | FloatArray) -> tuple
     """The indices whose treatment loss rises above the previous candidate's by more than a tie.
 
     ``ctmleGeneral`` requires a declared sequence ordered from the least to the most adaptive
-    candidate, with a decreasing treatment loss.  A rise of at most 1% of the previous loss is
-    sampling noise and counts as a tie.
+    candidate, with a decreasing treatment loss.  A rise of at most 1% of the previous loss
+    (``_ORDER_TIE_TOLERANCE``) counts as a tie, because a nested candidate with an
+    uninformative covariate can rise by sampling noise under the propensity bounds.
 
     Parameters
     ----------

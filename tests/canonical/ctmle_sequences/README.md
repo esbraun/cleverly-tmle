@@ -2,8 +2,9 @@
 
 This directory holds the registered study `canonical-ctmle-sequences`. The study compares the
 lasso and the declared-learner candidate sequences of Cleverly's C-TMLE with R
-[`ctmle`](https://github.com/jucheng1992/ctmle) 0.1.2 at commit `18de559`. The study is
-declared and not yet run. This directory holds no replicate, summary, or manifest yet.
+[`ctmle`](https://github.com/jucheng1992/ctmle) 0.1.2 at commit `18de559`. The Python phase
+and the property study have run. The R runs are pending (Study queue item 9), so this directory
+holds no R row, no replay file and no R selection file yet.
 
 ## Scenarios
 
@@ -186,18 +187,24 @@ R's `glm`, so a correct replay reads a gap of 0. The pre-flight measured the res
 At 800 replicates these shares give about 664 and 744 unflagged replicates against the 400 that
 the gate needs.
 
-The property pilot measures the four property cells that no other study measures. It fits each
-cell 4,800 times on the `pilot` seed stream, which shares no seed with a registered replicate.
-The SE column is the delta-method Monte Carlo SE of the bias in its own SD.
+The property pilot measures the property cells that no other study measures, and every cell
+that fits the declared learners. It fits each cell 4,800 times on the `pilot` seed stream, which
+shares no seed with a registered replicate. The SE column is the delta-method Monte Carlo SE of
+the bias in its own SD. The four learners cells ran again on the nested declaration, with
+`python -m tests.canonical.ctmle_sequences.power_probe --properties --learners`.
 
-| cell | bias in SD | Monte Carlo SE | rule at 1,200 replicates | pass probability |
+| cell | bias in SD | Monte Carlo SE | rule | pass probability |
 | --- | ---: | ---: | --- | ---: |
-| `double_robustness/lasso_treatment_correct` | -0.042 | 0.014 | inside the margin | 0.999998 |
-| `double_robustness/learners_treatment_correct` | -0.042 | 0.014 | inside the margin | 0.999998 |
-| `multi_arm/lasso_treatment_correct` | -0.041 | 0.014 | inside the margin | 0.999998 |
-| `multi_arm/empty_control` | 2.761 | 0.031 | outside the margin | 1.0 |
+| `double_robustness/lasso_treatment_correct` | -0.042 | 0.014 | inside the margin at 1,200 replicates | 0.999998 |
+| `double_robustness/learners_treatment_correct` | -0.080 | 0.014 | inside the margin at 1,200 replicates | 0.99954 |
+| `double_robustness/learners_outcome_correct` | -0.007 | 0.014 | inside the margin at 1,200 replicates | 1.0 |
+| `double_robustness/both_wrong_learners` | 4.511 | 0.049 | outside the margin at 1,200 replicates | 1.0 |
+| `multi_arm/lasso_treatment_correct` | -0.041 | 0.014 | inside the margin at 1,200 replicates | 0.999998 |
+| `multi_arm/empty_control` | 2.761 | 0.031 | outside the margin at 1,200 replicates | 1.0 |
+| `selector_necessity/learners_collaborative` | 0.315 | 0.014 | the declared expected red, not a gate | 0.000005 |
 
-The family of every gate passes with probability 0.9995. `STAND_INS` in
+The family of every gate passes with probability 0.9991. The first declaration's learners cells
+read -0.042 (pilot), -0.043 and 4.27 (design review probe). `STAND_INS` in
 `tests/studies/canonical_ctmle_sequences.py` names the keys of `DECLARED_GATES` that hold a
 bias from another study. It is empty. `regenerate.py` refuses a full run while `STAND_INS` names
 a key. A probe run with another `--replicates` or with `--primary-only` does not need this
@@ -237,6 +244,48 @@ both mechanisms. The correct outcome learner appends `f` to the design. No candi
 reads `f`. Each both-wrong control fits its strategy with a constant outcome on the same law.
 `property-selection.csv` records the cross-validated index and the final index of every lasso and
 learners fit, 1-based.
+
+## Expected red rows
+
+The declaration expects the red rows below before the run. `EXPECTED_RED` in
+`tests/studies/canonical_ctmle_sequences.py` holds them, and
+`tests/unit/test_ctmle_sequences_design.py` checks that the committed red set equals it.
+
+| row | why it is expected red | owner |
+| --- | --- | --- |
+| `binary_lasso` coverage | the plan's probe read a coverage of 0.899 and an SE ratio of 0.881 | `X16-plugin-variance` |
+| `selector_necessity/learners_collaborative` | its bias clause: the binary selector precedent is 0.217 SD, so the clause passes with probability about 0.05 (design review S3) | F18 |
+| `selector_necessity/lasso_collaborative`, `selector_necessity/empty_control` | the family's joint clause only, which the red bias clause above fails | F18 |
+
+The RMSE bound of each collaborative cell is the necessity family's discriminating gate. It is
+expected to pass.
+
+The first run owned the `binary_lasso` coverage row under F18. A reading after that run moved it
+to `X16-plugin-variance`. The final step reports the penalty 0 on 771 of 800 fits. Plain TMLE on
+the same 800 samples covers 0.9225 with an SE ratio of 0.913, and both estimators cover below
+0.85 in the lowest quartile of the reported standard error
+(`tests/diagnostics/x16_lasso_coverage/`). The shortfall is the plug-in variance under
+near-positivity, and not the selection that F18 owns. The row does not test Delta(P1) of F18.
+
+## History
+
+| run | change | result |
+| --- | --- | --- |
+| first, at `d106a637` (commit `caf17b8c`) | the declared learners of the property cells were `W2`, then `W1` | `selector_necessity/learners_collaborative` was red on its RMSE bound as well as its bias. Bias 0.575 SD (99% interval 0.0101 to 0.0139 against a margin of 0.0052), coverage 0.814, SE ratio 0.602, RMSE ratio 0.472 with a 99% upper bound of 0.511 against 0.50 |
+| second | the declared learners became nested: `W2`, then `W1` and `W2` | see the committed `properties.csv` |
+
+The cause of the first result is a study-design defect. `W1` alone fits the treatment worse than
+`W2` alone, so the declaration broke the template's decreasing treatment loss.
+`treatment_risk_decreasing` was false on every fit. Along the path, index 1 fluctuates the
+targeted fit of index 0, so it inherits the bias of index 0. At n = 200,000 index 1 lies about
+4.0 SD from the truth along the path, and about 0.08 SD as a standalone fit. The first run's
+design test read the standalone fit and did not see the defect. The test now reads each index
+along the built path, and it keeps the first declaration as a mutation control. The package
+now warns when a declared candidate's treatment loss rises by more than 1% over the candidate
+before it.
+
+The nested declaration also changes the double-robustness learners cells. The property pilot
+measured all four learners cells again on the `pilot` seed stream.
 
 ## Scope
 

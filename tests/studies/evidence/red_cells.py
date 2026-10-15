@@ -159,6 +159,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "type_i_error/sharp_null",
             "interval_calibration/correctly_specified",
         ),
+        # The declared expected red of X16: learners_collaborative fails its bias rule
+        # (design review S3), and the family's joint clause takes the other two cells.
+        *_keys(
+            "canonical-ctmle-sequences",
+            "property",
+            "selector_necessity/learners_collaborative",
+            "selector_necessity/lasso_collaborative",
+            "selector_necessity/empty_control",
+        ),
     ),
     "F19": (
         *_keys(
@@ -524,6 +533,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "longitudinal-sdr",
             "property",
             "sequential_double_robustness/both_correct__n_2000",
+        ),
+    ),
+    "X16-plugin-variance": (
+        *_keys(
+            "canonical-ctmle-sequences",
+            "truth",
+            "cleverly-ctmle-sequences/binary_lasso/ate",
         ),
     ),
 }

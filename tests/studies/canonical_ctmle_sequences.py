@@ -54,7 +54,8 @@ comparison wait for the change that registers the R runs.
 lasso fit selected its last index (:func:`check_structure`).
 
 **Red cells.**  The record publishes under ``reporting``, declared before the run.
-:data:`RED_CELL_OWNERS` names the owner of each kind of red row.  The ledger and the roadmap's
+:data:`RED_CELL_OWNERS` names the owner of each kind of red row, and :data:`EXPECTED_RED`
+the red set the declaration expects.  The ledger and the roadmap's
 "Red-cell owners" table list a row only after the run shows it red, because
 ``tests/unit/test_red_cell_ledger.py`` refuses an owner with no red row.
 """
@@ -156,7 +157,14 @@ STAND_INS: frozenset[str] = frozenset()
 #: ``X16-sequence-reading`` reads a red package bias row, a red replay gate, or a red
 #: double-robustness positive bias cell first, against quirks 2, 4 and 8 of the X16 plan, the
 #: replay flags and ``r-selection.csv``.  The paired rows are descriptive and state no verdict.
+#:
+#: ``truth/binary_lasso/coverage`` moved from F18 after the first run.  The final step reports
+#: the penalty 0 on 771 of 800 fits, and plain TMLE on the same samples covers 0.9225 with an
+#: SE ratio of 0.913 (``tests/diagnostics/x16_lasso_coverage/``).  The shortfall is the plug-in
+#: variance under near-positivity, which plain TMLE shares, and not the selection that F18
+#: owns.
 RED_CELL_OWNERS: Mapping[str, str] = {
+    "truth/binary_lasso/coverage": "X16-plugin-variance",
     "truth/coverage": "F18",
     "truth/se_ratio": "F18",
     "truth/bias": "X16-sequence-reading",
@@ -168,6 +176,26 @@ RED_CELL_OWNERS: Mapping[str, str] = {
     "property/multi_arm/positive/coverage": "F18",
     "property/multi_arm/positive/se_ratio": "F18",
 }
+
+#: The red rows this declaration expects (plan 3.4.3), by the ledger's key.  The
+#: ``binary_lasso`` coverage row is expected red: the plan's probe read a coverage of 0.899 and
+#: an SE ratio of 0.881.  ``selector_necessity/learners_collaborative`` is a declared expected
+#: red on its bias clause (design review S3): the binary selector precedent is 0.217 SD, so the
+#: clause passes with probability about 0.05.  The RMSE bound is the necessity family's
+#: discriminating gate.  The red bias clause fails the family's joint clause, so the family's
+#: other two cells are red by that clause only.  Every other row is expected green.
+EXPECTED_RED_TRUTH: tuple[str, ...] = (f"{IMPLEMENTATION}/binary_lasso/ate",)
+EXPECTED_RED_PROPERTIES: tuple[str, ...] = (
+    "selector_necessity/learners_collaborative",
+    "selector_necessity/lasso_collaborative",
+    "selector_necessity/empty_control",
+)
+#: The expected red rows that pass their own rule and are red by the family's joint clause only.
+EXPECTED_JOINT_CLAUSE_RED: tuple[str, ...] = (
+    "selector_necessity/lasso_collaborative",
+    "selector_necessity/empty_control",
+)
+EXPECTED_RED = EXPECTED_RED_TRUTH + EXPECTED_RED_PROPERTIES
 
 #: The side artefacts.  ``r-selection.csv`` holds one row per R fit beside the package's own
 #: selection; ``r-selection-summary.csv`` the counts and the descriptive non-adapter pairing;
@@ -423,6 +451,7 @@ CONFIGURATION = {
         "the run"
     ),
     "red_cell_owners": dict(RED_CELL_OWNERS),
+    "expected_red": list(EXPECTED_RED),
     "comparison_scope": "binary ATE, two arms, complete outcomes, in-sample nuisances",
 }
 

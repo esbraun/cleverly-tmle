@@ -66,13 +66,21 @@ ESTIMATORS = ("ctmle", "no_final_step", "stuck_at_0", "no_targeting", "no_sequen
 COLUMNS = ("scenario", "estimator", "replicates", "truth", "bias", "sd", "bias_sd")
 
 #: The property cells whose bias no other study measures: the treatment-correct cells of
-#: both strategies on the bounded linear law, and the multi-arm pair.
+#: both strategies on the bounded linear law, the multi-arm pair, and every other cell that
+#: fits the declared learners of ``LEARNER_COLUMNS``.  The learners cells were measured again
+#: when the declared candidates became nested.
 PROPERTY_PILOT_CELLS = (
     "double_robustness/lasso_treatment_correct",
     "double_robustness/learners_treatment_correct",
     "multi_arm/lasso_treatment_correct",
     "multi_arm/empty_control",
+    "double_robustness/learners_outcome_correct",
+    "double_robustness/both_wrong_learners",
+    "selector_necessity/learners_collaborative",
 )
+#: The pilot cells that fit the declared learners.  ``--learners`` runs these alone and keeps
+#: the committed rows of the other cells, whose fits do not read ``LEARNER_COLUMNS``.
+LEARNER_PILOT_CELLS = tuple(key for key in PROPERTY_PILOT_CELLS if "learners" in key)
 #: The property pilot's fits per cell.  The Monte Carlo SE of a bias in its own SD is then
 #: about ``1 / sqrt(4,800) = 0.014``, a seventeenth of the margin.
 PROPERTY_PILOT_REPLICATES = 4_800
@@ -412,7 +420,8 @@ def summarize_property_pilot(rows: pd.DataFrame) -> pd.DataFrame:
         truth_varies=study.STUDY.truth_varies_by_replicate,
     ).set_index(["property", "cell"])
     out = []
-    for key in PROPERTY_PILOT_CELLS:
+    present = set(rows["property"] + "/" + rows["cell"])
+    for key in (key for key in PROPERTY_PILOT_CELLS if key in present):
         property_name, cell = key.split("/")
         group = rows.loc[(rows["property"] == property_name) & (rows["cell"] == cell)]
         row = summary.loc[(property_name, cell)]
@@ -435,8 +444,10 @@ def summarize_property_pilot(rows: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out, columns=list(PROPERTY_COLUMNS))
 
 
-def run_properties(*, replicates: int, n_jobs: int) -> pd.DataFrame:
-    """Run the property pilot on every cell of :data:`PROPERTY_PILOT_CELLS`.
+def run_properties(
+    *, replicates: int, n_jobs: int, keys: tuple[str, ...] = PROPERTY_PILOT_CELLS
+) -> pd.DataFrame:
+    """Run the property pilot on the cells ``keys`` of :data:`PROPERTY_PILOT_CELLS`.
 
     Parameters
     ----------
@@ -444,23 +455,56 @@ def run_properties(*, replicates: int, n_jobs: int) -> pd.DataFrame:
         Pilot replicates per cell.
     n_jobs : int
         Worker processes.
+    keys : tuple of str
+        The ``property/cell`` keys to run, every pilot cell by default.
 
     Returns
     -------
     DataFrame
         :func:`summarize_property_pilot` of the pilot.
     """
+    cells = [cell for cell in pilot_cells() if f"{cell.property}/{cell.cell}" in keys]
     rows = pd.concat(
-        [property_rows(cell, replicates, n_jobs=n_jobs) for cell in pilot_cells()],
+        [property_rows(cell, replicates, n_jobs=n_jobs) for cell in cells],
         ignore_index=True,
     )
     return summarize_property_pilot(rows)
+
+
+def merge_pilot(committed: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFrame:
+    """The committed pilot rows with the rows of ``fresh`` in their place, in declared order.
+
+    Parameters
+    ----------
+    committed : DataFrame
+        The committed ``property-pilot.csv``.
+    fresh : DataFrame
+        The rows of the cells that ran again.
+
+    Returns
+    -------
+    DataFrame
+        One row per cell of :data:`PROPERTY_PILOT_CELLS`.
+    """
+    frames = {f"{row.property}/{row.cell}": row for row in committed.itertuples(index=False)}
+    frames.update({f"{row.property}/{row.cell}": row for row in fresh.itertuples(index=False)})
+    missing = [key for key in PROPERTY_PILOT_CELLS if key not in frames]
+    if missing:
+        raise RuntimeError(f"the pilot has no row for {missing}")
+    return pd.DataFrame(
+        [frames[key] for key in PROPERTY_PILOT_CELLS], columns=list(PROPERTY_COLUMNS)
+    )
 
 
 def main() -> None:
     """Write ``power-probe.csv``, or ``property-pilot.csv`` with ``--properties``."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--properties", action="store_true", help="run the property pilot")
+    parser.add_argument(
+        "--learners",
+        action="store_true",
+        help="with --properties, run the learners cells and keep the committed other rows",
+    )
     parser.add_argument("--replicates", type=int)
     parser.add_argument("--jobs", type=int, default=STUDY_JOBS)
     parser.add_argument("--output", type=Path)
@@ -468,7 +512,15 @@ def main() -> None:
     if arguments.properties:
         replicates = arguments.replicates or PROPERTY_PILOT_REPLICATES
         output = arguments.output or PROPERTY_PILOT_FILE
-        table = run_properties(replicates=replicates, n_jobs=arguments.jobs)
+        if arguments.learners:
+            fresh = run_properties(
+                replicates=replicates, n_jobs=arguments.jobs, keys=LEARNER_PILOT_CELLS
+            )
+            table = merge_pilot(
+                pd.read_csv(PROPERTY_PILOT_FILE, float_precision="round_trip"), fresh
+            )
+        else:
+            table = run_properties(replicates=replicates, n_jobs=arguments.jobs)
     else:
         replicates = arguments.replicates or PILOT_REPLICATES
         output = arguments.output or PROBE_FILE
