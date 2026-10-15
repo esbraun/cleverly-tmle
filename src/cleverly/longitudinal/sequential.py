@@ -122,7 +122,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
 
@@ -162,6 +162,9 @@ from ..utils.phases import (
 )
 from .data import LongitudinalData, RegimenMasks
 from .regimen import Plan, Regimen, RegimenSpec
+
+if TYPE_CHECKING:
+    from .hazard import HazardFit
 
 __all__ = [
     "FoldRecursionCell",
@@ -588,6 +591,19 @@ class SequentialStep:
         return self.targeted if self.marginal is None else self.marginal
 
 
+class ScoredNode(NamedTuple):
+    """One node whose score a fit solved, as the diagnostics read it."""
+
+    #: The one-based node.
+    time: int
+    #: The rows at risk at the node.
+    at_risk: BoolArray
+    #: The rows the node's score sums over.
+    trained_on: BoolArray
+    #: ``(n,)`` the clever covariate, zero off ``trained_on``.
+    clever: FloatArray
+
+
 @dataclass(frozen=True)
 class RegimenFit:
     """The estimate under one regimen, with the pieces that produced it."""
@@ -644,6 +660,23 @@ class RegimenFit:
     #: continuous node is the density ratio :math:`r_t` itself.  Not bounded by
     #: ``g_bounds``.  ``None`` on a plan without such a node.
     node_ratio: FloatArray | None = None
+    #: The targeting record of a fit with ``survival_model="hazard"``, and ``None`` on an
+    #: iterated-mean fit.  Such a fit runs no backward recursion, so :attr:`steps` is empty.
+    #: A one-step fit shares one record between every reported parameter.
+    hazard: HazardFit | None = None
+    #: ``(n, T)`` the hazard fit's clever weight at each node, at the observed level:
+    #: :math:`q_r(A) / (g(A) G_k(A))` on the rows at risk at a node up to the horizon, and
+    #: zero elsewhere.  It stands in for each node's clever covariate in
+    #: :attr:`scored_nodes` and :attr:`leverage`.  ``None`` on an iterated-mean fit.
+    #:
+    #: On a hazard fit :attr:`cumulative` and :attr:`cumulative_unbounded` hold
+    #: :math:`g(A) G_k(A)` at the observed level, which is the mechanism the fit divides by.
+    hazard_clever: FloatArray | None = None
+    #: The one-based nodes up to the horizon at which a hazard fit holds a cell constant:
+    #: the rows at risk with a level the regimen reads hold no event of a cause there, or
+    #: all hold an event.  :func:`constant_nodes` reports them.  Empty on an iterated-mean
+    #: fit.
+    hazard_constant_nodes: tuple[int, ...] = ()
     #: On an :class:`~cleverly.longitudinal.IPSI` fit, the ``(n, T)`` mechanism term of the
     #: influence function at each node (Kennedy 2019, Appendix Lemmas 3 and 4): zero at a
     #: node that is not a tilt or whose treatment mechanism is declared.  The uncentered
@@ -655,13 +688,38 @@ class RegimenFit:
     constant_terms: tuple[int, ...] | None = None
 
     @property
+    def scored_nodes(self) -> tuple[ScoredNode, ...]:
+        """Every node whose score the targeting solved, in time order.
+
+        A node of an iterated-mean fit is one :class:`SequentialStep`.  A hazard fit
+        solves one score per target that sums over the nodes up to the horizon.  Its rows
+        at a node are the rows at risk there whose observed level the regimen puts mass
+        on, which are the rows with a nonzero clever weight.
+        """
+        if self.hazard_clever is None:
+            return tuple(
+                ScoredNode(step.time, step.at_risk, step.trained_on, step.clever)
+                for step in self.steps
+            )
+        return tuple(
+            ScoredNode(
+                time,
+                self.hazard_clever[:, time - 1] != 0.0,
+                self.hazard_clever[:, time - 1] != 0.0,
+                self.hazard_clever[:, time - 1],
+            )
+            for time in range(1, self.horizon + 1)
+        )
+
+    @property
     def leverage(self) -> FloatArray:
         """Final node's clever covariate, weighted: :math:`w_i / \\prod_{s} g_s c_s`.
 
         What one unit can contribute to the estimating equation, which is the product of
-        the two reweightings a fit applies and not either alone.
+        the two reweightings a fit applies and not either alone.  A hazard fit reads its
+        clever weight at the horizon.
         """
-        return np.asarray(self.obs_weights * self.steps[-1].clever, dtype=float)
+        return np.asarray(self.obs_weights * self.scored_nodes[-1].clever, dtype=float)
 
     @property
     def max_weight(self) -> float:
@@ -686,6 +744,8 @@ class RegimenFit:
 
     @property
     def converged(self) -> bool:
+        if self.hazard is not None:
+            return bool(self.hazard.converged)
         return all(step.fluctuation is None or step.fluctuation.converged for step in self.steps)
 
 
@@ -2081,9 +2141,12 @@ def constant_nodes(fit: RegimenFit) -> tuple[int, ...]:
     Returns
     -------
     tuple of int
-        The one-based nodes, in time order.  On an inverse probability weighted fit, the
-        nodes whose term read a constant (:attr:`RegimenFit.constant_terms`).
+        The one-based nodes, in time order.  A hazard fit reports
+        :attr:`RegimenFit.hazard_constant_nodes`.  On an inverse probability weighted fit,
+        the nodes whose term read a constant (:attr:`RegimenFit.constant_terms`).
     """
+    if fit.hazard_clever is not None:
+        return fit.hazard_constant_nodes
     if fit.constant_terms is not None:
         return fit.constant_terms
     return tuple(
