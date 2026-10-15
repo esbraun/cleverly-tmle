@@ -916,6 +916,31 @@ class TestTheRefusals:
         assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
         assert str(caught.value).startswith(R_F1)
 
+    def test_r_f1_a_vector_treatment_with_a_dose(self) -> None:
+        """A vector with a continuous component has no arms, so R-f1 refuses it too."""
+        from cleverly.interventions import JointPolicy
+
+        frame = self.dose_frame().rename(columns={"A": "D"})
+        frame["F"] = (frame["W"] > 0).astype(float)
+        estimator = TMLE(
+            policies=[JointPolicy("natural", components={}, policy_kind="known")],
+            ratio="classifier",
+            outcome_learner=LinearRegression(),
+            outcome_by_arm=True,
+            cross_fit=False,
+            simultaneous=False,
+        )
+        with pytest.raises(CapabilityError) as caught:
+            estimator.fit(
+                frame,
+                outcome="Y",
+                treatment=["F", "D"],
+                covariates=["W"],
+                continuous_treatment=["D"],
+            )
+        assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert str(caught.value).startswith(R_F1)
+
     def test_r_f1_a_dose_msm(self) -> None:
         estimator = TMLE(
             msm=MSM.linear(doses=[0.0, 0.5, 1.0]),

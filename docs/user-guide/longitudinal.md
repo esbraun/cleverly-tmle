@@ -674,8 +674,8 @@ The answers can differ from `LTMLE` for three reasons.
 With the same outcome learner, the g-computation estimate equals the untargeted first step of
 `LTMLE`. [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md) gives
 the estimators, the stacked influence curve, the settings, and the refusals. The
-[sequential offers tutorial](../examples/sequential-offers.ipynb) fits both baselines beside
-`LTMLE` and `SDR` on one campaign.
+[sequential offers tutorial](../examples/sequential-offers.ipynb) fits g-computation and `LTMLE`
+with the same misspecified outcome model on one campaign.
 
 ## Estimate an incremental intervention over time
 

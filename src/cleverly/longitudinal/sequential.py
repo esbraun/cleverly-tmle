@@ -139,8 +139,18 @@ from ..fluctuation.iterative import (
     solve_fluctuation,
 )
 from ..fluctuation.submodel import Submodel
+from ..interventions.joint_density import (
+    JointBranch,
+    JointDensityParts,
+    JointEvaluation,
+    NodeLayout,
+    evaluate_joint_density,
+    warn_unsupported_values,
+)
 from ..interventions.policy import (
+    JointPolicy,
     induced_probabilities,
+    joint_branches,
     lazy_frame,
     policy_branches,
 )
@@ -308,9 +318,12 @@ class Mechanism:
     #: categorical node, and :math:`r_t = g^d_t / g_t` from the out-of-fold density or
     #: classifier at a continuous one.  Empty without a policy node.
     policy_numerators: dict[str, dict[int, FloatArray]] = field(default_factory=dict)
-    #: The out-of-fold conditional density of each continuous node, by node counted from
-    #: one, on the density route.  Empty without a continuous node.
-    densities: dict[int, ConditionalDensity] = field(default_factory=dict)
+    #: The out-of-fold conditional density of each continuous component on the density
+    #: route, keyed by ``(node counted from one, component column)``.  A continuous node
+    #: has one key, its treatment column; a mixed node has one per dose, each the density of
+    #: the dose given the history, the categorical components and the earlier doses.  Empty
+    #: without a continuous component.
+    densities: dict[tuple[int, str], ConditionalDensity] = field(default_factory=dict)
     #: The censoring nodes, counted from one, at which no eligible unit was censored.  The
     #: eligible sample is the rows at risk before the node, with positive weight.  Such a
     #: node's factor is exactly one at every plan, and no learner is fitted there
@@ -762,6 +775,7 @@ def _check_categorical_fold_support(
     node_name: str,
     *,
     every_level: bool = False,
+    alternative: str = "collect more observations at the rare level",
 ) -> None:
     """Refuse a mechanism fit whose training law omits an observed treatment level.
 
@@ -806,6 +820,8 @@ def _check_categorical_fold_support(
         The node's name, for the refusal.
     every_level : bool, default=False
         Whether to check a two-level node as well.
+    alternative : str
+        The remedy besides an in-sample fit, in lower case.
     """
     if len(classes) < 3 and not every_level:
         return
@@ -823,11 +839,9 @@ def _check_categorical_fold_support(
         if missing:
             where = "the eligible sample" if folds.is_single else f"training fold {fold}"
             remedy = (
-                "Collect more observations at the rare level"
+                alternative[:1].upper() + alternative[1:]
                 if folds.is_single
-                else _CROSS_FIT_NODE_REMEDY.format(
-                    alternative="collect more observations at the rare level"
-                )
+                else _CROSS_FIT_NODE_REMEDY.format(alternative=alternative)
             )
             raise LongitudinalError(
                 f"treatment node {node_name!r} is missing level(s) {missing!r} in {where}; "
@@ -840,6 +854,8 @@ def preflight_mechanism_support(
     data: LongitudinalData,
     fit_masks: RegimenMasks,
     folds: Folds,
+    *,
+    ratio: str = "density",
 ) -> None:
     """Check every node's mechanism training support before the first learner is fitted.
 
@@ -852,6 +868,12 @@ def preflight_mechanism_support(
     up.  :func:`_check_categorical_fold_support` says why the two differ.  A node whose
     mechanism the data declares known fits no learner and is not checked.
 
+    A mixed node on the density route fits :math:`g_C`, one multinomial over the observed
+    cells of its categorical components (:func:`_mixed_node_density`).  A training fold
+    that lacks a cell predicts probability zero for it, and a plan that moves mass into the
+    cell then gets a zero ratio there.  So each cell is a level, checked at every node
+    with every-level semantics.  The classifier route fits no cell probabilities.
+
     Parameters
     ----------
     data : LongitudinalData
@@ -860,16 +882,24 @@ def preflight_mechanism_support(
         The masks :func:`fit_mechanism` builds for the observed treatment.
     folds : Folds
         The realized outer split.
+    ratio : {"density", "classifier"}
+        The route a mixed node's ratio takes.
     """
     known = data.known_mechanisms
     for time in range(1, data.n_times + 1):
-        if data.is_continuous_node(time) or data.is_held_node(time):
+        if data.is_held_node(time):
             continue
         if known is not None and known.treatment_at(time) is not None:
             # A declared node fits no learner, so no training fold can lack a level there.
             continue
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
-        arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+        if data.node_kind(time) == "mixed":
+            if ratio == "density":
+                _check_mixed_cell_support(data, time, at_risk, folds)
+            continue
+        if data.node_kind(time) != "categorical":
+            continue
+        arm = np.nan_to_num(data.node_codes(time), nan=0.0)
         classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
         _check_categorical_fold_support(
             arm,
@@ -880,6 +910,43 @@ def preflight_mechanism_support(
             data.decision_name(time),
             every_level=time == 1 and not folds.is_single,
         )
+
+
+def _check_mixed_cell_support(
+    data: LongitudinalData, time: int, at_risk: BoolArray, folds: Folds
+) -> None:
+    """Refuse a mixed node whose training fold lacks a cell of its categorical components."""
+    levels = data.component_levels[time - 1]
+    categorical = [index for index, labels in enumerate(levels) if labels]
+    if not categorical or not at_risk.any():
+        return
+    codes = np.nan_to_num(data.node_values(time), nan=0.0)[:, categorical].astype(np.int64)
+    cells = np.unique(codes[at_risk], axis=0)
+    lookup = {tuple(int(v) for v in cell): float(k) for k, cell in enumerate(cells)}
+    target = np.array([lookup.get(tuple(int(v) for v in row), -1.0) for row in codes])
+    names = [data.component_names(time)[index] for index in categorical]
+    labels = [
+        "cell ("
+        + ", ".join(
+            f"{name}={levels[index][int(code)]!r}"
+            for name, index, code in zip(names, categorical, cell, strict=True)
+        )
+        + ")"
+        for cell in cells
+    ]
+    _check_categorical_fold_support(
+        target,
+        at_risk,
+        folds,
+        tuple(float(k) for k in range(len(cells))),
+        labels,
+        data.treatment_names[time - 1],
+        every_level=True,
+        alternative=(
+            "collect more observations at the rare cell, or pass ratio='classifier', which "
+            "fits no cell probabilities"
+        ),
+    )
 
 
 def fit_mechanism(
@@ -944,7 +1011,7 @@ def fit_mechanism(
     numerators: dict[str, dict[int, FloatArray]] = {
         plan.label: {} for plan in plans if plan.has_mtp
     }
-    densities: dict[int, ConditionalDensity] = {}
+    densities: dict[tuple[int, str], ConditionalDensity] = {}
     no_censoring_nodes: list[int] = []
     no_censoring_folds: dict[int, tuple[int, ...]] = {}
     known = data.known_mechanisms
@@ -957,13 +1024,12 @@ def fit_mechanism(
     with phase("mask_construction"):
         fit_masks = data.regimen_masks(data.treatment)
     if fit_rows is None:
-        preflight_mechanism_support(data, fit_masks, folds)
+        preflight_mechanism_support(data, fit_masks, folds, ratio=ratio)
     for time in range(1, data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         # The rows a learner trains on.  The same array as ``at_risk`` on a fit of every
         # eligible row, so that path is bit for bit the one it was.
         fit_at = at_risk if fit_rows is None else at_risk & fit_rows
-        arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
         node_models: list[Any] | None = [] if keep_models else None
         if data.is_held_node(time):
             # An identity node of a held design: its factor is exactly one in the
@@ -983,7 +1049,35 @@ def fit_mechanism(
             _mtp_numerators(
                 data, plans, time, at_risk, {plan.label: declared for plan in plans}, numerators
             )
-        elif data.is_continuous_node(time):
+        elif data.node_kind(time) == "mixed" and ratio == "density":
+            with phase("mechanism_fit"):
+                parts = _mixed_node_density(
+                    data,
+                    plans,
+                    time,
+                    at_risk,
+                    numerators,
+                    fit_at=fit_at,
+                    treatment_learner=treatment_learner,
+                    folds=folds,
+                    density_bins=density_bins,
+                    n_jobs=n_jobs,
+                )
+            # The categorical factor goes into the bounded running denominator, as at a
+            # categorical node; the doses' factors sit in the numerator, unbounded.
+            observed_cell = parts.targets[:, 0]
+            rows = np.arange(data.n)
+            g_cell = np.where(
+                observed_cell >= 0,
+                parts.cell_probabilities[rows, np.maximum(observed_cell, 0)],
+                1.0,
+            )
+            treatment.append({plan.label: g_cell for plan in plans})
+            treatment_observed.append(parts.cell_probabilities)
+            treatment_diagnostics.append(parts.cell_diagnostics)
+            for name, component_density in parts.densities.items():
+                densities[(time, name)] = component_density
+        elif data.node_kind(time) != "categorical":
             with phase("mechanism_fit"):
                 density = _continuous_node_ratios(
                     data,
@@ -999,10 +1093,11 @@ def fit_mechanism(
                     n_jobs=n_jobs,
                 )
             if density is not None:
-                densities[time] = density
-            # The density ratio is the whole treatment factor at a continuous node, carried
-            # in the numerator; the denominator's treatment factor is one there, so the bound
-            # applies to the censoring product and the categorical factors only.
+                densities[(time, data.treatment_names[time - 1])] = density
+            # The density ratio is the whole treatment factor at a continuous node, and at a
+            # mixed node on the classifier route, carried in the numerator; the
+            # denominator's treatment factor is one there, so the bound applies to the
+            # censoring product and the categorical factors only.
             treatment.append({plan.label: np.ones(data.n) for plan in plans})
             treatment_observed.append(np.zeros((data.n, 0)))
             treatment_diagnostics.append(())
@@ -1013,7 +1108,7 @@ def fit_mechanism(
                 time,
                 at_risk,
                 fit_at,
-                arm,
+                np.nan_to_num(data.node_codes(time), nan=0.0),
                 treatment,
                 treatment_observed,
                 treatment_diagnostics,
@@ -1162,7 +1257,7 @@ def preflight_known_mechanisms(
                     f"{int(np.count_nonzero(missing))} row(s) at risk there; a declared "
                     "mechanism must give every at-risk unit its probabilities"
                 )
-            taken = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+            taken = np.nan_to_num(data.node_codes(time), nan=0.0).astype(np.int64)
             filled = _filled_matrix(matrix)
             contradicted = at_risk & (filled[np.arange(data.n), taken] <= 0.0)
             if np.any(contradicted):
@@ -1174,7 +1269,7 @@ def preflight_known_mechanisms(
         retention = known.censoring_at(time) if data.censoring_names else None
         if retention is not None:
             name = data.censoring_names[time - 1]
-            observed = at_risk & np.isfinite(data.treatment[:, time - 1])
+            observed = at_risk & data.node_present(time)
             values = np.asarray(retention, dtype=float)
             missing = observed & ~np.isfinite(values)
             if np.any(missing):
@@ -1442,7 +1537,7 @@ def _mtp_numerators(
     product of the ratio error and the outcome error, is zero there.
     """
     rows = np.arange(data.n)
-    codes = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+    codes = np.nan_to_num(data.node_codes(time), nan=0.0).astype(np.int64)
     for plan in plans:
         if not plan.is_mtp_node(time):
             continue
@@ -1469,7 +1564,7 @@ def _continuous_node_ratios(
     ratio: str,
     n_jobs: int,
 ) -> ConditionalDensity | None:
-    """A continuous node's policy ratios, by the binned density or by classification.
+    """A continuous or mixed node's policy ratios, by the binned density or by classification.
 
     The density route fits one pooled-hazard density of the dose given the observed
     history on the rows at risk, with bin edges from those rows of the whole sample, and
@@ -1478,8 +1573,31 @@ def _continuous_node_ratios(
     Both are cross-fitted on ``folds``, so every row's ratio comes from a model that did not
     train on it.  Every plan holds a modified treatment policy at a continuous node, since
     :func:`~cleverly.longitudinal.regimen.refuse_continuous_assignments` refuses the rest.
+
+    A mixed node, a vector with a continuous component, reaches this function on the
+    classifier route; :func:`_mixed_node_density` is its density route.  Its stacked
+    design is :meth:`~cleverly.longitudinal.LongitudinalData.component_design` of the
+    observed components and of each branch's assigned components: every dose as
+    itself and every categorical component as its own indicators.  The odds of the label
+    are then the ratio of the joint law the policy induces to the observed one, with
+    respect to counting measure on the categorical cells times Lebesgue measure on the
+    doses (their Section 5.4 holds for any common dominating measure).
     """
-    dose = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+    if data.node_kind(time) == "mixed":
+        _mixed_node_ratios(
+            data,
+            plans,
+            time,
+            at_risk,
+            numerators,
+            fit_at=fit_at,
+            treatment_learner=treatment_learner,
+            folds=folds,
+            ratio=ratio,
+            n_jobs=n_jobs,
+        )
+        return None
+    dose = np.nan_to_num(data.node_codes(time), nan=0.0)
     history = data.history_design(time)
     frame = lazy_frame(lambda: data.policy_frame(time))
     density: ConditionalDensity | None = None
@@ -1530,6 +1648,130 @@ def _continuous_node_ratios(
             )
         numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
     return density
+
+
+def _mixed_node_ratios(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    time: int,
+    at_risk: BoolArray,
+    numerators: dict[str, dict[int, FloatArray]],
+    *,
+    fit_at: BoolArray,
+    treatment_learner: Learner,
+    folds: Folds,
+    ratio: str,
+    n_jobs: int,
+) -> None:
+    """Each plan's ratio at a mixed node, by one stacked classifier per plan.
+
+    The classifier reads :meth:`~cleverly.longitudinal.LongitudinalData.component_design`
+    beside the history, so it sees every component of the node.  The density route is
+    :func:`_mixed_node_density`, which :func:`fit_mechanism` calls instead; the check here
+    keeps a direct caller from reaching a density of one column.
+    """
+    if ratio != "classifier":
+        raise ValueError("the density route at a mixed node is _mixed_node_density")
+    history = data.history_design(time)
+    observed = data.component_design(time)
+    for plan in plans:
+        targets = plan.carry_targets(time)
+        assert targets is not None
+        node = plan.regimen.plan[time - 1]  # type: ignore[union-attr]
+        assert isinstance(node, JointPolicy)
+        branches = [probability for probability, _ in joint_branches(node)]
+        (numerator,) = classifier_ratio(
+            treatment_learner,
+            history,
+            observed,
+            tuple(
+                (probability, data.component_design(time, target))
+                for probability, target in zip(branches, targets, strict=True)
+            ),
+            data.weights,
+            folds,
+            evaluate_at=[observed],
+            fit_mask=fit_at,
+            groups=data.cluster,
+            n_jobs=n_jobs,
+        )
+        numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
+
+
+def _mixed_node_density(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    time: int,
+    at_risk: BoolArray,
+    numerators: dict[str, dict[int, FloatArray]],
+    *,
+    fit_at: BoolArray,
+    treatment_learner: Learner,
+    folds: Folds,
+    density_bins: int | None,
+    n_jobs: int,
+) -> JointDensityParts:
+    r"""A mixed node's law by the chain rule, and each plan's numerator, on the density route.
+
+    The node's law factors as :math:`g_C(c \mid H_t) \prod_k g_k(d_k \mid d_{<k}, c, H_t)`
+    (:mod:`~cleverly.interventions.joint_density`).  The numerator of a plan is
+    :math:`g^d(C_t, D_t \mid H_t) / \prod_k g_k(D_t \mid \ldots)` at the observed value,
+    and :func:`fit_mechanism` puts :math:`g_C(C_t \mid H_t)` into the bounded running
+    denominator, as a categorical node does.  The cumulative weight is then
+    :math:`g^d / g` with the categorical factor bounded.  Each branch's assigned value is
+    also evaluated, for the positivity warning of :func:`warn_unsupported_values`.
+    """
+    components = data.node_components(time)
+    natural = np.nan_to_num(data.node_values(time), nan=0.0)
+    layout = NodeLayout(
+        components,
+        natural,
+        at_risk,
+        lambda extra: data.policy_frame(time, extra),
+        data.history_design(time),
+        f"node {data.treatment_names[time - 1]!r} at time {time}",
+    )
+    branches: list[JointBranch] = []
+    owners: list[tuple[str, float, int]] = []
+    for plan in plans:
+        node = plan.regimen.plan[time - 1]  # type: ignore[union-attr]
+        assert isinstance(node, JointPolicy)
+        for probability, mapping in joint_branches(node):
+            owners.append((plan.label, probability, len(branches)))
+            branches.append(JointBranch(node.name, mapping, node.order))
+    targets = [target for plan in plans for target in (plan.carry_targets(time) or ())]
+    evaluations = [JointEvaluation(natural, tuple(range(len(branches))))] + [
+        JointEvaluation(np.asarray(target, dtype=float)) for target in targets
+    ]
+    parts = evaluate_joint_density(
+        layout,
+        branches,
+        evaluations,
+        learner=treatment_learner,
+        weights=data.weights,
+        folds=folds,
+        n_bins=density_bins,
+        groups=data.cluster,
+        n_jobs=n_jobs,
+        fit_rows=fit_at,
+    )
+    g_cell = parts.cell_probabilities
+    induced = np.einsum("ibk,ik->ib", parts.induced[:, 0], g_cell)
+    doses = parts.observed[:, 0]
+    safe = np.where(doses > 0.0, doses, 1.0)
+    for plan in plans:
+        numerator = np.zeros(data.n)
+        for label, probability, branch in owners:
+            if label == plan.label:
+                numerator = numerator + probability * induced[:, branch]
+        ratio = np.where(doses > 0.0, numerator / safe, 0.0)
+        numerators[plan.label][time] = np.where(at_risk, ratio, 0.0)
+    for (_, _, branch), target, index in zip(
+        owners, targets, range(1, len(targets) + 1), strict=True
+    ):
+        moved = at_risk & np.any(np.asarray(target) != natural, axis=1)
+        warn_unsupported_values(branches[branch].name, parts, index, moved, layout.where)
+    return parts
 
 
 def seed_carried(data: LongitudinalData, scaler: OutcomeScaler, *, horizon: int) -> FloatArray:
@@ -1664,7 +1906,7 @@ def _check_policy_arm_support(
     the bias of a prediction at a level no fitted row received.  This check is the only
     guard against it.
     """
-    if not plan.is_policy_node(time) or data.is_continuous_node(time):
+    if not plan.is_policy_node(time) or data.node_kind(time) != "categorical":
         return
     density = plan.policy_at(time)
     observed = plan.arm(time)
@@ -1766,6 +2008,20 @@ def outcome_design(
         if not plan.is_policy_node(node):
             continue
         current = node == time and arm is not None
+        if data.node_kind(node) == "mixed":
+            # Every component enters: each dose as itself and each categorical component as
+            # its own indicators.  At the current node a prediction sets the components to
+            # the values one branch of the joint policy assigns.
+            targets = plan.carry_targets(node)
+            blocks.append(
+                data.component_design(
+                    node,
+                    targets[int(arm)]  # type: ignore[arg-type]
+                    if current and targets is not None
+                    else None,
+                )
+            )
+            continue
         if data.is_continuous_node(node):
             # A dose enters as itself.  At the current node a prediction sets it to the dose
             # one branch of the policy assigns, d_e(A_t, H_t), per row.
@@ -1836,7 +2092,7 @@ def _fit_node_regression(
     design = outcome_design(data, plan, time)
     policy_node = plan.is_policy_node(time)
     levels = range(plan.policy_at(time).shape[1] if policy_node else 0)
-    continuous_node = policy_node and data.is_continuous_node(time)
+    continuous_node = policy_node and data.node_kind(time) != "categorical"
     predict_designs = (
         {f"arm_{code}": outcome_design(data, plan, time, arm=code) for code in levels}
         if policy_node

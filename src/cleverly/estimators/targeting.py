@@ -454,7 +454,7 @@ def build_submodel(
         # it eagerly would refuse a shift fit on behalf of a builder that discards it.
         arm_fractions=(
             None
-            if data.is_continuous_treatment
+            if data.treatment_kind == "vector" or data.is_continuous_treatment
             else (data.arm_fractions if arm_fractions is None else arm_fractions)
         ),
         reference=reference,
@@ -462,7 +462,9 @@ def build_submodel(
         intermediate_density=intermediate_density,
         selection=selection,
         regimes=None if nuisance.regimes is None else nuisance.regimes.values,
-        policies=None if nuisance.policies is None else nuisance.policies.design_at(propensity),
+        policies=(
+            None if nuisance.policies is None else nuisance.policies.design_at(propensity, bounds)
+        ),
         # The covariate needs only h * (dm/deta) * phi; the factors are wanted apart one
         # layer up, in the projection itself. See cleverly.msm.MSMSet.weighted_design_at,
         # which is the identity link's beta-free array whenever the link is the identity.
@@ -2671,12 +2673,13 @@ def _solve_missing_outcome_reduction(
     )
     treatment_fit = replace(treatment_fit, failure=treatment_fit.failure or unsolved)
     return standard, replace(
-        outcome_fit,
-        epsilon=np.asarray(outcome_fit.epsilon[:width], dtype=float),
-        score=standard_score,
-        score_scale=standard_scale,
-        names=standard_blocks.names,
-        score_initial=np.asarray(outcome_fit.score_initial, dtype=float)[:width],
+        _column_block(
+            outcome_fit,
+            slice(None, width),
+            names=standard_blocks.names,
+            score=standard_score,
+            score_scale=standard_scale,
+        ),
         targeted=targeted_q,
         mechanism=treatment_fit,
         reduction=record,
@@ -3212,16 +3215,16 @@ def _close_at_frozen_reductions(
     settled = score_columns(scaled, joint.targeted.observed, outcome_blocks.observed, weights, mask)
     settled_q = score_columns(scaled, joint.targeted.observed, extra_blocks.observed, weights, mask)
     scale_q = score_scale(extra_blocks.observed, weights, mask)
-    fluctuation = replace(
+    fluctuation = _column_block(
         joint,
-        epsilon=joint.epsilon[:width],
+        slice(None, width),
         names=outcome_blocks.names,
         score=settled,
         score_scale=score_scale(outcome_blocks.observed, weights, mask),
     )
-    extra = replace(
+    extra = _column_block(
         joint,
-        epsilon=joint.epsilon[width:],
+        slice(width, None),
         names=extra_blocks.names,
         score=settled_q,
         score_scale=scale_q,
@@ -3354,6 +3357,38 @@ def _reduction_inputs(
     if inner is None or nuisance.inner is None:
         return updated
     return replace(updated, inner=replace(nuisance.inner, outcome=inner))
+
+
+def _column_block(
+    joint: Fluctuation,
+    columns: slice,
+    *,
+    names: tuple[str, ...],
+    score: FloatArray,
+    score_scale: FloatArray,
+) -> Fluctuation:
+    """One equation block of a :func:`_stacked` solve, with every per-column field cut to it.
+
+    The stacked solve carries one entry per column in ``epsilon``, ``score_initial``,
+    ``epsilon_std_error`` and ``absolute_score_weights``.  Each block keeps only its own
+    columns, so the block's arrays agree with its ``names``.  The support report reads
+    ``absolute_score_weights`` against ``names``.  A block that kept the stacked weights
+    reported every doubly-robust fit as ``SCORE_LOAD_SHAPE_MISMATCH``.
+    """
+
+    def cut(values: FloatArray | None) -> FloatArray | None:
+        return None if values is None else np.asarray(values, dtype=float)[..., columns]
+
+    return replace(
+        joint,
+        epsilon=np.asarray(joint.epsilon, dtype=float)[columns],
+        names=names,
+        score=score,
+        score_scale=score_scale,
+        score_initial=cut(joint.score_initial),
+        epsilon_std_error=cut(joint.epsilon_std_error),
+        absolute_score_weights=cut(joint.absolute_score_weights),
+    )
 
 
 def _stacked(first: Submodel, second: Submodel) -> Submodel:

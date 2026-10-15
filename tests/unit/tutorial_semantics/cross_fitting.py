@@ -7,6 +7,7 @@ decimals are also compared against its stored outputs.
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -16,6 +17,7 @@ import pandas as pd
 from cleverly.datasets import navigation_protocol
 from cleverly.datasets.synthetic import nonlinear_bounded_dgp
 from cleverly.inference import median_estimates
+from tests.documents import ROOT
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -43,8 +45,6 @@ UNPRINTED_DECIMALS = {
     "4.83": f"the law's nu^2 = E[1/(g(1-g))], 4.8287 by Monte Carlo: {_PROBE}/truth.log",
     "4.50": f"mean doubly robust nu^2 over 200 draws, 4.504: {_PROBE}/summary.log",
     "0.409": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
-    "0.1483": f"lower bound of the shown draw at the law's nu^2: {_PROBE}/summary.log",
-    "0.1663": f"upper bound of the shown draw at the law's nu^2: {_PROBE}/summary.log",
     "0.945": f"coverage of crossfit_overfitting/stacked_cvtmle: {_STUDY}",
     "0.5225": f"coverage of crossfit_overfitting/in_sample_control: {_STUDY}",
     "0.9475": f"coverage of clustered_inference/cluster_robust: {_CLUSTERED}",
@@ -65,8 +65,49 @@ def _teams_spanned(result: Any, teams: pd.Series) -> int:
     return int(labels.groupby(teams).nunique().max())
 
 
+def _assert_unprinted_sources() -> None:
+    """Each repeated-draw and study number the prose quotes equals its committed source."""
+    summary = (ROOT / _PROBE / "summary.log").read_text()
+    truth = (ROOT / _PROBE / "truth.log").read_text()
+    fits = summary[summary.index("  cross-fitted\n") : summary.index("Step 9,")]
+    cross_fitted, in_sample = fits.split("  in-sample\n")[:2]
+    # Steps 5 and 6: SE/SD 0.93 and 0.70, bias +0.0003 and -0.0024, coverage 188 and 153 of 200,
+    # and the in-sample/cross-fitted SE ratio between 0.68 and 0.73 on 90% of draws.
+    assert "bias +0.0003 " in cross_fitted and "SE/SD 0.93" in cross_fitted
+    assert "188 of 200" in cross_fitted
+    assert "bias -0.0024 " in in_sample and "SE/SD 0.70" in in_sample
+    assert "153 of 200" in in_sample
+    assert "in-sample SE / cross-fitted SE, 5% / 50% / 95%: [0.68, 0.71, 0.73]" in summary
+    # Step 9: slope 0.90 to 1.01; fitted tail share under the law's on 196 draws; in-sample
+    # minimum ESS ratio above the cross-fitted one on all 200.
+    assert "propensity calibration slope, 5% / 50% / 95%: [0.9, 0.96, 1.01]" in summary
+    assert re.search(r"under the law's share, 0\.0188 .*196 of 200", summary)
+    assert re.search(
+        r"in-sample minimum ESS ratio above the cross-fitted one: .*200 of 200", summary
+    )
+    # Step 10: mean nu^2 4.50, the law's 4.83, and the shown draw's RV 0.409 at the law's nu^2.
+    assert "nu^2 (doubly robust) mean 4.504" in summary
+    assert re.search(r"law +nu\^2 4\.8287: .*rv 0\.409", summary)
+    # The law's quantities: share below 0.1 is 1.9%, nu^2 is 4.83, 46% of teams lose.
+    assert re.search(r"navigation nu2 +4\.828", truth)
+    assert re.search(r"navigation share g < 0\.10 +0\.0188", truth)
+    assert "P(u < -0.1000): 0.4602" in truth
+    # The registered cells and their coverage.
+    for path, cell, coverage, n, replicates in (
+        (_STUDY, "in_sample_control", 0.5225, 500, 400),
+        (_STUDY, "stacked_cvtmle", 0.945, 500, 400),
+        (_CLUSTERED, "cluster_robust", 0.9475, 2000, 2400),
+        (_CLUSTERED, "iid_control", 0.84125, 2000, 2400),
+    ):
+        table = pd.read_csv(ROOT / path, float_precision="round_trip")
+        row = table.loc[table["cell"] == cell].iloc[0]
+        assert np.isclose(row["coverage"], coverage, rtol=0.0, atol=1e-12)
+        assert (row["n"], row["replicates"]) == (n, replicates)
+
+
 def check(namespace: dict[str, Any]) -> None:
     """The seeded relations the cross-fitting notebook narrates, at its documented size."""
+    _assert_unprinted_sources()
     first = namespace["cross_fitted"]
     cross_fitted = first["ate"]
     in_sample = namespace["in_sample"]["ate"]
@@ -106,9 +147,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert 1.85 <= abs(truth - in_sample.psi) / in_sample.std_error < 1.95
     assert 0.95 <= abs(truth - cross_fitted.psi) / cross_fitted.std_error < 1.05
 
-    # Step 7: "nearly identical" points that differ because the folds regroup; "1.54 times larger".
-    # The law is the binary clustered one: its outcome support is known, so the team fits
-    # cross-fit without a declared support and Step 8 still has a split to read.  The team
+    # Step 7: points that "differ only because the team declaration regroups the folds"; "1.54
+    # times larger".  The law is the binary clustered one: its outcome support is known, so the
+    # team fits cross-fit without a declared support and the fold count has a split to read.  The team
     # protocol changes only the outcome field, and the cell prints its fingerprint.
     assert changed_fields(namespace["team_protocol"], namespace["protocol"]) == {"outcome"}
     assert_protocol_recorded(
@@ -128,52 +169,17 @@ def check(namespace: dict[str, Any]) -> None:
     assert 1.4 < clustered["ate"].std_error / ignoring["ate"].std_error < 1.7
     assert covers(ignoring["ate"], team_truth) and covers(clustered["ate"], team_truth)
     assert clustered.data.n_clusters == 200
-    # "This fit has 200 teams of 15 patients, so it keeps its interval."
+    # "This fit has 200 teams, so it reports a normal-reference interval."
     assert clustered.inference_status == "influence_curve"
 
-    # Step 8: "each team spans at most 1 outer fold". The unclustered fit is the nonzero witness:
-    # without the declaration a team does span several folds.
+    # "Without the declaration, one team spans 5 outer folds ... With it, each team spans 1 fold."
+    # The unclustered fit is the nonzero witness for the grouped split.
     teams = namespace["team_frame"]["navigator_team"]
-    assert int(namespace["folds_per_team"].max()) == 1
     assert _teams_spanned(clustered, teams) == 1
-    assert _teams_spanned(ignoring, teams) > 1
-    few = namespace["few"]
-    assert few.data.n_clusters == 4
-    assert few.split_plan.n_folds == 4
-    assert any("only 4 clusters" in str(warning.message) for warning in namespace["caught"])
+    assert _teams_spanned(ignoring, teams) == 5
+    assert list(namespace["team_comparison"]["folds one team spans"]) == [5, 1]
 
-    # Step 9: a new seed draws new folds; the plan reproduces the folds, the point, and the curve;
-    # the logistic treatment learner runs on the same folds, and the two "agree to three decimals".
-    redrawn = namespace["redrawn"]
-    reused = namespace["reused"]
-    plan = namespace["plan"]
-    assert plan.fingerprint == first.provenance.fold_fingerprint
-    assert redrawn.provenance.fold_fingerprint != first.provenance.fold_fingerprint
-    assert redrawn["ate"].psi != cross_fitted.psi
-    assert reused.provenance.fold_fingerprint == first.provenance.fold_fingerprint
-    assert reused["ate"].psi == cross_fitted.psi
-    assert np.array_equal(reused["ate"].influence_curve, cross_fitted.influence_curve)
-    assert f"source={first.provenance.data_fingerprint}" in str(plan)
-    logistic_g = namespace["logistic_g"]
-    assert logistic_g.provenance.fold_fingerprint == first.provenance.fold_fingerprint
-    assert logistic_g["ate"].psi != cross_fitted.psi
-    assert round(logistic_g["ate"].psi, 3) == round(cross_fitted.psi, 3)
-
-    # Step 10: equal-size folds make the fold-evaluated point the stacked point; only the variance
-    # formula differs. The fold-targeted fit differs in both point and standard error.
-    fits = namespace["construction_fits"]
-    evaluated = fits["fold-evaluated"]["ate"]
-    targeted = fits["fold-targeted"]["ate"]
-    assert "fold-evaluated CV-TMLE" in fits["fold-evaluated"].summary()
-    assert "fold-specific targeted TMLE" in fits["fold-targeted"].summary()
-    assert set(np.unique(plan.assignments[0], return_counts=True)[1]) == {600}
-    assert abs(evaluated.psi - cross_fitted.psi) < 1e-10
-    assert tuple(evaluated.ci) != tuple(cross_fitted.ci)
-    # "its estimate and its standard error differ from the stacked ones in the fifth decimal."
-    assert 1e-6 < abs(targeted.psi - cross_fitted.psi) < 1e-4
-    assert 1e-6 < abs(targeted.std_error - cross_fitted.std_error) < 1e-4
-
-    # Step 11: no attention row; slope 0.9611 near 1; no unit truncated; the treated arm has the
+    # Step 9: no attention row; slope 0.9611 near 1; no unit truncated; the treated arm has the
     # smaller ratio (82.5%); the fitted share below 0.1 (0.0063) is under the law's 1.9%; the
     # in-sample minimum ratio (89.6%) exceeds the cross-fitted one.
     assessment = namespace["assessment"]
@@ -196,7 +202,7 @@ def check(namespace: dict[str, Any]) -> None:
     in_sample_ratios = [row["ratio"] for row in in_sample_support.effective_sample_size.values()]
     assert min(in_sample_ratios) > ess["treated"]["ratio"]
 
-    # Step 12: reconstruct the median and its within-plus-between variance from the three retained
+    # Step 8: reconstruct the median and its within-plus-between variance from the three retained
     # draws. This seed gives nonzero displacement even though the median happens to equal the
     # within-only median, so the controlled mutation below makes that term result-determining.
     # The diagnostic row must describe that same headline estimate.
@@ -251,7 +257,7 @@ def check(namespace: dict[str, Any]) -> None:
     # "Across these three draws, the estimate moved much less than its standard error."
     assert spread[0].standard_deviation < 0.1 * spread[0].reported_standard_error
 
-    # Step 13: the default (doubly robust) nu^2 runs with no refusal; it is positive, below the
+    # Step 10: the default (doubly robust) nu^2 runs with no refusal; it is positive, below the
     # law's 4.83, and within 10% of it.  Then the robustness values and the default-strength
     # bounds.  The law's nu^2 is recomputed here, so a drift in the law fails loudly.
     elements = namespace["elements"]

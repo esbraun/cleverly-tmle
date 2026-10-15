@@ -1276,7 +1276,6 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
     [
         {"missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
         {"intermediate_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
-        {"density_bins": 12},
         {"screen_treatment": True},
         {"screen_threshold": 0.2},
         {"min_retain": 2},
@@ -1295,10 +1294,10 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
 ) -> None:
     """A normalized declaration must reach the engine or fail before construction.
 
-    These are the 14 point-only fields in the shared configuration. ``n_bootstrap``,
-    ``bootstrap_resampling``, ``targeting`` and ``step_size`` reach ``LTMLE`` and are not in
-    the list. Pinning the whole list prevents a future field from disappearing just because
-    the two engine signatures differ.
+    These are the 13 point-only fields in the shared configuration. ``n_bootstrap``,
+    ``bootstrap_resampling``, ``density_bins``, ``ratio``, ``targeting`` and ``step_size``
+    reach ``LTMLE`` and are not in the list. Pinning the whole list prevents a future field
+    from disappearing just because the two engine signatures differ.
 
     ``stratify_folds`` is refused earlier than the rest: :class:`CrossFitting` now checks
     the fold policy in ``__post_init__``, so ``with_overrides`` itself raises rather than

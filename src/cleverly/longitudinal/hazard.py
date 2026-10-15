@@ -1446,10 +1446,14 @@ def refuse_hazard_design(
                 "isotonic=True makes its curve monotone."
             ),
         )
-    if data.is_continuous_node(1):
+    # Read the kind, not ``is_continuous_node``: a vector with a dose has no one-column
+    # answer, and it needs the same density this refusal names.
+    kind = data.node_kind(1)
+    if kind != "categorical":
+        what = "is continuous" if kind == "continuous" else "is a vector with a dose"
         raise CapabilityError(
             "survival_model='hazard' needs a categorical baseline treatment, and treatment "
-            f"{data.decision_name(1)!r} is continuous. The hazard plug-in would need the "
+            f"{data.decision_name(1)!r} {what}. The hazard plug-in would need the "
             "treatment density at every dose, and that construction is not built.",
             reason=RefusalReason.IMPLEMENTATION_GAP,
             roadmap=HAZARD_ROADMAP,

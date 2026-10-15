@@ -1966,6 +1966,21 @@ def _arm_shares(data: CausalData) -> str:
     it reports the dose's range: an empty ``arm shares:`` reads as a broken table rather
     than as an inapplicable question.
     """
+    if data.treatment_kind == "vector":
+        columns = data._component_columns()
+        parts: list[str] = []
+        for name, levels in zip(data.component_names, data.component_levels, strict=True):
+            values = columns[name]
+            if levels:
+                listed = ", ".join(
+                    f"{level}={float(np.average(values == level, weights=data.weights)):.3g}"
+                    for level in levels
+                )
+                parts.append(f"{name}: {listed}")
+            else:
+                dose = np.asarray(values, dtype=float)
+                parts.append(f"{name}: range [{dose.min():.3g}, {dose.max():.3g}]")
+        return "vector treatment -- " + "; ".join(parts)
     if data.is_continuous_treatment:
         dose = np.asarray(data.treatment, dtype=float)
         mean = float(np.average(dose, weights=data.weights))

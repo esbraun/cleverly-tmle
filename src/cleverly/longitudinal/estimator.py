@@ -936,6 +936,19 @@ def _frozen_plans(plans: Sequence[Plan]) -> tuple[Plan, ...]:
     return tuple(retained)
 
 
+def _component_fingerprint(data: LongitudinalData) -> tuple[FloatArray, ...]:
+    """The arrays a mixed node adds to the data fingerprint, and none without one.
+
+    A mixed node's slot in :attr:`~cleverly.longitudinal.LongitudinalData.treatment` holds its
+    presence only, so its component values and labels are digested here.
+    """
+    if not data.has_mixed_node:
+        return ()
+    values = tuple(block for block in data.component_values if block is not None)
+    labels = np.asarray([repr(levels) for levels in data.component_levels], dtype=str)
+    return (*values, labels)
+
+
 def _frozen(array: FloatArray) -> FloatArray:
     """A read-only copy of ``array``."""
     copied = np.array(array, copy=True)
@@ -4395,7 +4408,9 @@ class _SequentialEstimator:
         )
 
         horizons = self._horizons(prepared)
-        preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
+        preflight_mechanism_support(
+            prepared, prepared.regimen_masks(prepared.treatment), folds, ratio=self.ratio
+        )
         preflight_terminal_outcomes(prepared, plans, horizons, folds)
         hazard = self.survival_model == "hazard"
         # A hazard fit reads the censoring factors at every level of the baseline treatment,
@@ -4945,9 +4960,17 @@ class _SequentialEstimator:
                 data.weights,
                 *data.time_varying,
                 np.asarray(
-                    [repr(level) for levels in data.treatment_levels for level in levels],
+                    [
+                        repr(level)
+                        for time, levels in enumerate(data.treatment_levels, start=1)
+                        # A mixed node has no levels; _component_fingerprint digests its
+                        # components' labels.
+                        if data.node_kind(time) != "mixed"
+                        for level in levels
+                    ],
                     dtype=str,
                 ),
+                *_component_fingerprint(data),
                 # Which cause fired is in no other array: ``outcome`` and the ``nan``
                 # pattern of the later nodes are all-cause.  A repeated outcome's last
                 # node is ``outcome``, and its earlier nodes may be screened out of the
