@@ -88,7 +88,7 @@ bias of order (cells)/n. The conditions for the one-fold interval are in the tab
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
 | --- | --- | --- | --- | --- | --- | --- |
-| `censoring_complete_case` | `mean_x2__complete_case` | diagnostic | odds-x2 mean at every node, three-node law: a fit to the rows that never drop out, without a censoring model, beside the exact-law limit | reported only | bias 0.0703 to 0.0714, margin 0.0029, coverage 0.0000 | reported |
+| `censoring_complete_case` | `mean_x2__complete_case` | diagnostic | odds-x2 mean at every node, three-node law: a fit to the rows that never drop out, without a censoring model, beside the exact-law limit | reported only | bias 0.0705 to 0.0716, margin 0.0029, coverage 0.0000 | reported |
 | `clustered_inference` | `mean_x2__cluster_robust` | positive | odds-x2 mean at every node, three-node law: five-fold point-treatment TMLE with cluster-robust ATE inference | SE-ratio and coverage intervals both stay inside their calibration bands | coverage 0.9451 to 0.9648, SE ratio 0.9809 to 1.0465, paired coverage gain 0.1530 to 0.1887 | pass |
 | `clustered_inference` | `mean_x2__iid_control` | control | odds-x2 mean at every node, three-node law: the identical rows, point estimates, and influence curves treated as independent | the SE-ratio upper endpoint must not exceed the declared IID-control ceiling | coverage 0.7654 to 0.8043, SE ratio 0.6212 to 0.6625, paired coverage gain 0.1530 to 0.1887 | pass |
 | `interval_calibration` | `competing_contrast_x2_h3__correctly_specified` | positive | odds-x2 contrast in the cause-1 incidence by t = 3: both nuisances are correctly specified with an independently computed efficiency bound | SE ratio and coverage intervals both inside their calibration bands, with both efficiency-ratio intervals inside their bands | coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, empirical efficiency ratio 0.9239 to 0.9884, reported efficiency ratio 1.0005 to 1.0007 | **fail** |
@@ -123,11 +123,11 @@ is 1.0006, so the reported standard error matches the exact efficient influence-
 deviation. The empirical spread sits 4.4% below that bound. A regular estimator does not stay below
 the bound as n grows, so the diagnosis reads a finite-sample or Monte Carlo excursion and finds no
 defect. The design probes on other draws read SE ratios of 0.948 at n = 32,000 and 0.980 at
-n = 64,000 (`tests/diagnostics/x19_sizing/reading.csv`). By the declared route the study moved to
-`reporting`. The roadmap row [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) owns
+n = 64,000 (`tests/diagnostics/x19_sizing/reading.csv`).
+
+By the declared route the study moved to `reporting`. The roadmap row [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) owns
 the cell. No fit was repeated: `regenerate.py --reuse-subject --skip-properties` summarized the
-committed rows again under the new policy.
-Add the count of failed fits per cell, if any.
+committed rows again under the new policy. No property fit failed.
 
 Every property fit uses five folds, saturated cell means at every slot and 3,000 draws. The
 default size is n = 48,000. `x2` is the plan that doubles the odds of treatment at every node.
@@ -139,7 +139,7 @@ default size is n = 48,000. `x2` is the plan that doubles the odds of treatment 
 | `interval_calibration` | seven labels with three cells each: the correctly specified fit and two derived controls | SE ratio and coverage intervals inside the calibration bands, and both efficiency-ratio intervals inside their band. The shrunken-SE control falls below the band. The noise control rises above the efficiency-ratio band |
 | `simultaneous_coverage` | the band over the risks of three plans at horizons 1 to 3 and their six contrasts, on law `D` at n = 48,000, and its pointwise control | the band's joint coverage interval lies inside the calibration coverage band. The pointwise control's joint coverage interval lies below the nominal rate |
 | `clustered_inference` | `ey_regimen[odds x2]` on law `Ck` in 800 clusters of 10 (n = 8,000): the cluster-robust standard error, and the standard error that treats each unit as independent (the control) | the cluster-robust arm is calibrated. The control's SE-ratio interval lies below 0.80. The coverage gain of the pair is at least 0.03 |
-| `censoring_complete_case` | `ey_regimen[odds x2]` on law `C`, fitted to the rows that never drop out, with no censoring model | no verdict. The cell prints its bias beside the exact complete-case limit (`complete_case_limit`) |
+| `censoring_complete_case` | `ey_regimen[odds x2]` on its own draws of law `C`, fitted to the rows that never drop out, with no censoring model. 3,000 draws at n = 48,000 | no verdict. The cell prints its bias beside the exact complete-case limit (`complete_case_limit`) |
 
 The calibration labels:
 
