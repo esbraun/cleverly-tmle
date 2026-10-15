@@ -1310,7 +1310,11 @@ class SDRMethod(TMLEMethod):
 
 
 #: The engine each baseline method configures, as the curve-setting refusal names it.
-_BASELINE_ENGINES = {"gcomp": "SequentialGComputation", "ipw": "SequentialIPW"}
+_BASELINE_ENGINES = {
+    "gcomp": "SequentialGComputation",
+    "ipw": "SequentialIPW",
+    "parametric_gformula": "ParametricGFormula",
+}
 
 
 @dataclass(frozen=True)
