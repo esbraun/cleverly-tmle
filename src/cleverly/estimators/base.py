@@ -25,7 +25,7 @@ from .._inference_status import (
     supplies_inference,
 )
 from .._refusal import NO_ALTERNATIVE
-from .._support import Classification
+from .._support import Classification, SupportKey
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
 from ..exceptions import (
@@ -191,6 +191,10 @@ class TMLEConfig:
     #: Defaulted so that every existing construction and ``dataclasses.replace`` keeps
     #: working untouched.
     crossfit: CrossFitPlan = field(default_factory=CrossFitPlan)
+    #: The support key the fit was classified under, read before any learner ran. Saved
+    #: with the result, so a result read back from disk says what its label rested on.
+    #: ``None`` on a config built outside a classified fit.
+    support_key: SupportKey | None = None
 
     # Read-through to the spec, so the settings appear once and cannot drift.
     @property
@@ -1706,11 +1710,7 @@ class TMLEResult:
                 label = spread_name("std_err", status)
                 share = f"{value / error:.0%} of {label}" if error > 0 else f"{label} unavailable"
                 parts.append(f"  {name:<5s} {value:.4g}  ({share})")
-        if (
-            self.simultaneous is None
-            and (diagnostic or (is_labelled(status) and not t_reference))
-            and len(self.estimates) > 1
-        ):
+        if self.simultaneous is None and diagnostic and len(self.estimates) > 1:
             # Stated rather than left blank: a reader who asked for bands, or who knows
             # they are the default, would otherwise have to guess why none are here.
             parts.append("")
@@ -1723,7 +1723,8 @@ class TMLEResult:
             parts.append(
                 f"simultaneous {level} bands (multiplier bootstrap, "
                 f"critical value {self.simultaneous.critical_value:.3f} vs "
-                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise):"
+                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise)"
+                f"{' [experimental]' if self.simultaneous.support.label == 'experimental' else ''}:"
             )
             for name, (low, high) in self.simultaneous.bands.items():
                 parts.append(f"  {name:<5s} [{low:.5g}, {high:.5g}]")

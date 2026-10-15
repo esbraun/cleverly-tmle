@@ -95,9 +95,15 @@ import numpy as np
 from .._inference_status import (
     HELD_OUT_SCALE,
     InferenceStatus,
-    is_labelled,
+    supplies_inference,
 )
-from .._support import Classification, classify_point_fit, record_fit, record_refusal_site
+from .._support import (
+    Classification,
+    band_support,
+    classify_point_fit,
+    record_fit,
+    record_refusal_site,
+)
 from .._typing import (
     BoolArray,
     EstimandName,
@@ -467,19 +473,6 @@ _REPEATED_BANDS_TEXT = (
 _REPEATED_BANDS_ALTERNATIVE = "Set simultaneous=False, report one estimate, or fit one split."
 
 
-#: Whether the in-sample point-treatment full-refit bootstrap's percentile interval is
-#: published as inference.  The registered study ``full-refit-bootstrap-and-derived-contrasts``
-#: measured it on in-sample ``TMLE`` fits with correctly specified nuisances only
-#: (``boot_ate_point_tmle``).  A cross-fitted fit's bootstrap prints as a diagnostic whatever
-#: this flag says, as the cross-fitted longitudinal kinds do, because no study measures it and
-#: no source covers it (roadmap F2).  Every ``DRTMLE`` and ``CTMLE`` fit prints it as a
-#: diagnostic too, because the study measured neither estimator.  An in-sample ``TMLE`` fit
-#: with a data-adaptive learner keeps the interval, and roadmap F2 holds that gap.
-#: A red ``boot_ate_point_tmle`` cell sets this to ``False``, so the in-sample interval then
-#: publishes as a diagnostic too.
-POINT_BOOTSTRAP_INFERENTIAL = True
-
-
 def _all_tilts(policies: Sequence[object]) -> bool:
     """Whether every declared policy is a risk-ratio tilt, which has its own estimands."""
     return bool(policies) and all(isinstance(item, RiskRatioTilt) for item in policies)
@@ -777,31 +770,27 @@ class TMLE:
             weights=data.weights if data.is_weighted else None,
         )
 
-    def _bootstrap_inferential(self, data: CausalData) -> bool:
-        """Whether a registered study licenses the full-refit bootstrap interval as inference.
+    def _bootstrap_diagnostic(self, data: CausalData) -> bool:
+        """Whether the fit declares its full-refit bootstrap interval a diagnostic.
 
         A hook beside :meth:`_inference_status`, because only the estimator knows which
-        construction the bootstrap reruns. An in-sample point-treatment fit returns
-        :data:`POINT_BOOTSTRAP_INFERENTIAL`. A cross-fitted fit returns ``False``: its
-        replicates redraw the split over resampled rows, the registered study measured
-        in-sample fits only, and no source covers the bootstrap with cross-fitted nuisances.
-        The longitudinal rule is the same
-        (:data:`~cleverly.longitudinal.estimator.LICENSED_BOOTSTRAP_DESIGNS`).
-        :class:`~cleverly.DRTMLE` and :class:`~cleverly.CTMLE` return ``False`` on every fit,
-        because the registered study measured the ordinary point-treatment ``TMLE`` only.
+        construction the bootstrap reruns. ``False`` here: the percentile interval publishes
+        under its inferential names, and the support row of the fit decides whether it is
+        ``supported`` (a row that lists ``bootstrap``) or ``experimental``.
+        :class:`~cleverly.CTMLE` returns ``True``.
 
         Parameters
         ----------
         data : CausalData
-            The prepared data the estimates are fitted on.
+            The prepared data the estimates are fitted on. It is not read.
 
         Returns
         -------
         bool
-            Whether the percentile interval publishes under its inferential name.
+            ``False``.
         """
         del data
-        return POINT_BOOTSTRAP_INFERENTIAL and not self.cross_fit
+        return False
 
     def _refuse_undeclared_functions(self) -> None:
         """Raise unless every function of the configuration is declared known.
@@ -1781,7 +1770,7 @@ class TMLE:
         if (
             self.simultaneous
             and len(estimates) > 1
-            and not is_labelled(result.inference_status)
+            and supplies_inference(result.inference_status)
             and not has_t_reference(estimates)
         ):
             refuse_after_repeats(
@@ -1799,7 +1788,17 @@ class TMLE:
                 random_state=self.random_state,
                 cluster=data.cluster,
             )
-            result = replace(result, simultaneous=bands)
+            result = replace(
+                result,
+                simultaneous=replace(
+                    bands,
+                    support=band_support(
+                        classification,
+                        result.inference_status,
+                        (estimate.support for estimate in estimates.values()),
+                    ),
+                ),
+            )
 
         if self.n_bootstrap:
             bootstrap = run_bootstrap(
@@ -1813,9 +1812,14 @@ class TMLE:
                 n_jobs=self.n_jobs,
             )
             result = attach_bootstrap(
-                result, bootstrap, inferential=self._bootstrap_inferential(data)
+                result,
+                bootstrap,
+                diagnostic=self._bootstrap_diagnostic(data),
+                classification=classification,
             )
 
+        if classification is not None:
+            result = replace(result, config=replace(result.config, support_key=classification.key))
         record_fit(classification, result, source="TMLE._fit_single")
         return result
 

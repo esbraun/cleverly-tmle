@@ -452,7 +452,8 @@ def test_the_bootstrap_runs_and_reports_no_percentile_inference(panel: Any) -> N
     assert fit.bootstrap is not None and fit.bootstrap.n_requested == 2
     for estimate in fit.estimates.values():
         assert estimate.bootstrap is not None
-        assert estimate.bootstrap.inferential is False
+        assert estimate.bootstrap.diagnostic is False
+        assert estimate.bootstrap.support.label == "experimental"
 
 
 def test_the_simultaneous_bands_cover_every_declared_plan(panel: Any) -> None:

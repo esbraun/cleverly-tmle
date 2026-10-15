@@ -104,6 +104,8 @@ class ReplicationRecord:
         ``"influence_curve"`` says the estimator's own reported inference. Any other
         status says the estimator supplies none, and the study measured its retained
         plug-in diagnostic instead.
+    support : {"supported", "experimental"}
+        The support label of the replicate's estimate.
     """
 
     replicate: int
@@ -117,6 +119,7 @@ class ReplicationRecord:
     inference_estimate: float
     alpha: float
     inference: InferenceStatus = "influence_curve"
+    support: str = "supported"
 
 
 @dataclass(frozen=True)
@@ -305,6 +308,8 @@ class EstimandSummary:
     #: status depends on the draw, such as a clustered fit whose cluster count straddles
     #: the few-cluster floor, gives a mix.
     status_counts: tuple[tuple[str, int], ...] = ()
+    #: ``"experimental"`` when any replicate's estimate was, else ``"supported"``.
+    support: str = "supported"
 
     @property
     def mixed_statuses(self) -> str:
@@ -399,6 +404,8 @@ class EstimandSummary:
             row["inference"] = self.inference
         if self.status_counts:
             row["mixed_statuses"] = self.mixed_statuses
+        if self.support == "experimental":
+            row["support"] = self.support
         return {
             **row,
             "truth": self.truth,
@@ -449,6 +456,11 @@ def summarize_replications(
         rejected=np.asarray([record.rejected for record in selected], dtype=float),
         inference_estimates=None if np.array_equal(inference, estimates) else inference,
         inference=status,
+        support=(
+            "experimental"
+            if any(record.support == "experimental" for record in selected)
+            else "supported"
+        ),
         status_counts=(
             tuple((name, counts[name]) for name in order if name in counts)
             if len(counts) > 1
@@ -585,6 +597,12 @@ class StudyResult:
                 "replicate reported"
                 for summary in self.summaries.values()
                 if summary.status_counts
+            ),
+            *(
+                f"{summary.estimand}: experimental, because at least one replicate's "
+                "estimate has no registered study behind its configuration"
+                for summary in self.summaries.values()
+                if summary.support == "experimental"
             ),
             "",
             format_table(
@@ -922,6 +940,7 @@ class CoverageStudy:
                         inference_estimate=estimate.inference_value,
                         alpha=float(estimate.alpha),
                         inference=estimate.inference,
+                        support=estimate.support.label,
                     )
                 )
             return tuple(out)

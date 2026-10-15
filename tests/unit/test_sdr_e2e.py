@@ -474,8 +474,9 @@ def test_the_bootstrap_runs_and_reports_no_percentile_inference(panel: Any) -> N
     assert fits["SDR"].bootstrap.n_requested == 2
     for name, estimate in fits["SDR"].estimates.items():
         assert estimate.bootstrap is not None
-        assert estimate.bootstrap.inferential is False
-        assert fits["LTMLE"].estimates[name].bootstrap.inferential is True
+        assert estimate.bootstrap.diagnostic is False
+        assert estimate.bootstrap.support.label == "experimental"
+        assert fits["LTMLE"].estimates[name].bootstrap.diagnostic is False
 
 
 def test_the_simultaneous_bands_cover_every_estimate(panel: Any) -> None:

@@ -20,7 +20,7 @@ from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
 from .exceptions import CapabilityError, DataError, RefusalReason, refuse_inference
-from .inference.influence import ParameterEstimate
+from .inference.influence import ParameterEstimate, support_column
 from .inference.results import reported_status
 from .targets import parameter_stem
 from .utils.frames import as_frame, backend_of, emit_frame, has_nulls, is_dataframe
@@ -119,6 +119,9 @@ class VariableImportanceResult:
         }
         if is_labelled(status):
             payload["inference"] = [status] * len(self.entries)
+        labels = support_column({str(i): entry.estimate for i, entry in enumerate(self.entries)})
+        if labels is not None:
+            payload["support"] = labels
         names = list(spreads[0]) if spreads else []
         payload.update({name: [spread[name] for spread in spreads] for name in names})
         if inferential:

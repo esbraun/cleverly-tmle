@@ -15,7 +15,7 @@ from typing import Any, Literal, Protocol, TypeVar
 import numpy as np
 
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
-from .._support import combine_support
+from .._support import Classification, combine_support, support_for
 from .._typing import FloatArray
 from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapResult
@@ -453,8 +453,12 @@ def derived_bootstrap(
         n_failed=bootstrap.n_requested - int(np.count_nonzero(np.isfinite(values))),
         resampling=bootstrap.resampling,
     ).summary("derived", alpha)
-    licensed = all(summary.inferential for summary in summaries if summary is not None)
-    return replace(derived, inferential=licensed)
+    kept = [summary for summary in summaries if summary is not None]
+    return replace(
+        derived,
+        diagnostic=any(summary.diagnostic for summary in kept),
+        support=combine_support([summary.support for summary in kept]),
+    )
 
 
 def with_derived_bootstrap(
@@ -602,7 +606,11 @@ _ResultT = TypeVar("_ResultT", bound=_BootstrappableResult)
 
 
 def attach_bootstrap(
-    result: _ResultT, bootstrap: BootstrapResult, *, inferential: bool = True
+    result: _ResultT,
+    bootstrap: BootstrapResult,
+    *,
+    diagnostic: bool = False,
+    classification: Classification | None = None,
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
 
@@ -615,9 +623,13 @@ def attach_bootstrap(
         The fitted result.
     bootstrap : BootstrapResult
         The replicate draws.
-    inferential : bool, default=True
-        Whether a registered study licenses the percentile interval as inference for
-        this fit. Stored on each :class:`~cleverly.inference.BootstrapSummary`.
+    diagnostic : bool, default=False
+        Whether the fit declares its percentile interval a diagnostic. Stored on each
+        :class:`~cleverly.inference.BootstrapSummary`.
+    classification : Classification or None, default=None
+        The fit's classification. Each summary takes the support that
+        :func:`~cleverly._support.support_for` gives for the ``"bootstrap"`` kind. ``None``
+        leaves it unclassified.
 
     Returns
     -------
@@ -628,7 +640,16 @@ def attach_bootstrap(
     estimates = {
         name: (
             estimate.with_bootstrap(
-                replace(bootstrap.summary(name, alpha), inferential=inferential)
+                replace(
+                    bootstrap.summary(name, alpha),
+                    diagnostic=diagnostic,
+                    support=support_for(
+                        classification,
+                        estimate.inference,
+                        estimate.reference_df,
+                        kind="bootstrap",
+                    ),
+                )
             )
             if name in bootstrap.draws
             else estimate

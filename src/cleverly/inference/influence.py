@@ -59,7 +59,6 @@ from typing import Any, Literal, NamedTuple
 import numpy as np
 
 from .._inference_status import (
-    T_REFERENCE_BOOTSTRAP_NOTE,
     InferenceStatus,
     is_labelled,
     status_record,
@@ -217,13 +216,13 @@ def spread_name(name: str, status: InferenceStatus) -> str:
     return _DIAGNOSTIC_NAMES[name]
 
 
-def bootstrap_column(name: str, status: InferenceStatus, inferential: bool) -> str:
+def bootstrap_column(name: str, status: InferenceStatus, diagnostic: bool) -> str:
     """The name a bootstrap column is published under.
 
     A bootstrap column keeps its inferential name only when the estimate's status supplies
-    inference *and* a registered study licenses the percentile interval for the fit that
-    produced it (:attr:`BootstrapSummary.inferential`). Otherwise it takes the diagnostic
-    name of :data:`_DIAGNOSTIC_NAMES`. :func:`spread_name` keeps its one key, the status.
+    inference *and* the bootstrap is not a diagnostic (:func:`bootstrap_is_diagnostic`).
+    Otherwise it takes the diagnostic name of :data:`_DIAGNOSTIC_NAMES`.
+    :func:`spread_name` keeps its one key, the status.
 
     Parameters
     ----------
@@ -231,35 +230,36 @@ def bootstrap_column(name: str, status: InferenceStatus, inferential: bool) -> s
         The inferential name, such as ``"bootstrap_ci_lower"`` or ``"bootstrap se"``.
     status : str
         The inference status of the estimate. One of :data:`InferenceStatus`.
-    inferential : bool
-        Whether the bootstrap summary licenses its interval as inference.
+    diagnostic : bool
+        Whether the bootstrap is published as a diagnostic.
 
     Returns
     -------
     str
         ``name``, or its diagnostic name.
     """
-    if supplies_inference(status) and inferential:
+    if supplies_inference(status) and not diagnostic:
         return name
     return _DIAGNOSTIC_NAMES[name]
 
 
 #: Why a bootstrap percentile interval is printed as a range on a fit whose status
-#: supplies inference: no registered study licenses it for this kind of fit.
-UNLICENSED_BOOTSTRAP_NOTE = (
-    "a diagnostic: no registered study measures the coverage of this percentile interval "
-    "for this kind of fit"
+#: supplies inference: the fit declares the bootstrap a diagnostic.
+DIAGNOSTIC_BOOTSTRAP_NOTE = (
+    "a diagnostic: the collaborative fit selects its propensity model on each resample, and "
+    "no registered study measures the coverage of that percentile interval"
 )
 
 
 def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
     """Whether the bootstrap of an estimate is published as a diagnostic.
 
-    The one rule. A bootstrap is a diagnostic when the estimate's status supplies no
-    inference, when the estimate carries a Student t reference
-    (:attr:`ParameterEstimate.reference_df`), or when no registered study licenses its
-    percentile interval (:attr:`BootstrapSummary.inferential`). No result validates the
-    cluster bootstrap below 40 clusters, which is where a t reference applies.
+    The one rule. A bootstrap is a diagnostic when the estimate's status withholds its
+    interval, when the fit declares the bootstrap a diagnostic
+    (:attr:`BootstrapSummary.diagnostic`), or when the fit reads fewer clusters than the
+    floor, which the status ``"few_cluster_plugin"`` records. A bootstrap that none of these
+    makes a diagnostic publishes the inferential names, and its
+    :attr:`BootstrapSummary.support` says whether a registered row measures it.
 
     Parameters
     ----------
@@ -273,8 +273,11 @@ def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
         diagnostic names.
     """
     summary = estimate.bootstrap
-    licensed = summary is not None and summary.inferential
-    return not (estimate.supplies_inference and estimate.reference_df is None and licensed)
+    return (
+        not estimate.supplies_inference
+        or estimate.inference == "few_cluster_plugin"
+        or (summary is not None and summary.diagnostic)
+    )
 
 
 def bootstrap_line(estimate: ParameterEstimate) -> str:
@@ -299,21 +302,18 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
     summary = estimate.bootstrap
     assert summary is not None
     low, high = summary.ci
-    label = bootstrap_column(
-        "bootstrap se", estimate.inference, not bootstrap_is_diagnostic(estimate)
-    )
+    label = bootstrap_column("bootstrap se", estimate.inference, bootstrap_is_diagnostic(estimate))
     spread = f"{label} {summary.std_error:.4g}  "
     if label == "bootstrap se":
-        return f"{spread}percentile CI [{low:.5g}, {high:.5g}]"
+        marker = " [experimental]" if summary.support.label == "experimental" else ""
+        return f"{spread}percentile CI [{low:.5g}, {high:.5g}]{marker}"
     # A percentile interval is a confidence interval, and this estimate reports none. The
     # same two numbers are printed as a range under the diagnostic framing, rather than
     # the bootstrap being refused outright.
-    if not estimate.supplies_inference:
+    if not estimate.supplies_inference or estimate.inference == "few_cluster_plugin":
         note = status_record(estimate.inference).bootstrap_note
-    elif estimate.reference_df is not None:
-        note = T_REFERENCE_BOOTSTRAP_NOTE
     else:
-        note = UNLICENSED_BOOTSTRAP_NOTE
+        note = DIAGNOSTIC_BOOTSTRAP_NOTE
     return f"{spread}percentile range [{low:.5g}, {high:.5g}] ({note})"
 
 
@@ -980,8 +980,9 @@ class ParameterEstimate:
         place, and no ``p_value``. Its bootstrap columns are ``bootstrap_sd``,
         ``bootstrap_range_lower`` and ``bootstrap_range_upper`` rather than
         ``bootstrap_std_err``, ``bootstrap_ci_lower`` and ``bootstrap_ci_upper``. The bootstrap
-        columns take the same diagnostic names when :attr:`BootstrapSummary.inferential` is
-        ``False``. A transformed estimate adds ``transform`` and ``transform_psi``, the estimate
+        columns take the same diagnostic names when :func:`bootstrap_is_diagnostic` is
+        ``True``. A fit with a bootstrap adds ``bootstrap_support``, the label of the bootstrap
+        summary. A transformed estimate adds ``transform`` and ``transform_psi``, the estimate
         on the transform's scale. An estimate with a Student t reference adds ``reference_df``,
         and its bootstrap columns take the diagnostic names. ``std_err`` is present exactly when
         :attr:`supplies_inference` is ``True``, so a programmatic consumer has a total test.
@@ -1010,13 +1011,14 @@ class ParameterEstimate:
             row["transform"] = self.transform.name
             row["transform_psi"] = self.inference_value
         if self.bootstrap is not None:
-            licensed = not bootstrap_is_diagnostic(self)
+            diagnostic = bootstrap_is_diagnostic(self)
             for key, value in (
                 ("bootstrap_std_err", self.bootstrap.std_error),
                 ("bootstrap_ci_lower", self.bootstrap.ci[0]),
                 ("bootstrap_ci_upper", self.bootstrap.ci[1]),
             ):
-                row[bootstrap_column(key, self.inference, licensed)] = value
+                row[bootstrap_column(key, self.inference, diagnostic)] = value
+            row["bootstrap_support"] = self.bootstrap.support.label
         return row
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -1110,10 +1112,14 @@ class BootstrapSummary:
         nonfinite, or out-of-domain derived values.
     draws : ndarray
         The finite replicate estimates.
-    inferential : bool, default=True
-        Whether a registered study licenses the percentile interval as inference for the
-        fit that produced it. ``False`` publishes the columns under their diagnostic
-        names, through :func:`bootstrap_column`, at every status.
+    diagnostic : bool, default=False
+        Whether the fit declares the percentile interval a diagnostic. ``True`` publishes
+        the columns under their diagnostic names, through :func:`bootstrap_column`, at every
+        status. Only the collaborative fit sets it.
+    support : Support, default=UNCLASSIFIED
+        Whether a registered row measures the percentile interval of the fit that produced it.
+        A row that lists ``bootstrap`` makes it ``supported``. Every other fit that publishes
+        the interval makes it ``experimental``.
     """
 
     std_error: float
@@ -1123,7 +1129,8 @@ class BootstrapSummary:
     n_replicates: int
     n_failed: int
     draws: FloatArray
-    inferential: bool = True
+    diagnostic: bool = False
+    support: Support = UNCLASSIFIED
 
     @property
     def variance(self) -> float:

@@ -89,6 +89,8 @@ from .._support import (
     UNCLASSIFIED,
     Classification,
     Support,
+    SupportKey,
+    band_support,
     classify_longitudinal_fit,
     combine_support,
     record_fit,
@@ -672,20 +674,6 @@ def _index(label: str, cause: str | None, horizon: int, curve: bool) -> str:
     return f"{stem}{HORIZON_INFIX}{horizon}"
 
 
-#: The design kinds whose full-refit bootstrap percentile interval a registered study
-#: licenses as inference.  :func:`bootstrap_design_kind` names a fit's kind, and
-#: :meth:`LTMLE.fit` stamps ``inferential`` on every bootstrap summary from this set.  A
-#: kind enters only after its cells in ``full-refit-bootstrap-and-derived-contrasts`` are
-#: green, and a red cell removes only its own kind.  Until then every longitudinal bootstrap
-#: is a diagnostic: ``bootstrap sd`` and ``percentile range``.
-#:
-#: The registered run licensed the in-sample end-of-study and single-cause survival kinds.
-#: The cross-fitted end-of-study cells over-cover (SE ratio about 1.25) and one cluster
-#: cell under-covers, so those kinds stay diagnostic (roadmap owner ``X20-bootstrap``).
-LICENSED_BOOTSTRAP_DESIGNS: frozenset[str] = frozenset(
-    {"end_of_study/in_sample", "survival/in_sample"}
-)
-
 #: Why a fit with two or more causes has no survival view.  One text for
 #: :meth:`LongitudinalResult.curve` and :meth:`LongitudinalResult.ratio`.
 SURVIVAL_VIEW_COMPETING_REFUSAL = Refusal(
@@ -1251,6 +1239,9 @@ class LongitudinalConfig:
     #: :attr:`outcome_names`, because a survival and a repeated outcome both name a column
     #: per node.
     outcome_kind: OutcomeKind = "end_of_study"
+
+    #: The support key the fit was classified under, read before any learner ran.
+    support_key: SupportKey | None = None
 
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
@@ -2888,11 +2879,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 f"{truncated:.1%} at t={truncated_time}"
             )
         lines.extend(f"  {line}" for line in self._targeting_lines())
-        if (
-            self.simultaneous is None
-            and (record is not None or (is_labelled(status) and not t_reference))
-            and len(self.estimates) > 1
-        ):
+        if self.simultaneous is None and record is not None and len(self.estimates) > 1:
             # Stated rather than left blank, as on a point-treatment fit: the bands are on
             # by default, so a reader would otherwise have to guess why none are here.
             lines.append("")
@@ -2905,7 +2892,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             lines.append(
                 f"  simultaneous {level} bands (multiplier bootstrap, critical value "
                 f"{self.simultaneous.critical_value:.3f} vs "
-                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise):"
+                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise)"
+                f"{' [experimental]' if self.simultaneous.support.label == 'experimental' else ''}:"
             )
             for name, (low, high) in self.simultaneous.bands.items():
                 lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
@@ -4506,6 +4494,7 @@ class _SequentialEstimator:
             panel=None if prepared.panel is None else prepared.panel.describe(),
             time_grid=prepared.time_grid,
             known_factors=_known_factors(prepared),
+            support_key=None if classification is None else classification.key,
             estimator=self._estimator,
             normalization=self._normalization(),
             msm_terms=None if model is None else model.terms,
@@ -4573,9 +4562,11 @@ class _SequentialEstimator:
                     inference=status,
                     classification=classification,
                 ).estimates
-                bands = _project_bands(self._bands(before, prepared, status), reported.index)
+                bands = _project_bands(
+                    self._bands(before, prepared, status, classification), reported.index
+                )
             else:
-                bands = self._bands(estimates, prepared, status)
+                bands = self._bands(estimates, prepared, status, classification)
         result = LongitudinalResult(
             estimates=estimates,
             fits=fits,
@@ -4606,17 +4597,10 @@ class _SequentialEstimator:
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
             )
-            # The registered bootstrap studies measure the unprojected iterated-mean TMLE.
-            # No registered study measures the SDR, IPSI, hazard or projected bootstrap,
-            # so their draws report a bootstrap sd and no percentile inference.
-            kind = (
-                bootstrap_design_kind(prepared, folds, regimens, model)
-                if self._estimator == "tmle" and not hazard and not self.isotonic
-                else None
-            )
-            result = attach_bootstrap(
-                result, bootstrap, inferential=kind in LICENSED_BOOTSTRAP_DESIGNS
-            )
+            # The support row of the fit decides whether the percentile interval is supported:
+            # only the rows that list ``bootstrap`` license it, and every other fit that
+            # publishes it is experimental.
+            result = attach_bootstrap(result, bootstrap, classification=classification)
         record_fit(classification, result, source=f"{type(self).__name__}.fit")
         return result
 
@@ -4840,6 +4824,7 @@ class _SequentialEstimator:
         estimates: Mapping[str, ParameterEstimate],
         data: LongitudinalData,
         status: InferenceStatus,
+        classification: Classification | None = None,
     ) -> SimultaneousBands | None:
         """Joint bands over the reported parameters, when there is more than one.
 
@@ -4853,9 +4838,10 @@ class _SequentialEstimator:
         none, as :meth:`cleverly.TMLE.fit` builds none.  It is skipped rather than raised,
         because ``simultaneous`` defaults to ``True``: a raise would stop every default fit
         with few clusters.  :meth:`LongitudinalResult.summary` states the omission.
-        ``status`` is the one the fit stamped on ``estimates``.
+        ``status`` is the one the fit stamped on ``estimates``. ``classification`` gives the band
+        its support: the row must license a ``band`` kind, and every estimate must be supported.
         """
-        if is_labelled(status):
+        if not supplies_inference(status):
             return None
         # A parameter with its own labelled status, such as a constant-node risk, stays out of
         # the band, which is then a joint statement over the others.
@@ -4870,13 +4856,19 @@ class _SequentialEstimator:
         # Student t reference builds none either, and the summary says so.
         if has_t_reference(estimates):
             return None
-        return simultaneous_bands(
+        bands = simultaneous_bands(
             estimates,
             alpha=self.alpha_sig,
             n_replicates=self.n_multiplier,
             kind=self.multiplier_kind,  # type: ignore[arg-type]
             random_state=self.random_state,
             cluster=data.cluster,
+        )
+        return replace(
+            bands,
+            support=band_support(
+                classification, status, (estimate.support for estimate in estimates.values())
+            ),
         )
 
     def _scaler(self, data: LongitudinalData) -> OutcomeScaler:
@@ -5111,10 +5103,12 @@ class LTMLE(_SequentialEstimator):
         replicate is dropped and counted, never redrawn.  The bootstrap stream is spawned
         from ``random_state`` and draws nothing the fit itself uses, so the fit's own
         numbers do not move.  A truncation-curve replay does not rerun it.  The percentile
-        interval is published as inference only for a design kind in
-        :data:`LICENSED_BOOTSTRAP_DESIGNS`, and as ``bootstrap sd`` and a percentile range
-        otherwise.  The registered study measures it with correctly specified cell-mean
-        nuisances on finite binary laws, at ``n = 1000``.
+        interval is published as inference with the support label of the fit: ``supported``
+        when a registered row lists ``bootstrap`` for the fit, and ``experimental``
+        otherwise.  A fit that withholds its interval, or that has fewer clusters than the
+        floor, prints ``bootstrap sd`` and a percentile range.  The registered study measures
+        it with correctly specified cell-mean nuisances on finite binary laws, at
+        ``n = 1000``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     survival_model : {"iterated_mean", "hazard"}

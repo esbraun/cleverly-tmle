@@ -281,7 +281,10 @@ def test_w11_the_bootstrap_is_a_diagnostic_on_a_repeated_fit() -> None:
     result = _quiet_fit(_estimator(n_bootstrap=3), data)
     assert bootstrap_design_kind(data, result.folds, result.config.regimens, None) is None
     for estimate in result.estimates.values():
-        assert estimate.bootstrap is None or estimate.bootstrap.inferential is False
+        assert estimate.bootstrap is None or (
+            estimate.bootstrap.diagnostic is False
+            and estimate.bootstrap.support.label == "experimental"
+        )
 
 
 def test_w12_the_truncation_replay_reproduces_the_fit() -> None:

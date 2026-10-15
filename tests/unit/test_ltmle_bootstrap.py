@@ -9,7 +9,6 @@ and a truncation-curve replay ignores the bootstrap.  Coverage is the registered
 
 from __future__ import annotations
 
-import sys
 import warnings
 from dataclasses import fields
 from pathlib import Path
@@ -232,49 +231,94 @@ class TestTheReplicates:
             assert boot[row.estimand].variance == fitted[row.estimand].variance
 
 
+def without_bootstrap_kind(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation: every registered row stops listing ``bootstrap`` among its kinds."""
+    from dataclasses import replace
+
+    from cleverly import _support
+
+    rows = tuple(
+        replace(row, kinds=row.kinds - {"bootstrap"}) for row in _support.registered_rows()
+    )
+    monkeypatch.setattr(_support, "registered_rows", lambda: rows)
+
+
+def canonical_boot(n_bootstrap: int = 2) -> Any:
+    """The registered ``canonical-ltmle`` fit (row G01) with a bootstrap, at 400 units."""
+    frame, _ = canonical_ltmle.draw_scenario(canonical_ltmle.SCENARIO, 400, 0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return LTMLE(
+            canonical_ltmle.REGIMENS,
+            reference=canonical_ltmle.REFERENCE,
+            outcome_learner=canonical_ltmle.QuasiBinomialGLM(),
+            pseudo_learner=canonical_ltmle.QuasiBinomialGLM(),
+            treatment_learner=canonical_ltmle.KnownLongitudinalMechanism("treatment"),
+            censoring_learner=canonical_ltmle.KnownLongitudinalMechanism("censoring"),
+            n_folds=1,
+            g_bounds=canonical_ltmle.G_BOUNDS,
+            simultaneous=False,
+            max_iter=100,
+            tol=1e-10,
+            random_state=0,
+            n_bootstrap=n_bootstrap,
+        ).fit(frame, **_end_columns())
+
+
 class TestReporting:
-    def test_the_licensed_kinds_are_the_green_ones(self) -> None:
-        """The registered run licensed these two kinds and no other."""
-        assert (
-            frozenset({"end_of_study/in_sample", "survival/in_sample"})
-            == estimator_module.LICENSED_BOOTSTRAP_DESIGNS
-        )
+    def test_the_designs_the_old_constant_licensed_map_to_rows_with_bootstrap(self) -> None:
+        """The in-sample point, end-of-study and survival kinds each have a row with ``bootstrap``."""
+        from cleverly._support import registered_rows
 
-    def test_an_unlicensed_kind_is_a_diagnostic(
-        self, survival_frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
+        by_id = {row.id: row for row in registered_rows()}
+        listed = {row_id for row_id, row in by_id.items() if "bootstrap" in row.kinds}
+        assert {"T01.binary", "G01", "G11.nodes4"} <= listed
+        assert by_id["G01"].key.splitting == ("in_sample",)
+        assert "survival" in by_id["G11.nodes4"].key.family
+        assert by_id["G11.nodes4"].key.splitting == ("in_sample",)
+
+    def test_a_registered_fit_has_a_supported_bootstrap(self) -> None:
+        result = canonical_boot()
+        for estimate in result.estimates.values():
+            support = estimate.bootstrap.support
+            assert support.label == "supported"
+            assert support.row == "G01"
+            assert estimate.bootstrap.diagnostic is False
+
+    def test_a_row_without_the_bootstrap_kind_makes_the_interval_experimental(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(estimator_module, "LICENSED_BOOTSTRAP_DESIGNS", frozenset())
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = _estimator(n_bootstrap=4).fit(survival_frame, **COLUMNS)
+        """The mutation control: with no row listing ``bootstrap`` no interval is supported."""
+        without_bootstrap_kind(monkeypatch)
+        result = canonical_boot()
+        estimate = next(iter(result.estimates.values()))
+        assert estimate.bootstrap.support.label == "experimental"
+        assert "bootstrap interval" in estimate.bootstrap.support.reason
         text = result.summary()
-        assert "full-refit bootstrap (iid resampling, 4 usable replicates, 0 failed)" in text
-        assert "bootstrap sd" in text and "percentile range" in text
-        assert "percentile CI" not in text
-        row = next(iter(result.estimates.values())).to_dict()
-        assert {"bootstrap_sd", "bootstrap_range_lower", "bootstrap_range_upper"} <= set(row)
-        assert "bootstrap_ci_lower" not in row
-        # The analytic columns keep their names: the status still supplies inference.
-        assert "std_err" in row
-        assert result.rmst("always", 3).bootstrap.inferential is False
+        assert "full-refit bootstrap (iid resampling, 2 usable replicates, 0 failed)" in text
+        assert "percentile CI" in text and "[experimental]" in text
+        row = estimate.to_dict()
+        assert {"bootstrap_std_err", "bootstrap_ci_lower", "bootstrap_ci_upper"} <= set(row)
+        assert row["bootstrap_support"] == "experimental"
 
-    def test_a_licensed_kind_publishes_the_interval(
-        self, survival_frame: pd.DataFrame, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(
-            estimator_module, "LICENSED_BOOTSTRAP_DESIGNS", frozenset({"survival/in_sample"})
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            result = _estimator(n_bootstrap=3).fit(survival_frame, **COLUMNS)
-        assert "percentile CI" in result.summary()
+    def test_a_supported_bootstrap_prints_no_marker(self) -> None:
+        result = canonical_boot()
+        lines = [line for line in result.summary().splitlines() if "percentile CI" in line]
+        assert lines and not any("[experimental]" in line for line in lines)
         columns = set(result.to_frame().columns)
         assert {"bootstrap_std_err", "bootstrap_ci_lower", "bootstrap_ci_upper"} <= columns
-        # Rule 3 per kind: licensing one kind does not license another.
+        assert set(next(iter(result.estimates.values())).to_dict()["bootstrap_support"]) == set(
+            "supported"
+        )
+
+    def test_a_cross_fitted_bootstrap_is_experimental(self, survival_frame: pd.DataFrame) -> None:
+        """No row lists ``bootstrap`` for a cross-fitted fit, so the interval is experimental."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             crossfit = _estimator(n_bootstrap=3, n_folds=2).fit(survival_frame, **COLUMNS)
-        assert "percentile range" in crossfit.summary()
+        estimate = next(iter(crossfit.estimates.values()))
+        assert estimate.bootstrap.support.label == "experimental"
+        assert "[experimental]" in crossfit.summary()
 
     def test_the_design_kinds(self, survival_frame: pd.DataFrame) -> None:
         from cleverly.learners.crossfit import Folds
@@ -294,18 +338,10 @@ class TestReporting:
         )
         assert bootstrap_design_kind(weighted, single, static, None) is None
 
-    def test_an_unmeasured_composition_stays_a_diagnostic(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A competing-risk fit has no kind, so licensing every kind leaves it a diagnostic."""
+    def test_an_unmeasured_composition_is_experimental(self) -> None:
+        """A competing-risk fit has no row listing ``bootstrap``, so its interval is experimental."""
         from tests import discrete_law_competing as law
 
-        every = frozenset(
-            f"{outcome}/{fit}"
-            for outcome in ("end_of_study", "survival")
-            for fit in ("in_sample", "cross_fit", "cluster")
-        )
-        monkeypatch.setattr(estimator_module, "LICENSED_BOOTSTRAP_DESIGNS", every)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = LTMLE(
@@ -325,60 +361,18 @@ class TestReporting:
                 time_varying=[[], ["L2"]],
                 censoring=["C1", "C2"],
             )
-        assert "percentile range" in result.summary()
+        estimate = next(iter(result.estimates.values()))
+        assert estimate.bootstrap.support.label == "experimental"
+        assert "percentile CI" in result.summary()
 
-    def test_the_point_rule_reads_its_constant(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Rule 4 on the estimator path: the constant decides the published names."""
-        import sys
-
+    def test_the_point_row_decides_the_label(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An in-sample ``TMLE`` bootstrap is supported by its row, and experimental without it."""
         from cleverly.datasets import make_binary_outcome
         from cleverly.estimators import TMLE
 
         frame, _ = make_binary_outcome(n=200, seed=1)
 
-        def fit() -> Any:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                return (
-                    TMLE(
-                        outcome_learner=LogisticRegression(max_iter=1000),
-                        treatment_learner=LogisticRegression(max_iter=1000),
-                        cross_fit=False,
-                        estimands=("ate",),
-                        n_bootstrap=3,
-                        random_state=0,
-                    )
-                    .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
-                    .single()
-                )
-
-        assert "percentile CI" in fit().summary()
-        # The package exports a function named ``tmle``, which shadows the module attribute.
-        tmle_module = sys.modules["cleverly.estimators.tmle"]
-        monkeypatch.setattr(tmle_module, "POINT_BOOTSTRAP_INFERENTIAL", False)
-        demoted = fit()
-        assert "percentile range" in demoted.summary()
-        assert "bootstrap_sd" in demoted["ate"].to_dict()
-
-    def test_a_cross_fitted_point_bootstrap_is_a_diagnostic(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The point licence covers in-sample fits only, as the longitudinal kinds do.
-
-        The registered ``boot_ate_point_tmle`` cell fits in sample. A cross-fitted replicate
-        redraws its split over resampled rows, and no study or source covers that, so the
-        same fit with ``cross_fit=True`` prints the diagnostic names (roadmap F2). The flag
-        is set to ``True`` here, so the cross-fitted half witnesses the ``cross_fit`` term
-        alone, and the in-sample half reads the flag rather than a hard-coded value.
-        """
-        from cleverly.datasets import make_binary_outcome
-        from cleverly.estimators import TMLE
-
-        tmle_module = sys.modules["cleverly.estimators.tmle"]
-        monkeypatch.setattr(tmle_module, "POINT_BOOTSTRAP_INFERENTIAL", True)
-        frame, _ = make_binary_outcome(n=200, seed=1)
-
-        def fit(cross_fit: bool) -> Any:
+        def fit(cross_fit: bool = False) -> Any:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 return (
@@ -390,20 +384,25 @@ class TestReporting:
                         estimands=("ate",),
                         n_bootstrap=3,
                         random_state=0,
+                        simultaneous=False,
                     )
                     .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
                     .single()
                 )
 
-        in_sample = fit(False)
-        assert in_sample["ate"].bootstrap.inferential is tmle_module.POINT_BOOTSTRAP_INFERENTIAL
-        assert "percentile CI" in in_sample.summary()
-        assert "bootstrap_ci_lower" in in_sample["ate"].to_dict()
+        supported = fit()
+        assert supported["ate"].bootstrap.support.label == "supported"
+        assert "percentile CI" in supported.summary()
+        assert "[experimental]" not in supported.summary()
         cross_fitted = fit(True)
-        assert cross_fitted["ate"].bootstrap.inferential is False
-        assert "percentile range" in cross_fitted.summary()
-        assert "bootstrap_sd" in cross_fitted["ate"].to_dict()
-        assert "bootstrap_ci_lower" not in cross_fitted["ate"].to_dict()
+        assert cross_fitted["ate"].bootstrap.support.label == "experimental"
+        assert cross_fitted["ate"].bootstrap.diagnostic is False
+        assert "percentile CI" in cross_fitted.summary()
+        assert "bootstrap_ci_lower" in cross_fitted["ate"].to_dict()
+        without_bootstrap_kind(monkeypatch)
+        demoted = fit()
+        assert demoted["ate"].bootstrap.support.label == "experimental"
+        assert "[experimental]" in demoted.summary()
 
     @pytest.mark.parametrize(
         "configuration",
@@ -417,22 +416,19 @@ class TestReporting:
             pytest.param({"estimator": "CTMLE", "strategy": "oat"}, id="CTMLE oat"),
         ],
     )
-    def test_an_in_sample_drtmle_or_ctmle_bootstrap_is_a_diagnostic(
-        self, monkeypatch: pytest.MonkeyPatch, configuration: dict[str, Any]
+    def test_a_ctmle_bootstrap_is_a_diagnostic_and_a_drtmle_one_is_experimental(
+        self, configuration: dict[str, Any]
     ) -> None:
-        """The point licence covers the ordinary ``TMLE`` only.
+        """Only the collaborative fit declares its bootstrap a diagnostic.
 
         The registered ``boot_ate_point_tmle`` cell fits a point-treatment ``TMLE``. An
-        in-sample ``DRTMLE`` fit and every ``CTMLE`` strategy inherit no measurement, and the
-        ``CTMLE`` docstring states that no reviewed theorem covers a selector bootstrap, so
-        each prints the diagnostic names with the flag set to ``True``. Reverting either
-        override to the ``TMLE`` answer makes the in-sample fit inferential and fails here.
+        in-sample ``DRTMLE`` fit publishes the inferential names under the experimental label,
+        because no row lists ``bootstrap`` for it. Every ``CTMLE`` strategy publishes the
+        diagnostic names, because ``CTMLE._bootstrap_diagnostic`` is ``True``.
         """
         from cleverly.datasets import make_binary_outcome
         from cleverly.estimators import CTMLE, DRTMLE
 
-        tmle_module = sys.modules["cleverly.estimators.tmle"]
-        monkeypatch.setattr(tmle_module, "POINT_BOOTSTRAP_INFERENTIAL", True)
         frame, _ = make_binary_outcome(n=200, seed=1)
         settings = dict(configuration)
         estimator = {"DRTMLE": DRTMLE, "CTMLE": CTMLE}[settings.pop("estimator")]
@@ -457,10 +453,17 @@ class TestReporting:
                 .fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"])
                 .single()
             )
-        assert result["ate"].bootstrap.inferential is False
-        assert "percentile range" in result.summary()
-        assert "bootstrap_sd" in result["ate"].to_dict()
-        assert "bootstrap_ci_lower" not in result["ate"].to_dict()
+        row = result["ate"].to_dict()
+        if estimator is CTMLE:
+            assert result["ate"].bootstrap.diagnostic is True
+            assert "percentile range" in result.summary()
+            assert "bootstrap_sd" in row
+            assert "bootstrap_ci_lower" not in row
+        else:
+            assert result["ate"].bootstrap.diagnostic is False
+            assert result["ate"].bootstrap.support.label == "experimental"
+            assert "percentile CI" in result.summary()
+            assert "bootstrap_ci_lower" in row
 
 
 class TestDerivedBootstrap:
@@ -487,10 +490,32 @@ class TestDerivedBootstrap:
             difference.bootstrap.draws, draws[a] - draws[b], atol=1e-12, rtol=0
         )
 
-    def test_the_licence_is_inherited(self, bootstrapped: Any) -> None:
+    def test_the_support_is_inherited(self, bootstrapped: Any) -> None:
         derived = bootstrapped.rmst("always", 3)
-        assert derived.bootstrap.inferential is True
+        parent = bootstrapped["risk_regimen[always @ t=1]"].bootstrap
+        assert derived.bootstrap.diagnostic is False
+        assert derived.bootstrap.support == parent.support
         assert "bootstrap_ci_lower" in derived.to_dict()
+
+    def test_a_contrast_of_supported_draws_is_supported_and_a_mix_is_experimental(self) -> None:
+        from dataclasses import replace
+
+        from cleverly._support import Support
+
+        result = canonical_boot()
+        names = list(result.estimates)[:2]
+        derived = result.contrast(lambda p: p[0] - p[1], names)
+        assert derived.bootstrap.support.label == "supported"
+        # The control: one experimental parent makes the derived bootstrap experimental.
+        experimental = Support("experimental", "No row.", ("X1",))
+        mixed = dict(result.estimates)
+        mixed[names[1]] = replace(
+            mixed[names[1]], bootstrap=replace(mixed[names[1]].bootstrap, support=experimental)
+        )
+        probe = replace(result, estimates=mixed)
+        assert probe.contrast(lambda p: p[0] - p[1], names).bootstrap.support.label == (
+            "experimental"
+        )
 
     def test_a_fit_without_a_bootstrap_attaches_none(self, plain: Any) -> None:
         assert plain.rmst("always", 3).bootstrap is None

@@ -1748,16 +1748,14 @@ default="greedy"
             for name, estimate in estimates.items()
         }
 
-    def _bootstrap_inferential(self, data: CausalData) -> bool:
-        """Whether the full-refit bootstrap interval is published as inference.
+    def _bootstrap_diagnostic(self, data: CausalData) -> bool:
+        """Whether the full-refit bootstrap interval is a diagnostic.
 
-        ``False`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
+        ``True`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
         Cai and van der Laan (2020) gives the influence curve of a superefficient estimator,
         and it does not cover the bootstrap of that estimator. On a selector strategy, no
-        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The registered
-        study ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary
-        point-treatment :class:`~cleverly.TMLE` only. The percentile range prints as a
-        diagnostic.
+        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The percentile
+        range prints as a diagnostic.
 
         Parameters
         ----------
@@ -1767,10 +1765,10 @@ default="greedy"
         Returns
         -------
         bool
-            ``False``.
+            ``True``.
         """
         del data
-        return False
+        return True
 
     def _admits_natural_course_with_missing(self) -> bool:
         """Whether this fit may target the natural course with missing outcomes.

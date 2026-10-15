@@ -38,7 +38,6 @@ __all__ = [
     "PARAMETER_STATUSES",
     "STACK_FAILURE_STATUS",
     "STATUS_RECORDS",
-    "T_REFERENCE_BOOTSTRAP_NOTE",
     "T_REFERENCE_NOTE",
     "InferenceStatus",
     "Interval",
@@ -107,13 +106,6 @@ T_REFERENCE_NOTE: Final[str] = (
     "and 'normal' marks the normal reference. The registered few-cluster evidence uses "
     "parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex "
     "learners at about 20 clusters."
-)
-
-#: The parenthesis a summary prints beside the bootstrap percentile range of an estimate
-#: with a t reference.
-T_REFERENCE_BOOTSTRAP_NOTE: Final[str] = (
-    f"a diagnostic; no result validates the cluster bootstrap below {FEW_CLUSTER_THRESHOLD} "
-    "clusters"
 )
 
 #: Where ``q_bounds=None`` takes the scale of a continuous outcome from. Both outcome-scale

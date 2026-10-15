@@ -594,28 +594,6 @@ class DRTMLE(TMLE):
             ]
         )
 
-    def _bootstrap_inferential(self, data: CausalData) -> bool:
-        """Whether the full-refit bootstrap interval is published as inference.
-
-        ``False`` on every fit, in sample or cross-fitted. The registered study
-        ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary point-treatment
-        :class:`~cleverly.TMLE` only (``boot_ate_point_tmle``), and no source read here covers
-        the bootstrap of the reduced-dimension regressions. The percentile range prints as a
-        diagnostic. Roadmap F2 holds the claim.
-
-        Parameters
-        ----------
-        data : CausalData
-            The prepared data. It is not read.
-
-        Returns
-        -------
-        bool
-            ``False``.
-        """
-        del data
-        return False
-
     def _refuse_one_step_nested(self) -> None:
         # Asked at the fit and at a guarded truncation curve rather than in the
         # constructor, so that an estimator whose ``targeting`` or ``reduced_crossfit``

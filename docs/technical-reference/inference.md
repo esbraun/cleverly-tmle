@@ -163,9 +163,15 @@ rename a number on a non-inferential status.
 
 The bootstrap spread is the sample standard deviation of the replicate estimates. A standard error
 is an inference claim, so a non-inferential status publishes that number as `bootstrap sd`.
-`BootstrapSummary.inferential` records whether a registered study licenses the percentile interval
-for the fit that produced it. When it is `False`, the bootstrap columns take the diagnostic names
-at every status. `bootstrap_column` in `inference/influence.py` applies both conditions.
+`BootstrapSummary.diagnostic` is `True` when the bootstrap columns take the diagnostic names. A
+bootstrap is a diagnostic when its estimate supplies no inference, when its status is
+`"few_cluster_plugin"`, or when the summary says so. `bootstrap_is_diagnostic` in
+`inference/influence.py` applies the rule, and `bootstrap_column` names the column. A C-TMLE
+bootstrap sets the field, because no reviewed theorem covers a selector path.
+`BootstrapSummary.support` records whether a support row lists the `bootstrap` kind for the fit.
+A bootstrap interval with no such row keeps the inferential names and carries the label
+`experimental`. The `to_dict()` key `bootstrap_support` and the `[experimental]` marker on the
+`percentile CI` line show it. A derived bootstrap takes the combined support of its inputs.
 `BootstrapSummary` keeps the field names `std_error` and `ci` at every status. Its fields describe
 the replicate distribution, and the status decides only the published name.
 `TestTheBootstrapPublishesUnderTheStatusName` in
@@ -187,11 +193,14 @@ clustered point-treatment fit and checks its reports in this section. The file
 with 39 clusters.
 
 A contrast inherits the status of its inputs, so a contrast of two diagnostic estimates refuses
-`ci` as its inputs do. A simultaneous band refuses every non-inferential status with
-`CapabilityError`. On such a fit, `TMLE` and `LTMLE` skip the band, so the default
-`simultaneous=True` does not raise. An explicit `simultaneous=True` has the same behavior. Neither
-case emits a warning; `summary()` states the omission on a fit with two or more estimates. The
-constructor default does not distinguish an explicit request from the default.
+`ci` as its inputs do. A simultaneous band refuses a status that withholds its interval with
+`CapabilityError`. A status that shows its interval, without a $t$ reference, builds a band. The
+band carries `support`, which combines the estimates' support with the `band` kind of the matching
+row. The summary header prints `[experimental]` when that support is experimental. On a fit with a
+withheld status, `TMLE` and `LTMLE` skip the band, so the default `simultaneous=True` does not
+raise. An explicit `simultaneous=True` has the same behavior. Neither case emits a warning;
+`summary()` states the omission on a fit with two or more estimates. The constructor default does
+not distinguish an explicit request from the default.
 
 A selection that mixes statuses either takes the parameter status or raises `ValueError`.
 
@@ -295,7 +304,7 @@ missingness tilt and the omitted-variable limits read it through `wald_ci` and
 | --- | --- |
 | the default simultaneous band | skipped. The summary states the reason. No source gives a $t$-calibrated band |
 | `simultaneous_bands()` | `CapabilityError` |
-| the cluster bootstrap | printed as a percentile range with a diagnostic note. No result validates the cluster bootstrap below 40 clusters |
+| the cluster bootstrap | printed as a percentile range from 3 to 9 clusters, under `"few_cluster_plugin"`. From 10 clusters it keeps the interval names and carries the label `experimental`, because no support row lists the `bootstrap` kind for a clustered fit |
 
 $J-2$ is the rule that Nugent et al. (2024) and Benitez et al. (2023), Sections 3.1.2 and 3.2.1,
 state for cluster-randomized trials. A classical one-sample mean of independent normal cluster
@@ -426,20 +435,16 @@ measures the percentile interval with correctly specified cell-mean nuisances on
 laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers
 a data-adaptive nuisance.
 
-An `LTMLE` bootstrap is licensed as inference only for a design kind
-in `LICENSED_BOOTSTRAP_DESIGNS`, which a kind enters after its registered cells are green. Every
-other `LTMLE` bootstrap prints as a diagnostic.
+A support row lists the `bootstrap` kind when a registered cell measured the percentile interval
+for that configuration. The rows `T01.binary`, `T31`, `G01` and `G11.nodes4` list it. A bootstrap
+on any other fit keeps the interval names and carries the label `experimental`. This covers a
+cross-fitted point fit, whose replicates redraw the split ([F2](../roadmap.md#f2-targeted-bootstrap-inference)),
+a clustered fit, a competing-event fit, and every `DRTMLE` fit. The study measured none of them.
 
-`POINT_BOOTSTRAP_INFERENTIAL` in
-`estimators/tmle.py` holds the point-treatment rule. It applies to an in-sample `TMLE` fit only,
-because the registered point cell fits an in-sample `TMLE`. A cross-fitted point bootstrap prints
-as a diagnostic, because its replicates redraw the split and no source covers that construction
-([F2](../roadmap.md#f2-targeted-bootstrap-inference)).
-
-Every `DRTMLE` and `CTMLE` bootstrap also prints as a diagnostic, in sample too. The study measured neither estimator, and no reviewed
-theorem covers the bootstrap of a selector path. An in-sample `TMLE` fit with a data-adaptive
-learner still prints the interval as inference. The registered study measured it only with
-correctly specified nuisances, and F2 holds the data-adaptive case.
+Every `CTMLE` bootstrap prints as a diagnostic, because no reviewed theorem covers the bootstrap
+of a selector path. A fit with a data-adaptive learner is experimental by learner class. The
+registered study measured the interval only with correctly specified nuisances, and F2 holds the
+data-adaptive case.
 
 `simultaneous_bands` refuses an estimate that declares the `"second_moment"` covariance rule. The
 multiplier draws center each influence curve. Centering matches the raw second moment only on a
@@ -484,6 +489,7 @@ These fit shapes publish no default band.
 | more than one repeat | refused with two or more estimands, as the [CV-TMLE reference](cv-tmle.md#variations) states |
 | fold-targeted CV-TMLE, the learned-rule value, and the missing-outcome natural-course mean | one estimate per fit |
 | the C-TMLE selector and outcome-adaptive paths | their status supplies no inference, so no band is built |
+| a status that withholds its interval, or a $t$ reference | no band is built. A status that shows its interval with no $t$ reference builds a band that carries `support` |
 
 ## Reporting a subset of a family
 

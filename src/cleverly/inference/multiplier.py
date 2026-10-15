@@ -131,20 +131,12 @@ from typing import Literal
 
 import numpy as np
 
-from .._inference_status import FEW_CLUSTER_THRESHOLD, is_labelled
+from .._inference_status import FEW_CLUSTER_THRESHOLD
+from .._support import UNCLASSIFIED, Support, combine_support
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
 from .cluster import cluster_sums
 from .influence import ParameterEstimate
-
-#: Why no band covers an estimate at an experimental status that shows its interval.
-LABELLED_BAND_REFUSAL = Refusal(
-    RefusalReason.INFERENCE_GAP,
-    "simultaneous_bands() has no joint result for an estimate at a status that shows its "
-    "interval under the experimental label. The pointwise interval of such an estimate has no "
-    "joint counterpart yet.",
-    alternative="Report the pointwise intervals, which carry the experimental label.",
-)
 
 #: Why no band covers an estimate with a Student t reference.
 T_REFERENCE_BAND_REFUSAL = Refusal(
@@ -197,6 +189,9 @@ class SimultaneousBands:
         Multiplier draws behind the critical value.
     kind : str
         Distribution the multiplier weights were drawn from.
+    support : Support, default=UNCLASSIFIED
+        The combination of the support of the estimates the band covers. A fit narrows it
+        further when its row licenses no ``band`` kind for the fit.
     """
 
     critical_value: float
@@ -204,6 +199,7 @@ class SimultaneousBands:
     alpha: float
     n_replicates: int
     kind: str
+    support: Support = UNCLASSIFIED
 
     @property
     def pointwise_critical_value(self) -> float:
@@ -457,8 +453,7 @@ def simultaneous_bands(
     CapabilityError
         If any estimate's ``supplies_inference`` is ``False``. A simultaneous band is
         a confidence statement, and the package supplies no inference for such an
-        estimate. Also if any estimate declares a labelled status that shows its interval,
-        because no joint result covers it. Also if any estimate carries a Student t reference
+        estimate. Also if any estimate carries a Student t reference
         (:attr:`~cleverly.inference.ParameterEstimate.reference_df`), because no source
         gives a t-calibrated band. Also, with code ``inference_gap``, if any estimate
         declares ``covariance_rule="second_moment"``. The multiplier draws center each
@@ -477,8 +472,6 @@ def simultaneous_bands(
     # raise out of ``estimate.std_error`` below under an accessor the caller never wrote.
     for _, estimate in items:
         refuse_inference(estimate.inference, operation="simultaneous_bands()")
-        if is_labelled(estimate.inference):
-            raise CapabilityError.from_refusal(LABELLED_BAND_REFUSAL)
     if any(estimate.reference_df is not None for _, estimate in items):
         raise CapabilityError.from_refusal(T_REFERENCE_BAND_REFUSAL)
     second_moment = [
@@ -542,4 +535,5 @@ def simultaneous_bands(
         alpha=alpha,
         n_replicates=n_replicates,
         kind=kind,
+        support=combine_support([estimate.support for _, estimate in items]),
     )

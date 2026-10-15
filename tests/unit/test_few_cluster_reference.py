@@ -28,7 +28,6 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 from cleverly import variable_importance
 from cleverly._inference_status import (
     NO_T_REFERENCE_BANDS,
-    T_REFERENCE_BOOTSTRAP_NOTE,
     T_REFERENCE_NOTE,
 )
 from cleverly.datasets import (
@@ -578,16 +577,23 @@ class TestBandsRefuseTheTReference:
         assert NO_T_REFERENCE_BANDS not in result.summary()
 
 
-class TestTheBootstrapIsADiagnosticBelow40:
-    def test_twelve_clusters_print_a_percentile_range(self) -> None:
-        result = _binary(12, estimands=("ate",), n_bootstrap=20)
+class TestTheBootstrapIsADiagnosticBelowTen:
+    def test_five_clusters_print_a_percentile_range(self) -> None:
+        result = _binary(5, estimands=("ate",), n_bootstrap=20)
         text = result.summary()
         assert "percentile range" in text
-        assert T_REFERENCE_BOOTSTRAP_NOTE in text
         assert "percentile CI" not in text
         row = result["ate"].to_dict()
         assert {"bootstrap_sd", "bootstrap_range_lower", "bootstrap_range_upper"} <= set(row)
         assert "bootstrap_ci_lower" not in row
+
+    def test_twelve_clusters_keep_the_percentile_interval_as_experimental(self) -> None:
+        result = _binary(12, estimands=("ate",), n_bootstrap=20)
+        text = result.summary()
+        assert "percentile CI" in text
+        assert "percentile range" not in text
+        assert result["ate"].bootstrap.diagnostic is False
+        assert "bootstrap_ci_lower" in result["ate"].to_dict()
         # The t note and the df column appear with the table.
         assert T_REFERENCE_NOTE.format(clusters=12, fewest=12) in text
         assert "p_value  df" in text
@@ -597,22 +603,12 @@ class TestTheBootstrapIsADiagnosticBelow40:
         assert "percentile CI" in result.summary()
         assert "bootstrap_ci_lower" in result["ate"].to_dict()
 
-    def test_a_label_that_reads_the_status_only_fails(
+    def test_a_rule_that_ignores_the_few_cluster_status_fails(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(
-            influence_module,
-            "bootstrap_is_diagnostic",
-            lambda estimate: (
-                not (
-                    estimate.supplies_inference
-                    and estimate.bootstrap is not None
-                    and estimate.bootstrap.inferential
-                )
-            ),
-        )
+        monkeypatch.setattr(influence_module, "bootstrap_is_diagnostic", lambda estimate: False)
         with pytest.raises(AssertionError):
-            self.test_twelve_clusters_print_a_percentile_range()
+            self.test_five_clusters_print_a_percentile_range()
 
 
 class TestTheConsumersReadTheReference:

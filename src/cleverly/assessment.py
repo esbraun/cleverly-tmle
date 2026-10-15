@@ -3086,6 +3086,23 @@ def _support_item(
     )
 
 
+def _experimental_note(result: Any) -> str:
+    """The ``; experimental: reason`` clause of a result with experimental estimates, or ``""``."""
+    estimates = getattr(result, "estimates", None)
+    if not estimates:
+        return ""
+    reasons: list[str] = []
+    for estimate in estimates.values():
+        support = getattr(estimate, "support", None)
+        if (
+            support is not None
+            and support.label == "experimental"
+            and support.reason not in reasons
+        ):
+            reasons.append(support.reason)
+    return "".join(f"; experimental: {reason}" for reason in reasons)
+
+
 def _nuisance_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
@@ -3166,6 +3183,7 @@ def _nuisance_item(
             # ordinary fit needs.
             facts.append(f"split spread unavailable: {spread_omission}")
         detail = "; ".join(facts)
+    detail += _experimental_note(_result)
     return AssessmentItem(
         "nuisance_models",
         AssessmentStatus.WARNING if findings else AssessmentStatus.COMPLETED,

@@ -40,9 +40,11 @@ from cleverly._inference_status import (
     NO_T_REFERENCE_BANDS,
     STATUS_RECORDS,
 )
+from cleverly._support import Support
 from cleverly.datasets import make_longitudinal_competing
 from cleverly.exceptions import DataError
 from cleverly.inference import cluster as cluster_module
+from cleverly.inference import results as results_module
 from cleverly.learners.crossfit import Folds, random_partition
 from cleverly.longitudinal import LTMLE
 from tests.studies import canonical_ltmle_crossfit as subject_study
@@ -735,9 +737,6 @@ class TestTheClusteredCrossFitBootstrapIsADiagnostic:
             == "end_of_study/cluster_cross_fit"
         )
         assert kind(in_sample.data, in_sample.folds, regimens, None) == "end_of_study/cluster"
-        assert "end_of_study/cluster_cross_fit" not in (
-            longitudinal_estimator.LICENSED_BOOTSTRAP_DESIGNS
-        )
 
     @staticmethod
     def bootstrapped() -> tuple[Any, list[Any]]:
@@ -755,36 +754,27 @@ class TestTheClusteredCrossFitBootstrapIsADiagnostic:
             )
         return result, seen
 
-    def test_the_percentile_output_is_a_diagnostic(self) -> None:
+    def test_the_percentile_interval_is_experimental(self) -> None:
         result, seen = self.bootstrapped()
-        assert "percentile range" in result.summary()
-        assert "percentile CI" not in result.summary()
+        text = result.summary()
+        assert "percentile CI" in text and "[experimental]" in text
         for estimate in result.estimates.values():
-            assert {"bootstrap_range_lower", "bootstrap_range_upper"} <= set(estimate.to_dict())
+            assert estimate.bootstrap.support.label == "experimental"
+            assert {"bootstrap_ci_lower", "bootstrap_ci_upper"} <= set(estimate.to_dict())
         # The fit's own draw, then one per replicate: each replicate gives every drawn
         # occurrence of a cluster its own code, so two copies can land in different folds.
         assert len(seen) == 1 + 4
         for codes in seen[1:]:
             assert np.unique(codes).size == FEW_CLUSTER_THRESHOLD
 
-    def test_one_shared_kind_would_license_the_cross_fitted_fit(
+    def test_a_bootstrap_support_that_is_always_supported_fails(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mutation: the in-sample clustered kind, licensed, read by the cross-fitted fit."""
-        original = longitudinal_estimator.bootstrap_design_kind
-
-        def one_kind(*args: Any) -> Any:
-            kind = original(*args)
-            return None if kind is None else kind.replace("/cluster_cross_fit", "/cluster")
-
-        monkeypatch.setattr(longitudinal_estimator, "bootstrap_design_kind", one_kind)
-        monkeypatch.setattr(
-            longitudinal_estimator,
-            "LICENSED_BOOTSTRAP_DESIGNS",
-            longitudinal_estimator.LICENSED_BOOTSTRAP_DESIGNS | {"end_of_study/cluster"},
-        )
+        """Mutation: every bootstrap summary reads as supported, so the marker disappears."""
+        supported = Support(label="supported", reason="", evidence=(), row=None, limits=())
+        monkeypatch.setattr(results_module, "support_for", lambda *args, **kwargs: supported)
         with pytest.raises(AssertionError):
-            self.test_the_percentile_output_is_a_diagnostic()
+            self.test_the_percentile_interval_is_experimental()
 
 
 class TestTheStudyWorkflowCrossFits:

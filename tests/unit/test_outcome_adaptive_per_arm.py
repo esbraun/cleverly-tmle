@@ -802,7 +802,7 @@ def test_the_bootstrap_stays_a_diagnostic_on_an_admitted_fit() -> None:
     assert result.inference_status == "influence_curve"
     summary = result["ate"].bootstrap
     assert summary is not None
-    assert summary.inferential is False
+    assert summary.diagnostic is True
     columns = set(result.to_frame().columns)
     assert {"bootstrap_sd", "bootstrap_range_lower", "bootstrap_range_upper"} <= columns
     assert not {"bootstrap_ci_lower", "bootstrap_ci_upper", "bootstrap_std_err"} & columns

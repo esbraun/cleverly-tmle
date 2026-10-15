@@ -318,6 +318,24 @@ def restore(artifact: Any, route: str) -> Any:
     return pickle.loads(pickle.dumps(artifact))
 
 
+def assert_support_round_trips(result: Any, restored: Any) -> None:
+    """The support of every estimate, bootstrap summary and band, and the key, load as saved.
+
+    Equality of a frozen ``Support`` compares the label, reason, evidence, row and limits, so
+    a load that re-derived any of them from the loading version's rows would differ here.
+    """
+    assert restored.config.support_key == result.config.support_key
+    for name, estimate in result.estimates.items():
+        copy = restored.estimates[name]
+        assert copy.support == estimate.support
+        if estimate.bootstrap is not None:
+            assert copy.bootstrap is not None
+            assert copy.bootstrap.support == estimate.bootstrap.support
+            assert copy.bootstrap.diagnostic == estimate.bootstrap.diagnostic
+    if result.simultaneous is not None:
+        assert restored.simultaneous.support == result.simultaneous.support
+
+
 def assert_round_trips(result: Any, status: str, route: str) -> Any:
     """``result`` loads by ``route`` with ``status`` and every report as it was saved.
 
@@ -344,6 +362,7 @@ def assert_round_trips(result: Any, status: str, route: str) -> Any:
             assert estimate.ci == result.estimates[name].ci
             assert estimate.reference_df == result.estimates[name].reference_df
     assert (restored.simultaneous is None) == (result.simultaneous is None)
+    assert_support_round_trips(result, restored)
     assert restored.assessment_cache.keys() == result.assessment_cache.keys()
     detail = getattr(result, "cv_targeting", None)
     if detail is not None:

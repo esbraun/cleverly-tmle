@@ -760,6 +760,8 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
     "point": "point estimate",
     "wald": "Wald interval",
     "wald_t": "Student t interval",
+    "band": "simultaneous band",
+    "bootstrap": "bootstrap interval",
 }
 
 
@@ -774,6 +776,7 @@ def support_for(
     classification: Classification | None,
     status: str,
     reference_df: int | None = None,
+    kind: Kind | None = None,
 ) -> Support:
     """What one estimate carries, from its fit's classification and its final status.
 
@@ -794,6 +797,9 @@ def support_for(
     reference_df : int or None, default None
         The degrees of freedom of the estimate's t reference, or ``None`` for the normal
         reference.
+    kind : str or None, default None
+        The kind the row must license instead of the one the status and the reference give:
+        ``"band"`` for a simultaneous band, ``"bootstrap"`` for a percentile interval.
 
     Returns
     -------
@@ -811,7 +817,8 @@ def support_for(
         return UNCLASSIFIED
     record = None if status == "influence_curve" else STATUS_RECORDS[status]
     withheld = record is not None and record.interval == "withheld"
-    kind = "point" if withheld else ("wald_t" if reference_df is not None else "wald")
+    if kind is None:
+        kind = "point" if withheld else ("wald_t" if reference_df is not None else "wald")
     row = classification.row
     reasons: list[str] = []
     evidence: list[str] = []
@@ -881,6 +888,32 @@ def classify(
     """
     key, learners = point_key(estimator, data, estimands)
     return classify_key(key, learners, conditions)
+
+
+def band_support(
+    classification: Classification | None,
+    status: str,
+    supports: Iterable[Support],
+) -> Support:
+    """What a simultaneous band carries: its row's band kind, combined with its estimates.
+
+    Parameters
+    ----------
+    classification : Classification or None
+        The classification of the fit, or ``None`` for a band built outside a classified fit.
+    status : str
+        The inference status of the fit.
+    supports : iterable of Support
+        The support of each estimate the band covers.
+
+    Returns
+    -------
+    Support
+        ``supported`` only when the row licenses a ``band`` and every estimate is supported on
+        that row. ``experimental`` otherwise.
+    """
+    kind_support = support_for(classification, status, None, kind="band")
+    return combine_support([kind_support, *supports])
 
 
 # --------------------------------------------------------------------- record switch
