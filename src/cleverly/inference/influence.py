@@ -59,8 +59,10 @@ from typing import Any, Literal, NamedTuple
 import numpy as np
 
 from .._inference_status import (
+    PARAMETER_STATUSES,
     T_REFERENCE_BOOTSTRAP_NOTE,
     InferenceStatus,
+    precedent_status,
     status_record,
     supplies_inference,
 )
@@ -113,6 +115,7 @@ __all__ = [
     "reduced_corrections",
     "reference_label",
     "regime_means",
+    "restamp_parameter_statuses",
     "spread_name",
     "stamp_inference",
     "supplies_inference",
@@ -1133,6 +1136,50 @@ def make_estimate(
     )
 
 
+def restamp_parameter_statuses(
+    per_repeat: Sequence[Mapping[str, ParameterEstimate]],
+) -> list[dict[str, ParameterEstimate]]:
+    """Give every draw of an estimand the precedent of its draws' parameter statuses.
+
+    A parameter status (:data:`~cleverly._inference_status.PARAMETER_STATUSES`) belongs to
+    one estimate of one draw, such as an arm whose stacked curve failed on that draw's
+    split. The median over draws reads every draw, so it takes the status of the most
+    restrictive draw. An estimate holds a parameter status only beside an
+    ``"influence_curve"`` fit status (:func:`stamp_inference`), so the restamp applies when
+    every other draw of the estimand also reports ``"influence_curve"``. Draws with
+    different fit statuses keep them, and :func:`median_estimates` refuses the
+    combination: that guard finds a real defect.
+
+    The order of the stamps on a repeated fit is this restamp, then the median. A label
+    that reads the final status, such as a support row, is computed after both.
+
+    Parameters
+    ----------
+    per_repeat : sequence of mappings
+        One estimate mapping per draw.
+
+    Returns
+    -------
+    list of dict
+        The draws, with each restamped estimate replaced. The input is not changed.
+    """
+    out = [dict(report) for report in per_repeat]
+    if len(out) < 2:
+        return out
+    shared = [name for name in out[0] if all(name in report for report in out)]
+    for name in shared:
+        statuses = [report[name].inference for report in out]
+        if not any(status in PARAMETER_STATUSES for status in statuses):
+            continue
+        fit_level = {status for status in statuses if status not in PARAMETER_STATUSES}
+        if not fit_level <= {"influence_curve"}:
+            continue
+        status = precedent_status(statuses)
+        for report in out:
+            report[name] = replace(report[name], inference=status)
+    return out
+
+
 def median_estimates(
     per_repeat: Sequence[Mapping[str, ParameterEstimate]],
 ) -> dict[str, ParameterEstimate]:
@@ -1154,6 +1201,10 @@ def median_estimates(
     supports marginal diagnostics. The adjusted variance, not the curve's empirical
     variance, supplies the interval.
 
+    A draw whose estimate holds a parameter status passes it to the median
+    (:func:`restamp_parameter_statuses`). Draws that declare different fit statuses for one
+    estimate raise.
+
     Parameters
     ----------
     per_repeat : sequence of mappings
@@ -1168,6 +1219,7 @@ def median_estimates(
         raise ValueError("median_estimates needs at least one repeat")
     if len(per_repeat) == 1:
         return dict(per_repeat[0])
+    per_repeat = restamp_parameter_statuses(per_repeat)
 
     shared = [name for name in per_repeat[0] if all(name in report for report in per_repeat)]
     dropped = [name for name in per_repeat[0] if name not in shared]

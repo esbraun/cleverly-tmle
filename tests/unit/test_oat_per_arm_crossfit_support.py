@@ -2,7 +2,7 @@
 
 Until the support rows of RM42b label an unstudied configuration, the predicate admits a
 cross-fitted per-arm fit only at the values the study ``ctmle-oat-per-arm-parametric-crossfit``
-measures: ``n_folds=5`` and a binary outcome. The fold-count cap
+measures: ``n_folds=5``, ``repeats`` in ``{1, 3}`` and a binary outcome. The fold-count cap
 (at most 20 folds, held-out folds of at least 30 rows) holds always.
 """
 
@@ -96,21 +96,32 @@ def crossfit() -> Any:
     return _fit()
 
 
+@pytest.fixture(scope="module")
+def repeated() -> Any:
+    return _fit(repeats=3)
+
+
 class TestTheAdmittedValues:
     def test_cross_fitting_at_five_folds(self) -> None:
         verdict = _verdict()
         assert verdict.admitted
         assert "cross-fitted over 5 folds" in verdict.detail
 
+    def test_three_repeats(self) -> None:
+        verdict = _verdict(repeats=3)
+        assert verdict.admitted
+        assert "with 3 repeats" in verdict.detail
+
     def test_in_sample_is_unchanged(self) -> None:
         verdict = _verdict(cross_fit=False, n_folds=7)
         assert verdict.admitted
         assert verdict.detail.startswith("the in-sample per-arm fit")
 
-    def test_every_estimate_supplies_inference(self, crossfit: Any) -> None:
-        for name in ESTIMANDS:
-            assert crossfit[name].inference == "influence_curve", name
-            assert crossfit[name].plugin_std_error == crossfit[name].std_error
+    def test_every_estimate_supplies_inference(self, crossfit: Any, repeated: Any) -> None:
+        for result in (crossfit, repeated):
+            for name in ESTIMANDS:
+                assert result[name].inference == "influence_curve", name
+                assert result[name].plugin_std_error == result[name].std_error
 
     def test_the_arm_means_read_the_v_fold_stack(self, crossfit: Any) -> None:
         stack = _oat_stack.fitted_stack(crossfit)
@@ -139,10 +150,10 @@ class TestTheStudiedValues:
         assert "n_folds=5" in verdict.detail
         assert "RM42b" in verdict.detail
 
-    def test_three_repeats(self) -> None:
-        verdict = _verdict(repeats=3)
+    def test_five_repeats(self) -> None:
+        verdict = _verdict(repeats=5)
         assert verdict.axis == "repeats"
-        assert "repeats=1" in verdict.detail
+        assert "repeats=1 or repeats=3" in verdict.detail
 
     def test_a_cross_fitted_bounded_outcome(self) -> None:
         frame = quad.sample(quad.BINARY_ACTIVE, 1500, 33, bounded=(2.0, 10.0))
@@ -224,9 +235,12 @@ class TestTheNamedRefusals:
         assert verdict.axis == "target_weights"
         assert "w H" in verdict.detail
 
-    def test_a_simultaneous_band(self) -> None:
-        verdict = _verdict(simultaneous=True)
+    def test_a_simultaneous_band_under_repeats(self) -> None:
+        """The predicate withholds the band, and the repeat preflight refuses it first."""
+        verdict = _verdict(repeats=3, simultaneous=True)
         assert verdict.axis == "simultaneous"
+        with pytest.raises(CapabilityError, match="median-combined repeats"):
+            _fit(repeats=3, simultaneous=True)
 
 
 class TestTheEngineRefusalsComeFirst:
@@ -275,16 +289,31 @@ def test_a_separated_fold_refuses_with_the_learners_data_error() -> None:
 
 
 class TestTheRecord:
-    def test_the_fit_records_its_folds(self, crossfit: Any) -> None:
-        fit = crossfit.extra["ctmle"]
-        assert isinstance(fit, CTMLEOutcomeAdaptiveFit)
-        assert (fit.stacked_folds, fit.stacked_repeats) == (5, 1)
+    def test_the_fit_records_its_folds_and_repeats(self, crossfit: Any, repeated: Any) -> None:
+        for result, repeats in ((crossfit, 1), (repeated, 3)):
+            fit = result.extra["ctmle"]
+            assert isinstance(fit, CTMLEOutcomeAdaptiveFit)
+            assert (fit.stacked_folds, fit.stacked_repeats) == (5, repeats)
 
-    def test_the_summary_names_the_folds(self, crossfit: Any) -> None:
-        assert "cross-fitted over 5 folds in the exact V-fold stack" in crossfit.summary()
+    def test_the_summary_names_the_folds_and_the_median(self, repeated: Any) -> None:
+        text = repeated.summary()
+        assert "cross-fitted over 5 folds in the exact V-fold stack" in text
+        assert "median of 3 cross-fitting repeats" in text
 
-    def test_the_fit_records_its_fold_coefficients(self, crossfit: Any) -> None:
-        assert crossfit.nuisance.diagnostics["stack"].folds == 5
+    def test_each_draw_records_its_fold_coefficients(self, repeated: Any) -> None:
+        records = [repeat.nuisance.diagnostics["stack"] for repeat in repeated.repeats]
+        assert [record.folds for record in records] == [5, 5, 5]
+        assert records[0].outcome != records[1].outcome
+
+    def test_every_fit_writes_a_draw_record(self) -> None:
+        result = _fit(
+            outcome_learner=laws.interaction_outcome(2),
+            treatment_learner=laws.cubic_logit_learner(),
+        )
+        record = result.repeats[0].inference["ate"]
+        assert record.status == "generated_design_plugin"
+        assert record.curve is None and record.shipped_se is None
+        assert record.se == pytest.approx(result["ate"].plugin_std_error, rel=1e-12)
 
 
 class TestPersistence:
@@ -298,6 +327,17 @@ class TestPersistence:
             assert restored[name].std_error == crossfit[name].std_error
         assert restored.summary() == crossfit.summary()
         assert restored.nuisance.diagnostics["stack"] == crossfit.nuisance.diagnostics["stack"]
+
+    def test_a_repeated_fit_round_trips_its_draws(self, repeated: Any, tmp_path: Any) -> None:
+        restored = cleverly.load(repeated.save(tmp_path / "fit.pkl"))
+        for repeat, original in zip(restored.repeats, repeated.repeats, strict=True):
+            assert repeat.inference.keys() == original.inference.keys()
+            for name, record in repeat.inference.items():
+                assert record.status == original.inference[name].status
+                assert record.se == original.inference[name].se
+                assert record.shipped_se == original.inference[name].shipped_se
+        for name in ESTIMANDS:
+            assert restored[name].std_error == repeated[name].std_error
 
 
 class TestRetarget:

@@ -330,7 +330,7 @@ from __future__ import annotations
 import copy
 import inspect
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -375,6 +375,7 @@ from ._ctmle_derivative import (
 )
 from ._nuisance import (
     _SIMPLEX_TOLERANCE,
+    DrawInference,
     NuisanceEstimates,
     Propensity,
     cross_fit_predictions,
@@ -629,10 +630,11 @@ MAX_STACK_FOLDS: Final = 20
 #: The fewest rows a held-out fold of a cross-fitted stacked interval holds (X58 plan, 13.3).
 MIN_STACK_FOLD_ROWS: Final = 30
 
-#: The fold count the study ``ctmle-oat-per-arm-parametric-crossfit`` measures. Until the
-#: support rows of RM42b label an unstudied configuration, the predicate admits only this one
-#: (X58 plan, 13.1).
+#: The fold count and the repeat counts the study ``ctmle-oat-per-arm-parametric-crossfit``
+#: measures. Until the support rows of RM42b label an unstudied configuration, the predicate
+#: admits only these (X58 plan, 13.1).
 _STUDIED_FOLDS: Final = 5
+_STUDIED_REPEATS: Final = (1, 3)
 
 #: Why a fold count outside the cap withholds the interval (X58 plan, 13.3, m13).
 _FOLD_CAP_TEXT: Final = (
@@ -684,11 +686,12 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
         f"with cross_fit=True, n_folds={_STUDIED_FOLDS} inside the fold-count cap (checked on "
         "the data)",
     ),
-    "learner_folds": (
-        _anything,
-        "any value; the parametric learners have no inner folds",
+    "learner_folds": (_anything, "any value; the parametric learners have no inner folds"),
+    "repeats": (
+        lambda v: v in _STUDIED_REPEATS,
+        "repeats=1 or repeats=3, the repeat counts the ctmle-oat-per-arm-parametric-crossfit "
+        "study measures. Another count waits for the support rows of RM42b",
     ),
-    "repeats": (lambda v: v == 1, "repeats=1; X58 part (c) holds repeats"),
     "stratify_folds": (
         _anything,
         "any value; the engine admits only 'none' with cross_fit=True, so the fold labels "
@@ -767,27 +770,15 @@ _PER_ARM_PARAMETRIC_DATA: Final[tuple[tuple[str, Callable[[CausalData], bool], s
         "no observation weights; X58 part (d) holds fixed weights",
     ),
     ("cluster", lambda d: d.cluster is None, "no cluster identifier"),
-    (
-        "strata",
-        lambda d: not d.has_strata,
-        "no baseline strata; X52 part (b) holds them",
-    ),
+    ("strata", lambda d: not d.has_strata, "no baseline strata; X52 part (b) holds them"),
     (
         "missing_outcome",
         lambda d: not d.has_missing_outcome,
         "every outcome observed; X52 part (b) holds missing outcomes",
     ),
-    (
-        "missing_treatment",
-        lambda d: not d.has_missing_treatment,
-        "every treatment observed",
-    ),
+    ("missing_treatment", lambda d: not d.has_missing_treatment, "every treatment observed"),
     ("intermediate", lambda d: not d.has_intermediate, "no intermediate variable"),
-    (
-        "known_treatment",
-        lambda d: d.known_treatment is None,
-        "no declared treatment mechanism",
-    ),
+    ("known_treatment", lambda d: d.known_treatment is None, "no declared treatment mechanism"),
 )
 
 
@@ -802,6 +793,10 @@ _REQUESTED: ContextVar[tuple[str, ...] | None] = ContextVar("_REQUESTED", defaul
 #: The stack report :meth:`CTMLE._corrections` built inside the :meth:`CTMLE._estimates_for`
 #: call in progress, so the call reads one solve of the stack.
 _REPORT: ContextVar[list[StackReport | None] | None] = ContextVar("_REPORT", default=None)
+
+#: Set while :meth:`CTMLE._draw_inference` rebuilds a draw's uncorrected estimates: no fit
+#: reads the stack, so each estimate carries the shipped adaptive-propensity curve.
+_SHIPPED: ContextVar[bool] = ContextVar("_SHIPPED", default=False)
 
 
 def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdict:
@@ -818,7 +813,8 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
 
     A cross-fitted fit is admitted inside the fold-count cap (:data:`MAX_STACK_FOLDS`
     folds, held-out folds of at least :data:`MIN_STACK_FOLD_ROWS` rows), at the fold count
-    the ``ctmle-oat-per-arm-parametric-crossfit`` study measures, on a binary outcome.
+    and with the repeat counts the ``ctmle-oat-per-arm-parametric-crossfit`` study
+    measures, on a binary outcome.
 
     Parameters
     ----------
@@ -896,9 +892,7 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
         resolved = resolve_estimands(estimator.estimands, data.family, data.n_arms)
     except Exception as exc:
         return SupportVerdict(
-            False,
-            "estimands",
-            f"the stacked interval needs estimands that resolve ({exc})",
+            False, "estimands", f"the stacked interval needs estimands that resolve ({exc})"
         )
     if not set(resolved) <= STACKED_ESTIMANDS:
         return SupportVerdict(
@@ -908,7 +902,10 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
             "X58 part (b) holds ey_obs, par and paf",
         )
     splitting = (
-        f"cross-fitted over {estimator.n_folds} folds" if estimator.cross_fit else "in-sample"
+        f"cross-fitted over {estimator.n_folds} folds"
+        + (f" with {estimator.repeats} repeats" if estimator.repeats > 1 else "")
+        if estimator.cross_fit
+        else "in-sample"
     )
     return SupportVerdict(
         True,
@@ -988,9 +985,7 @@ _MSM_REFUSAL = Refusal(
 _SELECTION_SPLIT_BACKSTOP = _POST_DRAW_REMEDY.format(remedy=_SELECTION_SPLIT_REMEDY)
 
 
-def _unordered_candidates(
-    treatment_risk: Sequence[float] | FloatArray,
-) -> tuple[int, ...]:
+def _unordered_candidates(treatment_risk: Sequence[float] | FloatArray) -> tuple[int, ...]:
     """The indices whose treatment loss rises above the previous candidate's by more than a tie.
 
     ``ctmleGeneral`` requires a declared sequence ordered from the least to the most adaptive
@@ -1221,14 +1216,7 @@ class CTMLESelection:
                 ]
             )
         table = format_table(
-            [
-                "k",
-                "candidate g" if indexed else "covariates in g",
-                "steps",
-                "risk",
-                "cv risk",
-                "",
-            ],
+            ["k", "candidate g" if indexed else "covariates in g", "steps", "risk", "cv risk", ""],
             rows,
         )
         criterion = "penalized " if self.penalized else ""
@@ -1320,6 +1308,11 @@ def _stacked_interval_models(estimator: Any) -> str:
         f", cross-fitted over {estimator.n_folds} folds in the exact V-fold stack (one outcome "
         "and one mechanism fit per fold, one pooled fluctuation per arm)"
     )
+    if estimator.repeats > 1:
+        models += (
+            f". Each estimate is the median of {estimator.repeats} cross-fitting repeats, "
+            "with the split-adjusted median variance"
+        )
     return models
 
 
@@ -1564,9 +1557,7 @@ class CTMLEDerivativeFit:
             + "; ".join(
                 f"{before:.3g} / {after:.3g}"
                 for before, after in zip(
-                    self.derivative_score_before,
-                    self.derivative_score_after,
-                    strict=True,
+                    self.derivative_score_before, self.derivative_score_after, strict=True
                 )
             ),
             f"treatment risk: {self.treatment_risk:.6g}",
@@ -1742,10 +1733,7 @@ default="greedy"
             ``"generated_design_plugin"`` for every other ``"oat"`` fit.
         """
         if declares_no_selection(
-            self.strategy,
-            self.candidates,
-            self.treatment_candidates,
-            data.covariate_names,
+            self.strategy, self.candidates, self.treatment_candidates, data.covariate_names
         ):
             return super()._inference_status(data)
         if self.strategy == "derivative":
@@ -1772,9 +1760,10 @@ default="greedy"
 
         An admitted fit whose nuisances do not carry the parametric coefficients, such as a
         retarget that perturbed them, fails on every arm rather than reading a curve built
-        from other arrays.
+        from other arrays. While :meth:`_draw_inference` rebuilds a draw's uncorrected
+        estimates, no fit reads the stack.
         """
-        if not per_arm_parametric_support(self, data).admitted:
+        if _SHIPPED.get() or not per_arm_parametric_support(self, data).admitted:
             return None
         requested = _REQUESTED.get()
         if requested is not None and not set(requested) <= STACKED_ESTIMANDS:
@@ -1913,6 +1902,53 @@ default="greedy"
                 inference=precedent_status([estimate.inference, STACK_FAILURE_STATUS]),
             )
             for name, estimate in estimates.items()
+        }
+
+    def _draw_inference(
+        self,
+        data: CausalData,
+        estimates: Mapping[str, Any],
+        rebuild: Callable[[], Mapping[str, Any]],
+    ) -> dict[str, DrawInference]:
+        """One draw's record, with its stacked curve and its shipped standard error.
+
+        On a fit that :func:`per_arm_parametric_support` admits, the draw's targeting runs
+        again with the stack switched off, so each rebuilt estimate carries the shipped
+        adaptive-propensity curve of that draw. Its standard error is the record's
+        ``shipped_se``. Every other fit keeps the ordinary record.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        estimates : mapping of str to ParameterEstimate
+            The draw's reported estimates.
+        rebuild : callable
+            Reruns the draw's targeting and returns its estimates.
+
+        Returns
+        -------
+        dict of str to DrawInference
+            One record per estimand.
+        """
+        records = super()._draw_inference(data, estimates, rebuild)
+        if not per_arm_parametric_support(self, data).admitted:
+            return records
+        token = _SHIPPED.set(True)
+        try:
+            # The same targeting ran once already, and raised whatever warning it raises.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                shipped = rebuild()
+        finally:
+            _SHIPPED.reset(token)
+        return {
+            name: replace(
+                record,
+                curve=np.array(estimates[name].influence_curve, dtype=float),
+                shipped_se=(float(np.sqrt(shipped[name].variance)) if name in shipped else None),
+            )
+            for name, record in records.items()
         }
 
     def _bootstrap_inferential(self, data: CausalData) -> bool:
@@ -2527,10 +2563,7 @@ default="greedy"
             label = repr(data.arm_label(arm))
             return [
                 (recorded & (treatment == arm), f"no recorded row is in arm {label}"),
-                (
-                    recorded & (treatment != arm),
-                    f"every recorded row is in arm {label}",
-                ),
+                (recorded & (treatment != arm), f"every recorded row is in arm {label}"),
             ]
 
         def observation_rows(arm: float) -> list[tuple[BoolArray, str]]:
@@ -2736,11 +2769,7 @@ default="greedy"
                 else None
             )
             for train, test, layer in sets:
-                x, a, w = (
-                    data.covariates[train],
-                    data.treatment[train],
-                    data.weights[train],
-                )
+                x, a, w = data.covariates[train], data.treatment[train], data.weights[train]
                 if grid is None:
                     pair = _check_penalty_pair(self.lambdas)
                 else:
@@ -2753,10 +2782,7 @@ default="greedy"
                     index, risk = cv_penalty(
                         x, a, w, grid, inner.assignment, classes=arms, layer=layer
                     )
-                    pair = (
-                        float(grid[index]),
-                        float(grid[nearest_neighbour(grid, index)]),
-                    )
+                    pair = (float(grid[index]), float(grid[nearest_neighbour(grid, index)]))
                     cv_risks.append(risk)
                     chosen_risks.append(float(risk[index]))
                 fits = penalty_path(x, a, w, sorted(pair, reverse=True), classes=arms, layer=layer)
@@ -2996,12 +3022,7 @@ default="greedy"
         treatment_learner: Learner,
         *,
         seed: int | None,
-    ) -> tuple[
-        NuisanceEstimates,
-        dict[str, FloatArray],
-        dict[str, Any],
-        FoldCoefficients | None,
-    ]:
+    ) -> tuple[NuisanceEstimates, dict[str, FloatArray], dict[str, Any], FoldCoefficients | None]:
         """Cross-fit ``Qbar -> g`` as one fold-local nuisance algorithm.
 
         The first implementation stitched global out-of-fold ``Qbar`` predictions and
@@ -3105,9 +3126,7 @@ default="greedy"
                 )
                 fold_factors = {
                     "treatment": np.clip(
-                        predict_probabilities(treatment_model, generated[test], arms),
-                        0.0,
-                        1.0,
+                        predict_probabilities(treatment_model, generated[test], arms), 0.0, 1.0
                     )
                 }
                 fold_diagnostics = {"treatment": getattr(treatment_model, "diagnostics_", None)}
@@ -3687,17 +3706,11 @@ class _Selector:
                 curve = mean.influence_curve - reference.influence_curve
             elif estimand == "rr":
                 _, curve = log_ratio_influence(
-                    mean.psi,
-                    mean.influence_curve,
-                    reference.psi,
-                    reference.influence_curve,
+                    mean.psi, mean.influence_curve, reference.psi, reference.influence_curve
                 )
             else:
                 _, curve = log_odds_ratio_influence(
-                    mean.psi,
-                    mean.influence_curve,
-                    reference.psi,
-                    reference.influence_curve,
+                    mean.psi, mean.influence_curve, reference.psi, reference.influence_curve
                 )
             curves.append(np.asarray(curve, dtype=float))
         matrix = np.column_stack(curves)
@@ -3884,12 +3897,7 @@ class _Selector:
 
         def fluctuate(index: int, initial: InitialFit, n_steps: int) -> _Candidate:
             return self._fluctuate(
-                covariates[index],
-                propensities[index],
-                initial,
-                rows,
-                n_steps,
-                labels[index],
+                covariates[index], propensities[index], initial, rows, n_steps, labels[index]
             )
 
         return _indexed_path(len(propensities), self.base.outcome, fluctuate)
@@ -4017,8 +4025,7 @@ class _Selector:
         penalty = self.penalty(targeted, submodel, rows) if self.est.penalty else 0.0
         g = np.clip(propensity.values[rows], _LOSS_EPS, 1.0 - _LOSS_EPS)
         columns = np.array(
-            [propensity.column_for(float(arm)) for arm in self.data.treatment[rows]],
-            dtype=int,
+            [propensity.column_for(float(arm)) for arm in self.data.treatment[rows]], dtype=int
         )
         w = self.data.weights[rows]
         treatment_risk = float(-np.sum(w * np.log(g[np.arange(rows.size), columns])))
@@ -4515,13 +4522,7 @@ def _fit_per_arm_factors(
                         out[at, j] = float(values[0])
                         continue
                 model = fit_on_rows(
-                    learner,
-                    column,
-                    target,
-                    weights,
-                    rows,
-                    "classification",
-                    data.cluster,
+                    learner, column, target, weights, rows, "classification", data.cluster
                 )
                 out[at, j] = np.clip(
                     predict_mean(model, column[test[at]], "classification"), 0.0, 1.0

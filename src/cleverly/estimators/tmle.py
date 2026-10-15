@@ -216,7 +216,7 @@ from ..targets.population_intervention import (
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
-from ._nuisance import KnownPropensity, NuisanceEstimates, RepeatFit, fit_nuisances
+from ._nuisance import DrawInference, KnownPropensity, NuisanceEstimates, RepeatFit, fit_nuisances
 from ._strata import (
     absent_arm_error,
     check_stratified_targets,
@@ -1716,7 +1716,8 @@ class TMLE:
             # ``_retarget_detailed`` applies ``_inference_status`` to what it returns, and to
             # both fold-level reports, so ``per_repeat``, ``median_estimates``,
             # ``result.repeats`` and ``result.cv_targeting`` all carry it.
-            estimates, fluctuations, detail = self._retarget_detailed(
+            retarget = partial(
+                self._retarget_detailed,
                 data,
                 nuisance,
                 estimands=estimands,
@@ -1724,6 +1725,7 @@ class TMLE:
                 g_bounds=config.g_bounds,
                 g_bounds_conditional=config.g_bounds_conditional,
             )
+            estimates, fluctuations, detail = retarget()
             per_repeat.append(estimates)
             repeats.append(
                 RepeatFit(
@@ -1731,6 +1733,10 @@ class TMLE:
                     fluctuations=fluctuations,
                     psi={name: value.psi for name, value in estimates.items()},
                     seed=seed,
+                    # Read before the median, so each draw keeps its own status.
+                    inference=self._draw_inference(
+                        data, estimates, partial(_estimates_of, retarget)
+                    ),
                 )
             )
             details.append(detail)
@@ -1814,6 +1820,35 @@ class TMLE:
             )
 
         return result
+
+    def _draw_inference(
+        self,
+        data: CausalData,
+        estimates: Mapping[str, ParameterEstimate],
+        rebuild: Callable[[], Mapping[str, ParameterEstimate]],
+    ) -> dict[str, DrawInference]:
+        """One draw's own status and standard error per estimand, before the median.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        estimates : mapping of str to ParameterEstimate
+            The draw's reported estimates.
+        rebuild : callable
+            Reruns the draw's targeting and returns its estimates. This hook does not call
+            it; the per-arm :class:`~cleverly.CTMLE` rebuilds the uncorrected estimates.
+
+        Returns
+        -------
+        dict of str to DrawInference
+            One record per estimand, without a curve or a shipped standard error.
+        """
+        del data, rebuild
+        return {
+            name: DrawInference(status=estimate.inference, se=float(np.sqrt(estimate.variance)))
+            for name, estimate in estimates.items()
+        }
 
     def _cv_detail(
         self, details: Sequence[CVTargeting | None], *, cluster: IntArray | None
@@ -5048,6 +5083,13 @@ def correction_parts(
 def _slice_fit(fit: InitialFit, index: IntArray) -> InitialFit:
     """The targeted (or initial) predictions for one subset of rows."""
     return fit.map_arms(lambda values: values[index])
+
+
+def _estimates_of(
+    retarget: Callable[[], tuple[dict[str, ParameterEstimate], Any, Any]],
+) -> dict[str, ParameterEstimate]:
+    """The estimates of one call of a draw's targeting, which also returns its fluctuations."""
+    return retarget()[0]
 
 
 def _in_report_order(
