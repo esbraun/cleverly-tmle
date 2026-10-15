@@ -258,25 +258,38 @@ def sourced_files(runner: Path) -> tuple[Path, ...]:
 _NAMED_RUNNER = re.compile(r"""runner\s*=\s*["'](?P<runner>[^"']+\.R)["']""")
 
 
-def runner_manifests(runner: Path) -> tuple[Path, ...]:
-    """The manifests that hash ``runner``: its own directory's, or for a root runner, those of
-    the studies whose ``Reference.runner`` names it."""
-    if runner.parent != CANONICAL:
-        return (runner.parent / "manifest.json",)
+def _naming_studies(runner: Path) -> tuple[Path, ...]:
+    """The study directories whose ``regenerate.py`` names ``runner`` as its ``Reference.runner``.
+
+    A root runner is named by its file name.  A runner in a container's directory is named by
+    its path from ``tests/canonical``, as ``tmle3_survival/run_study.R`` is.
+    """
+    name = runner.name if runner.parent == CANONICAL else runner.relative_to(CANONICAL).as_posix()
     return tuple(
         sorted(
-            regenerate.parent / "manifest.json"
+            regenerate.parent
             for regenerate in CANONICAL.glob("*/regenerate.py")
             if any(
-                match.group("runner") == runner.name
+                match.group("runner") == name
                 for match in _NAMED_RUNNER.finditer(regenerate.read_text(encoding="utf-8"))
             )
-            and (regenerate.parent / "manifest.json").exists()
         )
     )
 
 
-#: The files a study directory holds before its first run: code, never a result.
+def runner_manifests(runner: Path) -> tuple[Path, ...]:
+    """The manifests that hash ``runner``: its own directory's, else those of the studies whose
+    ``Reference.runner`` names it."""
+    own = runner.parent / "manifest.json"
+    if runner.parent != CANONICAL and (own.exists() or not _naming_studies(runner)):
+        return (own,)
+    return tuple(
+        study / "manifest.json"
+        for study in _naming_studies(runner)
+        if (study / "manifest.json").exists()
+    )
+
+
 _DECLARATION_SUFFIXES = frozenset({".py", ".R", ".md"})
 
 
@@ -336,6 +349,10 @@ def test_every_file_a_runner_sources_is_hashed_by_its_own_manifest(runner: Path)
     """
     if runner.parent != CANONICAL and not _published(runner.parent):
         pytest.skip(f"{_label(runner)} belongs to a declared study that has not run")
+    if runner.parent != CANONICAL and not (runner.parent / "manifest.json").exists():
+        studies = _naming_studies(runner)
+        if studies and not any(_published(study) for study in studies):
+            pytest.skip(f"{_label(runner)} belongs to a declared study that has not run")
     manifests = runner_manifests(runner)
     assert manifests, f"no study manifest hashes {_label(runner)}"
     for path in manifests:
