@@ -874,6 +874,26 @@ class TMLE:
         del data
         return POINT_BOOTSTRAP_INFERENTIAL and not self.cross_fit
 
+    def _builds_default_band(self, data: CausalData) -> bool:
+        """Whether ``simultaneous=True`` builds a band on a fit that supplies inference.
+
+        A hook beside :meth:`_inference_status`. :class:`~cleverly.CTMLE` returns ``False``
+        on a per-arm fit that :func:`~cleverly.estimators.ctmle.per_arm_parametric_support`
+        admits, because no registered study measures a band over the stacked curves.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the estimates are fitted on.
+
+        Returns
+        -------
+        bool
+            ``True``.
+        """
+        del data
+        return True
+
     def _refuse_undeclared_functions(self) -> None:
         """Raise unless every function of the configuration is declared known.
 
@@ -1186,8 +1206,8 @@ class TMLE:
                 self._assessment_method == "collaborative_tmle"
                 # Only a ``CTMLE`` reports this method, and its constructor sets
                 # ``strategy`` before the base constructor asks this policy. The
-                # outcome-adaptive strategy draws no selector folds.
-                and cast("Any", self).strategy != "oat"
+                # outcome-adaptive and derivative strategies draw no selector folds.
+                and cast("Any", self).strategy not in ("oat", "derivative")
             ),
             option_name="cross_fit",
             learned_rule=self.learned_rule is not None,
@@ -1968,6 +1988,7 @@ class TMLE:
         if (
             self.simultaneous
             and len(estimates) > 1
+            and self._builds_default_band(data)
             and supplies_inference(result.inference_status)
             and not has_t_reference(estimates)
         ):

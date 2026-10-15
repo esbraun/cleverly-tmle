@@ -585,6 +585,13 @@ estimate is the mean of $\varphi_1$ over every row. `tests/unit/test_sdr_constru
 the longhand and the two rejected constructions. *Reconsider when* a published result certifies
 the stitched transform of Section 5.3, Step 2, or the recombined ratio that `lmtp` reads.
 
+The sequential g-computation and IPW estimators share plan resolution, masks, designs and the
+mechanism fit with LTMLE. `SequentialGComputation` reads `untargeted_recursion`, the recursion
+that LTMLE fits before its fluctuation, on every row. `SequentialIPW` reads the cumulative
+mechanism product and the clever covariate of LTMLE. Neither fits a fluctuation, and both fit in
+sample only. `tests/unit/test_sequential_baselines.py` checks that the g-computation estimate is
+the first-node mean of the shared recursion (W8).
+
 The incremental estimator `IPSI` shares plan resolution, masks, designs and the mechanism fit
 with LTMLE. An odds-tilt node's factor is computed in the cancelled form
 $(\delta A + 1 - A)/(\delta\pi + 1 - \pi)$. It is never divided by a bounded mechanism.
@@ -635,6 +642,37 @@ cross-fitted training fold with no censored unit predicts one, which is its empi
 nuisance report shows an omission in place of a model row. `survtmle` sets `G_dC = 1` at `t = 1`
 for the same case. `tests/unit/test_no_censoring_node.py` removes the guard and sees the solver
 error return.
+
+Hazard targeting (`survival_model="hazard"`) requires a held baseline decision over a categorical
+treatment and no covariate measured after baseline. It refuses any other design before any learner
+(H1 to H3, H7 and H11 of
+[the hazard refusals](technical-reference/scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
+The hazard model conditions on the baseline treatment and the baseline covariates only. A later
+treatment node or covariate needs its own model and fluctuation. *Reconsider when* a read source gives the hazard
+construction for a treatment at several nodes or for a later covariate.
+
+A one-step hazard fit's levels are non-decreasing in floating point for every regimen and cause.
+Every horizon's plug-in mean reduces its column in one order that does not depend on the values.
+The method `HazardState.levels` holds that reduction. Rounding to nearest is monotone, so this
+order keeps each curve non-decreasing. `tests/unit/test_survival_monotone.py` pins the
+monotonicity with no tolerance.
+*Reconsider when* the plug-in moves to a reduction whose order changes between horizons.
+
+A hazard cell with followers at risk and no event of its cause is held at exactly zero. The
+fluctuation never moves it, and each parameter that reads it takes the `constant_node_plugin`
+status. A cell whose followers all have an event is held at an all-cause hazard of exactly one,
+under the same rule. A clipped cell stops the one-step walk short of the joint score equations.
+`tests/unit/test_hazard_empty_cells.py` and `tests/unit/test_hazard_full_cells.py` show this by
+mutation. *Reconsider when* an interval at such a
+cell ships under [F31](roadmap.md#f31-inference-at-a-boundary-node-estimate).
+
+The isotonic projection (`isotonic=True`) moves the levels and the curve band limits only. The
+critical value and every standard error stay as fitted. Contrasts are rebuilt from the projected
+levels and keep the band built at the unprojected levels. Westling, van der Laan and Carone
+(2020), Theorem 1 (iv) and (v), supports the projected limits.
+The mutations M10 and M13 in `tests/unit/test_isotonic_projection.py` move the influence curve or
+centre the band, and each one fails. *Reconsider when* a registered study shows the pointwise interval at a projected
+level fails where the true curve strictly increases.
 
 ## Weights, bounds, and sensitivity
 

@@ -17,7 +17,9 @@ Three kinds of row can be red, and each is read the way the regeneration gates i
   out when the study declares an accepted reference failure, as ``regenerate.py`` does.
 * A **paired** row of ``equivalence.csv`` that fails.  The verdict is *recomputed* from the
   committed leg endpoints rather than read off ``passed``, and a disagreement is refused.  A
-  ledger that trusted the column would inherit any hand edit to it.
+  ledger that trusted the column would inherit any hand edit to it.  A study with
+  ``paired_role="descriptive"`` publishes no paired verdict, so none of its paired rows is
+  read.
 * A **property** row of ``properties.csv`` that fails its own rule *or* its family's joint
   clause, which is the rule ``claims.property_cells_passed`` counts by.  A diagnostic row
   states no verdict and is never red.  A row that only its property failure accounting
@@ -157,6 +159,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "selector_necessity/empty_control",
             "type_i_error/sharp_null",
             "interval_calibration/correctly_specified",
+        ),
+        # The declared expected red of X16: learners_collaborative fails its bias rule
+        # (design review S3), and the family's joint clause takes the other two cells.
+        *_keys(
+            "canonical-ctmle-sequences",
+            "property",
+            "selector_necessity/learners_collaborative",
+            "selector_necessity/lasso_collaborative",
+            "selector_necessity/empty_control",
         ),
     ),
     "F19": (
@@ -455,6 +466,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "interval_calibration/boot_ate_crossfit__correctly_specified",
         "interval_calibration/boot_ate_clustered__correctly_specified",
     ),
+    # The declared negative control of ``sequential-baselines``: law ``X`` makes every
+    # main-terms ``GLM`` wrong, so the calibration rule must fail.  Nothing is owed.
+    "X41-negative-control": _keys(
+        "sequential-baselines",
+        "property",
+        "misspecification_control/hajek_x_contrast__main_terms",
+        "misspecification_control/ht_x_contrast__main_terms",
+        "misspecification_control/ice_x_contrast__main_terms",
+    ),
     # The smallest-composite arm of the composite study, red in both implementations alike.
     "composite-high-arm": _keys(
         "composite-missing-drtmle",
@@ -525,6 +545,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "sequential_double_robustness/both_correct__n_2000",
         ),
     ),
+    "X16-plugin-variance": (
+        *_keys(
+            "canonical-ctmle-sequences",
+            "truth",
+            "cleverly-ctmle-sequences/binary_lasso/ate",
+        ),
+    ),
 }
 
 
@@ -571,6 +598,10 @@ EXCLUDED_HOOKS: dict[str, str] = {
     "mar-natural-course-tmle": "the exact-equality probe of the scale workaround",
     "mar-attributable-tmle": "the exact-equality probe of the scale workaround on both R paths",
     "stacked-mar-arm-indexed-cvtmle": "the exact-equality probe of the scale workaround",
+    "canonical-ctmle-sequences": (
+        "the replay gates, which compare the full-sample construction and the final step "
+        "with R on R's own arrays"
+    ),
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.
@@ -629,7 +660,9 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     dict
         Each verdict table, keyed by its short name in :data:`FRAMES`, the failure
         accounting under ``accounting`` and the property failure accounting under
-        ``property_accounting``, each empty when the study recorded no failure.
+        ``property_accounting``, each empty when the study recorded no failure.  The paired
+        table of a record with ``paired_role="descriptive"`` is empty, because its rows
+        state no verdict.
 
     Raises
     ------
@@ -637,6 +670,10 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
         If a verdict column is missing or not boolean, as :func:`check_verdict_columns` says.
     """
     tables = {name: pd.read_csv(record.artifact(filename)) for name, filename in FRAMES.items()}
+    if record.paired_role == "descriptive":
+        # A descriptive paired row states no verdict, so the ledger reads none of them and
+        # counts none of them.  The study page publishes the rows themselves.
+        tables["equivalence"] = tables["equivalence"].iloc[0:0]
     check_verdict_columns(tables)
     path = record.artifact(failures.ACCOUNTING)
     tables["accounting"] = (
@@ -845,7 +882,8 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
         )
 
     valid = performance.set_index(["implementation", "scenario", "estimand"])["passed"]
-    for row in tables["equivalence"].itertuples():
+    paired = tables["equivalence"] if record.paired_role == "gated" else tables["equivalence"][:0]
+    for row in paired.itertuples():
         subject_valid = bool(valid.loc[(record.implementation, row.scenario, row.estimand)])
         legs = paired_legs(row, record.margins, subject_valid)
         key = (str(row.scenario), str(row.estimand))

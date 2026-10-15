@@ -500,6 +500,11 @@ class NuisanceEstimates:
     #: must continue from that selected state, while ``outcome`` remains the genuine
     #: initial learner fit used by nuisance diagnostics.
     targeting_outcome: InitialFit | None = None
+    #: The partner mechanism ``g+`` of a C-TMLE0 fit (``CTMLE(strategy="derivative")``),
+    #: untruncated and out of fold when cross-fitted, or ``None`` for every other fit.
+    #: Stored because the derivative columns are rebuilt from it at the bounds of a
+    #: ``retarget``, as :attr:`propensity` is.
+    treatment_partner: Propensity | None = None
     missingness: FloatArray | None = None
     intermediate: FloatArray | None = None
     #: ``P(Delta_A = 1 | W)``, ``(n,)`` and untruncated, on a fit with a declared missing
@@ -778,6 +783,7 @@ def cross_fit_predictions(
     n_jobs: int = 1,
     remedy: str = _CROSS_FIT_REMEDY,
     constant_folds: list[int] | None = None,
+    models: list[Any] | None = None,
 ) -> tuple[dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """Out-of-fold predictions of one nuisance regression.
 
@@ -809,6 +815,11 @@ def cross_fit_predictions(
         target with one observed class.  The one-based index of each such fold is
         appended, and ``0`` stands for the in-sample fit.  Only a binary target with no
         ``classes`` takes it.
+    models:
+        A list that receives the fitted model of an in-sample fit: the learner, or a
+        :class:`ConstantFit` for a target with one value.  ``None`` keeps nothing.  A
+        stacked estimating equation reads the model's coefficients, so only the single
+        fold takes it.
 
     Returns
     -------
@@ -831,6 +842,7 @@ def cross_fit_predictions(
         n_jobs=n_jobs,
         remedy=remedy,
         constant_folds=constant_folds,
+        models=models,
     )
     return predictions, diagnostics
 
@@ -852,6 +864,7 @@ def cross_fit_companion(
     n_jobs: int = 1,
     remedy: str = _CROSS_FIT_REMEDY,
     constant_folds: list[int] | None = None,
+    models: list[Any] | None = None,
 ) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
@@ -884,6 +897,8 @@ def cross_fit_companion(
         raise ValueError("no rows are eligible for fitting this nuisance model")
     if constant_folds is not None and (classes is not None or task != "classification"):
         raise ValueError("constant_folds applies to a binary target with no classes only")
+    if models is not None and not folds.is_single:
+        raise ValueError("models= keeps the in-sample fit; pass the single fold")
 
     def one_value(rows: IntArray) -> float | None:
         """The single target value of ``rows`` with positive weight, or ``None``.
@@ -901,11 +916,11 @@ def cross_fit_companion(
     def fit(rows: IntArray) -> Learner:
         value = one_value(rows)
         if value is not None:
-            return _ConstantFit(value)
+            return ConstantFit(value)
         return fit_on_rows(learner, design, target, weights, rows, task, groups)
 
     def predict(model: Learner, matrix: FloatArray) -> FloatArray:
-        if isinstance(model, _ConstantFit):
+        if isinstance(model, ConstantFit):
             return _clip(np.full(matrix.shape[0], model.value, dtype=float), clip)
         if classes is None:
             return _clip(predict_mean(model, matrix, task), clip)
@@ -920,8 +935,10 @@ def cross_fit_companion(
     if folds.is_single:
         rows = np.flatnonzero(mask)
         model = fit(rows)
-        if constant_folds is not None and isinstance(model, _ConstantFit):
+        if constant_folds is not None and isinstance(model, ConstantFit):
             constant_folds.append(0)
+        if models is not None:
+            models.append(model)
         predictions = {name: predict(model, matrix) for name, matrix in predict_designs.items()}
         companion = {name: values[None, ...] for name, values in companion_at(model, 0).items()}
         diagnostics = getattr(model, "diagnostics_", None)
@@ -978,7 +995,7 @@ def cross_fit_companion(
 
 
 @dataclass(frozen=True)
-class _ConstantFit:
+class ConstantFit:
     """A fold's fit of a binary target that took one value on the fold's training rows.
 
     The maximum-likelihood probability of that value is one, so the fold predicts

@@ -32,10 +32,25 @@ from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet, Stochastic
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
-from .longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult, Repeated
+from .longitudinal import (
+    IPSI,
+    LTMLE,
+    SDR,
+    LongitudinalData,
+    LongitudinalResult,
+    Repeated,
+    SequentialGComputation,
+    SequentialIPW,
+)
 from .longitudinal import estimator as _sequential
+from .longitudinal.estimator import (
+    BASELINE_MSM_REFUSAL,
+    BASELINE_TILT_REFUSAL,
+    IPW_MTP_REFUSAL,
+)
 from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, tilt_nodes
 from .methods import (
+    BASELINE_POINT_REFUSAL,
     IPSI_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
     SDR_POINT_REFUSAL,
@@ -43,7 +58,9 @@ from .methods import (
     CollaborativeTMLEMethod,
     DRTMLEMethod,
     EstimationMethod,
+    GComputationMethod,
     IPSIMethod,
+    IPWMethod,
     MethodAvailability,
     Runtime,
     SDRMethod,
@@ -450,7 +467,8 @@ class PointTreatment:
         in-sample per-arm outcome-adaptive CTMLE. It also identifies regime means and arm
         MSMs on in-sample TMLE fits.
     treatment_probabilities : mapping of level to str, or None
-        The known treatment mechanism of a randomized design: each treatment level mapped to
+        The known treatment mechanism of a randomized design (a tuple of ``(level, column)``
+        pairs, the form the design stores, is also accepted): each treatment level mapped to
         the column that holds ``P(A = level | W)``.  Every method then divides by these
         probabilities in place of an estimate, and the columns are not adjustment
         covariates.  A design names columns, so the array forms of
@@ -544,7 +562,7 @@ class PointTreatment:
             None if vector and self.treatment_kind == "discrete" else self.treatment_kind,
         )
         if self.treatment_probabilities is not None:
-            columns = probability_columns(self.treatment_probabilities)
+            columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
                 raise DataError(
                     "PointTreatment(treatment_probabilities=) maps each treatment level to "
@@ -716,12 +734,43 @@ class PointTreatment:
             )
 
 
+def _stored_pairs(supplied: Any) -> Any:
+    """Read the stored form of a mapping field, a tuple of key and value pairs, as a mapping.
+
+    A frozen design stores each declared mapping as a tuple of pairs, so that the design is
+    hashable.  ``dataclasses.replace`` hands every stored field back to ``__init__``, so each
+    normalizer has to read the form it stores.  Any other value is returned unchanged.  Pairs
+    that repeat a key, or hold an unhashable key, say what a mapping cannot say, so they raise
+    :class:`~cleverly.exceptions.DataError`.
+    """
+    if isinstance(supplied, tuple) and all(
+        isinstance(pair, tuple) and len(pair) == 2 for pair in supplied
+    ):
+        keys = [key for key, _ in supplied]
+        try:
+            distinct = len(set(keys))
+        except TypeError:
+            raise DataError(
+                f"a mechanism declared as pairs needs hashable keys; got {keys!r}"
+            ) from None
+        if distinct != len(keys):
+            repeated = next(key for key in keys if keys.count(key) > 1)
+            raise DataError(
+                f"a mechanism declared as pairs repeats the key {repeated!r}; a mapping "
+                "holds one column for each key"
+            )
+        return dict(supplied)
+    return supplied
+
+
 def _node_probability_columns(supplied: Any) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...]:
     """A longitudinal design's treatment declaration, as hashable column pairs by node."""
     pairs = None
+    supplied = _stored_pairs(supplied)
     if isinstance(supplied, Mapping):
         pairs = tuple(
-            (str(node), probability_columns(per_node)) for node, per_node in supplied.items()
+            (str(node), probability_columns(_stored_pairs(per_node)))
+            for node, per_node in supplied.items()
         )
     if pairs is None or any(columns is None for _, columns in pairs):
         raise DataError(
@@ -735,6 +784,7 @@ def _node_probability_columns(supplied: Any) -> tuple[tuple[str, tuple[tuple[Any
 
 def _censoring_probability_columns(supplied: Any) -> tuple[tuple[str, str], ...]:
     """A longitudinal design's censoring declaration, as hashable column pairs."""
+    supplied = _stored_pairs(supplied)
     if not isinstance(supplied, Mapping) or not all(
         isinstance(column, str) for column in supplied.values()
     ):
@@ -786,7 +836,7 @@ class LongitudinalTreatment:
         held over every node.  The node count then comes from a survival or repeated
         outcome, else from ``censoring``, else from ``time_varying``, else it is one.
     baseline : sequence of str
-        Covariates observed before the first treatment.
+        Covariates observed before the first treatment.  The list names at least one column.
     time_varying : sequence of sequence of str or None
         Covariate blocks observed before each treatment node.
     censoring : sequence of str or None
@@ -810,12 +860,14 @@ class LongitudinalTreatment:
         The doses of each continuous node with a recorded point mass, as
         :meth:`cleverly.longitudinal.LTMLE.fit` takes them.
     treatment_probabilities : mapping or None
-        The known treatment mechanism of a sequentially randomized design: each treatment
+        The known treatment mechanism (a tuple of pairs, the form the design stores, is also
+        accepted) of a sequentially randomized design: each treatment
         node mapped to a mapping of its levels to the column of
         ``P(A_t = level | observed past)``.  A declared node fits no treatment learner.
     censoring_probabilities : mapping or None
-        The known retention probabilities: each censoring column mapped to the column of
-        ``P(C_t = 1 | observed past)``.  A declared node fits no censoring learner.
+        The known retention probabilities (a tuple of pairs is also accepted): each censoring
+        column mapped to the column of ``P(C_t = 1 | observed past)``.  A declared node fits no
+        censoring learner.
 
     See Also
     --------
@@ -1071,7 +1123,7 @@ class TimeToEvent:
     treatment : str
         The baseline treatment column.
     baseline : sequence of str
-        Covariates measured before the treatment.
+        Covariates measured before the treatment.  The list names at least one column.
     grid : sequence of float or None
         The grid times, which are the visit times.  ``None`` needs integer times and uses
         :math:`g_k = k` up to the largest event time.  The fit costs :math:`K(K+1)/2`
@@ -1096,7 +1148,8 @@ class TimeToEvent:
         Whether the treatment is a continuous dose.  A regimen is then a modified treatment
         policy at baseline.
     treatment_probabilities : mapping of level to str, or None
-        The known baseline treatment mechanism of a randomized design: each treatment level
+        The known baseline treatment mechanism (a tuple of ``(level, column)`` pairs is also
+        accepted) of a randomized design: each treatment level
         mapped to the column that holds :math:`P(A = \text{level} \mid W)`.  The fit then
         divides by these probabilities and fits no treatment learner.  A design names
         columns, so the array forms of :meth:`cleverly.longitudinal.LTMLE.fit` are refused
@@ -1145,7 +1198,7 @@ class TimeToEvent:
     def __post_init__(self) -> None:
         object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         if self.treatment_probabilities is not None:
-            columns = probability_columns(self.treatment_probabilities)
+            columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
                 raise DataError(
                     "TimeToEvent(treatment_probabilities=) maps each treatment level to the "
@@ -1285,7 +1338,8 @@ class LongPanel:
     treatment : str or sequence of str
         The decision at each row.  A list of columns is one vector node per time.
     baseline : sequence of str
-        Unit-level covariates measured before the first decision.
+        Unit-level covariates measured before the first decision.  The list names at least one
+        column.
     time_varying : sequence of str
         Covariates measured at each row before that row's decision.
     censoring : str or None
@@ -1316,7 +1370,8 @@ class LongPanel:
         The doses with a recorded point mass at every node.
     treatment_probabilities : mapping of level to str, or None
         The known treatment mechanism: each level mapped to the column that holds
-        ``P(A_t = level | past)`` on each row.
+        ``P(A_t = level | past)`` on each row.  A tuple of ``(level, column)`` pairs, the form
+        the design stores, is also accepted.
     censoring_probabilities : str or None
         The column that holds ``P(C_t = 1 | past)`` on each row.
 
@@ -1378,9 +1433,8 @@ class LongPanel:
         if self.times is not None:
             object.__setattr__(self, "times", tuple(self.times))
         if self.treatment_probabilities is not None:
-            object.__setattr__(
-                self, "treatment_probabilities", tuple(self.treatment_probabilities.items())
-            )
+            declared = _stored_pairs(self.treatment_probabilities)
+            object.__setattr__(self, "treatment_probabilities", tuple(declared.items()))
 
     @property
     def outcome_role(self) -> Any:
@@ -3968,22 +4022,16 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         # would tell them. An effect built without a study cannot answer this, and it
         # claims nothing.
         design = getattr(self._study, "design", None)
-        clustered = getattr(design, "cluster", None) is not None
-        # A design that declares its mechanism leaves C-TMLE nothing to select.
+        # A design that declares its mechanism leaves C-TMLE nothing to select. A design that
+        # declares clusters keeps the method: strategy="derivative" (C-TMLE0) selects
+        # nothing and has the ordinary TMLE's clustered result, and every other strategy
+        # refuses id= before its first learner.
         known = getattr(design, "treatment_probabilities", None) is not None
         collaborative_item = _variant_roadmap("collaborative_tmle", self.functional, design)
         drtmle_item = _variant_roadmap("drtmle", self.functional, design)
         collaborative_blocker = (
             KNOWN_CTMLE_REFUSAL
             if known
-            else Refusal(
-                RefusalReason.IMPLEMENTATION_GAP,
-                "C-TMLE has no clustered result: the search draws selection and nested folds "
-                "of its own, and no reviewed result covers a grouped draw of them.",
-                alternative="Fit method='tmle'.",
-                roadmap="F22",
-            )
-            if clustered
             else blocker
             or Refusal(
                 RefusalReason.IMPLEMENTATION_GAP,
@@ -3992,7 +4040,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 roadmap=collaborative_item,
             )
         )
-        collaborative = variants and not clustered and not known
+        collaborative = variants and not known
         drtmle_blocker = blocker or Refusal(
             RefusalReason.IMPLEMENTATION_GAP,
             "no reduced-dimension correction is evidenced for this functional.",
@@ -4008,6 +4056,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             collaborative_blocker = vector_discrete_treatment_refusal(design.treatment_name)
             drtmle_blocker = drtmle_axis_refusal("policies")
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
+        gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         return (
             MethodAvailability("tmle", tmle, tmle_reason),
             MethodAvailability(
@@ -4018,6 +4067,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             MethodAvailability("drtmle", variants, None if variants else drtmle_blocker),
             MethodAvailability("sdr", sdr, sdr_reason),
             MethodAvailability("ipsi", ipsi, ipsi_reason),
+            MethodAvailability("gcomp", gcomp, gcomp_reason),
+            MethodAvailability("ipw", ipw, ipw_reason),
             MethodAvailability(
                 "riesz_tmle",
                 False,
@@ -4093,6 +4144,45 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             ipsi,
             ipsi_reason,
         )
+
+    def _baseline_methods(self) -> tuple[bool, Refusal | None, bool, Refusal | None]:
+        """Whether ``gcomp`` and ``ipw`` fit this functional, each with its reason.
+
+        Both baselines fit longitudinal regimen means and contrasts only.  They refuse a
+        working model over regimens and an odds tilt whose mechanism is estimated.  ``ipw``
+        also refuses a modified treatment policy, which needs a density ratio it does not fit.
+        On a repeated outcome each is available only when its kind is in
+        ``REPEATED_OUTCOME_KINDS``, as the fit refuses it before any learner.
+        """
+        if not self.functional.longitudinal:
+            return False, BASELINE_POINT_REFUSAL, False, BASELINE_POINT_REFUSAL
+        if self.functional.msm is not None:
+            return False, BASELINE_MSM_REFUSAL, False, BASELINE_MSM_REFUSAL
+        gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_plan_methods()
+        if getattr(getattr(self._study, "data", None), "is_repeated", False):
+            kinds = _sequential.REPEATED_OUTCOME_KINDS
+            if "gcomp" not in kinds:
+                gcomp = False
+                gcomp_reason = _sequential.repeated_outcome_refusal("SequentialGComputation")
+            if "ipw" not in kinds:
+                ipw, ipw_reason = False, _sequential.repeated_outcome_refusal("SequentialIPW")
+        return gcomp, gcomp_reason, ipw, ipw_reason
+
+    def _baseline_plan_methods(self) -> tuple[bool, Refusal | None, bool, Refusal | None]:
+        """The two baselines' availability as the plan set allows."""
+        regimens = self.functional.interventions
+        if declares_tilt(regimens):
+            data = getattr(self._study, "data", None)
+            known = getattr(data, "known_mechanisms", None)
+            n_times = getattr(data, "n_times", 0)
+            declared = known is not None and all(
+                known.treatment_at(time) is not None for time in tilt_nodes(regimens, n_times)
+            )
+            if not declared:
+                return False, BASELINE_TILT_REFUSAL, False, BASELINE_TILT_REFUSAL
+        if declares_mtp(regimens):
+            return True, None, False, IPW_MTP_REFUSAL
+        return True, None, True, None
 
     def summary(self, *, protocol: ProtocolDetail = "full") -> str:
         """Return a readable identification summary.
@@ -4293,6 +4383,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "drtmle": DRTMLEMethod,
                 "sdr": SDRMethod,
                 "ipsi": IPSIMethod,
+                "gcomp": GComputationMethod,
+                "ipw": IPWMethod,
             }
             return constructors[method]().with_overrides(**overrides)
         if not isinstance(method, EstimationMethod):
@@ -4479,11 +4571,15 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     def _estimate_longitudinal(self, method: EstimationMethod) -> LongitudinalResult:
         assert self._study is not None and isinstance(self._study.data, LongitudinalData)
         functional = self.functional
-        engine = (
+        engine: type[Any] = (
             SDR
             if isinstance(method, SDRMethod)
             else IPSI
             if isinstance(method, IPSIMethod)
+            else SequentialGComputation
+            if isinstance(method, GComputationMethod)
+            else SequentialIPW
+            if isinstance(method, IPWMethod)
             else LTMLE
         )
         estimator = engine(

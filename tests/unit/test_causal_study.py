@@ -1221,10 +1221,8 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
         {"targeting_scheme": "foldwise"},
         {"cv_evaluation": True},
         {"fluctuation": "linear"},
-        {"targeting": "one_step"},
         {"nuisance_bound": 0.02},
         {"target_weights": True},
-        {"step_size": 0.002},
     ],
     ids=lambda option: next(iter(option)),
 )
@@ -1233,10 +1231,10 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
 ) -> None:
     """A normalized declaration must reach the engine or fail before construction.
 
-    These are the 15 point-only fields in the shared configuration. ``n_bootstrap``,
-    ``bootstrap_resampling``, ``density_bins`` and ``ratio`` reach ``LTMLE`` and are not in
-    the list. Pinning the whole list prevents a future field from disappearing just because
-    the two engine signatures differ.
+    These are the 13 point-only fields in the shared configuration. ``n_bootstrap``,
+    ``bootstrap_resampling``, ``density_bins``, ``ratio``, ``targeting`` and ``step_size``
+    reach ``LTMLE`` and are not in the list. Pinning the whole list prevents a future field
+    from disappearing just because the two engine signatures differ.
 
     ``stratify_folds`` is refused earlier than the rest: :class:`CrossFitting` now checks
     the fold policy in ``__post_init__``, so ``with_overrides`` itself raises rather than
@@ -1248,6 +1246,31 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
         method = TMLEMethod().with_overrides(**option)
         method.estimator_kwargs(longitudinal=True)
     assert isinstance(raised.value, CleverlyError)
+
+
+@pytest.mark.parametrize(
+    ("option", "engine", "value"),
+    [
+        ({"targeting": "one_step"}, "targeting", "one_step"),
+        ({"step_size": 0.002}, "step_size", 0.002),
+        ({"survival_model": "hazard"}, "survival_model", "hazard"),
+        ({"isotonic": True}, "isotonic", True),
+    ],
+    ids=lambda value: next(iter(value)) if isinstance(value, dict) else None,
+)
+def test_the_survival_curve_options_reach_the_longitudinal_engine(
+    option: dict[str, object], engine: str, value: object
+) -> None:
+    kwargs = TMLEMethod().with_overrides(**option).estimator_kwargs(longitudinal=True)
+    assert kwargs[engine] == value
+
+
+@pytest.mark.parametrize("option", [{"survival_model": "hazard"}, {"isotonic": True}])
+def test_a_point_treatment_translation_refuses_the_survival_curve_options(
+    option: dict[str, object],
+) -> None:
+    with pytest.raises(MethodConfigurationError, match="no curve"):
+        TMLEMethod().with_overrides(**option).estimator_kwargs()
 
 
 def test_cross_fit_false_keeps_its_supported_longitudinal_meaning() -> None:

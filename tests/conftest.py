@@ -251,13 +251,20 @@ def linear_drtmle(**overrides: Any) -> dict[str, Any]:
     }
 
 
-#: One configuration per selector path, for a claim that must hold on all three.  Three
+#: One configuration per selector path, for a claim that must hold on all five.  Three
 #: selection folds keep each search in the fast tier.  The ordered path ranks by a
 #: logistic preorder, so a test can pass any covariate set without an explicit ``ordering``.
+#: The lasso grid ends above 0, so no small fixture meets a separated unpenalized end, and
+#: the learners path declares one candidate, so it selects.
 SELECTOR_CONFIGS: dict[str, dict[str, Any]] = {
     "greedy": {"selection_folds": 3},
     "ordered": {"selection_folds": 3, "preorder": "logistic"},
     "discrete": {"selection_folds": 3, "candidates": ((), ("W1",))},
+    "lasso": {"selection_folds": 3, "lambdas": (0.1, 0.03, 0.01)},
+    "learners": {
+        "selection_folds": 3,
+        "treatment_candidates": (LogisticRegression(C=0.01, max_iter=1000),),
+    },
 }
 
 

@@ -1022,6 +1022,22 @@ sizes only the cluster sum is the delta-method variance of the row mean
   product-rate regime. Separately, the estimator solves extra derivative-score equations and uses
   an undersmoothing condition. It does not cover the package's discrete selector paths, nested
   folds, or joint target vectors.
+  Corollary 4 (Section 3.6, preprint page 15) gives the expansion of the paper's LASSO-C-TMLE. Its
+  extra term $\Delta(P_1)$ is zero by Lemma 2 under a consistent outcome regression and a product
+  rate. The paper gives no estimator of the term otherwise. Section 5.3 estimates the variance with
+  the empirical variance of $D^*$, and Section 5.4 reports that those intervals fail to cover
+  except at large `n`. The `lasso` strategy lies outside the corollary's conditions: its index is a
+  discrete grid, and its stop rule, index rule and final step are the package's own.
+  Section 4.2 (preprint page 17) states the goal of the derivative strategy of `CTMLE`. The first
+  display solves $P_n d_h D^*(\bar{Q}^*, G_{n,\cdot}) = 0$ together with $P_n D^* = 0$. Steps 1 to 3
+  define LASSO-PSEUDO-C-TMLE: the cross-validated penalty, its nearest grid neighbour, and one
+  fluctuation along display (33). Display (33) prints the second direction as $C(G)\,G'$. The goal
+  needs $d_h C(G_h)$, which display (19) gives as $-G'/\ell G^2$. The two directions differ by a
+  row-varying factor. The package fits the derivative of the clever covariate, as R `ctmle` does,
+  and the [C-TMLE0 section](technical-reference/collaborative-tmle.md#c-tmle0-the-derivative-covariate)
+  records this as reading D2. Section 5.3 applies Corollary 4 to the pseudo estimator, but that
+  estimator uses the cross-validated penalty and a finite difference, which Corollary 4 does not
+  cover.
 - Ju, Gruber, Lendle, Chambaz, Franklin, Wyss, Schneeweiss & van der Laan (2019), [*Scalable
   collaborative targeted learning for high-dimensional data*](https://pmc.ncbi.nlm.nih.gov/articles/PMC6086775/),
   *Statistical Methods in Medical Research* 28(2):532-554, DOI 10.1177/0962280217729845,
@@ -1057,6 +1073,18 @@ sizes only the cluster sum is the delta-method variance of the row mean
   Section 4.2 states that the C-TMLE estimator is asymptotically linear under regularity
   conditions and cites earlier work for it. The data analysis in Section 7 forms its intervals from
   the analytic influence curve. The paper states no post-selection theorem.
+  The section 4.2 display (preprint page 7) defines the lasso candidate. Appendix A, Algorithm 1
+  (preprint page 23), gives the indexed construction rule in steps 5 to 12 and the final step in
+  steps 13 to 16. That final step fluctuates the selected candidate's initial fit. The `lasso`
+  strategy of `CTMLE` follows steps 5 to 12. In the final step it fluctuates the targeted fit, as R
+  `ctmleGlmnet` does.
+  The second bullet of Section 4.2, equation (6) (preprint page 8), defines C-TMLE0. It is the TMLE
+  with one extra fluctuation direction, the derivative of the clever covariate in the penalty.
+  Appendix B, Algorithm 2 (preprint pages 23 to 24), states the same steps with a finite
+  difference. Its printed treated-arm term lacks the square that equation (6) carries. The
+  derivative strategy follows equation (6). Its interval rests on the TMLE results of van der Laan
+  and Rubin (2006) and Zheng and van der Laan (2011), because the extra columns leave the
+  efficient influence curve equation solved.
 - Liu (2018), [*Contributions to evolutionary dynamics and causal
   inference*](https://nrs.harvard.edu/urn-3:HUL.InstRepos:41129186), Harvard University
   dissertation. Chapter 2 derives asymptotic laws for C-TMLE coefficients, squared errors,
@@ -1364,6 +1392,15 @@ sizes only the cluster sum is the delta-method variance of the row mean
   an observation weight, and no fit, sum, mean, or variance in them applies one. This source
   supplies no fixed-weight comparison.
 
+  `R/functions_general.R` gives the indexed construction rule that the `lasso` and `learners`
+  strategies follow: the argmin on line 81, the jump on line 124 and the stop on line 129.
+  `R/functions_glmnet.R` gives the same rule over a penalty grid, on lines 184, 253 and 256.
+  [`ctmleGlmnet`, lines 265-325](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_glmnet.R#L265-L325)
+  is the type-1 final step. `R/build_gn_seq.R` builds the `gn_candidates` and `gn_candidates_cv`
+  pair that `PropensityArrays` mirrors. The
+  [collaborative TMLE page](technical-reference/collaborative-tmle.md#candidate-sequences) lists
+  the R behaviors the package does not reproduce.
+
   [`calc_varIC`, lines 39-60](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/functions.R#L39-L60)
   adds a binary logistic parameter-estimation term to each candidate's ATE curve.
   [`ctmleDiscrete`, lines 173-185](https://github.com/jucheng1992/ctmle/blob/18de559f47dc1286617350a0668391e80e1dbf7c/R/ctmle_discrete.R#L173-L185)
@@ -1478,7 +1515,28 @@ sizes only the cluster sum is the delta-method variance of the row mean
 
 ## Longitudinal, survival and marginal structural models
 
-- Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*.
+- Bang & Robins (2005), *Doubly robust estimation in missing data and causal inference models*,
+  *Biometrics* 61(4):962–972. Section 3, p. 966, gives the missing-data recursion. Section 4,
+  p. 969, steps 1 to 5, gives the causal form. `SequentialGComputation` cites it for the ICE
+  recursion. The paper states the causal form for a marginal structural model parameter. The
+  plain g-formula is a special case.
+- Robins, Hernán & Brumback (2000), *Marginal structural models and causal inference in
+  epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
+  eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek
+  form of `SequentialIPW` rests on `CalcIPTW` in R `ltmle` 1.3-0 and the delta method.
+- Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician*
+  56(1):29–38. Read in the 2001 preprint (NCSU Mimeo 2528). Section 2 gives the stacked sandwich
+  variance of a system of estimating equations. The published page and equation numbers are not
+  checked. The stacked curves of the sequential baselines cite it.
+- Lunceford & Davidian (2004), *Stratification and weighting via the propensity score in
+  estimation of causal treatment effects: a comparative study*, *Statistics in Medicine*
+  23(19):2937–2960. Section 3.1, p. 2945, eqs. (13)–(16): with a correctly specified propensity
+  fitted by maximum likelihood, the IPW variance is at most the fixed-propensity variance. The
+  result is for a point treatment.
+- Ertefaie, Hejazi & van der Laan (2023), *Nonparametric inverse-probability-weighted estimators
+  based on the highly adaptive lasso*, *Biometrics* 79(2):1029–1041. Section 3, Theorem 1,
+  gives asymptotic linearity of IPW with an undersmoothed HAL propensity at one time point, for a
+  binary treatment. F35 in the roadmap cites it as the starting point for a longitudinal result.
 - van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
   multiple time point interventions*, DOI
   [10.1515/1557-4679.1370](https://doi.org/10.1515/1557-4679.1370). The intervention-specific
@@ -1506,6 +1564,54 @@ sizes only the cluster sum is the delta-method variance of the row mean
   sets `G_dC = 1` at `t = 1`, and takes a `noCens` branch when no censoring is observed.
   `checkInputs.R` refuses more than two treatment values. The registered study
   `point-treatment-survival` pairs with it.
+- Moore & van der Laan (2009), *Increasing power in randomized trials with right censored
+  outcomes through covariate adjustment*, *Journal of Biopharmaceutical Statistics*
+  19(6):1099–1131, DOI [10.1080/10543400903243017](https://doi.org/10.1080/10543400903243017).
+  Read first-hand in the PubMed Central author manuscript, PMC2895464. The equation numbers below
+  are those of the manuscript. This is a different paper from the Moore & van der Laan (2009) entry
+  in [known treatment mechanisms](#known-treatment-mechanisms). Section 2 defines the visits, the
+  baseline treatment and the coarsening at random. Section 4 gives the log-likelihood (9) and the
+  logistic hazard fluctuation (10). Section 4.1 gives the clever covariates (11) and (12), the joint
+  targeting of both arms (13), and the efficient influence curve (15) and (16). Section 4.1.2 gives
+  the double robustness. `survival_model="hazard"` with `targeting="iterative"` follows Section 4.1.
+- Cai & van der Laan (2020), [*One-step targeted maximum likelihood estimation for time-to-event
+  outcomes*](https://doi.org/10.1111/biom.13172), *Biometrics* 76(3):722–733, DOI
+  10.1111/biom.13172. Read first-hand in [arXiv:1802.09479v3](https://arxiv.org/abs/1802.09479v3),
+  because the journal version is not open access. The locators are those of arXiv v3. This is a
+  different paper from the Cai & van der Laan (2020) bootstrap paper in
+  [collaborative TMLE](#collaborative-tmle). Section 2.1, (2) and (3), gives the efficient influence
+  curve and the clever covariate of a survival probability. Section 4.3 and Algorithm 1 give the
+  per-horizon TMLE and say why its curve is not monotone. Section 5, (12) and Algorithm 2, give
+  the universal least favorable submodel and the one-step TMLE of the whole curve.
+  `targeting="one_step"` follows Algorithm 2.
+- Rytgaard & van der Laan (2024), [*One-step targeted maximum likelihood estimation for targeting
+  cause-specific absolute risks and survival curves*](https://doi.org/10.1093/biomet/asad033),
+  *Biometrika* 111(1):129–145, DOI 10.1093/biomet/asad033. Read first-hand in
+  [arXiv:2107.01537v2](https://arxiv.org/abs/2107.01537v2). The locators are those of arXiv v2.
+  Section 3.1 gives the efficient influence curve and the clever covariates of several causes.
+  Section 3.3, Definition 1, and Section 3.4 give the one-step walk. Remark 2 fixes the metric
+  $\hat\sigma^2 = P_n D^2$ at the initial estimator. Assumption 1 is the positivity condition. The
+  paper works in continuous time, and `cleverly` uses its discrete-time special case. Theorem 1 of
+  Section 4.2 assumes a refining grid, and `cleverly` does not claim it.
+- Westling, van der Laan & Carone (2020), [*Correcting an estimator of a multivariate monotone
+  function with isotonic regression*](https://doi.org/10.1214/20-EJS1740), *Electronic Journal of
+  Statistics* 14(2), DOI 10.1214/20-EJS1740. Read first-hand in
+  [arXiv:1810.09022v2](https://arxiv.org/abs/1810.09022v2). The locators are those of arXiv v2.
+  Section 2.1 projects an estimate onto a monotone function on a grid, which is PAVA in one
+  dimension, and projects both band limits by the same procedure. Theorem 1 (i) bounds the sup
+  error of the projection by that of the estimate. Theorem 1 (iv) keeps the band's coverage, and
+  Theorem 1 (v) keeps its widths. Theorem 2, Corollary 1 and the sentence after it give the
+  pointwise limit under a strictly increasing truth. `isotonic=True` follows Section 2.1.
+- R `survtmle` 1.1.1, `method = "hazard"`, from the archive above. Its file `tmle_hazard.R`
+  targets one `t0` per call and loops while `any(abs(meanIC) > tol) & ct <= maxIter`. The file
+  `hazards_estimate.R` fits the sequential pseudo-hazards
+  $\lambda_j = \rho_j (1 - \sum_{i < j} \lambda_i)$, which the initial fit of
+  `survival_model="hazard"` follows. The file `hazards_fluctuate.R` fluctuates one cause at a time
+  on the scale $1 - \lambda_{\neg j}$. The file `survtmle.R` exports `tol = 1/sqrt(n)` and
+  `maxIter = 10`.
+- The `lmtp` 1.5.4 snapshot above, `R/lmtp_survival.R`. Its function `isotonic_projection` runs
+  `isotone::gpava(1:K, 1 - estimate)` with unit weights over every grid time, and keeps each
+  influence function. `isotonic=True` applies the same arithmetic over the reported horizons.
 - Díaz, Hoffman, Hejazi & Williams (2024), [*Causal survival analysis under competing risks
   using longitudinal modified treatment policies*](https://doi.org/10.1007/s10985-023-09606-7),
   *Lifetime Data Analysis* 30:213–236. The corrected
@@ -1798,6 +1904,17 @@ sizes only the cluster sum is the delta-method variance of the row mean
   main text, so this package did not read it. The main-text locators follow v6. The published
   appendix cites "C.7. Proof of Theorem 2" and "C.10. Proof of Lemma 3 and Theorem 4", which
   match v6.
+- Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician* 56(1):29-38.
+  Section 1 treats a partial M-estimator as an M-estimator by stacking. Section 3 gives the
+  two-stage instrumental-variable example and its lower-triangular Jacobian. This package read the
+  submitted version, so it cites sections and no pages. [Parametric per-arm
+  intervals](technical-reference/collaborative-tmle.md#parametric-per-arm-intervals) uses the
+  triangular structure.
+- van der Vaart (1998), *Asymptotic Statistics*, Cambridge University Press, Section 5.3, Theorem
+  5.21 (p. 52). A Z-estimator is asymptotically linear under a Lipschitz condition on the estimating
+  function, differentiability of the mean estimating function at the limit with a nonsingular
+  derivative, consistency, and a near-zero sample equation. This package read the theorem through
+  secondary sources, not the book, and it quotes no wording.
 - Saul & Hudgens (2020), [*The Calculus of M-Estimation in R with geex*](https://www.jstatsoft.org/article/view/v092i02),
   *Journal of Statistical Software* 92(2), DOI 10.18637/jss.v092.i02. Its general stacked
   estimating-equation method computes a sandwich variance for specified smooth equations. It
@@ -2255,22 +2372,38 @@ both, and sort the transformed limits.
 
 ## The TWINS example
 
-The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these two sources for the data
-and for the reading of its association.
+The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these sources for the data, the
+exposure coverage, and the reading of its birth-weight table.
 
-- Almond, Chay & Lee (2005), [*The costs of low birth weight*](https://doi.org/10.1162/003355305774268228),
-  *Quarterly Journal of Economics* 120(3):1031-1083, DOI 10.1162/003355305774268228.
+- National Center for Health Statistics, linked birth/infant death cohort files for the 1989, 1990,
+  and 1991 birth cohorts, distributed by the
+  [National Bureau of Economic Research](https://www.nber.org/research/data/linked-birthinfant-death-cohort-data).
+  NCHS collected the data, and it is not responsible for any analysis of them. Use of the data
+  signifies agreement with the [NCHS data-use rules](https://www.cdc.gov/nchs/data_access/restrictions.htm):
+  statistical analysis only, and no attempt to identify any person. The 1989 user guide counts the
+  deaths of infants who die before their first birthday (introduction, p. 1, and the note to
+  Table 2, p. 6). The table of items not stated by state of residence in each guide names the states that did not collect the
+  tobacco item: California, Indiana, Louisiana, Nebraska, New York, Oklahoma, and South Dakota in
+  1989 (guide p. 9); California, Indiana, New York, Oklahoma, and South Dakota in 1990 (p. 12);
+  and California, Indiana, New York, and South Dakota in 1991 (p. 9).
 - Louizos, Shalit, Mooij, Sontag, Zemel & Welling (2017), [*Causal effect inference with deep
   latent-variable models*](https://proceedings.neurips.cc/paper/2017/hash/94b5bde6de888ddf9cde6748ad2523d1-Abstract.html),
   *Advances in Neural Information Processing Systems* 30 (NIPS 2017). Section 4.3 describes the
-  TWINS benchmark. It keeps pairs in which both twins weigh less than 2 kg, and it defines
-  treatment as being the heavier twin.
+  TWINS benchmark. The notebook uses the CSV extraction of the
+  [CEVAE repository](https://github.com/AMLab-Amsterdam/CEVAE/tree/9081f863e24ce21bd34c8d6a41bf0edc7d1b65dd/datasets/TWINS),
+  which holds the same-sex twin pairs of the three cohorts without the pairs of equal birth
+  weight. The repository states no licence.
+- Hernández-Díaz, Schisterman & Hernán (2006), [*The birth weight "paradox"
+  uncovered?*](https://doi.org/10.1093/aje/kwj275), *American Journal of Epidemiology*
+  164(11):1115-1120, DOI 10.1093/aje/kwj275. It uses the 1991 US linked file with maternal smoking
+  as the exposure. Figure 3 gives the causal graphs, and the discussion explains the paradox as
+  selection bias from stratification on birth weight, which smoking affects and which shares
+  unmeasured causes, such as birth defects, with infant mortality.
 
-The notebook also cites two sources for its sensitivity analysis. Their entries are under
+The notebook also cites one source for its sensitivity analysis. Its entry is under
 [sensitivity analysis](#sensitivity-analysis).
 
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026), for the omitted-variable bounds.
-- VanderWeele & Ding (2017), for the E-value.
 
 ## Proposed methods on the roadmap
 

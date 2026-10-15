@@ -23,6 +23,7 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
+from .._refusal import NO_ALTERNATIVE
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
 from ..exceptions import (
@@ -86,7 +87,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         ValidationReport,
     )
     from ..validation.score import ScoreCheck
-    from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+    from .ctmle import CTMLEDerivativeFit, CTMLEOutcomeAdaptiveFit, CTMLESelection
 
 __all__ = [
     "ALL_ESTIMANDS",
@@ -879,7 +880,9 @@ class TMLEResult:
         return value if isinstance(value, CVTargeting) else None
 
     @property
-    def ctmle_selection(self) -> CTMLESelection | CTMLEOutcomeAdaptiveFit | None:
+    def ctmle_selection(
+        self,
+    ) -> CTMLESelection | CTMLEOutcomeAdaptiveFit | CTMLEDerivativeFit | None:
         """The collaborative selection artifact a C-TMLE fit retained, if any.
 
         The sibling of :attr:`cv_targeting` for the ``ctmle`` key, and typed for the same
@@ -892,10 +895,11 @@ class TMLEResult:
         :mod:`cleverly.estimators.ctmle` imports this module, so the dependency only runs
         in the direction the package already has.
         """
-        from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+        from .ctmle import CTMLEDerivativeFit, CTMLEOutcomeAdaptiveFit, CTMLESelection
 
         value = self.extra.get("ctmle")
-        return value if isinstance(value, CTMLESelection | CTMLEOutcomeAdaptiveFit) else None
+        kinds = CTMLESelection | CTMLEOutcomeAdaptiveFit | CTMLEDerivativeFit
+        return value if isinstance(value, kinds) else None
 
     # ------------------------------------------------------------- contrasts
 
@@ -1567,6 +1571,20 @@ class TMLEResult:
             table = format_table(["estimand", "psi", record.summary_label], rows)
         else:
             for name, estimate in self.estimates.items():
+                if not estimate.supplies_inference:
+                    # A parameter status beside an inferential fit status: the row prints
+                    # its point and withholds the rest, and a note below names the status.
+                    rows.append(
+                        [
+                            name,
+                            f"{estimate.psi:.5g}",
+                            "-",
+                            "-",
+                            "-",
+                            *(["-"] if t_reference else []),
+                        ]
+                    )
+                    continue
                 low, high = estimate.ci
                 rows.append(
                     [
@@ -1610,6 +1628,28 @@ class TMLEResult:
             # thing that belongs there.
             parts.append("")
             parts.append(record.summary_note())
+        else:
+            withheld: dict[str, list[str]] = {}
+            for name, estimate in self.estimates.items():
+                if not estimate.supplies_inference:
+                    withheld.setdefault(estimate.inference, []).append(name)
+            for flagged, names in withheld.items():
+                withheld_record = status_record(flagged)
+                spreads = ", ".join(
+                    f"{name} {self.estimates[name].plugin_std_error:.4g}" for name in names
+                )
+                alternative = (
+                    ""
+                    if withheld_record.alternative == NO_ALTERNATIVE
+                    else f" {withheld_record.alternative}"
+                )
+                parts.append("")
+                parts.append(f"rows withheld ({', '.join(names)}): {flagged}")
+                parts.append(
+                    f"{withheld_record.summary_label} (a diagnostic, not a standard error): "
+                    + spreads
+                )
+                parts.append(withheld_record.reason + alternative)
         if self.n_repeats > 1:
             # Printed under the table rather than left to the scope document, because a
             # reader who subtracts two rows of that table gets a third number the fit

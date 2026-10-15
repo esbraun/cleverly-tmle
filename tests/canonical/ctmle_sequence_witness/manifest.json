@@ -1,0 +1,876 @@
+{
+  "covariates": [
+    "W1",
+    "W2",
+    "W3",
+    "W4",
+    "W5",
+    "W6"
+  ],
+  "ctmle_commit": "18de559f47dc1286617350a0668391e80e1dbf7c",
+  "facts": {
+    "R_version": "4.5.2",
+    "SuperLearner_version": "2.0.40",
+    "ctmle_version": "0.1.2",
+    "default_path_length": "100",
+    "default_path_min_lambda": "2.4655612478464153e-05",
+    "general_best_k": "21",
+    "glmnet_best_k": "6",
+    "glmnet_est": "0.1687376668085141",
+    "glmnet_var_psi": "0.0012112331580329749",
+    "glmnet_version": "4.1.10",
+    "lambda_max": "0.24655612478464123",
+    "lambda_max_weighted": "0.24195630802403179",
+    "self_gap_binary": "1.8255211453599429e-08",
+    "self_gap_multinomial": "8.1912096772107645e-08",
+    "self_gap_weighted": "1.7884626501984968e-08"
+  },
+  "glmnet_control": {
+    "devmax": 1,
+    "fdev": 0
+  },
+  "grid_size": 20,
+  "image": "cleverly-ctmle-reference:18de559",
+  "image_id": "sha256:cea701433cddebdea2ff543a935d5efa93a99e8add3fdd51a94552c11e8d4888",
+  "n": 1000,
+  "prediction_tolerance": {
+    "binary": 1.825521145359943e-07,
+    "multinomial": 8.191209677210765e-07,
+    "weighted": 1.7884626501984968e-07
+  },
+  "search": [
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0320, 0.9803]",
+      "seed": 20261600,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261601,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261602,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261603,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261604,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0282, 0.9814]",
+      "seed": 20261605,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261606,
+      "stage": "package"
+    },
+    {
+      "reason": "length of 'dimnames' [1] not equal to array extent",
+      "seed": 20261607,
+      "stage": "R"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0226, 0.9838]",
+      "seed": 20261608,
+      "stage": "package"
+    },
+    {
+      "reason": "length of 'dimnames' [1] not equal to array extent",
+      "seed": 20261609,
+      "stage": "R"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261610,
+      "stage": "package"
+    },
+    {
+      "reason": "length of 'dimnames' [1] not equal to array extent",
+      "seed": 20261611,
+      "stage": "R"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261612,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261613,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261614,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261615,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261616,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261617,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261618,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0328, 0.9860]",
+      "seed": 20261619,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261620,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261621,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261622,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261623,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261624,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261625,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261626,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261627,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261628,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261629,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261630,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261631,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261632,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0273, 0.9823]",
+      "seed": 20261633,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261634,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261635,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261636,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0140, 0.9811]",
+      "seed": 20261637,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0191, 0.9762]",
+      "seed": 20261638,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261639,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261640,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261641,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0209, 0.9828]",
+      "seed": 20261642,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261643,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261644,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0194, 0.9831]",
+      "seed": 20261645,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0300, 0.9911]",
+      "seed": 20261646,
+      "stage": "package"
+    },
+    {
+      "reason": "length of 'dimnames' [1] not equal to array extent",
+      "seed": 20261647,
+      "stage": "R"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261648,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261649,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0110, 0.9708]",
+      "seed": 20261650,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261651,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261652,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261653,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261654,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0131, 0.9782]",
+      "seed": 20261655,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261656,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0382, 0.9863]",
+      "seed": 20261657,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0104, 0.9862]",
+      "seed": 20261658,
+      "stage": "package"
+    },
+    {
+      "reason": "length of 'dimnames' [1] not equal to array extent",
+      "seed": 20261659,
+      "stage": "R"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0256, 0.9830]",
+      "seed": 20261660,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0258, 0.9804]",
+      "seed": 20261661,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0218, 0.9821]",
+      "seed": 20261662,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261663,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0259, 0.9898]",
+      "seed": 20261664,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0321, 0.9881]",
+      "seed": 20261665,
+      "stage": "package"
+    },
+    {
+      "reason": "length of 'dimnames' [1] not equal to array extent",
+      "seed": 20261666,
+      "stage": "R"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0301, 0.9866]",
+      "seed": 20261667,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261668,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261669,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261670,
+      "stage": "package"
+    },
+    {
+      "reason": "a deciding score gap of 3.48e-07 is not above 1e-06",
+      "seed": 20261671,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261672,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0396, 0.9844]",
+      "seed": 20261673,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261674,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0159, 0.9764]",
+      "seed": 20261675,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261676,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261677,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261678,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0487, 0.9838]",
+      "seed": 20261679,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261680,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0374, 0.9892]",
+      "seed": 20261681,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261682,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261683,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261684,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261685,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261686,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261687,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0221, 0.9878]",
+      "seed": 20261688,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0279, 0.9899]",
+      "seed": 20261689,
+      "stage": "package"
+    },
+    {
+      "reason": "the final step picks index 19, an end of the remaining penalties (W3)",
+      "seed": 20261690,
+      "stage": "R"
+    },
+    {
+      "reason": "the final step picks index 19, an end of the remaining penalties (W3)",
+      "seed": 20261691,
+      "stage": "R"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261692,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0191, 0.9746]",
+      "seed": 20261693,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261694,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261695,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261696,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261697,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261698,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0073, 0.9746]",
+      "seed": 20261699,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261700,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261701,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0218, 0.9842]",
+      "seed": 20261702,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0393, 0.9870]",
+      "seed": 20261703,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261704,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0220, 0.9853]",
+      "seed": 20261705,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0187, 0.9758]",
+      "seed": 20261706,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261707,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261708,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0293, 0.9857]",
+      "seed": 20261709,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0125, 0.9802]",
+      "seed": 20261710,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0080, 0.9892]",
+      "seed": 20261711,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261712,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261713,
+      "stage": "package"
+    },
+    {
+      "reason": "length of 'dimnames' [1] not equal to array extent",
+      "seed": 20261714,
+      "stage": "R"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261715,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0308, 0.9811]",
+      "seed": 20261716,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261717,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261718,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0278, 0.9867]",
+      "seed": 20261719,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0297, 0.9900]",
+      "seed": 20261720,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261721,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261722,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261723,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0233, 0.9830]",
+      "seed": 20261724,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0152, 0.9775]",
+      "seed": 20261725,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261726,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261727,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261728,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261729,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261730,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0182, 0.9698]",
+      "seed": 20261731,
+      "stage": "package"
+    },
+    {
+      "reason": "a deciding score gap of 4.26e-07 is not above 1e-06",
+      "seed": 20261732,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0226, 0.9868]",
+      "seed": 20261733,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261734,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261735,
+      "stage": "package"
+    },
+    {
+      "reason": "length of 'dimnames' [1] not equal to array extent",
+      "seed": 20261736,
+      "stage": "R"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0197, 0.9750]",
+      "seed": 20261737,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261738,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261739,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261740,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261741,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261742,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0341, 0.9868]",
+      "seed": 20261743,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0497, 0.9841]",
+      "seed": 20261744,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261745,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261746,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261747,
+      "stage": "package"
+    },
+    {
+      "reason": "the final step picks index 19, an end of the remaining penalties (W3)",
+      "seed": 20261748,
+      "stage": "R"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261749,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0488, 0.9880]",
+      "seed": 20261750,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0440, 0.9859]",
+      "seed": 20261751,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261752,
+      "stage": "package"
+    },
+    {
+      "reason": "length of 'dimnames' [1] not equal to array extent",
+      "seed": 20261753,
+      "stage": "R"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0394, 0.9863]",
+      "seed": 20261754,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261755,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0100, 0.9891]",
+      "seed": 20261756,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261757,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0124, 0.9793]",
+      "seed": 20261758,
+      "stage": "package"
+    },
+    {
+      "reason": "the path accepts 1 candidate(s); W1 needs two",
+      "seed": 20261759,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0191, 0.9682]",
+      "seed": 20261760,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0171, 0.9762]",
+      "seed": 20261761,
+      "stage": "package"
+    },
+    {
+      "reason": "the initial Q leaves (0.02, 0.98): [0.0170, 0.9548]",
+      "seed": 20261762,
+      "stage": "package"
+    }
+  ],
+  "seed": 20261763,
+  "sha256": {
+    "coef_multinomial.csv": "b9aa29ae4d2697a6ab9696992523e598d907393888be676d53e62b4a277da0f6",
+    "coef_tight.csv": "ec7284871d951fbc11f3895f74d0bd42a48ffd40154b7b7e3db4f0b172e9a940",
+    "coef_weighted.csv": "016a1786ff59337cdd407073bf5e984732738fccf8d69126217a70a0c0f3516e",
+    "facts.csv": "ef1d7d152fb43689c07bd078667e7d4a2099385977499f065e5df74292ab331e",
+    "g_final_cols.csv": "0ee4de352e146a35f59b66dc480d56a01f97c5cfaa8fd08fbff05c46a134ad33",
+    "g_glm.csv": "ce57a425e54bd3b11a7c662f597b2ee4937fc56e1a73c3a22e870faf87e1e380",
+    "g_internal.csv": "dd544148b1855dffe576588041e67d249db263af3a663f0b2816cb15212feb28",
+    "g_multinomial.csv": "f57e055cc4aff18db1c86c5c67985accc24e33df9235756def3aca17429675f0",
+    "g_tight.csv": "6f118d6b2d909d6d28150e908f6c75d4cc0ccf2865b1ec2e4bcfdb532bad1c7e",
+    "g_weighted.csv": "3380783fa1a71216dfa818f70c409e2a2e8b21d17ee535bea150efccb8fd9d6d",
+    "general_path.csv": "eda539c9ed41fcf8708b82f2d060aa52b707f61daf051e5cdcfc5cbe6a036930",
+    "glmnet_path.csv": "38f4c0e3e66858e7ebcf66b758e51e6bc7c8d45b902dba74dc34b3942ebae1a7",
+    "grid.csv": "476eb52415b1e6b65e9f2b2674b9edf44f553ff6ef531675135c36d42c95102b",
+    "inputs.csv": "f52a3833281bf4ff8de20aab24889e062f4ef5060f67288b0fe2321180668e6e",
+    "witness.R": "eed9db94347b130b9293bcc1ab6dbadbe6f4ece9aa137ab9474f4e5e9a354deb"
+  }
+}
