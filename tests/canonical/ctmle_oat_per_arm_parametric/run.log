@@ -1,0 +1,21 @@
+=== ctmle-oat-per-arm-parametric declared run
+command: /home/claude/cleverly-tmle/.venv/bin/python /home/claude/cleverly-tmle/tests/canonical/ctmle_oat_per_arm_parametric/regenerate.py --output /home/claude/x58_study_out --jobs 3
+commit: d1c76285e1cf015e9efadbf5ae9c865f93bfd671; upstream d1c76285e1cf015e9efadbf5ae9c865f93bfd671
+clean tree: True
+cleverly 0.1.3 from /home/claude/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 f77d5ec97893bb96ecb91ed8b6bd2b43f0f1fd13025fd95da005fd7a2636c2b0
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-15T11:39:47+00:00
+finished: 2026-10-15T12:59:35+00:00
+wall seconds: 4787.9
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 96a719da05cc54421084f974bdb610dd79d9a39b3253adf2235534113e4f3da6
+sha256 performance-tests.csv: c1382f280d13dd602e256eca6cbb96e0548b17234bc966a53ebbb6eeaaab4435
+sha256 properties.csv: 6d1ad0b44c86de28ff21e48dced6943e4974aa8bd90ab4b5f02378f1cfd882e2
+sha256 property-replicates.csv.gz: 1131c54b22cc22eeadc8b286d514e7e6e1c1f7aeb8e836b55cf9825543bb426e
+sha256 replicates.csv.gz: 86a8ccd08e4c3348ff6253c9e5fcdcf31f866217c3e899a52817a31986c9cc28
+sha256 summary.csv: 843d3e867cf1b3b842c71c5de16957566851e4f5768d95b1d8762b3ba8b75257
+
