@@ -639,9 +639,6 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("targeting", "nuisance_bound", "nuisance_bound"),
     ("targeting", "target_weights", "target_weights"),
     ("targeting", "step_size", "step_size"),
-    # Removed when the sequential engines apply the rule per node (X22 G4); until then a
-    # declared rule is refused rather than dropped.
-    ("targeting", "stopping", "stopping"),
 )
 
 
@@ -841,6 +838,7 @@ class TMLEMethod:
                     "censoring_learner": models.censoring_learner,
                     "n_bootstrap": inference.n_bootstrap,
                     "bootstrap_resampling": inference.bootstrap_resampling,
+                    "stopping": targeting.stopping,
                 }
             )
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a
@@ -1139,8 +1137,8 @@ class SDRMethod(TMLEMethod):
         Sample-splitting settings.  Above one fold, each fold fits every nuisance on its
         training rows.
     targeting : Targeting
-        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
-        refused, because the estimator fits no fluctuation.
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter``, ``tol`` and
+        ``stopping`` are refused, because the estimator fits no fluctuation.
     inference : Inference
         Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
         with no percentile inference.
@@ -1193,13 +1191,14 @@ class SDRMethod(TMLEMethod):
             ("submodel_alpha", "alpha"),
             ("max_iter", "max_iter"),
             ("tol", "tol"),
+            ("stopping", "stopping"),
         ):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(engine_name))
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol"):
+        for engine_name in ("alpha", "max_iter", "tol", "stopping"):
             del kwargs[engine_name]
         return kwargs
 
@@ -1224,8 +1223,8 @@ class IPSIMethod(TMLEMethod):
         Sample-splitting settings.  Above one fold, each fold fits every nuisance on its
         training rows.
     targeting : Targeting
-        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
-        refused, because the estimator fits no fluctuation.
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter``, ``tol`` and
+        ``stopping`` are refused, because the estimator fits no fluctuation.
     inference : Inference
         Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
         with no percentile inference.
@@ -1274,12 +1273,12 @@ class IPSIMethod(TMLEMethod):
         if not longitudinal:
             raise MethodConfigurationError.from_refusal(IPSI_POINT_REFUSAL)
         defaults = Targeting()
-        for field_name in ("submodel_alpha", "max_iter", "tol"):
+        for field_name in ("submodel_alpha", "max_iter", "tol", "stopping"):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(IPSI_NO_FLUCTUATION)
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol"):
+        for engine_name in ("alpha", "max_iter", "tol", "stopping"):
             del kwargs[engine_name]
         return kwargs

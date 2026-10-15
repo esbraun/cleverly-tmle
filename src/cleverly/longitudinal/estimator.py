@@ -82,7 +82,7 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
-from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
+from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner, StoppingRule
 from ..exceptions import (
     CapabilityError,
     CleverlyError,
@@ -95,6 +95,7 @@ from ..exceptions import (
     Refusal,
     RefusalReason,
 )
+from ..fluctuation._score import check_stopping_rule
 from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
     cluster_inference_status,
@@ -217,7 +218,7 @@ LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
 
 #: The :class:`LTMLE` settings that :class:`SDR` refuses, through
 #: :func:`~cleverly.methods.sdr_no_fluctuation_refusal`.
-SDR_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol")
+SDR_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol", "stopping")
 
 
 #: Why a one-step level can leave the outcome range, by estimator.
@@ -880,6 +881,8 @@ class _LongitudinalReplayRecipe:
     omissions: tuple[str, ...] = ()
     #: ``"tmle"``, ``"sdr"`` or ``"ipsi"``: which recursion a replay repeats.
     estimator: str = "tmle"
+    #: The stopping rule of a TMLE fit's node solves, ``"relative"`` unless the fit declared one.
+    stopping: str = "relative"
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a persisted recipe, then retake ownership of its plan matrices.
@@ -947,6 +950,7 @@ def _replay_recipe(
     tol: float | None,
     n_jobs: int,
     estimator: str = "tmle",
+    stopping: str = "relative",
 ) -> _LongitudinalReplayRecipe:
     """Freeze resolved plans and clone the unfitted recursive learner specifications.
 
@@ -977,6 +981,7 @@ def _replay_recipe(
         n_jobs=n_jobs,
         omissions=tuple(dict.fromkeys(omissions)),
         estimator=estimator,
+        stopping=stopping,
     )
 
 
@@ -2698,6 +2703,7 @@ def _run_recursion(
     n_jobs: int,
     estimator: str = "tmle",
     fold_mechanisms: Sequence[FoldMechanism] = (),
+    stopping: str = "relative",
 ) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
     """Run the backward recursion over every reported cell, and file the fits by key.
 
@@ -2750,6 +2756,8 @@ def _run_recursion(
         Which recursion runs.
     fold_mechanisms : sequence of FoldMechanism
         Each outer fold's own mechanism, on a cross-fitted SDR or IPSI fit.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides each node's score equation is solved.  Only a TMLE fit reads it.
 
     Returns
     -------
@@ -2798,6 +2806,7 @@ def _run_recursion(
         "max_iter": max_iter,
         "tol": tol,
         "n_jobs": n_jobs,
+        "stopping": stopping,
     }
     # ``None`` on a single-event or end-of-study fit, so the comprehension below is one
     # loop deeper for every fit and a second code path for none.
@@ -3444,7 +3453,7 @@ class _SequentialEstimator:
 
     def _targeting(self) -> dict[str, Any]:
         """The fluctuation settings the recursion and the replay recipe take."""
-        return {"alpha": None, "max_iter": None, "tol": None}
+        return {"alpha": None, "max_iter": None, "tol": None, "stopping": "relative"}
 
     def _pseudo_learner(self) -> Learner:
         """The learner of every node before the horizon."""
@@ -4321,7 +4330,18 @@ class LTMLE(_SequentialEstimator):
     max_iter : int
         Maximum targeting iterations per node.
     tol : float
-        Targeting tolerance per node.
+        Targeting tolerance per node.  It is the bar of ``stopping="relative"``.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides each node's score equation is solved.  ``"relative"`` is the
+        shipped test, ``tol`` on the score relative to its largest possible magnitude.
+        ``"sample_size"`` stops a node when its score, in the outcome's units, is at most
+        ``1 / n_u``, and ``"scaled_var"`` when it is at most ``sd / (sqrt(n_u) * min(log n_u,
+        10))``, as ``tmle3`` does.  Here ``n_u`` is the number of distinct units, clusters
+        when the data declare ``id=``, among the rows of the panel, and ``sd`` is the sample
+        standard deviation of the node's per-unit score contribution.  A node stops at the
+        first Newton iterate that meets the rule, so a declared rule changes ``converged``,
+        ``n_iter`` and the warning, and it moves the estimate by the part of the last Newton
+        step it skips.
     random_state : int or None
         The seed of the outer split.  A default learner, and a
         :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
@@ -4382,11 +4402,13 @@ class LTMLE(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        stopping: StoppingRule = "relative",
         **refused: Any,
     ) -> None:
         self.alpha = alpha
         self.max_iter = max_iter
         self.tol = tol
+        self.stopping = stopping
         super().__init__(
             regimens,
             reference=reference,
@@ -4424,10 +4446,16 @@ class LTMLE(_SequentialEstimator):
             )
         if self.max_iter < 1:
             raise ValueError(f"max_iter must be at least 1; got {self.max_iter}")
+        check_stopping_rule(self.stopping, "logistic")
 
     def _targeting(self) -> dict[str, Any]:
-        """The logistic shrink, the iteration limit and the score tolerance."""
-        return {"alpha": self.alpha, "max_iter": self.max_iter, "tol": self.tol}
+        """The logistic shrink, the iteration limit, the score tolerance and the stopping rule."""
+        return {
+            "alpha": self.alpha,
+            "max_iter": self.max_iter,
+            "tol": self.tol,
+            "stopping": self.stopping,
+        }
 
 
 class SDR(_SequentialEstimator):
@@ -4509,7 +4537,7 @@ class SDR(_SequentialEstimator):
     ratio : {"density", "classifier"}
         How a continuous node's policy ratio is estimated, as for :class:`LTMLE`.
     **refused : Any
-        ``alpha``, ``max_iter`` and ``tol``, which raise
+        ``alpha``, ``max_iter``, ``tol`` and ``stopping``, which raise
         :class:`MethodConfigurationError` because the
         estimator fits no fluctuation, and each point-treatment keyword that
         :class:`LTMLE` refuses.
@@ -4648,7 +4676,14 @@ class SDR(_SequentialEstimator):
 
 
 #: The settings :class:`IPSI` refuses with :data:`~cleverly.methods.IPSI_NO_FLUCTUATION`.
-IPSI_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol", "targeting", "fluctuation")
+IPSI_REFUSED_SETTINGS: tuple[str, ...] = (
+    "alpha",
+    "max_iter",
+    "tol",
+    "stopping",
+    "targeting",
+    "fluctuation",
+)
 
 
 class IPSI(_SequentialEstimator):
@@ -4731,9 +4766,9 @@ class IPSI(_SequentialEstimator):
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     **refused : Any
-        ``alpha``, ``max_iter``, ``tol``, ``targeting`` and ``fluctuation``, which raise
-        :class:`MethodConfigurationError` because the estimator fits no fluctuation, and each
-        point-treatment keyword that :class:`LTMLE` refuses.
+        ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``targeting`` and ``fluctuation``, which
+        raise :class:`MethodConfigurationError` because the estimator fits no fluctuation, and
+        each point-treatment keyword that :class:`LTMLE` refuses.
 
     See Also
     --------
@@ -5061,6 +5096,7 @@ def _refit_bound(
         n_jobs=recipe.n_jobs,
         estimator=recipe.estimator,
         fold_mechanisms=result.fold_mechanisms,
+        stopping=recipe.stopping,
     )
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.

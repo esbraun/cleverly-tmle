@@ -664,11 +664,10 @@ class TestPlumbing:
         assert estimator.targeting_spec().stopping == "sample_size"
         assert TMLE(**linear_in_sample()).targeting_spec().stopping == "relative"
 
-    def test_a_longitudinal_design_refuses_a_declared_rule_until_it_applies_one(self) -> None:
+    def test_a_longitudinal_design_carries_a_declared_rule_to_the_engine(self) -> None:
         method = TMLEMethod().with_overrides(stopping="sample_size")
-        with pytest.raises(MethodConfigurationError, match="point-treatment option"):
-            method.estimator_kwargs(longitudinal=True)
-        TMLEMethod().estimator_kwargs(longitudinal=True)
+        assert method.estimator_kwargs(longitudinal=True)["stopping"] == "sample_size"
+        assert TMLEMethod().estimator_kwargs(longitudinal=True)["stopping"] == "relative"
 
     def test_the_default_rule_fits_the_same_as_leaving_it_out(self) -> None:
         rng = np.random.default_rng(2)
