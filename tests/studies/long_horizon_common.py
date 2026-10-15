@@ -498,9 +498,11 @@ def fit(
     specs = dict(regimens) if regimens is not None else plans_.regimens(plans, K, m)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        # A working model reports coefficients, so it takes no reference.
+        if "msm" not in extra:
+            extra["reference"] = next(iter(specs))
         model = cls(
             specs,
-            reference=next(iter(specs)),
             outcome_learner=outcome,
             pseudo_learner=pseudo_learner,
             n_folds=n_folds,
