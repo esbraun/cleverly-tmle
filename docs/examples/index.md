@@ -99,7 +99,7 @@ This program differs from the health program in four ways.
 
 | tutorial | the evaluation question | method entry | the failure mode it demonstrates |
 | --- | --- | --- | --- |
-| [Sequential offers](sequential-offers.ipynb) | which of five weekly offer policies gives the most full-price orders in week 4, and which policy beats which | [entry](../technical-reference/longitudinal-tmle.md#known-node-mechanisms) and [sequential baselines](../technical-reference/sequential-baselines.md) | a paired comparison that ignores the shared sample overstates the standard error of a difference between policies |
+| [Sequential offers](sequential-offers.ipynb) | which of five weekly offer policies gives the most full-price orders in week 4, and which policy beats which | [entry](../technical-reference/longitudinal-tmle.md#known-node-mechanisms) and [sequential baselines](../technical-reference/sequential-baselines.md) | an unpaired comparison of two policies, which ignores the shared sample, overstates the standard error of their difference |
 
 ## Real data
 

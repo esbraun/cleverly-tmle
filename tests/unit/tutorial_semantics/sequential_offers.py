@@ -8,12 +8,13 @@ are also compared against its stored outputs, and every decimal it writes is pri
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
-from cleverly.datasets import offers_protocol, win_back, win_back_then_ship
+from cleverly.datasets import offers_protocol, win_back
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -45,8 +46,33 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/summary.log",
     "1.048": f"highest mean-SE over empirical-SD ratio of the four LTMLE contrasts, 100 draws: "
     f"{_PROBE}/summary.log",
-    "-0.0063": f"bias of the LTMLE win-back contrast, 100 draws: {_PROBE}/summary.log",
+    "-0.0063": f"bias of the LTMLE win-back contrast, 100 draws (sweep.py, seeds 1000-1099): "
+    f"{_PROBE}/summary.log",
     "0.0020": f"Monte Carlo standard error of that bias, 100 draws: {_PROBE}/summary.log",
+    "-0.0017": f"bias of the LTMLE win-back contrast, 400 draws (bias_check.py, seeds 2000-2399): "
+    f"{_PROBE}/bias_check_summary.log",
+    "0.0010": f"Monte Carlo standard error of that bias, and the end of the range of LTMLE contrast "
+    f"biases, 400 draws: {_PROBE}/bias_check_summary.log",
+    "-0.0004": f"bias of the LTMLE win-back level, 400 draws: {_PROBE}/bias_check_summary.log",
+    "0.0007": f"Monte Carlo standard error of that bias, 400 draws: {_PROBE}/bias_check_summary.log",
+    "+0.0013": f"bias of the LTMLE none level, 400 draws: {_PROBE}/bias_check_summary.log",
+    "0.0009": f"Monte Carlo standard error of that bias, 400 draws: {_PROBE}/bias_check_summary.log",
+    "-0.0014": f"bias of the IPW win-back contrast, 400 draws: {_PROBE}/bias_check_summary.log",
+    "0.0011": f"Monte Carlo standard error of that bias, 400 draws: {_PROBE}/bias_check_summary.log",
+    "-0.0029": f"largest LTMLE contrast bias (discount), 400 draws: "
+    f"{_PROBE}/bias_check_summary.log",
+    "-0.0010": f"smallest LTMLE contrast bias (win-back-then-ship), 400 draws: "
+    f"{_PROBE}/bias_check_summary.log",
+    "0.968": f"coverage of the LTMLE discount contrast, 400 draws: {_PROBE}/bias_check_summary.log",
+    "0.955": f"coverage of the LTMLE shipping contrast, 400 draws: {_PROBE}/bias_check_summary.log",
+    "0.953": f"coverage of the LTMLE win-back contrast, 400 draws: {_PROBE}/bias_check_summary.log",
+    "0.948": f"coverage of the LTMLE win-back-then-ship contrast, 400 draws "
+    f"({_PROBE}/bias_check_summary.log), and the coverage of the cell "
+    f"known_mechanism_accuracy/ate_regimen__ltmle_known_treatment__censoring_estimated: "
+    f"{_KNOWN}/properties.csv",
+    "0.0721": f"Horvitz-Thompson estimate of the win-back contrast, 300 logged draws of 50000 "
+    f"customers, true consent probabilities: {_PROBE}/logged_branch_check.log",
+    "0.0013": f"Monte Carlo standard error of that estimate: {_PROBE}/logged_branch_check.log",
     "1.7": "lower end of the standardized bias of the three misspecification_control cells: "
     "docs/technical-reference/method-evidence/sequential-baselines.md, the declared negative "
     "control",
@@ -85,12 +111,13 @@ def check(namespace: dict[str, Any]) -> None:
     _check_paired(namespace)
     _check_diagnostics(namespace)
     _check_secondary(namespace)
+    _check_probe_logs()
 
 
 def _check_data(namespace: dict[str, Any]) -> None:
     panel, truth = namespace["panel"], namespace["truth"]
     # "57079 rows and 10 columns for 20000 customers", up to three rows each.
-    assert panel.shape == (57079, 10)
+    assert panel.shape == (57154, 10)
     assert panel["customer"].nunique() == 20_000
     assert panel.groupby("customer").size().max() == 3
     assert list(panel.columns) == [
@@ -105,9 +132,9 @@ def _check_data(namespace: dict[str, Any]) -> None:
         "p_shipping",
         "full_price",
     ]
-    # "A total of 2697 customers withdrew consent before week 4, and they have no outcome."
+    # "A total of 2686 customers withdrew consent before week 4, and they have no outcome."
     withdrawn = panel.groupby("customer")["consent"].min() == 0
-    assert int(withdrawn.sum()) == namespace["left"] == 2697
+    assert int(withdrawn.sum()) == namespace["left"] == 2686
     outcome = panel.groupby("customer")["full_price"].first()
     assert outcome[withdrawn].isna().all()
     assert outcome[~withdrawn].notna().all()
@@ -140,26 +167,29 @@ def _check_data(namespace: dict[str, Any]) -> None:
     assert rates["win_back"] - rates["discount"] >= 0.08
     assert round(truth[_key("win_back")], 4) == 0.0722
 
-    # Step 3: "After a discount, a share of 0.889 ... engaged in week 2".
+    # Step 3: "After a discount, a share of 0.886 ... engaged in week 2".
     moved = namespace["moved"].groupby("offer")["engaged_week2"].mean()
-    assert moved.round(3).to_dict() == {"discount": 0.889, "none": 0.550, "shipping": 0.668}
+    assert moved.round(3).to_dict() == {"discount": 0.886, "none": 0.551, "shipping": 0.661}
     assert moved["discount"] > moved["shipping"] > moved["none"]
     shares = namespace["week_one"].groupby("engaged")["offer"].value_counts(normalize=True)
-    assert round(shares[(1, "none")], 3) == 0.406 and round(shares[(1, "discount")], 3) == 0.248
-    assert round(shares[(0, "discount")], 3) == 0.455
+    assert round(shares[(1, "none")], 3) == 0.399 and round(shares[(1, "discount")], 3) == 0.246
+    assert round(shares[(0, "discount")], 3) == 0.440
     consent = namespace["week_one"].groupby("engaged")["consent"].mean()
-    assert consent.round(3).to_dict() == {0: 0.928, 1: 0.967}
-    # "It keeps 17303 of 20000 customers ... Only 718 ... and 427".
+    assert consent.round(3).to_dict() == {0: 0.929, 1: 0.969}
+    # "It keeps 17314 of 20000 customers ... Only 805 ... and 436".
     crude = namespace["crude"]
-    assert len(namespace["kept"]) == 17_303 and len(namespace["wide"]) == 20_000
-    assert crude["followers"].tolist() == [718, 427, 525, 1270, 928]
-    assert round(crude.loc["win_back", "crude_vs_none"], 3) == 0.039
-    assert round(crude.loc["discount", "crude_vs_none"], 3) == -0.084
+    assert len(namespace["kept"]) == 17_314 and len(namespace["wide"]) == 20_000
+    assert crude["followers"].tolist() == [805, 436, 550, 1247, 956]
+    assert round(crude.loc["win_back", "crude_vs_none"], 3) == 0.049
+    assert round(crude.loc["discount", "crude_vs_none"], 3) == -0.110
     assert round(crude.loc["discount", "true_vs_none"], 3) == -0.068
-    # A nonzero witness: the crude contrasts differ from the truth by more than 0.01 for every
-    # plan, so the comparison cannot be read as the estimand.
-    assert ((crude["crude_vs_none"] - crude["true_vs_none"]).abs()[1:] > 0.01).all()
-    assert crude.loc["win_back", "crude_vs_none"] < crude.loc["win_back", "true_vs_none"] - 0.03
+    # A nonzero witness: the crude contrasts of the two plans the reading narrates differ from the
+    # truth by more than 0.01, so the comparison cannot be read as the estimand. The shipping
+    # contrast happens to land within 0.01 of its truth on this draw, and the reading says only
+    # that the sizes of the misses are not general.
+    miss = (crude["crude_vs_none"] - crude["true_vs_none"]).abs()
+    assert miss["discount"] > 0.01 and miss["win_back"] > 0.01
+    assert crude.loc["win_back", "crude_vs_none"] < crude.loc["win_back", "true_vs_none"] - 0.02
 
 
 def _check_design(namespace: dict[str, Any]) -> None:
@@ -207,15 +237,10 @@ def _check_design(namespace: dict[str, Any]) -> None:
     plans = namespace["plans"]
     assert list(plans) == ["none", "discount", "shipping", "win_back", "win_back_ship"]
     assert plans["none"] == ("none",) * 3 and plans["shipping"] == ("shipping",) * 3
-    # The rule plans read the engagement of their own week and send the shipped offers.
-    for label, offer_for in (("win_back", win_back), ("win_back_ship", win_back_then_ship)):
-        rule = plans[label]
-        assert rule.rule_kind == "known"
-        engaged = np.array([0, 1, 0, 1])
-        expected = offer_for(engaged)
-        assert expected[0] == "discount" and expected[1] == (
-            "none" if label == "win_back" else "shipping"
-        )
+    # The rule plans are declared known. That each rule reads the engagement of its own week is
+    # checked in _check_diagnostics against the follower counts of the fit.
+    for label in ("win_back", "win_back_ship"):
+        assert plans[label].rule_kind == "known"
 
 
 def _check_fits(namespace: dict[str, Any]) -> None:
@@ -232,22 +257,29 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     assert "no truncation bound moved a declared value" in summary
     assert "cross-fitting: 2 fold(s)" in summary
     assert "g_bounds: fixed [0.01, 1]" in summary
-    # "The win-back contrast is 0.0701 ... All four intervals contain their true values on this
-    # draw."
+    # "The win-back contrast is 0.0719 ... All four intervals contain their true values on this
+    # draw." The seed follows a fixed rule (the first seed of the swept range), so this relation
+    # is a record of the draw and not a selected outcome.
     win = result[_key("win_back")]
-    assert (round(win.psi, 4), round(win.std_error, 4)) == (0.0701, 0.0195)
-    assert [round(value, 4) for value in win.ci] == [0.0318, 0.1083]
-    assert [round(result[key].psi, 4) for key in keys] == [-0.0464, 0.0437, 0.0701, 0.0844]
+    assert (round(win.psi, 4), round(win.std_error, 4)) == (0.0719, 0.0205)
+    assert [round(value, 4) for value in win.ci] == [0.0316, 0.1121]
+    assert [round(result[key].psi, 4) for key in keys] == [-0.0881, 0.0564, 0.0719, 0.0789]
     for key in keys:
         assert covers(result[key], truth[key])
     assert namespace["against_truth"](result)["covers"].all()
-    # The interval contains zero for the two weakest contrasts and excludes it for the rules.
-    assert result[_key("discount")].ci[0] < 0 < result[_key("discount")].ci[1]
+    # The discount interval excludes zero from above, the rules exclude it from below, and the
+    # shipping interval starts at 0.0000 to four places: its lower end is positive and below 1e-4.
+    assert result[_key("discount")].ci[1] < 0
+    assert 0 < result[_key("shipping")].ci[0] < 1e-4
+    assert round(result[_key("shipping")].pvalue, 4) == 0.0500
     assert result[_key("win_back")].ci[0] > 0 and result[_key("win_back_ship")].ci[0] > 0
-    # "718, 427, and 525 customers followed `none`, `discount`, and `shipping` throughout."
-    assert "none: 718 of 20000 units followed it throughout" in summary
-    assert "win_back: 1270 of 20000 units followed it throughout" in summary
-    assert "critical value 2.451 vs 1.960" in summary
+    # "805, 436, and 550 customers followed `none`, `discount`, and `shipping` throughout."
+    assert "none: 805 of 20000 units followed it throughout" in summary
+    assert "win_back: 1247 of 20000 units followed it throughout" in summary
+    assert "win_back_ship: 956 of 20000 units followed it throughout" in summary
+    assert "shipping: 550 of 20000 units followed it throughout; max weight 100.0" in summary
+    assert "max truncated share 0.2% at t=3" in summary
+    assert "critical value 2.412 vs 1.960" in summary
 
     # Step 7: the other estimators fit the same keys and carry the same protocol.
     for fit in (sdr, gcomp, ipw):
@@ -257,21 +289,24 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     assert "an interval assumes every outcome GLM is correctly specified" in gcomp.summary()
     assert "Hajek (normalized by the weight sum)" in ipw.summary()
     assert "an interval assumes every treatment and censoring GLM" in ipw.summary()
-    # "The SDR estimates equal the LTMLE estimates within 0.0005", and the win-back contrasts.
+    # "The SDR estimates lie within 0.0006 of the LTMLE estimates", and the win-back contrasts.
     gaps = {
         name: max(abs(fit[key].psi - result[key].psi) for key in keys)
         for name, fit in (("sdr", sdr), ("gcomp", gcomp), ("ipw", ipw))
     }
-    assert gaps["sdr"] < 0.0005 and round(gaps["sdr"], 4) == 0.0004
-    assert round(gaps["gcomp"], 4) == 0.0015
-    assert round(gaps["ipw"], 4) == 0.0196
+    assert round(gaps["sdr"], 4) == 0.0006
+    assert round(gaps["gcomp"], 4) == 0.0030
+    assert round(gaps["ipw"], 4) == 0.0112
+    # "On this draw, SDR sits above its median, and g-computation and IPW sit below theirs." The
+    # medians are those of the 100-draw sweep in UNPRINTED_DECIMALS.
+    assert gaps["sdr"] > 0.000485 and gaps["gcomp"] < 0.0036 and gaps["ipw"] < 0.0126
     assert [round(fit[_key("win_back")].psi, 4) for fit in (sdr, gcomp, ipw)] == [
-        0.0696,
-        0.0699,
-        0.0613,
+        0.0718,
+        0.0739,
+        0.0803,
     ]
-    assert round(gcomp[_key("win_back")].std_error, 4) == 0.0219
-    assert round(ipw[_key("win_back")].std_error, 4) == 0.0219
+    assert round(gcomp[_key("win_back")].std_error, 4) == 0.0203
+    assert round(ipw[_key("win_back")].std_error, 4) == 0.0213
     # Step 8: "IPW has a wider standard error than LTMLE on all four contrasts."
     assert all(ipw[key].std_error > result[key].std_error for key in keys)
     for fit in namespace["fits"].values():
@@ -279,10 +314,10 @@ def _check_fits(namespace: dict[str, Any]) -> None:
     side = namespace["side"]
     assert list(side.columns) == ["LTMLE", "SDR", "g-computation", "IPW", "truth"]
     assert [round(side.loc["win_back", name], 3) for name in side.columns] == [
-        0.070,
-        0.070,
-        0.070,
-        0.061,
+        0.072,
+        0.072,
+        0.074,
+        0.080,
         0.072,
     ]
     # A nonzero witness that the comparison reads the fits: IPW is the one that moves.
@@ -302,9 +337,9 @@ def _check_paired(namespace: dict[str, Any]) -> None:
     assert (comparison["unpaired_se"] > comparison["paired_se"]).all()
     unpaired = comparison["unpaired_se"] ** 2 - comparison["paired_se"] ** 2
     assert (unpaired > 0).all()
-    assert comparison["paired_se"].round(3).tolist() == [0.027, 0.025, 0.020]
-    assert comparison["unpaired_se"].round(3).tolist() == [0.035, 0.034, 0.030]
-    assert comparison["estimate"].round(3).tolist() == [0.117, 0.026, 0.014]
+    assert comparison["paired_se"].round(3).tolist() == [0.028, 0.026, 0.020]
+    assert comparison["unpaired_se"].round(3).tolist() == [0.037, 0.035, 0.031]
+    assert comparison["estimate"].round(3).tolist() == [0.160, 0.016, 0.007]
     assert comparison["truth"].round(3).tolist() == [0.140, 0.013, 0.027]
     expected = [
         truth[_key("win_back")] - truth[_key("discount")],
@@ -324,7 +359,7 @@ def _check_paired(namespace: dict[str, Any]) -> None:
     assert (low < comparison["truth"]).all() and (comparison["truth"] < high).all()
     assert low["win_back - shipping"] < 0 < high["win_back - shipping"]
     assert low["win_back_ship - win_back"] < 0 < high["win_back_ship - win_back"]
-    assert [round(value, 3) for value in (low.iloc[0], high.iloc[0])] == [0.064, 0.169]
+    assert [round(value, 3) for value in (low.iloc[0], high.iloc[0])] == [0.105, 0.214]
 
 
 def _check_diagnostics(namespace: dict[str, Any]) -> None:
@@ -338,12 +373,24 @@ def _check_diagnostics(namespace: dict[str, Any]) -> None:
     support = namespace["support"]
     followed = support[support["time"] == 3].set_index("regimen")["n_followed"]
     assert followed.to_dict() == {
-        "none": 718,
-        "discount": 427,
-        "shipping": 525,
-        "win_back": 1270,
-        "win_back_ship": 928,
+        "none": 805,
+        "discount": 436,
+        "shipping": 550,
+        "win_back": 1247,
+        "win_back_ship": 956,
     }
+    # The rule-node witness. The hand count of Step 3 reads each rule at the engagement of its own
+    # week, on the customers who stayed consenting to week 3. The fit follows the rule through its
+    # own history nodes. The two counts agree for every plan. A rule that read the engagement of
+    # the previous week follows a different set of customers, which the second count shows.
+    crude = namespace["crude"]
+    assert crude["followers"].to_dict() == followed.to_dict()
+    kept = namespace["kept"]
+    lagged = np.ones(len(kept), dtype=bool)
+    for week in (1, 2, 3):
+        seen = kept[("engaged", max(week - 1, 1))].astype(int).to_numpy()
+        lagged &= kept[("offer", week)].to_numpy() == np.asarray(win_back(seen), dtype=object)
+    assert int(lagged.sum()) != int(followed["win_back"])
     # "Win-back keeps the most customers", and every plan keeps at least 1.5% of the 20000.
     assert followed.idxmax() == "win_back"
     assert (followed / 20_000 >= 0.015).all()
@@ -353,28 +400,31 @@ def _check_diagnostics(namespace: dict[str, Any]) -> None:
     )
     at_end = support[support["time"] == 3].set_index("regimen")
     assert at_end["max_weight"].round(3).to_dict() == {
-        "none": 60.032,
-        "discount": 75.712,
-        "shipping": 92.840,
-        "win_back": 19.399,
-        "win_back_ship": 27.744,
+        "none": 60.503,
+        "discount": 78.986,
+        "shipping": 100.000,
+        "win_back": 19.225,
+        "win_back_ship": 28.315,
     }
-    assert at_end["effective_n"].round(3)["win_back"] == 1264.961
+    assert at_end["effective_n"].round(3)["win_back"] == 1241.822
     assert at_end["max_weight"].idxmax() == "shipping"
-    # "No row has a truncated weight at the default bound of (0.01, 1), which caps a weight at
-    # 100": the largest weight sits under the cap of 1 / 0.01.
-    assert (support["share_truncated"] == 0.0).all()
-    assert support["max_weight"].max() < 100.0
-    assert round(namespace["kish_ratio"], 3) == 0.861
+    # "One row has a truncated weight ... 1 of its 550 followers": the shipping plan at week 3
+    # reaches the cap of 1 / 0.01 that the default bound sets. No other row is truncated.
+    truncated = support[support["share_truncated"] > 0]
+    assert truncated[["regimen", "time"]].values.tolist() == [["shipping", 3]]
+    assert round(float(truncated["share_truncated"].iloc[0]) * followed["shipping"]) == 1
+    assert round(float(truncated["share_truncated"].iloc[0]), 3) == 0.002
+    assert support["max_weight"].max() == pytest.approx(100.0)
+    assert round(namespace["kish_ratio"], 3) == 0.863
     np.testing.assert_allclose(
         namespace["kish_ratio"], (support["effective_n"] / support["n_followed"]).min()
     )
     assert result.diagnostics.support().to_frame().equals(support)
     consent = namespace["consent"].set_index("time")
     assert set(consent["evaluation"]) == {"out_of_fold"}
-    assert consent["n"].tolist() == [20_000, 18_980, 18_099]
-    assert consent["auc"].round(3).tolist() == [0.633, 0.649, 0.651]
-    assert consent["calibration_slope"].round(3).tolist() == [0.971, 0.977, 0.923]
+    assert consent["n"].tolist() == [20_000, 19_017, 18_137]
+    assert consent["auc"].round(3).tolist() == [0.647, 0.640, 0.638]
+    assert consent["calibration_slope"].round(3).tolist() == [1.003, 0.948, 0.892]
     assert consent["calibration_slope"].iloc[-1] < 1.0
 
 
@@ -387,20 +437,29 @@ def _check_secondary(namespace: dict[str, Any]) -> None:
     assert namespace["estimated"].models.treatment_learner.random_state == 42
     assert namespace["against_truth"](no_logs)["covers"].all()
     win = no_logs[_key("win_back")]
-    assert (round(win.psi, 3), round(win.std_error, 3)) == (0.070, 0.020)
+    assert (round(win.psi, 3), round(win.std_error, 3)) == (0.070, 0.021)
     curve = namespace["curve"]
     assert sorted(curve["lower_bound"].unique()) == [0.01, 0.02, 0.05, 0.10]
     tables = namespace["tables"]
-    # "The bound 0.01 is the fit itself": no move and no truncated cell there.
+    # "The bound 0.01 is the fit itself": no move there. Only the shipping contrast truncated
+    # cells at the fitted bound, 3 of 18113.
     assert (tables["move"][0.01] == 0.0).all()
-    assert (tables["cells"][0.01] == 0).all()
-    # "The largest move is 0.101 standard errors, for the discount contrast at the bound 0.02."
+    assert tables["cells"][0.01].astype(int).to_dict() == {
+        "discount": 0,
+        "shipping": 3,
+        "win_back": 0,
+        "win_back_ship": 0,
+    }
+    assert namespace["cells"].loc["shipping", 0.01] == "3 of 18113"
+    # "The largest move is 0.351 standard errors, for the discount contrast at the bound 0.10."
     moves = tables["move"].div(namespace["no_logs_se"], axis=0)
-    assert round(float(moves.abs().max().max()), 3) == 0.101
-    assert moves.abs().stack().idxmax() == ("discount", 0.02)
-    # "At the bound 0.10, the discount contrast truncates 2275 of 18368 cells ... 0.071".
-    assert namespace["cells"].loc["discount", 0.10] == "2275 of 18368"
-    assert round(float(moves.loc["discount", 0.10]), 3) == 0.071
+    assert round(float(moves.abs().max().max()), 3) == 0.351
+    assert moves.abs().stack().idxmax() == ("discount", 0.10)
+    # The largest move stays under the largest move of the 100-draw sweep, 0.513.
+    assert float(moves.abs().max().max()) < 0.513
+    # "At the bound 0.10, the discount contrast truncates 2769 of 18326 cells ... 0.351".
+    assert namespace["cells"].loc["discount", 0.10] == "2769 of 18326"
+    assert round(float(moves.loc["discount", 0.10]), 3) == 0.351
     # More truncation at a higher bound, on every contrast.
     cells = tables["cells"]
     assert (cells[0.02] <= cells[0.05]).all() and (cells[0.05] <= cells[0.10]).all()
@@ -417,15 +476,15 @@ def _check_secondary(namespace: dict[str, Any]) -> None:
     assert namespace["panel"].shape != pilot.shape
     fitted = namespace["fitted"]
     assert fitted is namespace["levels"]["ey_regimen[win_back]"]
-    assert round(namespace["pilot_mean"], 3) == 0.603
+    assert round(namespace["pilot_mean"], 3) == 0.609
     assert round(namespace["pilot_se"], 4) == 0.0049
-    assert (round(fitted.psi, 3), round(fitted.std_error, 4)) == (0.608, 0.0133)
-    assert round(namespace["difference"], 4) == 0.0050
+    assert (round(fitted.psi, 3), round(fitted.std_error, 4)) == (0.595, 0.0133)
+    assert round(namespace["difference"], 4) == -0.0143
     assert namespace["difference_se"] == pytest.approx(
         float(np.hypot(fitted.std_error, namespace["pilot_se"]))
     )
-    assert round(namespace["difference"] / namespace["difference_se"], 2) == 0.35
-    assert abs(namespace["difference"]) < 2.0 * namespace["difference_se"]
+    assert round(namespace["difference"] / namespace["difference_se"], 2) == -1.01
+    assert abs(namespace["difference"]) < 1.96 * namespace["difference_se"]
     assert round(truth["ey_regimen[win_back]"], 3) == 0.600
     assert covers(fitted, truth["ey_regimen[win_back]"])
 
@@ -433,10 +492,10 @@ def _check_secondary(namespace: dict[str, Any]) -> None:
     # offer probabilities.
     benchmark = namespace["benchmark"]
     assert list(benchmark.index) == ["discount", "shipping"]
-    assert benchmark["move_in_se"].round(3).tolist() == [-0.058, -0.083]
-    assert benchmark["move"].round(3).tolist() == [-0.002, -0.002]
-    assert benchmark["with_engagement"].round(3).tolist() == [-0.046, 0.044]
-    assert benchmark["without"].round(3).tolist() == [-0.048, 0.041]
+    assert benchmark["move_in_se"].round(3).tolist() == [-0.251, -0.040]
+    assert benchmark["move"].round(3).tolist() == [-0.008, -0.001]
+    assert benchmark["with_engagement"].round(3).tolist() == [-0.088, 0.056]
+    assert benchmark["without"].round(3).tolist() == [-0.096, 0.055]
     # A nonzero witness that the refit drops the covariate: the reduced history lacks engagement,
     # the full one has it, and the estimates move.
     reduced = namespace["reduced_study"]
@@ -446,3 +505,34 @@ def _check_secondary(namespace: dict[str, Any]) -> None:
     assert (benchmark["move_in_se"].abs() < 1.0).all()
     assert set(namespace["static"]) == {"none", "discount", "shipping"}
     assert "known factors (declared, no learner)" in namespace["reduced_fit"].summary()
+
+
+def _check_probe_logs() -> None:
+    """The committed probe logs print the repeated-draw numbers that the trust step quotes."""
+    folder = Path(__file__).resolve().parents[3] / _PROBE
+    bias = (folder / "bias_check_summary.log").read_text()
+    assert "draws 400, seeds 2000 to 2399" in bias
+    ltmle = bias.split("ipw: the four contrasts")[0]
+    ipw = bias.split("ipw: the four contrasts")[1]
+
+    def row(text: str, label: str) -> str:
+        return next(line for line in text.splitlines() if line.strip().startswith(label + " "))
+
+    assert "bias -0.0017 (MC SE 0.0010" in row(ltmle, "win_back")
+    assert "bias -0.0004 (MC SE 0.0007" in row(ltmle.split("the five levels")[1], "win_back")
+    assert "bias +0.0013 (MC SE 0.0009" in row(ltmle.split("the five levels")[1], "none")
+    assert "bias -0.0014 (MC SE 0.0011" in row(ipw.split("ipw: the five levels")[0], "win_back")
+    assert "bias -0.0029" in row(ltmle, "discount") and "bias -0.0010" in row(
+        ltmle, "win_back_ship"
+    )
+    for label, coverage in (
+        ("discount", "0.968"),
+        ("shipping", "0.955"),
+        ("win_back", "0.953"),
+        ("win_back_ship", "0.948"),
+    ):
+        assert f"interval covers {coverage}" in row(ltmle.split("the five levels")[0], label)
+    sweep = (folder / "summary.log").read_text()
+    assert "ltmle  win_back       coverage 93 of 100 (0.930); bias -0.0063 (MC SE 0.0020)" in sweep
+    logged = (folder / "logged_branch_check.log").read_text()
+    assert "logged HT-IPW contrast win_back       0.07208 se 0.00132 truth 0.07218" in logged
