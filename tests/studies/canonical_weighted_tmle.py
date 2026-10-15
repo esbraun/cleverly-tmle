@@ -59,6 +59,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
+    comparison="matching implementation",
     modules=(
         "tests/studies/canonical_weighted_tmle.py",
         "tests/studies/weighted_point_common.py",

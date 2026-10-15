@@ -734,7 +734,7 @@ REFUSALS: dict[str, tuple[Any, type[Exception], tuple[str, ...]]] = {
             _trial(), **ROLES, treatment_probabilities=_columns(2)
         ),
         CapabilityError,
-        (KNOWN_CTMLE_REFUSAL,),
+        (KNOWN_CTMLE_REFUSAL.message(),),
     ),
     "continuous": (
         lambda: TMLE(cross_fit=False, **never_fit_learners()).fit(
@@ -746,14 +746,14 @@ REFUSALS: dict[str, tuple[Any, type[Exception], tuple[str, ...]]] = {
             treatment_probabilities=np.full(200, 0.5),
         ),
         CapabilityError,
-        (CONTINUOUS_REFUSAL,),
+        (CONTINUOUS_REFUSAL.message(),),
     ),
     "treatment_delta_tmle": (
         lambda: TMLE(cross_fit=False, estimands=("ate",), **never_fit_learners()).fit(
             _trial(), **ROLES, treatment_delta="DeltaA", treatment_probabilities=_columns(2)
         ),
         CapabilityError,
-        (KNOWN_TREATMENT_DELTA_REFUSAL,),
+        (KNOWN_TREATMENT_DELTA_REFUSAL.message(),),
     ),
     "treatment_delta_drtmle": (
         lambda: DRTMLE(
@@ -764,14 +764,14 @@ REFUSALS: dict[str, tuple[Any, type[Exception], tuple[str, ...]]] = {
             **never_fit_learners(),
         ).fit(_trial(), **ROLES, treatment_delta="DeltaA", treatment_probabilities=_columns(2)),
         CapabilityError,
-        (KNOWN_TREATMENT_DELTA_REFUSAL,),
+        (KNOWN_TREATMENT_DELTA_REFUSAL.message(),),
     ),
     "screen_treatment": (
         lambda: TMLE(cross_fit=False, screen_treatment=True, **never_fit_learners()).fit(
             _trial(), **ROLES, treatment_probabilities=_columns(2)
         ),
         ValueError,
-        (KNOWN_SCREEN_REFUSAL,),
+        (KNOWN_SCREEN_REFUSAL.message(),),
     ),
     "evaluation_without_columns": (
         lambda: DRTMLE(
@@ -783,7 +783,7 @@ REFUSALS: dict[str, tuple[Any, type[Exception], tuple[str, ...]]] = {
             **never_fit_learners(),
         ).fit(_trial(), **ROLES, treatment_probabilities=_columns(2)),
         CapabilityError,
-        (KNOWN_EVALUATION_REFUSAL,),
+        (KNOWN_EVALUATION_REFUSAL.message(),),
     ),
     "evaluation_from_arrays": (
         lambda: DRTMLE(
@@ -795,7 +795,7 @@ REFUSALS: dict[str, tuple[Any, type[Exception], tuple[str, ...]]] = {
             **never_fit_learners(),
         ).fit(_trial(), **ROLES, treatment_probabilities=np.full(200, 0.5)),
         CapabilityError,
-        (KNOWN_EVALUATION_REFUSAL,),
+        (KNOWN_EVALUATION_REFUSAL.message(),),
     ),
     "declared_twice": (
         lambda: TMLE(cross_fit=False, **never_fit_learners()).fit(
@@ -836,7 +836,7 @@ def test_the_omitted_variable_benchmark_is_refused_on_a_known_mechanism() -> Non
         _tmle(estimands=("ate",)).fit(frame, **ROLES, treatment_probabilities=_columns(2)).single()
     )
     reason = benchmark_refusal(result, ["W1"])
-    assert reason is not None and "declares the mechanism known" in reason
+    assert reason is not None and "declares the mechanism known" in reason.message()
 
 
 # ----------------------------------------------------------------------------- study API
@@ -855,7 +855,7 @@ def test_a_point_design_declares_the_mechanism_for_every_method() -> None:
     effect = study.identify(ATE())
     availability = {item.name: item for item in effect.available_methods()}
     assert not availability["collaborative_tmle"].available
-    assert availability["collaborative_tmle"].reason == KNOWN_CTMLE_REFUSAL
+    assert availability["collaborative_tmle"].reason == KNOWN_CTMLE_REFUSAL.message()
     with pytest.raises(CapabilityError, match="nothing to select"):
         effect.estimate("collaborative_tmle")
     learners = {"outcome_learner": _wrong_outcome(), "treatment_learner": NeverFit()}
@@ -970,7 +970,7 @@ def test_the_classifier_ratio_is_refused_beside_a_declared_mechanism() -> None:
         ).fit(_trial(), **ROLES, treatment_probabilities=_columns(2)),
         None,
         "learner",
-        KNOWN_POLICY_CLASSIFIER_REFUSAL,
+        KNOWN_POLICY_CLASSIFIER_REFUSAL.message(),
         error=CapabilityError,
     )
 

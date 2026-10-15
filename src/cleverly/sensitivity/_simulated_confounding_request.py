@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
+from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from ..estimators.base import MEAN_GROUP_ESTIMANDS, TMLEResult
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
@@ -123,56 +124,89 @@ _TMLE_ONLY_TARGETS: frozenset[str] = _CONDITIONAL_TARGETS | frozenset(_ATTRIBUTA
 #: hard-stop review (docs/technical-reference/hard-stop-review.md) moved each declarable
 #: law to roadmap X47 or X48.  A stop that keeps a part in the research queue names both
 #: rows and states the condition that keeps that part there.
-_LONGITUDINAL_REFUSAL = (
+_LONGITUDINAL_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no time-indexed latent law for longitudinal "
-    "treatments, censoring, histories, outcomes, and contrasts; docs/roadmap.md X48 "
+    "treatments, censoring, histories, outcomes, and contrasts. docs/roadmap.md X48 "
     "tracks one time-fixed latent on uncensored terminal-outcome fits, and "
     "docs/roadmap.md F13 tracks censoring, survival outcomes, time-varying covariates "
-    "after the first treatment node, and time-varying latents"
+    "after the first treatment node, and time-varying latents.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="X48",
 )
-_MULTI_ARM_REFUSAL = (
+_MULTI_ARM_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no category-valued perturbation law for a multi-arm "
-    "treatment; docs/roadmap.md X47 tracks a swap of the two arms of a declared pairwise "
-    "contrast"
+    "treatment. docs/roadmap.md X47 tracks a swap of the two arms of a declared pairwise "
+    "contrast.",
+    alternative=(
+        "Call evalue(result, '<one two-arm contrast>') or omitted_variable_bounds(result) "
+        "on the same multi-arm fit."
+    ),
+    roadmap="X47",
 )
-_MISSING_OUTCOME_REFUSAL = (
+_MISSING_OUTCOME_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no joint observation, treatment, and outcome "
-    "perturbation law with identified missing-outcome refit semantics; docs/roadmap.md "
+    "perturbation law with identified missing-outcome refit semantics. docs/roadmap.md "
     "X47 tracks a declared response mechanism that reads the covariates only, and "
     "docs/roadmap.md F12 tracks a response mechanism that reads the treatment, where a "
-    "treatment perturbation breaks missing at random"
+    "treatment perturbation breaks missing at random.",
+    alternative=(
+        "Call evalue(result) for unmeasured confounding on the same fit, or "
+        "missingness_tilt(result) for outcome missingness not at random."
+    ),
+    roadmap="X47",
 )
-_MISSING_TREATMENT_REFUSAL = (
+_MISSING_TREATMENT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no joint treatment-observation, treatment, and outcome "
-    "perturbation law with identified missing-treatment refit semantics; it refuses a "
-    "declared missing treatment for the reason it refuses a missing outcome; "
+    "perturbation law with identified missing-treatment refit semantics. It refuses a "
+    "declared missing treatment for the reason it refuses a missing outcome. "
     "docs/roadmap.md X47 tracks declared observation mechanisms that read the covariates "
-    "only, and docs/roadmap.md F12 tracks a mechanism that reads the treatment"
+    "only, and docs/roadmap.md F12 tracks a mechanism that reads the treatment.",
+    alternative="Call evalue(result) on the same fit, which has no missing-treatment rule.",
+    roadmap="X47",
 )
-_INTERMEDIATE_REFUSAL = (
+_INTERMEDIATE_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no ordered treatment, intermediate, observation, "
-    "and outcome law with a controlled-direct-effect contrast contract; docs/roadmap.md "
+    "and outcome law with a controlled-direct-effect contrast contract. docs/roadmap.md "
     "X47 tracks outcome-axis cells and an intermediate-axis law that holds the treatment, "
     "and docs/roadmap.md F15 tracks the treatment axis, because a treatment perturbation "
-    "makes the latent confound the intermediate and the outcome"
+    "makes the latent confound the intermediate and the outcome.",
+    alternative=NO_ALTERNATIVE,
+    roadmap="X47",
 )
 #: The one stop whose message names the fitted result rather than the surface, because the
 #: result is what stores no weight model.  Accuracy over template uniformity: writing this
 #: like its five neighbours would attribute the missing artifact to the wrong object.
-_ESTIMATED_WEIGHT_REFUSAL = (
+_ESTIMATED_WEIGHT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding cannot replay estimated observation weights; the fitted result "
-    "stores no weight model, target-population semantics, or regeneration rule; "
+    "stores no weight model, target-population semantics, or regeneration rule. "
     "docs/roadmap.md X47 tracks a replay that holds the supplied weights fixed and targets "
-    "the fit's weighted population"
+    "the fit's weighted population.",
+    alternative=(
+        "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
+        "neither has a weight rule."
+    ),
+    roadmap="X47",
 )
-_CLUSTERED_REFUSAL = (
+_CLUSTERED_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "simulated_confounding has no source-backed choice among row-level, "
-    "cluster-level, and mixed latent causes for clustered fits; docs/roadmap.md X47 "
-    "tracks a latent level that the caller declares"
+    "cluster-level, and mixed latent causes for clustered fits. docs/roadmap.md X47 "
+    "tracks a latent level that the caller declares.",
+    alternative=(
+        "Call evalue(result) or omitted_variable_bounds(result) on the same fit; "
+        "neither has a cluster rule."
+    ),
+    roadmap="X47",
 )
 
 
-def _refuse_longitudinal(result: Any) -> str | None:
+def _refuse_longitudinal(result: Any) -> Refusal | None:
     """Refuse every declared assessment family except the point-treatment one.
 
     Runs first, and it is the only rule that runs before the result shape is established,
@@ -194,11 +228,15 @@ def _refuse_longitudinal(result: Any) -> str | None:
     if family == "longitudinal":
         return _LONGITUDINAL_REFUSAL
     if family is not None and family != "point":
-        return f"simulated_confounding has no perturbation law for assessment family {family!r}"
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            f"simulated_confounding has no perturbation law for assessment family {family!r}. "
+            "This is a package defect; report it.",
+        )
     return None
 
 
-def _refuse_multi_arm(result: Any) -> str | None:
+def _refuse_multi_arm(result: Any) -> Refusal | None:
     """Refuse a treatment that is neither binary nor a continuous dose."""
     data = result.data
     if data.treatment_kind == "vector":
@@ -212,21 +250,21 @@ def _refuse_multi_arm(result: Any) -> str | None:
     return None
 
 
-def _refuse_missing_outcome(result: Any) -> str | None:
+def _refuse_missing_outcome(result: Any) -> Refusal | None:
     """Refuse a fit whose outcome is unobserved on some rows."""
     if result.data.has_missing_outcome:
         return _MISSING_OUTCOME_REFUSAL
     return None
 
 
-def _refuse_missing_treatment(result: Any) -> str | None:
+def _refuse_missing_treatment(result: Any) -> Refusal | None:
     """Refuse a fit with a declared missing treatment."""
     if getattr(result.data, "has_missing_treatment", False):
         return _MISSING_TREATMENT_REFUSAL
     return None
 
 
-def _refuse_intermediate(result: Any) -> str | None:
+def _refuse_intermediate(result: Any) -> Refusal | None:
     """Refuse a fit that declares an intermediate variable.
 
     The predicate is :func:`~cleverly.estimators.direct_effect.declares_intermediate`,
@@ -235,77 +273,88 @@ def _refuse_intermediate(result: Any) -> str | None:
     return _INTERMEDIATE_REFUSAL if declares_intermediate(result) else None
 
 
-def _refuse_estimated_weights(result: Any) -> str | None:
+def _refuse_estimated_weights(result: Any) -> Refusal | None:
     """Refuse observation weights the fit estimated rather than received."""
     if result.data.declares_estimated_weights:
         return _ESTIMATED_WEIGHT_REFUSAL
     return None
 
 
-def _refuse_clustered(result: Any) -> str | None:
+def _refuse_clustered(result: Any) -> Refusal | None:
     """Refuse a clustered fit, whose latent cause has no source-backed level."""
     if result.data.cluster is not None:
         return _CLUSTERED_REFUSAL
     return None
 
 
-def _refuse_result_type(result: Any) -> str | None:
+def _refuse_result_type(result: Any) -> Refusal | None:
     """Refuse any artifact that is not exactly a point-treatment ``TMLEResult``."""
     if type(result) is not TMLEResult:
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "simulated_confounding supports point-treatment TMLEResult objects only; "
-            f"got {type(result).__name__}"
+            f"got {type(result).__name__}",
         )
     return None
 
 
-def _refuse_learned_rule(result: Any) -> str | None:
+def _refuse_learned_rule(result: Any) -> Refusal | None:
     """Refuse a learned-rule fit, whose replay relearns the rules and so its target."""
     if result.config.parameter_axis != "learned_rule":
         return None
-    return "simulated_confounding does not cover a learned-rule fit: " + (
-        LEARNED_RULE_REPLAY_REFUSAL
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        "simulated_confounding does not cover a learned-rule fit: "
+        + LEARNED_RULE_REPLAY_REFUSAL
+        + ".",
+        alternative=NO_ALTERNATIVE,
+        roadmap="X11",
     )
 
 
-def _refuse_risk_ratio_tilt(result: Any) -> str | None:
-    """Refuse a risk-ratio tilt fit, whose policy reads the treatment mechanism."""
+def _refuse_risk_ratio_tilt(result: Any) -> Refusal | None:
+    """Refuse a risk-ratio tilt fit, whose replay declares no reading of its policy."""
     if result.config.parameter_axis != "rr_tilt":
         return None
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         "simulated_confounding does not cover a risk-ratio tilt fit (ey_rr_tilt, "
-        "ate_rr_tilt): the tilt's policy mean reads the treatment mechanism, so a simulated "
-        "common cause moves the policy as well as the confounding, and this package has not "
-        "derived that replay. Fit the static arms (ate) or an incremental odds tilt (ipsi) "
-        "for this surface"
+        "ate_rr_tilt): the tilt is a known randomized rule on the natural treatment, and the "
+        "replay declares no reading of that rule on a perturbed draw.",
+        alternative=(
+            "Fit the static arms (ate) or an incremental odds tilt (ipsi) for this surface."
+        ),
+        roadmap="X66",
     )
 
 
-def _refuse_missing_estimator(result: Any) -> str | None:
+def _refuse_missing_estimator(result: Any) -> Refusal | None:
     """Refuse a result that stores no replay estimator."""
     if result.estimator is None:
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "simulated_confounding needs a replayable fitted estimator; this result stores "
-            "no estimator configuration"
+            "no estimator configuration",
         )
     return None
 
 
-def _refuse_repeat_provenance(result: Any) -> str | None:
+def _refuse_repeat_provenance(result: Any) -> Refusal | None:
     """Refuse disagreeing repeated-cross-fitting draw counts across stored layers."""
     stored_repeats = result.n_repeats
     configured_repeats = result.config.crossfit.repeats
     replay_repeats = result.estimator.repeats
     if stored_repeats != configured_repeats or stored_repeats != replay_repeats:
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "simulated_confounding needs consistent repeated-cross-fitting provenance; "
             f"the stored result has {stored_repeats} draw(s), its configuration declares "
-            f"{configured_repeats}, and the replay estimator declares {replay_repeats}"
+            f"{configured_repeats}, and the replay estimator declares {replay_repeats}",
         )
     return None
 
 
-def _refuse_binary_estimator(result: Any) -> str | None:
+def _refuse_binary_estimator(result: Any) -> Refusal | None:
     """Refuse a binary fit made by an estimator this surface cannot replay."""
     from ..estimators.ctmle import CTMLE
     from ..estimators.drtmle import DRTMLE
@@ -313,93 +362,111 @@ def _refuse_binary_estimator(result: Any) -> str | None:
 
     estimator = result.estimator
     if result.data.has_arms and type(estimator) not in {TMLE, CTMLE, DRTMLE}:
-        return (
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
             "simulated_confounding supports ordinary TMLE, collaborative TMLE, and "
-            f"complete-outcome DR-TMLE; got {type(estimator).__name__}"
+            f"complete-outcome DR-TMLE; got {type(estimator).__name__}.",
+            alternative="Fit the data with TMLE, CTMLE or DRTMLE and replay that fit.",
+            roadmap="X66",
         )
     return None
 
 
-def _refuse_continuous_estimator(result: Any) -> str | None:
+def _refuse_continuous_estimator(result: Any) -> Refusal | None:
     """Refuse a continuous fit made by anything but exact ordinary TMLE."""
     from ..estimators.tmle import TMLE
 
     estimator = result.estimator
     if not result.data.has_arms and type(estimator) is not TMLE:
-        return (
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
             "continuous simulated_confounding supports exact ordinary TMLE only; "
-            f"got {type(estimator).__name__}"
+            f"got {type(estimator).__name__}.",
+            alternative="Fit the continuous treatment with TMLE and replay that fit.",
+            roadmap="X66",
         )
     return None
 
 
-def _refuse_outcome_family(result: Any) -> str | None:
+def _refuse_outcome_family(result: Any) -> Refusal | None:
     """Refuse an outcome family with no perturbation law."""
     data = result.data
     if data.family not in {"gaussian", "binomial"}:
-        return f"simulated_confounding has no perturbation law for outcome family={data.family!r}"
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            f"simulated_confounding has no perturbation law for outcome family={data.family!r}. "
+            "This is a package defect; report it.",
+        )
     return None
 
 
-def _refuse_weight_kind(result: Any) -> str | None:
+def _refuse_weight_kind(result: Any) -> Refusal | None:
     """Refuse a weight kind other than fixed probability weights."""
     data = result.data
     if data.weight_spec.kind != "probability":
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "simulated_confounding supports fixed probability weights only; "
-            f"got weight kind {data.weight_spec.kind!r}"
+            f"got weight kind {data.weight_spec.kind!r}",
         )
     return None
 
 
-def _refuse_weight_provenance(result: Any) -> str | None:
+def _refuse_weight_provenance(result: Any) -> Refusal | None:
     """Refuse disagreeing weight-column and ``WeightSpec`` names."""
     data = result.data
     if data.weights_name != data.weight_spec.name:
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "simulated_confounding found inconsistent observation-weight provenance; "
-            "the data column and WeightSpec names disagree"
+            "the data column and WeightSpec names disagree",
         )
     return None
 
 
-def _refuse_undeclared_weights(result: Any) -> str | None:
+def _refuse_undeclared_weights(result: Any) -> Refusal | None:
     """Refuse nonconstant weights that no declared column accounts for."""
     data = result.data
     if data.weights_name is None and data.is_weighted:
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "simulated_confounding found nonconstant observation weights without a declared "
-            "weight column"
+            "weight column",
         )
     return None
 
 
-def _refuse_identification(result: Any) -> str | None:
+def _refuse_identification(result: Any) -> Refusal | None:
     """Refuse a fit that records no identification metadata."""
     if result.identified_effect is None:
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "simulated_confounding needs identification metadata for a backdoor parameter; "
-            "this result records none"
+            "this result records none",
         )
     return None
 
 
-def _refuse_functional(result: Any) -> str | None:
+def _refuse_functional(result: Any) -> Refusal | None:
     """Refuse an identified functional other than a backdoor mean contrast."""
     functional = result.identified_effect.functional
     if type(functional) is not BackdoorMeanContrast:
-        return (
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
             "simulated_confounding supports a backdoor-identified parameter; "
-            f"got {type(functional).__name__}"
+            f"got {type(functional).__name__}",
         )
     return None
 
 
-def _refuse_provider(result: Any) -> str | None:
+def _refuse_provider(result: Any) -> Refusal | None:
     """Refuse backdoor provenance from anything but an explicit adjustment set."""
     provider = getattr(result.identified_effect, "provider", None)
     if type(provider) is not ExplicitAdjustmentProvider:
-        return "simulated_confounding needs registered explicit-adjustment backdoor provenance"
+        return Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "simulated_confounding needs registered explicit-adjustment backdoor provenance",
+        )
     return None
 
 
@@ -417,7 +484,7 @@ def _refuse_provider(result: Any) -> str | None:
 #: conforming object rather than refusing it.  It costs no user-visible reordering: it
 #: returns ``None`` for every real ``TMLEResult``, and ``longitudinal`` still runs first so
 #: a longitudinal result hears its own missing-law stop rather than a type report.
-_FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
+_FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
     ("result_type", _refuse_result_type),
     ("learned_rule", _refuse_learned_rule),
@@ -442,7 +509,7 @@ _FIT_WIDE_RULES: tuple[tuple[str, Callable[[Any], str | None]], ...] = (
 )
 
 
-def _fit_wide_refusal(result: Any) -> str | None:
+def _fit_wide_refusal(result: Any) -> Refusal | None:
     """Return the first simulated-confounding refusal that applies to the whole fit.
 
     Every boundary in :data:`_FIT_WIDE_RULES` is reachable from capability reporting and
@@ -459,17 +526,17 @@ def _fit_wide_refusal(result: Any) -> str | None:
 
     Returns
     -------
-    str or None
-        Exact refusal reason, or ``None`` when no fit-wide boundary applies.
+    Refusal or None
+        The first fit-wide refusal, or ``None`` when no fit-wide boundary applies.
     """
     for _name, rule in _FIT_WIDE_RULES:
-        reason = rule(result)
-        if reason is not None:
-            return reason
+        refusal = rule(result)
+        if refusal is not None:
+            return refusal
     return None
 
 
-def _replay_refusal(estimator: Any, estimand: str) -> str | None:
+def _replay_refusal(estimator: Any, estimand: str) -> Refusal | None:
     """Say why this estimator cannot replay this request, or ``None`` when it can.
 
     The estimator-capability boundary of the surface, stated once. The eligibility filter
@@ -502,8 +569,8 @@ def _replay_refusal(estimator: Any, estimand: str) -> str | None:
 
     Returns
     -------
-    str or None
-        Refusal message, or ``None`` when the estimator can replay the request.
+    Refusal or None
+        The refusal, or ``None`` when the estimator can replay the request.
     """
     from ..estimators.tmle import TMLE
 
@@ -514,12 +581,20 @@ def _replay_refusal(estimator: Any, estimand: str) -> str | None:
     if incremental_refusal is not None:
         return incremental_refusal
     if estimand in _CONDITIONAL_TARGETS and type(estimator) is not TMLE:
-        return "simulated_confounding supports ATT and ATC under exact ordinary TMLE only"
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "simulated_confounding supports ATT and ATC under exact ordinary TMLE only.",
+            alternative="Fit the data with TMLE and replay that fit.",
+            roadmap="F5",
+        )
     if estimand in _ATTRIBUTABLE_TYPES and type(estimator) is not TMLE:
-        return (
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
             "simulated_confounding supports PAR and PAF under exact ordinary TMLE only; "
             "the identified effect's method catalog evidences no collaborative score and "
-            "no reduced-dimension correction for these observed-law contrasts"
+            "no reduced-dimension correction for these observed-law contrasts.",
+            alternative="Fit the data with TMLE and replay that fit.",
+            roadmap="X66",
         )
     return None
 
@@ -563,18 +638,18 @@ def _baseline_population(result: Any, key: Any, identified: Any) -> np.ndarray[A
         or len(key.stratum) != len(data.strata_names)
         or key.stratum not in data.strata_levels
     ):
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     if (
         data.strata_levels != study.data.strata_levels
         or not np.array_equal(data.strata, study.data.strata)
         or np.asarray(data.strata).shape != (data.n,)
         or not np.array_equal(np.unique(data.strata), np.arange(data.n_strata))
     ):
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     code = data.strata_levels.index(key.stratum)
     mask = np.asarray(data.strata == code, dtype=bool)
     if not np.any(mask) or float(np.sum(data.weights[mask])) <= 0.0:
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     return mask
 
 
@@ -641,7 +716,7 @@ def _validate_binary_parameter_state(
 
     error = "simulated_confounding found inconsistent registered binary parameter metadata"
     if expected_alias is None or not metadata_matches:
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     registered = check_registered_target(result, key, "arm", error)
     check_replay_declaration(result, key, error)
     check_alias(
@@ -668,7 +743,8 @@ def _validate_binary_parameter_state(
         if target == "paf" and result.data.family != "binomial":
             raise CapabilityError(
                 "simulated_confounding supports a population attributable fraction for a "
-                "binary outcome only"
+                "binary outcome only",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         if (
             registered.scale != expected_scale
@@ -680,18 +756,21 @@ def _validate_binary_parameter_state(
         ):
             raise CapabilityError(
                 "simulated_confounding found inconsistent identity-scale attributable "
-                "parameter metadata"
+                "parameter metadata",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
     if target in _RATIO_TARGETS:
         estimate = result.estimates[estimand]
         if result.data.family != "binomial":
             raise CapabilityError(
                 "simulated_confounding supports a risk ratio or odds ratio for a binary "
-                "outcome only"
+                "outcome only",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         if estimate.name != estimand or estimate.scale != "ratio":
             raise CapabilityError(
-                "simulated_confounding found inconsistent ratio-scale estimate metadata"
+                "simulated_confounding found inconsistent ratio-scale estimate metadata",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         if (
             registered.scale != "ratio"
@@ -699,17 +778,20 @@ def _validate_binary_parameter_state(
             or registered.parameter_axis != "arm"
         ):
             raise CapabilityError(
-                "simulated_confounding found inconsistent registered ratio target metadata"
+                "simulated_confounding found inconsistent registered ratio target metadata",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         try:
             inference_value = estimate.inference_value
         except ValueError as error:
             raise CapabilityError(
-                "simulated_confounding needs the stored log-scale estimate for a ratio contrast"
+                "simulated_confounding needs the stored log-scale estimate for a ratio contrast",
+                reason=RefusalReason.INVALID_DECLARATION,
             ) from error
         if not np.isfinite(inference_value) or not np.isfinite(estimate.psi) or estimate.psi <= 0.0:
             raise CapabilityError(
-                "simulated_confounding needs a finite positive ratio and stored log-scale estimate"
+                "simulated_confounding needs a finite positive ratio and stored log-scale estimate",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         # Exact equality holds because every site that builds a ratio ``ParameterEstimate``
         # derives ``psi = float(np.exp(log_psi))``: ``targets.builtin._ratio_contrasts``,
@@ -721,7 +803,8 @@ def _validate_binary_parameter_state(
         # cannot act on.
         if float(np.exp(inference_value)) != float(estimate.psi):
             raise CapabilityError(
-                "simulated_confounding found inconsistent reported and log-scale ratio estimates"
+                "simulated_confounding found inconsistent reported and log-scale ratio estimates",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
 
 
@@ -755,7 +838,8 @@ def _validate_continuous_policy_state(
     if typed_type is None or type(typed_estimand) is not typed_type:
         raise CapabilityError(
             "continuous simulated_confounding found inconsistent registered modified-policy "
-            "identification provenance"
+            "identification provenance",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     typed_state: Any = typed_estimand
     typed_policies = tuple(typed_state.policies)
@@ -768,7 +852,8 @@ def _validate_continuous_policy_state(
         for policy in (*declared_policies, *replay_policies)
     ):
         raise CapabilityError(
-            "continuous simulated_confounding found inconsistent structured policy metadata"
+            "continuous simulated_confounding found inconsistent structured policy metadata",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     declared_names = tuple(policy.name for policy in declared_policies)
     declared_descriptions = tuple(describe_policy(policy) for policy in declared_policies)
@@ -820,7 +905,8 @@ def _validate_continuous_policy_state(
         or key.reference != expected_reference
     ):
         raise CapabilityError(
-            "continuous simulated_confounding found inconsistent structured policy metadata"
+            "continuous simulated_confounding found inconsistent structured policy metadata",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
 
     error = (
@@ -828,7 +914,7 @@ def _validate_continuous_policy_state(
         "identification provenance"
     )
     if getattr(typed_estimand, "name", None) != target:
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     check_registered_target(result, key, "policy", error)
     check_replay_declaration(
         result,
@@ -854,9 +940,12 @@ def _validate_continuous_policy_state(
             raise CapabilityError(
                 f"continuous simulated_confounding refuses the policy mean {estimand!r}; a "
                 "zero-delta policy is the natural course, its mean is E[Y], and it carries no "
-                "counterfactual treatment dependence for a simulated common cause to move. "
-                "Select a nonzero-delta ey_policy[...] mean, or an ate_policy[...] contrast "
-                "that uses the natural course as its reference"
+                "counterfactual treatment dependence for a simulated common cause to move.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative=(
+                    "Select a nonzero-delta ey_policy[...] mean, or an ate_policy[...] "
+                    "contrast that uses the natural course as its reference."
+                ),
             )
 
 
@@ -936,7 +1025,7 @@ def _calibration_names(data: Any, benchmark_covariates: Any) -> tuple[str, ...]:
     return names
 
 
-def _calibration_refusal(data: Any, names: tuple[str, ...]) -> str | None:
+def _calibration_refusal(data: Any, names: tuple[str, ...]) -> Refusal | None:
     """Return the refusal of the first requested covariate that cannot calibrate.
 
     Parameters
@@ -948,8 +1037,8 @@ def _calibration_refusal(data: Any, names: tuple[str, ...]) -> str | None:
 
     Returns
     -------
-    str or None
-        Exact refusal reason for a categorical or a constant covariate, or ``None`` when
+    Refusal or None
+        The refusal for a categorical or a constant covariate, or ``None`` when
         every named covariate can calibrate.
     """
     # Deferred because ``simulated_confounding`` imports this module at its own module
@@ -959,21 +1048,26 @@ def _calibration_refusal(data: Any, names: tuple[str, ...]) -> str | None:
     categorical = _categorical_names(data)
     for name in names:
         if name in categorical:
-            return (
+            return Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
                 f"simulated_confounding cannot calibrate categorical covariate {name!r}; "
                 "zeroing one encoded column does not define a logical-covariate benchmark "
-                "(docs/roadmap.md X47 tracks a block calibration of the whole covariate). "
-                "Name numeric benchmark covariates only"
+                "(docs/roadmap.md X47 tracks a block calibration of the whole covariate).",
+                alternative="Name numeric benchmark covariates only.",
+                roadmap="X47",
             )
         column = data.covariates[:, data.covariate_names.index(name)]
         if _is_constant_under_weights(column, data.weights):
-            return f"simulated_confounding cannot calibrate constant covariate {name!r}"
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                f"simulated_confounding cannot calibrate constant covariate {name!r}",
+            )
     return None
 
 
 def simulated_confounding_refusal(
     result: Any, estimand: str = "ate", benchmark_covariates: Any = ()
-) -> str | None:
+) -> Refusal | None:
     """Return the refusal a ``simulated_confounding`` request meets before any draw.
 
     :func:`~cleverly.sensitivity.simulated_confounding` raises the sentence this function
@@ -999,8 +1093,8 @@ def simulated_confounding_refusal(
 
     Returns
     -------
-    str or None
-        Exact refusal reason, or ``None`` when the call reaches its calibration and its
+    Refusal or None
+        The refusal, or ``None`` when the call reaches its calibration and its
         draw, or refuses the request as a malformed argument.
     """
     refusal = _fit_wide_refusal(result)
@@ -1009,7 +1103,7 @@ def simulated_confounding_refusal(
     try:
         _validated_parameter(result, estimand, benchmark_covariates)
     except CapabilityError as error:
-        return str(error)
+        return error.refusal
     except (TypeError, ValueError):
         return None
     return None
@@ -1032,7 +1126,7 @@ def _validate_request(
     # passes, so these refusals precede the two grid-range checks below.
     fit_wide_refusal = _fit_wide_refusal(result)
     if fit_wide_refusal is not None:
-        raise CapabilityError(fit_wide_refusal)
+        raise CapabilityError.from_refusal(fit_wide_refusal)
     data = result.data
     if data.treatment_kind == "vector":
         _check_component_grid(data, grid)
@@ -1113,8 +1207,12 @@ def _validated_parameter(
         raise CapabilityError(
             "simulated_confounding refuses NaturalCourseMean; the natural-course mean is "
             "E[Y] and carries no counterfactual treatment dependence for a simulated "
-            "common cause to move. Fit a supported PAR or PAF contrast to compare the "
-            "observed mean with a reference intervention"
+            "common cause to move.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Fit a supported PAR or PAF contrast to compare the observed mean with a "
+                "reference intervention."
+            ),
         )
     if treatment_family != "binary" and estimand == "ate":
         vacuous = _zero_delta_policy_means(result)
@@ -1148,12 +1246,13 @@ def _validated_parameter(
         raise ValueError(f"estimand {estimand!r} is unavailable; {detail}")
     if type(key) is not ParameterKey:
         raise CapabilityError(
-            f"simulated_confounding needs a structured parameter key for {estimand!r}"
+            f"simulated_confounding needs a structured parameter key for {estimand!r}",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     baseline_mask = _baseline_population(result, key, identified)
     refusal = _replay_refusal(estimator, key.estimand)
     if refusal is not None:
-        raise CapabilityError(refusal)
+        raise CapabilityError.from_refusal(refusal)
     if fixed_axis(key.estimand) is not None:
         estimator = validate_fixed_replay(result, estimand, key)
     elif treatment_family == "binary" and key.estimand in INCREMENTAL_TARGETS:
@@ -1163,14 +1262,29 @@ def _validated_parameter(
             result,
             key,
             "arm",
-            "simulated_confounding supports an arm-indexed parameter, "
-            "not a regimen, stochastic, incremental, modified-policy, or MSM parameter",
+            Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "simulated_confounding supports an arm-indexed parameter, "
+                "not a regimen, stochastic, incremental, modified-policy, or MSM parameter.",
+                alternative=(
+                    "Call simulated_confounding on a binary fit that declares only the arm "
+                    "axis, such as TMLE(estimands=('ate',)) with no other counterfactual "
+                    "keyword."
+                ),
+                roadmap="X66",
+            ),
         )
         if key.estimand not in _BINARY_PARAMETER_TARGETS or key.axis != "arm":
             raise CapabilityError(
                 "simulated_confounding supports only an ATE, ATT, ATC, counterfactual arm "
                 "mean, risk ratio, odds ratio, population attributable risk, or population "
-                "attributable fraction; other parameters are outside its source boundary"
+                "attributable fraction; other parameters are outside its source boundary.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Call simulated_confounding(result, estimand=...) for an ATE, ATT, ATC, "
+                    "arm mean, rr, or, par or paf of a fit of the same data."
+                ),
+                roadmap="X66",
             )
         _validate_binary_parameter_state(result, estimand, key, identified, functional, estimator)
     else:
@@ -1178,19 +1292,33 @@ def _validated_parameter(
             result,
             key,
             "policy",
-            "continuous simulated_confounding supports a modified-treatment-policy "
-            "parameter, not an arm, regimen, stochastic, incremental, or MSM parameter",
+            Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "continuous simulated_confounding supports a modified-treatment-policy "
+                "parameter, not an arm, regimen, stochastic, incremental, or MSM parameter.",
+                alternative=(
+                    "Call simulated_confounding on a continuous fit that declares policies= "
+                    "alone, such as TMLE(policies=[Shift(delta, cap=...)])."
+                ),
+                roadmap="X66",
+            ),
         )
         if key.estimand not in {"ey_policy", "ate_policy"} or key.axis != "policy":
             raise CapabilityError(
                 "continuous simulated_confounding supports only an ey_policy policy mean or "
-                "ate_policy contrast; other parameters are outside its source boundary"
+                "ate_policy contrast; other parameters are outside its source boundary.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Call simulated_confounding(result, estimand='ate_policy[...]'), or an "
+                    "ey_policy mean other than the natural course."
+                ),
+                roadmap="X66",
             )
         _validate_continuous_policy_state(result, estimand, key, identified, functional, estimator)
 
     calibration_refusal = _calibration_refusal(data, names)
     if calibration_refusal is not None:
-        raise CapabilityError(calibration_refusal)
+        raise CapabilityError.from_refusal(calibration_refusal)
     movement_scale: Literal["estimate_difference", "log_ratio"] = (
         "log_ratio" if key.estimand in _RATIO_TARGETS else "estimate_difference"
     )

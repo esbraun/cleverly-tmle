@@ -446,7 +446,7 @@ def test_m3_a_fold_targeted_carry_moves_the_stitched_initial_fit(
     ) -> Any:
         _, cumulative = mechanism.cumulative_with_unbounded(data, cell.plan, bounds)
         outputs = {}
-        carried = sequential.seed_carried(data, scaler)
+        carried = sequential.seed_carried(data, scaler, horizon=cell.horizon)
         for time in range(cell.horizon, 0, -1):
             node = sequential._fit_node_regression(
                 data,

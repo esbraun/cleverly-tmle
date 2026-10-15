@@ -62,7 +62,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 
 from .._inference_status import InferenceStatus
-from ..exceptions import CapabilityError
+from ..exceptions import NO_ALTERNATIVE, CapabilityError, Refusal, RefusalReason
 from ..inference.bootstrap import Resampling, _bootstrap_design
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
@@ -1027,14 +1027,26 @@ class _RefuteRequest:
         )
 
 
-def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> str | None:
+#: What a caller can run when a generated-outcome test has no derivation for the fit.
+_STABILITY_ALTERNATIVE = (
+    "The stability tests run on this fit: refute(result, estimand=..., "
+    "tests=('random_common_cause', 'subset'))."
+)
+
+
+def _invalid(text: str) -> Refusal:
+    """The refusal of a request whose declaration the test cannot run on."""
+    return Refusal(RefusalReason.INVALID_DECLARATION, text)
+
+
+def _refuse_missing_estimator(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a result that no longer holds the estimator every test refits."""
     if result.estimator is not None:
         return None
-    return "refute needs the fitted estimator that produced the result"
+    return _invalid("refute needs the fitted estimator that produced the result")
 
 
-def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a learned-rule fit, whose refit relearns the rules and so its target."""
     from ..interventions.learned import LEARNED_RULE_REFIT_REFUSAL
 
@@ -1044,11 +1056,11 @@ def _refuse_learned_rule(result: TMLEResult, request: _RefuteRequest) -> str | N
     return LEARNED_RULE_REFIT_REFUSAL
 
 
-def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_unreported_estimand(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse an estimand the fit did not report, which no refit can compare against."""
     if request.estimand in result.estimates:
         return None
-    return f"estimand {request.estimand!r} was not requested in this fit"
+    return _invalid(f"estimand {request.estimand!r} was not requested in this fit")
 
 
 def _target_declaration(result: TMLEResult, estimand: str) -> Any:
@@ -1095,7 +1107,7 @@ def _standardized_distance(distance: float, std_error: float) -> float:
     return distance / std_error
 
 
-def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse null-effect tests on parameters with no fixed reported-scale null."""
     chosen = [name for name in request.tests if name in ("placebo", "negative_control_outcome")]
     if not chosen or _no_effect_null(result, request.estimand) is not None:
@@ -1107,7 +1119,7 @@ def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> str |
     target = getattr(key, "estimand", parameter_stem(request.estimand))
     label = "NaturalCourseMean" if target == "ey_obs" else repr(request.estimand)
     prefix = "the placebo refutation and " if target == "ey_obs" and "placebo" in chosen else ""
-    return (
+    return _invalid(
         f"{prefix}refutation test(s) {chosen} require a fixed no-effect value on the reported "
         f"scale, but {label} has none. An outcome level or policy mean need not approach "
         "zero, and an arbitrary MSM coefficient has no universal null. Drop these "
@@ -1115,7 +1127,7 @@ def _refuse_no_effect_null(result: TMLEResult, request: _RefuteRequest) -> str |
     )
 
 
-def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a test that refits on another row set when the fit was given a split plan.
 
     A fit that was given a :class:`~cleverly.SplitPlan` cannot refit on a different row
@@ -1139,7 +1151,7 @@ def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> s
     resampled = [name for name in request.tests if name in _ROW_SET_TESTS]
     if not resampled:
         return None
-    return (
+    return _invalid(
         f"refutation test(s) {resampled} refit on rows this fit did not run, and "
         f"this fit declared split_plan={supplied_plan!r}. A supplied plan labels "
         "the rows it was realised on, by position, so it cannot label a refit that "
@@ -1150,17 +1162,17 @@ def _refuse_row_set_under_plan(result: TMLEResult, request: _RefuteRequest) -> s
     )
 
 
-def _refuse_generated_rule(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_generated_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a generated-outcome test under a rule other than the registered one."""
     if not request.generated or type(request.outcome_rule) is EmpiricalInclusionRule:
         return None
-    return (
+    return _invalid(
         "generated-outcome refutations require the exact registered "
         "EmpiricalInclusionRule declaration"
     )
 
 
-def _refuse_generated_eligibility(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_generated_eligibility(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a generated-outcome test whose fit, estimand or process has no derivation.
 
     The sentence is the one ``_validate_generated_eligibility`` raises.  This rule calls
@@ -1171,35 +1183,35 @@ def _refuse_generated_eligibility(result: TMLEResult, request: _RefuteRequest) -
         try:
             _validate_generated_eligibility(result, request.estimand, request.process(name), name)
         except CapabilityError as error:
-            return str(error)
+            return error.refusal
     return None
 
 
-def _refuse_measurement_declaration(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_measurement_declaration(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse ``bootstrap_measurement_error`` without the registered declaration."""
     if "bootstrap_measurement_error" not in request.tests:
         return None
     if type(request.bootstrap_measurement_error) is BootstrapMeasurementError:
         return None
-    return (
+    return _invalid(
         "bootstrap_measurement_error requires the exact registered "
         "BootstrapMeasurementError declaration"
     )
 
 
-def _refuse_measurement_rule(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_measurement_rule(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse ``bootstrap_measurement_error`` under a rule other than the registered one."""
     if "bootstrap_measurement_error" not in request.tests:
         return None
     if type(request.measurement_error_rule) is EmpiricalInclusionRule:
         return None
-    return (
+    return _invalid(
         "bootstrap_measurement_error requires the exact registered "
         "EmpiricalInclusionRule declaration"
     )
 
 
-def _refuse_measurement_eligibility(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_measurement_eligibility(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a measurement-error declaration that this fit's data cannot carry.
 
     The sentence is the one ``_validate_measurement_error_eligibility`` raises, and this
@@ -1212,25 +1224,25 @@ def _refuse_measurement_eligibility(result: TMLEResult, request: _RefuteRequest)
             result, request.bootstrap_measurement_error, request.draws
         )
     except CapabilityError as error:
-        return str(error)
+        return error.refusal
     return None
 
 
-def _refuse_measurement_budget(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_measurement_budget(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a measurement-error draw budget below its rule's floor."""
     if "bootstrap_measurement_error" not in request.tests:
         return None
     floor = request.measurement_error_rule.minimum_draws
     if request.draws >= floor:
         return None
-    return (
+    return _invalid(
         f"bootstrap_measurement_error was asked for {request.draws} draw(s) "
         f"under a rule that requires {floor}; raise "
         "n_replicates or declare a rule with a smaller minimum_draws"
     )
 
 
-def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> str | None:
+def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
     """Refuse a generated-outcome draw budget below its rule's floor.
 
     A budget below the rule's own floor can only end in "too few draws", and the caller
@@ -1239,7 +1251,7 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> str
     floor = request.outcome_rule.minimum_draws
     if not request.generated or request.draws >= floor:
         return None
-    return (
+    return _invalid(
         f"a generated-outcome refutation was asked for {request.draws} draw(s) under a rule "
         f"that requires {floor}; raise n_replicates to at least "
         f"{floor}, or declare a rule with a smaller minimum_draws"
@@ -1250,7 +1262,7 @@ def _refuse_generated_budget(result: TMLEResult, request: _RefuteRequest) -> str
 #: before any refit, in the one order the call and the ``refute`` capability row both use.
 #: Each rule assumes its predecessors returned ``None``.  The names are the introspection
 #: contract, so a test pins the order without respelling a message.
-_REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], str | None]], ...] = (
+_REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], Refusal | None]], ...] = (
     ("estimator", _refuse_missing_estimator),
     ("learned_rule", _refuse_learned_rule),
     ("estimand", _refuse_unreported_estimand),
@@ -1266,12 +1278,12 @@ _REQUEST_RULES: tuple[tuple[str, Callable[[TMLEResult, _RefuteRequest], str | No
 )
 
 
-def _first_refusal(result: TMLEResult, request: _RefuteRequest) -> str | None:
-    """The sentence of the first rule of :data:`_REQUEST_RULES` that refuses ``request``."""
+def _first_refusal(result: TMLEResult, request: _RefuteRequest) -> Refusal | None:
+    """The record of the first rule of :data:`_REQUEST_RULES` that refuses ``request``."""
     for _name, rule in _REQUEST_RULES:
-        reason = rule(result, request)
-        if reason is not None:
-            return reason
+        refusal = rule(result, request)
+        if refusal is not None:
+            return refusal
     return None
 
 
@@ -1287,10 +1299,10 @@ def refute_refusal(
     outcome_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
     bootstrap_measurement_error: BootstrapMeasurementError | None = None,
     measurement_error_rule: EmpiricalInclusionRule = EmpiricalInclusionRule(),
-) -> str | None:
+) -> Refusal | None:
     """Return the refusal a :func:`refute` request meets before any refit.
 
-    :func:`refute` raises the sentence this function returns, and the ``refute`` capability
+    :func:`refute` raises the record this function returns, and the ``refute`` capability
     row of :class:`~cleverly.assessment.DiagnosticsFacade` quotes it for the same request.
     The row defers on ``tests`` when the default tests are refused and a smaller set runs,
     so a combined report names the argument instead of calling a refutation the call
@@ -1325,9 +1337,9 @@ def refute_refusal(
 
     Returns
     -------
-    str or None
-        Exact refusal reason, or ``None`` when no rule refuses the request or an argument
-        is malformed.
+    Refusal or None
+        The exact refusal record, or ``None`` when no rule refuses the request or an
+        argument is malformed.
     """
     try:
         requested = _validated_tests(tests, n_replicates, negative_control_outcome)
@@ -1374,12 +1386,14 @@ def _validate_generated_process(process: Any, name: str) -> None:
     if type(process) is not expected:
         raise CapabilityError(
             f"{name} has no registered effect derivation and family validation for "
-            f"{type(process).__name__}; use the exact registered {expected.__name__} declaration"
+            f"{type(process).__name__}; use the exact registered {expected.__name__} declaration",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if process.family != "gaussian":
         raise CapabilityError(
             f"{name} has family={process.family!r}; only the Gaussian process family has "
-            "an implemented effect derivation"
+            "an implemented effect derivation",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
 
 
@@ -1414,7 +1428,8 @@ def _resolve_arm_code(data: Any, endpoint: Any, role: str, name: str) -> float:
             return float(code)
     raise CapabilityError(
         f"{name} has no effect derivation for {role}={endpoint!r}; it is not an arm of "
-        f"{data.treatment_name} whose levels are {list(data.treatment_levels)}"
+        f"{data.treatment_name} whose levels are {list(data.treatment_levels)}",
+        reason=RefusalReason.INVALID_DECLARATION,
     )
 
 
@@ -1457,33 +1472,41 @@ def _validate_generated_eligibility(
     if identified is None:
         raise CapabilityError(
             f"{name} needs identification metadata for a backdoor additive mean contrast; "
-            "this result records none"
+            "this result records none",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     functional = identified.functional
     if type(functional) is not BackdoorMeanContrast:
         raise CapabilityError(
-            f"{name} has no outcome process or effect derivation for "
-            f"{type(functional).__name__}; use a backdoor-identified effect"
+            f"{name} has no outcome process or effect derivation for {type(functional).__name__}.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Use a backdoor-identified effect.",
+            roadmap="X67",
         )
     provider = getattr(identified, "provider", None)
     if type(provider) is not ExplicitAdjustmentProvider:
         raise CapabilityError(
             f"{name} needs registered backdoor provider provenance; "
-            f"{type(provider).__name__} does not explicitly provide it"
+            f"{type(provider).__name__} does not explicitly provide it",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     data = result.data
     if data.family != process.family:
         raise CapabilityError(
             f"{name} cannot replace an original outcome family={data.family!r} with the "
             f"registered {process.family!r} process; the first catalog requires matching "
-            "Gaussian outcome configurations"
+            "Gaussian outcome configurations.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X67",
         )
     estimator = result.estimator
     configured_family = getattr(estimator, "family", "auto")
     if configured_family not in {"auto", process.family}:
         raise CapabilityError(
             f"{name} cannot refit an estimator configured with family={configured_family!r} "
-            f"under the declared {process.family!r} process"
+            f"under the declared {process.family!r} process",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if getattr(estimator, "q_bounds", None) is not None:
         raise CapabilityError(
@@ -1494,56 +1517,82 @@ def _validate_generated_eligibility(
             "bounds the process does not satisfy. Leave q_bounds=None on the fit you "
             "refute (Targeting(q_bounds=None)). A cross-fitted continuous fit has to "
             "declare them, so refute a continuous outcome on a fit with cross_fit=False "
-            "(CrossFitting(enabled=False))"
+            "(CrossFitting(enabled=False))",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     outcome_learner = getattr(estimator, "outcome_learner", None)
     incompatible_learner = _classification_only_learner(outcome_learner)
     if incompatible_learner is not None:
         raise CapabilityError(
             f"{name} needs a regression-capable saved outcome learner for its Gaussian "
-            f"process; {type(incompatible_learner).__name__} is configured for classification"
+            f"process; {type(incompatible_learner).__name__} is configured for classification",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if getattr(functional, "longitudinal", False):
         raise CapabilityError(
-            f"{name} has no longitudinal outcome process or sequential effect derivation"
+            f"{name} has no longitudinal outcome process or sequential effect derivation.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
+            roadmap="X67",
         )
     if not getattr(data, "is_binary_treatment", False):
         raise CapabilityError(
             f"{name} has no effect derivation for a non-binary treatment; the first "
-            "process catalog covers code one against code zero"
+            "process catalog covers code one against code zero.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X67",
         )
     if getattr(data, "has_intermediate", False) or functional.intermediate is not None:
         raise CapabilityError(
-            f"{name} has no controlled-direct-effect outcome process or effect derivation"
+            f"{name} has no controlled-direct-effect outcome process or effect derivation.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X67",
         )
     if getattr(data, "has_missing_outcome", False):
         raise CapabilityError(
-            f"{name} has no missing-outcome process or observation-model effect derivation"
+            f"{name} has no missing-outcome process or observation-model effect derivation.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X67",
         )
     if functional.msm is not None or functional.axis == "msm":
-        raise CapabilityError(f"{name} has no MSM outcome process or coefficient derivation")
+        raise CapabilityError(
+            f"{name} has no MSM outcome process or coefficient derivation.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X67",
+        )
     if functional.axis != "arm" or functional.interventions:
         raise CapabilityError(
-            f"{name} has no intervention-indexed outcome process or effect derivation"
+            f"{name} has no intervention-indexed outcome process or effect derivation.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=_STABILITY_ALTERNATIVE,
+            roadmap="X67",
         )
     key = result.parameter_keys.get(estimand)
     if type(key) is not ParameterKey:
         raise CapabilityError(
             f"{name} needs a structured parameter key for {estimand!r}; choose one of "
-            f"{list(result.parameter_keys)}"
+            f"{list(result.parameter_keys)}",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if key.estimand not in _ADDITIVE_MEAN_CONTRASTS:
         kind = "ratio" if key.estimand in {"rr", "or"} else key.estimand
         raise CapabilityError(
-            f"{name} has no {kind} effect derivation; choose an additive mean contrast "
-            "(ate, att, or atc)"
+            f"{name} has no {kind} effect derivation.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Choose an additive mean contrast (ate, att, or atc).",
+            roadmap="X67",
         )
     declared_estimand = getattr(getattr(identified, "estimand", None), "name", None)
     if functional.target != key.estimand or declared_estimand != key.estimand:
         raise CapabilityError(
             f"{name} found inconsistent registered target provenance: functional target "
             f"{functional.target!r}, identified estimand {declared_estimand!r}, and parameter "
-            f"key {key.estimand!r} must agree"
+            f"key {key.estimand!r} must agree",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     registered = TARGETS.get(functional.target)
     declared_identification = getattr(identified, "identification", None)
@@ -1559,7 +1608,8 @@ def _validate_generated_eligibility(
         )
     ):
         raise CapabilityError(
-            f"{name} needs the registered identification artifact for target {functional.target!r}"
+            f"{name} needs the registered identification artifact for target {functional.target!r}",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     # The key names the contrast direction, and the process declares its effect for code
     # one against code zero.  A fit reported against a non-default reference therefore
@@ -1576,7 +1626,8 @@ def _validate_generated_eligibility(
         if len(remaining) != 1:
             raise CapabilityError(
                 f"{name} has no effect derivation for a parameter key with no value arm; "
-                f"{data.treatment_name} does not leave exactly one other arm"
+                f"{data.treatment_name} does not leave exactly one other arm",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         value_code = remaining[0]
     else:
@@ -1584,7 +1635,8 @@ def _validate_generated_eligibility(
     if value_code == reference_code:
         raise CapabilityError(
             f"{name} has no effect derivation for a parameter key whose value and reference "
-            f"are the same arm ({value_code:g}); the catalog covers a two-arm contrast"
+            f"are the same arm ({value_code:g}); the catalog covers a two-arm contrast",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     return value_code, reference_code
 
@@ -1718,14 +1770,16 @@ def _validate_numeric_measurement_column(data: Any, name: str) -> None:
             "undeclared binary variable from one indicator of a dummy block, and relative "
             "Gaussian noise would make it real-valued. Supply the variable as a boolean or "
             "categorical dataframe column to CausalData.from_frame, so it carries the "
-            "logical metadata this operation perturbs by"
+            "logical metadata this operation perturbs by",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     if float(np.std(values, ddof=0)) == 0.0:
         raise CapabilityError(
             f"bootstrap_measurement_error cannot perturb {name!r}: the variable is constant, "
             "so its relative noise scale is exactly zero and every draw would return the "
             "original column while the report still named the variable as perturbed. Remove "
-            "it from the declaration, or declare an absolute noise law for it"
+            "it from the declaration, or declare an absolute noise law for it",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
 
 
@@ -1739,17 +1793,29 @@ def _validate_measurement_error_eligibility(
     if type(data) is not CausalData:
         raise CapabilityError(
             "bootstrap_measurement_error supports point-treatment CausalData results; "
-            f"got result family {type(result).__name__} with data family {type(data).__name__}"
+            f"got result family {type(result).__name__} with data family {type(data).__name__}.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=NO_ALTERNATIVE,
+            roadmap="X67",
         )
     if n_replicates < 1:
         raise ValueError("n_replicates must be positive")
     if declaration.resampling == "cluster" and data.cluster is None:
-        raise CapabilityError("resampling='cluster' requires the data to carry cluster ids")
+        raise CapabilityError(
+            "resampling='cluster' requires the data to carry cluster ids",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
     selected_strata = set(declaration.variables).intersection(data.strata_names)
     if selected_strata:
         raise CapabilityError(
             "bootstrap_measurement_error cannot perturb selected strata variables while "
-            f"preserving target metadata: {sorted(selected_strata)}"
+            f"preserving target metadata: {sorted(selected_strata)}.",
+            reason=RefusalReason.IMPLEMENTATION_GAP,
+            alternative=(
+                "Declare BootstrapMeasurementError(variables=...) with the adjustment "
+                "variables other than the strata."
+            ),
+            roadmap="X67",
         )
     encodings = _measurement_encodings(data)
     generated = data.indicator_sources
@@ -1761,10 +1827,13 @@ def _validate_measurement_error_eligibility(
         if indicator is not None:
             raise CapabilityError(
                 f"{indicator!r} is a generated indicator for original categorical variable "
-                f"{generated[indicator]!r}; select the original variable"
+                f"{generated[indicator]!r}.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative=f"Select the original variable {generated[indicator]!r}.",
             )
         raise CapabilityError(
-            f"unknown adjustment variables {unknown}; choose from {sorted(original)}"
+            f"unknown adjustment variables {unknown}; choose from {sorted(original)}",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     retained = set(data.covariate_names)
     for name in declaration.variables:
@@ -1777,7 +1846,8 @@ def _validate_measurement_error_eligibility(
             raise CapabilityError(
                 "bootstrap_measurement_error cannot perturb categorical variable "
                 f"{name!r} because duplicate-column removal left its encoded block "
-                f"incomplete; missing indicators {missing}"
+                f"incomplete; missing indicators {missing}",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
     return data
 
@@ -2027,9 +2097,9 @@ def refute(
         bootstrap_measurement_error,
         measurement_error_rule,
     )
-    reason = _first_refusal(result, request)
-    if reason is not None:
-        raise CapabilityError(reason)
+    refusal = _first_refusal(result, request)
+    if refusal is not None:
+        raise CapabilityError.from_refusal(refusal)
     requested = request.tests
     estimator = result.estimator
     processes = {name: request.process(name) for name in _GENERATED_TESTS}

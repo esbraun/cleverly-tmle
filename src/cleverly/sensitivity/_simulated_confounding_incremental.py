@@ -11,6 +11,7 @@ from typing import Any
 
 import numpy as np
 
+from .._refusal import Refusal, RefusalReason
 from ..exceptions import CapabilityError
 from ..interventions import Incremental, IPSISet
 from ..study import IncrementalEffect, IncrementalMean, ParameterKey
@@ -27,7 +28,7 @@ _TARGET_TYPES = {"ey_ipsi": IncrementalMean, "ate_ipsi": IncrementalEffect}
 INCREMENTAL_TARGETS = frozenset(_TARGET_TYPES)
 
 
-def incremental_replay_refusal(estimator: Any, target: str) -> str | None:
+def incremental_replay_refusal(estimator: Any, target: str) -> Refusal | None:
     """Describe the estimator boundary without evaluating a treatment mechanism.
 
     A baseline stratum is no boundary: the replay is a complete refit, which targets the
@@ -36,7 +37,12 @@ def incremental_replay_refusal(estimator: Any, target: str) -> str | None:
     from ..estimators.tmle import TMLE
 
     if target in INCREMENTAL_TARGETS and type(estimator) is not TMLE:
-        return "simulated_confounding supports incremental targets under exact ordinary TMLE only"
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "simulated_confounding supports incremental targets under exact ordinary TMLE only.",
+            alternative="Fit the incremental targets with the ordinary TMLE and replay that fit.",
+            roadmap="F5",
+        )
     return None
 
 
@@ -64,10 +70,10 @@ def validate_incremental_replay(result: Any, estimand: str, key: Any) -> Any:
     identified = result.identified_effect
     functional, typed, estimator = identified.functional, identified.estimand, result.estimator
     if type(typed) is not _TARGET_TYPES.get(key.estimand):
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     refusal = incremental_replay_refusal(estimator, key.estimand)
     if refusal is not None:
-        raise CapabilityError(refusal)
+        raise CapabilityError.from_refusal(refusal)
     registered = check_registered_target(result, key, "ipsi", error)
     check_replay_declaration(result, key, error)
     check_only_declared_axis(result, key, "ipsi", error)
@@ -85,7 +91,7 @@ def validate_incremental_replay(result: Any, estimand: str, key: Any) -> Any:
         or functional.treatment != study.design.treatment
         or functional.adjustment != tuple(study.design.adjustment)
     ):
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     names = tuple(item.name for item in declarations)
     reference = names[0] if functional.reference is None else functional.reference
     if (
@@ -96,7 +102,7 @@ def validate_incremental_replay(result: Any, estimand: str, key: Any) -> Any:
         or (key.estimand == "ate_ipsi" and key.value == reference)
         or result.config.reference_arm != float(names.index(reference))
     ):
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     for nuisance in result.nuisances:
         state = nuisance.incremental
         mechanism = np.asarray(nuisance.propensity.values)
@@ -112,7 +118,7 @@ def validate_incremental_replay(result: Any, estimand: str, key: Any) -> Any:
             or nuisance.policies is not None
             or nuisance.msm is not None
         ):
-            raise CapabilityError(error)
+            raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
         expected = IPSISet.evaluate(
             declarations, result.data, mechanism, reference=functional.reference
         )
@@ -125,16 +131,19 @@ def validate_incremental_replay(result: Any, estimand: str, key: Any) -> Any:
                 for slot in ("values", "weights", "derivative", "propensity")
             )
         ):
-            raise CapabilityError(error)
+            raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     alias = parameter_name(key.estimand, arm=key.value, versus=key.reference)
     check_alias(result, estimand, key, alias, error)
     estimate = result.estimates[estimand]
     if estimate.scale != registered.scale or estimate.inference_value != estimate.psi:
-        raise CapabilityError(error)
+        raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)
     if estimand in natural_incremental_means(result):
         raise CapabilityError(
             "simulated_confounding refuses a delta=1 incremental mean; it equals E[Y] "
-            "and carries no counterfactual treatment dependence. Select a nontrivial "
-            "incremental mean or a contrast against the natural course"
+            "and carries no counterfactual treatment dependence.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=(
+                "Select a nontrivial incremental mean or a contrast against the natural course."
+            ),
         )
     return estimator

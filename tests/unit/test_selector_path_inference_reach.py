@@ -418,7 +418,8 @@ class TestTheArgumentAwareRowsAgreeWithTheCall:
         )
         item = report["tipping_gamma"]
         assert item.status is AssessmentStatus.UNAVAILABLE
-        assert inference_refusal("tipping_gamma(use_ci=True)", DIAGNOSTIC) in item.detail
+        refusal = inference_refusal("tipping_gamma(use_ci=True)", DIAGNOSTIC)
+        assert refusal.condition in item.detail
         assert DECLINED not in item.detail
 
     def test_the_point_tipping_row_stays_available(self, selector_fit: Any) -> None:

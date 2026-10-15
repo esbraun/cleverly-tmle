@@ -43,7 +43,7 @@ import narwhals as nw
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 from ..utils.frames import (
     as_frame,
     backend_of,
@@ -114,7 +114,7 @@ class _VectorLevels(tuple[object, ...]):
         return super().__new__(cls, ())
 
     def _refuse(self) -> CapabilityError:
-        return CapabilityError(_vector_refusal("this treatment", "its arm levels"))
+        return CapabilityError.from_refusal(_vector_refusal("this treatment", "its arm levels"))
 
     def __len__(self) -> int:
         raise self._refuse()
@@ -144,12 +144,13 @@ class _VectorLevels(tuple[object, ...]):
         return hash(_VectorLevels)
 
 
-def _vector_refusal(treatment: str, reader: str) -> str:
+def _vector_refusal(treatment: str, reader: str) -> Refusal:
     """The refusal of a one-column reader at a vector treatment with a dose component."""
-    return (
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
         f"{treatment} is a vector treatment with a continuous component, and {reader} reads "
-        "a treatment of one column. Such a treatment has no arms: "
-        "TMLE(policies=[JointPolicy(...)]) fits its policy means and contrasts"
+        "a treatment of one column. Such a treatment has no arms.",
+        alternative="TMLE(policies=[JointPolicy(...)]) fits its policy means and contrasts.",
     )
 
 
@@ -410,8 +411,9 @@ class CausalData:
         """
         if not is_dataframe(data):
             raise DataError(
-                "from_frame expects a pandas or polars DataFrame; "
-                "use CausalData.from_arrays for numpy input"
+                "from_frame expects a pandas or polars DataFrame.",
+                reason=RefusalReason.API_REDIRECTION,
+                alternative="Use CausalData.from_arrays for numpy input.",
             )
         frame = as_frame(data)
         columns = list(frame.columns)
@@ -979,7 +981,7 @@ class CausalData:
     def _refuse_vector(self, reader: str) -> None:
         """Raise when ``reader`` reads a treatment of one column at a vector with a dose."""
         if self.treatment_kind == "vector":
-            raise CapabilityError(_vector_refusal(f"{self.treatment_name!r}", reader))
+            raise CapabilityError.from_refusal(_vector_refusal(f"{self.treatment_name!r}", reader))
 
     @property
     def n_arms(self) -> int:
@@ -1804,10 +1806,12 @@ def _treatment_recorded(
         return None
     if treatment_kind != "discrete":
         raise DataError(
-            "a missing treatment is supported for an arm-coded treatment only; "
-            f"{treatment_name} is declared {treatment_kind}, and a conditional density "
-            "fitted on the recorded rows has no composite indicator to divide by. Drop "
-            f"{delta_name}= or the rows with an unrecorded treatment."
+            f"When the missingness of {treatment_name} may depend on {treatment_name}, the "
+            f"law of {treatment_name} given W is not identified; only its law given "
+            f"Delta_A = 1 and W is. A {treatment_kind}-treatment target reads the law of "
+            f"{treatment_name} given W.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative=f"Drop {delta_name}= or the rows with an unrecorded treatment.",
         )
     recorded = check_delta(treatment_delta, delta_name, role="treatment")
     if recorded.shape[0] != missing.shape[0]:
@@ -1918,9 +1922,14 @@ def _encode_vector(
     if not names:
         return None
     if declared_known and continuous:
-        raise CapabilityError(
-            f"treatment {treatment_name!r} is a vector with a continuous component. "
-            + KNOWN_CONTINUOUS_REFUSAL
+        raise CapabilityError.from_refusal(
+            replace(
+                KNOWN_CONTINUOUS_REFUSAL,
+                condition=(
+                    f"treatment {treatment_name!r} is a vector with a continuous component. "
+                    + KNOWN_CONTINUOUS_REFUSAL.condition
+                ),
+            )
         )
     raw = np.asarray(treatment, dtype=object)
     if raw.ndim != 2 or raw.shape[1] != len(names):

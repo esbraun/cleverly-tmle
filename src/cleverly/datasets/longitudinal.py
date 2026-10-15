@@ -28,6 +28,7 @@ from ..utils.bounds import expit
 from ..utils.frames import as_frame, column_array, frame_from_dict
 
 __all__ = [
+    "REPEATED_RULE_LABEL",
     "RULE_LABEL",
     "WEIGHTED_SELECTION_PROBABILITIES",
     "competing_truth",
@@ -35,8 +36,10 @@ __all__ = [
     "longitudinal_truth",
     "make_longitudinal",
     "make_longitudinal_competing",
+    "make_longitudinal_repeated",
     "make_longitudinal_survival",
     "make_longitudinal_weighted",
+    "repeated_truth",
     "rule_arm_at_node_two",
     "survival_truth",
 ]
@@ -894,5 +897,252 @@ def make_longitudinal_competing(
             truth[f"ate_regimen[always vs never, {cause}{_HORIZON_INFIX}{horizon}]"] = (
                 truth[f"cif_regimen[always, {cause}{_HORIZON_INFIX}{horizon}]"]
                 - truth[f"cif_regimen[never, {cause}{_HORIZON_INFIX}{horizon}]"]
+            )
+    return frame_from_dict(payload, backend=backend), truth
+
+
+#: The dynamic plan :func:`make_longitudinal_repeated` ships a truth for: treat everybody
+#: at the first node, then treat at node ``t`` exactly when the outcome at ``t - 1`` was one,
+#: :math:`d_t = Y_{t-1}`.  The rule reads an earlier outcome, which only a repeated outcome
+#: puts in the history.
+REPEATED_RULE_LABEL = "treat then treat after an outcome"
+
+#: The time points of :func:`make_longitudinal_repeated`.
+_REPEATED_TIMES = 3
+
+#: The values of the baseline covariate ``W``, each with probability
+#: :data:`_REPEATED_W_PROBABILITY`.
+#: Three values make the first-node regression on ``W`` alone (two parameters, three cells)
+#: unsaturated, so the first fluctuation of a fit has something to move.
+_REPEATED_W = (0.0, 1.0, 2.0)
+
+#: The probability of each value of ``W``.
+_REPEATED_W_PROBABILITY = 1.0 / 3.0
+
+#: Coefficients of ``logit P(A1 = 1 | W)``.
+_REPEATED_A1 = {"intercept": 0.2, "w": 0.2}
+
+#: Coefficients of ``logit P(C1 = 1 | W, A1)``, the probability of staying under observation.
+_REPEATED_C1 = {"intercept": 2.4, "w": 0.2, "a": -0.3}
+
+#: Coefficients of ``logit P(L_t = 1 | W, A_{t-1}, Y_{t-1}, L_{t-1})`` for ``t >= 2``, with
+#: ``L_1 = 0``.
+_REPEATED_L = {"intercept": -0.4, "w": 0.3, "a": -2.0, "y": 1.4, "l1": 0.9}
+
+#: Coefficients of ``logit P(A_t = 1 | W, L_t, Y_{t-1}, A_{t-1}, Y_{t-2})`` for ``t >= 2``, with
+#: ``Y_0 = 0``.
+_REPEATED_A = {"intercept": -1.2, "w": 0.2, "l": 0.5, "y": -0.2, "a": 0.7, "y2": 1.6}
+
+#: Coefficients of ``logit P(C_t = 1 | L_t, Y_{t-1}, A_t, Y_{t-2})`` for ``t >= 2``.  No ``Y_t``
+#: term: censoring is missing at random given the history.
+_REPEATED_C = {"intercept": 3.6, "l": 0.3, "y": -0.2, "a": 0.3, "y2": -1.4}
+
+#: Coefficients of ``logit P(Y_t = 1 | W, A_t, L_t, Y_{t-1}, Y_{t-2}, L_{t-1})``, with
+#: ``L_1 = Y_0 = Y_{-1} = L_0 = 0``.  The interaction lowers the persistence of the outcome
+#: under treatment.  At ``Y_{t-1} = 1`` the largest index is ``-1.6 + 0.6 + 0.4 + 0.3 + 1.8 +
+#: 0.2 = 1.7`` (``W = 2``, ``A_t = 0``), so the outcome returns to zero with probability at
+#: least ``1 - expit(1.7) = 0.15`` in every cell.
+_REPEATED_Y = {
+    "intercept": -1.6,
+    "w": 0.3,
+    "a": -0.7,
+    "l": 0.4,
+    "y": 0.3,
+    "ay": -1.1,
+    "y2": 1.8,
+    "l1": 0.2,
+}
+
+
+def _repeated_logit(coefficients: dict[str, float], **values: Any) -> Any:
+    """``expit`` of the linear index ``coefficients`` puts on ``values``."""
+    index: Any = coefficients["intercept"]
+    for name, value in values.items():
+        index = index + coefficients[name] * value
+    return expit(index)
+
+
+def _repeated_outcome(w: Any, a: Any, l: Any, y: Any, y2: Any, l1: Any) -> Any:
+    """``P(Y_t = 1 | W, A_t, L_t, Y_{t-1}, Y_{t-2}, L_{t-1})``."""
+    index = (
+        _REPEATED_Y["intercept"]
+        + _REPEATED_Y["w"] * w
+        + _REPEATED_Y["a"] * a
+        + _REPEATED_Y["l"] * l
+        + _REPEATED_Y["y"] * y
+        + _REPEATED_Y["ay"] * a * y
+        + _REPEATED_Y["y2"] * y2
+        + _REPEATED_Y["l1"] * l1
+    )
+    return expit(index)
+
+
+def _repeated_arm(plan: str, time: int, previous: Any) -> Any:
+    """The arm ``plan`` assigns at ``time``, given the outcome ``previous`` at ``time - 1``."""
+    if plan == "never":
+        return 0.0 * previous
+    if plan == "always":
+        return 0.0 * previous + 1.0
+    if plan == REPEATED_RULE_LABEL:
+        return 1.0 + 0.0 * previous if time == 1 else 1.0 * previous
+    raise ValueError(f"plan must be 'never', 'always' or {REPEATED_RULE_LABEL!r}; got {plan!r}")
+
+
+@cache
+def repeated_truth(plan: str, horizon: int) -> float:
+    r"""``E[Y_h^d]`` of :func:`make_longitudinal_repeated` under a plan, by enumeration.
+
+    ``W`` takes three values and every later node is binary, so the counterfactual mean is a
+    finite sum.  Under the plan the treatment and censoring mechanisms drop out.  The outcome
+    and the covariate read two nodes back, so the recursion carries the joint law of
+    ``(Y_{t-1}, Y_{t-2}, A_{t-1}, L_{t-1})`` given ``W`` forward one node at a time:
+
+    .. math::
+
+        E[Y_h^d] = \sum_w P(w) \sum_{s_{h-1}} P(s_{h-1} \mid w)
+        \sum_{l_h} P(l_h \mid w, a_{h-1}, y_{h-1}, l_{h-1})\,
+        P(Y_h = 1 \mid w, d_h, l_h, y_{h-1}, y_{h-2}, l_{h-1}),
+
+    where :math:`s_{h-1} = (y_{h-1}, y_{h-2}, a_{h-1}, l_{h-1})`.
+
+    Parameters
+    ----------
+    plan : str
+        ``"never"``, ``"always"`` or :data:`REPEATED_RULE_LABEL`.
+    horizon : int
+        The time point ``h``, from 1 to 3.
+
+    Returns
+    -------
+    float
+        The counterfactual mean of the outcome at ``horizon``.
+    """
+    if not 1 <= horizon <= _REPEATED_TIMES:
+        raise ValueError(f"horizon must be in 1..{_REPEATED_TIMES}; got {horizon}")
+    total = 0.0
+    for w in _REPEATED_W:
+        # ``state[(y, y2, a, l)]``: the probability of ``(Y_{t-1}, Y_{t-2}, A_{t-1}, L_{t-1})``
+        # given ``W``.  Node 1 has ``L_1 = Y_0 = Y_{-1} = 0`` and no earlier arm.
+        state = {(0.0, 0.0, 0.0, 0.0): 1.0}
+        mean = 0.0
+        for time in range(1, horizon + 1):
+            following: dict[tuple[float, float, float, float], float] = {}
+            mean = 0.0
+            for (y_prev, y_prev2, a_prev, l_prev), mass in state.items():
+                covariate: tuple[tuple[float, float], ...]
+                if time == 1:
+                    covariate = ((0.0, 1.0),)
+                else:
+                    p_l = float(_repeated_logit(_REPEATED_L, w=w, a=a_prev, y=y_prev, l1=l_prev))
+                    covariate = ((0.0, 1.0 - p_l), (1.0, p_l))
+                arm = float(_repeated_arm(plan, time, y_prev))
+                for l_value, p_value in covariate:
+                    p_y = float(_repeated_outcome(w, arm, l_value, y_prev, y_prev2, l_prev))
+                    mean += mass * p_value * p_y
+                    for y_value, p_next in ((0.0, 1.0 - p_y), (1.0, p_y)):
+                        key = (y_value, y_prev, arm, l_value)
+                        following[key] = following.get(key, 0.0) + mass * p_value * p_next
+            state = following
+        total += _REPEATED_W_PROBABILITY * mean
+    return float(total)
+
+
+def make_longitudinal_repeated(
+    n: int = 2000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    censoring: bool = True,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """Three time points, a **repeated binary outcome at each**, and monotone censoring.
+
+    The baseline covariate ``W`` takes the values 0, 1 and 2 with equal probability, and every
+    later node is binary.  The outcome is measured at every node and is not absorbing: a unit
+    with ``Y_{t-1} = 1`` returns to ``Y_t = 0`` with probability at least 0.15.  The history
+    reaches two nodes back.  ``L_t``, ``A_t``, ``C_t`` and ``Y_t`` each read ``Y_{t-1}``.
+    ``A_t``, ``C_t`` and ``Y_t`` also read ``Y_{t-2}``, and ``L_t`` and ``Y_t`` read
+    ``L_{t-1}``.  The second-order terms act at ``t = 3`` only, because ``Y_0``, ``Y_{-1}``,
+    ``L_0`` and ``L_1`` are zero.  Censoring reads ``L_t``, ``Y_{t-1}``, ``Y_{t-2}`` and
+    ``A_t`` and never ``Y_t``, so it is missing at random given the history.
+    :func:`repeated_truth` enumerates each truth exactly.  Returns ``(frame, truth)``.
+
+    The frame is wide, with columns ``W``, ``A1``, ``C1``, ``Y1``, ``L2``, ``A2``, ``C2``,
+    ``Y2``, ``L3``, ``A3``, ``C3``, ``Y3`` in time order.  ``C_t = 0`` sets ``Y_t`` and every
+    later node to ``nan``.  Declare the outcome with
+    ``outcome=Repeated(["Y1", "Y2", "Y3"])`` and the covariates with
+    ``time_varying=[[], ["L2"], ["L3"]]``.
+
+    ``truth`` holds ``ey_regimen[... @ t=h]`` for ``never``, ``always`` and
+    :data:`REPEATED_RULE_LABEL` at ``h = 1, 2, 3``, and ``ate_regimen[... vs never @ t=h]``
+    for the other two plans, under the names a fit reports them by.
+
+    Parameters
+    ----------
+    n : int
+        Number of units.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    censoring : bool
+        Whether to generate monotone censoring. False leaves every unit observed.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
+
+    Returns
+    -------
+    dataframe
+        Wide-format observations with one outcome node per time point.
+    truth : dict of str to float
+        Outcome means by plan and horizon, and contrasts against ``never``, under a fit's own
+        labels.
+    """
+    rng = np.random.default_rng(seed)
+    w = rng.integers(0, len(_REPEATED_W), size=n).astype(float)
+    payload: dict[str, FloatArray] = {"W": w}
+    alive = np.ones(n, dtype=bool)
+    y_prev = np.zeros(n)
+    y_prev2 = np.zeros(n)
+    a_prev = np.zeros(n)
+    l_prev = np.zeros(n)
+    for time in range(1, _REPEATED_TIMES + 1):
+        if time == 1:
+            covariate = np.zeros(n)
+            p_treat = _repeated_logit(_REPEATED_A1, w=w)
+        else:
+            covariate = rng.binomial(
+                1, _repeated_logit(_REPEATED_L, w=w, a=a_prev, y=y_prev, l1=l_prev)
+            ).astype(float)
+            p_treat = _repeated_logit(_REPEATED_A, w=w, l=covariate, y=y_prev, a=a_prev, y2=y_prev2)
+        arm = rng.binomial(1, p_treat).astype(float)
+        if time == 1:
+            p_stay = _repeated_logit(_REPEATED_C1, w=w, a=arm)
+        else:
+            p_stay = _repeated_logit(_REPEATED_C, l=covariate, y=y_prev, a=arm, y2=y_prev2)
+        stay = rng.binomial(1, p_stay).astype(float) if censoring else np.ones(n)
+        outcome = rng.binomial(
+            1, _repeated_outcome(w, arm, covariate, y_prev, y_prev2, l_prev)
+        ).astype(float)
+        observed = alive & (stay == 1.0)
+        if time > 1:
+            payload[f"L{time}"] = np.where(alive, covariate, np.nan)
+        payload[f"A{time}"] = np.where(alive, arm, np.nan)
+        if censoring:
+            payload[f"C{time}"] = np.where(alive, stay, np.nan)
+        payload[f"Y{time}"] = np.where(observed, outcome, np.nan)
+        alive = observed
+        y_prev2 = y_prev
+        y_prev = outcome
+        a_prev = arm
+        l_prev = covariate
+
+    truth: dict[str, float] = {}
+    plans = ("never", "always", REPEATED_RULE_LABEL)
+    for plan in plans:
+        for horizon in range(1, _REPEATED_TIMES + 1):
+            truth[f"ey_regimen[{plan}{_HORIZON_INFIX}{horizon}]"] = repeated_truth(plan, horizon)
+    for plan in plans[1:]:
+        for horizon in range(1, _REPEATED_TIMES + 1):
+            truth[f"ate_regimen[{plan} vs never{_HORIZON_INFIX}{horizon}]"] = (
+                truth[f"ey_regimen[{plan}{_HORIZON_INFIX}{horizon}]"]
+                - truth[f"ey_regimen[never{_HORIZON_INFIX}{horizon}]"]
             )
     return frame_from_dict(payload, backend=backend), truth

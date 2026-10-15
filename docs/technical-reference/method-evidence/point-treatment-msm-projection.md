@@ -36,11 +36,13 @@ the package reaches its documented custom-weight branch without patching the pin
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| bounded continuous-outcome law with an unsaturated working model | `msm[(intercept)]` | point-treatment MSM projection intercept coefficient | -0.000007 | 0.0081 | 1.0020 | -0.0012 | 0.0036 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with an unsaturated working model | `msm[W]` | point-treatment MSM projection baseline-covariate coefficient | 0.000004 | 0.0070 | 1.0012 | -0.0025 | 0.0040 vs 0.0500 | equivalent |
-| bounded continuous-outcome law with an unsaturated working model | `msm[a]` | point-treatment MSM projection treatment coefficient | 0.000007 | 0.0082 | 1.0013 | -0.0050 | 0.0026 vs 0.0500 | equivalent |
+Comparator-backed: a paired comparison with `tmle3` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| bounded continuous-outcome law with an unsaturated working model | `msm[(intercept)]` | point-treatment MSM projection intercept coefficient | -0.000007 | 0.0081 | 1.0020 | -0.0012 | related target | 0.0036 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with an unsaturated working model | `msm[W]` | point-treatment MSM projection baseline-covariate coefficient | 0.000004 | 0.0070 | 1.0012 | -0.0025 | related target | 0.0040 vs 0.0500 | equivalent |
+| bounded continuous-outcome law with an unsaturated working model | `msm[a]` | point-treatment MSM projection treatment coefficient | 0.000007 | 0.0082 | 1.0013 | -0.0050 | related target | 0.0026 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties

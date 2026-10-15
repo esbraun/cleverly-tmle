@@ -32,7 +32,14 @@ from ._declarations import declarations_pass
 from ._inference_status import precedent_status, status_record, supplies_inference
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
-from .exceptions import CapabilityError, DataError, inference_refusal
+from .exceptions import (
+    NO_ALTERNATIVE,
+    CapabilityError,
+    DataError,
+    Refusal,
+    RefusalReason,
+    inference_refusal,
+)
 from .inference.influence import spread_name
 from .targets.population_intervention import (
     NATURAL_COURSE_SUPPORT_REFUSAL,
@@ -253,8 +260,10 @@ class AssessmentCapability:
         Statistical question that the operation answers.
     cost : {"cheap", "moderate", "expensive"}
         Relative cost category used by combined reports.
-    reason : str or None
-        Explanation when the operation is not available.
+    refusal : Refusal or None
+        The record of why the operation is not available: its reason code, the failed
+        condition and the alternative. :attr:`reason` is its text, and a raise of the
+        operation carries the same record.
     requires_arguments : tuple of str
         Arguments the caller must pass. An entry either has no default, or has a
         default that the operation refuses on this result family.
@@ -275,7 +284,7 @@ class AssessmentCapability:
     deterministic_from_saved: bool
     interpretation: str
     cost: Literal["cheap", "moderate", "expensive"]
-    reason: str | None = None
+    refusal: Refusal | None = None
     #: Arguments the caller must supply, so a combined report cannot run this operation.
     #: An entry covers two cases: the operation has no default for it, or the operation
     #: refuses its own default on this fit. ``simulated_confounding`` is the second case,
@@ -291,6 +300,11 @@ class AssessmentCapability:
     #: ``benchmark`` and ``simulated_confounding`` beside it reported the truth.
     requires_replay: str | None = None
 
+    @property
+    def reason(self) -> str | None:
+        """The text of :attr:`refusal`, or ``None`` when the row declares none."""
+        return None if self.refusal is None else self.refusal.message()
+
 
 def _capability(
     operation: str,
@@ -303,7 +317,7 @@ def _capability(
     cost: Literal["cheap", "moderate", "expensive"] = "cheap",
     available: bool = True,
     status: AssessmentStatus = AssessmentStatus.PASSED,
-    reason: str | None = None,
+    refusal: Refusal | None = None,
     requires_arguments: Sequence[str] = (),
     methods: Sequence[str] | None = None,
     accepts_random_state: bool = False,
@@ -328,7 +342,7 @@ def _capability(
         deterministic_from_saved=deterministic,
         interpretation=interpretation,
         cost=cost,
-        reason=reason,
+        refusal=refusal,
         requires_arguments=tuple(requires_arguments),
         accepts_random_state=accepts_random_state,
         requires_replay=requires_replay,
@@ -424,7 +438,10 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         artifacts=(),
         available=False,
         status=AssessmentStatus.NOT_APPLICABLE,
-        reason="longitudinal targeting does not use the point-treatment correction system",
+        refusal=Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            "longitudinal targeting does not use the point-treatment correction system",
+        ),
         interpretation="the correction identities solved by guarded doubly-robust targeting",
     ),
     _capability(
@@ -450,7 +467,12 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         cost="expensive",
         available=False,
         status=AssessmentStatus.UNAVAILABLE,
-        reason="no evidence-backed longitudinal perturbation/refit adapter is implemented",
+        refusal=Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "no evidence-backed longitudinal perturbation/refit adapter is implemented.",
+            alternative=NO_ALTERNATIVE,
+            roadmap="X67",
+        ),
         interpretation="behavior under longitudinal data perturbations",
     ),
 )
@@ -504,14 +526,19 @@ SENSITIVITY_ROUTES: dict[str, SensitivityRoute] = {
 
 
 #: Why an SDR fit has no score-equation report.
-SDR_SCORE_EQUATIONS_REFUSAL = (
-    "the SDR estimator fits no fluctuation, so no node solves a score equation; "
-    "diagnostics.support() reports each node's transform range and bound share"
+SDR_SCORE_EQUATIONS_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the SDR estimator fits no fluctuation, so no node solves a score equation.",
+    alternative="diagnostics.support() reports each node's transform range and bound share.",
 )
 
-IPSI_SCORE_EQUATIONS_REFUSAL = (
-    "the IPSI estimator fits no fluctuation, so no node solves a score equation; "
-    "diagnostics.support() reports each node's weights, bound share and mechanism term"
+#: Why an IPSI fit has no score-equation report.
+IPSI_SCORE_EQUATIONS_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the IPSI estimator fits no fluctuation, so no node solves a score equation.",
+    alternative=(
+        "diagnostics.support() reports each node's weights, bound share and mechanism term."
+    ),
 )
 
 
@@ -542,7 +569,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 row,
                 available=False,
                 status=AssessmentStatus.UNAVAILABLE,
-                reason=NATURAL_COURSE_SUPPORT_REFUSAL,
+                refusal=NATURAL_COURSE_SUPPORT_REFUSAL,
             )
             if row.operation == "support"
             else row
@@ -557,7 +584,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 row,
                 available=False,
                 status=AssessmentStatus.NOT_APPLICABLE,
-                reason=(
+                refusal=(
                     SDR_SCORE_EQUATIONS_REFUSAL
                     if estimator == "sdr"
                     else IPSI_SCORE_EQUATIONS_REFUSAL
@@ -579,7 +606,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 row,
                 available=False,
                 status=AssessmentStatus.UNAVAILABLE,
-                reason=LEARNED_RULE_REFIT_REFUSAL,
+                refusal=LEARNED_RULE_REFIT_REFUSAL,
             )
             if row.operation == "refute"
             else row
@@ -597,7 +624,12 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
                 row,
                 available=False,
                 status=AssessmentStatus.UNAVAILABLE,
-                reason="a continuous MSM has no implemented dose-grid support diagnostic",
+                refusal=Refusal(
+                    RefusalReason.IMPLEMENTATION_GAP,
+                    "a continuous MSM has no implemented dose-grid support diagnostic.",
+                    alternative=NO_ALTERNATIVE,
+                    roadmap="X65",
+                ),
             )
             if row.operation == "support"
             else row
@@ -608,10 +640,11 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             row,
             available=False,
             status=AssessmentStatus.NOT_APPLICABLE,
-            reason=(
+            refusal=Refusal(
+                RefusalReason.INVALID_DECLARATION,
                 "the fitted DR-TMLE guard subtracts no correction term"
                 if _method(result) == "drtmle"
-                else "the fitted method does not use the correction system"
+                else "the fitted method does not use the correction system",
             ),
         )
         if row.operation == "corrections"
@@ -684,6 +717,10 @@ class AssessmentItem:
         recorded as effective would name an argument the operation declines. A row this fit
         refuses outright carries nothing, because no request was considered and none can
         make it run. Excluded from equality because argument values can contain arrays.
+    refusal : Refusal or None
+        The record of the refusal behind an omission: its reason code, the failed condition
+        and the alternative. ``None`` for an operation that ran, and for a deferral that
+        no refusal causes, such as a cost the caller has not paid for.
     """
 
     name: str
@@ -692,6 +729,7 @@ class AssessmentItem:
     next_steps: tuple[str, ...] = ()
     _report: Any = field(default=_AbsentReport.TOKEN, compare=False, repr=False)
     arguments: Mapping[str, Any] = field(default_factory=dict, compare=False, repr=False)
+    refusal: Refusal | None = None
 
     @property
     def report(self) -> Any:
@@ -1280,7 +1318,7 @@ def _method_gated(item: AssessmentCapability, method: str) -> AssessmentCapabili
         or (method == "unknown" and item.execution == "summarize")
     ):
         return item
-    reason = (
+    text = (
         # An artifact records a method or it does not. Reading "the fitted method
         # 'unknown' does not support this operation" sent a reader to look up a method
         # named ``unknown``, when the cause is that the artifact names no method at all.
@@ -1289,7 +1327,12 @@ def _method_gated(item: AssessmentCapability, method: str) -> AssessmentCapabili
         if method == "unknown"
         else f"the fitted method {method!r} does not support this operation"
     )
-    return replace(item, available=False, status=AssessmentStatus.NOT_APPLICABLE, reason=reason)
+    return replace(
+        item,
+        available=False,
+        status=AssessmentStatus.NOT_APPLICABLE,
+        refusal=Refusal(RefusalReason.INVALID_DECLARATION, text),
+    )
 
 
 #: What a code means when nothing is missing from the artifact.  Most omissions are a
@@ -1369,7 +1412,10 @@ def _replay_gated(item: AssessmentCapability, replay: Replayability) -> Assessme
         item,
         available=False,
         status=AssessmentStatus.UNAVAILABLE,
-        reason=f"{_REPLAY_WORK[slot]} is unavailable: {detail}",
+        refusal=Refusal(
+            RefusalReason.INVALID_DECLARATION,
+            f"{_REPLAY_WORK[slot]} is unavailable: {detail}",
+        ),
     )
 
 
@@ -1377,7 +1423,7 @@ def _argument_resolved(
     capability: AssessmentCapability,
     argument: str,
     requested: Any,
-    refusal: Callable[[Any], str | None],
+    refusal: Callable[[Any], Refusal | None],
     alternatives: Sequence[Any],
 ) -> AssessmentCapability:
     """Resolve a row whose call refuses some values of one argument and not others.
@@ -1410,7 +1456,7 @@ def _argument_resolved(
     requested : Any
         The value the request supplies, or ``None`` when it omits the argument.
     refusal : callable
-        The call's predicate at one value of ``argument``: the exact refusal sentence, or
+        The call's predicate at one value of ``argument``: the exact refusal record, or
         ``None`` when that value runs.
     alternatives : sequence
         The values that could lift a deferral of the omitted argument.
@@ -1420,18 +1466,20 @@ def _argument_resolved(
     AssessmentCapability
         The row this request reads.
     """
-    reason = refusal(requested)
-    if reason is None:
+    declared = refusal(requested)
+    if declared is None:
         return capability
     if requested is None and any(refusal(value) is None for value in alternatives):
         return replace(
             capability,
             available=False,
             status=AssessmentStatus.DEFERRED,
-            reason=reason,
+            refusal=declared,
             requires_arguments=(*capability.requires_arguments, argument),
         )
-    return replace(capability, available=False, status=AssessmentStatus.UNAVAILABLE, reason=reason)
+    return replace(
+        capability, available=False, status=AssessmentStatus.UNAVAILABLE, refusal=declared
+    )
 
 
 #: The estimand default that a fit reporting no bare ``"ate"`` leaves ambiguous.
@@ -1463,9 +1511,9 @@ def _defaults_to_ambiguous_estimand(function: Callable[..., Any]) -> bool:
     return parameter is not None and parameter.default == _AMBIGUOUS_ESTIMAND
 
 
-def _tipping_natural_course_reason(
+def _tipping_natural_course_refusal(
     result: Any, operation: str, candidates: tuple[str, ...]
-) -> str | None:
+) -> Refusal | None:
     """Why a bare ``tipping_gamma()`` needs an estimand on a fit that reads the natural course.
 
     One spelling for the capability row and the call.  ``None`` unless the operation is
@@ -1477,11 +1525,13 @@ def _tipping_natural_course_reason(
     if not reads_natural_course_mean(result):
         return None
     natural = natural_course_names(result.estimates)
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         "tipping_gamma answers for one estimand, and the implemented missingness tilt is "
         f"arm-specific: {natural} read the natural-course mean, which needs a "
-        "natural-course sensitivity parameter that is not implemented. Choose an explicit "
-        f"estimand from {list(candidates)}"
+        "natural-course sensitivity parameter that is not implemented.",
+        alternative=f"Choose an explicit estimand from {list(candidates)}.",
+        roadmap="X65",
     )
 
 
@@ -1730,9 +1780,17 @@ class _CapabilityFacade:
             # why *this* operation is refused, and re-deriving one from the result family
             # gave an E-value on a longitudinal fit a rationale about pseudo-outcome
             # recursion, which is a true sentence about a different operation.
-            raise CapabilityError(
-                f"{self._kind} {operation!r} is {item.status.value}: "
-                f"{item.reason or item.interpretation}"
+            # The raise carries the row's own record, so the code and the alternative the
+            # row declares are the ones the caller sees.
+            declared = item.refusal
+            if declared is None:
+                declared = Refusal(RefusalReason.INVALID_DECLARATION, item.interpretation)
+            raise CapabilityError.from_refusal(
+                replace(
+                    declared,
+                    condition=f"{self._kind} {operation!r} is {item.status.value}: "
+                    f"{declared.condition}",
+                )
             )
         return item
 
@@ -1802,7 +1860,7 @@ class _CapabilityFacade:
             # default, so that spelling has to defer exactly as the bare request does.
             return capability
         candidates = self._estimand_candidates(capability.operation)
-        natural = _tipping_natural_course_reason(self._result, capability.operation, candidates)
+        natural = _tipping_natural_course_refusal(self._result, capability.operation, candidates)
         if natural is not None:
             # The facade does not substitute the one arm mean on a fit that also reports a
             # natural-course target, so the row declares the argument the call needs.
@@ -1810,7 +1868,7 @@ class _CapabilityFacade:
                 capability,
                 available=False,
                 status=AssessmentStatus.DEFERRED,
-                reason=natural,
+                refusal=natural,
                 requires_arguments=(*capability.requires_arguments, "estimand"),
             )
         if len(candidates) < (2 if self._substitutes_estimand else 1):
@@ -1821,9 +1879,10 @@ class _CapabilityFacade:
             capability,
             available=False,
             status=AssessmentStatus.DEFERRED,
-            reason=(
+            refusal=Refusal(
+                RefusalReason.INVALID_DECLARATION,
                 f"{capability.operation} answers for one estimand; choose an explicit "
-                f"estimand from {list(candidates)}"
+                f"estimand from {list(candidates)}",
             ),
             requires_arguments=(*capability.requires_arguments, "estimand"),
         )
@@ -1894,6 +1953,7 @@ class _CapabilityFacade:
                 self._attribute,
                 capability.requires_arguments,
                 reason=capability.reason,
+                refusal=capability.refusal,
             )
         elif not capability.available:
             item = _item_from_capability(capability)
@@ -1985,6 +2045,7 @@ class _CapabilityFacade:
                             arguments=self._effective_arguments(
                                 capability.operation, operation_arguments, None
                             ),
+                            refusal=error.refusal,
                         )
                     )
                 else:
@@ -2211,6 +2272,7 @@ def _missing_argument_item(
     missing: tuple[str, ...],
     *,
     reason: str | None = None,
+    refusal: Refusal | None = None,
 ) -> AssessmentItem:
     """The skip a combined report owes an operation whose argument it cannot choose.
 
@@ -2238,6 +2300,7 @@ def _missing_argument_item(
         AssessmentStatus.DEFERRED,
         reason or f"needs {phrase}, which a combined report has no basis to choose",
         (f"call result.{attribute}.{capability.operation}() directly with {needed}",),
+        refusal=refusal,
     )
 
 
@@ -2389,7 +2452,7 @@ class DiagnosticsFacade(_CapabilityFacade):
             if name in read and name not in ("estimand", "tests")
         }
 
-        def refusal(tests: Sequence[str] | None) -> str | None:
+        def request_refusal(tests: Sequence[str] | None) -> Refusal | None:
             chosen = DEFAULT_TESTS if tests is None else tests
             return refute_refusal(self._result, estimand=estimand, tests=chosen, **declared)
 
@@ -2397,7 +2460,7 @@ class DiagnosticsFacade(_CapabilityFacade):
             capability,
             "tests",
             arguments.get("tests"),
-            refusal,
+            request_refusal,
             tuple((name,) for name in DEFAULT_TESTS),
         )
 
@@ -2696,12 +2759,14 @@ class DiagnosticsFacade(_CapabilityFacade):
         longitudinal = _family(self._result) == "longitudinal"
         if longitudinal and bounds is None:
             raise CapabilityError(
-                "a longitudinal truncation curve requires an explicit bounds grid"
+                "a longitudinal truncation curve requires an explicit bounds grid",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         if longitudinal and mechanism:
             raise CapabilityError(
                 "a longitudinal fit has one cumulative treatment-and-censoring bound; "
-                "mechanism=True is a point-treatment option"
+                "mechanism=True is a point-treatment option",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         if not longitudinal:
             from .sensitivity.positivity import truncation_axis
@@ -2838,6 +2903,7 @@ def _item_from_capability(capability: AssessmentCapability) -> AssessmentItem:
         capability.operation,
         capability.status,
         capability.reason or capability.interpretation,
+        refusal=capability.refusal,
     )
 
 
@@ -3649,8 +3715,12 @@ def assess_result(
         calls = ", ".join(f"result.diagnostics.{name}(...)" for name in owned)
         raise CapabilityError(
             f"the validation battery owns {owned} and runs each one argument-free, so "
-            f"assess() cannot apply arguments to them; call {calls} for one answer, or "
-            f"result.diagnostics.run_all(arguments=...) for the diagnostics surface"
+            "assess() cannot apply arguments to them.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative=(
+                f"Call {calls} for one answer, or "
+                "result.diagnostics.run_all(arguments=...) for the diagnostics surface."
+            ),
         )
     # Validate both surfaces before either one runs, and carry the cleared arguments
     # forward.  A block that is wrong for the sensitivity facade must not first make the
@@ -3757,7 +3827,7 @@ class SensitivityFacade(_CapabilityFacade):
     #: defer the row.
     _substitutes_estimand = True
 
-    def _tilt_rule(self) -> tuple[str, str] | None:
+    def _tilt_rule(self) -> tuple[str, Refusal] | None:
         """The first fit-wide tilt rule that refuses this result, with its reason.
 
         One seam over :func:`~cleverly.sensitivity.missingness._fit_wide_tilt_rule`, which
@@ -3812,14 +3882,23 @@ class SensitivityFacade(_CapabilityFacade):
         bound_refusal = fit_wide_bound_refusal(self._result)
         available = bound_refusal is None
         status = AssessmentStatus.PASSED if available else AssessmentStatus.UNAVAILABLE
-        reason = bound_refusal
+        declared_refusal = bound_refusal
         # A benchmark refits, so its longitudinal stop names the derivation it would have
         # needed rather than the bound's.  Every other fit-wide boundary is the bound's
         # own: a benchmark compares two sets of the same elements, so a fit with no nu^2
         # has no calibration either.  Whether a *point* fit is replayable is settled by
         # ``requires_replay`` below.
-        benchmark_reason = (
-            "no longitudinal benchmarking derivation is registered" if longitudinal else reason
+        benchmark_refusal_row = (
+            Refusal(
+                RefusalReason.IMPLEMENTATION_GAP,
+                "no longitudinal benchmarking derivation is registered",
+                alternative=NO_ALTERNATIVE,
+                # F16 part (c) holds the omitted-variable bound on a longitudinal fit,
+                # which a benchmark calibrates.
+                roadmap="F16",
+            )
+            if longitudinal
+            else declared_refusal
         )
 
         def standard(
@@ -3837,7 +3916,7 @@ class SensitivityFacade(_CapabilityFacade):
                 cost=cost,
                 available=available,
                 status=status,
-                reason=reason,
+                refusal=declared_refusal,
             )
 
         def tilt(operation: str, *, interpretation: str) -> AssessmentCapability:
@@ -3871,7 +3950,7 @@ class SensitivityFacade(_CapabilityFacade):
                 interpretation=interpretation,
                 available=tilt_rule is None,
                 status=status,
-                reason=None if tilt_rule is None else tilt_rule[1],
+                refusal=None if tilt_rule is None else tilt_rule[1],
             )
 
         return (
@@ -3899,7 +3978,7 @@ class SensitivityFacade(_CapabilityFacade):
                 interpretation="calibration against named observed covariates",
                 available=available,
                 status=status,
-                reason=benchmark_reason,
+                refusal=benchmark_refusal_row,
                 requires_arguments=("covariates",),
                 accepts_random_state=True,
                 requires_replay="refit_nuisances",
@@ -3918,7 +3997,7 @@ class SensitivityFacade(_CapabilityFacade):
                     if simulated_refusal is None
                     else AssessmentStatus.UNAVAILABLE
                 ),
-                reason=simulated_refusal,
+                refusal=simulated_refusal,
                 requires_arguments=("grid", "estimand")
                 if continuous or needs_estimand
                 else ("grid",),
@@ -3954,18 +4033,25 @@ class SensitivityFacade(_CapabilityFacade):
             try:
                 selected: Any = _select_evalue(self._result, estimand)
             except _EValueRefusal as error:
-                selected = (error.status, str(error))
+                selected = (error.status, error.refusal)
             self._evalue_selections[estimand] = selected
         selected = self._evalue_selections[estimand]
         if isinstance(selected, tuple):
-            raise _EValueRefusal(*selected)
+            status, cached = selected
+            raise _EValueRefusal(
+                status,
+                cached.condition,
+                reason=cached.reason,
+                alternative=cached.alternative,
+                roadmap=cached.roadmap,
+            )
         return selected
 
     def _evalue_row(self, estimand: str | None = None) -> AssessmentCapability:
         from .sensitivity.evalue import _DERIVED_RR, _EValueRefusal
 
         status: AssessmentStatus
-        reason: str | None
+        refusal: Refusal | None
         execution: Literal["summarize", "retarget"]
         requires_arguments: tuple[str, ...]
         try:
@@ -3978,13 +4064,13 @@ class SensitivityFacade(_CapabilityFacade):
             # an explicit ``estimand``, so a caller who supplies one still runs.
             available = False
             status = error.status
-            reason = str(error)
+            refusal = error.refusal
             execution = "summarize"
             # The argument that lifts the deferral. Only a deferral has one: an
             # unsupported contrast is not a choice the caller can make.
             requires_arguments = ("estimand",) if status is AssessmentStatus.DEFERRED else ()
         else:
-            available, status, reason = True, AssessmentStatus.PASSED, None
+            available, status, refusal = True, AssessmentStatus.PASSED, None
             execution = "retarget" if selected.branch == _DERIVED_RR else "summarize"
             requires_arguments = ()
         return _capability(
@@ -3994,7 +4080,7 @@ class SensitivityFacade(_CapabilityFacade):
             interpretation="minimum risk-ratio association needed to explain away an effect",
             available=available,
             status=status,
-            reason=reason,
+            refusal=refusal,
             execution=execution,
             cost="cheap",
             requires_arguments=requires_arguments,
@@ -4058,7 +4144,7 @@ class SensitivityFacade(_CapabilityFacade):
 
         covariates = arguments.get("benchmark_covariates", ())
 
-        def refusal(estimand: str | None) -> str | None:
+        def declared(estimand: str | None) -> Refusal | None:
             if estimand is None:
                 estimand = self._argument_default(capability.operation, "estimand")
             return simulated_confounding_refusal(self._result, estimand, covariates)
@@ -4067,7 +4153,7 @@ class SensitivityFacade(_CapabilityFacade):
             capability,
             "estimand",
             arguments.get("estimand"),
-            refusal,
+            declared,
             tuple(self._result.estimates),
         )
 
@@ -4096,7 +4182,7 @@ class SensitivityFacade(_CapabilityFacade):
             capability,
             available=False,
             status=AssessmentStatus.UNAVAILABLE,
-            reason=inference_refusal(_TIPPING_INTERVAL_OPERATION, status),
+            refusal=inference_refusal(_TIPPING_INTERVAL_OPERATION, status),
         )
 
     def _estimand_candidates(self, operation: str) -> tuple[str, ...]:
@@ -4252,8 +4338,9 @@ class SensitivityFacade(_CapabilityFacade):
         # longitudinal fit has no covariate list to check a name against, and its row
         # refuses every request.
         args, kwargs = _single_pass(args, kwargs)
-        bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
-        _validate_benchmark_arguments(self._result, bound)
+        if _family(self._result) != "longitudinal":
+            bound = self._bind_arguments("benchmark", kwargs, partial=True, args=args)
+            _validate_benchmark_arguments(self._result, bound)
         return self._dispatch("benchmark", args, kwargs)
 
     def contour(self, *args: Any, **kwargs: Any) -> Any:
@@ -4421,11 +4508,11 @@ class SensitivityFacade(_CapabilityFacade):
         candidates = self._estimand_candidates(operation)
         if len(candidates) != 1:
             return args, kwargs
-        natural = _tipping_natural_course_reason(self._result, operation, candidates)
+        natural = _tipping_natural_course_refusal(self._result, operation, candidates)
         if natural is not None:
             # The one arm candidate is not what a fit that reads the natural-course mean
             # was asked about, so the facade names the gap instead of substituting it.
-            raise CapabilityError(natural)
+            raise CapabilityError.from_refusal(natural)
         if positional:
             return (candidates[0], *args), kwargs
         return args, {**kwargs, "estimand": candidates[0]}
