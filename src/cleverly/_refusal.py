@@ -11,6 +11,7 @@ so :mod:`cleverly.exceptions` can import it at module level without an import cy
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
@@ -35,8 +36,8 @@ class RefusalReason(StrEnum):  # numpydoc ignore=PR01,PR02
     DIFFERENT_ESTIMAND
         The requested option changes the causal question. The message names both questions.
     IMPLEMENTATION_GAP
-        A valid method has no implementation here yet. The message names the roadmap item that
-        tracks it, and the available alternatives.
+        A valid method has no implementation here yet. The message names the available
+        alternatives, and the roadmap item that tracks the gap when one exists.
     INFERENCE_GAP
         The estimate exists, but the requested uncertainty calculation is incomplete. The
         message offers the supported inference.
@@ -67,8 +68,8 @@ class Refusal:
     reason : RefusalReason
         Where the problem is.
     condition : str
-        The sentences that state the failed condition. They open with a capital letter or an
-        identifier, and they end with a full stop.
+        The sentences that state the failed condition. They end with a full stop. A condition
+        that a raise splices into a longer message can open with a lowercase word.
     alternative : str or None
         The sentence that names a working call, or :data:`NO_ALTERNATIVE`. Required for every
         code except :attr:`RefusalReason.INVALID_DECLARATION`.
@@ -108,7 +109,9 @@ class Refusal:
             does not already name it, then :attr:`alternative`.
         """
         parts = [self.condition.strip()]
-        if self.roadmap is not None and self.roadmap not in self.condition:
+        if self.roadmap is not None and not re.search(
+            rf"\b{re.escape(self.roadmap)}\b", self.condition
+        ):
             parts.append(f"{self.roadmap} in docs/roadmap.md tracks this.")
         if self.alternative:
             parts.append(self.alternative.strip())

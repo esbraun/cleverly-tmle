@@ -9,6 +9,7 @@ is found by closing over the ``ClassDef`` bases of the whole package.
 from __future__ import annotations
 
 import ast
+import importlib
 import pickle
 import re
 from collections.abc import Iterator
@@ -187,6 +188,82 @@ def roadmap_ids(modules: list[tuple[str, ast.Module]]) -> list[tuple[str, int, a
     return values
 
 
+#: The codes of a missing capability. Only these name a roadmap item: the roadmap lists
+#: proposed work, and the other three codes mark no missing work.
+GAP_CODES = frozenset({"IMPLEMENTATION_GAP", "INFERENCE_GAP"})
+
+
+def _literal_code(call: ast.Call) -> str | None:
+    """The ``RefusalReason`` member a call names literally, or ``None`` when it forwards one."""
+    keyword = _keyword(call, "reason") or _keyword(call, "code")
+    value = keyword.value if keyword is not None else (call.args[0] if call.args else None)
+    if (
+        isinstance(value, ast.Attribute)
+        and isinstance(value.value, ast.Name)
+        and value.value.id == "RefusalReason"
+    ):
+        return value.attr
+    return None
+
+
+def roadmap_code_findings(modules: list[tuple[str, ast.Module]]) -> list[Finding]:
+    """Every literal roadmap id written beside a code that marks no missing capability.
+
+    Parameters
+    ----------
+    modules : list of tuple of str and ast.Module
+        The parsed package.
+
+    Returns
+    -------
+    list of Finding
+        One entry per call whose ``roadmap=`` is a string literal and whose literal code is
+        not a gap code. A call that forwards its code through a name is skipped, and the
+        runtime check of the module-level records covers the records it builds.
+    """
+    findings = []
+    for path, module in modules:
+        for node in ast.walk(module):
+            if not isinstance(node, ast.Call):
+                continue
+            keyword = _keyword(node, "roadmap")
+            if not (
+                keyword is not None
+                and isinstance(keyword.value, ast.Constant)
+                and isinstance(keyword.value.value, str)
+            ):
+                continue
+            code = _literal_code(node)
+            if code is not None and code not in GAP_CODES:
+                findings.append(Finding(path, node.lineno, f"{code} names {keyword.value.value}"))
+    return findings
+
+
+def module_refusals() -> Iterator[tuple[str, Refusal]]:
+    """Every ``Refusal`` held at module level in the package, and inside a module-level record.
+
+    Yields
+    ------
+    tuple of str and Refusal
+        The dotted location and the record.
+    """
+    import pkgutil
+    from dataclasses import fields, is_dataclass
+
+    import cleverly
+
+    for info in pkgutil.walk_packages(cleverly.__path__, "cleverly."):
+        module = importlib.import_module(info.name)
+        for name, value in vars(module).items():
+            if isinstance(value, Refusal):
+                yield f"{info.name}.{name}", value
+            elif is_dataclass(value) and not isinstance(value, type):
+                for field in fields(value):
+                    inner = getattr(value, field.name)
+                    if isinstance(inner, Refusal):
+                        yield f"{info.name}.{name}.{field.name}", inner
+
+
 #: The built-in classes a malformed argument raises. A capability refusal raises
 #: ``CapabilityError`` with a code instead.
 BUILTIN_REFUSALS = frozenset({"ValueError", "TypeError", "NotImplementedError"})
@@ -196,9 +273,23 @@ BUILTIN_REFUSALS = frozenset({"ValueError", "TypeError", "NotImplementedError"})
 #: the allow list below records with its reason.
 REFUSAL_VOCABULARY = re.compile(
     r"is not supported|are not supported|is refused|refused|not implemented"
-    r"|cannot be estimated|no derivation|use .* instead",
+    r"|cannot be estimated|no derivation|use .* instead"
+    r"|are not combined|does not support|not pathwise|has no|only",
     re.IGNORECASE | re.DOTALL,
 )
+
+#: The reason of an allow-list entry for a raise that checks the realized sample split.
+_SPLIT = (
+    "a realized split leaves a fold without the rows a model needs: a statement about the "
+    "sample, which the caller corrects with the data or the fold count, and no capability"
+)
+#: The reason of an allow-list entry for an invariant of a private function.
+_INTERNAL = (
+    "an invariant of a private function that no public call reaches with these arguments; "
+    "the public estimators refuse the request earlier with a coded error"
+)
+#: The reason of an allow-list entry for a value or type outside an argument's domain.
+_MALFORMED = "a malformed argument: a value or a type outside the argument's domain"
 
 #: Every built-in raise that uses refusal wording, keyed by the file and a fragment of its
 #: text. The value says why the raise reports a malformed argument and refuses no capability.
@@ -215,6 +306,60 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
         "direct call with a malformed pair reaches it"
         for path in ("src/cleverly/inference/influence.py", "src/cleverly/inference/results.py")
     },
+    ("src/cleverly/datasets/longitudinal.py", "can only take a step function"): "data "
+    "generator argument: a rule whose jump is not at split= is a malformed argument of a "
+    "generator, and no estimator capability is involved",
+    ("src/cleverly/datasets/synthetic.py", "rows were selected; raise n_population"): "data "
+    "generator argument: too small a population for the requested sample is a malformed "
+    "argument of a generator",
+    ("src/cleverly/estimators/_nuisance.py", "constant_folds applies to a binary"): _INTERNAL,
+    ("src/cleverly/estimators/_nuisance.py", "fit_treatment=False only supports"): _INTERNAL,
+    ("src/cleverly/estimators/_nuisance.py", "has no trainable rows for a nuisance"): _SPLIT,
+    ("src/cleverly/estimators/_strata.py", "has no trainable rows for the outcome-adaptive"): (
+        _SPLIT
+    ),
+    ("src/cleverly/estimators/_strata.py", "has no trainable rows for a reduced"): _SPLIT,
+    ("src/cleverly/estimators/ctmle.py", "has no observed training outcomes"): _SPLIT,
+    ("src/cleverly/estimators/reduced.py", "has no trainable rows for a reduced"): _SPLIT,
+    **{
+        ("src/cleverly/estimators/ctmle.py", f"{name}= only applies to strategy="): "a "
+        "malformed argument: the option belongs to another strategy of the same estimator"
+        for name in ("candidates", "ordering", "preorder", "oat_design")
+    },
+    ("src/cleverly/estimators/reduced.py", "must contain only finite values"): _MALFORMED,
+    ("src/cleverly/estimators/targeting.py", "intervention that defines it; this"): (_INTERNAL),
+    ("src/cleverly/estimators/targeting.py", "model that defines them; this"): (_INTERNAL),
+    ("src/cleverly/estimators/targeting.py", "regressions that define them; this"): (_INTERNAL),
+    ("src/cleverly/estimators/targeting.py", "has no five-regression refit"): _INTERNAL,
+    ("src/cleverly/estimators/targeting.py", "does not support evaluation companions"): (
+        "an invariant of a private function: DRTMLE refuses evaluation= with missing "
+        "outcomes earlier with a coded CapabilityError"
+    ),
+    ("src/cleverly/estimators/tmle.py", "Retarget with the DRTMLE that fitted them"): "a "
+    "malformed argument of retarget(): nuisances from another estimator, with the call "
+    "that takes them in the message",
+    ("src/cleverly/estimators/tmle.py", "reduction record has no observation bound"): (_INTERNAL),
+    ("src/cleverly/fluctuation/iterative.py", "the fluctuation has nothing to fit"): "a "
+    "statement about the sample: no outcome is observed",
+    ("src/cleverly/fluctuation/mechanism.py", "has no mechanism covariate"): _MALFORMED,
+    ("src/cleverly/inference/cluster.py", "Only a fit whose status supplies inference"): (
+        _INTERNAL
+    ),
+    ("src/cleverly/inference/influence.py", "ratio estimands are only defined"): _INTERNAL,
+    ("src/cleverly/inference/influence.py", "pass a null inside the transform"): _MALFORMED,
+    ("src/cleverly/inference/influence.py", "Call wald_test(null=...)"): _MALFORMED,
+    ("src/cleverly/inference/results.py", "has no finite value or slope"): _MALFORMED,
+    ("src/cleverly/learners/_fitting.py", "has no predict_proba"): _MALFORMED,
+    ("src/cleverly/sensitivity/_simulated_confounding_request.py", "contain only column"): (
+        _MALFORMED
+    ),
+    ("src/cleverly/sensitivity/simulated_confounding.py", "must contain only numeric"): (
+        _MALFORMED
+    ),
+    ("src/cleverly/validation/refute.py", "support only failure_policy='fail'"): "a "
+    "malformed argument: the field's declared type admits 'fail' alone",
+    ("src/cleverly/validation/refute.py", "has no empirical draw records"): _INTERNAL,
+    ("src/cleverly/validation/simulation.py", "so the fit has no level to select"): (_MALFORMED),
 }
 
 
@@ -349,6 +494,41 @@ class TestTheConstructionRule:
         assert not problems, "\n".join(problems)
 
 
+class TestOnlyAGapNamesARoadmapItem:
+    def test_no_literal_roadmap_id_sits_beside_another_code(
+        self, modules: list[tuple[str, ast.Module]]
+    ) -> None:
+        findings = roadmap_code_findings(modules)
+        assert not findings, "\n".join(f"{f.path}:{f.line}: {f.rule}" for f in findings)
+
+    def test_no_module_level_record_names_an_item_beside_another_code(self) -> None:
+        records = list(module_refusals())
+        # The walk reaches records in modules that ``import cleverly`` does not import.
+        assert any(name.startswith("cleverly.sensitivity.evalue.") for name, _ in records)
+        wrong = [
+            f"{name}: {record.reason.value} names {record.roadmap}"
+            for name, record in records
+            if record.roadmap is not None and record.reason.name not in GAP_CODES
+        ]
+        assert not wrong, "\n".join(wrong)
+
+    @pytest.mark.parametrize(
+        ("source", "count"),
+        [
+            ("Refusal(RefusalReason.DIFFERENT_ESTIMAND, 'x.', 'y.', roadmap='F5')", 1),
+            ("CapabilityError('x.', reason=RefusalReason.API_REDIRECTION, roadmap='X57')", 1),
+            ("refuse('x.', 'y.', code=RefusalReason.INVALID_DECLARATION, roadmap='F2')", 1),
+            ("Refusal(RefusalReason.IMPLEMENTATION_GAP, 'x.', 'y.', roadmap='F5')", 0),
+            ("CapabilityError('x.', reason=RefusalReason.INFERENCE_GAP, roadmap='F2')", 0),
+            ("CapabilityError('x.', reason=code, roadmap='F2')", 0),
+            ("Refusal(RefusalReason.DIFFERENT_ESTIMAND, 'x.', 'y.', roadmap=None)", 0),
+        ],
+    )
+    def test_the_check_sees_a_literal_code(self, source: str, count: int) -> None:
+        module = ast.parse(source)
+        assert len(roadmap_code_findings([("synthetic.py", module)])) == count
+
+
 class TestTheRecord:
     @pytest.mark.parametrize(
         "reason",
@@ -383,8 +563,54 @@ class TestTheRecord:
             "Fit it in sample."
         )
 
+    @pytest.mark.parametrize(("roadmap", "named"), [("X5", "X53"), ("F2", "F21")])
+    def test_an_id_inside_a_longer_id_does_not_count_as_named(
+        self, roadmap: str, named: str
+    ) -> None:
+        refusal = Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            f"{named} in docs/roadmap.md holds a neighbouring request.",
+            alternative="Fit it in sample.",
+            roadmap=roadmap,
+        )
+        assert f"{roadmap} in docs/roadmap.md tracks this." in refusal.message()
+
     def test_no_alternative_is_a_sentence(self) -> None:
         assert NO_ALTERNATIVE.endswith(".")
+
+
+def _error_classes() -> list[type[CleverlyError]]:
+    """``CleverlyError`` and every subclass, after every module of the package is imported."""
+    import pkgutil
+
+    import cleverly
+
+    for info in pkgutil.walk_packages(cleverly.__path__, "cleverly."):
+        importlib.import_module(info.name)
+    found: list[type[CleverlyError]] = []
+    stack: list[type[CleverlyError]] = [CleverlyError]
+    while stack:
+        cls = stack.pop()
+        if cls not in found:
+            found.append(cls)
+            stack.extend(cls.__subclasses__())
+    return sorted(found, key=lambda cls: cls.__name__)
+
+
+def _evalue_refusal() -> CleverlyError:
+    from cleverly.assessment import AssessmentStatus
+    from cleverly.sensitivity.evalue import _EValueRefusal
+
+    return _EValueRefusal(
+        AssessmentStatus.UNAVAILABLE,
+        "The E-value needs a ratio.",
+        reason=RefusalReason.INFERENCE_GAP,
+        alternative="Request rr.",
+    )
+
+
+#: How to build a class whose constructor takes more than the record's parts.
+_ERROR_BUILDERS = {"_EValueRefusal": _evalue_refusal}
 
 
 class TestTheErrors:
@@ -414,25 +640,37 @@ class TestTheErrors:
         with pytest.raises(TypeError, match="not both"):
             CapabilityError("y.", refusal=refusal)
 
-    @pytest.mark.parametrize(
-        "error",
-        [
-            CapabilityError(
+    @pytest.mark.parametrize("cls", _error_classes(), ids=lambda cls: cls.__name__)
+    def test_every_error_class_survives_pickle(self, cls: type[CleverlyError]) -> None:
+        """Every subclass in the package, so one with a constructor of its own fails here."""
+        build = _ERROR_BUILDERS.get(cls.__name__)
+        error = (
+            build()
+            if build is not None
+            else cls(
                 "The fold update is not written.",
                 reason=RefusalReason.IMPLEMENTATION_GAP,
                 alternative="Fit it in sample.",
                 roadmap="F21",
-            ),
-            DataError("The column is missing."),
-            NotFittedError("Call fit first."),
-        ],
-        ids=lambda error: type(error).__name__,
-    )
-    def test_the_record_survives_pickle(self, error: CleverlyError) -> None:
+            )
+        )
         loaded = pickle.loads(pickle.dumps(error))
         assert type(loaded) is type(error)
         assert loaded.refusal == error.refusal
         assert str(loaded) == str(error)
+        assert vars(loaded) == vars(error)
+
+    def test_the_class_walk_reaches_every_class(self) -> None:
+        names = {cls.__name__ for cls in _error_classes()}
+        assert {
+            "CleverlyError",
+            "CapabilityError",
+            "DataError",
+            "LongitudinalError",
+            "MethodConfigurationError",
+            "NotFittedError",
+            "_EValueRefusal",
+        } <= names
 
     def test_a_subclass_with_its_own_constructor_survives_pickle(self) -> None:
         from cleverly.assessment import AssessmentStatus
@@ -501,6 +739,11 @@ class TestTheBuiltinRefusalScan:
             'raise ValueError("a" "b no derivation")',
             'raise ValueError("this fails; use y instead")',
             "raise ValueError(SOME_REFUSAL)",
+            'raise ValueError("DRTMLE and CTMLE are not combined")',
+            'raise ValueError("the fit does not support x")',
+            'raise ValueError("that parameter is not pathwise differentiable")',
+            'raise ValueError("a dose has none, so it has no arms")',
+            'raise ValueError("bands take the centered rule only")',
         ],
     )
     def test_the_scan_fails_a_bare_builtin_refusal(self, raised: str) -> None:
@@ -508,6 +751,23 @@ class TestTheBuiltinRefusalScan:
         hits = builtin_refusal_hits([("synthetic.py", source)])
         assert len(hits) == 1
         assert unreviewed_builtin_hits(hits, BUILTIN_ALLOWED) == hits
+
+    def test_the_second_moment_entry_does_not_cover_the_band_refusal(
+        self, modules: list[tuple[str, ast.Module]]
+    ) -> None:
+        """The cluster-rule entry names two files, so a raise in the band module stays seen."""
+        assert not [
+            hit
+            for hit in builtin_refusal_hits(modules)
+            if hit.path == "src/cleverly/inference/multiplier.py"
+        ]
+        hit = BuiltinHit(
+            "src/cleverly/inference/multiplier.py",
+            1,
+            "ValueError",
+            "_SECOND_MOMENT_CLUSTER_REFUSAL",
+        )
+        assert unreviewed_builtin_hits([hit], BUILTIN_ALLOWED) == [hit]
 
     def test_the_scan_passes_a_reviewed_entry_and_a_plain_argument_error(self) -> None:
         source = ast.parse(
