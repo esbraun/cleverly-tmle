@@ -3377,7 +3377,11 @@ def test_a_comparator_backed_study_with_no_property_cells_has_a_row() -> None:
         real, name="a synthetic comparator-only method", property_cells={}
     )
     unbacked = dataclasses.replace(
-        synthetic, reference=None, comparison=None, comparison_overrides={}
+        synthetic,
+        reference=None,
+        comparison=None,
+        comparison_overrides={},
+        failure_bound={synthetic.implementation: synthetic.failure_bound[synthetic.implementation]},
     )
     assert _on_the_grid(synthetic)
     assert not _on_the_grid(unbacked)
