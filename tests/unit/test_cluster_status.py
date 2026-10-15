@@ -1,7 +1,7 @@
 """Clustered fits withhold their interval below 10 clusters, and only there.
 
 The status table of ``docs/technical-reference/inference.md`` gives one clustered status for
-``TMLE`` and ``DRTMLE``, and F28 in the roadmap records its floor.
+``TMLE`` and ``DRTMLE``, and X54 in the roadmap holds the evidence below its floor.
 
 ``"few_cluster_plugin"``
     A fit with fewer than :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`

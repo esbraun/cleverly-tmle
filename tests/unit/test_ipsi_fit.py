@@ -108,8 +108,9 @@ class TestTheRefusals:
         ],
     )
     def test_two_counterfactual_axes_together_are_refused(self, kwargs: dict, match: str) -> None:
-        with pytest.raises(CapabilityError, match=match):
+        with pytest.raises(CapabilityError, match=match) as caught:
             TMLE(**FAST_KWARGS, incremental=TILTS, **kwargs)
+        assert "docs/roadmap.md X57 tracks the joint fit of several axes" in str(caught.value)
 
     def test_a_working_model_over_tilts_is_refused(self) -> None:
         from cleverly.msm import MSM
@@ -252,8 +253,11 @@ class TestAMissingOutcomeIsAccepted:
         assert len(curve["bound"]) == 2 * len(missing_fit.estimates)
 
     def test_the_mnar_tilt_refuses_and_says_which_report_to_use(self, missing_fit) -> None:
-        with pytest.raises(ValueError, match=r"diagnostics\.support"):
+        with pytest.raises(ValueError, match=r"diagnostics\.support") as caught:
             missing_fit.sensitivity.missingness()
+        assert "docs/roadmap.md X57 tracks the tilt's point curve on an incremental fit" in str(
+            caught.value
+        )
 
 
 class TestTheReferenceCanBeMoved:

@@ -523,7 +523,7 @@ def refuse_mixed_interventions(
     One fit estimates one intervention kind.  ``_KIND_TEXT`` gives, for each kind, what a
     set accepts, the typed estimands that hold it, and the ``TMLE`` keyword that takes it.
     The message names the holder, the position and the item.  For an item of another kind
-    it names that kind's typed estimands and keyword, and F17 for a joint request.  In a set
+    it names that kind's typed estimands and keyword, and X57 for a joint request.  In a set
     of regimes it also says why the item is not a regime.  A
     :class:`~cleverly.interventions.LearnedRule` is refused in every set, with the estimand
     and the keyword that take it.  A bare value in a shift or
@@ -576,7 +576,7 @@ def refuse_mixed_interventions(
             f"{holder} accepts {text.accepts}, such as {text.example}, and item {position}, "
             f"{item!r}, is {other.item}. {other.estimands} hold that kind in a CausalStudy, "
             f"and {other.keyword} takes it on the estimator.{why} One fit estimates one "
-            "intervention kind, and docs/roadmap.md F17 tracks a joint request."
+            "intervention kind, and docs/roadmap.md X57 tracks a joint request."
         )
 
 

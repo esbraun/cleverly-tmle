@@ -161,6 +161,19 @@ class StudyRecord:
     #: recorded reason is the point.  It relaxes nothing about the subject.  ``passed`` still
     #: gates on similarity and non-inferiority, and ``subject_valid`` is still required.
     accepted_reference_failure: str = ""
+    #: The declared comparator whose runs are pending, or ``None``.
+    #:
+    #: The owner's rule: a method merges once its Python studies pass, and a comparator study
+    #: is registered by a later change when its runs come in.  A pending record keeps
+    #: ``reference`` at ``None``, so every reader that pairs rows reads it as unpaired, and
+    #: :attr:`comparator_state` reads ``"pending"``.  The regeneration driver runs no reference
+    #: process for it, and the manifest records the comparator as pending with the runner bytes
+    #: declared at the run.  The change that adds the comparator moves this name to
+    #: ``reference`` and regenerates the study.
+    pending_reference: str | None = None
+    #: Why the comparator runs are pending, and the roadmap item or queue row that owns them.
+    #: Required with ``pending_reference``, in the spirit of ``accepted_reference_failure``.
+    pending_reason: str = ""
     #: Estimands whose reference reports its standard error on a different scale, so a raw
     #: SE comparison would compare two different reported quantities.
     incomparable_se: frozenset[str] = frozenset()
@@ -243,9 +256,34 @@ class StudyRecord:
                 "a record whose truth varies by replication cannot declare a reference: the "
                 "paired comparison reads one truth per cell"
             )
+        if self.pending_reference is not None:
+            if self.reference is not None:
+                raise ValueError(
+                    "a record declares either a compared reference or a pending one, not both: "
+                    "the change that adds the comparator moves pending_reference to reference"
+                )
+            if not self.pending_reason.strip():
+                raise ValueError(
+                    "pending_reference needs a pending_reason that names why the comparator "
+                    "runs are pending and which item owns them"
+                )
+            if self.truth_varies_by_replicate:
+                raise ValueError(
+                    "a record whose truth varies by replication cannot declare a pending "
+                    "reference: the paired comparison it waits for reads one truth per cell"
+                )
+            if self.accepted_reference_failure:
+                raise ValueError(
+                    "accepted_reference_failure judges a comparator run, and a pending "
+                    "comparator has not run"
+                )
+        elif self.pending_reason:
+            raise ValueError("pending_reason is set without a pending_reference")
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
-        unknown_bounds = set(self.failure_bound) - set(self.implementations)
+        # A bound may be declared for a pending comparator before its first run.
+        declared = {*self.implementations, *filter(None, (self.pending_reference,))}
+        unknown_bounds = set(self.failure_bound) - declared
         if unknown_bounds:
             raise ValueError(
                 f"failure_bound names undeclared implementations: {sorted(unknown_bounds)}"
@@ -280,6 +318,13 @@ class StudyRecord:
             if self.reference is None
             else (self.implementation, self.reference)
         )
+
+    @property
+    def comparator_state(self) -> Literal["none", "pending", "compared"]:
+        """``"compared"`` with a reference, ``"pending"`` with a pending one, else ``"none"``."""
+        if self.reference is not None:
+            return "compared"
+        return "none" if self.pending_reference is None else "pending"
 
     @property
     def estimands(self) -> frozenset[str]:

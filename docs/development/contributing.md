@@ -21,7 +21,9 @@ accepts established methods and natural extensions of established theory.
 
 The eligibility rule names three acceptance routes: an established method, an acceptable
 implementation comparison, and a natural extension. A missing comparator never blocks a method,
-as [theory and comparators](../architecture-invariants.md#theory-and-comparators) states.
+as [theory and comparators](../architecture-invariants.md#theory-and-comparators) states. A
+comparator run that has not finished does not block a method either. The method merges when its
+Python studies pass, and a later change registers the comparator results.
 
 ## Set up your environment
 
