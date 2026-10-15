@@ -351,24 +351,6 @@ def property_checkpoint(default: Path | None = None) -> Path | Literal["ambient"
     return Path(named) if named else None
 
 
-def parts_root(default: Path | None = None) -> Path | None:
-    """Where a run's parts go: the driver's checkpoint root, else ``default``.
-
-    Under ``tests/canonical/regenerate.py`` the property phase runs inside the driver's
-    checkpoint context, whose scratch survives a container restart.  Outside it a caller
-    names the directory, or the environment variable ``CLEVERLY_STUDY_PARTS`` does.
-    """
-    from tests.studies.evidence.replication import checkpoint_root
-
-    root = checkpoint_root()
-    if root is not None:
-        return root / "properties"
-    if default is not None:
-        return default
-    named = os.environ.get("CLEVERLY_STUDY_PARTS")
-    return Path(named) if named else None
-
-
 def run_in_parts(
     fit_one: Callable[..., list[dict[str, Any]]],
     keys: Sequence[tuple[Hashable, ...]],
