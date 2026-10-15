@@ -133,6 +133,7 @@ Python versions. A change to any of these starts a new cache.
 | Python checkpoints | `checkpoints/<implementation>/<label>/` in the host scratch |
 | discard the cache of this key | add `--fresh` |
 | refit the Python phase | add `--refresh-python`. It also discards the Python checkpoints |
+| reuse the committed subject rows | add `--reuse-subject`. It applies to a study with no reference process to run, for example one whose [comparator runs are pending](method-benchmarking.md#comparator-runs-pending) |
 | host lock | `_lock` in the host scratch. A second driver on one key refuses and names the holder. The driver removes the lock of a dead process |
 | container lock | the container name `cleverly-<slug>-<key>-<leaf>`. Docker refuses a second live container of one name |
 | the RM39 smoke | `python -m tests.canonical.harness_fixture.smoke` |

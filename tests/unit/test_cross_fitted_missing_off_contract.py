@@ -5,7 +5,7 @@ natural-course mean and the arm-indexed means and contrasts. A shift, incrementa
 axis, or a declared intermediate, puts a fit outside both. Such a fit used to run and report an
 interval that no audit read a source for. A ``Static`` regime or a saturated MSM also reproduced the
 arm-indexed fit, and so escaped that contract's refusals of ``repeats``, fold targeting,
-``cv_evaluation``, the linear fluctuation, and ``id=``. F21 in ``docs/roadmap.md`` holds the missing
+``cv_evaluation``, the linear fluctuation, and ``id=``. X53 in ``docs/roadmap.md`` holds the missing
 results.
 
 Every refusal here must run before any learner, which :class:`NeverFit` enforces. The
@@ -152,7 +152,7 @@ COMPOSITIONS = {
 def assert_refused_before_any_learner(
     composition: Composition, *, extra: dict[str, Any] | None = None, **fit_extra: Any
 ) -> None:
-    """The witness: a cross-fitted fit with ``delta=`` raises the F21 refusal, unfitted."""
+    """The witness: a cross-fitted fit with ``delta=`` raises the X53 refusal, unfitted."""
     estimator = composition.estimator(True, never_fit_learners(), **(extra or {}))
     with pytest.raises(CapabilityError) as raised:
         composition.fit(estimator, **fit_extra)
@@ -160,9 +160,9 @@ def assert_refused_before_any_learner(
     assert message.startswith(_CROSS_FITTED_MISSING_CONTRACTS), message
     # The clause names the contracts without claiming them for this fit's treatment.
     assert "both apply to a discrete treatment only" in message
-    assert f"no audited result covers {composition.surface} targets" in message
-    assert "F21 in docs/roadmap.md" in message
-    assert message.endswith(_IN_SAMPLE_ARM_INDEXED_REMEDY), message
+    assert f"No audited result covers {composition.surface} targets" in message
+    assert "X53 in docs/roadmap.md" in message
+    assert message.endswith(f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}."), message
     assert NeverFit.calls == 0, f"{NeverFit.calls} learner fit(s) ran before the refusal"
 
 
@@ -258,7 +258,7 @@ class TestTheNeighbouringRefusalsKeepTheirOwnSentences:
     def test_par_beside_an_intermediate_meets_the_natural_course_contract(self) -> None:
         """Beside an intermediate, the natural-course contract refuses before this one.
 
-        Without that contract the fit would name F21 and offer the in-sample remedy, which
+        Without that contract the fit would name X53 and offer the in-sample remedy, which
         is false for ``par``: it is refused beside ``intermediate=`` at every setting. The
         preflight raises before the intermediate path fits its shared nuisances. This
         control supplies real learners, but the refusal does not reach them.
@@ -268,5 +268,5 @@ class TestTheNeighbouringRefusalsKeepTheirOwnSentences:
             cde.fit(cde.estimator(True, learners(), estimands=["par"]))
         message = str(raised.value)
         assert message.startswith("NaturalCourseMean, PAR and PAF"), message
-        assert message.endswith("intermediate= is not implemented"), message
-        assert "F21" not in message
+        assert "intermediate= is not implemented for these targets." in message, message
+        assert "X53" not in message

@@ -63,13 +63,15 @@ control uses a separate history-dependent selection law that moves every sequent
 ## Agreement with the canonical implementation
 
 <!-- generated: agreement -->
-| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | calibration resolution | result |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 0.000070 | 0.0125 | 1.0186 | -0.0037 | 0.0080 vs 0.0500 | equivalent |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000184 | 0.0326 | 1.0240 | -0.0025 | 0.0091 vs 0.0500 | equivalent |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[always]` | mean outcome under the plan treat at both times | 0.000026 | 0.0084 | 1.0162 | -0.0325 | 0.1121 vs 0.0500 **>** | *underpowered* |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -0.000043 | 0.0093 | 1.0245 | -0.0175 | 0.0662 vs 0.0500 **>** | *underpowered* |
-| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | 0.000141 | 0.0436 | 1.0175 | -0.0287 | 0.1119 vs 0.0500 **>** | *underpowered* |
+Comparator-backed: a paired comparison with `lmtp-weighted` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[always vs never]` | difference in mean outcome between the plans "treat at both times" against "treat at neither time" | 0.000070 | 0.0125 | 1.0186 | -0.0037 | different estimator | 0.0080 vs 0.0500 | equivalent |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ate_regimen[treat then continue if l2 positive vs never]` | difference in mean outcome between the plans "treat, then continue only if L2 is positive" against "treat at neither time" | 0.000184 | 0.0326 | 1.0240 | -0.0025 | different estimator | 0.0091 vs 0.0500 | equivalent |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[always]` | mean outcome under the plan treat at both times | 0.000026 | 0.0084 | 1.0162 | -0.0325 | different estimator | 0.1121 vs 0.0500 **>** | *underpowered* |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[never]` | mean outcome under the plan treat at neither time | -0.000043 | 0.0093 | 1.0245 | -0.0175 | different estimator | 0.0662 vs 0.0500 **>** | *underpowered* |
+| selected two-time-point law with monotone censoring and fixed observation weights | `ey_regimen[treat then continue if l2 positive]` | mean outcome under the plan treat, then continue only if L2 is positive | 0.000141 | 0.0436 | 1.0175 | -0.0287 | different estimator | 0.1119 vs 0.0500 **>** | *underpowered* |
 <!-- /generated -->
 
 ## Theory properties

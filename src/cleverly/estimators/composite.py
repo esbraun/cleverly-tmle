@@ -49,6 +49,7 @@ from typing import Any, Literal
 
 import numpy as np
 
+from .._refusal import Refusal, RefusalReason
 from .._typing import BoolArray, FloatArray
 from ..data.causal_data import CausalData
 from ..data.known_mechanism import KNOWN_TREATMENT_DELTA_REFUSAL
@@ -64,6 +65,7 @@ __all__ = [
     "composite_bounds",
     "composite_clipping_mask",
     "composite_mechanism",
+    "composite_nested_refusal",
     "composite_state",
     "composite_view",
     "missing_data_route",
@@ -80,12 +82,36 @@ __all__ = [
 MissingDataRoute = Literal["complete", "missing_outcome", "randomized_missing_outcome", "composite"]
 
 #: The refusal of ``evaluation=`` and ``reduced_crossfit="nested"`` on a composite
-#: DR-TMLE fit, with or without a missing treatment.
-COMPOSITE_NESTED_REFUSAL = (
+#: DR-TMLE fit, with or without a missing treatment. X50 part (d) holds ``evaluation=``;
+#: :func:`composite_nested_refusal` names F21 instead when the request is the nested
+#: construction alone.
+COMPOSITE_NESTED_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "The nested construction and the evaluation companion carry one fold-free treatment "
     "mechanism. The composite mechanism has up to three factors, and neither construction "
-    "carries them. Use the default pooled reductions and no evaluation=."
+    "carries them.",
+    alternative="Use the default pooled reductions and no evaluation=.",
+    roadmap="X50",
 )
+
+
+def composite_nested_refusal(estimator: Any) -> Refusal:
+    """The composite refusal, with the roadmap item that holds the refused setting.
+
+    Parameters
+    ----------
+    estimator : Any
+        The DR-TMLE estimator whose ``evaluation=`` or ``reduced_crossfit=`` is refused.
+
+    Returns
+    -------
+    Refusal
+        :data:`COMPOSITE_NESTED_REFUSAL`. It names X50 when ``evaluation=`` is set, and F21,
+        which keeps the nested construction, otherwise.
+    """
+    if getattr(estimator, "evaluation", None) is not None:
+        return COMPOSITE_NESTED_REFUSAL
+    return replace(COMPOSITE_NESTED_REFUSAL, roadmap="F21")
 
 
 def missing_data_route(estimator: Any, data: CausalData) -> MissingDataRoute:
@@ -422,25 +448,36 @@ _DROP_REMEDY = (
     "completely at random."
 )
 #: Why a learned rule stays refused: its value is identified under the composite conditions,
-#: and no composite derivation is written for it.
+#: but no source read gives a cross-fitted learned-rule fit with a missing treatment (roadmap
+#: F27), as for missing outcomes.
 _LEARNED_RULE_REASON = (
     "A learned-rule value is identified under the composite conditions, but no composite "
     "derivation for a rule learned from the fit is written here, and the value is "
-    "cross-fitted (roadmap F27)."
+    "cross-fitted. No source read here gives a cross-fitted learned-rule fit with a missing "
+    "treatment (roadmap F27)."
 )
 #: Targets that read the treatment law of every row.
 _UNIDENTIFIED_TARGETS = ("att", "atc", "ey_obs", "par", "paf")
 
 
-def _message(data: CausalData, reason: str, remedy: str) -> CapabilityError:
+def _message(
+    data: CausalData,
+    reason: str,
+    remedy: str,
+    *,
+    code: RefusalReason,
+    roadmap: str | None = None,
+) -> CapabilityError:
     unrecorded = int(np.count_nonzero(~data.treatment_recorded))
     return CapabilityError(
         f"{data.treatment_name} is missing on {unrecorded} row(s). A missing treatment is "
         "supported for arm means and their contrasts (ey, ate, rr, or) on in-sample TMLE "
         "and DRTMLE fits and, for point estimates, per-arm outcome-adaptive CTMLE fits, and "
         "for regime means and arm-indexed MSM coefficients on in-sample "
-        "TMLE fits, through the composite indicator Delta_A * Delta * 1{A = a}. "
-        f"{reason} {remedy}".rstrip()
+        f"TMLE fits, through the composite indicator Delta_A * Delta * 1{{A = a}}. {reason}",
+        reason=code,
+        alternative=remedy,
+        roadmap=roadmap,
     )
 
 
@@ -481,15 +518,24 @@ def missing_treatment_refusal(
         return _message(
             data,
             "The C-TMLE selector strategies have no collaborative score for the composite "
-            "indicator (roadmap F5), and the shared outcome-adaptive design "
+            "indicator: a selector point estimate that keeps the observation factors off the "
+            "selection path is open (roadmap X51), and the shared outcome-adaptive design "
             "(oat_design='shared') has no composite construction (roadmap F19).",
             "Fit TMLE or DRTMLE, or fit CTMLE(strategy='oat', oat_design='per_arm') for point "
             "estimates.",
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="X51",
         )
     if method not in ("tmle", "drtmle") and not per_arm_oat:
-        return _message(data, "This fit is not one of those compositions.", _MEANS_REMEDY)
+        return _message(
+            data,
+            "This fit is not one of those compositions.",
+            _MEANS_REMEDY,
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="X62",
+        )
     if data.known_treatment is not None:
-        return CapabilityError(KNOWN_TREATMENT_DELTA_REFUSAL)
+        return CapabilityError.from_refusal(KNOWN_TREATMENT_DELTA_REFUSAL)
     if bool(getattr(estimator, "randomized", False)):
         return _message(
             data,
@@ -497,13 +543,28 @@ def missing_treatment_refusal(
             "observes the treatment on every row.",
             "Drop it. The composite construction estimates "
             "P(A = a, Delta_A = 1, Delta = 1 | W) from the data.",
+            code=RefusalReason.INVALID_DECLARATION,
         )
     if getattr(estimator, "cross_fit", False):
+        if per_arm_oat:
+            open_row = "F19"
+            reason = (
+                "The composite construction uses the in-sample (Donsker) theorem. The "
+                "cross-fitted outcome-adaptive construction has no theorem (roadmap F19), so "
+                "only an in-sample per-arm fit gives its point estimates."
+            )
+        else:
+            open_row = "F21" if method == "drtmle" else "X53"
+            reason = (
+                "The composite construction uses the in-sample (Donsker) theorem. The "
+                f"cross-fitted composite construction is open (roadmap {open_row})."
+            )
         return _message(
             data,
-            "The composite construction uses the in-sample (Donsker) theorem. The "
-            "cross-fitted missing-data variants are open (roadmap F21).",
+            reason,
             "Pass cross_fit=False (CrossFitting(enabled=False) on a method).",
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap=open_row,
         )
     if data.has_intermediate:
         return _message(
@@ -512,12 +573,25 @@ def missing_treatment_refusal(
             "written here, and the condition that ties Z to the treatment's recording is not "
             "stated.",
             _DROP_REMEDY,
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="F33",
         )
     for keyword in ("incremental", "policies"):
         if getattr(estimator, keyword, None):
-            return _message(data, f"{identification} {keyword}= reads P({name} | W).", _DROP_REMEDY)
+            return _message(
+                data,
+                f"{identification} {keyword}= reads P({name} | W).",
+                _DROP_REMEDY,
+                code=RefusalReason.INVALID_DECLARATION,
+            )
     if getattr(estimator, "learned_rule", None) is not None:
-        return _message(data, _LEARNED_RULE_REASON, _DROP_REMEDY)
+        return _message(
+            data,
+            _LEARNED_RULE_REASON,
+            _DROP_REMEDY,
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="F27",
+        )
     if method == "drtmle" and (
         getattr(estimator, "interventions", None) or getattr(estimator, "msm", None)
     ):
@@ -529,6 +603,7 @@ def missing_treatment_refusal(
             data,
             f"{identification} {', '.join(named)} read the treatment law of every row.",
             _MEANS_REMEDY,
+            code=RefusalReason.INVALID_DECLARATION,
         )
     if (
         method == "drtmle"
@@ -538,7 +613,14 @@ def missing_treatment_refusal(
             or getattr(estimator, "reduced_crossfit", "pooled") != "pooled"
         )
     ):
-        return _message(data, COMPOSITE_NESTED_REFUSAL, "")
+        refusal = composite_nested_refusal(estimator)
+        return _message(
+            data,
+            refusal.condition,
+            refusal.alternative or "",
+            code=refusal.reason,
+            roadmap=refusal.roadmap,
+        )
     return None
 
 
@@ -570,7 +652,7 @@ def missing_treatment_design_refusal(
     if not data.has_missing_treatment:
         return None
     if data.known_treatment is not None:
-        return CapabilityError(KNOWN_TREATMENT_DELTA_REFUSAL)
+        return CapabilityError.from_refusal(KNOWN_TREATMENT_DELTA_REFUSAL)
     identification = _IDENTIFICATION.format(A=data.treatment_name)
     if intermediate:
         return _message(
@@ -579,14 +661,30 @@ def missing_treatment_design_refusal(
             "written here, and the condition that ties Z to the treatment's recording is not "
             "stated.",
             _DROP_REMEDY,
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="F33",
         )
     if axis == "learned_rule":
-        return _message(data, _LEARNED_RULE_REASON, _DROP_REMEDY)
+        return _message(
+            data,
+            _LEARNED_RULE_REASON,
+            _DROP_REMEDY,
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            roadmap="F27",
+        )
     if axis not in ("arm", "regime", "msm"):
-        return _message(data, f"{identification} A {axis} target reads P(A | W).", _DROP_REMEDY)
+        return _message(
+            data,
+            f"{identification} A {axis} target reads P(A | W).",
+            _DROP_REMEDY,
+            code=RefusalReason.INVALID_DECLARATION,
+        )
     if target in _UNIDENTIFIED_TARGETS:
         return _message(
-            data, f"{identification} {target} reads the treatment law of every row.", _MEANS_REMEDY
+            data,
+            f"{identification} {target} reads the treatment law of every row.",
+            _MEANS_REMEDY,
+            code=RefusalReason.INVALID_DECLARATION,
         )
     return None
 

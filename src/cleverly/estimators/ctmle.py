@@ -203,7 +203,7 @@ Neither design reports inference, because condition (v) of the theorem fails for
 estimated outcome regression. See ``docs/roadmap.md F18`` for the selector path and
 ``docs/roadmap.md F19`` for both outcome-adaptive designs. ``n_bootstrap=`` reruns the
 adaptive construction, but no reviewed theorem validates that bootstrap for a selector path or
-for either outcome-adaptive design.
+for either outcome-adaptive design, so every C-TMLE fit prints the bootstrap as a diagnostic.
 
 Fixed probability weights replace the empirical law by its normalized weighted version.
 The same row mass reaches nuisance fits, targeting, selector loss, influence-curve penalty,
@@ -299,7 +299,7 @@ from sklearn.linear_model import LogisticRegression
 from .._inference_status import InferenceStatus, precedent_status
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, Refusal, RefusalReason
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.cluster import influence_variance
@@ -488,9 +488,48 @@ _SELECTION_SPLIT_REMEDY = (
 )
 
 #: Why CTMLE refuses a continuous dose, which every strategy does.
-_DISCRETE_TREATMENT_REFUSAL = (
+_DISCRETE_TREATMENT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
     "CTMLE strategies require a discrete treatment. strategy='oat' fits its mechanism on "
-    "one Qbar prediction per arm, and a continuous dose has no finite arm vector."
+    "one Qbar prediction per arm, and a continuous dose has no finite arm vector.",
+    alternative="Fit TMLE on the continuous dose.",
+    roadmap="F5",
+)
+
+#: Why CTMLE refuses ``policies=``.  Checked before the continuous-dose refusal, because a
+#: shift declares its treatment a dose even when the column holds two arms, and the dose
+#: refusal would then give the wrong reason on a binary treatment.
+_POLICIES_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "CTMLE and policies= are not combined. A modified treatment policy's mean averages "
+    "Qbar at the dose the policy assigns over the treatment law, so it reads g, and each "
+    "candidate g of the collaborative search defines a different parameter, as under "
+    "incremental=. docs/roadmap.md F5 tracks this stop.",
+    alternative="Use a plain TMLE, which fits policies=.",
+    roadmap="F5",
+)
+
+#: Why CTMLE refuses ``interventions=``.  A named refusal rather than the ATT and ATC or
+#: estimand-axis message that a regime fit met before it.
+_REGIME_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "CTMLE and interventions= are not combined. A regime mean reads Qbar and the covariate "
+    "law only, so the collaborative template carries its point estimate through the "
+    "indicator 1{A = d(W)}, but no selection criterion for a regime target is implemented. "
+    "docs/roadmap.md X51 tracks the point estimate.",
+    alternative="Use a plain TMLE, which fits interventions= with an interval.",
+    roadmap="X51",
+)
+
+#: Why CTMLE refuses ``msm=`` over discrete arms, for the reason of :data:`_REGIME_REFUSAL`.
+_MSM_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "CTMLE and msm= are not combined. A working model over discrete arms is a fixed "
+    "full-rank projection of the arm means, so the collaborative template carries its point "
+    "estimate, but no selection criterion for a vector projection is implemented. "
+    "docs/roadmap.md X51 tracks the point estimate.",
+    alternative="Use a plain TMLE, which fits msm=.",
+    roadmap="X51",
 )
 
 #: The selection split's refusal remedy in the words the nuisance fold loop closes with.
@@ -919,24 +958,26 @@ class CTMLE(TMLE):
     def _bootstrap_inferential(self, data: CausalData) -> bool:
         """Whether the full-refit bootstrap interval is published as inference.
 
-        ``False`` on every ``"oat"`` fit. Theorem 1 of Benkeser, Cai and van der Laan (2020)
-        gives the influence curve of a superefficient estimator, and it does not cover the
-        bootstrap of that estimator. Every other strategy takes the :class:`~cleverly.TMLE`
-        answer.
+        ``False`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
+        Cai and van der Laan (2020) gives the influence curve of a superefficient estimator,
+        and it does not cover the bootstrap of that estimator. On a selector strategy, no
+        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The registered
+        study ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary
+        point-treatment :class:`~cleverly.TMLE` only. The percentile range prints as a
+        diagnostic.
 
         Parameters
         ----------
         data : CausalData
-            The prepared data.
+            The prepared data. It is not read.
 
         Returns
         -------
         bool
-            ``False`` for ``strategy="oat"``, otherwise the :class:`~cleverly.TMLE` answer.
+            ``False``.
         """
-        if self.strategy == "oat":
-            return False
-        return super()._bootstrap_inferential(data)
+        del data
+        return False
 
     def _admits_natural_course_with_missing(self) -> bool:
         """Whether this fit may target the natural course with missing outcomes.
@@ -1017,11 +1058,18 @@ class CTMLE(TMLE):
         if kwargs.get("learned_rule") is not None:
             # Row 1 of the learned-rule refusal table comes before the fold-evaluation refusal
             # below: its remedy, cv_evaluation=False, would meet this refusal next.
-            raise CapabilityError(learned_rule_configuration_refusal(self) or "")
+            refusal = learned_rule_configuration_refusal(self)
+            assert refusal is not None
+            raise CapabilityError.from_refusal(refusal)
         if kwargs.get("cv_evaluation", False):
+            # F18 keeps a fold-specific selection, and F19 the outcome-adaptive fold average.
+            fold_item = "F18" if is_selector_strategy(strategy) else "F19"
             raise CapabilityError(
                 "CTMLE does not support cv_evaluation=True: canonical CV-TMLE selection "
-                "requires a separate fold-specific collaborative derivation."
+                "requires a separate fold-specific collaborative derivation.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Use cv_evaluation=False.",
+                roadmap=fold_item,
             )
         # The base constructor validates the fold policy. OAT has no selector folds,
         # so it must know the strategy before that validation runs.
@@ -1081,10 +1129,14 @@ class CTMLE(TMLE):
                 f"got {self.ctmle_estimand!r}"
             )
         if self.targeting_scheme != "pooled":
+            fold_item = "F18" if is_selector_strategy(self.strategy) else "F19"
             raise CapabilityError(
                 "CTMLE implements the published pooled collaborative estimator only; "
                 "targeting_scheme='fold' composes it with a different CV-TMLE estimator "
-                "that has not been derived. Use targeting_scheme='pooled'."
+                "that has not been derived.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Use targeting_scheme='pooled'.",
+                roadmap=fold_item,
             )
 
         if not is_selector_strategy(self.strategy) and self.ctmle_estimand != "ate":
@@ -1825,7 +1877,10 @@ class CTMLE(TMLE):
                 "incremental intervention each candidate g defines a different "
                 "parameter: Psi(delta) is built out of g. The search would be selecting "
                 "between estimands rather than between estimators of one, and the risk "
-                "it minimises would have no fixed target. Use a plain TMLE."
+                "it minimises would have no fixed target. docs/roadmap.md F5 tracks this stop.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Use a plain TMLE.",
+                roadmap="F5",
             )
         if data.cluster is not None:
             reason = (
@@ -1838,32 +1893,48 @@ class CTMLE(TMLE):
                 )
             )
             raise CapabilityError(
-                f"C-TMLE has no clustered result. {reason}; docs/roadmap.md F22 tracks this "
-                "stop. Drop id= from fit "
-                "(PointTreatment(cluster=None)), or use the ordinary TMLE (TMLE, or "
-                "TMLEMethod), which has a clustered result."
+                f"C-TMLE has no clustered result. {reason}. docs/roadmap.md X51 tracks the "
+                "point estimate with a cluster as the unit, and docs/roadmap.md F22 the "
+                "clustered interval.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Drop id= from fit (PointTreatment(cluster=None)), or use the ordinary "
+                    "TMLE (TMLE, or TMLEMethod), which has a clustered result."
+                ),
+                roadmap="F22",
             )
         self._check_estimands(data)
         return super()._resolve_estimands_for_data(data)
 
     def _check_policies(self, data: CausalData) -> None:
-        """Refuse a continuous dose before the shift check can suggest a shift.
+        """Refuse each intervention keyword, then a continuous dose, before the shift check.
 
         ``TMLE._check_policies`` runs first in the preflight, and it answers a dose with no
-        ``policies=`` by suggesting one, which CTMLE does not fit.
+        ``policies=`` by suggesting one, which CTMLE does not fit.  ``policies=`` is asked
+        first, because a shift declares a dose even on a binary column.  ``interventions=``
+        and ``msm=`` over discrete arms are asked next, so neither meets the ATT and ATC
+        refusal of :meth:`_check_estimands` for a reason that is not its own.
         """
+        if self.policies:
+            raise CapabilityError.from_refusal(_POLICIES_REFUSAL)
         if data.is_continuous_treatment:
-            raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
+            raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
+        if self.interventions:
+            raise CapabilityError.from_refusal(_REGIME_REFUSAL)
+        if self.msm is not None:
+            raise CapabilityError.from_refusal(_MSM_REFUSAL)
         super()._check_policies(data)
 
     def _check_estimands(self, data: CausalData) -> None:
         if data.is_continuous_treatment:
-            raise CapabilityError(_DISCRETE_TREATMENT_REFUSAL)
+            raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
         if data.has_intermediate:
             raise CapabilityError(
                 "CTMLE does not compose either collaborative strategy with an intermediate "
-                "outcome. "
-                "Fit each controlled direct effect with TMLE instead."
+                "outcome.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative="Fit each controlled direct effect with TMLE instead.",
+                roadmap="F5",
             )
         estimands = resolve_estimands(self.estimands, data.family, data.n_arms)
         conditional = [name for name in estimands if name not in MEAN_GROUP_ESTIMANDS]
@@ -1871,8 +1942,13 @@ class CTMLE(TMLE):
             raise CapabilityError(
                 f"CTMLE does not support estimand(s) {conditional}: the ATT and ATC clever "
                 "covariates condition on a random event, so a single collaboratively "
-                "selected treatment model cannot serve them alongside the ATE. Request them "
-                f"from a plain TMLE, or set estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
+                "selected treatment model cannot serve them alongside the ATE.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    "Request them from a plain TMLE, or set "
+                    f"estimands={sorted(MEAN_GROUP_ESTIMANDS)!r}."
+                ),
+                roadmap="F5",
             )
         if is_selector_strategy(self.strategy) and self.ctmle_estimand not in estimands:
             raise ValueError(
@@ -1887,7 +1963,12 @@ class CTMLE(TMLE):
             raise CapabilityError(
                 f"ctmle_estimand={self.ctmle_estimand!r} has no selector criterion; choose "
                 f"from {sorted(supported)}. ey_obs, par and paf involve the observed law "
-                "and require a separate collaborative derivation."
+                "and require a separate collaborative derivation.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                alternative=(
+                    f"Choose a ctmle_estimand from {sorted(supported)}, or fit a plain TMLE."
+                ),
+                roadmap="F5",
             )
 
 
@@ -2879,7 +2960,11 @@ def logistic_plugin(result: TMLEResult) -> dict[str, LogisticPlugin]:
     """
     reason = _logistic_plugin_refusal(result)
     if reason is not None:
-        raise CapabilityError(_LOGISTIC_PLUGIN_SCOPE + reason)
+        raise CapabilityError(
+            f"{_LOGISTIC_PLUGIN_SCOPE}{reason}.",
+            reason=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative="Read estimate.plugin_interval, the D* interval, for this fit.",
+        )
     data = result.data
     selection = result.extra["ctmle"]
     nuisance = result.nuisance

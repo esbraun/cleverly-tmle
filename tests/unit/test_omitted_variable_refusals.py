@@ -51,7 +51,7 @@ from cleverly.datasets import (
     make_shift_dose,
 )
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
-from cleverly.exceptions import CapabilityError
+from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.interventions import Incremental, Shift
 from cleverly.msm import MSM
 from cleverly.sensitivity.omitted_variable import (
@@ -299,7 +299,7 @@ class TestOneRefusalReachesEveryEntryPoint:
         result = request.getfixturevalue(fixture)
         with pytest.raises(CapabilityError) as refusal:
             ENTRY_POINTS[entry](result, covariate)
-        assert str(refusal.value) == fit_wide_bound_refusal(result)
+        assert str(refusal.value) == fit_wide_bound_refusal(result).message()
 
     @pytest.mark.parametrize(("fixture", "covariate"), REFUSED_FITS)
     def test_the_five_declared_rows_carry_that_same_reason(
@@ -307,11 +307,12 @@ class TestOneRefusalReachesEveryEntryPoint:
     ) -> None:
         result = request.getfixturevalue(fixture)
         expected = fit_wide_bound_refusal(result)
+        assert expected is not None
         for operation in OMITTED_VARIABLE_OPERATIONS:
             row = result.sensitivity.capability(operation)
             assert not row.available, operation
             assert row.status is AssessmentStatus.UNAVAILABLE, operation
-            assert row.reason == expected, operation
+            assert row.refusal == expected, operation
 
     def test_an_unrefused_fit_still_answers_every_entry_point(self, plain_fit: Any) -> None:
         """The nonzero control. A rule table that refused everything would pass above."""
@@ -338,8 +339,9 @@ class TestEachReasonNamesTheMissingResult:
     def test_the_reason_names_the_result_the_package_does_not_have(
         self, request: pytest.FixtureRequest, fixture: str, phrase: str
     ) -> None:
-        reason = fit_wide_bound_refusal(request.getfixturevalue(fixture))
-        assert reason is not None
+        refusal = fit_wide_bound_refusal(request.getfixturevalue(fixture))
+        assert refusal is not None
+        reason = refusal.message()
         assert phrase in reason
         assert "not implemented" not in reason
 
@@ -371,8 +373,9 @@ class TestEachReasonNamesTheMissingResult:
         Each functional is linear in an outcome regression, which is the hypothesis of
         Theorem 2. What the package lacks is named piece by piece.
         """
-        reason = fit_wide_bound_refusal(request.getfixturevalue(fixture))
-        assert reason is not None
+        refusal = fit_wide_bound_refusal(request.getfixturevalue(fixture))
+        assert refusal is not None
+        reason = refusal.message()
         assert "is not implemented for a fit with" in reason
         assert "Theorem 2" in reason
         assert "well posed" in reason
@@ -384,8 +387,9 @@ class TestEachReasonNamesTheMissingResult:
         self, collaborative_fit: Any
     ) -> None:
         """``E[alpha_W | A]`` holds only for an empty selection; the set is part of it."""
-        reason = fit_wide_bound_refusal(collaborative_fit)
-        assert reason is not None
+        refusal = fit_wide_bound_refusal(collaborative_fit)
+        assert refusal is not None
+        reason = refusal.message()
         assert "E[alpha_W | A, V]" in reason
         assert "W_S" in reason
         # The representer is that average only where the working mechanism is P(A | V).
@@ -405,8 +409,9 @@ class TestEachReasonNamesTheMissingResult:
         """The axis is the one the fit records, not one written into its configuration."""
         result = request.getfixturevalue(fixture)
         assert result.config.parameter_axis == axis
-        reason = fit_wide_bound_refusal(result)
-        assert reason is not None
+        refusal = fit_wide_bound_refusal(result)
+        assert refusal is not None
+        reason = refusal.message()
         assert f"indexed by {axis!r}" in reason
         assert phrase in reason
         assert ("well posed" in reason) is (axis != "ipsi")
@@ -415,16 +420,18 @@ class TestEachReasonNamesTheMissingResult:
     def test_a_mechanism_refusal_names_the_assumption_it_lacks(
         self, request: pytest.FixtureRequest, fixture: str
     ) -> None:
-        reason = fit_wide_bound_refusal(request.getfixturevalue(fixture))
-        assert reason is not None
+        refusal = fit_wide_bound_refusal(request.getfixturevalue(fixture))
+        assert refusal is not None
+        reason = refusal.message()
         assert "does not assume a consistent treatment mechanism" in reason
         assert "standard error" in reason
 
     def test_the_response_refusal_points_at_the_tilt_that_does_answer(
         self, response_fit: Any
     ) -> None:
-        reason = fit_wide_bound_refusal(response_fit)
-        assert reason is not None
+        refusal = fit_wide_bound_refusal(response_fit)
+        assert refusal is not None
+        reason = refusal.message()
         assert "sensitivity.missingness()" in reason
         assert "sensitivity.tipping_gamma()" in reason
         # The pointer is only worth printing if the row it names is open.
@@ -440,8 +447,9 @@ class TestEachReasonNamesTheMissingResult:
         It has no arm-specific tilt, so ``missingness`` and ``tipping_gamma`` are refused
         in turn. Printing the pointer would answer a refusal with a refusal.
         """
-        reason = fit_wide_bound_refusal(natural_course_fit)
-        assert reason is not None
+        refusal = fit_wide_bound_refusal(natural_course_fit)
+        assert refusal is not None
+        reason = refusal.message()
         assert "response mechanism" in reason
         assert "sensitivity.missingness()" not in reason
         for operation in ("missingness", "tipping_gamma"):
@@ -487,9 +495,14 @@ class TestTheRuleTableIsOrderedAndEveryRuleIsReachable:
         class Elsewhere:
             assessment_family = "longitudinal"
 
-        assert rules["longitudinal"](Elsewhere()) == (
-            "no longitudinal sensitivity derivation is registered"
+        refusal = rules["longitudinal"](Elsewhere())
+        assert refusal.condition == (
+            "no longitudinal sensitivity derivation is registered: the bound needs a "
+            "per-period latent law that identifies the bias of a sequential g-formula target "
+            "(docs/roadmap.md F16 tracks this stop)."
         )
+        assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert refusal.roadmap == "F16"
 
     def test_a_response_rule_placed_after_longitudinal_would_have_raised(self) -> None:
         """Why the order is a contract rather than a preference.
@@ -915,7 +928,8 @@ def _assert_the_limits_refuse(bound: Any, estimator: str, reason: str) -> None:
     for accessor in LIMIT_ACCESSORS:
         with pytest.raises(CapabilityError) as refused:
             getattr(bound, accessor)
-        assert str(refused.value) == _refusal_text(accessor, estimator, reason)
+        assert str(refused.value).startswith(_refusal_text(accessor, estimator, reason))
+        assert refused.value.refusal.reason is RefusalReason.INFERENCE_GAP
 
 
 class TestThePluginLimitsRefuse:
@@ -941,6 +955,12 @@ class TestThePluginLimitsRefuse:
         """The exact law's plug-in is exact; a learned mechanism is the case F26 is about."""
         bound = omitted_variable_bounds(plain_fit, "ate", nu2_estimator="plugin")
         _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
+
+    def test_the_refusal_names_the_doubly_robust_alternative(self) -> None:
+        assert (
+            "nu2_estimator='doubly_robust' gives the limits for any mechanism learner at the "
+            "rates of that Theorem 4." in _PLUGIN_LIMITS_REFUSAL
+        )
 
     @pytest.mark.parametrize("estimand", ["ate", "att", "atc"])
     def test_the_doubly_robust_bound_reports_finite_limits(
@@ -1060,8 +1080,8 @@ class TestThePluginLimitsRefuse:
         assert "F26" not in str(by_status.value)
         with pytest.raises(CapabilityError) as by_estimator:
             _ = bound.plugin_interval_lower
-        assert str(by_estimator.value) == _refusal_text(
-            "plugin_interval_lower", "plugin", _PLUGIN_LIMITS_REFUSAL
+        assert str(by_estimator.value).startswith(
+            _refusal_text("plugin_interval_lower", "plugin", _PLUGIN_LIMITS_REFUSAL)
         )
         assert bound.to_dict()["inference"] == status
 

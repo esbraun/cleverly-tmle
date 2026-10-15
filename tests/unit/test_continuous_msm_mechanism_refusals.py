@@ -5,7 +5,7 @@ density at the observed dose and at each dose of the integration grid.  With a m
 an intermediate variable, that construction must also divide by the second mechanism at each of
 those doses, and no targeting step for it is written.  Before RM32 in ``docs/roadmap.md`` at ``4ce96cda``, the in-sample fit raised
 ``ValueError`` from the nuisance fit after two learner fits, and the cross-fitted fit met the
-F21 refusal, whose remedy is that in-sample fit.  X10 in ``docs/roadmap.md`` tracks the
+X53 refusal, whose remedy is that in-sample fit.  X10 in ``docs/roadmap.md`` tracks the
 construction.  This module pins these things:
 
 * the fit refuses with ``CapabilityError`` before any learner, in sample and cross-fitted, with
@@ -49,7 +49,7 @@ from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 COVARIATES = ["W1", "W2", "W3"]
 DOSES = (-1.0, 0.0, 0.5, 1.0, 2.0)
-X10 = "docs/roadmap.md X10"
+X10 = "X10 in docs/roadmap.md"
 GRID = "at each dose of the integration grid"
 RESPONSE = "P(Delta = 1 | dose, W)"
 INTERMEDIATE = "P(Z = z | dose, W)"
@@ -222,12 +222,12 @@ class TestTheFitRefusesBeforeAnyLearner:
         fit_witness(name)
 
     def test_a_cross_fitted_fit_is_not_sent_in_sample(self) -> None:
-        """The F21 remedy is the in-sample fit, which this composition cannot run either."""
+        """The X53 remedy is the in-sample fit, which this composition cannot run either."""
         frame, columns, extra, _ = DIRECT[CROSS_FITTED]
         with pytest.raises(CapabilityError) as raised:
             fit(estimator(never_fit_learners(), **extra), frame(), **columns)
         message = str(raised.value)
-        assert "F21" not in message
+        assert "X53" not in message
         assert "cross_fit=False" not in message
         assert "in sample or cross-fitted" in message
 

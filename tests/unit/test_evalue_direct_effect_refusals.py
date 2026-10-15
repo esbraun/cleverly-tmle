@@ -4,7 +4,7 @@ A controlled direct effect is identified under two assumptions of no unmeasured 
 for the treatment and the outcome, and one for the intermediate variable and the outcome. This
 package has no implemented E-value bound for its fitted target and confounding model. So
 :func:`~cleverly.sensitivity.evalue._select_evalue` refuses every request on such a fit, before it
-resolves the estimand, and the capability row reads ``unavailable``. F25 in ``docs/roadmap.md``
+resolves the estimand, and the capability row reads ``unavailable``. X49 in ``docs/roadmap.md``
 holds the missing result.
 
 Before the change the Gaussian branch and the reported-ratio branches answered on that fit, and
@@ -198,10 +198,12 @@ def assert_refused(result: Any, estimand: str | None) -> None:
     row = evalue_row(replace(result), estimand)
     assert not row.available
     assert row.status is AssessmentStatus.UNAVAILABLE
-    assert row.reason == _DIRECT_EFFECT_REFUSAL
+    assert row.reason == _DIRECT_EFFECT_REFUSAL.message()
+    assert "one bounding factor per arm" in row.reason
+    assert "docs/roadmap.md X49 tracks the E-value of their product" in row.reason
     assert row.requires_arguments == ()
     assert raised(lambda: evalue_module.evalue(replace(result), estimand)) == (
-        _DIRECT_EFFECT_REFUSAL
+        _DIRECT_EFFECT_REFUSAL.message()
     )
     facade = replace(result).sensitivity
     call = facade.evalue if estimand is None else partial(facade.evalue, estimand)
@@ -266,7 +268,7 @@ class TestAControlledDirectEffectRefusesEveryBranch:
     def test_the_assessment_reports_the_refusal(self, cde_fits: dict[str, Any]) -> None:
         item = replace(cde_fits["ratio"][0.0]).assess().sensitivity["evalue"]
         assert item.status is AssessmentStatus.UNAVAILABLE
-        assert item.detail == _DIRECT_EFFECT_REFUSAL
+        assert item.detail == _DIRECT_EFFECT_REFUSAL.message()
         assert dict(item.arguments) == {}
 
     def test_a_continuous_dose_with_an_intermediate_is_not_applicable(self) -> None:
@@ -359,7 +361,7 @@ class TestARequestedParameterGetsItsOwnRefusal:
             (
                 {"stratum": ("W", 1)},
                 "this package requires an unconditioned marginal arm contrast; this contrast "
-                "is conditional on a baseline stratum",
+                "is conditional on a baseline stratum.",
             ),
         ],
     )
@@ -372,8 +374,8 @@ class TestARequestedParameterGetsItsOwnRefusal:
         modified = replace(result, parameter_keys=keys)
         row = evalue_row(modified, "rr")
         assert row.status is AssessmentStatus.NOT_APPLICABLE
-        assert row.reason == reason
-        assert raised(lambda: evalue_module.evalue(modified, "rr")) == reason
+        assert str(row.reason).startswith(reason)
+        assert str(raised(lambda: evalue_module.evalue(modified, "rr"))).startswith(reason)
 
 
 #: The requests whose branch reads a stored estimate. ``derived_rr`` is left out, because its
@@ -442,7 +444,7 @@ class TestOnePredicate:
 #: The two lines of the check, which the mutations below move as one block.
 CHECK = (
     "    if declares_intermediate(result):\n",
-    "        raise _EValueRefusal(AssessmentStatus.UNAVAILABLE, _DIRECT_EFFECT_REFUSAL)\n",
+    "        raise _refuse(AssessmentStatus.UNAVAILABLE, _DIRECT_EFFECT_REFUSAL)\n",
 )
 #: The line after the Gaussian branch, where the contract's mutation puts the check.
 BELOW_THE_GAUSSIAN_BRANCH = '    if key.estimand in {"att", "atc"}:\n'

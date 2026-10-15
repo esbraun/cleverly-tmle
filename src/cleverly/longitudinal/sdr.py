@@ -267,7 +267,7 @@ def _recursion(
     _, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     cumulative_numerator = plan.cumulative_numerator(data)
     horizon = cell.horizon
-    seed = seed_carried(data, scaler)
+    seed = seed_carried(data, scaler, horizon=horizon)
     values: dict[int, FloatArray] = {horizon + 1: seed}
     observed: dict[int, FloatArray] = {}
     residual: dict[int, FloatArray] = {}

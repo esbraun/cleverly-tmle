@@ -21,7 +21,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, Learner
 from ..estimators._nuisance import cross_fit_predictions
-from ..exceptions import CapabilityError
+from ..exceptions import CapabilityError, RefusalReason
 from ..learners.crossfit import Folds
 from ..learners.super_learner import SuperLearnerDiagnostics
 from .data import LongitudinalData
@@ -84,7 +84,9 @@ def refuse_pooled_designs(data: LongitudinalData) -> None:
         raise CapabilityError(
             "hazard_pooling='pooled' fits one regression over every node, so every node needs "
             f"the same design. This design has {' and '.join(reasons)}, so its node designs "
-            "differ. Use hazard_pooling='node'"
+            "differ.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Use hazard_pooling='node'.",
         )
 
 

@@ -9,7 +9,9 @@
 pins these things:
 
 * ``identify`` refuses an item of another kind with ``CapabilityError``, names the field, the
-  item and the typed estimands for its kind, and cites F17;
+  item and the typed estimands for its kind. A set that mixes two kinds is a joint request,
+  an ``implementation_gap`` that cites X57; a set of the other kind alone is an
+  ``api_redirection`` with no roadmap item;
 * ``identify`` refuses a mapping, a string or a bare item as a point set with ``DataError``;
 * no learner fits before either refusal;
 * the estimator keeps a second guard on ``interventions=``, ``policies=`` and ``incremental=``;
@@ -40,7 +42,7 @@ from cleverly import (
 )
 from cleverly.datasets import make_shift_dose
 from cleverly.estimators import TMLE
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import CapabilityError, DataError, RefusalReason
 from cleverly.interventions import Incremental, Rule, Shift, Static, Stochastic
 from cleverly.interventions import base as base_module
 from cleverly.interventions.base import _NOT_A_REGIME
@@ -53,7 +55,7 @@ from tests.unit._declaration_support import (
 )
 from tests.unit._natural_course_support import never_fit_learners
 
-F17 = "docs/roadmap.md F17"
+X57 = "docs/roadmap.md X57"
 REGIME = "RegimeMean and RegimeContrast"
 SHIFT = "ModifiedTreatmentPolicy and ModifiedTreatmentPolicyEffect"
 INCREMENTAL = "IncrementalMean and IncrementalEffect"
@@ -95,7 +97,7 @@ class Request:
     holder : str
         The field that the message names.
     route : tuple of str
-        Fragments that every guard writes: the item position, the typed estimands and F17
+        Fragments that every guard writes: the item position, the typed estimands and X57
         for a mixed kind, and the sequence form for a malformed set.
     fits_before_rm14 : int
         The learner fits that commit 0cdab190 ran before its error.  A spy can fail only
@@ -116,7 +118,7 @@ MIXED = {
         RegimeContrast(regimens=(Static(1), Incremental(2.0))),
         CapabilityError,
         "RegimeContrast.regimens",
-        ("item 2", INCREMENTAL, "functional of P", F17),
+        ("item 2", INCREMENTAL, "functional of P", X57),
         0,
     ),
     "shift in a regimen set": Request(
@@ -124,7 +126,7 @@ MIXED = {
         RegimeMean(regimens=(Static(1), Shift(0.5, cap=None))),
         CapabilityError,
         "RegimeMean.regimens",
-        ("item 2", SHIFT, "d(A, W)", "covariates alone", F17),
+        ("item 2", SHIFT, "d(A, W)", "covariates alone", X57),
         0,
     ),
     "regime in an incremental set": Request(
@@ -132,7 +134,7 @@ MIXED = {
         IncrementalEffect((Incremental(1.0), Static(1))),
         CapabilityError,
         "IncrementalEffect.interventions",
-        ("item 2", REGIME, F17),
+        ("item 2", REGIME, X57),
         1,
     ),
     "regime alone in an incremental set": Request(
@@ -140,7 +142,7 @@ MIXED = {
         IncrementalMean((Static(1),)),
         CapabilityError,
         "IncrementalMean.interventions",
-        ("item 1", REGIME, F17),
+        ("item 1", REGIME),
         1,
     ),
     "shift in an incremental set": Request(
@@ -148,7 +150,7 @@ MIXED = {
         IncrementalEffect((Incremental(1.0, name="one"), Shift(0.5, cap=None, name="s"))),
         CapabilityError,
         "IncrementalEffect.interventions",
-        ("item 2", SHIFT, F17),
+        ("item 2", SHIFT, X57),
         2,
     ),
     "level in an incremental set": Request(
@@ -164,7 +166,7 @@ MIXED = {
         ModifiedTreatmentPolicy(policies=(Shift(0.5, cap=None, name="s"), Incremental(2.0))),
         CapabilityError,
         "ModifiedTreatmentPolicy.policies",
-        ("item 2", INCREMENTAL, F17),
+        ("item 2", INCREMENTAL, X57),
         1,
     ),
     "regime in a shift set": Request(
@@ -172,7 +174,7 @@ MIXED = {
         ModifiedTreatmentPolicyEffect(policies=(Shift(0.5, cap=None, name="s"), Static(1))),
         CapabilityError,
         "ModifiedTreatmentPolicyEffect.policies",
-        ("item 2", REGIME, F17),
+        ("item 2", REGIME, X57),
         1,
     ),
 }
@@ -299,6 +301,21 @@ class TestAMixedRequestIsRefusedAtIdentify:
         for why in _NOT_A_REGIME.values():
             assert why.strip() not in str(raised.value)
 
+    def test_a_mixed_set_is_a_gap_and_a_misplaced_set_is_a_redirection(self) -> None:
+        for name, row in MIXED.items():
+            if "Write it as an object" in " ".join(row.route):
+                continue
+            with pytest.raises(CapabilityError) as raised:
+                identify(row)
+            record = raised.value.refusal
+            if name == "regime alone in an incremental set":
+                assert record.reason is RefusalReason.API_REDIRECTION
+                assert record.roadmap is None
+                assert "X57" not in str(raised.value)
+            else:
+                assert record.reason is RefusalReason.IMPLEMENTATION_GAP, name
+                assert record.roadmap == "X57", name
+
     def test_no_message_calls_an_intervention_something_else(self) -> None:
         for row in MIXED.values():
             with pytest.raises(CapabilityError) as raised:
@@ -314,27 +331,27 @@ class TestTheEstimatorKeepsASecondGuard:
             (
                 "interventions",
                 (Static(0), Incremental(2.0)),
-                ("interventions=", "item 2", INCREMENTAL, "TMLE(incremental=...)", F17),
+                ("interventions=", "item 2", INCREMENTAL, "TMLE(incremental=...)", X57),
             ),
             (
                 "interventions",
                 (Shift(0.5, cap=None),),
-                ("interventions=", "item 1", SHIFT, "TMLE(policies=...)", F17),
+                ("interventions=", "item 1", SHIFT, "TMLE(policies=...)"),
             ),
             (
                 "incremental",
                 (Incremental(1.0), Static(1)),
-                ("incremental=", "item 2", REGIME, "TMLE(interventions=...)", F17),
+                ("incremental=", "item 2", REGIME, "TMLE(interventions=...)", X57),
             ),
             (
                 "incremental",
                 (Incremental(1.0), Shift(0.5, cap=None)),
-                ("incremental=", "item 2", SHIFT, F17),
+                ("incremental=", "item 2", SHIFT, X57),
             ),
             (
                 "policies",
                 (Shift(0.5, cap=None), Incremental(2.0)),
-                ("policies=", "item 2", INCREMENTAL, F17),
+                ("policies=", "item 2", INCREMENTAL, X57),
             ),
             (
                 "policies",

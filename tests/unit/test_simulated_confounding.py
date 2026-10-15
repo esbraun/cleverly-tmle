@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 from copy import copy
 from dataclasses import replace
 from statistics import NormalDist
@@ -29,6 +30,7 @@ from cleverly import (
     RiskRatio,
 )
 from cleverly import study as study_module
+from cleverly._refusal import Refusal
 from cleverly.datasets import (
     make_binary_outcome,
     make_linear_ate,
@@ -54,6 +56,7 @@ from cleverly.sensitivity._simulated_confounding_request import (
     _INTERMEDIATE_REFUSAL,
     _LONGITUDINAL_REFUSAL,
     _MISSING_OUTCOME_REFUSAL,
+    _MISSING_TREATMENT_REFUSAL,
     _MULTI_ARM_REFUSAL,
     _TMLE_ONLY_TARGETS,
     _fit_wide_refusal,
@@ -2173,7 +2176,7 @@ def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
     capability = mar_result.sensitivity.capability("simulated_confounding")
     assert not capability.available
     assert capability.status is AssessmentStatus.UNAVAILABLE
-    assert capability.reason == reason
+    assert capability.refusal == reason
     assert _fit_wide_refusal(mar_result) == reason
     with pytest.raises(CapabilityError) as refusal:
         simulated_confounding(
@@ -2182,7 +2185,7 @@ def test_real_mar_fit_refuses_before_calibration_draw_or_refit(
             benchmark_covariates=("W1",),
             random_state=29,
         )
-    assert str(refusal.value) == reason
+    assert str(refusal.value) == reason.message()
 
 
 def test_fit_wide_refusals_have_one_order_and_match_assessment(
@@ -2218,7 +2221,7 @@ def test_fit_wide_refusals_have_one_order_and_match_assessment(
         capability = result.sensitivity.capability("simulated_confounding")
         assert not capability.available, name
         assert capability.status is AssessmentStatus.UNAVAILABLE, name
-        assert capability.reason == reason, name
+        assert capability.refusal == reason, name
         assert _fit_wide_refusal(result) == reason, name
         with pytest.raises(CapabilityError) as refusal:
             simulated_confounding(
@@ -2227,7 +2230,7 @@ def test_fit_wide_refusals_have_one_order_and_match_assessment(
                 benchmark_covariates=("W1",),
                 random_state=29,
             )
-        assert str(refusal.value) == reason, name
+        assert str(refusal.value) == reason.message(), name
 
 
 def test_the_fit_wide_rule_table_declares_one_documented_order() -> None:
@@ -2281,6 +2284,7 @@ _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
     (_LONGITUDINAL_REFUSAL, "no time-indexed latent law for longitudinal treatments"),
     (_MULTI_ARM_REFUSAL, "no category-valued perturbation law for a multi-arm treatment"),
     (_MISSING_OUTCOME_REFUSAL, "identified missing-outcome refit semantics"),
+    (_MISSING_TREATMENT_REFUSAL, "identified missing-treatment refit semantics"),
     (_INTERMEDIATE_REFUSAL, "controlled-direct-effect contrast contract"),
     (_ESTIMATED_WEIGHT_REFUSAL, "cannot replay estimated observation weights"),
     (_CLUSTERED_REFUSAL, "row-level, cluster-level, and mixed latent causes"),
@@ -2288,7 +2292,7 @@ _REFUSAL_WITNESSES: tuple[tuple[str, str], ...] = (
 
 
 def test_each_missing_science_refusal_says_its_own_thing() -> None:
-    """The deliberate-mutation control for the six refusal constants.
+    """The deliberate-mutation control for the seven refusal constants.
 
     Swapping the bodies of two constants, or blanking one, passes every equality assertion
     in this file, because both sides of those comparisons read the same constant. Each
@@ -2296,12 +2300,48 @@ def test_each_missing_science_refusal_says_its_own_thing() -> None:
     on one. Verified by performing both mutations.
     """
     for constant, fragment in _REFUSAL_WITNESSES:
-        assert fragment in constant, fragment
+        assert fragment in constant.condition, fragment
     # Distinctive, not merely present: a fragment that matched two constants would pass a
     # swap of those two.
     for constant, fragment in _REFUSAL_WITNESSES:
-        matched = [other for other, _ in _REFUSAL_WITNESSES if fragment in other]
+        matched = [other for other, _ in _REFUSAL_WITNESSES if fragment in other.condition]
         assert matched == [constant], fragment
+
+
+#: The roadmap rows each missing-science refusal cites (docs/technical-reference/hard-stop-review.md).
+#: A declarable law cites X47 or X48; a part that stays in the research queue cites its F row.
+_REFUSAL_CITATIONS: tuple[tuple[Refusal, tuple[str, ...]], ...] = (
+    (_LONGITUDINAL_REFUSAL, ("X48", "F13")),
+    (_MULTI_ARM_REFUSAL, ("X47",)),
+    (_MISSING_OUTCOME_REFUSAL, ("X47", "F12")),
+    (_MISSING_TREATMENT_REFUSAL, ("X47", "F12")),
+    (_INTERMEDIATE_REFUSAL, ("X47", "F15")),
+    (_ESTIMATED_WEIGHT_REFUSAL, ("X47",)),
+    (_CLUSTERED_REFUSAL, ("X47",)),
+)
+
+
+@pytest.mark.parametrize(("constant", "rows"), _REFUSAL_CITATIONS)
+def test_each_missing_science_refusal_cites_its_rows(
+    constant: Refusal, rows: tuple[str, ...]
+) -> None:
+    cited = re.findall(r"docs/roadmap\.md ([A-Z]+\d+)", constant.condition)
+    assert cited == list(rows)
+
+
+def test_a_missing_treatment_fit_refuses_before_calibration_draw_or_refit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _fit()
+    recorded = np.ones(base.data.n, dtype=bool)
+    recorded[0] = False
+    result = replace(base, data=replace(base.data, treatment_observed=recorded))
+    assert result.data.has_missing_treatment
+    forbid_draw_and_refit(monkeypatch, base.estimator)
+    assert _fit_wide_refusal(result) == _MISSING_TREATMENT_REFUSAL
+    with pytest.raises(CapabilityError) as refusal:
+        simulated_confounding(result, grid=_grid(), random_state=29)
+    assert str(refusal.value) == _MISSING_TREATMENT_REFUSAL.message()
 
 
 #: Objects that declare a family and nothing the later rules read.  ``CausalResult`` is a
@@ -2336,8 +2376,9 @@ def test_a_shapeless_point_object_refuses_rather_than_raises(probe: Any, fragmen
     An unknown family hears its own name rather than the longitudinal missing-law stop,
     which is a claim about a family this object never declared.
     """
-    reason = _fit_wide_refusal(probe)
-    assert reason is not None
+    refusal_record = _fit_wide_refusal(probe)
+    assert refusal_record is not None
+    reason = refusal_record.message()
     assert fragment in reason
     assert "longitudinal" not in reason
     with pytest.raises(CapabilityError) as refusal:
@@ -3918,7 +3959,13 @@ def test_unsupported_compositions_are_refused_before_refit(
 @pytest.mark.parametrize(
     ("change", "benchmark_covariates", "error_type", "message"),
     [
-        ("categorical", ("G",), CapabilityError, "categorical covariate"),
+        (
+            "categorical",
+            ("G",),
+            CapabilityError,
+            r"categorical covariate 'G'; .*\(docs/roadmap\.md X47 tracks a block calibration "
+            r"of the whole covariate\)\. Name numeric benchmark covariates only",
+        ),
         ("constant", ("W1",), CapabilityError, "constant covariate"),
         ("non-string", ("W1", 1), TypeError, "only column names"),
         ("duplicate", ("W1", "W1"), ValueError, "contains duplicates"),

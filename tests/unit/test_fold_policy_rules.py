@@ -668,9 +668,13 @@ class TestTheCollaborativeRefusals:
             outcome_learner=CountingLinear(),
             treatment_learner=CountingLogistic(max_iter=1000),
         )
-        with pytest.raises(CapabilityError, match="C-TMLE has no clustered result"):
+        with pytest.raises(CapabilityError, match="C-TMLE has no clustered result") as caught:
             estimator.fit(frame, outcome="Y", treatment="A", covariates=["W1", "W2"], id="cid")
         assert Counting.calls == 0, f"{Counting.calls} learner fit(s) ran before the refusal"
+        assert (
+            "X51 tracks the point estimate with a cluster as the unit, and docs/roadmap.md F22"
+            in " ".join(str(caught.value).split())
+        )
 
     def test_oat_cluster_refusal_names_its_own_missing_result(self) -> None:
         frame = clustered_frame(n_clusters=20, size=5)
@@ -1053,7 +1057,7 @@ class TestARespondentlessComplementIsRefusedOnEveryScale:
 
     The witness is an in-sample greedy C-TMLE with ``delta=``, whose selection folds ask
     that check before any learner. A cross-fitted regime fit carried this witness until
-    the F21 refusal closed that composition. The arm-indexed and natural-course contracts
+    the X53 refusal closed that composition. The arm-indexed and natural-course contracts
     run their own preflights, so this admitted fit is the one that reaches the general
     response branch.
     """
@@ -1708,7 +1712,7 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
                 covariates=["W"],
                 estimator=estimator,
             )
-        assert str(raised.value) == estimator._fold_policy_refusal()
+        assert str(raised.value) == estimator._fold_policy_refusal().message()
         assert "Set stratify_folds='none'" in str(raised.value)
         assert NeverFit.calls == 0
 
@@ -1761,7 +1765,7 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
         estimator = TMLE(**linear_in_sample(cross_fit=True, n_folds=2, **never_fit_learners()))
         estimator.stratify_folds = "treatment"
         ranked, fitted = self.refusal_of(estimator, frame)
-        assert ranked == fitted == estimator._fold_policy_refusal()
+        assert ranked == fitted == estimator._fold_policy_refusal().message()
 
     def test_the_scale_refusal_precedes_the_status_refusal(self) -> None:
         """The scale call isolates itself against a status that supplies no inference.

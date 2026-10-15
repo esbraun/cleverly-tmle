@@ -8,7 +8,7 @@ name, so a new status is one new entry here and one new member of the Literal. T
 exception is the estimator that stamps a parameter status
 (:data:`PARAMETER_STATUSES`), which names it through :data:`CONSTANT_NODE_STATUS`.
 
-A leaf module. It imports the standard library only, as :mod:`cleverly._typing` does, so
+A leaf module. It imports the standard library and the leaf :mod:`cleverly._refusal` only, so
 :mod:`cleverly.exceptions`, which the rest of the package imports, can read the table at
 module level without an import cycle.
 """
@@ -19,6 +19,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final, Literal, cast
+
+from ._refusal import NO_ALTERNATIVE, RefusalReason
 
 __all__ = [
     "CONSTANT_NODE_STATUS",
@@ -69,7 +71,8 @@ FEW_CLUSTER_THRESHOLD: Final[int] = 40
 #: The fewest clusters with positive weight mass for which a clustered fit reports an
 #: interval. It is the smallest count a registered study measures: ``clustered-few-cluster-tmle``
 #: starts at 10 clusters, because at 4 a share of draws admits no fit at all. Below it the fit
-#: takes ``"few_cluster_plugin"``, and F28 in ``docs/roadmap.md`` owns 4 to 9 clusters.
+#: takes ``"few_cluster_plugin"``, and X54 in ``docs/roadmap.md`` holds the evidence for 4 to 9
+#: clusters.
 MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
 
 #: The same floor for a longitudinal fit. The registered few-cluster study measures in-sample
@@ -139,6 +142,15 @@ class StatusRecord:
         The noun a coverage-study report uses for the spread it measured.
     reopened_by : str
         The roadmap id whose anchor in ``docs/roadmap.md`` holds the reopen route.
+    alternative : str
+        The sentence a refusal of an inferential operation at this status ends with: the
+        estimator that supplies an interval for the same question, or
+        :data:`~cleverly._refusal.NO_ALTERNATIVE`.
+    code : RefusalReason
+        The reason code of that refusal. A status the theory leaves without inference takes
+        :attr:`~cleverly._refusal.RefusalReason.INFERENCE_GAP`. A status that one sample's
+        numerical failure sets takes
+        :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION`.
     """
 
     reason: str
@@ -147,6 +159,8 @@ class StatusRecord:
     bootstrap_note: str
     diagnostic_noun: str
     reopened_by: str
+    alternative: str
+    code: RefusalReason = RefusalReason.INFERENCE_GAP
 
     def summary_note(self) -> str:
         """The paragraph a result summary prints under its table of diagnostics.
@@ -159,11 +173,14 @@ class StatusRecord:
         Returns
         -------
         str
-            :attr:`reason`, then a sentence that names :attr:`summary_label` as that
-            diagnostic.
+            :attr:`reason`, then :attr:`alternative` when one exists, then a sentence that
+            names :attr:`summary_label` as that diagnostic.
         """
+        alternative = "" if self.alternative == NO_ALTERNATIVE else f" {self.alternative}"
         return (
-            self.reason + f' The "{self.summary_label}" column above is that diagnostic, and it '
+            self.reason
+            + alternative
+            + f' The "{self.summary_label}" column above is that diagnostic, and it '
             "is not a standard error for this estimate."
         )
 
@@ -200,6 +217,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="working-mechanism plug-in diagnostic",
             reopened_by="F18",
+            alternative="For an interval, fit TMLE or DRTMLE on the same design.",
         ),
         "generated_design_plugin": StatusRecord(
             reason=(
@@ -216,8 +234,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "too small in its calibration, primary coverage, estimated-design and band "
                 "cells, flat in n, while its oracle-design cells were calibrated. The point "
                 "estimate stands. The plug-in standard error of the ordinary curve remains as a "
-                "diagnostic under plugin_std_error and plugin_interval. For an interval, fit "
-                "TMLE. F19 in docs/roadmap.md tracks the generated-design term of both designs."
+                "diagnostic under plugin_std_error and plugin_interval. F19 in docs/roadmap.md "
+                "tracks the generated-design term of both designs."
             ),
             assessment_note=(
                 "the reported curve is a generated-design diagnostic: no confidence interval "
@@ -231,27 +249,27 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="generated-design plug-in diagnostic",
             reopened_by="F19",
+            alternative="For an interval, fit TMLE.",
         ),
         "estimated_weight_plugin": StatusRecord(
             reason=(
-                "A DR-TMLE fit with a guard, or a per-arm outcome-adaptive C-TMLE fit "
-                "(strategy='oat', oat_design='per_arm'), with weights declared estimated "
+                "A DR-TMLE fit with a guard and weights declared estimated "
                 "(weights_estimated=True) reports no confidence interval, no p-value and no "
-                "standard error. The argument that an interval conditions on the weights "
-                "concerns the efficient influence curve. The DR-TMLE fit adds "
-                "reduced-dimension regressions of the weighted law. The per-arm C-TMLE curve "
-                "is the curve of Benkeser, Cai and van der Laan (2020), Theorem 1, and not "
-                "the efficient one. No result read here gives the contribution of the weight "
-                "estimate to either curve. The point estimate stands. The plug-in standard "
-                "error of that curve remains as a diagnostic under plugin_std_error and "
-                "plugin_interval. F5 in docs/roadmap.md reopens this when a paper supplies "
-                "that contribution. The ordinary TMLE (DRTMLE with guard=(), or TMLE) keeps "
-                "an interval that conditions on the weights."
+                "standard error. The DR-TMLE fit adds reduced-dimension regressions of the "
+                "weighted law, and no result read here gives the contribution of the weight "
+                "estimate to its curve. The point estimate stands. The plug-in standard error "
+                "of that curve remains as a diagnostic under plugin_std_error and "
+                "plugin_interval. X50 in docs/roadmap.md reopens this for DRTMLE: the "
+                "conditional reading of the weights does not use efficiency, so it covers the "
+                "fixed-weight DR-TMLE curve. A per-arm outcome-adaptive C-TMLE fit "
+                "(strategy='oat', oat_design='per_arm') with estimated weights takes the "
+                "generated_design_plugin status while OAT_PER_ARM_INFERENTIAL is False, and "
+                "F19 in docs/roadmap.md holds its interval."
             ),
             assessment_note=(
                 "the reported curve is a fixed-weight diagnostic: no confidence interval or "
-                "p-value is available for this fit, and F5 in the roadmap is the condition "
-                "that reopens it"
+                "p-value is available for this fit, and X50 in the roadmap is the condition "
+                "that reopens it for DRTMLE"
             ),
             summary_label="fixed-weight se",
             bootstrap_note=(
@@ -259,7 +277,11 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "again, and no result validates its coverage for this fit"
             ),
             diagnostic_noun="fixed-weight plug-in diagnostic",
-            reopened_by="F5",
+            reopened_by="X50",
+            alternative=(
+                "The ordinary TMLE (DRTMLE with guard=(), or TMLE) keeps an interval that "
+                "conditions on the weights."
+            ),
         ),
         "trimmed_ratio_plugin": StatusRecord(
             reason=(
@@ -272,8 +294,7 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "efficient influence curve at the trimmed ratios remains as a diagnostic "
                 "under plugin_std_error and plugin_interval; it is the standard error lmtp "
                 "reports. F30 in docs/roadmap.md reopens this when a paper supplies that "
-                "result. ratio_trim=None fits the untrimmed estimator, whose interval the "
-                "shipped evidence covers."
+                "result."
             ),
             assessment_note=(
                 "the reported curve is a trimmed-ratio diagnostic: no confidence interval or "
@@ -287,6 +308,10 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             ),
             diagnostic_noun="trimmed-ratio plug-in diagnostic",
             reopened_by="F30",
+            alternative=(
+                "ratio_trim=None fits the untrimmed estimator, whose interval the shipped "
+                "evidence covers."
+            ),
         ),
         "few_cluster_plugin": StatusRecord(
             reason=(
@@ -302,14 +327,15 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "registered study measures an interval below those counts. The point estimate "
                 "stands. The plug-in standard error of the reported curve remains as a "
                 "diagnostic under plugin_std_error and plugin_interval, which use the normal "
-                "reference. F28 in docs/roadmap.md owns fits below their floor and the open "
-                "small-sample work."
+                "reference. X54 in docs/roadmap.md holds the registered measurements that "
+                "reopen counts from 4 clusters up to the floor, and F28 holds fits below 4 "
+                "clusters."
             ),
             assessment_note=(
                 "the reported curve is a few-cluster diagnostic: no confidence interval or "
                 f"p-value is available for a fit with fewer than {MINIMUM_INTERVAL_CLUSTERS} "
                 f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), "
-                "and F28 in the roadmap is the condition that reopens it"
+                "and X54 in the roadmap is the condition that reopens it"
             ),
             summary_label="normal-reference se",
             bootstrap_note=(
@@ -317,27 +343,32 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "with few clusters"
             ),
             diagnostic_noun="few-cluster plug-in diagnostic",
-            reopened_by="F28",
+            reopened_by="X54",
+            alternative=NO_ALTERNATIVE,
         ),
         "constant_node_plugin": StatusRecord(
             reason=(
                 "A longitudinal parameter reports no confidence interval, no p-value and no "
                 "standard error when a node regression of its recursion read a constant "
                 "target, such as a grid node at which no follower of the regimen had the "
-                "event. That regression is its maximum-likelihood value, 0 or 1, so the "
+                "event, or a repeated-outcome node at which every follower held one outcome "
+                "value. That regression is its maximum-likelihood value, 0 or 1, so the "
                 "point estimate stands. The node's term of the influence curve is then "
-                "identically zero, although the true hazard there can be positive, so the "
-                "plug-in standard error leaves that node's variance out. A contrast or a "
-                "restricted mean that reads such a parameter takes this status too, and the "
+                "identically zero, although the true outcome variance there can be "
+                "positive, so the plug-in standard error leaves that node's variance out. "
+                "A contrast or a restricted mean that reads such a parameter takes this status "
+                "too, and the "
                 "simultaneous band leaves it out. The plug-in standard error remains as a "
                 "diagnostic under "
-                "plugin_std_error and plugin_interval. F31 in docs/roadmap.md reopens this "
-                "when a result supplies an interval at a boundary node estimate."
+                "plugin_std_error and plugin_interval. X54 in docs/roadmap.md reopens this "
+                "at a fixed law with a declared node-variance construction and a registered "
+                "study, and F31 holds the rare-event regime in which the node hazard "
+                "shrinks with n."
             ),
             assessment_note=(
                 "the reported curve is a constant-node diagnostic: no confidence interval or "
                 "p-value is available for a parameter whose recursion read a constant node "
-                "regression, and F31 in the roadmap is the condition that reopens it"
+                "regression, and X54 in the roadmap is the condition that reopens it"
             ),
             summary_label="constant-node se",
             bootstrap_note=(
@@ -345,7 +376,8 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
                 "lacks, and no result validates the bootstrap coverage at a boundary node"
             ),
             diagnostic_noun="constant-node plug-in diagnostic",
-            reopened_by="F31",
+            reopened_by="X54",
+            alternative=NO_ALTERNATIVE,
         ),
     }
 )
