@@ -109,7 +109,7 @@ The fit warns with a `UserWarning` when the treatment negative log likelihood of
 by more than 1% above the candidate before it. The warning names each such candidate by its index
 and label. The fit continues, because a nested candidate with an uninformative covariate can rise
 by sampling noise under the propensity bounds. The 1% threshold separates the two cases on the
-instrument law: the nested terminal rises by about 0.2%, and the `W1` candidate by about 19%.
+instrument law. There the nested terminal rises by about 0.2%, and the `W1` candidate by about 19%.
 `CTMLESelection.treatment_risk_increases` holds the same indices.
 `tests/unit/test_ctmle_candidate_sequences.py::TestLearners` checks the warning.
 

@@ -6,8 +6,10 @@ pinned commit
 [`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
 The theory is van der Laan and Gruber (2010).
 
-The study is declared and not yet run. The three generated sections below are empty until the
-committed results exist. The `reporting` publication policy was declared before the run.
+The evidence on this page is Python property evidence, with comparator runs pending. The Python
+phase and the property study ran. The R `ctmle` runs wait for Study queue item 9, so this page
+has no paired row and no replay result yet. The `reporting` publication policy was declared
+before the run.
 
 ## What was compared
 
@@ -77,43 +79,103 @@ and learners property fit.
 ## Accuracy against known truth
 
 <!-- generated: accuracy -->
+| law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law, lasso candidate sequence | `ate` | average treatment effect | `cleverly` C-TMLE lasso and declared-learner sequences | -0.0032 to 0.0034 | 0.9237 | 0.9051 | **fail** |
+| binary-outcome law, four declared lasso learners | `ate` | average treatment effect | `cleverly` C-TMLE lasso and declared-learner sequences | -0.0032 to 0.0027 | 0.9500 | 0.9945 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
 
-<!-- generated: agreement -->
-<!-- /generated -->
+Python property evidence, with comparator runs pending. The R `ctmle` runs are not registered
+yet, so the committed `equivalence.csv` has no rows. The replay gates above read R's output, and
+they run when a later change registers the R runs.
 
 ## Theory properties
 
 <!-- generated: properties -->
+| property | cell | role | what was tested | what must hold | measured | result |
+| --- | --- | --- | --- | --- | --- | --- |
+| `double_robustness` | `both_wrong_lasso` | control | the lasso sequence with a constant outcome regression, so both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.0432 to 0.0446, margin 0.0024, SE ratio 1.2533 | pass |
+| `double_robustness` | `both_wrong_learners` | control | the declared learners with a constant outcome regression, so both nuisances are misspecified | bias interval must fall entirely outside the margin | bias 0.0433 to 0.0448, margin 0.0025, SE ratio 1.2155 | pass |
+| `double_robustness` | `lasso_outcome_correct` | positive | only the outcome regression is correct, and no lasso candidate is a correct mechanism | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000664 to 0.000605, margin 0.0021, SE ratio 0.9559 | pass |
+| `double_robustness` | `lasso_treatment_correct` | positive | only the treatment mechanism is correct, and the lasso path contains it | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000666 to 0.000248, margin 0.0015, SE ratio 1.2702 | pass |
+| `double_robustness` | `learners_outcome_correct` | positive | only the outcome regression is correct, and no declared learner is a correct mechanism | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.0012 to 0.000072, margin 0.0021, SE ratio 0.9377 | pass |
+| `double_robustness` | `learners_treatment_correct` | positive | only the treatment mechanism is correct, and the terminal learner specifies it | bias interval inside the equivalence margin, with the reported standard error on the scale of the empirical spread | bias -0.000663 to 0.000279, margin 0.0016, SE ratio 1.2149 | pass |
+| `multi_arm` | `empty_control` | control | the selector is forced to stop at an empty path on the three-arm law | bias interval must fall entirely outside the margin | bias 0.0692 to 0.0729, margin 0.0062 | pass |
+| `multi_arm` | `lasso_treatment_correct` | positive | the lasso sequence on the three-arm law, with a constant outcome regression | bias interval inside the equivalence margin | bias -0.0034 to 0.000487, margin 0.0065 | pass |
+| `selector_necessity` | `empty_control` | control | the selector is forced to stop at an empty path | bias interval must fall entirely outside the margin | bias 0.0494 to 0.0511, margin 0.0023 | pass |
+| `selector_necessity` | `lasso_collaborative` | positive | the selector chooses its own penalty along the lasso sequence | bias interval inside the equivalence margin, and RMSE at most the declared ratio of the paired control's | bias -0.0025 to -0.000412, margin 0.0028, RMSE ratio 0.2205, 99% upper 0.2333 | pass |
+| `selector_necessity` | `learners_collaborative` | positive | the selector chooses its own learner along the declared nested sequence | bias interval inside the equivalence margin, a declared expected red, and RMSE at most the declared ratio of the paired control's | bias 0.0029 to 0.0051, margin 0.0031, RMSE ratio 0.2542, 99% upper 0.2721 | **fail** |
 <!-- /generated -->
 
-## Declared design
-
-The values in this table are declared before the run.
+## Measured values
 
 | quantity | value | source |
 | --- | --- | --- |
 | `replicates` | 800 | replications per scenario |
 | `n` | 2000 | observations per replication |
-| paired role | descriptive | `paired_role` of the record in `tests/studies/canonical_ctmle_sequences.py` |
+| `independent_tests_total` | 2 | package truth tests |
+| `independent_tests_passed` | 1 | package truth tests passing |
+| `property_cells_total` | 11 | repeated-sampling property cells |
+| `property_cells_passed` | 8 | property cells passing |
+| `properties[selector_necessity/learners_collaborative]:standardized_bias` | 0.3246 | the declared expected red bias, in empirical standard deviations |
+| `properties[selector_necessity/learners_collaborative]:rmse_ratio_upper` | 0.2721 | the bootstrap 99% upper bound of its RMSE ratio, the discriminating gate |
+| `properties[selector_necessity/learners_collaborative]:coverage` | 0.9487 | its coverage of the plug-in diagnostic interval |
+| `properties[selector_necessity/lasso_collaborative]:rmse_ratio_upper` | 0.2333 | the same bound for the lasso sequence |
+| `max_standardized_bias` | 0.0076 | largest absolute standardized bias of a package truth row |
+| `min_coverage` | 0.9237 | lowest coverage of a package truth row |
+| `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
+| `margin:alpha` | 0.0500 | nominal estimator size |
+| `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
+| `margin:bootstrap_replicates` | 10000 | resamples for bootstrap intervals |
+| `margin:standardized_bias` | 0.2500 | bias equivalence margin in empirical SDs |
+| `margin:coverage_floor` | 0.9000 | lower coverage gate |
+| `margin:over_coverage_ceiling` | 0.9900 | reported conservative-coverage ceiling |
+| `margin:se_ratio_sanity_lower` | 0.8000 | lower SE-ratio screen |
+| `margin:se_ratio_sanity_upper` | 1.2000 | upper SE-ratio screen |
+| `margin:calibration_se_ratio_lower` | 0.9300 | lower calibration band |
+| `margin:calibration_se_ratio_upper` | 1.0700 | upper calibration band |
+| `margin:calibration_coverage_lower` | 0.9200 | lower calibration-coverage band |
+| `margin:calibration_coverage_upper` | 0.9800 | upper calibration-coverage band |
+| `margin:type_i_ceiling` | 0.1000 | largest supported type-I rate |
+| `margin:paired_difference` | 0.1500 | paired similarity margin in empirical SDs |
+| `margin:rmse_noninferiority` | 1.1000 | RMSE-ratio non-inferiority margin |
+| `margin:coverage_noninferiority` | -0.0250 | coverage-difference non-inferiority margin |
+| `margin:calibration_noninferiority` | 0.0500 | SE-calibration non-inferiority margin |
+| `margin:minimum_power` | 0.8000 | lower power gate |
+| `margin:root_n_slope` | -0.5000 | root-n contraction target |
+| `margin:root_n_slope_lower` | -0.6250 | lower contraction band |
+| `margin:root_n_slope_upper` | -0.3750 | upper contraction band |
+| `margin:excluded_slope` | -0.2500 | slower rate the interval must exclude |
+| `margin:selector_rmse_ratio` | 0.5000 | required bound on each collaborative-to-control RMSE ratio |
+
+## Declared design
+
+The values in this table are declared before the run.
+
+| setting | value | source |
+| --- | --- | --- |
+| paired role | descriptive, when the R runs are registered | the record's comment in `tests/studies/canonical_ctmle_sequences.py` |
 | replay tolerance | $10^{-6}$ | `GLM_TOLERANCE` in `tests/studies/ctmle_sequence_replay.py` |
 | replay counts | 400 unflagged replicates per scenario, 100 final-step comparisons for `binary_lasso` | `MIN_UNFLAGGED` and `MIN_FINAL` in the same module |
 | selector RMSE ratio | 0.50, applied to the paired bootstrap 99% upper bound of each ratio | `SELECTOR_RMSE_RATIO` and `RMSE_BOUND_LEVEL` in `tests/studies/ctmle_sequence_properties.py` |
 | property grid | 11 penalties and the penalty 0 | `PROPERTY_GRID_SIZE` in the same module |
-| red-cell owners | F18 for every coverage or standard-error-ratio red cell, and for every `selector_necessity` red cell. `X16-sequence-reading` for a red package bias row, a red replay gate, or a positive double-robustness cell that is red on its bias | `RED_CELL_OWNERS` in `tests/studies/canonical_ctmle_sequences.py` |
+| red-cell owners | F18 for every coverage or standard-error-ratio red cell, and for every `selector_necessity` red cell. `X16-sequence-reading` for a red package bias row, a red replay gate, or a positive double-robustness cell that is red on its bias. `X16-plugin-variance` for the `binary_lasso` coverage row, which moved from F18 after the first run | `RED_CELL_OWNERS` in `tests/studies/canonical_ctmle_sequences.py` |
+| expected red rows | the `binary_lasso` coverage row. The bias clause of `selector_necessity/learners_collaborative`, where the binary selector precedent is 0.217 SD (design review S3). The other two necessity cells by the family's joint clause. The RMSE bound is the necessity family's discriminating gate | `EXPECTED_RED` in `tests/studies/canonical_ctmle_sequences.py` |
 | expected adapter rate | close to every `binary_lasso` replicate. On the rev 2.1 law, R selected the last penalty on 10 of 10 probe replicates. The package's CV-selected index is a different quantity | the fixture README, "Expected adapter rate" |
-| learners candidates of the property cells | a main-terms logistic regression on `W2`, then on `W1` | `LEARNER_COLUMNS` in `tests/studies/ctmle_sequence_properties.py`. On the instrument law, index 0 omits the confounder. `tests/unit/test_ctmle_sequences_design.py` shows that its bias is outside the margin |
+| learners candidates of the property cells | a main-terms logistic regression on `W2`, then on `W1` and `W2`. The sequence is nested, so its treatment loss decreases | `LEARNER_COLUMNS` in `tests/studies/ctmle_sequence_properties.py`. On the instrument law, index 0 omits the confounder. `tests/unit/test_ctmle_sequences_design.py` reads each index along the built path. Index 0 lies outside the margin, and index 1 and the terminal lie inside it |
 
 ## Limitations
 
 The [red-cell ledger](red-cells.md) lists each red cell of a study with the roadmap ask that owns
-it. This study has no committed cell yet.
+it. Every red row of this study is a declared expected red.
 
 | limitation | what it means for use |
 | --- | --- |
-| The study is not yet run | No row of this page is evidence until the committed results exist |
+| The R comparison is pending | The page holds Python property evidence, with comparator runs pending. No paired row and no replay gate is evidence yet |
+| The `binary_lasso` coverage row is red | Coverage is 0.92375 and the SE ratio 0.905. Plain TMLE with the same learners and bounds on the same 800 samples covers 0.9225 with an SE ratio of 0.913. The final step reports the penalty 0 on 771 of 800 fits. The cause is the plug-in variance under near-positivity, not the selection, and the row does not test $\Delta(P_1)$ of F18 ([`tests/diagnostics/x16_lasso_coverage/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x16_lasso_coverage)). The package refuses `ci`, `pvalue` and `std_error` on a lasso fit |
+| The first run's necessity cell was a design defect | The first run declared `W2`, then `W1`. That order breaks the decreasing treatment loss, and `learners_collaborative` read a bias of 0.575 SD with an RMSE bound of 0.511 against 0.50. The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_sequences/README.md#history) records that run. The committed cells use the nested order |
 | R refits on every row inside each fold | R refits the fluctuation on every row, and its evaluation refits the lasso path on every row. `cleverly` refits inside each selection fold. The selected candidate can differ for this reason alone. The paired rows are descriptive for this reason |
 | R penalizes its construction | R adds $\operatorname{var}(D^*)$ to each construction score, whatever `PEN` is. `cleverly` with `penalty=False` does not. The replay gates use `penalty=True` on both sides for this reason |
 | A green coverage or SE-ratio row says nothing about F18 | Where the outcome model is correct, Ju et al. (2018) Lemma 2 gives $\Delta(P_1) = 0$, so coverage holds conditionally on the outcome fit and its limit, which F18's reopening condition excludes. Where the outcome model is wrong, one law's coverage bounds no remainder term |

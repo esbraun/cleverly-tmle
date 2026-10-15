@@ -1180,6 +1180,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "density_necessity",
         "learner_weight_necessity",
         "missingness_necessity",
+        # X16's three-arm pair: the positive cell's bias inside the margin, the control's
+        # outside it.
+        "multi_arm",
         "selector_necessity",
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",

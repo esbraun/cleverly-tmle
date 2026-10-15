@@ -1442,6 +1442,15 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin, with the reported standard "
         "error still on the scale of the empirical spread",
     ),
+    ("double_robustness", "both_wrong_lasso"): (
+        "the lasso sequence with a constant outcome regression, so both nuisances are misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("double_robustness", "both_wrong_learners"): (
+        "the declared learners with a constant outcome regression, so both nuisances are "
+        "misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("double_robustness", "lasso_outcome_correct"): (
         "only the outcome regression is correct, and no lasso candidate is a correct mechanism",
         "bias interval inside the equivalence margin, with the reported standard error "
@@ -1844,9 +1853,9 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the paired control's",
     ),
     ("selector_necessity", "learners_collaborative"): (
-        "the selector chooses its own learner along the declared sequence",
-        "bias interval inside the equivalence margin, and RMSE at most the declared ratio of "
-        "the paired control's",
+        "the selector chooses its own learner along the declared nested sequence",
+        "bias interval inside the equivalence margin, a declared expected red, and RMSE at most "
+        "the declared ratio of the paired control's",
     ),
     ("multi_arm", "lasso_treatment_correct"): (
         "the lasso sequence on the three-arm law, with a constant outcome regression",

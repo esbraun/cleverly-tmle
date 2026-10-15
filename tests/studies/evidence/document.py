@@ -278,6 +278,9 @@ def measured(row: Any) -> str:
         # cell, so the number that separates the two belongs in the column a reader reads.
         if family == "selector_necessity" and pd.notna(getattr(row, "rmse_ratio", None)):
             measured += f", RMSE ratio {render(float(row.rmse_ratio))}"
+            # A record that gates the ratio's bootstrap bound prints the bound it gates.
+            if pd.notna(getattr(row, "rmse_ratio_upper", None)):
+                measured += f", 99% upper {render(float(row.rmse_ratio_upper))}"
         # The randomizer projection's joint clause reads the spread ratio of its two arms.
         if family == "randomizer_projection" and pd.notna(
             getattr(row, "projection_sd_ratio", None)
@@ -517,6 +520,7 @@ _BIAS_GATED = frozenset(
         "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
+        "multi_arm",
         "robustness_contract",
         "policy_necessity",
         "projection_necessity",
