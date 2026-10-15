@@ -40,8 +40,6 @@ UNPRINTED_DECIMALS = {
     f"{_PROBE}/summary.log",
     "0.0126": f"median of the largest distance of IPW from LTMLE, 100 draws: {_PROBE}/summary.log",
     "0.0364": f"maximum of the largest distance of IPW from LTMLE, 100 draws: {_PROBE}/summary.log",
-    "0.513": f"largest absolute truncation-curve move in standard errors over 100 draws, the "
-    f"bounds 0.02, 0.05 and 0.10, and the four contrasts: {_PROBE}/summary.log",
     "0.973": f"lowest mean-SE over empirical-SD ratio of the four LTMLE contrasts, 100 draws: "
     f"{_PROBE}/summary.log",
     "1.048": f"highest mean-SE over empirical-SD ratio of the four LTMLE contrasts, 100 draws: "
@@ -110,7 +108,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_fits(namespace)
     _check_paired(namespace)
     _check_diagnostics(namespace)
-    _check_secondary(namespace)
+    _check_deployment_and_benchmark(namespace)
     _check_probe_logs()
 
 
@@ -207,7 +205,6 @@ def _check_design(namespace: dict[str, Any]) -> None:
         namespace["sdr"],
         namespace["gcomp"],
         namespace["ipw"],
-        namespace["no_logs"],
         namespace["levels"],
     )
     # "The three `history_names` lines list the columns that the design puts in the history."
@@ -428,45 +425,9 @@ def _check_diagnostics(namespace: dict[str, Any]) -> None:
     assert consent["calibration_slope"].iloc[-1] < 1.0
 
 
-def _check_secondary(namespace: dict[str, Any]) -> None:
+def _check_deployment_and_benchmark(namespace: dict[str, Any]) -> None:
     truth = namespace["truth"]
-    # Step 11: the secondary analysis declares no offer probabilities and estimates the mechanism.
-    no_logs = namespace["no_logs"]
-    assert namespace["offers_design"](logged=False).treatment_probabilities is None
-    assert "known factors" not in no_logs.summary()
-    assert namespace["estimated"].models.treatment_learner.random_state == 42
-    assert namespace["against_truth"](no_logs)["covers"].all()
-    win = no_logs[_key("win_back")]
-    assert (round(win.psi, 3), round(win.std_error, 3)) == (0.070, 0.021)
-    curve = namespace["curve"]
-    assert sorted(curve["lower_bound"].unique()) == [0.01, 0.02, 0.05, 0.10]
-    tables = namespace["tables"]
-    # "The bound 0.01 is the fit itself": no move there. Only the shipping contrast truncated
-    # cells at the fitted bound, 3 of 18113.
-    assert (tables["move"][0.01] == 0.0).all()
-    assert tables["cells"][0.01].astype(int).to_dict() == {
-        "discount": 0,
-        "shipping": 3,
-        "win_back": 0,
-        "win_back_ship": 0,
-    }
-    assert namespace["cells"].loc["shipping", 0.01] == "3 of 18113"
-    # "The largest move is 0.351 standard errors, for the discount contrast at the bound 0.10."
-    moves = tables["move"].div(namespace["no_logs_se"], axis=0)
-    assert round(float(moves.abs().max().max()), 3) == 0.351
-    assert moves.abs().stack().idxmax() == ("discount", 0.10)
-    # The largest move stays under the largest move of the 100-draw sweep, 0.513.
-    assert float(moves.abs().max().max()) < 0.513
-    # "At the bound 0.10, the discount contrast truncates 2769 of 18326 cells ... 0.351".
-    assert namespace["cells"].loc["discount", 0.10] == "2769 of 18326"
-    assert round(float(moves.loc["discount", 0.10]), 3) == 0.351
-    # More truncation at a higher bound, on every contrast.
-    cells = tables["cells"]
-    assert (cells[0.02] <= cells[0.05]).all() and (cells[0.05] <= cells[0.10]).all()
-    assert (cells[0.10] > 0).all()
-    assert (tables["evaluated"].nunique(axis=1) == 1).all()
-
-    # Step 12: the synthetic deployment check.
+    # Step 11: the synthetic deployment check.
     pilot, pilot_outcome = namespace["pilot"], namespace["pilot_outcome"]
     assert len(pilot_outcome) == 10_000 and int((pilot["consent"] == 0).sum()) == 0
     # The pilot deploys the win-back rule: each week's offer is the rule's offer for that week's
@@ -488,7 +449,7 @@ def _check_secondary(namespace: dict[str, Any]) -> None:
     assert round(truth["ey_regimen[win_back]"], 3) == 0.600
     assert covers(fitted, truth["ey_regimen[win_back]"])
 
-    # Step 13: the benchmark refits the static plans without engagement and keeps the declared
+    # Step 12: the benchmark refits the static plans without engagement and keeps the declared
     # offer probabilities.
     benchmark = namespace["benchmark"]
     assert list(benchmark.index) == ["discount", "shipping"]
