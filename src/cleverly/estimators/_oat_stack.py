@@ -651,7 +651,7 @@ def _arm_failure(stack: FittedStack, rconds: dict[str, float], j: int) -> str | 
         return (
             f"the targeted predictions differ by {gap:.3g} from those recomputed from the "
             f"fluctuation coefficient, above {MAX_TARGETED_GAP:g}: the solver path met the "
-            "outer re-shrink"
+            "outer re-shrink, or a retarget moved g_bounds away from the declared bounds"
         )
     return None
 
