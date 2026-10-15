@@ -1376,6 +1376,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # A declared-red control that answers to the calibration SE-ratio and coverage bands
         # of a positive cell, so its expected failure is the positive rule's.
         "misspecification_control",
+        # Diagnostic-role SE readings whose powered cells answer to an SE-ratio interval
+        # outside the calibration band on a predicted side; the other cells report.
+        "first_node_se",
+        "fixed_mechanism_se",
     }
 )
 
@@ -1399,11 +1403,8 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "censoring_complete_case",
         "in_sample_fit",
         "one_wrong_reported",
-        # The sequential baselines' reported SE readings: a plug-in under adaptive learners,
-        # and the first-node and fixed-mechanism ratios whose direction the study predicts.
+        # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
-        "first_node_se",
-        "fixed_mechanism_se",
     }
 )
 

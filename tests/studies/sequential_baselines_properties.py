@@ -53,12 +53,10 @@ carry the multinomial mechanism evidence.  ``adaptive_learners`` publishes no ve
 Every fit's inference status is checked before its row is written (``fit_set_rows``).
 
 **Failures.**  A replicate whose fit raises a recordable error is recorded by
-:func:`~tests.studies.evidence.replication.fit_replicates` and never redrawn.  The shared
-property summary refuses a cell that lost a replicate, so the declared 0.01 bound
-(:data:`FAILURE_BOUND`) is not yet operative here.  The declared route: a recordable
-``DataError`` in the property phase stops it with its records.  The phase then reruns unchanged
-(laws, n, R and seeds) once RM39b2 makes the 0.01 bound operative, with the failures accounted
-under its rule.  No size, law or seed moves.
+:func:`~tests.studies.evidence.replication.fit_properties` and never redrawn.  It costs each
+cell its fit set writes one replicate (:data:`FIT_SET_CELLS`), and the accounting judges each
+cell at the declared bound :data:`FAILURE_BOUND` under :data:`PROPERTY_RULES`.  The committed
+run lost no replicate.
 """
 
 from __future__ import annotations
@@ -74,7 +72,8 @@ from cleverly.learners import SuperLearner
 from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_sequential_baselines as study
 from tests.studies import sequential_baselines_laws as laws
-from tests.studies.evidence import replication
+from tests.studies.evidence import property_failures as pf
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -86,10 +85,12 @@ from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     se_ratio_leaves_band,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 STUDY = study.STUDY
@@ -462,7 +463,12 @@ SHARED_STREAM_FAMILIES = frozenset({"fixed_mechanism_se", "first_node_se"})
 
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every sampled cell, with its law, estimand, size and stream root."""
-    cells: list[PropertyCell] = []
+    return tuple(cell for cell, _ in _cells_and_fit_sets())
+
+
+def _cells_and_fit_sets() -> list[tuple[PropertyCell, str]]:
+    """Every sampled cell beside the fit set whose draws it reads."""
+    cells: list[tuple[PropertyCell, str]] = []
 
     def add(family: str, cell: str, role: str, fit_set: str, label: str) -> None:
         law, n, replicates = FIT_SETS[fit_set]
@@ -471,17 +477,20 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         if family in SHARED_STREAM_FAMILIES:
             name = f"{name}_{family}"
         cells.append(
-            PropertyCell(
-                property=family,
-                cell=cell,
-                dgp=DeclaredLaw(name, prefix),
-                outcome_learner=lambda: None,
-                treatment_learner=lambda: None,
-                n=n,
-                replicates=replicates,
-                seed=sample_seed(fit_set, 0),
-                role=role,
-                estimand=TARGETS[label][0],
+            (
+                PropertyCell(
+                    property=family,
+                    cell=cell,
+                    dgp=DeclaredLaw(name, prefix),
+                    outcome_learner=lambda: None,
+                    treatment_learner=lambda: None,
+                    n=n,
+                    replicates=replicates,
+                    seed=sample_seed(fit_set, 0),
+                    role=role,
+                    estimand=TARGETS[label][0],
+                ),
+                fit_set,
             )
         )
 
@@ -544,7 +553,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 f"adaptive_x_n_{size}",
                 "ice_x_contrast",
             )
-    return tuple(cells)
+    return cells
 
 
 # ------------------------------------------------------------------------------- the loop
@@ -560,31 +569,51 @@ def _fit_key(key: tuple[str, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     return fit_set_rows(key[0], key[1], frame)
 
 
+#: Each calibration positive arm to the controls derived from it.
+DERIVED_CELLS: dict[str, tuple[str, ...]] = calibration_derived(study.CALIBRATION_LABELS)
+
+
+def _fit_set_cells() -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    for cell, fit_set in _cells_and_fit_sets():
+        out.setdefault(fit_set, []).append(f"{cell.property}/{cell.cell}")
+    return out
+
+
+#: The ``property/cell`` names that each fit set's rows and derived controls fill.
+FIT_SET_CELLS: dict[str, list[str]] = _fit_set_cells()
+
+
+def _cells_of(key: tuple[str, int]) -> list[str]:
+    """The ``property/cell`` names a key's rows and derived controls fill."""
+    return FIT_SET_CELLS[key[0]]
+
+
+#: The draw-level statistic the accounting reports for each lost replicate.
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def run_fit_set(fit_set: str, *, n_jobs: int, replicates: int | None = None) -> pd.DataFrame:
     """Every row of one fit set; ``replicates`` caps the budget for a smoke or a pilot.
 
-    A recordable failure is recorded and never redrawn.  The shared summary refuses a cell
-    that lost a replicate, so a failure stops the phase here with its records.
+    A recordable failure costs each cell its fit writes one replicate, and is never redrawn.
+    The driver records it, and the accounting judges each cell at :data:`FAILURE_BOUND`.
     """
     _, _, declared = FIT_SETS[fit_set]
     count = declared if replicates is None else replicates
-    outcomes = replication.fit_replicates(
+    outcomes = fit_properties(
         [(fit_set, replicate) for replicate in range(count)],
         _fit_key,
-        draw=_draw_key,
-        n_jobs=n_jobs,
-        label=f"properties_{fit_set}",
-        implementation=study.IMPLEMENTATION,
+        cells_of=_cells_of,
         cell_of=lambda key: key[0],
         replicate_of=lambda key: key[1],
+        n_jobs=n_jobs,
+        label=f"properties/{fit_set}",
+        draw=_draw_key,
+        derived=DERIVED_CELLS,
         seed_of=lambda key: sample_seed(key[0], key[1]),
     )
-    if outcomes.failed:
-        raise RuntimeError(
-            f"{fit_set}: {len(outcomes.failed)} of {count} replicates failed (declared bound "
-            f"{FAILURE_BOUND} per cell); records:\n{outcomes.failures.to_string(index=False)}"
-        )
-    rows = pd.DataFrame([row for rows in outcomes.values for row in rows])
+    rows = pd.DataFrame([row for result in outcomes for row in result])
     if replicates is not None:
         rows["requested_replicates"] = count
     return rows
@@ -666,6 +695,81 @@ def _own_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
         )
     reported = summary["property"] == "adaptive_learners"
     summary.loc[reported, "passed"] = True
+
+
+def _own_seed(ctx: pf.Context, row: pd.Series) -> int:
+    return stream_seed(ctx.record, str(row["property"]), str(row["cell"]))
+
+
+def _calibration_band(ctx: pf.Context) -> tuple[float, float]:
+    return ctx.margins.calibration_se_ratio
+
+
+def _calibration_rule() -> pf.FamilyRule:
+    """The shared calibration rule, with the bias leg on each positive cell (design B2)."""
+    shared = property_verdicts.calibration_rule(efficiency_band=None)
+    return pf.FamilyRule(
+        families=shared.families,
+        shared="calibration_verdicts",
+        clauses=(
+            *shared.clauses,
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+        ),
+    )
+
+
+def _misspecification_rule() -> pf.FamilyRule:
+    """K1: the positive calibration rule, read on a cell declared red."""
+    return pf.FamilyRule(
+        families=frozenset({"misspecification_control"}),
+        shared="summarize_properties",
+        clauses=(
+            pf.se_interval_clause(
+                "se ratio in calibration band",
+                which="se_ratio",
+                judge=pf.band_judge(_calibration_band),
+                seed=_own_seed,
+                applies=pf.every,
+            ),
+            pf.proportion_clause(
+                "coverage in calibration band",
+                statistic="S2",
+                judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+                applies=pf.every,
+            ),
+        ),
+    )
+
+
+def _direction_rule() -> pf.FamilyRule:
+    """K2 and K3: a gated cell's SE-ratio interval leaves the band on its predicted side."""
+
+    def leaves(side: Literal["below", "above"]) -> pf.Judge:
+        def judge(ctx: pf.Context, row: pd.Series, iv: Any) -> pf.Judged:
+            low, high = ctx.margins.calibration_se_ratio
+            slack = low - iv.high if side == "below" else iv.low - high
+            return pf.Judged(slack, se_ratio_leaves_band(iv, (low, high), side))
+
+        return judge
+
+    return pf.FamilyRule(
+        families=frozenset({"fixed_mechanism_se", "first_node_se"}),
+        shared="summarize_properties",
+        clauses=tuple(
+            pf.se_interval_clause(
+                f"se ratio {side} band",
+                which="se_ratio",
+                judge=leaves(side),
+                seed=_own_seed,
+                applies=pf.cells(*(cell for cell, s in GATED_DIRECTIONS.items() if s == side)),
+            )
+            for side in ("above", "below")
+        ),
+    )
+
+
+#: The failure accounting's declared rules.
+PROPERTY_RULES = (_calibration_rule(), _misspecification_rule(), _direction_rule())
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
