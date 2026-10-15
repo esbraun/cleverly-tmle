@@ -220,3 +220,57 @@ def test_the_static_plans_read_the_earlier_outcome() -> None:
     for regimen in ("never", "always"):
         name = f"ey_regimen[{regimen} @ t=2]"
         assert fit.psi(name) == pytest.approx(law.truth[name], abs=1e-12)
+
+
+# ---------------------------------------------------------------- E4: the incremental functional
+
+DELTAS = (0.5, 1.0, 2.0)
+
+
+@pytest.mark.parametrize("law", LAWS, ids=[law.name for law in LAWS])
+def test_e4_the_tilt_functional_equals_forward_composition(law: laws.RepeatedLaw) -> None:
+    """Kim et al. (2021, Theorem 3.1) on the cells equals the tilted conditionals composed.
+
+    The two enumerations share only the tables.  The cell form reads the observed law with
+    censoring in place, and the composition sets every censoring node to one.
+    """
+    for delta in DELTAS:
+        for horizon in laws.HORIZONS:
+            cells = law.tilt_functional(law.probs, delta, horizon)
+            composed = law.tilt_counterfactual_value(delta, horizon)
+            assert cells == pytest.approx(composed, abs=1e-14), (delta, horizon)
+
+
+def test_e4_the_tilt_functional_moves_with_the_tilt() -> None:
+    """A tilt functional that ignored ``delta`` would pass the agreement above at ``delta = 1``."""
+    for law in LAWS:
+        for horizon in laws.HORIZONS:
+            values = [law.tilt_functional(law.probs, delta, horizon) for delta in DELTAS]
+            assert abs(values[0] - values[2]) > 1e-2, (law.name, horizon)
+
+
+def test_e4_the_absorbing_tilt_functional_misses_the_truth_at_the_second_horizon() -> None:
+    """The return-to-zero precondition: for every ``delta`` the absorbing reading differs.
+
+    At ``h = 1`` there is no earlier outcome to absorb, so the two functionals are equal.  The
+    law-side value cannot fail under a change to ``cleverly``: it guards the law against a
+    constant that makes the outcome absorbing.
+    """
+    law = laws.BINARY
+    for delta in DELTAS:
+        first = law.tilt_functional(law.probs, delta, 1, absorbing=True)
+        assert first == pytest.approx(law.tilt_functional(law.probs, delta, 1), abs=1e-14)
+        gap = law.tilt_functional(law.probs, delta, 2, absorbing=True) - law.tilt_functional(
+            law.probs, delta, 2
+        )
+        assert gap >= laws.ABSORBING_GAP, delta
+
+
+@pytest.mark.parametrize("law", LAWS, ids=[law.name for law in LAWS])
+def test_e4_the_tilt_influence_function_is_centered_and_nonzero(law: laws.RepeatedLaw) -> None:
+    """The complex-step derivative of the tilt functional has mean zero and a spread."""
+    for delta in (0.5, 2.0):
+        for horizon in laws.HORIZONS:
+            curve = law.tilt_eif(delta, horizon)
+            assert abs(float(np.sum(law.probs * curve))) < 1e-12
+            assert float(np.sqrt(np.sum(law.probs * curve**2))) > 0.3
