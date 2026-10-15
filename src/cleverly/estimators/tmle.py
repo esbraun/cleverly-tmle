@@ -1353,7 +1353,7 @@ class TMLE:
             rows.  Beside a prepared :class:`~cleverly.data.CausalData` the array forms are
             attached with :meth:`~cleverly.data.CausalData.with_known_mechanism`, and a
             container that already declares one refuses a second.
-        treatment_covariates:
+        treatment_covariates : Sequence[str] or None
             The adjustment columns that the treatment mechanism reads, a subset of
             ``covariates``.  ``None`` reads all of them.  The outcome regression, the
             missingness mechanisms and the policy rules keep the full set.  The declaration
