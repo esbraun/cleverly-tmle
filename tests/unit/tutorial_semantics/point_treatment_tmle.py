@@ -194,33 +194,24 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(at_rv.lower) < 1e-3
     at_rva = result.sensitivity.omitted_confounding(cf_y=robustness["rva"], cf_d=robustness["rva"])
     assert abs(at_rva.ci_lower) < 1e-3
-    # "The gain `cf_y` of `discharge_risk` is clipped at 1.0000, so the gain cannot calibrate a
-    # bound": the bound refuses a cf_y of 1, and the share that as_shares returns is below 1.
+    # "its gain exceeds 1. The benchmark clips the gain to 1.0000, and the bound accepts no
+    # `cf_y` of 1": the residual variance more than doubles, and the bound refuses the clip.
     strong = namespace["strong"]
-    benchmark = namespace["benchmark"]
     assert strong.covariates == ("discharge_risk",)
-    assert benchmark.covariates == ("medication_burden",)
+    assert strong.sigma2_short > 2.0 * strong.sigma2_long
     assert strong.cf_y == 1.0
     with pytest.raises(ValueError, match=r"cf_y must lie in \[0, 1\)"):
         result.sensitivity.omitted_confounding(cf_y=strong.cf_y, cf_d=strong.cf_d, rho=1.0)
-    calibrated = namespace["calibrated"]
-    for name, record in (("discharge_risk", strong), ("medication_burden", benchmark)):
-        share_y, share_d, bounds = calibrated[name]
-        # The shares are the gains on the other scale: share = gain / (1 + gain).  The clipped
-        # gain of discharge_risk is the exception, and its share comes from the variances.
-        assert 0.0 < share_y < 1.0 and 0.0 < share_d < 1.0
-        assert abs(share_d - record.cf_d / (1.0 + record.cf_d)) < 1e-12
-        if record.cf_y < 1.0:
-            assert abs(share_y - record.cf_y / (1.0 + record.cf_y)) < 1e-12
-        assert share_y < record.cf_y and share_d < record.cf_d
-        assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (share_y, share_d, 1.0)
-        # "both one-sided limits exclude zero on this draw".
-        assert 0.0 < bounds.ci_lower < bounds.lower < bounds.psi < bounds.upper < bounds.ci_upper
-    # "A gain is larger than its share, so the bound becomes wider": the nonzero witness.
-    gains = result.sensitivity.omitted_confounding(
-        cf_y=benchmark.cf_y, cf_d=benchmark.cf_d, rho=1.0
-    )
-    assert gains.bias > calibrated["medication_burden"][2].bias + 1e-3
-    # "each bias bound would be about 5% larger" with the law's nu^2: the bias scale is
+    # "Both lie below the robustness value", and the gains go to the bound unchanged, at rho = 1.
+    benchmark = namespace["benchmark"]
+    assert benchmark.covariates == ("medication_burden",)
+    assert 0.0 < benchmark.cf_d < benchmark.cf_y < robustness["rv"]
+    bounds = namespace["bounds"]
+    assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (benchmark.cf_y, benchmark.cf_d, 1.0)
+    assert bounds.confounding_strength < at_rv.confounding_strength
+    # "Both limits exclude zero on this draw".
+    assert 0.0 < bounds.ci_lower < bounds.lower < bounds.psi < bounds.upper < bounds.ci_upper
+    assert "the sign of the effect survives" in bounds.summary()
+    # "the bias bound would be about 5% larger" with the law's nu^2: the bias scale is
     # proportional to sqrt(nu^2).
     assert 1.03 < np.sqrt(moments["nu2"] / elements.nu2) < 1.07
