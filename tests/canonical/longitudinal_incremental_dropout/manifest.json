@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-ipsi-dropout",
       "cleverly_version": "0.1.3",
-      "cleverly_commit": "d697f147a3fdfb33f933c6f19239994e12406ac5",
+      "cleverly_commit": "19646803860679dd8930e681e96f708f006e6c5d",
       "cleverly_worktree_clean": true,
       "python": "3.13.16",
       "numpy": "2.5.4",
@@ -129,7 +129,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_longitudinal_incremental_dropout.py": "5eaf050f7892551ab1231a2b56feb4e3239de9ce1eb0b3e4f8d96925b4479545",
+    "tests/studies/canonical_longitudinal_incremental_dropout.py": "bf2dd93498ca58cc1ef516914a78663b4bf5333795b8fd48e8b8ca9d9eced2d8",
     "tests/studies/longitudinal_incremental_dropout_properties.py": "87e2a4a51997190fbad0ec08cffcd3d796ac065086e41f1e99e7f5ec2c56661e",
     "tests/studies/longitudinal_incremental_common.py": "ed586da4507db03e220361312974bb2bcd34ecdf34092879291f17cbf1e96ad6",
     "tests/discrete_law_longitudinal_incremental.py": "a1b01eeea0343037b33a6ce948884241e718f882a309dd35216b8217717df0a5",

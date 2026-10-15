@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-ipsi",
       "cleverly_version": "0.1.3",
-      "cleverly_commit": "d697f147a3fdfb33f933c6f19239994e12406ac5",
+      "cleverly_commit": "19646803860679dd8930e681e96f708f006e6c5d",
       "cleverly_worktree_clean": false,
       "python": "3.13.16",
       "numpy": "2.5.4",
@@ -91,7 +91,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_longitudinal_incremental.py": "3a1c6447de8d5e1b9e258a713c79145bfe9b60021569279353aa8467b09e7403",
+    "tests/studies/canonical_longitudinal_incremental.py": "d089be1b008b282e2129ea9a042cbf3405e5c9a282fad0084e2f8d4fcc0816eb",
     "tests/studies/longitudinal_incremental_properties.py": "0864bc07f01df3cd70fc7c41ff19be717983a3f839480e71e5b7277348568a61",
     "tests/studies/longitudinal_incremental_common.py": "ed586da4507db03e220361312974bb2bcd34ecdf34092879291f17cbf1e96ad6",
     "tests/studies/canonical_incremental_interventions.py": "3202a2bebd8e143de78de4a5acbdd5a19b2b498a4ee52bddc0c3b3c94ef8a198",
@@ -100,6 +100,11 @@
     "tests/discrete_law_competing.py": "cd24ff5b1177f25206f3b29115e645e63749823f7440117deb267fbd733a7092",
     "tests/discrete_law_longitudinal_ipsi.py": "dae53f966e7f76f686cd527f73ab19c7729bfe450a8ea0fa3027d13dbe5ac22a",
     "tests/discrete_law_survival.py": "58b8175fb1a2757cb38fdfa3a73e333adf63b4fb08365284e223da38a4e948c8",
+    "tests/conftest.py": "8adf5363471ccc6aa16e94a141b521552bc7098983bfa59d7a80878590db6ba5",
+    "tests/discrete_law.py": "c713584f4beb1016d6f7f50a538992dcd2a50fe271cd8537228a94e4a5feb834",
+    "tests/incrementals.py": "e86b0702753dc7777da81cd92c683996ab40eed9ab69be6d6317f8b7c0876a22",
+    "tests/studies/intervention_study_helpers.py": "3c4d854f59b8924fff325b9f1aed7d4e6942475e241569eb960e6348a5edbefb",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
     "tests/longitudinal_ipsi.py": "e0178cef68da828d421c16f68b02e0cc0662e4a82c1f7105ce03501c34677a05",
     "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
