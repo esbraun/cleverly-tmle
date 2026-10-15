@@ -396,3 +396,159 @@ def test_a_sample_fit_reads_the_exact_estimator_on_the_frame() -> None:
         config.exact().estimate, abs=1e-11
     )
     assert isinstance(data, pd.DataFrame)
+
+
+# ----------------------------------------------------------------------------- rev 4.2: gates
+def test_the_gated_rows_are_the_rows_in_their_gating_scenario_only() -> None:
+    rows = D.GATED_ROWS
+    assert len(rows) == len(set(rows)) == 120
+    by_study = collections.Counter(study for study, _, _ in rows)
+    assert by_study == {"S1": 28, "S2": 43, "S3": 49}
+    for row in D.primary_rows():
+        scenario = D.gating(row)
+        q = row.quantity
+        name = f"ey_regimen[{q.first}]" if not q.second else f"ate_regimen[{q.first} vs {q.second}]"
+        if scenario is not None:
+            assert (row.study, scenario.name, name) in rows
+    # The `taper` mean reports in `sdr_policy_k5` (n_kappa 246,603 against 44,000) and gates in
+    # its own scenario; the same holds for the `mix` mean at K = 5 in the other two arms.
+    assert ("S3", "sdr_policy_k5", "ey_regimen[taper]") not in rows
+    assert ("S3", "sdr_policy_k5_taper", "ey_regimen[taper]") in rows
+    assert ("S3", "sdr_policy_k5", "ate_regimen[taper vs low]") in rows
+    assert ("S2", "categorical_k5", "ey_regimen[mix]") not in rows
+    assert ("S2", "categorical_k5_mix", "ey_regimen[mix]") in rows
+    assert ("S2", "categorical_k5_crossfit", "ey_regimen[mix]") not in rows
+    # Both duration coefficients of the S1 MSM scenario are gated.
+    assert {name for _, scenario, name in rows if scenario == "binary_k5_msm"} == {
+        "msm_regimen[(intercept)]",
+        "msm_regimen[duration]",
+    }
+
+
+def test_the_gated_cells_are_every_positive_and_control_with_a_verdict() -> None:
+    from tests.studies import long_horizon_properties as properties
+    from tests.studies.evidence.property_verdicts import CALIBRATION_CONTROL_KINDS
+    from tests.studies.evidence.simultaneous import joint_cells
+
+    cells = D.GATED_CELLS
+    assert len(cells) == len(set(cells)) == 294
+    for study in D.STUDIES:
+        declared: set[tuple[str, str, str]] = set()
+        for fit_set in properties.fit_sets(study):
+            for arm in fit_set.arms:
+                if arm.role == "diagnostic":
+                    continue
+                names = (
+                    list(joint_cells(arm.cell))
+                    if arm.read == "band"
+                    else [arm.cell, *([arm.inflated] if arm.inflated else [])]
+                )
+                family = "simultaneous_coverage" if arm.read == "band" else fit_set.family
+                declared.update((study, family, name) for name in names)
+                if fit_set.family == "interval_calibration":
+                    label = arm.cell.removesuffix("__known_mechanism")
+                    declared.update(
+                        (study, family, f"{label}__{kind}") for kind in CALIBRATION_CONTROL_KINDS
+                    )
+        label = properties.rate_label(study)
+        declared.update(
+            (study, "root_n_rate", f"{label}__{kind}") for kind in properties.RATE_KINDS
+        )
+        assert {c for c in cells if c[0] == study} == declared, study
+    # Reporting cells have no verdict and are not gated.
+    assert not [c for c in cells if c[1] in ("support_loss", "learned_mechanism")]
+    assert not [c for c in cells if "n4000" in c[2] and c[1] == "sequential_double_robustness"]
+
+
+def _summaries(study: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Passing summaries holding exactly the study's gated rows and cells."""
+    performance = pd.DataFrame(
+        [
+            {
+                "implementation": "subject",
+                "scenario": scenario,
+                "estimand": estimand,
+                "passed": True,
+            }
+            for tag, scenario, estimand in D.GATED_ROWS
+            if tag == study
+        ]
+    )
+    properties = pd.DataFrame(
+        [
+            {"property": family, "cell": cell, "passed": True}
+            for tag, family, cell in D.GATED_CELLS
+            if tag == study
+        ]
+    )
+    return performance, properties
+
+
+def test_red_gated_names_a_red_truth_row_a_red_cell_and_an_absent_one() -> None:
+    performance, properties = _summaries("S2")
+    assert D.red_gated("S2", "subject", performance, properties) == []
+    performance.loc[3, "passed"] = False
+    properties.loc[7, "passed"] = False
+    properties = properties.drop(index=11)
+    # A reporting cell that is red gates nothing.
+    properties = pd.concat(
+        [properties, pd.DataFrame([{"property": "support_loss", "cell": "x", "passed": False}])]
+    )
+    red = D.red_gated("S2", "subject", performance, properties)
+    assert len(red) == 3
+    assert sum(line.startswith("truth row") and line.endswith("red") for line in red) == 1
+    assert sum(line.startswith("property cell") and line.endswith("red") for line in red) == 1
+    assert sum(line.endswith("absent") for line in red) == 1
+    # Another study's gated cells are not this study's.
+    assert D.red_gated("S1", "subject", *_summaries("S1")) == []
+
+
+@pytest.mark.parametrize("study", ["S1", "S2", "S3"])
+def test_no_gated_truth_row_or_property_cell_is_red_on_the_committed_summaries(study: str) -> None:
+    """Plan 5.6: the studies register under ``reporting``, and these members block the merge.
+
+    The summaries are the study's committed ``performance-tests.csv`` and ``properties.csv``.  The
+    test skips until the study commits them, and runs from the day it does.
+    """
+    record = D.STUDIES[study].STUDY
+    performance_file = record.artifact("performance-tests.csv")
+    properties_file = record.artifact("properties.csv")
+    missing = [f.name for f in (performance_file, properties_file) if not f.exists()]
+    if missing:
+        pytest.skip(f"{record.slug} has not committed {missing} yet: the declared run is pending")
+    red = D.red_gated(
+        study,
+        record.implementation,
+        pd.read_csv(performance_file),
+        pd.read_csv(properties_file),
+    )
+    assert not red, "\n".join(red)
+
+
+# ----------------------------------------------------------------------------- rev 4.2: F2
+def test_f2_uses_each_arms_measured_coverage() -> None:
+    """Review minor 2: the Wald model ``2 Phi(1.96 rho) - 1`` reads high for the cloud arms."""
+    model = 2 * norm.cdf(1.96 * 0.967) - 1
+    assert model == pytest.approx(0.9415, abs=5e-4)
+    assert D.calibration_pass(0.967, 6_000, coverage=model) == pytest.approx(
+        D.calibration_pass(0.967, 6_000)
+    )
+    # The measured 0.9353 (S2 `policy_vs_ref` K = 4) is 0.6 points lower, and passes less often.
+    assert D.calibration_pass(0.967, 6_000, coverage=0.9353) < D.calibration_pass(0.967, 6_000)
+    ratios, variances = [0.99, 0.98, 1.0], [1e-4] * 3
+    wald = D.f2_family_pass(ratios, variances, 4_000)
+    measured = D.f2_family_pass(
+        ratios, variances, 4_000, coverages=[0.9353] * 3, coverage_errors=[0.004] * 3
+    )
+    assert measured < wald
+    # Measured coverage at the model value reproduces the Wald F2 to its Monte Carlo error.
+    at_model = D.f2_family_pass(
+        ratios,
+        variances,
+        4_000,
+        coverages=[2 * norm.cdf(1.96 * r) - 1 for r in ratios],
+        coverage_errors=[1e-9] * 3,
+    )
+    assert at_model == pytest.approx(wald, abs=0.02)
+    with pytest.raises(ValueError, match="one value per arm"):
+        D.f2_family_pass(ratios, variances, 4_000, coverages=[0.95])

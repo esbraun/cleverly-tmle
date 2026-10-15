@@ -76,7 +76,7 @@ POSITIVE = "known_mechanism"
 #: ``shrunken_se_control`` multiplies the positive's standard error by this.
 SHRUNKEN_SE_FACTOR = 0.8
 #: The root-n ladder; the smallest rung is the control rung, below ``n_kappa``.
-ROOT_N_SIZES = (4_000, 12_000, 48_000)
+ROOT_N_SIZES = D.ROOT_N_SIZES
 #: The n of every ``support_loss`` pair, and the extra unbounded sizes at three arms.
 SUPPORT_LOSS_N = 4_000
 SUPPORT_LOSS_EXTRA = (16_000, 64_000)
@@ -87,13 +87,10 @@ PATTERN_REPORTING_N = 4_000
 #: The ``learned_mechanism`` n: the ``respond_vs_ref`` K = 5 calibration n of each arm count.
 LEARNED_N = {2: 40_000, 3: 48_000}
 #: The band's law and n, and its plans, per arm count.
-BAND = {
-    2: (law_.L_R, 76_000, ("never", "always", "respond", "switch", "coin", "coinlast")),
-    3: (Law(0.25, 0.0, 3.5), 64_000, ("low", "high", "respond", "switch", "mix", "mixlast")),
-}
+BAND = D.BAND
 #: The overfitting cell names, positive then control.
-CROSS_FITTED = "policy_vs_ref__k5__cross_fitted"
-IN_SAMPLE = "policy_vs_ref__k5__in_sample_control"
+CROSS_FITTED = D.CROSS_FITTED
+IN_SAMPLE = D.IN_SAMPLE
 
 #: The families whose verdict is :func:`bias_family_verdicts`.
 BIAS_FAMILIES = (
@@ -119,6 +116,13 @@ FAMILIES = (
     *REPORTING_FAMILIES,
 )
 CRITICAL = float(norm.ppf(0.975))
+#: The binding share of each node, recorded on the rows of the ``support_loss`` and
+#: ``learned_mechanism`` fits (review minor 5).  Every other row leaves them empty.
+BINDING_COLUMNS = tuple(f"binding_share_{t}" for t in range(1, 6))
+#: The families whose rows record the binding share.
+BINDING_FAMILIES = ("support_loss", "learned_mechanism")
+#: The two fitted slope rows of the root-n ladder, by cell suffix.
+RATE_KINDS = D.RATE_KINDS
 
 
 # ----------------------------------------------------------------------------- declarations
@@ -218,7 +222,7 @@ class FitSet:
 
 
 def estimator(tag: str) -> str:
-    return "SDR" if tag == "S3" else "LTMLE"
+    return D.study_estimator(tag)
 
 
 def arm_counts(tag: str) -> tuple[int, ...]:
@@ -227,9 +231,7 @@ def arm_counts(tag: str) -> tuple[int, ...]:
 
 def prefix(tag: str, m: int) -> str:
     """The cell prefix of a study that runs both arm counts (S3), empty elsewhere."""
-    if tag != "S3":
-        return ""
-    return "binary_" if m == 2 else "categorical_"
+    return D.cell_prefix(tag, m)
 
 
 def _top(m: int) -> str:
@@ -240,17 +242,8 @@ def _policy(m: int) -> str:
     return "coin" if m == 2 else "mix"
 
 
-def _policy_cell(cell: str, m: int) -> str:
-    """The design's ``coin__``/``mix__`` cell under the plan's ``policy__`` name."""
-    head = f"{_policy(m)}__"
-    return f"policy__{cell[len(head) :]}" if cell.startswith(head) else cell
-
-
 def _bias_cell(tag: str, family: str, cell: str, m: int) -> str:
-    cell = _policy_cell(cell, m)
-    if family in ("censoring_necessity", "policy_necessity"):
-        return prefix(tag, m) + cell
-    return cell
+    return D.bias_cell(tag, family, cell, m)
 
 
 def _calibration(tag: str) -> list[FitSet]:
@@ -267,10 +260,8 @@ def _calibration(tag: str) -> list[FitSet]:
 
 
 def _root_n(tag: str) -> list[FitSet]:
-    m = 2 if tag == "S1" else 3
-    first, second = ("always", "never") if m == 2 else ("respond", "low")
-    label = "static_contrast__k4" if m == 2 else "respond_vs_ref__k4"
-    config = D.Config(estimator(tag), 4, m, law_.L_R, first, second)
+    label = D.root_n_label(tag)
+    config = D.root_n_config(tag)
     out = []
     for n in ROOT_N_SIZES:
         role = "control" if n == min(ROOT_N_SIZES) else "positive"
@@ -281,7 +272,7 @@ def _root_n(tag: str) -> list[FitSet]:
 
 def rate_label(tag: str) -> str:
     """The root-n ladder's label."""
-    return "static_contrast__k4" if tag == "S1" else "respond_vs_ref__k4"
+    return D.root_n_label(tag)
 
 
 def _bias_families(tag: str) -> list[FitSet]:
@@ -333,9 +324,7 @@ def _testing(tag: str) -> list[FitSet]:
 def _band(tag: str) -> list[FitSet]:
     if tag == "S3":
         return []
-    m = 2 if tag == "S1" else 3
-    law, n, plans = BAND[m]
-    config = D.Config("LTMLE", 5, m, law, plans[0])
+    config, plans, n = D.band_config(tag)
     arm = Arm("k5", "positive", config, read="band", plans=plans)
     return [FitSet(JOINT, f"{JOINT}:k5", (arm,), n)]
 
@@ -618,6 +607,24 @@ def estimate(arm: Arm, sample: pd.DataFrame) -> tuple[Fitted, Any]:
     return _of(result[f"ey_regimen[{config.first}]"]), result
 
 
+def binding_shares(result: Any, plans: Sequence[str], K: int) -> dict[str, float]:
+    """The share of followers at each node whose cumulative probability ``g_bounds`` moved.
+
+    Read from ``result.diagnostics.support()`` (``share_truncated``).  A contrast fits two plans;
+    the node's share is the larger of the two, so that it answers whether the bound binds at the
+    node for either arm.  ``nan`` when the fit has no result or no row at the node.
+    """
+    out = dict.fromkeys(BINDING_COLUMNS[:K], math.nan)
+    if result is None:
+        return out
+    rows = result.diagnostics.support().rows
+    for t in range(1, K + 1):
+        shares = [row.share_truncated for row in rows if row.regimen in plans and row.time == t]
+        if shares:
+            out[f"binding_share_{t}"] = float(max(shares))
+    return out
+
+
 def _row(
     family: str, cell: str, role: str, key: Key, truth: float, fitted: Fitted
 ) -> dict[str, Any]:
@@ -691,7 +698,10 @@ def fit_key(key: Key, sample: pd.DataFrame) -> list[dict[str, Any]]:
             )
             continue
         fitted, result = estimate(arm, sample)
-        rows.append(_row(fit_set.family, arm.cell, arm.role, key, truth, fitted))
+        row = _row(fit_set.family, arm.cell, arm.role, key, truth, fitted)
+        if fit_set.family in BINDING_FAMILIES:
+            row.update(binding_shares(result, config.plans, config.K))
+        rows.append(row)
         if arm.inflated:
             # The contrast's standard error from the two plan variances alone.
             first = result[f"ey_regimen[{config.first}]"].std_error
@@ -774,7 +784,7 @@ def with_controls(tag: str, rows: pd.DataFrame) -> pd.DataFrame:
         for label in calibration_labels(tag)
     ]
     rows = pd.concat([rows, *controls], ignore_index=True)
-    return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
+    return rows.reindex(columns=[*REPLICATE_COLUMNS, *BINDING_COLUMNS]).sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
 
@@ -808,6 +818,23 @@ def bias_rule() -> pf.FamilyRule:
     )
 
 
+def binding_summary(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
+    """Each cell's mean binding share per node, from its rows, in the summary's columns.
+
+    The page prints these beside the exact-law shares of plan section 5.6.  A cell with no
+    recorded share keeps ``nan``.
+    """
+    present = [column for column in BINDING_COLUMNS if column in rows]
+    if not present:
+        return
+    means = rows.groupby(["property", "cell"])[present].mean()
+    for column in present:
+        summary[column] = [
+            means[column].get((family, cell), math.nan)
+            for family, cell in zip(summary["property"], summary["cell"], strict=True)
+        ]
+
+
 def summarize(tag: str, rows: pd.DataFrame) -> pd.DataFrame:
     """Every verdict of a study's property rows."""
     record = _record(tag)
@@ -815,9 +842,10 @@ def summarize(tag: str, rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(
         rows,
         record,
-        extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper"),
+        extra_columns=("coverage_gain_ci_lower", "coverage_gain_ci_upper", *BINDING_COLUMNS),
         rate_labels=(rate_label(tag),) if "root_n_and_efficiency" in present else (),
     )
+    binding_summary(summary, rows)
     calibration_verdicts(summary, margins=record.margins, positive_suffix=POSITIVE)
     simultaneous_coverage_verdicts(summary, margins=record.margins)
     if "crossfit_overfitting" in present:

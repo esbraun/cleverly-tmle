@@ -546,6 +546,11 @@ class Config:
         return {"LTMLE": "ltmle", "SDR": "sdr", "plugin": "plugin"}[self.estimator]
 
     @property
+    def plans(self) -> tuple[str, ...]:
+        """The plans a fit of the configuration reports."""
+        return (self.first, self.second) if self.second else (self.first,)
+
+    @property
     def truth(self) -> float:
         if self.msm:
             return float(law_.msm_coefficients(self.K, self.law)["msm_duration"]["psi"])
@@ -1150,6 +1155,207 @@ def overfitting_positives() -> list[Positive]:
     ]
 
 
+# ----------------------------------------------------------------------------- shared declarations
+#: The root-n ladder of the ``root_n_and_efficiency`` family; the smallest rung is the control
+#: rung, below ``n_kappa``.  At R = 1,000 the control rung carries no claim: its 99 percent
+#: Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and
+#: nominal, so the shipped rule passes it at every true coverage.  Its job is the slope.
+ROOT_N_SIZES = (4_000, 12_000, 48_000)
+#: The two fitted slope rows of the root-n ladder, by cell suffix.
+RATE_KINDS = ("empirical_sd", "reported_se")
+#: Replicates per rung, in the property phase and in the rung pilots.
+ROOT_N_REPLICATES = 1_000
+#: The cross-fitted overfitting cell and its in-sample control.
+CROSS_FITTED = "policy_vs_ref__k5__cross_fitted"
+IN_SAMPLE = "policy_vs_ref__k5__in_sample_control"
+#: The simultaneous band's law, n and plans, per arm count (S1 has m = 2, S2 has m = 3).
+BAND = {
+    2: (law_.L_R, 76_000, ("never", "always", "respond", "switch", "coin", "coinlast")),
+    3: (Law(0.25, 0.0, 3.5), 64_000, ("low", "high", "respond", "switch", "mix", "mixlast")),
+}
+#: The studies that declare the band.
+BAND_STUDIES = ("S1", "S2")
+#: Pilot replicates per band, the ladder its property R is picked from, and the pass probability
+#: the pick must reach under the shipped two-sided rule.
+BAND_REPLICATES = 3_200
+BAND_LADDER = (2_000, 3_000, 4_000, 6_000, 8_000, 12_000, 16_000)
+BAND_TARGET = 0.99
+
+
+def study_estimator(study: str) -> str:
+    """The estimator a study fits."""
+    return "SDR" if study == "S3" else "LTMLE"
+
+
+def root_n_label(study: str) -> str:
+    """The root-n ladder's label."""
+    return "static_contrast__k4" if study == "S1" else "respond_vs_ref__k4"
+
+
+def root_n_config(study: str) -> Config:
+    """The estimator of every rung of the root-n ladder of ``study``, on ``L_R`` at K = 4."""
+    m = 2 if study == "S1" else 3
+    first, second = ("always", "never") if m == 2 else ("respond", "low")
+    return Config(study_estimator(study), 4, m, law_.L_R, first, second)
+
+
+def band_config(study: str) -> tuple[Config, tuple[str, ...], int]:
+    """``(config of the first plan, plans, n)`` of the simultaneous band of ``study``."""
+    m = 2 if study == "S1" else 3
+    law, n, plans = BAND[m]
+    return Config("LTMLE", 5, m, law, plans[0]), plans, n
+
+
+def cell_prefix(study: str, m: int) -> str:
+    """The cell prefix of a study that runs both arm counts (S3), empty elsewhere."""
+    if study != "S3":
+        return ""
+    return "binary_" if m == 2 else "categorical_"
+
+
+def policy_cell(cell: str, m: int) -> str:
+    """The design's ``coin__``/``mix__`` cell under the plan's ``policy__`` name."""
+    head = f"{'coin' if m == 2 else 'mix'}__"
+    return f"policy__{cell[len(head) :]}" if cell.startswith(head) else cell
+
+
+def bias_cell(study: str, family: str, cell: str, m: int) -> str:
+    """The property cell name of a bias-family positive or control."""
+    cell = policy_cell(cell, m)
+    if family in ("censoring_necessity", "policy_necessity"):
+        return cell_prefix(study, m) + cell
+    return cell
+
+
+@cache
+def gated_rows() -> tuple[tuple[str, str, str], ...]:
+    """Every gated primary truth row: ``(study, gating scenario, estimand)``.
+
+    A primary row is gated only in its gating scenario (:func:`gating`); the same quantity in
+    another scenario reports.  A duration MSM scenario gates both coefficients.
+    """
+    out: dict[tuple[str, str, str], None] = {}
+    for row in primary_rows():
+        scenario = gating(row)
+        if scenario is None:
+            continue
+        q = row.quantity
+        name = (
+            primary.mean_name(q.first) if not q.second else primary.contrast_name(q.first, q.second)
+        )
+        out[(row.study, scenario.name, name)] = None
+    for study in STUDIES:
+        for scenario in scenarios(study):
+            if scenario.msm:
+                for name in primary.estimands(scenario):
+                    out[(study, scenario.name, name)] = None
+    return tuple(out)
+
+
+@cache
+def gated_cells() -> tuple[tuple[str, str, str], ...]:
+    """Every property positive and control that has a verdict: ``(study, property, cell)``.
+
+    The reporting cells (``support_loss``, ``learned_mechanism``, the 4,000-unit pattern rows)
+    state no verdict and are not listed.  The root-n control rung has a verdict by the shipped
+    rule, and is listed.
+    """
+    from tests.studies.evidence.property_verdicts import CALIBRATION_CONTROL_KINDS
+    from tests.studies.evidence.simultaneous import joint_cells
+
+    out: list[tuple[str, str, str]] = []
+    for study in STUDIES:
+        for cell in calibration_cells():
+            if cell.study != study:
+                continue
+            kinds = ("known_mechanism", *CALIBRATION_CONTROL_KINDS)
+            out += [(study, "interval_calibration", f"{cell.name}__{kind}") for kind in kinds]
+            if "policy_vs_policylast" in cell.name:
+                out.append((study, "interval_calibration", f"{cell.name}__inflated_se_control"))
+        label = root_n_label(study)
+        out += [(study, "root_n_and_efficiency", f"{label}__n_{n}") for n in ROOT_N_SIZES]
+        out += [(study, "root_n_rate", f"{label}__{kind}") for kind in RATE_KINDS]
+        items: list[Positive | Control] = [*positives(), *controls()]
+        for item in items:
+            if item.study == study:
+                cell_name = bias_cell(study, item.family, item.cell, item.config.m)
+                out.append((study, item.family, cell_name))
+        if study == "S1":
+            out.append((study, "type_i_error", "policy_vs_policylast__k5__sharp_null"))
+            out.append((study, "power", "policy_vs_policylast__k5__alternative"))
+        if study in BAND_STUDIES:
+            out += [(study, "simultaneous_coverage", cell) for cell in joint_cells("k5")]
+        if any(p.study == study for p in overfitting_positives()):
+            out += [(study, "crossfit_overfitting", cell) for cell in (CROSS_FITTED, IN_SAMPLE)]
+    return tuple(out)
+
+
+def __getattr__(name: str) -> Any:
+    """``GATED_ROWS`` and ``GATED_CELLS``: computed on first use, because the rows take the exact law."""
+    if name == "GATED_ROWS":
+        return gated_rows()
+    if name == "GATED_CELLS":
+        return gated_cells()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def red_gated(
+    study: str,
+    implementation: str,
+    performance: pd.DataFrame,
+    properties: pd.DataFrame,
+) -> list[str]:
+    """The red or missing members of ``GATED_ROWS`` and ``GATED_CELLS`` in a study's summaries.
+
+    Parameters
+    ----------
+    study : str
+        ``S1``, ``S2`` or ``S3``.
+    implementation : str
+        The subject's implementation name in ``performance-tests.csv``.
+    performance : pandas.DataFrame
+        The study's ``performance-tests.csv``.
+    properties : pandas.DataFrame
+        The study's ``properties.csv``.
+
+    Returns
+    -------
+    list of str
+        One line per gated truth row or property cell that is red or absent; empty when all pass.
+    """
+    out = []
+    subject = performance.loc[performance["implementation"] == implementation]
+    truth = {
+        (scenario, estimand): bool(passed)
+        for scenario, estimand, passed in zip(
+            subject["scenario"], subject["estimand"], subject["passed"], strict=True
+        )
+    }
+    for tag, scenario, estimand in gated_rows():
+        if tag != study:
+            continue
+        verdict = truth.get((scenario, estimand))
+        if verdict is None:
+            out.append(f"truth row {scenario} {estimand}: absent")
+        elif not verdict:
+            out.append(f"truth row {scenario} {estimand}: red")
+    cells = {
+        (family, cell): bool(passed)
+        for family, cell, passed in zip(
+            properties["property"], properties["cell"], properties["passed"], strict=True
+        )
+    }
+    for tag, family, cell in gated_cells():
+        if tag != study:
+            continue
+        verdict = cells.get((family, cell))
+        if verdict is None:
+            out.append(f"property cell {family}/{cell}: absent")
+        elif not verdict:
+            out.append(f"property cell {family}/{cell}: red")
+    return out
+
+
 def smallest_n(reading: sampling.Reading, start: int, cap: int | None = None) -> int | None:
     """The smallest multiple of :data:`STEP` at least ``start`` with ``d >= 3``."""
     if reading.bias == 0.0:
@@ -1159,26 +1365,40 @@ def smallest_n(reading: sampling.Reading, start: int, cap: int | None = None) ->
 
 
 # ----------------------------------------------------------------------------- sizing floors
-def calibration_pass(rho: float, replicates: int, scale: float = SE_RATIO_SCALE) -> float:
-    """The pass probability of one calibration positive at true SE ratio ``rho``.
-
-    The SE-ratio estimate is normal with SD ``scale sqrt(400 / R)``; its 99 percent interval
-    must lie in [0.93, 1.07].  The coverage is binomial at ``2 Phi(1.96 rho) - 1``; its 99
-    percent interval must lie in [0.92, 0.98].
-    """
+def _calibration_pass(rho: Any, replicates: int, scale: float, coverage: Any) -> Any:
+    """:func:`calibration_pass` over arrays: ``rho`` and ``coverage`` broadcast together."""
     z = norm.ppf(0.995)
     spread = scale * math.sqrt(400 / replicates)
     half = z * spread
-    ratio = max(
+    ratio = np.maximum(
         0.0, norm.cdf((1.07 - half - rho) / spread) - norm.cdf((0.93 + half - rho) / spread)
     )
-    cover = 2 * norm.cdf(1.96 * rho) - 1
-    se = math.sqrt(cover * (1 - cover) / replicates)
+    cover = 2 * norm.cdf(1.96 * rho) - 1 if coverage is None else coverage
+    se = np.sqrt(cover * (1 - cover) / replicates)
     width = z * se
-    coverage = max(
+    inside = np.maximum(
         0.0, norm.cdf((0.98 - width - cover) / se) - norm.cdf((0.92 + width - cover) / se)
     )
-    return ratio * coverage
+    return ratio * inside
+
+
+def calibration_pass(
+    rho: float,
+    replicates: int,
+    scale: float = SE_RATIO_SCALE,
+    *,
+    coverage: float | None = None,
+) -> float:
+    """The pass probability of one calibration positive at true SE ratio ``rho``.
+
+    The SE-ratio estimate is normal with SD ``scale sqrt(400 / R)``; its 99 percent interval
+    must lie in [0.93, 1.07].  The coverage count is binomial; its 99 percent interval must lie
+    in [0.92, 0.98].  ``coverage`` is the arm's true coverage.  Without it the Wald model
+    ``2 Phi(1.96 rho) - 1`` stands in, which is the F1 reading before any arm has run.  The
+    cloud pilots read coverage up to 0.6 points below that model (review minor 2), so F2 passes
+    each arm's measured coverage.
+    """
+    return float(_calibration_pass(rho, replicates, scale, coverage))
 
 
 def f1_replicates(cells: int) -> int:
@@ -1208,18 +1428,147 @@ def truth_row_pass(coverage: float, bias_sd: float, replicates: int) -> float:
     return bias_pass(bias_sd, replicates) * covered
 
 
+def _clopper_pearson(
+    counts: np.ndarray, trials: int, level: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """The exact two-sided binomial limits of every count, as ``inference.clopper_pearson``."""
+    from scipy.stats import beta
+
+    tail = (1.0 - level) / 2.0
+    with np.errstate(invalid="ignore"):
+        low = np.where(counts > 0, beta.ppf(tail, np.maximum(counts, 1), trials - counts + 1), 0.0)
+        high = np.where(
+            counts < trials,
+            beta.ppf(1.0 - tail, counts + 1, np.maximum(trials - counts, 1)),
+            1.0,
+        )
+    return low, high
+
+
+def band_pass(coverage: float, replicates: int) -> float:
+    """The pass probability of the simultaneous band under the shipped two-sided rule.
+
+    ``simultaneous_coverage_verdicts`` passes the band when its 99 percent exact interval of
+    joint coverage lies inside ``calibration_coverage`` = (0.92, 0.98).  The count of replicates
+    with every truth inside the band is binomial at the band's true joint ``coverage``.  This is
+    not the one-sided ``coverage_floor`` rule: at R = 2,000 it passes with probability 0.99 only
+    for a true coverage in about [0.946, 0.954].
+    """
+    from scipy.stats import binom
+
+    from tests.studies.evidence.registry import Margins
+
+    margins = Margins()
+    low_edge, high_edge = margins.calibration_coverage
+    counts = np.arange(replicates + 1)
+    low, high = _clopper_pearson(counts, replicates, margins.confidence_level)
+    passes = (low >= low_edge) & (high <= high_edge)
+    return float(np.sum(binom.pmf(counts, replicates, coverage)[passes]))
+
+
+def band_replicates(coverage: float, ladder: Sequence[int] = BAND_LADDER) -> int | None:
+    """The first rung of ``ladder`` at which the band passes with probability :data:`BAND_TARGET`.
+
+    ``None`` when no rung reaches it: the row stops and is diagnosed (plan section 5.3).
+    """
+    return next((R for R in ladder if band_pass(coverage, R) >= BAND_TARGET), None)
+
+
+def positive_rung_pass(coverage: float, replicates: int) -> float:
+    """The coverage clause of a positive root-n rung: the exact lower limit at the floor.
+
+    Plan section 5.3: at R = 1,000 this passes with probability 0.99 when the true coverage is
+    at least 0.9394.
+    """
+    from scipy.stats import binom
+
+    from tests.studies.evidence.registry import Margins
+
+    margins = Margins()
+    counts = np.arange(replicates + 1)
+    low, _ = _clopper_pearson(counts, replicates, margins.confidence_level)
+    return float(np.sum(binom.pmf(counts, replicates, coverage)[low >= margins.coverage_floor]))
+
+
+def slope_pass(
+    rungs: Mapping[int, pd.DataFrame],
+    statistic: str,
+    replicates: int,
+    *,
+    bootstrap: int = 2_000,
+    draws: int = 200,
+    seed: int = 0,
+) -> float:
+    """The pass probability of a ``root_n_rate`` row, from pilots of each rung.
+
+    Each draw resamples ``replicates`` rows of every rung's pilot, with replacement, and fits the
+    slope with the shipped :func:`tests.studies.evidence.properties.rate` and its percentile
+    interval.  The row passes when the interval lies within 0.125 of -0.5 and excludes -0.25
+    (``property_verdicts``).  The fraction of ``draws`` that pass is the pass probability;
+    ``bootstrap`` is the draw count of each percentile interval.
+
+    Parameters
+    ----------
+    rungs : mapping of int to pandas.DataFrame
+        The pilot rows of each rung by n, with ``estimate``, ``std_error`` and ``truth``.
+    statistic : str
+        ``spread`` (the empirical SD) or ``reported`` (the mean standard error).
+    replicates : int
+        The property phase's replicates per rung.
+    bootstrap : int
+        Draws of each slope interval.
+    draws : int
+        Resampled ladders.
+    seed : int
+        The seed of the resampling.
+    """
+    from tests.studies.evidence import property_verdicts as pv
+    from tests.studies.evidence.properties import rate
+    from tests.studies.evidence.registry import Margins
+
+    margins = Margins()
+    rng = np.random.default_rng(seed)
+    passed = 0
+    for draw in range(draws):
+        frames = []
+        for n, pilot in sorted(rungs.items()):
+            pick = rng.integers(0, len(pilot), size=replicates)
+            chosen = pilot.iloc[pick][["estimate", "std_error", "truth"]].reset_index(drop=True)
+            frames.append(
+                chosen.assign(property="root_n_and_efficiency", cell=f"ladder__n_{n}", n=n)
+            )
+        fitted = rate(
+            pd.concat(frames, ignore_index=True),
+            property_name="root_n_and_efficiency",
+            statistic=statistic,
+            bootstrap_replicates=bootstrap,
+            confidence_level=margins.confidence_level,
+            seed=int(rng.integers(0, 2**31)) + draw,
+        )
+        passed += bool(
+            fitted.equivalent_to(pv.ROOT_N_SLOPE, pv.ROOT_N_SLOPE_MARGIN)
+            and fitted.excludes(pv.EXCLUDED_SLOPE)
+        )
+    return passed / draws
+
+
 def f2_family_pass(
     ratios: Sequence[float],
     variances: Sequence[float],
     replicates: int,
     *,
+    coverages: Sequence[float] | None = None,
+    coverage_errors: Sequence[float] | None = None,
     draws: int = 4_000,
     seed: int = 0,
 ) -> float:
     """F2: the posterior predictive probability that every arm passes at ``replicates``.
 
     The random-effects model ``r_j ~ N(rho_j, v_j)``, ``rho_j ~ N(mu, tau^2)`` with REML
-    ``tau^2``; ``mu`` normal at its REML estimate.
+    ``tau^2``; ``mu`` normal at its REML estimate.  With ``coverages`` each arm's coverage is
+    its measured pilot coverage, drawn normal with the arm's binomial error
+    ``coverage_errors`` and clipped to the open unit interval; without it the arm's coverage is
+    the Wald model of :func:`calibration_pass`.
     """
     r, v = np.asarray(ratios, float), np.asarray(variances, float)
     tau2 = _reml_tau2(r, v)
@@ -1231,7 +1580,16 @@ def f2_family_pass(
     mean = shrink[None, :] * r[None, :] + (1 - shrink)[None, :] * mu[:, None]
     spread = np.sqrt(tau2 * v / (tau2 + v)) if tau2 > 0 else np.zeros_like(v)
     rho = mean + spread[None, :] * rng.standard_normal((draws, r.size))
-    passes = np.vectorize(lambda value: calibration_pass(float(value), replicates))(rho)
+    if coverages is None:
+        passes = _calibration_pass(rho, replicates, SE_RATIO_SCALE, None)
+    else:
+        if coverage_errors is None or len(coverages) != r.size or len(coverage_errors) != r.size:
+            raise ValueError("coverages and coverage_errors need one value per arm")
+        cover = np.asarray(coverages, float)[None, :] + np.asarray(coverage_errors, float)[
+            None, :
+        ] * rng.standard_normal((draws, r.size))
+        cover = np.clip(cover, 1e-6, 1 - 1e-6)
+        passes = _calibration_pass(rho, replicates, SE_RATIO_SCALE, cover)
     return float(np.mean(np.prod(passes, axis=1)))
 
 
@@ -1319,7 +1677,7 @@ class Stream:
     Parameters
     ----------
     family : str
-        The pilot family: ``mc``, ``f2``, ``bias``, ``truth`` or ``overfit``.
+        The pilot family: ``mc``, ``f2``, ``bias``, ``truth``, ``overfit``, ``band`` or ``rung``.
     name : str
         The study and cell.
     config : Config or None
@@ -1330,6 +1688,8 @@ class Stream:
         The stream's replicate count.
     scenario : tuple
         ``(study, scenario name)`` of a truth-row stream.
+    plans : tuple of str
+        The plans of one joint fit, for the ``band`` stream; empty elsewhere.
     """
 
     family: str
@@ -1338,6 +1698,7 @@ class Stream:
     n: int
     replicates: int
     scenario: tuple[str, str] = field(default=("", ""))
+    plans: tuple[str, ...] = ()
 
     @property
     def ident(self) -> str:
@@ -1347,6 +1708,8 @@ class Stream:
 
     def cost(self) -> float:
         """CPU seconds of one replicate."""
+        if self.plans and self.config is not None:
+            return fit_cost(self.config.K, self.config.m, self.plans, self.n)
         if self.config is not None:
             return config_cost(self.config, self.n)
         study, name = self.scenario
@@ -1356,7 +1719,11 @@ class Stream:
 
 
 def streams() -> list[Stream]:
-    """Every pilot stream, in the declared order: Monte Carlo, F2, bias, truth rows, overfitting."""
+    """Every pilot stream, in the declared order.
+
+    Monte Carlo, F2, bias, truth rows and overfitting come first, in the order of rev 4.1.  The
+    band and the root-n rung pilots of rev 4.2 follow.
+    """
     out = [
         Stream("mc", f"{c.study}:{c.family}:{c.cell}", c.config, c.n, 400)
         for c in controls()
@@ -1384,6 +1751,17 @@ def streams() -> list[Stream]:
         Stream("overfit", f"{p.study}:{p.cell}", p.config, p.n, 3_200)
         for p in overfitting_positives()
     ]
+    # Rev 4.2 families.  They come after the rev 4.1 streams, so that no earlier stream moves.
+    for study in BAND_STUDIES:
+        config, plans, n = band_config(study)
+        out.append(Stream("band", f"{study}:band_k5", config, n, BAND_REPLICATES, plans=plans))
+    for study in STUDIES:
+        label = root_n_label(study)
+        config = root_n_config(study)
+        out += [
+            Stream("rung", f"{study}:{label}:n_{n}", config, n, ROOT_N_REPLICATES)
+            for n in ROOT_N_SIZES
+        ]
     return out
 
 
