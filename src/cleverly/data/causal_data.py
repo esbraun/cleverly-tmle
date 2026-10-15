@@ -59,6 +59,7 @@ from .validate import (
     MIN_OBSERVATIONS,
     MISSING_TREATMENT_DECLARATION,
     arm_indicators,
+    atom_block,
     check_covariates,
     check_delta,
     check_outcome,
@@ -306,8 +307,10 @@ class CausalData:
     #: any learner, an observed dose outside it and a policy that assigns a dose outside it.
     treatment_support: Any = None
     #: The declared atoms of a continuous dose: the doses with a recorded point mass.  The
-    #: policy ratio is then taken against Lebesgue plus counting measure on these doses.
-    dose_atoms: tuple[float, ...] = ()
+    #: policy ratio is then taken against Lebesgue plus counting measure on these doses.  A
+    #: vector treatment holds ``(component, atoms)`` pairs in column order; read them with
+    #: :attr:`component_atoms`.
+    dose_atoms: tuple[Any, ...] = ()
 
     # ------------------------------------------------------------------ build
 
@@ -1087,23 +1090,19 @@ class CausalData:
         self._refuse_vector("treatment_block")
         c = np.asarray(codes, dtype=float).reshape(-1)
         if self.is_continuous_treatment:
-            if not self.dose_atoms:
-                return c.reshape(-1, 1)
             # A dose with declared atoms adds the indicator of each atom, read from the
             # values given: the assigned dose in a counterfactual design.  A regression on a
             # positive-mass cell can then differ from its limit beside the atom.
-            columns = [c]
-            for atom in self.dose_atoms:
-                tolerance = 1e-12 * max(1.0, abs(float(atom)))
-                columns.append((np.abs(c - float(atom)) <= tolerance).astype(float))
-            return np.column_stack(columns)
+            return atom_block(c, self.dose_atoms)
         return arm_indicators(c, self.n_arms)
 
     def component_design(self, values: FloatArray | None = None) -> FloatArray:
         """The design block of a vector treatment: doses as themselves, labels as indicators.
 
-        A continuous component enters as its dose, one column.  A categorical component
-        enters as :func:`~cleverly.data.validate.arm_indicators` of its own codes, drop-first.
+        A continuous component enters as its dose, one column, and the indicator of each of
+        its declared atoms (:func:`~cleverly.data.validate.atom_block`).  A categorical
+        component enters as :func:`~cleverly.data.validate.arm_indicators` of its own codes,
+        drop-first.
         The joint level code of an all-categorical vector is never a column, because its
         order is arbitrary.
 
@@ -1144,11 +1143,14 @@ class CausalData:
                 f"component values have shape {observed.shape}; the vector "
                 f"{self.treatment_name!r} reads ({self.n}, {len(self.component_names)})"
             )
+        atoms = self.component_atoms
         columns = []
         for index, levels in enumerate(self.component_levels):
             column = observed[:, index]
             if not levels:
-                columns.append(column.reshape(-1, 1))
+                # A dose with declared atoms adds the indicator of each atom, read from the
+                # values given, as a dose of one column does (:meth:`treatment_block`).
+                columns.append(atom_block(column, atoms.get(self.component_names[index], ())))
             else:
                 columns.append(arm_indicators(column, len(levels)))
         return np.hstack(columns)
@@ -1353,7 +1355,9 @@ class CausalData:
         )
 
     def with_dose_declarations(
-        self, treatment_support: Any = None, dose_atoms: Sequence[float] = ()
+        self,
+        treatment_support: Any = None,
+        dose_atoms: Sequence[float] | Mapping[str, Sequence[float]] = (),
     ) -> CausalData:
         """Return a copy that declares the support and the atoms of a continuous dose.
 
@@ -1366,8 +1370,9 @@ class CausalData:
             The declared conditional support of the dose.  A vector treatment declares a
             mapping from each continuous component to its support, given the covariates,
             the categorical components and the doses before it in column order.
-        dose_atoms : sequence of float
-            The doses with a recorded point mass.
+        dose_atoms : sequence of float, or mapping of str to sequence of float
+            The doses with a recorded point mass.  A vector treatment maps each continuous
+            component to its atoms.
 
         Returns
         -------
@@ -1377,20 +1382,25 @@ class CausalData:
         Raises
         ------
         DataError
-            If the treatment is not one continuous dose or a vector with one, a support of a
-            vector is not a mapping of its continuous components, or an atom is not finite
-            or is declared twice.
-        CapabilityError
-            If a vector treatment declares atoms, which this release supports at a dose of
-            one column only.
+            If the treatment is not one continuous dose or a vector with one, a declaration
+            of a vector is not a mapping of its continuous components, or an atom is not
+            finite or is declared twice.
         """
         from ..interventions.policy import Support
 
+        if self.treatment_kind == "vector":
+            if treatment_support is None and not dose_atoms:
+                return self
+            return self._with_component_declarations(treatment_support, dose_atoms)
+        if isinstance(dose_atoms, Mapping):
+            raise DataError(
+                f"dose_atoms= for the treatment {self.treatment_name!r} of one column is a "
+                f"sequence of doses; got the mapping {dict(dose_atoms)!r}. A mapping declares "
+                "the atoms of each continuous component of a vector treatment"
+            )
         atoms = tuple(float(atom) for atom in dose_atoms)
         if treatment_support is None and not atoms:
             return self
-        if self.treatment_kind == "vector":
-            return self._with_component_supports(treatment_support, atoms)
         if not self.is_continuous_treatment:
             raise DataError(
                 "treatment_support= and dose_atoms= declare the support and the point masses "
@@ -1405,17 +1415,53 @@ class CausalData:
             raise DataError(f"dose_atoms= holds distinct finite doses; got {list(atoms)!r}")
         return replace(self, treatment_support=treatment_support, dose_atoms=tuple(sorted(atoms)))
 
-    def _with_component_supports(self, declared: Any, atoms: tuple[float, ...]) -> CausalData:
+    def _with_component_declarations(self, declared: Any, dose_atoms: Any) -> CausalData:
+        """A vector treatment's component supports and atoms, as ``(name, value)`` pairs.
+
+        Each continuous component's factor of the joint density is taken against Lebesgue
+        measure plus counting measure on its declared atoms
+        (:mod:`~cleverly.interventions.joint_density`).
+        """
+        doses = [
+            name
+            for name, levels in zip(self.component_names, self.component_levels, strict=True)
+            if not levels
+        ]
+        order = {name: index for index, name in enumerate(self.component_names)}
+        atom_pairs: tuple[tuple[str, tuple[float, ...]], ...] = ()
+        if dose_atoms:
+            if not isinstance(dose_atoms, Mapping):
+                raise DataError(
+                    f"dose_atoms= for the vector treatment {self.treatment_name!r} maps each "
+                    f"continuous component to its atoms, such as "
+                    f"dose_atoms={{{doses[0]!r}: (0.0,)}}; got {dose_atoms!r}"
+                )
+            pairs = []
+            for name, values in dose_atoms.items():
+                if str(name) not in doses:
+                    raise DataError(
+                        f"dose_atoms= declares {name!r}, which is not a continuous component of "
+                        f"{self.treatment_name!r}; its continuous components are {doses}"
+                    )
+                atoms = tuple(float(atom) for atom in values)
+                if (
+                    not atoms
+                    or not all(np.isfinite(atom) for atom in atoms)
+                    or len(set(atoms)) != len(atoms)
+                ):
+                    raise DataError(
+                        f"dose_atoms= for {name!r} holds distinct finite doses; got {list(atoms)!r}"
+                    )
+                pairs.append((str(name), tuple(sorted(atoms))))
+            pairs.sort(key=lambda pair: order[pair[0]])
+            atom_pairs = tuple(pairs)
+        out = replace(self, dose_atoms=atom_pairs) if atom_pairs else self
+        return out._with_component_supports(declared)
+
+    def _with_component_supports(self, declared: Any) -> CausalData:
         """A vector treatment's declared component supports, as ``(name, Support)`` pairs."""
         from ..interventions.policy import Support
 
-        if atoms:
-            raise CapabilityError(
-                f"dose_atoms= declares atoms for the vector treatment {self.treatment_name!r}. "
-                "Declared atoms apply to a continuous dose of one column in this release: an "
-                "atom of a component makes its factor of the joint density mixed, which the "
-                "joint density evaluator does not build"
-            )
         doses = [
             name
             for name, levels in zip(self.component_names, self.component_levels, strict=True)
@@ -1445,6 +1491,19 @@ class CausalData:
         order = {name: index for index, name in enumerate(self.component_names)}
         pairs.sort(key=lambda pair: order[pair[0]])
         return replace(self, treatment_support=tuple(pairs) or None)
+
+    @property
+    def component_atoms(self) -> dict[str, tuple[float, ...]]:
+        """The declared atoms of each continuous component of a vector treatment.
+
+        Returns
+        -------
+        dict of str to tuple of float
+            Empty on a treatment of one column, or when no component declares atoms.
+        """
+        if self.treatment_kind != "vector" or not self.dose_atoms:
+            return {}
+        return {str(name): tuple(atoms) for name, atoms in self.dose_atoms}
 
     @property
     def component_supports(self) -> dict[str, Any]:

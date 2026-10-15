@@ -3919,7 +3919,7 @@ class _SequentialEstimator:
         """Refuse a fold-average target with a working model or the full-refit bootstrap.
 
         Each outer fold's map is fitted on that fold's training rows, so the target depends
-        on the split (X40 plan section 2.4).  A working model would project
+        on the split.  A working model would project
         split-dependent targets, and each bootstrap resample refits every fold's map.
         """
         if not any(plan.fold_average for plan in plans):

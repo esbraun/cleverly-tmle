@@ -754,8 +754,9 @@ def test_m_b6_without_its_rule_the_witness_reaches_the_learners(
         _undeclared(rule)
 
 
-#: The rules whose witness has a declared-atom oracle a fast fit can reach: (A) declares
-#: its one atom, and (C) declares the grid's 60 recorded values as atoms.
+#: The rules whose witness has a declared-atom oracle: (A) declares its one atom, and (B) and
+#: (C) declare the grid's recorded values as atoms.  Rule (D) has none: no moving policy keeps
+#: 200 list-price atoms on declared atoms.
 ORACLES = {
     "A": (
         ModifiedPolicy(
@@ -770,6 +771,20 @@ ORACLES = {
     ),
     # The cap holds 8.1, whose upper neighbour 8.2 has no row in this sample.
     "C": (Shift(0.1, cap=8.0, name="up"), "classifier"),
+    # The 0.02 grid against 320 bins (m4): the density route with every recorded value declared.
+    # The moved interval [5.0, 5.4) has all its images on recorded values.
+    "B": (
+        ModifiedPolicy(
+            "up",
+            pieces=(
+                Piece(-INF, 5.0),
+                Piece(5.0, 5.4, lambda a, h: a + 0.2, lambda b, h: b - 0.2, lambda b, h: 1.0),
+                Piece(5.4, INF),
+            ),
+            policy_kind="known",
+        ),
+        "density",
+    ),
 }
 
 
@@ -781,13 +796,17 @@ def test_m_b6_without_its_rule_the_fit_misses_its_declared_atom_oracle(
     dose = _witness(rule)
     frame = doses.dose_frame(dose, 1, jump=1.0, atom=6.37)
     atoms = (6.37,) if rule == "A" else tuple(np.unique(dose))
+    bins = WITNESSES[rule][2] if rule == "B" else None
 
     def fit(**declared: Any) -> float:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = TMLE(policies=[NATURAL, policy], ratio=ratio, **doses.point_learners()).fit(
-                frame, outcome="Y", treatment="A", covariates=["W"], **declared
-            )
+            result = TMLE(
+                policies=[NATURAL, policy],
+                ratio=ratio,
+                density_bins=bins,
+                **doses.point_learners(),
+            ).fit(frame, outcome="Y", treatment="A", covariates=["W"], **declared)
         return float(result.single()["ey_policy[up]"].psi)
 
     oracle = fit(dose_atoms=atoms)
@@ -888,19 +907,22 @@ def test_t_s1_with_the_default_every_exact_grid_law_is_refused() -> None:
 # ------------------------------------------------------------------ declarations
 
 
-def test_a_component_of_a_vector_node_cannot_declare_atoms() -> None:
+def test_a_component_of_a_vector_node_declares_atoms() -> None:
+    """The declaration is stored by component; a categorical component refuses atoms."""
     frame = law.frame(vector=True)
     frame["D2"] = frame["A2b"].astype(float) + 0.5
-    with pytest.raises(CapabilityError, match="a component of a vector node"):
-        LongitudinalData.from_frame(
-            frame,
-            outcome="Y",
-            treatment=["A1a", ["A2a", "D2"]],
-            baseline=["W"],
-            time_varying=[[], ["L2"]],
-            continuous_treatment=["D2"],
-            dose_atoms={"D2": (0.5,)},
-        )
+    columns: dict[str, Any] = {
+        "outcome": "Y",
+        "treatment": ["A1a", ["A2a", "D2"]],
+        "baseline": ["W"],
+        "time_varying": [[], ["L2"]],
+        "continuous_treatment": ["D2"],
+    }
+    data = LongitudinalData.from_frame(frame, dose_atoms={"D2": (0.5,)}, **columns)
+    assert data.component_atoms(2) == {"D2": (0.5,)}
+    assert data.node_atoms(2) == ()
+    with pytest.raises(DataError, match="declares atoms for 'A2a', a categorical component"):
+        LongitudinalData.from_frame(frame, dose_atoms={"A2a": (0.0,)}, **columns)
 
 
 def test_atoms_on_a_categorical_node_are_refused() -> None:
@@ -923,3 +945,66 @@ def test_a_to_atom_piece_takes_no_map() -> None:
         Piece(0.0, 1.0, lambda a, h: a, lambda b, h: b, lambda b, h: 1.0, to_atom=1.0)
     with pytest.raises(DataError):
         Piece(0.0, 1.0, to_atom=float("inf"))
+
+
+# ------------------------------------------------------------------ m1: the classifier's atom indicator
+
+
+def _smooth_mixed_law(n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
+    """``(w, dose, assigned, atom_rows, truth)``: an atom of 40% at 3 and a normal elsewhere.
+
+    The assigned dose sends the continuous interval ``[1.5, 2.5)`` to the atom, so the ratio
+    at the atom is ``(p + (1 - p) P(1.5 <= A < 2.5)) / p`` with ``p = 0.4``, which is above 1
+    on every history.  The learner below is logistic in the dose and the history, so only an
+    indicator column can give its odds a jump at 3.
+    """
+    from scipy import stats
+
+    rng = np.random.default_rng(2)
+    p = 0.4
+    w = rng.normal(size=n)
+    at_atom = rng.uniform(size=n) < p
+    dose = np.where(at_atom, 3.0, rng.normal(size=n) + 1.5)
+    assigned = np.where((dose >= 1.5) & (dose < 2.5), 3.0, dose)
+    inside = stats.norm.cdf(1.0) - stats.norm.cdf(0.0)
+    truth = (p + (1.0 - p) * inside) / p
+    return w, dose, assigned, at_atom, truth
+
+
+def _atom_ratio_at_the_atom(*, patched: bool, monkeypatch: pytest.MonkeyPatch) -> float:
+    from sklearn.linear_model import LogisticRegression
+
+    from cleverly.learners import density_ratio
+    from cleverly.learners.crossfit import Folds
+
+    w, dose, assigned, at_atom, _ = _smooth_mixed_law(6000)
+    if patched:
+        monkeypatch.setattr(density_ratio, "_with_atoms", lambda block, atoms: block)
+    (ratio,) = density_ratio.classifier_ratio(
+        LogisticRegression(max_iter=2000),
+        w.reshape(-1, 1),
+        dose,
+        [(1.0, assigned)],
+        np.ones(dose.size),
+        Folds.single(dose.size),
+        evaluate_at=[dose],
+        atoms=(3.0,),
+    )
+    return float(np.mean(ratio[at_atom]))
+
+
+def test_m1_the_classifier_indicator_lets_a_smooth_learner_see_the_atom_jump(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The atom ratio of a logistic learner is the true ratio within 10% with the indicator."""
+    truth = _smooth_mixed_law(6000)[4]
+    assert truth > 1.2
+    estimate = _atom_ratio_at_the_atom(patched=False, monkeypatch=monkeypatch)
+    assert estimate == pytest.approx(truth, rel=0.1)
+
+
+def test_m1_dropping_the_indicator_moves_the_atom_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """M-c-ind: without the column the same learner misses the atom ratio by more than CAUGHT."""
+    truth = _smooth_mixed_law(6000)[4]
+    estimate = _atom_ratio_at_the_atom(patched=True, monkeypatch=monkeypatch)
+    assert abs(estimate - truth) > 0.1 > CAUGHT

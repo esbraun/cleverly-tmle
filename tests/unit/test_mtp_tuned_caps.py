@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import importlib
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -341,44 +342,57 @@ def _silverman(values: np.ndarray, power: float = 0.2) -> float:
     return 0.9 * min(sd, iqr / 1.34) * values.size ** (-power)
 
 
-def _longhand_tuner(frame: pd.DataFrame, node: int, kind: str) -> tuple[Any, ...]:
+def _longhand_tuner(frame: pd.DataFrame, node: int, kind: str, q: float = 0.5) -> tuple[Any, ...]:
     """theta_n, the influence function, the boundary and the gradient, written out."""
     dose = frame[f"A{node}"].to_numpy()
     n = dose.size
     if kind == "quantile":
-        theta = np.array([np.quantile(dose, 0.5, method="inverted_cdf")])
+        theta = np.array([np.quantile(dose, q, method="inverted_cdf")])
         h = _silverman(dose)
         density = float(np.mean(stats.norm.pdf((theta[0] - dose) / h)) / h)
-        influence = (-((dose <= theta[0]).astype(float) - 0.5) / density)[:, None]
+        influence = (-((dose <= theta[0]).astype(float) - q) / density)[:, None]
         gradient = np.ones((n, 1))
         return theta, influence, np.full(n, theta[0]), gradient
     names = ["W"] if node == 1 or kind == "misspecified" else ["W", "L2", "A1"]
     features = frame[names].to_numpy()
-    model = QuantileRegressor(quantile=0.5, alpha=0.0, solver="highs").fit(features, dose)
+    model = QuantileRegressor(quantile=q, alpha=0.0, solver="highs").fit(features, dose)
     theta = np.concatenate([[model.intercept_], model.coef_])
     design = np.column_stack([np.ones(n), features])
     residual = dose - design @ theta
     h = _silverman(residual, power=1.0 / 3.0)
     inside = (np.abs(residual) <= h).astype(float)
     jacobian = (design * inside[:, None]).T @ design / (2.0 * h * n)
-    score = design * (0.5 - (residual <= 0.0).astype(float))[:, None]
+    score = design * (q - (residual <= 0.0).astype(float))[:, None]
     influence = np.linalg.solve(jacobian, score.T).T
     return theta, influence, design @ theta, design
 
 
-def _longhand_term(frame: pd.DataFrame, fit: Any, kind: str) -> np.ndarray:
+def _longhand_term(
+    frame: pd.DataFrame,
+    fit: Any,
+    kind: str,
+    *,
+    q: float = 0.5,
+    factor: float | None = None,
+) -> np.ndarray:
+    """sum_t dPhi_n' IF_t, with the edge and its slope written out for ``Shift`` or ``Scale``.
+
+    A ``Shift(1.0)`` has the edge ``c - 1`` and ``|e'| = 1``; a ``Scale(f)`` has the edge
+    ``c / f`` and ``|e'| = 1 / f``.  The slope is computed here, not read from the library.
+    """
     term = np.zeros(len(frame))
     by_time = {step.time: step for step in fit.steps}
     for node in (1, 2):
-        _, influence, boundary, gradient = _longhand_tuner(frame, node, kind)
+        _, influence, boundary, gradient = _longhand_tuner(frame, node, kind, q)
         dose = frame[f"A{node}"].to_numpy()
-        edge = boundary - 1.0
+        edge = boundary - 1.0 if factor is None else boundary / factor
+        slope = 1.0 if factor is None else 1.0 / factor
         step = by_time[node]
         prefix = np.ones(len(frame)) if node == 1 else by_time[node - 1].clever
         gap = dose - edge
         h = _silverman(gap)
         kernel = stats.norm.pdf(gap / h) / h
-        derivative = (prefix * kernel * (step.probes[:, 0] - step.probes[:, 1])) @ gradient
+        derivative = slope * (prefix * kernel * (step.probes[:, 0] - step.probes[:, 1])) @ gradient
         term = term + influence @ (derivative / len(frame))
     return term
 
@@ -975,3 +989,327 @@ def test_m_e1_one_fold_map_everywhere_fails(
     result = _fold_average_on_two_copies(monkeypatch, (FOLD_CAPS[0], FOLD_CAPS[0]), estimator)
     with pytest.raises(AssertionError):
         _check_fold_average(result)
+
+
+# ------------------------------------------------------------------ msm= (B1 of the review)
+
+
+def _intercept_model() -> Any:
+    from cleverly.msm import MSM
+
+    return MSM(
+        design=lambda label, horizon, w: np.ones((len(w), 1)),
+        terms=("intercept",),
+        design_kind="known",
+    )
+
+
+def _hgb_settings() -> dict[str, Any]:
+    """Flexible regressions: the derivative of the (e2) term needs a consistent ``m_t``."""
+    from sklearn.ensemble import HistGradientBoostingRegressor as HGB
+
+    learner = HGB(max_iter=300, learning_rate=0.05, random_state=0)
+    return {"outcome_learner": learner, "pseudo_learner": learner}
+
+
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+@pytest.mark.parametrize("kind", ["quantile", "regression"])
+def test_b1_an_intercept_working_model_over_one_tuned_regimen_is_the_plain_fit(
+    estimator: type, kind: str, frame: Any
+) -> None:
+    """B1: the intercept MSM of one cell is that cell's estimate, and its curve is the cell's.
+
+    The cell's curve holds the tuner's chain-rule term, so the projection's curve must hold
+    it too (the estimating equation is stacked over cells, so the curve is linear in each
+    cell's curve).
+    """
+    plain = _fit(estimator, [_regimen("population", kind)], frame, n_folds=1)
+    projected = _fit(
+        estimator, [_regimen("population", kind)], frame, n_folds=1, msm=_intercept_model()
+    )
+    term = plain.fits["tuned"].tuning_term
+    assert term is not None
+    assert np.std(term) > 0.1 * np.std(plain.influence_curves["ey_regimen[tuned]"])
+    np.testing.assert_allclose(
+        projected.psi("msm_regimen[intercept]"), plain.psi("ey_regimen[tuned]"), atol=1e-10
+    )
+    np.testing.assert_allclose(
+        projected.influence_curves["msm_regimen[intercept]"],
+        plain.influence_curves["ey_regimen[tuned]"],
+        rtol=0,
+        atol=1e-9,
+    )
+
+
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+def test_b1_the_working_model_curve_moves_when_the_tuner_term_is_dropped(
+    estimator: type, frame: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M-b1msm: the curve of the projection misses the cell's when the term is not added."""
+    from cleverly.longitudinal import msm as msm_module
+
+    kept = _fit(
+        estimator, [_regimen("population")], frame, n_folds=1, msm=_intercept_model()
+    ).influence_curves["msm_regimen[intercept]"]
+    monkeypatch.setattr(msm_module, "tuning_term", lambda data, plan, steps: (None, ()))
+    project = msm_module.project_sdr_cells
+
+    def without_term(data: Any, model: Any, fits: Any, *args: Any, **kwargs: Any) -> Any:
+        return project(
+            data, model, [replace(fit, tuning_term=None) for fit in fits], *args, **kwargs
+        )
+
+    # The SDR projection reads each cell's own ``tuning_term``.
+    monkeypatch.setattr(estimator_module, "project_sdr_cells", without_term)
+    dropped = _fit(
+        estimator, [_regimen("population")], frame, n_folds=1, msm=_intercept_model()
+    ).influence_curves["msm_regimen[intercept]"]
+    assert np.max(np.abs(kept - dropped)) > CAUGHT
+
+
+def test_b1_the_working_model_standard_error_is_the_oracle_standard_error() -> None:
+    """B1 on law Q: with consistent regressions the MSM interval has the oracle width.
+
+    ``sd(D_Psi) / sqrt(n)`` by quadrature, tuning term included.  Without the term the
+    standard error reads 0.8 of it (the probe of the review, 0.0088 against 0.0109 at
+    n = 1,500; the oracle at n = 8,000 is 0.00591).
+    """
+    n = 8_000
+    big = lawq.sample(n, 11)
+    result = _fit(
+        LTMLE,
+        [_regimen("population")],
+        big,
+        n_folds=1,
+        msm=_intercept_model(),
+        **_hgb_settings(),
+    )
+    curve = result.influence_curves["msm_regimen[intercept]"]
+    se = float(np.sqrt(np.mean(curve**2) / n))
+    oracle = lawq.LawQ().efficient_sd() / np.sqrt(n)
+    assert abs(se / oracle - 1.0) < 0.05
+    term = result.fits["tuned"].tuning_term
+    assert term is not None
+    without = float(np.sqrt(np.mean((curve - term) ** 2) / n))
+    assert abs(without / oracle - 1.0) > 0.1
+
+
+# ------------------------------------------------------------------ the tuned Scale (M1)
+
+FACTOR = 0.5
+SCALE_Q = 0.3
+SCALE_TUNERS = {
+    "quantile": (lawq.Tuner(q=SCALE_Q), lawq.Tuner(q=SCALE_Q)),
+    "regression": (
+        lawq.Tuner(features=("W",), q=SCALE_Q),
+        lawq.Tuner(features=("W", "L2", "A1"), q=SCALE_Q),
+    ),
+}
+
+
+def _scale_regimen(kind: str, target: str = "population") -> DynamicRegimen:
+    """``Scale(0.5)`` capped at the 0.3 quantile of each dose, or at its linear quantile fit.
+
+    A factor below one keeps every assigned dose inside the observed range, and the images
+    ``f a`` (up to ``c``) stay below the held doses (above ``c / f``).  The edge is
+    ``c / f`` and ``|e'| = 1 / f = 2``: a library that forgets the slope halves the term.
+    """
+    if kind == "quantile":
+        caps = (DoseQuantile(SCALE_Q), DoseQuantile(SCALE_Q))
+    else:
+        caps = (
+            SupportBoundary(LinearQuantileRegression(["W"]), SCALE_Q),
+            SupportBoundary(LinearQuantileRegression(["W", "L2", "A1"]), SCALE_Q),
+        )
+    return DynamicRegimen("tuned", tuple(Scale(FACTOR, cap=cap, target=target) for cap in caps))
+
+
+@pytest.fixture
+def unit_slope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation of the review: ``|e'| = 1`` on every tuned map."""
+    from cleverly.estimators import _tuned_policies as point_module
+    from cleverly.interventions import policy as policy_module
+
+    original = policy_module.tuned_cap_parts
+
+    def forced(policy: Any, fitted: Any, frame: Any, n: int) -> Any:
+        boundary, edge, gradient, _ = original(policy, fitted, frame, n)
+        return boundary, edge, gradient, 1.0
+
+    monkeypatch.setattr(regimen_module, "tuned_cap_parts", forced)
+    monkeypatch.setattr(point_module, "tuned_cap_parts", forced)
+
+
+@pytest.mark.parametrize("path", ["w", "a1", "l2", "a2"])
+@pytest.mark.parametrize("kind", sorted(SCALE_TUNERS))
+def test_t_e4_the_scale_population_curve_is_the_pathwise_derivative(kind: str, path: str) -> None:
+    """T-e4 (i) for ``Scale(0.5)``: the identity holds with the slope ``1/f`` in the oracle."""
+    law = lawq.LawQ(tuners=SCALE_TUNERS[kind], factor=FACTOR)
+    assert abs(lawq.pathwise_derivative(law, path) - law.score_pairing(path)) < IDENTITY
+
+
+@pytest.mark.parametrize("kind", sorted(SCALE_TUNERS))
+def test_m_e4_the_scale_identity_fails_without_the_tuning_term(kind: str) -> None:
+    law = lawq.LawQ(tuners=SCALE_TUNERS[kind], factor=FACTOR)
+    for path in ("a1", "a2"):
+        gap = abs(lawq.pathwise_derivative(law, path) - law.score_pairing(path, tuning=False))
+        assert gap > CAUGHT
+
+
+@pytest.mark.parametrize("kind", sorted(SCALE_TUNERS))
+def test_t_e4_the_scale_oracle_carries_a_large_tuning_term(kind: str) -> None:
+    term, phi = lawq.LawQ(tuners=SCALE_TUNERS[kind], factor=FACTOR).spreads()
+    assert term / phi > 0.1
+
+
+def test_the_scale_oracle_slope_is_the_slope_of_the_edge() -> None:
+    """``d e / d c`` of the oracle's edge is ``1/f`` for a scale and 1 for a shift."""
+    c = np.array([0.4])
+    scale = lawq.LawQ(factor=FACTOR)
+    assert (scale.edge(c + 1e-3) - scale.edge(c)) / 1e-3 == pytest.approx(scale.slope)
+    assert scale.slope == pytest.approx(2.0)
+    assert lawq.LawQ().slope == 1.0
+
+
+def _library_derivatives(result: Any) -> tuple[np.ndarray, np.ndarray]:
+    first, second = result.fits["tuned"].tuning_derivatives
+    return first, second
+
+
+def _relative_gap(estimate: np.ndarray, truth: np.ndarray) -> float:
+    return float(np.linalg.norm(estimate - truth) / np.linalg.norm(truth))
+
+
+@pytest.fixture(scope="module")
+def big_frame() -> pd.DataFrame:
+    return lawq.sample(8_000, 11)
+
+
+def test_t_e4_the_scale_derivative_matches_the_oracle(big_frame: Any) -> None:
+    """T-e4 (i) at the library: ``fit.tuning_derivatives`` against the oracle's, ``Scale(0.5)``.
+
+    Flexible regressions make ``m_t`` consistent near the boundary, which the kernel
+    estimate of the derivative needs (m3 of the review).  The relative gap is about 0.1 at
+    n = 8,000; a forced slope of 1 halves the derivative and leaves a gap near 0.5.
+    """
+    law = lawq.LawQ(tuners=SCALE_TUNERS["regression"], factor=FACTOR)
+    result = _fit(LTMLE, [_scale_regimen("regression")], big_frame, n_folds=1, **_hgb_settings())
+    for node, estimate in zip((1, 2), _library_derivatives(result), strict=True):
+        assert _relative_gap(estimate, law.derivative(node)) < 0.3
+
+
+def test_m_e4_a_unit_slope_fails_the_scale_derivative(big_frame: Any, unit_slope: None) -> None:
+    law = lawq.LawQ(tuners=SCALE_TUNERS["regression"], factor=FACTOR)
+    result = _fit(LTMLE, [_scale_regimen("regression")], big_frame, n_folds=1, **_hgb_settings())
+    gaps = [
+        _relative_gap(estimate, law.derivative(node))
+        for node, estimate in zip((1, 2), _library_derivatives(result), strict=True)
+    ]
+    assert min(gaps) > 0.4
+
+
+def test_t_e4_the_shift_derivative_matches_the_oracle(big_frame: Any) -> None:
+    """The same check on ``Shift(1.0)`` at the median: the (e2) derivative against the oracle."""
+    law = lawq.LawQ(tuners=ORACLE_TUNERS["regression"])
+    result = _fit(
+        LTMLE, [_regimen("population", "regression")], big_frame, n_folds=1, **_hgb_settings()
+    )
+    for node, estimate in zip((1, 2), _library_derivatives(result), strict=True):
+        assert _relative_gap(estimate, law.derivative(node)) < 0.3
+
+
+@pytest.mark.parametrize(
+    ("estimator", "folds", "kind"),
+    [
+        (LTMLE, 1, "quantile"),
+        (LTMLE, 3, "regression"),
+        (SDR, 1, "regression"),
+        (SDR, 3, "quantile"),
+    ],
+)
+def test_t_e4_the_scale_curve_adds_the_tuning_term_longhand(
+    estimator: type, folds: int, kind: str, frame: Any
+) -> None:
+    """T-e4 (ii) for ``Scale``: the longhand computes its own edge ``c / f`` and slope ``1/f``."""
+    result = _fit(estimator, [_scale_regimen(kind)], frame, n_folds=folds)
+    fit = result.fits["tuned"]
+    term = _longhand_term(frame, fit, kind, q=SCALE_Q, factor=FACTOR)
+    np.testing.assert_allclose(fit.tuning_term, term, rtol=1e-8, atol=1e-10)
+    assert np.std(term) > 0.05 * np.std(fit.influence_curve_scaled)
+
+
+@pytest.mark.parametrize("kind", ["quantile", "regression"])
+def test_m_e4_a_unit_slope_moves_the_scale_curve(kind: str, frame: Any, unit_slope: None) -> None:
+    """M1: with ``|e'| = 1`` the reported term misses the longhand term by half of it."""
+    result = _fit(LTMLE, [_scale_regimen(kind)], frame, n_folds=1)
+    fit = result.fits["tuned"]
+    term = _longhand_term(frame, fit, kind, q=SCALE_Q, factor=FACTOR)
+    gap = float(np.max(np.abs(np.asarray(fit.tuning_term) - term)))
+    assert gap > 0.3 * float(np.max(np.abs(term)))
+    assert gap > CAUGHT
+
+
+def test_the_scale_standard_error_is_the_oracle_standard_error(big_frame: Any) -> None:
+    """The interval of a tuned ``Scale`` has the oracle's width (consistent regressions)."""
+    result = _fit(LTMLE, [_scale_regimen("regression")], big_frame, n_folds=1, **_hgb_settings())
+    curve = result.fits["tuned"].influence_curve_scaled
+    se = float(np.sqrt(np.mean(curve**2) / big_frame.shape[0]))
+    oracle = lawq.LawQ(tuners=SCALE_TUNERS["regression"], factor=FACTOR).efficient_sd() / np.sqrt(
+        big_frame.shape[0]
+    )
+    assert abs(se / oracle - 1.0) < 0.05
+    law = lawq.LawQ(tuners=SCALE_TUNERS["regression"], factor=FACTOR)
+    assert abs(result.psi("ey_regimen[tuned]") - law.tuned_psi) < 4.0 * oracle
+
+
+# ------------------------------------------------------------------ declared atoms (M3)
+
+
+def _atom_frame(frame: pd.DataFrame, column: str = "A1") -> pd.DataFrame:
+    """Law Q with 41% of the doses at ``column`` held at 3, so the median sits on the atom."""
+    out = frame.copy()
+    held = np.random.default_rng(5).uniform(size=len(out)) < 0.41
+    out.loc[held, column] = 3.0
+    return out
+
+
+def _atom_refusal(where: str) -> str:
+    return (
+        f"a data-tuned cap is not combined with declared dose atoms: {where} declares the "
+        "atom(s) 3. The cap is a quantile of the dose law. Where that law has an atom, the "
+        "quantile does not move with the law while its level stays inside the atom's jump, "
+        "and it is not pathwise differentiable at the jump's edge. The influence function of "
+        "the tuner and the derivative of the mean in the cap both need a density of the dose "
+        "at the cap, and this release does not derive them at an atom. Declare the cap as a "
+        "number, or tune the cap at a node with no declared atoms"
+    )
+
+
+@pytest.mark.parametrize("estimator", [LTMLE, SDR])
+@pytest.mark.parametrize("target", ["population", "fold_average"])
+def test_m3_a_tuned_cap_at_a_declared_atom_is_refused_before_any_learner(
+    estimator: type, target: str, frame: Any
+) -> None:
+    """M3: the text names the missing derivation, and no learner is fitted."""
+    held = _atom_frame(frame)
+    assert np.mean(held["A1"] == 3.0) > 0.4
+    with pytest.raises(CapabilityError) as caught, warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        estimator(
+            [_regimen(target)], **_settings(**_raising(), n_folds=2 if target[0] == "f" else 1)
+        ).fit(held, dose_atoms={"A1": (3.0,)}, **COLUMNS)
+    assert str(caught.value) == _atom_refusal("the node 'A1'")
+
+
+def test_m3_a_tuned_cap_at_a_node_without_atoms_ignores_another_node_atoms(frame: Any) -> None:
+    """Atoms at node 2 do not refuse a regimen that tunes node 1 only."""
+    held = _atom_frame(frame, "A2")
+    regimen = DynamicRegimen(
+        "tuned", (Shift(1.0, cap=DoseQuantile(0.5), target="population"), Shift(0.0, cap=None))
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE([regimen], **_settings(n_folds=1)).fit(
+            held, dose_atoms={"A2": (3.0,)}, **COLUMNS
+        )
+    assert np.isfinite(result.psi("ey_regimen[tuned]"))

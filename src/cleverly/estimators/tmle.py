@@ -186,6 +186,7 @@ from ..interventions.policy import (
     preflight_point_policies,
     preflight_vector_policies,
     refuse_policy_declarations,
+    tuned_component,
     vector_msm_refusal,
     vector_route_refusal,
     whole_vector_refusal,
@@ -233,6 +234,7 @@ from ._strata import (
 from ._tuned_policies import (
     declares_tuned,
     in_sample_policies,
+    point_tuned_component_refusal,
     refuse_tuned_compositions,
     resolve_point_policies,
 )
@@ -1256,12 +1258,14 @@ class TMLE:
             component to its support, given the covariates, the categorical components and
             the doses before it in column order.  Each branch of a joint policy is checked
             on the components it assigns.
-        dose_atoms : sequence of float
+        dose_atoms : sequence of float, or mapping of str to sequence of float
             The doses with a recorded point mass, such as a list price.  The policy ratio
             is then taken against Lebesgue plus counting measure on these doses, on both
             ``ratio`` routes, and a piece may send an interval to one of them with
             ``Piece(lower, upper, to_atom=value)``.  A dose with an undeclared point mass is
-            refused before any learner.
+            refused before any learner.  A vector treatment maps each continuous component
+            to its atoms, and that component's factor of the joint density is then mixed;
+            the density route refuses a ``to_atom`` piece there.
         treatment_probabilities : Any
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
@@ -3085,6 +3089,10 @@ class TMLE:
             # :meth:`_refuse_vector_compositions` admits joint policies only.  The
             # undeclared atoms (R-b4) and a declared component support are checked here,
             # before any learner (X40 parts (a) and (b)).
+            for policy in self.policies or ():
+                found = tuned_component(policy)
+                if found is not None:
+                    raise CapabilityError(point_tuned_component_refusal(policy, found[0]))
             if self.policies:
                 preflight_vector_policies(
                     tuple(self.policies), data, ratio=self.ratio, density_bins=self.density_bins
@@ -3345,6 +3353,13 @@ class TMLE:
         # A data-tuned cap is fitted here, on the realised split and before any learner
         # (X40 part (e)), and the expanded policies are what the nuisances evaluate.
         tuned = resolve_point_policies(self.policies, data, folds) if self.policies else None
+        if tuned is not None:
+            # Each fold's map, and each fold-average component, meets R-a1, R-b1 and R-b3
+            # before any learner, as the map at theta_n did in ``fit``.
+            for fold_policies in (tuned.expanded, *(tuned.by_fold or ())):
+                preflight_point_policies(
+                    fold_policies, data, ratio=self.ratio, density_bins=self.density_bins
+                )
         reference = None if self.reference is None else str(self.reference)
         estimates = fit_nuisances(
             data,

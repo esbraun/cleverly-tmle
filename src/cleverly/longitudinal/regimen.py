@@ -77,11 +77,13 @@ from ..interventions.base import (
 from ..interventions.incremental import Incremental
 from ..interventions.policy import (
     POLICY_TYPES,
+    ForbiddenRead,
     JointComponent,
     JointPolicy,
     Scale,
     Shift,
     check_continuous_policy,
+    component_source,
     describe_policy,
     discrete_assignments,
     joint_assignments,
@@ -91,6 +93,7 @@ from ..interventions.policy import (
     refuse_policy_declarations,
     resolve_tuned_policy,
     tuned_cap_parts,
+    tuned_component,
     tuned_policy,
 )
 from ..interventions.tuning import (
@@ -100,6 +103,7 @@ from ..interventions.tuning import (
     SupportBoundary,
     fit_tuner,
     refuse_outcome_tuners,
+    tuned_cap_at_atoms,
     tuner_influence,
 )
 from ..learners.crossfit import Folds
@@ -1107,6 +1111,9 @@ class NodeTuning:
         :math:`|e_t'|`.
     at_risk : BoolArray
         ``(n,)`` the rows at risk at the node.
+    component : str or None
+        At a mixed node, the tuned dose component of the node's
+        :class:`~cleverly.interventions.JointPolicy`; ``None`` at a node of one dose.
     """
 
     time: int
@@ -1119,6 +1126,7 @@ class NodeTuning:
     gradient: FloatArray
     slope: float
     at_risk: BoolArray
+    component: str | None = None
 
 
 #: What a fold-average plan appends to its regimen's label in every reported name.
@@ -1137,19 +1145,31 @@ def declares_tuned(regimens: Sequence[RegimenSpec]) -> bool:
     -------
     bool
         ``True`` when some node is a tuned :class:`~cleverly.interventions.Shift` or
-        :class:`~cleverly.interventions.Scale`.
+        :class:`~cleverly.interventions.Scale`, or a
+        :class:`~cleverly.interventions.JointPolicy` with a tuned component.
     """
-    return any(
-        isinstance(regimen, DynamicRegimen) and any(tuned_policy(node) for node in regimen.plan)
-        for regimen in regimens
+    return any(_tuned(regimen) for regimen in regimens)
+
+
+def _tuned_map(node: object) -> Shift | Scale | None:
+    """The tuned map of a node: the node itself, or a joint policy's tuned component."""
+    if isinstance(node, (Shift, Scale)) and tuned_policy(node):
+        return node
+    found = tuned_component(node)
+    return None if found is None else found[1]
+
+
+def _tuned(regimen: RegimenSpec) -> bool:
+    return isinstance(regimen, DynamicRegimen) and any(
+        _tuned_map(node) is not None for node in regimen.plan
     )
 
 
 def _regimen_target(regimen: DynamicRegimen) -> str | None:
     targets = {
-        str(node.target)
-        for node in regimen.plan
-        if isinstance(node, (Shift, Scale)) and tuned_policy(node)
+        str(tuned.target)
+        for tuned in (_tuned_map(node) for node in regimen.plan)
+        if tuned is not None
     }
     if len(targets) > 1:
         raise CapabilityError(
@@ -1171,7 +1191,7 @@ def resolve_tuned_plans(
     frame.  ``target="population"`` resolves the plan at that fit, :math:`\\theta_n`, and
     records the tuner's influence function.  On a cross-fitted fit each outer fold also
     gets the plan at its training rows' fit, :math:`\\theta^{(-k)}`, which that fold's
-    untargeted recursion and its classifier read (plan section 2.5, M3).
+    untargeted recursion and its classifier read (``test_t_e7_each_fold_trains_at_its_own_tuner``).
     ``target="fold_average"`` resolves one plan per outer fold, at its training rows' fit,
     and the returned plan holds, at row ``i``, the doses of the fold that holds ``i`` out.
     Each fold plan runs the declared-support and atom checks over every row, since a fold's
@@ -1195,15 +1215,16 @@ def resolve_tuned_plans(
     ------
     CapabilityError
         R-e3 for a tuner that reads an outcome column, R-e4 for the fold-average target on
-        one fold, and a tuned cap at a node that does not hold one dose.
+        one fold, a tuned cap at a node that does not hold one dose or a dose component, a
+        tuned cap at a dose with declared atoms, and the joint compositions of
+        :func:`~cleverly.interventions.policy.tuned_component`.
     """
     plans = []
     for regimen in regimens:
-        if not (
-            isinstance(regimen, DynamicRegimen) and any(tuned_policy(node) for node in regimen.plan)
-        ):
+        if not _tuned(regimen):
             plans.append(_resolve_plan(regimen, data, collapse=True))
             continue
+        assert isinstance(regimen, DynamicRegimen)
         plans.append(_resolve_tuned_plan(regimen, data, folds))
     return tuple(plans)
 
@@ -1220,37 +1241,37 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
     target = _regimen_target(regimen)
     if target == "fold_average":
         # The fold-average target is a different parameter from the population one, so its
-        # report names it (X40 plan section 2.4): ``ey_regimen[<label>, fold average]``.
+        # report names it: ``ey_regimen[<label>, fold average]``.
         regimen = replace(regimen, label=f"{regimen.label}{FOLD_AVERAGE_SUFFIX}")
     tuned_nodes = [
-        (time, node, cast(DoseQuantile | SupportBoundary, node.cap))
+        (time, node, cast(Shift | Scale, _tuned_map(node)))
         for time, node in enumerate(regimen.plan, start=1)
-        if isinstance(node, (Shift, Scale)) and tuned_policy(node)
+        if _tuned_map(node) is not None
     ]
     refuse_outcome_tuners(
-        [(node.name, tuner) for _, node, tuner in tuned_nodes], _outcome_columns(data)
+        [
+            (tuned.name, cast(DoseQuantile | SupportBoundary, tuned.cap))
+            for _, _, tuned in tuned_nodes
+        ],
+        _outcome_columns(data),
     )
     if target == "fold_average" and folds.is_single:
         raise CapabilityError(FOLD_AVERAGE_ONE_FOLD)
-    for time, node, _ in tuned_nodes:
-        if data.node_kind(time) != "continuous":
-            raise CapabilityError(
-                f"regimen {regimen.label!r} tunes the cap of {node.name!r} at the node "
-                f"{data.decision_name(time)!r}, which is not one continuous dose. A tuned cap "
-                "reads a quantile of the dose law, which has a density only at a continuous "
-                "node"
-            )
+    sources = {time: _tuner_source(regimen, data, time, node) for time, node, _ in tuned_nodes}
     weights = data.weights
     tunings: list[NodeTuning] = []
     in_sample: dict[int, RuleNode] = {}
     by_fold: list[dict[int, RuleNode]] = [
         {} for _ in range(0 if folds.is_single else folds.n_folds)
     ]
-    for time, node, tuner in tuned_nodes:
+    for time, node, tuned in tuned_nodes:
+        tuner = cast(DoseQuantile | SupportBoundary, tuned.cap)
+        component, doses, frame = sources[time]
         reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
-        doses = np.nan_to_num(data.node_codes(time), nan=0.0)
-        frame = lazy_frame(partial(data.policy_frame, time))
-        fitted = fit_tuner(tuner, doses, frame, reachable, weights)
+
+        fitted = _guarded(
+            regimen, time, frame, partial(fit_tuner, tuner, doses, frame, reachable, weights)
+        )
         fold_fits: list[FittedTuner] = []
         if not folds.is_single:
             for k, (train, _) in enumerate(folds):
@@ -1258,18 +1279,18 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
                 rows[train] = True
                 fold_fit = fit_tuner(tuner, doses, frame, reachable & rows, weights)
                 fold_fits.append(fold_fit)
-                by_fold[k][time] = resolve_tuned_policy(node, fold_fit)
-        in_sample[time] = resolve_tuned_policy(node, fitted)
+                by_fold[k][time] = _with_tuned(node, tuned, resolve_tuned_policy(tuned, fold_fit))
+        in_sample[time] = _with_tuned(node, tuned, resolve_tuned_policy(tuned, fitted))
         influence = (
             tuner_influence(fitted, doses, frame, reachable, weights)
             if target == "population"
             else None
         )
-        boundary, edge, gradient, slope = tuned_cap_parts(node, fitted, frame(), data.n)
+        boundary, edge, gradient, slope = tuned_cap_parts(tuned, fitted, frame(), data.n)
         tunings.append(
             NodeTuning(
                 time=time,
-                policy=node,
+                policy=tuned,
                 fitted=fitted,
                 fold_fits=tuple(fold_fits),
                 influence=influence,
@@ -1278,6 +1299,7 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
                 gradient=gradient,
                 slope=slope,
                 at_risk=reachable,
+                component=component,
             )
         )
 
@@ -1295,6 +1317,93 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
             folds=None if folds.is_single else folds,
         )
     return _stitched_plan(regimen, fold_plans, folds, tuple(tunings))
+
+
+def _tuner_source(
+    regimen: DynamicRegimen, data: LongitudinalData, time: int, node: object
+) -> tuple[str | None, FloatArray, Callable[[], Any]]:
+    """The tuned dose of a node, its natural values and the frame its tuner reads.
+
+    At a node of one dose the tuner reads the node's dose and policy frame.  At a mixed
+    node it reads the tuned component's natural dose and the frame that component's map
+    reads: the natural categorical components and the doses before it in the policy's
+    order (:func:`~cleverly.interventions.policy.component_source`).  The tuner is then the
+    component's conditional quantile given what its map may read, and the cap stays a
+    triangular map of the node.
+    """
+    where = f"the node {data.decision_name(time)!r}"
+    if data.node_kind(time) == "mixed" and isinstance(node, JointPolicy):
+        found = tuned_component(node)
+        assert found is not None
+        name, _ = found
+        components = data.node_components(time)
+        names = [component.name for component in components]
+        if name not in names or not components[names.index(name)].continuous:
+            raise CapabilityError(
+                f"regimen {regimen.label!r} tunes the cap of {name!r} at {where}, whose "
+                f"continuous components are "
+                f"{[c.name for c in components if c.continuous]}. A tuned cap reads a "
+                "quantile of a dose's law, so it applies to a continuous component"
+            )
+        atoms = data.component_atoms(time).get(name, ())
+        if atoms:
+            raise CapabilityError(tuned_cap_at_atoms(f"component {name!r} of {where}", atoms))
+        natural = np.nan_to_num(data.node_values(time), nan=0.0)
+        source = component_source(
+            node,
+            name,
+            components,
+            natural,
+            lambda extra: data.policy_frame(time, extra),
+            where,
+        )
+        return name, natural[:, names.index(name)], source
+    if data.node_kind(time) != "continuous":
+        tuned = _tuned_map(node)
+        raise CapabilityError(
+            f"regimen {regimen.label!r} tunes the cap of "
+            f"{getattr(tuned, 'name', tuned)!r} at {where}, which is not one continuous dose "
+            "or a dose component of a mixed node. A tuned cap reads a quantile of the dose "
+            "law, which has a density only at a dose"
+        )
+    atoms = data.node_atoms(time)
+    if atoms:
+        raise CapabilityError(tuned_cap_at_atoms(where, atoms))
+    doses = np.nan_to_num(data.node_codes(time), nan=0.0)
+    return None, doses, lazy_frame(partial(data.policy_frame, time))
+
+
+def _guarded(
+    regimen: DynamicRegimen, time: int, frame: Any, fit: Callable[[], FittedTuner]
+) -> FittedTuner:
+    """Fit a tuner, and refuse a tuner that reads a component its map may not read."""
+    try:
+        fitted = fit()
+        check = getattr(frame, "check", None)
+        if check is not None:
+            check()
+    except ForbiddenRead as error:
+        raise DataError(
+            f"the tuned cap of regimen {regimen.label!r} at time {time} reads {error}, which "
+            "the tuned component's map may not read. The tuner reads what the map reads: "
+            "the natural categorical components and the doses before the component in the "
+            "policy's order. Declare an order that puts the read dose first, or drop the "
+            "feature"
+        ) from error
+    return fitted
+
+
+def _with_tuned(node: object, tuned: Shift | Scale, resolved: object) -> RuleNode:
+    """A node with its tuned map replaced by the resolved map."""
+    if isinstance(node, JointPolicy):
+        from dataclasses import replace
+
+        components = {
+            name: resolved if component is tuned else component
+            for name, component in node.components.items()
+        }
+        return cast(RuleNode, replace(node, components=components))
+    return cast(RuleNode, resolved)
 
 
 def _stitched_plan(
@@ -1386,6 +1495,7 @@ def _resolve_mtp_node(
             where=where,
             supports=data.component_supports(time),
             regimen=regimen.label,
+            atoms=data.component_atoms(time),
         )
         weights = np.array([probability for probability, _ in joint])
         carry = np.where(reachable[:, None], np.tile(weights, (data.n, 1)), 0.0)

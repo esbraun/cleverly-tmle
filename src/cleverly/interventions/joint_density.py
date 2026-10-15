@@ -52,6 +52,27 @@ every frame the formula evaluates it on.  Each categorical map is checked to ret
 there.  These frames hold a candidate cell and the preimages of the earlier doses, which the
 check of the observed frames does not reach.
 
+**A dose with declared atoms has a mixed factor.**  Its factor is taken against Lebesgue
+measure plus counting measure on its atoms :math:`a_{k,1}, \ldots, a_{k,J}`: it is
+:math:`p_{k,j}(d_{<k}, c, h) = P(D_k = a_{k,j} \mid d_{<k}, c, h)` at an atom and
+:math:`(1 - \sum_j p_{k,j})\, f_k(d_k \mid d_{<k}, c, h)` elsewhere, with :math:`f_k` the
+density of the dose on the rows that hold no atom.  The dominating measure of the node is
+the product of these measures and counting measure on the cells, so the joint density is
+still the product of the factors, and the induced density is the same sum over cells and
+paths with one more kind of path.  At an atom value :math:`b_k` the paths of dose :math:`k`
+are its declared atoms :math:`a_{k,j}` whose image under the dose's map, on the path's frame,
+is :math:`b_k`, each with a Jacobian factor of one.  At any other value they are the smooth
+and identity pieces, as before.  A smooth piece that sends a dose of no recorded mass onto
+an atom adds Lebesgue mass there, which has measure zero at a point.  This is the mixed
+ratio of a dose of one column (:func:`~cleverly.interventions.policy.mixed_ratio`) applied to
+each conditional factor.  The ratio exists when every atom image on every frame is a
+declared atom (R-b3, checked here on the frames the formula reads, and on the observed
+frame by :func:`~cleverly.interventions.policy.check_continuous_policy`).  A piece that
+sends an interval to an atom (``Piece(..., to_atom=)``) is refused on this route: the mass
+it sends integrates every later factor over the interval, because those factors condition
+on the collapsed dose, and that integral is not a finite sum over preimages.  The
+classifier route takes such a piece.
+
 The remainder of the estimator is the product of the ratio error and the outcome
 regression's error, as for a scalar continuous node.  No regression is fitted on an
 estimated index: :math:`\beta` is a known function of observed values.  The ratio error
@@ -70,7 +91,7 @@ from typing import Any
 import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
-from ..data.validate import MAX_TREATMENT_LEVELS, arm_indicators
+from ..data.validate import MAX_TREATMENT_LEVELS, arm_indicators, atom_block
 from ..exceptions import CapabilityError, DataError, PositivityWarning
 from ..learners.crossfit import Folds
 from ..learners.density import (
@@ -91,6 +112,7 @@ from .policy import (
     Piecewise,
     Scale,
     Shift,
+    _atom_index,
     _call,
     _categorical_component,
     _check_monotone,
@@ -99,8 +121,10 @@ from .policy import (
     _per_row,
     _PieceBranch,
     _refuse_unresolved,
+    atom_image_refusal,
     dose_order,
     guarded_source,
+    policy_branches,
 )
 
 __all__ = [
@@ -281,10 +305,39 @@ def explicit_pieces(policy: object | None) -> tuple[ExplicitPiece, ...]:
     if isinstance(policy, ModifiedPolicy) and policy.pieces is not None:
         assert not isinstance(policy.pieces, Mapping)
         branch = _PieceBranch(policy.name, policy.pieces)
+        collapsed = [piece.to_atom for piece in branch.pieces if piece.to_atom is not None]
+        if collapsed:
+            raise CapabilityError(collapse_refusal(policy.name, float(collapsed[0])))
         return tuple(_declared_piece(branch, index) for index in range(len(branch.pieces)))
     raise CapabilityError(
         f"policy {getattr(policy, 'name', policy)!r} has no density ratio on a dose: declare "
         "a Shift, Scale, Piecewise or ModifiedPolicy with pieces"
+    )
+
+
+def collapse_refusal(name: str, atom: float) -> str:
+    """The refusal of a piece that sends an interval to an atom, on the density route.
+
+    Parameters
+    ----------
+    name : str
+        The component policy's name.
+    atom : float
+        The atom the piece sends its interval to.
+
+    Returns
+    -------
+    str
+        The text.
+    """
+    return (
+        f"policy {name!r} sends an interval of a component of a vector treatment to the "
+        f"declared atom {atom:g} (Piece(..., to_atom={atom:g})), which the density route does "
+        "not evaluate. The induced mass at the atom integrates the factors of the later "
+        "components over that interval, because each later factor conditions on the "
+        "collapsed dose, and that integral is not a finite sum over preimages. Pass "
+        "ratio='classifier', which estimates the ratio without a density, or map the "
+        "interval by a smooth piece"
     )
 
 
@@ -309,6 +362,8 @@ class NodeLayout:
         ``(n, p)`` the history the node's law conditions on.
     where : str
         The node, for the refusals.
+    atoms : tuple of tuple of float
+        Per dose, in column order, its declared atoms.  Empty when no dose declares one.
     """
 
     components: tuple[JointComponent, ...]
@@ -317,6 +372,22 @@ class NodeLayout:
     frame_with: FrameWith
     conditioning: FloatArray
     where: str
+    atoms: tuple[tuple[float, ...], ...] = ()
+
+    def dose_atoms(self, position: int) -> tuple[float, ...]:
+        """The declared atoms of the dose at ``position`` among the doses, or ``()``.
+
+        Parameters
+        ----------
+        position : int
+            The dose's position among the doses, in column order.
+
+        Returns
+        -------
+        tuple of float
+            The atoms.
+        """
+        return tuple(self.atoms[position]) if self.atoms else ()
 
     @property
     def n(self) -> int:
@@ -419,11 +490,12 @@ class NodeLayout:
         Returns
         -------
         ndarray
-            The design.
+            The design.  An earlier dose with declared atoms adds the indicator of each
+            atom beside it, as the outcome designs do.
         """
-        return np.column_stack(
-            [self.conditioning, self.cell_block(codes), np.asarray(doses)[:, :position]]
-        )
+        values = np.asarray(doses, dtype=float)
+        earlier = [atom_block(values[:, k], self.dose_atoms(k)) for k in range(position)]
+        return np.column_stack([self.conditioning, self.cell_block(codes), *earlier])
 
     def labels(self, index: int, values: FloatArray) -> Any:
         """The natural values of one component, as a map reads them.
@@ -632,6 +704,7 @@ class _Design:
     levels: tuple[int, ...]
     codes: FloatArray
     doses: FloatArray
+    atoms: tuple[tuple[float, ...], ...] = ()
 
     @property
     def nbytes(self) -> int:
@@ -644,7 +717,12 @@ class _Design:
         else:
             codes = np.repeat(self.codes, len(index), axis=0)
         blocks = [arm_indicators(codes[:, j], count) for j, count in enumerate(self.levels)]
-        return np.column_stack([fitted[:, : self.width], *blocks, self.doses[index]])
+        doses = self.doses[index]
+        earlier = [
+            atom_block(doses[:, k], self.atoms[k] if self.atoms else ())
+            for k in range(doses.shape[1])
+        ]
+        return np.column_stack([fitted[:, : self.width], *blocks, *earlier])
 
 
 def _digest(values: FloatArray) -> str:
@@ -694,6 +772,7 @@ class _Requests:
                 tuple(len(layout.components[index].levels) for index in layout.categorical),
                 stored,
                 np.array(earlier, dtype=float),
+                tuple(layout.dose_atoms(k) for k in range(position)),
             )
             self.values[position][key] = []
         self.values[position][key].append(np.asarray(at, dtype=float))
@@ -711,7 +790,8 @@ class _Requests:
             max(len(self.layout.components[index].levels) - 1, 1)
             for index in self.layout.categorical
         )
-        rows = 8 * held_out * (width + position + 2 * n_bins)
+        earlier = sum(1 + len(self.layout.dose_atoms(k)) for k in range(position))
+        rows = 8 * held_out * (width + earlier + 2 * n_bins)
         return PredictionMemory(
             held=stored + values + predictions,
             shipped=stored + values,
@@ -859,6 +939,11 @@ def _enumerate(
                 b = target[:, index]
                 policy = branch.declared.get(names[index])
                 checked = valid & _inside(betas, earlier, observed_range, layout)
+                atoms = layout.dose_atoms(doses.index(index))
+                # A value at a declared atom is reached by the atoms' own paths alone: a
+                # smooth or identity piece adds Lebesgue mass there, of measure zero at a
+                # point under the counting part of the dominating measure.
+                at_atom = _atom_index(b, atoms) if atoms else np.full(layout.n, -1, dtype=np.int64)
                 preimages: list[tuple[FloatArray, BoolArray]] = []
                 for piece in pieces[index]:
                     if piece.identity:
@@ -871,11 +956,26 @@ def _enumerate(
                     safe = np.where(usable, beta, layout.natural[:, index])
                     inside = usable & piece.member(safe, frame)
                     preimages.append((safe, inside))
+                    kept = inside & (at_atom < 0)
                     grown.append(
                         (
-                            {**betas, index: np.where(inside, beta, layout.natural[:, index])},
-                            inside,
-                            jacobian * np.abs(np.where(inside, slope, 0.0)),
+                            {**betas, index: np.where(kept, beta, layout.natural[:, index])},
+                            kept,
+                            jacobian * np.abs(np.where(kept, slope, 0.0)),
+                        )
+                    )
+                if atoms:
+                    grown.extend(
+                        _atom_paths(
+                            branch.name,
+                            policy,
+                            atoms,
+                            at_atom,
+                            (betas, valid, jacobian),
+                            index,
+                            frame,
+                            checked,
+                            f"component {names[index]!r} of {where}",
                         )
                     )
                 if isinstance(policy, ModifiedPolicy) and checked.any():
@@ -911,6 +1011,64 @@ def _enumerate(
                 )
             terms.append(_Term(cell_index, weight, tuple(factors)))
     return terms
+
+
+def _atom_paths(
+    name: str,
+    policy: object | None,
+    atoms: tuple[float, ...],
+    at_atom: IntArray,
+    path: tuple[dict[int, FloatArray], BoolArray, FloatArray],
+    index: int,
+    frame: FrameSource,
+    checked: BoolArray,
+    where: str,
+) -> list[tuple[dict[int, FloatArray], BoolArray, FloatArray]]:
+    """The paths of a dose with declared atoms that start at an atom, one per atom.
+
+    Atom :math:`a_j` reaches the evaluated value :math:`b` on a row when :math:`b` is a
+    declared atom and the dose's map sends :math:`a_j` to it on the path's frame.  Its
+    Jacobian factor is one, because the counting part of the dominating measure has no
+    derivative.  The image of each atom must be a declared atom on every frame the formula
+    reads (R-b3): an image off the atoms gives the induced law an atom the observed law
+    lacks, and no ratio exists.  The check is conservative on a frame of zero estimated
+    density, as the other checks of the counterfactual frames are.
+    """
+    betas, valid, jacobian = path
+    n = valid.size
+    if policy is None:
+        branch = None
+    else:
+        ((_, branch),) = policy_branches(policy)
+    out = []
+    for atom in atoms:
+        source = np.full(n, float(atom))
+        if branch is None:
+            image = source
+        else:
+            with np.errstate(all="ignore"):
+                assigned = np.asarray(branch.assign(source, frame), dtype=float).reshape(-1)
+            image = np.full(n, float(assigned[0])) if assigned.size == 1 else assigned
+        target = _atom_index(image, atoms)
+        bad = checked & (target < 0)
+        if bad.any():
+            first = float(image[np.flatnonzero(bad)[0]])
+            raise CapabilityError(
+                atom_image_refusal(
+                    name, where, float(atom), first, describe=name, note=_COUNTERFACTUAL_ATOMS
+                )
+            )
+        hit = valid & (at_atom >= 0) & (target == at_atom)
+        out.append(({**betas, index: source}, hit, np.where(hit, jacobian, 0.0)))
+    return out
+
+
+#: How the atom-image check reads a counterfactual frame, appended to its refusal.
+_COUNTERFACTUAL_ATOMS = (
+    ". The check reads each frame the density ratio evaluates, which holds a candidate "
+    "categorical cell or the preimages of the earlier doses, before any learner runs, so it "
+    "is conservative on a frame the data give no mass"
+)
 
 
 def _inside(
@@ -1046,18 +1204,35 @@ def evaluate_joint_density(
     rows = layout.rows
     train = rows if fit_rows is None else rows & np.asarray(fit_rows, dtype=bool)
     natural_doses = layout.natural[:, doses]
+    # Per dose, the declared atom each natural dose equals, ``-1`` for none.  A dose with
+    # atoms fits its density on the rows that hold no atom, as a dose of one column does.
+    natural_atoms = [
+        _atom_index(natural_doses[:, k], layout.dose_atoms(k))
+        if layout.dose_atoms(k)
+        else np.full(n, -1, dtype=np.int64)
+        for k in range(len(doses))
+    ]
     # Each dose's bin edges are read from every row at risk, before any fit, as the fit
     # itself reads them; a restricted fit (``fit_rows``) keeps them, as the scalar node does.
-    dose_edges: list[list[float]] = []
+    # A dose whose every row at risk holds an atom fits no density (``None``).
+    dose_edges: list[list[float] | None] = []
     for k in range(len(doses)):
-        grid_values = natural_doses[rows, k]
+        grid_values = natural_doses[rows & (natural_atoms[k] < 0), k]
+        if grid_values.size == 0:
+            dose_edges.append(None)
+            continue
         bins = default_density_bins(grid_values.size) if n_bins is None else n_bins
         dose_edges.append(bin_edges(grid_values, bins, name=names[doses[k]]).tolist())
     # The range a fitted density can be positive on.  The density lookup returns exactly 0
     # outside its outer edges (``learners.density._lookup``), so a frame whose earlier
     # preimages leave this range contributes nothing, and :func:`_inside` skips its checks.
     # Keep the two in step: a lookup that extrapolated past the edges would need checks there.
-    observed_range = [(float(edges[0]), float(edges[-1])) for edges in dose_edges]
+    # A declared atom outside the edges has mass, so the range covers the atoms too.
+    observed_range = []
+    for k, edges in enumerate(dose_edges):
+        ends = [] if edges is None else [float(edges[0]), float(edges[-1])]
+        ends.extend(float(atom) for atom in layout.dose_atoms(k))
+        observed_range.append((min(ends), max(ends)))
     coverage = [_coverage_points(natural_doses[rows, k]) for k in range(len(doses))]
     requests = _Requests(layout, [{} for _ in doses], [{} for _ in doses])
     induced_terms: dict[tuple[int, int], list[_Term]] = {}
@@ -1085,17 +1260,20 @@ def evaluate_joint_density(
     ]
     # The counterfactual designs and their values count too, with a copy per parallel
     # worker: a node with many cells, pieces or policies holds more of them than tables.
-    bin_counts = [len(edges) - 1 for edges in dose_edges]
-    preflight_conditional_densities(
-        learner,
-        [(fit_designs[k].shape[1], natural_doses[:, k]) for k in range(len(doses))],
-        folds,
-        n_bins=n_bins,
-        fit_mask=rows,
-        n_jobs=n_jobs,
-        names=[names[index] for index in doses],
-        predictions=[requests.memory(k, bin_counts[k], folds) for k in range(len(doses))],
-    )
+    fitted_doses = [k for k in range(len(doses)) if dose_edges[k] is not None]
+    if fitted_doses:
+        preflight_conditional_densities(
+            learner,
+            [(fit_designs[k].shape[1], natural_doses[:, k]) for k in fitted_doses],
+            folds,
+            n_bins=n_bins,
+            fit_mask=rows,
+            n_jobs=n_jobs,
+            names=[names[doses[k]] for k in fitted_doses],
+            predictions=[
+                requests.memory(k, len(dose_edges[k] or ()) - 1, folds) for k in fitted_doses
+            ],
+        )
     # The categorical factor.
     observed_cells = layout.cell_codes(layout.natural[:, layout.categorical], cells)
     cell_diagnostics: list[SuperLearnerDiagnostics] = []
@@ -1125,29 +1303,53 @@ def evaluate_joint_density(
     diagnostics: dict[str, DensityDiagnostics] = {}
     retained = 0
     for position, index in enumerate(doses):
-        density, report, predicted_values = fit_conditional_density(
-            learner,
-            fit_designs[position],
-            natural_doses[:, position],
-            weights,
-            folds,
-            n_bins=n_bins,
-            edges=dose_edges[position],
-            groups=groups,
-            n_jobs=n_jobs,
-            fit_mask=train,
-            name=names[index],
-            retained=retained,
-            predict_designs={
-                key: (design, np.column_stack(requests.values[position][key]))
-                for key, design in requests.designs[position].items()
-            },
-        )
-        densities[names[index]] = density
-        diagnostics[names[index]] = report
-        retained += density.bin_probabilities.nbytes + sum(
-            values.nbytes for values in predicted_values.values()
-        )
+        atoms = layout.dose_atoms(position)
+        continuous = natural_atoms[position] < 0
+        edges = dose_edges[position]
+        if edges is None:
+            predicted_values = {
+                key: np.zeros((n, len(columns)))
+                for key, columns in requests.values[position].items()
+            }
+        else:
+            density, report, predicted_values = fit_conditional_density(
+                learner,
+                fit_designs[position],
+                natural_doses[:, position],
+                weights,
+                folds,
+                n_bins=n_bins,
+                edges=edges,
+                groups=groups,
+                n_jobs=n_jobs,
+                fit_mask=train & continuous if atoms else train,
+                name=names[index],
+                retained=retained,
+                predict_designs={
+                    key: (design, np.column_stack(requests.values[position][key]))
+                    for key, design in requests.designs[position].items()
+                },
+            )
+            densities[names[index]] = density
+            diagnostics[names[index]] = report
+            retained += density.bin_probabilities.nbytes + sum(
+                values.nbytes for values in predicted_values.values()
+            )
+        if atoms:
+            predicted_values = _mixed_factor(
+                learner,
+                layout,
+                position,
+                fit_designs[position],
+                natural_atoms[position],
+                requests,
+                predicted_values,
+                weights=weights,
+                folds=folds,
+                train=train,
+                groups=groups,
+                n_jobs=n_jobs,
+            )
         evaluated.append(predicted_values)
 
     def product(factors: Sequence[tuple[int, Hashable, int]]) -> FloatArray:
@@ -1171,6 +1373,74 @@ def evaluate_joint_density(
         diagnostics=diagnostics,
         cell_diagnostics=tuple(cell_diagnostics),
     )
+
+
+def _mixed_factor(
+    learner: Learner,
+    layout: NodeLayout,
+    position: int,
+    fit_design: FloatArray,
+    natural_atom: IntArray,
+    requests: _Requests,
+    density_values: Mapping[Hashable, FloatArray],
+    *,
+    weights: FloatArray,
+    folds: Folds,
+    train: BoolArray,
+    groups: IntArray | None,
+    n_jobs: int,
+) -> dict[Hashable, FloatArray]:
+    r"""The factor of a dose with declared atoms at every requested design and value.
+
+    A multinomial classifier of "which declared atom, or none" on the dose's design gives
+    :math:`p_{k,j}`, cross-fitted on the folds every factor uses and predicted out of fold
+    at each requested design.  The factor is :math:`p_{k,j}` at atom :math:`a_{k,j}` and
+    :math:`(1 - \sum_j p_{k,j}) f_k` elsewhere, with ``density_values`` the density
+    :math:`f_k` of the rows that hold no atom at the same designs and values.
+    """
+    from ..estimators._nuisance import cross_fit_predictions
+
+    atoms = layout.dose_atoms(position)
+    n = layout.n
+    label = np.where(layout.rows & (natural_atom >= 0), natural_atom + 1, 0).astype(float)
+    classes = tuple(float(j) for j in range(len(atoms) + 1))
+    none = bool(np.any(train & (natural_atom < 0)))
+    if not none:
+        classes = classes[1:]
+    keys = list(requests.designs[position])
+    designs = {
+        str(number): requests.designs[position][key](np.arange(n), fit_design)
+        for number, key in enumerate(keys)
+    }
+    predicted, _ = cross_fit_predictions(
+        learner,
+        fit_design,
+        label,
+        weights,
+        folds,
+        task="classification",
+        predict_designs=designs,
+        fit_mask=train,
+        groups=groups,
+        clip=(0.0, 1.0),
+        classes=classes,
+        n_jobs=n_jobs,
+    )
+    rows = np.arange(n)
+    out: dict[Hashable, FloatArray] = {}
+    for number, key in enumerate(keys):
+        probabilities = np.asarray(predicted[str(number)], dtype=float)
+        p = probabilities[:, 1:] if none else probabilities
+        share = np.clip(1.0 - p.sum(axis=1), 0.0, 1.0)
+        values = np.column_stack(requests.values[position][key])
+        density = np.asarray(density_values[key], dtype=float)
+        columns = []
+        for column in range(values.shape[1]):
+            which = _atom_index(values[:, column], atoms)
+            at_atom = p[rows, np.maximum(which, 0)]
+            columns.append(np.where(which >= 0, at_atom, share * density[:, column]))
+        out[key] = np.column_stack(columns)
+    return out
 
 
 def warn_unsupported_values(

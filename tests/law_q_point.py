@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .law_q_tuned import A_RANGE, DELTA, LawQ, Tilt, Tuner, _segments, expit
+from .law_q_tuned import A_RANGE, LawQ, Tilt, Tuner, _segments, expit
 
 __all__ = ["PointLawQ", "pathwise_derivative", "sample"]
 
@@ -44,6 +44,8 @@ class PointLawQ(LawQ):
         The path coordinates; only ``w`` and ``a1`` apply.
     shift : float or None
         The outcome's offset ``s``; ``None`` computes it at the untilted law.
+    factor : float or None
+        The ``Scale`` factor of the map; ``None`` is ``Shift(1.0)``.
     """
 
     tuner: Tuner = field(default_factory=Tuner)
@@ -78,11 +80,11 @@ class PointLawQ(LawQ):
         """``(w, a, mass, moved)`` on the observed ``(W, A)`` law, split at ``e`` and ``c``."""
         w, fw = self.w_grid
         c = self.cap(1, {"W": w})
-        splits = np.stack([c - DELTA, c, np.full(w.size, A_RANGE[0] + DELTA)], axis=1)
+        splits = np.stack([self.edge(c), c, np.full(w.size, self.floor)], axis=1)
         a, wa = _segments(*A_RANGE, splits)
         ww = np.broadcast_to(w[:, None], a.shape)
         mass = fw[:, None] * self.g1(a, w[:, None]) * wa
-        moved = np.where(a + DELTA <= c[:, None], a + DELTA, a)
+        moved = self.move(a, c[:, None])
         return ww, a, mass, moved
 
     def score_pairing(self, path: str, *, tuning: bool = True) -> float:
@@ -117,7 +119,9 @@ class PointLawQ(LawQ):
         )
 
     def tilted(self, path: str, eps: float) -> PointLawQ:  # type: ignore[override]
-        return PointLawQ(tuner=self.tuner, tilt=Tilt(**{path: eps}), shift=self.s)
+        return PointLawQ(
+            tuner=self.tuner, tilt=Tilt(**{path: eps}), shift=self.s, factor=self.factor
+        )
 
 
 def pathwise_derivative(law: PointLawQ, path: str, step: float = 2e-3) -> float:

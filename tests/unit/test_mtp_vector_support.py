@@ -25,7 +25,7 @@ import pytest
 import tests.discrete_law_policy_point as point_law
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import DataError
 from cleverly.interventions import JointPolicy, ModifiedPolicy, Shift, Support
 from cleverly.interventions import policy as policy_module
 from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData
@@ -143,8 +143,12 @@ def test_the_declaration_is_a_mapping_of_continuous_components() -> None:
         data.with_dose_declarations({"F": SUPPORT})
     with pytest.raises(DataError, match="a declared support is Support"):
         data.with_dose_declarations({"D": (0.0, 2.0)})
-    with pytest.raises(CapabilityError, match="declares atoms for the vector treatment"):
+    # Atoms follow the same mapping form (X40 review M4).
+    assert data.with_dose_declarations(None, {"D": (1.0,)}).component_atoms == {"D": (1.0,)}
+    with pytest.raises(DataError, match="maps each continuous component to its atoms"):
         data.with_dose_declarations(None, (1.0,))
+    with pytest.raises(DataError, match="not a continuous component"):
+        data.with_dose_declarations(None, {"F": (1.0,)})
 
 
 def _exact_point(**declared: Any) -> Any:
@@ -264,8 +268,9 @@ def test_the_mixed_node_declarations() -> None:
     assert data.component_supports(1) == {} and data.node_support(2) is None
     with pytest.raises(DataError, match="categorical component of a vector node"):
         data.with_dose_declarations({"F2": Support(0.0, 1.0)}, {})
-    with pytest.raises(CapabilityError, match="a component of a vector node"):
-        data.with_dose_declarations({}, {"D2": (0.5,)})
+    assert data.with_dose_declarations({}, {"D2": (0.5,)}).component_atoms(2) == {"D2": (0.5,)}
+    with pytest.raises(DataError, match="declares atoms for 'F2', a categorical component"):
+        data.with_dose_declarations({}, {"F2": (0.5,)})
 
 
 @pytest.mark.usefixtures("exact_grid_law")
@@ -352,7 +357,7 @@ def test_r_b4_refuses_a_recorded_atom_at_a_dose_of_a_point_vector() -> None:
     grid = _rounded(frame(), "D")
     with pytest.raises(DataError, match=f"^component 'D' {GRID}") as caught:
         point_fit([NATURAL, FLAG_ON], data=grid)
-    assert "Code the component as categorical" in str(caught.value)
+    assert "Declare dose_atoms={'D': (0, 0.25" in str(caught.value)
     # A flag move alone evaluates the dose factor at a counterfactual cell.
     with pytest.raises(DataError, match=f"^component 'D' {GRID}"):
         point_fit([NATURAL, FLAG_OFF], data=grid)
@@ -361,6 +366,17 @@ def test_r_b4_refuses_a_recorded_atom_at_a_dose_of_a_point_vector() -> None:
         point_fit([NATURAL], data=grid)
     with pytest.raises(AssertionError, match=REACHED):
         point_fit([NATURAL, FLAG_ON])
+
+
+def test_r_b4_takes_the_declared_atoms_of_a_component() -> None:
+    """Declaring the recorded atoms lifts the refusal; a partial declaration names the rest."""
+    grid = _rounded(frame(), "D")
+    recorded = tuple(float(value) for value in np.unique(grid["D"]))
+    with pytest.raises(AssertionError, match=REACHED):
+        point_fit([NATURAL, FLAG_ON], data=grid, dose_atoms={"D": recorded})
+    with pytest.raises(DataError, match=f"^component 'D' {GRID}") as caught:
+        point_fit([NATURAL, FLAG_ON], data=grid, dose_atoms={"D": recorded[:1]})
+    assert f"{recorded[0]:g}," not in str(caught.value).split("Declare dose_atoms=")[1]
 
 
 def test_r_b4_at_a_point_vector_is_the_seam(monkeypatch: pytest.MonkeyPatch) -> None:

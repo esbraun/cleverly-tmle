@@ -122,6 +122,7 @@ from .data import LongitudinalData
 from .regimen import Plan
 from .sequential import (
     _FILLER,
+    _PROBE_ARMS,
     _REGIMEN_ARM,
     FoldRecursionCell,
     Mechanism,
@@ -134,6 +135,7 @@ from .sequential import (
     pooled_node_inputs,
     prepare_node,
     seed_carried,
+    tuning_term,
     untargeted_fold_recursions,
 )
 
@@ -718,6 +720,16 @@ def fit_regimens_msm(
             for position, k in enumerate(live):
                 node = prepared[k]
                 by_arm, marginal = _cell_policy(fluctuation, node, position, len(live))
+                probes = (
+                    None
+                    if node.probes is None
+                    else np.column_stack(
+                        [
+                            np.split(fluctuation.targeted.arms[key], len(live))[position]
+                            for key in _PROBE_ARMS
+                        ]
+                    )
+                )
                 step = SequentialStep(
                     time=time,
                     trained_on=node.trained_on,
@@ -732,6 +744,7 @@ def fit_regimens_msm(
                     marginal=marginal,
                     targeted_by_arm=by_arm,
                     initial_by_arm=node.initial_by_arm,
+                    probes=probes,
                 )
                 steps[k].append(step)
                 carried[k] = np.where(node.at_risk, step.value, _FILLER)
@@ -806,7 +819,10 @@ def fit_regimens_msm(
         tol=tol,
         max_outer=max_outer,
     )
-    influence = _influence(data, model, run.steps, scaler, run.projection, run.beta)
+    tuned = _tuning_terms(data, model, plan_of, run.steps)
+    influence = _influence(
+        data, model, run.steps, scaler, run.projection, run.beta, _tuner_matrix(data, tuned)
+    )
     return MSMRegimenFit(
         model=model,
         cause=cause,
@@ -825,6 +841,7 @@ def fit_regimens_msm(
                 numerators,
                 plan_of,
                 k,
+                tuned[k],
             )
             for k in range(model.n_cells)
         ),
@@ -876,6 +893,18 @@ def _stacked_arms(
             ]
         )
         design_arms[_policy_arm(code)] = design
+    if any(node.probes is not None for node in nodes):
+        # A tuned node's boundary and last-moved-dose probes move by the coefficient of
+        # their own cell's block, as its observed-arm prediction does.  A cell without
+        # probes stacks its observed-arm prediction, which no reader takes.
+        for position, key in enumerate(_PROBE_ARMS):
+            initial_arms[key] = np.concatenate(
+                [
+                    node.initial if node.probes is None else node.probes[:, position]
+                    for node in nodes
+                ]
+            )
+            design_arms[key] = design
     return initial_arms, design_arms
 
 
@@ -1015,6 +1044,31 @@ def _project(
     )
 
 
+def _tuning_terms(
+    data: LongitudinalData,
+    model: RegimenMSM,
+    plan_of: dict[str, Plan],
+    steps: Sequence[Sequence[SequentialStep]],
+) -> list[tuple[FloatArray | None, tuple[FloatArray, ...]]]:
+    r"""Each cell's weighted tuner term and derivatives, ``(None, ())`` without a tuned cap.
+
+    Cell :math:`c` estimates :math:`\Phi_c(P, \theta_c(P))` when it declares a
+    population-target tuned cap, so its curve gains
+    :math:`w \sum_t \partial_t\Phi_c' \mathrm{IF}_t`
+    (:func:`~cleverly.longitudinal.sequential.tuning_term`).  The projection's estimating
+    equation is stacked over the cells, so its curve is linear in each cell's curve, and
+    the term enters the bracket cell by cell.
+    """
+    return [tuning_term(data, plan_of[cell.label], steps[k]) for k, cell in enumerate(model.cells)]
+
+
+def _tuner_matrix(
+    data: LongitudinalData, terms: Sequence[tuple[FloatArray | None, tuple[FloatArray, ...]]]
+) -> FloatArray:
+    """``(n, C)`` weighted tuner terms, zero for a cell with no tuned cap."""
+    return np.column_stack([np.zeros(data.n) if term is None else term for term, _ in terms])
+
+
 def _influence(
     data: LongitudinalData,
     model: RegimenMSM,
@@ -1022,6 +1076,7 @@ def _influence(
     scaler: OutcomeScaler,
     projection: ProjectionFit,
     beta: FloatArray,
+    tuner_terms: FloatArray,
 ) -> FloatArray:
     r"""``(n, p)`` efficient influence curve of :math:`\hat\beta`.
 
@@ -1041,6 +1096,9 @@ def _influence(
     subtracted, exactly as :func:`fit_regimen` multiplies after subtracting ``psi``.  The
     working model's own :math:`h` is part of the EIF numerator and, at the targeting
     step, part of the loss weight.
+
+    ``tuner_terms`` is each cell's already weighted tuner term (:func:`_tuning_terms`).  It
+    enters beside the weighted bracket, on the outcome scale.
     """
     raw = _raw_first(steps, scaler)
     residual = np.column_stack(
@@ -1056,7 +1114,11 @@ def _influence(
     )
     bracket = residual + raw - model.fitted(beta)
     covariate = model.weighted_design_at(beta)
-    contribution = data.weights[:, None] * np.einsum("ikp,ik->ip", covariate, bracket)
+    contribution = np.einsum(
+        "ikp,ik->ip",
+        covariate,
+        data.weights[:, None] * bracket + scaler.unscale_influence(tuner_terms),
+    )
     return np.asarray(np.linalg.solve(projection.jacobian, contribution.T).T, dtype=float)
 
 
@@ -1070,6 +1132,7 @@ def _cell_fit(
     numerators: dict[str, FloatArray | None],
     plan_of: dict[str, Plan],
     index: int,
+    tuned: tuple[FloatArray | None, tuple[FloatArray, ...]],
 ) -> RegimenFit:
     """One cell's per-regimen fit, for the leverage and risk sets ``diagnostics()`` reports.
 
@@ -1087,7 +1150,7 @@ def _cell_fit(
     return RegimenFit(
         regimen=plan_of[cell.label].regimen,
         psi_scaled=psi,
-        influence_curve_scaled=data.weights * influence,
+        influence_curve_scaled=data.weights * influence + (0.0 if tuned[0] is None else tuned[0]),
         horizon=cell.horizon,
         cause=cause,
         steps=tuple(cell_steps),
@@ -1097,6 +1160,8 @@ def _cell_fit(
         obs_weights=np.asarray(data.weights, dtype=float),
         policy=plan_of[cell.label].policy,
         cumulative_numerator=numerators[cell.label],
+        tuning_term=tuned[0],
+        tuning_derivatives=tuned[1],
     )
 
 
@@ -1186,7 +1251,17 @@ def project_sdr_cells(
     beta = projection.beta
     bracket = raw - model.fitted(beta)
     covariate = model.weighted_design_at(beta)
-    contribution = data.weights[:, None] * np.einsum("ikp,ik->ip", covariate, bracket)
+    # Each cell's population-target tuned cap adds its chain-rule term (``fit.tuning_term``,
+    # already weighted), as in ``_tuning_terms``.
+    tuner_terms = np.column_stack(
+        [
+            np.zeros(data.n)
+            if fit.tuning_term is None
+            else scaler.unscale_influence(fit.tuning_term)
+            for fit in fits
+        ]
+    )
+    contribution = np.einsum("ikp,ik->ip", covariate, data.weights[:, None] * bracket + tuner_terms)
     influence = np.asarray(np.linalg.solve(projection.jacobian, contribution.T).T, dtype=float)
     return MSMRegimenFit(
         model=model,

@@ -104,6 +104,36 @@ class LawQ:
     tuners: tuple[Tuner, Tuner] = (Tuner(), Tuner())
     tilt: Tilt = field(default_factory=Tilt)
     shift: float | None = None
+    factor: float | None = None
+
+    # ------------------------------------------------------------ the map
+
+    def edge(self, c: np.ndarray) -> np.ndarray:
+        """The last moved dose ``e = c - DELTA``, or ``c / f`` of a ``Scale(f)``."""
+        return c - DELTA if self.factor is None else c / self.factor
+
+    def move(self, x: np.ndarray, c: np.ndarray) -> np.ndarray:
+        """``d(x)``: ``x + DELTA`` (``f x``) where that is at most ``c``, else ``x``."""
+        moved = x + DELTA if self.factor is None else self.factor * x
+        return np.where(moved <= c, moved, x)
+
+    def pre(self, a: np.ndarray) -> np.ndarray:
+        """The dose the map sends to ``a`` below the cap."""
+        return a - DELTA if self.factor is None else a / self.factor
+
+    @property
+    def slope(self) -> float:
+        """:math:`|e'|`, the derivative of the edge in the cap: 1 for a shift, 1/f for a scale."""
+        return 1.0 if self.factor is None else 1.0 / self.factor
+
+    @property
+    def floor(self) -> float:
+        """The lowest dose a moved unit reaches: ``-4 + DELTA``, or ``-4 f``."""
+        return A_RANGE[0] + DELTA if self.factor is None else A_RANGE[0] * self.factor
+
+    def induced(self, g: np.ndarray, gpre: np.ndarray, a: np.ndarray, c: np.ndarray) -> np.ndarray:
+        """The density of the assigned dose at ``a``, from ``g(a)`` and ``g(pre(a))``."""
+        return gpre * self.slope * (a <= c) + g * (a > self.edge(c))
 
     # ------------------------------------------------------------ factors
 
@@ -271,9 +301,9 @@ class LawQ:
             p = self.p_l2(w, b)
             weight = p if l2 else 1.0 - p
             c2 = self.cap(2, {"W": w, "A1": b, "L2": ll}, theta2)
-            e2 = c2 - DELTA
+            e2 = self.edge(c2)
             x, wts = _segments(*A_RANGE, e2[..., None])
-            moved = np.where(x + DELTA <= c2[..., None], x + DELTA, x)
+            moved = self.move(x, c2[..., None])
             g = self.g2(x, w[..., None], b[..., None], ll[..., None])
             value = self.m(w[..., None], b[..., None], ll[..., None], moved)
             total = total + weight * np.sum(g * value * wts, axis=-1)
@@ -285,8 +315,8 @@ class LawQ:
         theta2 = self.theta[1] if theta is None else theta[1]
         w, fw = self.w_grid
         c1 = self.cap(1, {"W": w}, theta1)
-        a1, wa = _segments(*A_RANGE, (c1 - DELTA)[:, None])
-        moved = np.where(a1 + DELTA <= c1[:, None], a1 + DELTA, a1)
+        a1, wa = _segments(*A_RANGE, self.edge(c1)[:, None])
+        moved = self.move(a1, c1[:, None])
         inner = self.g1(a1, w[:, None]) * self.q1(w[:, None], moved, theta2) * wa
         return float(np.sum(fw * inner.sum(axis=1)))
 
@@ -303,12 +333,12 @@ class LawQ:
         if node == 1:
             h = {"W": w}
             c1 = self.cap(1, h)
-            e1 = c1 - DELTA
-            jump = self.g1(e1, w) * (self.q1(w, c1) - self.q1(w, e1))
+            e1 = self.edge(c1)
+            jump = self.slope * self.g1(e1, w) * (self.q1(w, c1) - self.q1(w, e1))
             return np.sum((fw * jump)[:, None] * self.gradient(1, h), axis=0)
         c1 = self.cap(1, {"W": w})
-        a1, wa = _segments(*A_RANGE, (c1 - DELTA)[:, None])
-        b = np.where(a1 + DELTA <= c1[:, None], a1 + DELTA, a1)
+        a1, wa = _segments(*A_RANGE, self.edge(c1)[:, None])
+        b = self.move(a1, c1[:, None])
         ww = np.broadcast_to(w[:, None], a1.shape)
         mass = fw[:, None] * self.g1(a1, w[:, None]) * wa
         total = 0.0
@@ -318,8 +348,12 @@ class LawQ:
             weight = mass * (p if l2 else 1.0 - p)
             h = {"W": ww, "A1": b, "L2": ll}
             c2 = self.cap(2, h)
-            e2 = c2 - DELTA
-            jump = self.g2(e2, ww, b, ll) * (self.m(ww, b, ll, c2) - self.m(ww, b, ll, e2))
+            e2 = self.edge(c2)
+            jump = (
+                self.slope
+                * self.g2(e2, ww, b, ll)
+                * (self.m(ww, b, ll, c2) - self.m(ww, b, ll, e2))
+            )
             total = total + np.sum((weight * jump)[..., None] * self.gradient(2, h), axis=(0, 1))
         return np.asarray(total)
 
@@ -327,7 +361,7 @@ class LawQ:
         """:math:`r_1 = g^d_1 / g_1` at the observed first dose."""
         c1 = self.cap(1, {"W": w})
         g = self.g1(a1, w)
-        induced = self.g1(a1 - DELTA, w) * (a1 <= c1) + g * (a1 > c1 - DELTA)
+        induced = self.induced(g, self.g1(self.pre(a1), w), a1, c1)
         return np.where(g > 0.0, induced / np.where(g > 0.0, g, 1.0), 0.0)
 
     def influence(self, node: int, h: dict[str, np.ndarray], a: np.ndarray) -> np.ndarray:
@@ -356,11 +390,11 @@ class LawQ:
         psi = self.tuned_psi
         w, fw = self.w_grid
         c1 = self.cap(1, {"W": w})
-        splits = np.stack([c1 - DELTA, c1, np.full(w.size, A_RANGE[0] + DELTA)], axis=1)
+        splits = np.stack([self.edge(c1), c1, np.full(w.size, self.floor)], axis=1)
         a1, wa = _segments(*A_RANGE, splits)
         ww = np.broadcast_to(w[:, None], a1.shape)
         mass1 = fw[:, None] * self.g1(a1, w[:, None]) * wa
-        moved1 = np.where(a1 + DELTA <= c1[:, None], a1 + DELTA, a1)
+        moved1 = self.move(a1, c1[:, None])
         term1 = self.q1(ww, moved1) - psi
         if derivative is not None:
             term1 = term1 + self.influence(1, {"W": ww}, a1) @ derivative[0]
@@ -376,9 +410,11 @@ class LawQ:
             mass2 = mass1 * (p if l2 else 1.0 - p)
             h = {"W": ww, "A1": a1, "L2": ll}
             c2 = self.cap(2, h)
-            a2, wb = _segments(*A_RANGE, np.stack([c2 - DELTA, c2], axis=-1))
+            a2, wb = _segments(
+                *A_RANGE, np.stack([self.edge(c2), c2, np.full(c2.shape, self.floor)], axis=-1)
+            )
             g2 = self.g2(a2, ww[..., None], a1[..., None], ll[..., None])
-            moved2 = np.where(a2 + DELTA <= c2[..., None], a2 + DELTA, a2)
+            moved2 = self.move(a2, c2[..., None])
             value = self.m(ww[..., None], a1[..., None], ll[..., None], moved2)
             term2 = r1[..., None] * (value - q_obs[..., None])
             if derivative is not None:
@@ -407,11 +443,11 @@ class LawQ:
         psi = self.tuned_psi
         w, fw = self.w_grid
         c1 = self.cap(1, {"W": w})
-        splits = np.stack([c1 - DELTA, c1, np.full(w.size, A_RANGE[0] + DELTA)], axis=1)
+        splits = np.stack([self.edge(c1), c1, np.full(w.size, self.floor)], axis=1)
         a1, wa = _segments(*A_RANGE, splits)
         ww = np.broadcast_to(w[:, None], a1.shape)
         mass1 = fw[:, None] * self.g1(a1, w[:, None]) * wa
-        moved1 = np.where(a1 + DELTA <= c1[:, None], a1 + DELTA, a1)
+        moved1 = self.move(a1, c1[:, None])
         piece0 = self.q1(ww, moved1) - psi
         tune1 = self.influence(1, {"W": ww}, a1) @ derivative[0]
         phi = float(np.sum(mass1 * piece0**2))
@@ -424,14 +460,14 @@ class LawQ:
             mass2 = mass1 * (p if l2 else 1.0 - p)
             h = {"W": ww, "A1": a1, "L2": ll}
             c2 = self.cap(2, h)
-            a2, wb = _segments(*A_RANGE, np.stack([c2 - DELTA, c2], axis=-1))
+            a2, wb = _segments(
+                *A_RANGE, np.stack([self.edge(c2), c2, np.full(c2.shape, self.floor)], axis=-1)
+            )
             w3, a13, l3 = ww[..., None], a1[..., None], ll[..., None]
             g2 = self.g2(a2, w3, a13, l3)
-            moved2 = np.where(a2 + DELTA <= c2[..., None], a2 + DELTA, a2)
+            moved2 = self.move(a2, c2[..., None])
             piece1 = r1[..., None] * (self.m(w3, a13, l3, moved2) - q_obs[..., None])
-            induced = self.g2(a2 - DELTA, w3, a13, l3) * (a2 <= c2[..., None]) + g2 * (
-                a2 > c2[..., None] - DELTA
-            )
+            induced = self.induced(g2, self.g2(self.pre(a2), w3, a13, l3), a2, c2[..., None])
             r2 = np.where(g2 > 0.0, induced / np.where(g2 > 0.0, g2, 1.0), 0.0)
             mean = self.m(w3, a13, l3, a2)
             h2 = {key: np.broadcast_to(v[..., None], a2.shape) for key, v in h.items()}
@@ -441,6 +477,52 @@ class LawQ:
             phi += float(np.sum(joint * (piece1**2 + noise)))
             term += float(np.sum(joint * tune**2))
         return float(np.sqrt(term)), float(np.sqrt(phi))
+
+    def efficient_sd(self) -> float:
+        """The SD of :math:`D_\\Psi = D_\\Phi + \\sum_t \\partial_t\\Phi' \\mathrm{IF}_t`, by quadrature.
+
+        Unlike :meth:`spreads`, the pieces are added before they are squared, so the
+        correlation between the tuning term and :math:`D_\\Phi` is in the answer.
+        """
+        derivative = (self.derivative(1), self.derivative(2))
+        psi = self.tuned_psi
+        w, fw = self.w_grid
+        c1 = self.cap(1, {"W": w})
+        splits = np.stack([self.edge(c1), c1, np.full(w.size, self.floor)], axis=1)
+        a1, wa = _segments(*A_RANGE, splits)
+        ww = np.broadcast_to(w[:, None], a1.shape)
+        mass1 = fw[:, None] * self.g1(a1, w[:, None]) * wa
+        moved1 = self.move(a1, c1[:, None])
+        piece0 = self.q1(ww, moved1) - psi
+        tune1 = self.influence(1, {"W": ww}, a1) @ derivative[0]
+        r1 = self.ratio1(a1, ww)
+        q_obs = self.q1(ww, a1)
+        second = 0.0
+        mean = 0.0
+        for l2 in (0.0, 1.0):
+            ll = np.full(a1.shape, l2)
+            p = self.p_l2(ww, a1)
+            mass2 = mass1 * (p if l2 else 1.0 - p)
+            h = {"W": ww, "A1": a1, "L2": ll}
+            c2 = self.cap(2, h)
+            a2, wb = _segments(
+                *A_RANGE, np.stack([self.edge(c2), c2, np.full(c2.shape, self.floor)], axis=-1)
+            )
+            w3, a13, l3 = ww[..., None], a1[..., None], ll[..., None]
+            g2 = self.g2(a2, w3, a13, l3)
+            moved2 = self.move(a2, c2[..., None])
+            piece1 = r1[..., None] * (self.m(w3, a13, l3, moved2) - q_obs[..., None])
+            induced = self.induced(g2, self.g2(self.pre(a2), w3, a13, l3), a2, c2[..., None])
+            r2 = np.where(g2 > 0.0, induced / np.where(g2 > 0.0, g2, 1.0), 0.0)
+            mu = self.m(w3, a13, l3, a2)
+            h2 = {key: np.broadcast_to(v[..., None], a2.shape) for key, v in h.items()}
+            tune2 = self.influence(2, h2, a2) @ derivative[1]
+            joint = mass2[..., None] * g2 * wb
+            noise = (r1[..., None] * r2) ** 2 * mu * (1.0 - mu) / 31.0
+            pre = piece0[..., None] + tune1[..., None] + piece1 + tune2
+            second += float(np.sum(joint * (pre**2 + noise)))
+            mean += float(np.sum(joint * pre))
+        return float(np.sqrt(second - mean**2))
 
     @staticmethod
     def _pick(path: str, **scores: np.ndarray) -> np.ndarray:
@@ -462,7 +544,7 @@ class LawQ:
         )
 
     def tilted(self, path: str, eps: float) -> LawQ:
-        return LawQ(tuners=self.tuners, tilt=Tilt(**{path: eps}), shift=self.s)
+        return LawQ(tuners=self.tuners, tilt=Tilt(**{path: eps}), shift=self.s, factor=self.factor)
 
 
 def pathwise_derivative(law: LawQ, path: str, step: float = 2e-3) -> float:

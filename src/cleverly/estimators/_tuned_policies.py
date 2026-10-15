@@ -4,7 +4,8 @@ A :class:`~cleverly.interventions.Shift` or :class:`~cleverly.interventions.Scal
 is a tuner (:mod:`cleverly.interventions.tuning`) has no map until a fit reads the treatment
 law.  :func:`resolve_point_policies` fits each tuner before any learner and returns the
 policies :class:`~cleverly.interventions.PolicySet` evaluates, with the construction of the
-longitudinal fits (``X40-plan.md`` sections 2.4 and 2.5):
+longitudinal fits (``tests/unit/test_point_tuned_caps.py`` and the technical reference, "Modified
+treatment policies"):
 
 .. list-table::
    :header-rows: 1
@@ -15,7 +16,7 @@ longitudinal fits (``X40-plan.md`` sections 2.4 and 2.5):
    * - ``"population"``
      - the map at :math:`\theta_n`, the tuner fitted on every row.  On the classifier route
        with ``n_folds > 1``, fold ``k``'s classifier stacks the map at :math:`\theta^{(-k)}`,
-       the tuner fitted on its training rows (N3); the density route reads its fold density
+       the tuner fitted on its training rows; the density route reads its fold density
        under the map at :math:`\theta_n`.
      - the curve at :math:`\theta_n` plus :math:`\partial\Phi_n' \mathrm{IF}` (the chain rule)
    * - ``"fold_average"``
@@ -59,6 +60,7 @@ from ..interventions.tuning import (
     cap_derivative,
     fit_tuner,
     refuse_outcome_tuners,
+    tuned_cap_at_atoms,
     tuner_influence,
 )
 
@@ -73,6 +75,7 @@ __all__ = [
     "PointTuning",
     "declares_tuned",
     "in_sample_policies",
+    "point_tuned_component_refusal",
     "refuse_tuned_compositions",
     "resolve_point_policies",
 ]
@@ -104,6 +107,33 @@ def _composition(reason: str, remedy: str) -> CapabilityError:
     )
 
 
+def point_tuned_component_refusal(policy: object, component: str) -> str:
+    """The refusal of a tuned cap at a component of a point vector treatment.
+
+    Parameters
+    ----------
+    policy : JointPolicy
+        The joint policy.
+    component : str
+        Its tuned component.
+
+    Returns
+    -------
+    str
+        The text.
+    """
+    return (
+        f"policy {getattr(policy, 'name', policy)!r} tunes the cap of component "
+        f"{component!r} of a point vector treatment. The point tuned-cap construction "
+        "fits its tuner on a treatment of one dose and predicts the derivative probes at "
+        "that dose alone; it does not resolve a component's tuner on the frame its map "
+        "reads, or set the component inside the assigned vector. LTMLE and SDR fit this "
+        "map at a mixed node: declare the vector as one node, "
+        "treatment=[[...components...]] with baseline= the covariates, or declare the cap "
+        "as a number"
+    )
+
+
 def refuse_tuned_compositions(estimator: Any, data: CausalData) -> None:
     """Refuse every composition the point tuned-cap construction does not cover.
 
@@ -119,8 +149,8 @@ def refuse_tuned_compositions(estimator: Any, data: CausalData) -> None:
     CapabilityError
         R-e3 for a tuner that reads the outcome.  For ``cv_evaluation=True``,
         ``targeting_scheme="fold"``, baseline strata, a missing treatment or outcome, an
-        intermediate, a treatment that is not one continuous dose, and, on the fold-average
-        target, the bootstrap and repeated splits.
+        intermediate, a treatment that is not one continuous dose, declared dose atoms, and, on
+        the fold-average target, the bootstrap and repeated splits.
     """
     refuse_outcome_tuners(
         [
@@ -162,6 +192,8 @@ def refuse_tuned_compositions(estimator: Any, data: CausalData) -> None:
             "A tuned cap reads a quantile of the dose law, which has a density only at a "
             "continuous dose",
         )
+    if data.dose_atoms:
+        raise CapabilityError(tuned_cap_at_atoms("the treatment", data.dose_atoms))
     fold_average = any(
         tuned_policy(policy) and getattr(policy, "target", None) == "fold_average"
         for policy in estimator.policies

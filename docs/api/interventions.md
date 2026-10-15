@@ -7,7 +7,8 @@ A modified treatment policy is a `Shift`, a `Scale`, a `Piecewise` map, a `Modif
 declared pieces, or a `RiskRatioTilt`. Pass the policy to `TMLE(policies=...)` or as a node of
 a longitudinal plan. A vector treatment takes a `JointPolicy`, which declares one policy for each
 component. A `DoseQuantile` or a `SupportBoundary` tunes the cap of a `Shift` or a `Scale` from
-the treatment law.
+the treatment law. A `Support` declares the interval of doses that a node can take given its
+history. The fit refuses, before any learner, a dose or a policy outside it.
 
 `DynamicRegimen` defines a plan across the treatment nodes of a longitudinal fit. A node of that
 plan can be a rule. It can also be a `Stochastic` node that draws its arm from a known policy.
@@ -39,6 +40,7 @@ plan can be a rule. It can also be a `Stochastic` node that draws its arm from a
    cleverly.interventions.LinearQuantileRegression
    cleverly.interventions.Piecewise
    cleverly.interventions.Piece
+   cleverly.interventions.Support
    cleverly.interventions.ModifiedPolicy
    cleverly.interventions.Randomizer
    cleverly.interventions.RiskRatioTilt
