@@ -1,0 +1,10 @@
+# Cross-cutting findings from the point-treatment tutorial revision
+
+The point-treatment thread found these while revising `docs/examples/point-treatment-tmle.ipynb`.
+Each one touches files that the thread does not own.
+
+| id | finding | evidence | files to change | proposed owner |
+| --- | --- | --- | --- | --- |
+| PTX-1 | `BenchmarkResult.cf_y` and `cf_d` are gain statistics, and `omitted_confounding()` reads shares in [0, 1). A tutorial that passes the gains unchanged gets a wider bound than the benchmark implies. A gain `cf_y` is clipped at 1, so the bound refuses the strongest benchmarks, although their shares are valid | `src/cleverly/sensitivity/omitted_variable.py:1576-1584` (gain definitions) and `:1389-1393` (share inputs). On the point-treatment fit, `discharge_risk` has gain `cf_y` 1.0000 (clipped) and share 0.5719. `medication_burden` gives bias 0.0233 with gains and 0.0214 with shares | `src/cleverly/sensitivity/omitted_variable.py` (return the shares, or give `BenchmarkResult` share properties), `docs/technical-reference/validation-methods.md` (state the conversion), and any page that passes benchmark strengths to `omitted_confounding()`. Check `twins-causal-inference.ipynb`, which calls `benchmark()` | the sensitivity code owner. The point-treatment notebook converts in the notebook with `share = 1 - long / short` for each refit pair, and its callback checks `share = gain / (1 + gain)` |
+| PTX-2 | The `cf_d` plain-meaning row of the shared concept wording should match the bound's definition: the share of $\nu^2$ that only the confounder adds | the point-treatment notebook's Step 10 terms table | `docs/development/example-notebooks.md` concept table, if one row is added for the sensitivity terms | the quickstart and example-index thread |
+| PTX-3 | Other notebooks link into this notebook by heading anchor | `step-4-write-the-protocol`, `step-5-design-and-identification`, `step-6-estimate-the-ate`, `step-10-sensitivity-what-the-fit-cannot-check` | none. The revision keeps all four headings. Step 2 is now "the data" and Step 11 is "answer the question". No page links to either | none |

@@ -49,11 +49,11 @@ UNPRINTED_DECIMALS = {
     "4.83": f"the law's nu^2 = E[1/(g(1-g))], 4.8286 by Monte Carlo: {_PROBE}/truth.log",
     "-0.018": f"mean error of the linear-Q plug-in over 200 draws: {_PROBE}/plugin.log",
     "-0.0022": f"mean error of TMLE with linear Q and the booster's g: {_PROBE}/summary.log",
+    "-0.0006": f"mean error of TMLE with the booster's Q and logistic g: {_PROBE}/summary.log",
     "-0.0218": f"mean error of TMLE with both nuisances linear: {_PROBE}/summary.log",
     "0.05": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
     "0.95": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
     "0.431": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
-    "0.142": f"lower bound of the shown draw at the law's nu^2, 0.1422: {_PROBE}/summary.log",
     "0.025": "the study's propensity bounds: tests/studies/canonical_cvtmle.py G_BOUNDS",
     "0.975": "the study's propensity bounds: tests/studies/canonical_cvtmle.py G_BOUNDS",
     "0.945": f"coverage of crossfit_overfitting/stacked_cvtmle: {_STUDY}",
@@ -194,21 +194,33 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(at_rv.lower) < 1e-3
     at_rva = result.sensitivity.omitted_confounding(cf_y=robustness["rva"], cf_d=robustness["rva"])
     assert abs(at_rva.ci_lower) < 1e-3
-    # "the residual outcome variance more than doubles", so the implied cf_y is a clip.
-    # "A bound needs a cf_y below 1" is the bound formula's own requirement.
+    # "The gain `cf_y` of `discharge_risk` is clipped at 1.0000, so the gain cannot calibrate a
+    # bound": the bound refuses a cf_y of 1, and the share that as_shares returns is below 1.
     strong = namespace["strong"]
+    benchmark = namespace["benchmark"]
     assert strong.covariates == ("discharge_risk",)
-    assert strong.sigma2_short > 2.0 * strong.sigma2_long
+    assert benchmark.covariates == ("medication_burden",)
     assert strong.cf_y == 1.0
     with pytest.raises(ValueError, match=r"cf_y must lie in \[0, 1\)"):
         result.sensitivity.omitted_confounding(cf_y=strong.cf_y, cf_d=strong.cf_d, rho=1.0)
-    # "Both lie below the robustness value", and the bounds stay worst-case at rho = 1.
-    benchmark = namespace["benchmark"]
-    assert benchmark.covariates == ("medication_burden",)
-    assert 0.0 < benchmark.cf_d < benchmark.cf_y < robustness["rv"]
-    bounds = namespace["bounds"]
-    assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (benchmark.cf_y, benchmark.cf_d, 1.0)
-    assert bounds.confounding_strength < at_rv.confounding_strength
-    # "both exclude zero" on this draw.
-    assert 0.0 < bounds.ci_lower < bounds.lower < bounds.psi < bounds.upper < bounds.ci_upper
-    assert "the sign of the effect survives" in bounds.summary()
+    calibrated = namespace["calibrated"]
+    for name, record in (("discharge_risk", strong), ("medication_burden", benchmark)):
+        share_y, share_d, bounds = calibrated[name]
+        # The shares are the gains on the other scale: share = gain / (1 + gain).  The clipped
+        # gain of discharge_risk is the exception, and its share comes from the variances.
+        assert 0.0 < share_y < 1.0 and 0.0 < share_d < 1.0
+        assert abs(share_d - record.cf_d / (1.0 + record.cf_d)) < 1e-12
+        if record.cf_y < 1.0:
+            assert abs(share_y - record.cf_y / (1.0 + record.cf_y)) < 1e-12
+        assert share_y < record.cf_y and share_d < record.cf_d
+        assert (bounds.cf_y, bounds.cf_d, bounds.rho) == (share_y, share_d, 1.0)
+        # "both one-sided limits exclude zero on this draw".
+        assert 0.0 < bounds.ci_lower < bounds.lower < bounds.psi < bounds.upper < bounds.ci_upper
+    # "A gain is larger than its share, so the bound becomes wider": the nonzero witness.
+    gains = result.sensitivity.omitted_confounding(
+        cf_y=benchmark.cf_y, cf_d=benchmark.cf_d, rho=1.0
+    )
+    assert gains.bias > calibrated["medication_burden"][2].bias + 1e-3
+    # "each bias bound would be about 5% larger" with the law's nu^2: the bias scale is
+    # proportional to sqrt(nu^2).
+    assert 1.03 < np.sqrt(moments["nu2"] / elements.nu2) < 1.07
