@@ -277,8 +277,8 @@ that horizon. A declared `q_bounds` replaces the derived range
 (`tests/unit/test_repeated_outcome_container.py`, W16).
 
 `tests/unit/test_repeated_outcome.py` checks the reduction at every horizon for 13 compositions
-of `LTMLE`, and for 13 compositions of `IPSI` plus two incremental ones: the estimate, the
-influence curve, every node regression and the cumulative mechanism, at `rtol=1e-12`. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
+of `LTMLE`, and for 11 of those 13 compositions of `IPSI` plus six incremental ones: the estimate, the
+influence curve, every node regression and the cumulative mechanism, at `rtol=1e-12`. The other two `IPSI` compositions refuse with the end-of-study message. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
 the complex-step Gateaux derivative of the g-formula on two exact laws in
 `tests/discrete_law_repeated.py`. One law is binary. The other has three values per node. Ten
 mutation controls fail these tests, among them the absorbing seed $\max_{s \le h} Y_s$, a history
@@ -1309,7 +1309,7 @@ $\delta = 0.5$ and $h = 3$.
 
 **Dropout.** The censoring factor $1\{C_t = 1\}/\omega_t$ enters every weight $W_t$ up to $h$. With
 a consistent $m$ the estimate does not read $\omega$, but the curve does. Replacing $1/\omega_t$
-by one leaves the E5 estimate and moves its curve by at least 0.5 at every cell. With a wrong $m$
+by one leaves the E5 estimate and moves its curve by at least 0.5 at every tilted cell, with $\delta = 1$ included. With a wrong $m$
 it moves the estimate (E6): by +0.0413 ($\delta = 0.5$) and −0.0235 ($\delta = 2$) on the
 binary law at $h = 2$.
 

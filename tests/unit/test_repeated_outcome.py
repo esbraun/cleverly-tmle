@@ -192,6 +192,10 @@ COMPOSITIONS = (
 TILTED = (
     Composition("incremental", {}, tilts=(0.5, 2.0, 1.0)),
     Composition("incremental_folds", {}, tilts=(0.5, 2.0, 1.0), n_folds=5),
+    Composition("incremental_weights", {}, tilts=(0.5, 2.0, 1.0), weights=True),
+    Composition("incremental_clusters", {}, tilts=(0.5, 2.0, 1.0), cluster=True),
+    Composition("incremental_continuous", {}, tilts=(0.5, 2.0, 1.0), continuous=True),
+    Composition("incremental_known", {}, tilts=(0.5, 2.0, 1.0), known=True),
 )
 
 #: Each estimator kind and the compositions its end-of-study fit accepts.  ``IPSI`` fits no
@@ -315,7 +319,7 @@ def check_w1(
         name = f"ey_regimen[{label} @ t={horizon}]"
         assert repeated.psi(name) == pytest.approx(
             truncated.psi(f"ey_regimen[{label}]"), rel=RTOL, abs=ATOL
-        )
+        ), f"estimate: {name}"
         _close(
             repeated.influence_curves[name],
             truncated.influence_curves[f"ey_regimen[{label}]"],

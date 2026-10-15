@@ -134,7 +134,8 @@ class CellGrid:
     high: str
     delta: dict[str, float]
     #: How closely the trend coefficients meet the written-out projection.  ``IPSI`` fits no
-    #: fluctuation, and its projection is solved by the working model's own iteration.
+    #: fluctuation, and ``solve_projection`` stops at a relative tolerance of 1e-10.  The
+    #: observed gap is at most 4.4e-12, so 1e-11 holds with a margin of two.
     trend_tolerance: float = 1e-12
 
     @property
@@ -177,7 +178,7 @@ GRIDS = (
         ("odds x0.5", "odds x2"),
         "odds x2",
         {"odds x0.5": 0.5, "odds x2": 2.0},
-        trend_tolerance=1e-10,
+        trend_tolerance=1e-11,
     ),
 )
 GRID_IDS = [grid.kind for grid in GRIDS]
@@ -209,9 +210,13 @@ def check_w7_saturated(grid: CellGrid) -> None:
     rows = law.first_row_of()
     for (d, h), term in zip(grid.cells, grid.terms, strict=True):
         name = f"msm_regimen[{term}]"
-        assert fit.psi(name) == pytest.approx(grid.truth(law, d, h), abs=1e-12)
+        assert fit.psi(name) == pytest.approx(grid.truth(law, d, h), abs=1e-12), f"estimate: {name}"
         np.testing.assert_allclose(
-            fit.influence_curves[name][rows], grid.eif(law, d, h), atol=1e-11, rtol=0
+            fit.influence_curves[name][rows],
+            grid.eif(law, d, h),
+            atol=1e-11,
+            rtol=0,
+            err_msg=f"curve: {name}",
         )
 
 
@@ -233,9 +238,15 @@ def check_w7_trend(grid: CellGrid) -> None:
     rows = law.first_row_of()
     for column, term in enumerate(("(intercept)", "always", "t")):
         name = f"msm_regimen[{term}]"
-        assert fit.psi(name) == pytest.approx(beta[column], abs=grid.trend_tolerance)
+        assert fit.psi(name) == pytest.approx(beta[column], abs=grid.trend_tolerance), (
+            f"estimate: {name}"
+        )
         np.testing.assert_allclose(
-            fit.influence_curves[name][rows], influence[column], atol=1e-11, rtol=0
+            fit.influence_curves[name][rows],
+            influence[column],
+            atol=1e-11,
+            rtol=0,
+            err_msg=f"curve: {name}",
         )
 
 

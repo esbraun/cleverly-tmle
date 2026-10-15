@@ -622,10 +622,9 @@ def refuse_repeated_outcome(estimator: str, name: str) -> None:
     """Refuse a repeated outcome on a longitudinal estimator that has no per-horizon reduction.
 
     A kind in ``REPEATED_OUTCOME_KINDS`` fits a repeated outcome by one backward pass per
-    horizon, each the end-of-study fit of the panel truncated after it.  Another estimator
-    that shares :meth:`LTMLE.fit`, such as a sequentially doubly robust or an
-    incremental-intervention estimator, fits nothing until its own reduction and evidence
-    exist, so it refuses here, before any learner, rather than fitting by inheritance.
+    horizon, each the end-of-study fit of the panel truncated after it.  A kind outside the
+    set, such as :class:`SDR`, fits nothing until its own reduction and evidence exist, so it
+    refuses here, before any learner, rather than fitting by inheritance.
     ``tests/unit/test_repeated_outcome_subclasses.py`` fits every concrete subclass of
     ``_SequentialEstimator`` on a repeated outcome and requires either this refusal or,
     for a kind in the set, an estimate and influence curve at each horizon equal to the
@@ -4558,10 +4557,10 @@ class IPSI(_SequentialEstimator):
     :math:`Y_h` as the outcome and each earlier :math:`Y_s` as a covariate.  The functional at
     horizon :math:`h` is Theorem 3.1 of Kim, Kennedy and Naimi (2021) at :math:`t = h`.  The
     influence function is their Theorem 4.1 on the prefix.  The band of ``simultaneous=True``
-    covers the declared tilts and horizons jointly, as their Theorem 5.1 states for a finite
-    grid of :math:`\delta`.  It does not cover the values of :math:`\delta` between the
-    declared ones.  The estimator is singly robust: a wrong treatment mechanism leaves a bias
-    that a correct outcome regression does not remove.
+    covers the declared tilts and horizons jointly, which is their Theorem 5.1 restricted to
+    the declared finite grid of :math:`\delta`.  It does not cover the values of :math:`\delta`
+    between the declared ones.  The estimator is singly robust: a wrong treatment mechanism
+    leaves a bias that a correct outcome regression does not remove.
 
     Parameters
     ----------
