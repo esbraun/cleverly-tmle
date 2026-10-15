@@ -259,7 +259,7 @@ def _rb1(name: str, lower: float, upper: float, value: float, where: str = "the 
         f"page 850), so no root-n interval exists. If the dose has a recorded point mass at "
         f"{value:g}, declare it with dose_atoms and the piece with Piece({lower:g}, {upper:g}, "
         f"to_atom={value:g}). Otherwise use a piecewise map that moves every dose, or collapse "
-        "the dose into categories and declare the policy on a categorical node"
+        "the dose into categories and declare the policy on a categorical node."
     )
 
 
@@ -512,7 +512,7 @@ def _rb3(name: str, atom: float, image: float, branch: str) -> str:
         "ratio exists: this is the failure of a collapse (Díaz et al. 2023, Section 4, journal "
         "page 850) reached from the atom. Hold the atom in place (a cap or a piece that keeps "
         f"it), send it to another declared atom, or, if the dose has recorded mass at {image:g}, "
-        "declare it in dose_atoms"
+        "declare it in dose_atoms."
     )
 
 

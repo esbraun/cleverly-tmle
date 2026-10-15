@@ -74,7 +74,7 @@ from typing import Any, Literal, cast
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
 
 __all__ = [
     "TARGETS",
@@ -480,7 +480,8 @@ def fit_tuner(
         if weights is not None and not np.allclose(w, 1.0):
             raise CapabilityError(
                 f"the boundary learner {type(tuner.learner).__name__} takes no sample_weight, "
-                "and the fit carries observation weights"
+                "and the fit carries observation weights",
+                reason=RefusalReason.INVALID_DECLARATION,
             ) from None
         model.fit(design[keep, 1:], a[keep])
     return FittedTuner(tuner, np.zeros(0), model=model, n_fitted=int(keep.sum()))
@@ -534,7 +535,12 @@ def tuner_influence(
     """
     tuner = fitted.tuner
     if isinstance(tuner, SupportBoundary) and not tuner.finite_dimensional:
-        raise CapabilityError("a boundary of growing dimension has no influence function here")
+        raise CapabilityError(
+            "a boundary of growing dimension has no influence function here.",
+            reason=RefusalReason.INFERENCE_GAP,
+            alternative="Declare target='fold_average', or tune the boundary with DoseQuantile "
+            "or LinearQuantileRegression.",
+        )
     a = np.asarray(doses, dtype=float).reshape(-1)
     n = a.size
     risk = np.asarray(at_risk, dtype=bool)
@@ -679,7 +685,9 @@ def check_target(policy_name: str, target: object, tuned: bool) -> None:
             "number; a target declares the parameter of a data-tuned map only"
         )
     if tuned and target is None:
-        raise CapabilityError(f"policy {policy_name!r}: {TARGET_UNDECLARED}")
+        raise CapabilityError(
+            f"policy {policy_name!r}: {TARGET_UNDECLARED}", reason=RefusalReason.INVALID_DECLARATION
+        )
 
 
 #: The sentence the refusal of an unknown ``target`` appends.
@@ -694,7 +702,7 @@ TARGET_UNDECLARED = (
 )
 
 
-def population_refusal(policy_name: str, tuner: SupportBoundary) -> str:
+def population_refusal(policy_name: str, tuner: SupportBoundary) -> Refusal:
     """R-e2: the population target with a boundary of growing dimension.
 
     Parameters
@@ -706,24 +714,28 @@ def population_refusal(policy_name: str, tuner: SupportBoundary) -> str:
 
     Returns
     -------
-    str
-        The refusal text.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INFERENCE_GAP` record: the population
+        target needs a curve that no result this package uses gives.
     """
     learner = type(tuner.learner).__name__
-    return (
+    return Refusal(
+        RefusalReason.INFERENCE_GAP,
         f"policy {policy_name!r} tunes its map with SupportBoundary, whose learner "
         f"{learner!r} has no declared finite-dimensional parameter. The population target "
         "needs the influence function of the tuned boundary, and only a boundary indexed by a "
         "finite vector that solves an estimating equation has one here (a dose quantile, or "
         "LinearQuantileRegression with its estimating equation). A learner of growing "
-        "dimension has no such curve in any result this package uses. Declare "
-        "target='fold_average', which estimates the average over folds of the means under "
-        "each fold's own map, or tune the boundary with DoseQuantile or "
-        "LinearQuantileRegression"
+        "dimension has no such curve in any result this package uses.",
+        alternative=(
+            "Declare target='fold_average', which estimates the average over folds of the "
+            "means under each fold's own map, or tune the boundary with DoseQuantile or "
+            "LinearQuantileRegression."
+        ),
     )
 
 
-def outcome_refusal(policy_name: str) -> str:
+def outcome_refusal(policy_name: str) -> Refusal:
     """R-e3: a tuner that reads the outcome.
 
     Parameters
@@ -733,14 +745,20 @@ def outcome_refusal(policy_name: str) -> str:
 
     Returns
     -------
-    str
-        The refusal text.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.IMPLEMENTATION_GAP` record that names
+        the learned-policy item X11.
     """
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         f"policy {policy_name!r} tunes its map with the outcome. A map chosen to optimize the "
         "outcome is a learned policy, whose value needs a limiting-policy condition and its "
-        "own contract (docs/roadmap.md X11). A data-tuned map in this release reads the "
-        "treatment law only: a dose quantile or a learned support boundary"
+        "own contract (docs/roadmap.md X11).",
+        alternative=(
+            "A data-tuned map in this release reads the treatment law only: a dose quantile "
+            "or a learned support boundary."
+        ),
+        roadmap="X11",
     )
 
 
@@ -752,8 +770,8 @@ FOLD_AVERAGE_ONE_FOLD = (
 )
 
 
-def tuned_cap_at_atoms(where: str, atoms: Sequence[float]) -> str:
-    """The refusal text of a data-tuned cap at a node that declares dose atoms.
+def tuned_cap_at_atoms(where: str, atoms: Sequence[float]) -> Refusal:
+    """The refusal of a data-tuned cap at a node that declares dose atoms.
 
     Parameters
     ----------
@@ -764,23 +782,28 @@ def tuned_cap_at_atoms(where: str, atoms: Sequence[float]) -> str:
 
     Returns
     -------
-    str
-        The text.  A tuned cap is a quantile of the dose law, or a linear quantile fit.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.IMPLEMENTATION_GAP` record.  A tuned cap
+        is a quantile of the dose law, or a linear quantile fit.
         Where the law has an atom, the quantile is constant while its level stays inside the
         atom's jump, and it is not pathwise differentiable at the jump's edge.  The
         influence function of the tuner and the cap derivative (a density of the dose at the
         last moved dose) rest on a density there, and no derivation covers the atom.
     """
     values = ", ".join(f"{float(atom):g}" for atom in atoms)
-    return (
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
         f"a data-tuned cap is not combined with declared dose atoms: {where} declares the "
         f"atom(s) {values}. The cap is a quantile of the dose law. Where that law has an "
         "atom, the quantile does not move with the law while its level stays inside the "
         "atom's jump, and it is not pathwise differentiable at the jump's edge. The "
         "influence function of the tuner and the derivative of the mean in the cap both "
         "need a density of the dose at the cap, and this release does not derive them "
-        "at an atom. Declare the cap as a number, or tune the cap at a node with no declared "
-        "atoms"
+        "at an atom.",
+        alternative=(
+            "Declare the cap as a number, or tune the cap at a node with no declared atoms."
+        ),
+        roadmap="X40",
     )
 
 
@@ -804,4 +827,4 @@ def refuse_outcome_tuners(
     named = set(outcomes)
     for name, tuner in tuners:
         if named.intersection(tuner_reads(tuner)):
-            raise CapabilityError(outcome_refusal(name))
+            raise CapabilityError.from_refusal(outcome_refusal(name))

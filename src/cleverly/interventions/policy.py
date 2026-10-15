@@ -255,7 +255,9 @@ def _refuse_unresolved(policy: Shift | Scale) -> float | None:
         raise CapabilityError(
             f"policy {policy.name!r} reads its cap from the treatment law "
             f"({type(cap).__name__}), so it has no map until a fit resolves the tuner "
-            "on the units at risk. Pass it to a fit, which resolves it before any learner"
+            "on the units at risk.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Pass it to a fit, which resolves it before any learner.",
         )
     return None if cap is None else float(cap)
 
@@ -1060,7 +1062,7 @@ def refuse_tuned_declarations(policy: Shift | Scale) -> None:
         and isinstance(cap, SupportBoundary)
         and not cap.finite_dimensional
     ):
-        raise CapabilityError(population_refusal(policy.name, cap))
+        raise CapabilityError.from_refusal(population_refusal(policy.name, cap))
 
 
 def tuned_policy(policy: object) -> bool:
@@ -2393,10 +2395,14 @@ def _collapse_refusal(
         f"{value:g}, so the law of the assigned dose has an atom that the observed law lacks, "
         f"and no density ratio exists. The mean then contains the mean under the static dose "
         f"{value:g}, which is not pathwise differentiable (Díaz et al. 2023, Section 4, journal "
-        f"page 850), so no root-n interval exists. If the dose has a recorded point mass at "
-        f"{value:g}, declare it with dose_atoms and the piece with Piece({lower:g}, {upper:g}, "
-        f"to_atom={value:g}). Otherwise use a piecewise map that moves every dose, or collapse "
-        "the dose into categories and declare the policy on a categorical node"
+        f"page 850), so no root-n interval exists.",
+        reason=RefusalReason.DIFFERENT_ESTIMAND,
+        alternative=(
+            f"If the dose has a recorded point mass at {value:g}, declare it with dose_atoms "
+            f"and the piece with Piece({lower:g}, {upper:g}, to_atom={value:g}). Otherwise "
+            "use a piecewise map that moves every dose, or collapse the dose into categories "
+            "and declare the policy on a categorical node."
+        ),
     )
 
 
@@ -2444,13 +2450,15 @@ def _check_atom_images(
         bad = rows & (_atom_index(image, atoms) < 0)
         if bad.any():
             moved_to = float(image[np.flatnonzero(bad)[0]])
-            raise CapabilityError(atom_image_refusal(name, where, atom, moved_to, describe=label))
+            raise CapabilityError.from_refusal(
+                atom_image_refusal(name, where, atom, moved_to, describe=label)
+            )
 
 
 def atom_image_refusal(
     name: str, where: str, atom: float, moved_to: float, *, describe: str, note: str = ""
-) -> str:
-    """The R-b3 text: a policy moves a declared atom to a dose with no recorded mass.
+) -> Refusal:
+    """The R-b3 refusal: a policy moves a declared atom to a dose with no recorded mass.
 
     Parameters
     ----------
@@ -2469,18 +2477,23 @@ def atom_image_refusal(
 
     Returns
     -------
-    str
-        The text.
+    Refusal
+        A :attr:`~cleverly._refusal.RefusalReason.DIFFERENT_ESTIMAND` record, as for the
+        collapse it reaches.
     """
-    return (
+    return Refusal(
+        RefusalReason.DIFFERENT_ESTIMAND,
         f"policy {name!r} at {where} moves the declared atom {atom:g} to {moved_to:g} "
         f"({describe}). The natural dose has no recorded mass at {moved_to:g}, so every row "
         f"that holds the dose {atom:g} receives a dose where the observed law has no "
         "mass. The law of the assigned dose then has an atom that the observed law "
         "lacks, and no density ratio exists: this is the failure of a collapse (Díaz et "
-        "al. 2023, Section 4, journal page 850) reached from the atom. Hold the atom in "
-        "place (a cap or a piece that keeps it), send it to another declared atom, or, "
-        f"if the dose has recorded mass at {moved_to:g}, declare it in dose_atoms{note}"
+        "al. 2023, Section 4, journal page 850) reached from the atom.",
+        alternative=(
+            "Hold the atom in place (a cap or a piece that keeps it), send it to another "
+            f"declared atom, or, if the dose has recorded mass at {moved_to:g}, declare it in "
+            f"dose_atoms{note or '.'}"
+        ),
     )
 
 

@@ -1163,7 +1163,8 @@ def _regimen_target(regimen: DynamicRegimen) -> str | None:
     if len(targets) > 1:
         raise CapabilityError(
             f"regimen {regimen.label!r} declares the targets {sorted(targets)} on its tuned "
-            "maps. One regimen is one parameter, so its tuned maps declare one target"
+            "maps. One regimen is one parameter, so its tuned maps declare one target",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     return next(iter(targets)) if targets else None
 
@@ -1245,7 +1246,7 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
         _outcome_columns(data),
     )
     if target == "fold_average" and folds.is_single:
-        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD)
+        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD, reason=RefusalReason.INVALID_DECLARATION)
     sources = {
         (time, component): _tuner_source(regimen, data, time, node, component)
         for time, node, component, _, _ in tuned_nodes
@@ -1341,11 +1342,14 @@ def _tuner_source(
                 f"regimen {regimen.label!r} tunes the cap of {name!r} at {where}, whose "
                 f"continuous components are "
                 f"{[c.name for c in components if c.continuous]}. A tuned cap reads a "
-                "quantile of a dose's law, so it applies to a continuous component"
+                "quantile of a dose's law, so it applies to a continuous component",
+                reason=RefusalReason.INVALID_DECLARATION,
             )
         atoms = data.component_atoms(time).get(name, ())
         if atoms:
-            raise CapabilityError(tuned_cap_at_atoms(f"component {name!r} of {where}", atoms))
+            raise CapabilityError.from_refusal(
+                tuned_cap_at_atoms(f"component {name!r} of {where}", atoms)
+            )
         natural = np.nan_to_num(data.node_values(time), nan=0.0)
         source = component_source(
             node,
@@ -1362,11 +1366,12 @@ def _tuner_source(
             f"regimen {regimen.label!r} tunes the cap of {tuned!r} at {where}, which is "
             "not one continuous dose "
             "or a dose component of a mixed node. A tuned cap reads a quantile of the dose "
-            "law, which has a density only at a dose"
+            "law, which has a density only at a dose",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     atoms = data.node_atoms(time)
     if atoms:
-        raise CapabilityError(tuned_cap_at_atoms(where, atoms))
+        raise CapabilityError.from_refusal(tuned_cap_at_atoms(where, atoms))
     doses = np.nan_to_num(data.node_codes(time), nan=0.0)
     return doses, lazy_frame(partial(data.policy_frame, time))
 

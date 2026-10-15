@@ -4258,15 +4258,22 @@ class _SequentialEstimator:
             raise CapabilityError(
                 "target='fold_average' is not combined with msm=: each fold's map is fitted "
                 "on that fold's training rows, so a working model would project targets that "
-                "depend on the split. Fit the fold-average target without msm=, or tune the "
-                "map with a finite-dimensional tuner and declare target='population'"
+                "depend on the split.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Fit the fold-average target without msm=, or tune the map with a "
+                    "finite-dimensional tuner and declare target='population'."
+                ),
             )
         if self.n_bootstrap:
             raise CapabilityError(
                 "target='fold_average' refuses the full-refit bootstrap (n_bootstrap=0). Each "
-                "resample refits every fold's map, so each draw has a different target. The "
-                "fit reports the fold-average variance of Hubbard, Kherad-Pajouh and van der "
-                "Laan (2016), Theorem 1"
+                "resample refits every fold's map, so each draw has a different target.",
+                reason=RefusalReason.INFERENCE_GAP,
+                alternative=(
+                    "The fit reports the fold-average variance of Hubbard, Kherad-Pajouh and "
+                    "van der Laan (2016), Theorem 1."
+                ),
             )
 
     def _refuse_undeclared_policy_scale(

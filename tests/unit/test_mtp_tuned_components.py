@@ -666,7 +666,7 @@ def test_a_tuned_component_with_declared_atoms_is_refused(frame: Any) -> None:
 
     data = frame.copy()
     data.loc[data.index[::5], "A2"] = 0.0
-    text = tuned_cap_at_atoms("component 'A2' of the node 'F2+A2'", (0.0,))
+    text = tuned_cap_at_atoms("component 'A2' of the node 'F2+A2'", (0.0,)).message()
     with pytest.raises(CapabilityError, match=re.escape(text)), warnings.catch_warnings():
         warnings.simplefilter("ignore")
         LTMLE([_node2({"A2": TUNED})], **_settings(n_folds=1)).fit(

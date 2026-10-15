@@ -456,7 +456,7 @@ def test_a_tuned_categorical_point_component_is_refused(frame: Any) -> None:
 def test_a_tuned_point_component_with_declared_atoms_is_refused(frame: Any) -> None:
     data = frame.copy()
     data.loc[data.index[::5], "A"] = 0.0
-    text = tuned_cap_at_atoms("component 'A' of the treatment", (0.0,))
+    text = tuned_cap_at_atoms("component 'A' of the treatment", (0.0,)).message()
     head, tail = text.split("of the treatment", 1)
     pattern = re.escape(head + "of the treatment") + ".*" + re.escape(tail)
     with pytest.raises(CapabilityError, match=pattern), warnings.catch_warnings():

@@ -95,7 +95,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import MAX_TREATMENT_LEVELS, arm_indicators, atom_block
-from ..exceptions import CapabilityError, DataError, PositivityWarning, RefusalReason
+from ..exceptions import CapabilityError, DataError, PositivityWarning, Refusal, RefusalReason
 from ..learners.crossfit import Folds
 from ..learners.density import (
     ConditionalDensity,
@@ -331,7 +331,7 @@ def explicit_pieces(policy: object | None) -> tuple[ExplicitPiece, ...]:
     )
 
 
-def collapse_refusal(name: str, atom: float) -> str:
+def collapse_refusal(name: str, atom: float) -> Refusal:
     """The refusal of a piece that sends an interval to an atom, on the density route.
 
     Parameters
@@ -343,19 +343,23 @@ def collapse_refusal(name: str, atom: float) -> str:
 
     Returns
     -------
-    str
-        The text.
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.API_REDIRECTION` record: the classifier
+        route fits the policy.
     """
-    return (
+    return Refusal(
+        RefusalReason.API_REDIRECTION,
         f"policy {name!r} sends an interval of a component of a vector treatment to the "
         f"declared atom {atom:g} (Piece(..., to_atom={atom:g})), which the density route "
         "evaluates only at the last dose of the node. The induced mass at the atom "
         "integrates the factors of the later components over that interval, because each "
         "later factor conditions on the collapsed dose, and that integral is not a finite "
         "sum over preimages. At the last dose, in the node's column order and in the "
-        "policy's order, the mass is the integral of one binned density, a finite sum. Pass "
-        "ratio='classifier', which estimates the ratio without a density, declare the dose "
-        "last, or map the interval by a smooth piece"
+        "policy's order, the mass is the integral of one binned density, a finite sum.",
+        alternative=(
+            "Pass ratio='classifier', which estimates the ratio without a density, declare "
+            "the dose last, or map the interval by a smooth piece."
+        ),
     )
 
 
@@ -1013,7 +1017,7 @@ def _enumerate(
                 collapsing = [piece for piece in pieces[index] if piece.to_atom is not None]
                 if collapsing:
                     if index != doses[-1] or index != order[-1]:
-                        raise CapabilityError(
+                        raise CapabilityError.from_refusal(
                             collapse_refusal(
                                 str(getattr(policy, "name", branch.name)),
                                 float(collapsing[0].to_atom or 0.0),
@@ -1110,7 +1114,7 @@ def _atom_paths(
         bad = checked & (target < 0)
         if bad.any():
             first = float(image[np.flatnonzero(bad)[0]])
-            raise CapabilityError(
+            raise CapabilityError.from_refusal(
                 atom_image_refusal(
                     name, where, float(atom), first, describe=name, note=_COUNTERFACTUAL_ATOMS
                 )
@@ -1136,7 +1140,9 @@ def _collapsed_image(
             f"policy {branch.name!r} at {layout.where} collapses an interval of {collapsed!r} "
             f"to an atom, and a categorical map reads {error}. On the density route the mass "
             "of the interval is one integral of the dose's binned density only when no other "
-            "map reads the collapsed dose. Pass ratio='classifier', or drop the read"
+            "map reads the collapsed dose.",
+            reason=RefusalReason.API_REDIRECTION,
+            alternative="Pass ratio='classifier', or drop the read.",
         ) from error
 
 

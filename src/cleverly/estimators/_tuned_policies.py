@@ -48,7 +48,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
-from ..exceptions import CapabilityError, DataError
+from ..exceptions import CapabilityError, DataError, RefusalReason
 from ..interventions.policy import (
     ForbiddenRead,
     JointComponent,
@@ -111,9 +111,17 @@ def declares_tuned(policies: Sequence[object]) -> bool:
     return any(tuned_maps(policy) for policy in policies)
 
 
-def _composition(reason: str, remedy: str) -> CapabilityError:
+def _composition(
+    what: str,
+    why: str,
+    *,
+    code: RefusalReason,
+    alternative: str,
+    roadmap: str | None = None,
+) -> CapabilityError:
+    condition = f"a point-treatment policy with a data-tuned cap is not combined with {what}."
     return CapabilityError(
-        f"a point-treatment policy with a data-tuned cap is not combined with {reason}. {remedy}"
+        f"{condition} {why}".strip(), reason=code, alternative=alternative, roadmap=roadmap
     )
 
 
@@ -150,51 +158,76 @@ def refuse_tuned_compositions(estimator: Any, data: CausalData) -> None:
         raise _composition(
             "cv_evaluation=True",
             "The fold-evaluated estimate averages fold estimates of one map, and a tuned "
-            "map differs by fold. Use cv_evaluation=False; target='fold_average' already "
-            "targets each fold's map on that fold's held-out rows",
+            "map differs by fold.",
+            code=RefusalReason.API_REDIRECTION,
+            alternative=(
+                "Use cv_evaluation=False; target='fold_average' already targets each fold's "
+                "map on that fold's held-out rows."
+            ),
         )
     if estimator.targeting_scheme == "fold":
         raise _composition(
             "targeting_scheme='fold'",
-            "Use the pooled scheme; target='fold_average' fits one fluctuation per fold",
+            "",
+            code=RefusalReason.API_REDIRECTION,
+            alternative=(
+                "Use the pooled scheme; target='fold_average' fits one fluctuation per fold."
+            ),
         )
     if data.has_strata:
         raise _composition(
             "baseline strata",
-            "A stratum mean would need the tuner's influence function within each stratum. "
-            "Fit without strata=",
+            "A stratum mean would need the tuner's influence function within each stratum.",
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit without strata=.",
+            roadmap="X40",
         )
     if data.has_missing_treatment or data.has_missing_outcome:
         raise _composition(
             "a missing treatment or outcome",
             "The tuner reads the dose of every row, and the derivative term is derived "
-            "for complete data. Fit the complete rows",
+            "for complete data.",
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit the complete rows.",
+            roadmap="X40",
         )
     if data.has_intermediate:
-        raise _composition("an intermediate", "Fit the policy without intermediate=")
+        raise _composition(
+            "an intermediate",
+            "",
+            code=RefusalReason.IMPLEMENTATION_GAP,
+            alternative="Fit the policy without intermediate=.",
+            roadmap="X40",
+        )
     if data.treatment_kind == "vector":
         _refuse_vector_tunings(estimator.policies, data)
     elif not data.is_continuous_treatment or data.is_vector_treatment:
         raise _composition(
             "a treatment that is not one continuous dose",
             "A tuned cap reads a quantile of the dose law, which has a density only at a "
-            "continuous dose",
+            "continuous dose.",
+            code=RefusalReason.INVALID_DECLARATION,
+            alternative="Declare a numeric cap.",
         )
     elif data.dose_atoms:
-        raise CapabilityError(tuned_cap_at_atoms("the treatment", data.dose_atoms))
+        raise CapabilityError.from_refusal(tuned_cap_at_atoms("the treatment", data.dose_atoms))
     fold_average = any(_policy_target(policy) == "fold_average" for policy in estimator.policies)
     if fold_average and estimator.n_bootstrap:
         raise _composition(
             "the bootstrap on the fold-average target",
-            "The fold-average parameter depends on the split, so a resample redefines it. "
-            "Set n_bootstrap=0, or declare target='population' with a finite-dimensional "
-            "tuner",
+            "The fold-average parameter depends on the split, so a resample redefines it.",
+            code=RefusalReason.INFERENCE_GAP,
+            alternative=(
+                "Set n_bootstrap=0, or declare target='population' with a finite-dimensional tuner."
+            ),
         )
     if fold_average and estimator.repeats > 1:
         raise _composition(
             "repeated splits on the fold-average target",
             "Each split defines its own fold-average parameter, so a median over splits "
-            "estimates none of them. Set repeats=1",
+            "estimates none of them.",
+            code=RefusalReason.DIFFERENT_ESTIMAND,
+            alternative="Set repeats=1.",
         )
 
 
@@ -207,19 +240,24 @@ def _refuse_vector_tunings(policies: Sequence[object], data: CausalData) -> None
             if component is None:
                 raise _composition(
                     "a treatment that is not one continuous dose",
-                    "A tuned cap reads a quantile of the dose law. At a vector treatment it "
-                    "applies to a continuous component of a JointPolicy",
+                    "A tuned cap reads a quantile of the dose law.",
+                    code=RefusalReason.API_REDIRECTION,
+                    alternative=(
+                        "At a vector treatment it applies to a continuous component of a "
+                        "JointPolicy."
+                    ),
                 )
             if component not in names or not components[names.index(component)].continuous:
                 raise CapabilityError(
                     f"policy {getattr(policy, 'name', policy)!r} tunes the cap of "
                     f"{component!r}, but the continuous components of the treatment are "
                     f"{[c.name for c in components if c.continuous]}. A tuned cap reads a "
-                    "quantile of a dose's law, so it applies to a continuous component"
+                    "quantile of a dose's law, so it applies to a continuous component",
+                    reason=RefusalReason.INVALID_DECLARATION,
                 )
             atoms = data.component_atoms.get(component, ())
             if atoms:
-                raise CapabilityError(
+                raise CapabilityError.from_refusal(
                     tuned_cap_at_atoms(
                         f"component {component!r} of the treatment {data.treatment_name!r}",
                         atoms,
@@ -234,7 +272,8 @@ def _policy_target(policy: object) -> str | None:
         raise CapabilityError(
             f"policy {getattr(policy, 'name', policy)!r} declares the targets "
             f"{sorted(targets)} on its tuned maps. One policy is one parameter, so its tuned "
-            "maps declare one target"
+            "maps declare one target",
+            reason=RefusalReason.INVALID_DECLARATION,
         )
     return next(iter(targets)) if targets else None
 
@@ -627,7 +666,7 @@ def resolve_point_policies(
         (str(data.outcome_name),),
     )
     if any(_policy_target(policy) == "fold_average" for policy in declared) and folds.is_single:
-        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD)
+        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD, reason=RefusalReason.INVALID_DECLARATION)
     n = data.n
     everyone = np.ones(n, dtype=bool)
     owner = np.asarray(folds.assignment)

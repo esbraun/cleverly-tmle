@@ -264,7 +264,7 @@ def test_t_b1_a_collapse_to_an_atom_is_exact_on_the_classifier_route(estimator: 
 
 
 def test_a_collapse_to_an_atom_is_refused_on_the_density_route() -> None:
-    text = joint_module.collapse_refusal("collapse", 1.0)
+    text = joint_module.collapse_refusal("collapse", 1.0).message()
     with pytest.raises(CapabilityError, match=re.escape(text) + "$"):
         _point(("natural", "collapse to atom"), "density")
     with pytest.raises(CapabilityError, match=re.escape(text) + "$"):
@@ -342,7 +342,7 @@ def test_a_collapse_at_the_last_column_but_not_the_last_in_order_is_refused() ->
         order=("D2", "D1"),
         policy_kind="known",
     )
-    text = joint_module.collapse_refusal("collapse last", 8.0)
+    text = joint_module.collapse_refusal("collapse last", 8.0).message()
     with pytest.raises(CapabilityError, match=re.escape(text) + "$"):
         _point(("natural", "collapse first in order"), "density", plans=_with(policy))
 
@@ -424,7 +424,9 @@ OFF_THE_ATOMS = JointPolicy(
 def _rb3(where: str, note: str = "") -> str:
     from cleverly.interventions.policy import atom_image_refusal
 
-    return atom_image_refusal("d1 half up", where, 1.0, 1.5, describe="d1 half up", note=note)
+    return atom_image_refusal(
+        "d1 half up", where, 1.0, 1.5, describe="d1 half up", note=note
+    ).message()
 
 
 @RATIOS
