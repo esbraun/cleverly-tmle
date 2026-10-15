@@ -50,7 +50,7 @@ def check(namespace: dict[str, Any]) -> None:
     g0 = nonlinear_bounded_dgp().propensity(frame.loc[:, list(COVARIATES)].to_numpy(dtype=float))
     np.testing.assert_array_equal(frame["offer_probability"].to_numpy(), g0)
     np.testing.assert_array_equal(frame["usual_probability"].to_numpy(), 1.0 - g0)
-    # "the true propensity lies between 5% and 95%"
+    # "The logged offer probability lies between 0.050 and 0.876."
     assert g0.min() >= 0.05 and g0.max() <= 0.95
 
     # Step 3: the unadjusted arm difference exceeds the ATE, and the arms differ on risk.
@@ -128,6 +128,9 @@ def check(namespace: dict[str, Any]) -> None:
     assert support.truncated["count"] == 0
     assert "treatment mechanism known (declared)" in stored
     assert f"most extreme untruncated g(W) = {g0.min():.6f}" in stored
+
+    # "the verdict reads `nuisance fits look reasonable`" for an outcome model wrong by construction.
+    assert "nuisance fits look reasonable" in stored
 
     # Step 10: the approximate E-value of the DR-TMLE fit, and the printed conversion chain.
     evalue = namespace["evalue"]
