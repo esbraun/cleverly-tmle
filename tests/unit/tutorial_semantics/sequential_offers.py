@@ -161,7 +161,10 @@ def _check_data(namespace: dict[str, Any]) -> None:
         "win_back": 0.5997,
         "win_back_ship": 0.6268,
     }
-    assert min(rates, key=rates.get) == "discount" and max(rates, key=rates.get) == "win_back_ship"
+    assert (
+        min(rates, key=rates.__getitem__) == "discount"
+        and max(rates, key=rates.__getitem__) == "win_back_ship"
+    )
     assert rates["discount"] < rates["none"] < rates["shipping"] < rates["win_back"]
     assert truth[_key("win_back")] - 0.0 >= 0.05
     assert rates["win_back"] - rates["discount"] >= 0.08
