@@ -14,9 +14,9 @@ the tuned component set to the boundary and to the last moved dose.
 - T-e7: each outer fold trains at its own tuner on both routes.
 - T-e1: the fold average at two mixed nodes of the exact grid law is the average of the
   exact fold functionals; M-e1 holds one fold map everywhere.
-- The refusals: declared atoms (M3), a tuner that reads the tuned dose, and a point vector
-  treatment.  ``tests/unit/test_mtp_joint_tuning.py`` covers two tuned doses and a
-  randomizer.
+- The refusals: declared atoms (M3), and a tuner that reads the tuned dose.
+  ``tests/unit/test_mtp_joint_tuning.py`` covers two tuned doses and a randomizer, and
+  ``tests/unit/test_point_tuned_components.py`` the point vector.
 """
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ import pytest
 from scipy import stats
 from sklearn.linear_model import LinearRegression, LogisticRegression, QuantileRegressor
 
-from cleverly.estimators import TMLE
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import (
     DoseQuantile,
@@ -681,16 +680,3 @@ def test_a_tuner_reads_only_what_its_map_reads(frame: Any) -> None:
     )
     with pytest.raises(DataError, match="which the tuned component's map may not read"):
         _fit(LTMLE, [_node2({"A2": reads_itself})], frame, n_folds=1)
-
-
-def test_a_point_vector_refuses_a_tuned_component() -> None:
-    from cleverly.estimators._tuned_policies import point_tuned_component_refusal
-
-    frame = qv.sample(400, 3)
-    policy = JointPolicy("tuned", components={"F2": FLAG, "A2": TUNED}, policy_kind="known")
-    text = point_tuned_component_refusal(policy, "A2")
-    with pytest.raises(CapabilityError, match=re.escape(text)):
-        TMLE(policies=[policy], outcome_learner=LinearRegression()).fit(
-            frame, outcome="Y", treatment=["F2", "A2"], covariates=["W"],
-            continuous_treatment=["A2"],
-        )  # fmt: skip

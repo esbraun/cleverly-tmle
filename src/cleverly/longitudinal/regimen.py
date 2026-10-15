@@ -80,8 +80,6 @@ from ..interventions.policy import (
     ForbiddenRead,
     JointComponent,
     JointPolicy,
-    Scale,
-    Shift,
     check_continuous_policy,
     component_source,
     describe_policy,
@@ -93,8 +91,8 @@ from ..interventions.policy import (
     refuse_policy_declarations,
     resolve_tuned_policy,
     tuned_cap_parts,
-    tuned_components,
-    tuned_policy,
+    tuned_maps,
+    with_resolved_component,
 )
 from ..interventions.tuning import (
     FOLD_AVERAGE_ONE_FOLD,
@@ -1156,34 +1154,12 @@ def declares_tuned(regimens: Sequence[RegimenSpec]) -> bool:
     return any(_tuned(regimen) for regimen in regimens)
 
 
-#: A tuned map of a node: its component (``None`` at a node of one dose), the declared map,
-#: and the ``(branch, probability)`` of each branch that applies it.
-_TunedMap: TypeAlias = tuple[str | None, Shift | Scale, tuple[tuple[int, float], ...]]
-
-
-def _tuned_maps(node: object) -> tuple[_TunedMap, ...]:
-    """The tuned maps of a node: the node itself, or a joint policy's tuned components.
-
-    One entry per component and declared object.  An object that a randomizer applies in
-    several branches is one tuner, fitted once, with one slot per branch.
-    """
-    if isinstance(node, (Shift, Scale)) and tuned_policy(node):
-        return ((None, node, ((0, 1.0),)),)
-    grouped: dict[tuple[str, int], tuple[str, Shift | Scale, list[tuple[int, float]]]] = {}
-    for slot in tuned_components(node):
-        entry = grouped.setdefault(
-            (slot.component, id(slot.policy)), (slot.component, slot.policy, [])
-        )
-        entry[2].append((slot.branch, slot.probability))
-    return tuple((name, tuned, tuple(slots)) for name, tuned, slots in grouped.values())
-
-
 def _tuned(regimen: RegimenSpec) -> bool:
-    return isinstance(regimen, DynamicRegimen) and any(_tuned_maps(node) for node in regimen.plan)
+    return isinstance(regimen, DynamicRegimen) and any(tuned_maps(node) for node in regimen.plan)
 
 
 def _regimen_target(regimen: DynamicRegimen) -> str | None:
-    targets = {str(tuned.target) for node in regimen.plan for _, tuned, _ in _tuned_maps(node)}
+    targets = {str(tuned.target) for node in regimen.plan for _, tuned, _ in tuned_maps(node)}
     if len(targets) > 1:
         raise CapabilityError(
             f"regimen {regimen.label!r} declares the targets {sorted(targets)} on its tuned "
@@ -1259,7 +1235,7 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
     tuned_nodes = [
         (time, node, component, tuned, slots)
         for time, node in enumerate(regimen.plan, start=1)
-        for component, tuned, slots in _tuned_maps(node)
+        for component, tuned, slots in tuned_maps(node)
     ]
     refuse_outcome_tuners(
         [
@@ -1295,13 +1271,13 @@ def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: 
                 rows[train] = True
                 fold_fit = fit_tuner(tuner, doses, frame, reachable & rows, weights)
                 fold_fits.append(fold_fit)
-                by_fold[k][time] = _with_tuned(
+                by_fold[k][time] = with_resolved_component(
                     by_fold[k].get(time, node),
                     component,
                     tuned,
                     resolve_tuned_policy(tuned, fold_fit),
                 )
-        in_sample[time] = _with_tuned(
+        in_sample[time] = with_resolved_component(
             in_sample.get(time, node), component, tuned, resolve_tuned_policy(tuned, fitted)
         )
         influence = (
@@ -1413,31 +1389,6 @@ def _guarded(
             "feature"
         ) from error
     return fitted
-
-
-def _with_tuned(
-    node: object, component: str | None, tuned: Shift | Scale, resolved: object
-) -> RuleNode:
-    """A node with its tuned map at ``component`` replaced by the resolved map.
-
-    In a randomized joint policy the map is replaced in every branch that holds it.
-    """
-    if isinstance(node, JointPolicy):
-        from dataclasses import replace
-
-        def swap(components: Mapping[str, Any]) -> dict[str, Any]:
-            return {
-                name: resolved if name == component and value is tuned else value
-                for name, value in components.items()
-            }
-
-        components = (
-            swap(node.components)
-            if node.randomizer is None
-            else {label: swap(branch) for label, branch in node.components.items()}
-        )
-        return cast(RuleNode, replace(node, components=components))
-    return cast(RuleNode, resolved)
 
 
 def _stitched_plan(

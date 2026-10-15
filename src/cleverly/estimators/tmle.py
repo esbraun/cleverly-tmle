@@ -186,7 +186,6 @@ from ..interventions.policy import (
     preflight_point_policies,
     preflight_vector_policies,
     refuse_policy_declarations,
-    tuned_components,
     vector_msm_refusal,
     vector_route_refusal,
     whole_vector_refusal,
@@ -234,7 +233,6 @@ from ._strata import (
 from ._tuned_policies import (
     declares_tuned,
     in_sample_policies,
-    point_tuned_component_refusal,
     refuse_tuned_compositions,
     resolve_point_policies,
 )
@@ -3089,13 +3087,13 @@ class TMLE:
             # :meth:`_refuse_vector_compositions` admits joint policies only.  The
             # undeclared atoms (R-b4) and a declared component support are checked here,
             # before any learner (X40 parts (a) and (b)).
-            for policy in self.policies or ():
-                slots = tuned_components(policy)
-                if slots:
-                    raise CapabilityError(point_tuned_component_refusal(policy, slots[0].component))
+            # A tuned component is read at the tuner fitted on every row.
             if self.policies:
                 preflight_vector_policies(
-                    tuple(self.policies), data, ratio=self.ratio, density_bins=self.density_bins
+                    in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
+                    data,
+                    ratio=self.ratio,
+                    density_bins=self.density_bins,
                 )
             return
         if self.policies and any(isinstance(item, RiskRatioTilt) for item in self.policies):
@@ -3356,10 +3354,13 @@ class TMLE:
         if tuned is not None:
             # Each fold's map, and each fold-average component, meets R-a1, R-b1 and R-b3
             # before any learner, as the map at theta_n did in ``fit``.
+            preflight = (
+                preflight_vector_policies
+                if data.treatment_kind == "vector"
+                else preflight_point_policies
+            )
             for fold_policies in (tuned.expanded, *(tuned.by_fold or ())):
-                preflight_point_policies(
-                    fold_policies, data, ratio=self.ratio, density_bins=self.density_bins
-                )
+                preflight(fold_policies, data, ratio=self.ratio, density_bins=self.density_bins)
         reference = None if self.reference is None else str(self.reference)
         estimates = fit_nuisances(
             data,

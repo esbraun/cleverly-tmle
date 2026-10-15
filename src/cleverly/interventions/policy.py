@@ -150,13 +150,16 @@ __all__ = [
     "Scale",
     "Shift",
     "Support",
+    "TunedMap",
     "TunedSlot",
     "check_policy_support",
     "component_source",
     "refuse_policy_declarations",
     "resolve_tuned_policy",
     "tuned_components",
+    "tuned_maps",
     "tuned_policy",
+    "with_resolved_component",
 ]
 
 _QUANTILES = (0.01, 0.05, 0.5, 0.95, 0.99)
@@ -1123,6 +1126,80 @@ def tuned_components(policy: object) -> tuple[TunedSlot, ...]:
         for name, component in components.items()
         if tuned_policy(component)
     )
+
+
+#: A tuned map of a node: its component (``None`` for a policy of one dose), the declared
+#: map, and the ``(branch, probability)`` of each branch that applies it.
+TunedMap: TypeAlias = "tuple[str | None, Shift | Scale, tuple[tuple[int, float], ...]]"
+
+
+def tuned_maps(policy: object) -> tuple[TunedMap, ...]:
+    """The tuned maps of a policy: the policy itself, or a joint policy's tuned components.
+
+    One entry per component and declared object.  An object that a randomizer applies in
+    several branches is one tuner, fitted once, with one slot per branch.
+
+    Parameters
+    ----------
+    policy : object
+        A declared policy.
+
+    Returns
+    -------
+    tuple of tuple
+        ``(component, map, slots)`` per tuned map, with ``slots`` the ``(branch,
+        probability)`` of each branch of :func:`joint_branches` that applies it.
+    """
+    if isinstance(policy, (Shift, Scale)) and tuned_policy(policy):
+        return ((None, policy, ((0, 1.0),)),)
+    grouped: dict[tuple[str, int], tuple[str, Shift | Scale, list[tuple[int, float]]]] = {}
+    for slot in tuned_components(policy):
+        entry = grouped.setdefault(
+            (slot.component, id(slot.policy)), (slot.component, slot.policy, [])
+        )
+        entry[2].append((slot.branch, slot.probability))
+    return tuple((name, tuned, tuple(slots)) for name, tuned, slots in grouped.values())
+
+
+def with_resolved_component(
+    policy: object, component: str | None, tuned: Shift | Scale, resolved: object
+) -> Any:
+    """A policy with its tuned map at ``component`` replaced by the resolved map.
+
+    In a randomized joint policy the map is replaced in every branch that holds it.  A
+    policy of one dose is the resolved map itself.
+
+    Parameters
+    ----------
+    policy : object
+        The policy that holds the tuned map.
+    component : str or None
+        The tuned component, ``None`` for a policy of one dose.
+    tuned : Shift or Scale
+        The declared tuned map, the object the policy holds.
+    resolved : object
+        The map at a fitted tuner.
+
+    Returns
+    -------
+    object
+        The policy with the map replaced.
+    """
+    if not isinstance(policy, JointPolicy):
+        return resolved
+
+    def swap(components: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            name: resolved if name == component and value is tuned else value
+            for name, value in components.items()
+        }
+
+    components = (
+        swap(policy.components)
+        if policy.randomizer is None
+        else {label: swap(branch) for label, branch in policy.components.items()}
+    )
+    return replace(policy, components=components)
 
 
 def component_source(
@@ -4238,7 +4315,15 @@ class PolicySet:
         everyone = np.ones(data.n, dtype=bool)
         if data.treatment_kind == "vector":
             return cls._evaluate_vector(
-                declared, names, data, learner, folds, frame, reference=reference, n_jobs=n_jobs
+                declared,
+                names,
+                data,
+                learner,
+                folds,
+                frame,
+                reference=reference,
+                n_jobs=n_jobs,
+                by_fold=by_fold,
             )
         a = np.asarray(data.treatment, dtype=float).reshape(-1)
         owners: list[tuple[int, float]] = []
@@ -4345,13 +4430,15 @@ class PolicySet:
         *,
         reference: str | None,
         n_jobs: int,
+        by_fold: Sequence[Sequence[object]] | None = None,
     ) -> PolicySet:
         """:meth:`evaluate_by_classifier` on a vector treatment with a continuous component.
 
         Each policy is a :class:`JointPolicy`, applied component by component by
         :func:`joint_assignments`.  The stacked classifier reads
         :meth:`~cleverly.data.CausalData.component_design` beside the covariates, so it sees
-        every component.  ``shifted`` is ``(n, C, d)``.
+        every component.  ``shifted`` is ``(n, C, d)``.  ``by_fold`` holds, per outer fold,
+        the policies that fold's classifier stacks, as on a dose.
         """
         from ..learners.density_ratio import classifier_ratio
 
@@ -4363,6 +4450,14 @@ class PolicySet:
         count = shifted.shape[1]
         observed = data.component_design()
         assigned = [data.component_design(shifted[:, c]) for c in range(count)]
+        fold_assigned: list[list[FloatArray]] | None = None
+        if by_fold is not None:
+            fold_assigned = []
+            for fold_policies in by_fold:
+                own = _vector_setup(tuple(fold_policies), data).assigned
+                if len(own) != count:
+                    raise ValueError("each fold's policies need the branches of policies=")
+                fold_assigned.append([data.component_design(values) for values in own])
         ratio = np.zeros((data.n, count))
         ratio_at = np.zeros((data.n, count, count))
         for c in range(count):
@@ -4376,6 +4471,9 @@ class PolicySet:
                 evaluate_at=[observed, *assigned],
                 groups=data.cluster,
                 n_jobs=n_jobs,
+                assigned_by_fold=(
+                    None if fold_assigned is None else [((1.0, fold[c]),) for fold in fold_assigned]
+                ),
             )
             ratio[:, c] = evaluated[0]
             for s in range(count):
