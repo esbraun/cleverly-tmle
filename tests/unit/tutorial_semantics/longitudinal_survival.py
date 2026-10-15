@@ -95,8 +95,61 @@ def _summed(result: Any, names: list[str], signs: list[float]) -> tuple[float, f
     return psi, float(np.sqrt(np.var(curve, ddof=1) / result.data.n))
 
 
+def _assert_cited_study_values() -> None:
+    """Each study number in UNPRINTED_DECIMALS matches its committed file at the written precision."""
+    import pandas as pd
+
+    from tests.documents import ROOT
+
+    def read(study: str, name: str) -> pd.DataFrame:
+        return pd.read_csv(ROOT / study / name, float_precision="round_trip")
+
+    def summary_row(study: str, implementation: str, estimand: str) -> pd.Series:
+        frame = read(study, "summary.csv")
+        rows = frame[(frame["implementation"] == implementation) & (frame["estimand"] == estimand)]
+        assert len(rows) == 1
+        return rows.iloc[0]
+
+    def property_row(study: str, prop: str, cell: str) -> pd.Series:
+        frame = read(study, "properties.csv")
+        rows = frame[(frame["property"] == prop) & (frame["cell"] == cell)]
+        assert len(rows) == 1
+        return rows.iloc[0]
+
+    competing = "cleverly-competing-ltmle"
+    relapse = summary_row(_COMPETING, competing, "ate_regimen[always vs never, relapse @ t=2]")
+    death = summary_row(_COMPETING, competing, "ate_regimen[always vs never, death @ t=2]")
+    robust = property_row(_COMPETING, "double_robustness", "death_static_t2__mechanism_correct")
+    survival = summary_row(_SURVIVAL, "cleverly", "ate_regimen[always vs never @ t=2]")
+    calibration = property_row(_SURVIVAL, "interval_calibration", "static_t2__correctly_specified")
+    band = property_row(_SURVIVAL, "simultaneous_coverage", "all_reported__simultaneous_band")
+    cited = {
+        "0.9375": relapse["coverage"],
+        "0.9784": relapse["se_ratio"],
+        "0.9519": death["coverage"],
+        "0.9833": death["se_ratio"],
+        "-0.0026": robust["bias_ci_lower"],
+        "0.0022": robust["bias_ci_upper"],
+        "0.0080": robust["bias_margin"],
+        "0.9778": robust["se_ratio"],
+        "0.9406": survival["coverage"],
+        "0.9938": survival["se_ratio"],
+        "0.9276": calibration["coverage_ci_lower"],
+        "0.9407": calibration["coverage_ci_upper"],
+        "0.9411": calibration["se_ratio_ci_lower"],
+        "0.9774": calibration["se_ratio_ci_upper"],
+        "0.9140": band["coverage_ci_lower"],
+        "0.9283": band["coverage_ci_upper"],
+    }
+    assert set(cited) == set(UNPRINTED_DECIMALS)
+    for written, value in cited.items():
+        assert f"{float(value):.4f}" == written, (written, value)
+    assert not bool(band["passed"])
+
+
 def check(namespace: dict[str, Any]) -> None:
     """The competing-risk analysis, its failure mode, and the readings' relations hold."""
+    _assert_cited_study_values()
     result = namespace["result"]
     population = namespace["population"]
     frame = namespace["frame"]
