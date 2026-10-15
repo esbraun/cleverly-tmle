@@ -345,6 +345,22 @@ class TestTheFailureStatus:
         assert ctmle_module.STACK_FAILURE_STATUS == STACK_FAILURE_STATUS
 
 
+class TestTheSummary:
+    def test_an_admitted_fit_states_what_its_interval_covers(self, admitted_fit: Any) -> None:
+        text = admitted_fit.summary()
+        assert "stacked parametric curve of ParametricOutcome(features='arm_interactions')" in text
+        assert "covers the arm mean when the outcome model is correct" in text
+        assert "No simultaneous band" in text
+
+    def test_another_fit_states_nothing(self) -> None:
+        result = _fit(outcome_learner=LogisticRegression())
+        assert "stacked parametric curve" not in result.summary()
+
+    def test_the_note_survives_a_round_trip(self, admitted_fit: Any, tmp_path: Any) -> None:
+        loaded = cleverly.load(admitted_fit.save(tmp_path / "fit.pkl"))
+        assert loaded.summary() == admitted_fit.summary()
+
+
 class TestRecomputation:
     def test_save_and_load_keep_the_stacked_interval(
         self, admitted_fit: Any, tmp_path: Any

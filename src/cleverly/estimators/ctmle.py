@@ -848,6 +848,23 @@ class CTMLESelection:
         return float(self.treatment_risk[self.selected])
 
 
+#: What the stacked parametric interval of an admitted per-arm fit covers (X58).
+_STACKED_INTERVAL_NOTE: Final = (
+    "Its intervals read the stacked parametric curve of {models}. Each interval is pointwise "
+    "and covers the arm mean when the outcome model is correct, and its limit psi* otherwise. "
+    "The g_bounds are constants of the fit, so with a wrong outcome model psi* can move with "
+    "n while a bound binds. No simultaneous band is built (X58 part (b))"
+)
+
+
+def _stacked_interval_models(estimator: Any) -> str:
+    outcome, mechanism = estimator.outcome_learner, estimator.treatment_learner
+    return (
+        f"ParametricOutcome(features={outcome.features!r}) and "
+        f"ParametricMechanism(degree={mechanism.degree})"
+    )
+
+
 @dataclass(frozen=True)
 class CTMLEOutcomeAdaptiveFit:
     """Diagnostics for the outcome-adaptive treatment mechanism of ``strategy="oat"``.
@@ -878,6 +895,9 @@ class CTMLEOutcomeAdaptiveFit:
         Each factor's binary negative log likelihood, summed over the arms and computed on
         the rows the factor is fitted on, keyed by the entry of ``factors``. ``None`` under
         the shared design.
+    stacked_interval : str or None
+        The declared models of a fit that :func:`per_arm_parametric_support` admits, which
+        then reports the stacked parametric curve. ``None`` for every other fit.
     """
 
     strategy: CTMLEStrategy
@@ -888,6 +908,7 @@ class CTMLEOutcomeAdaptiveFit:
     strata: tuple[str, ...] = ()
     factors: tuple[str, ...] = ()
     risk_by_factor: dict[str, float] | None = None
+    stacked_interval: str | None = None
 
     @property
     def treatment_risk_selected(self) -> float:
@@ -915,6 +936,8 @@ class CTMLEOutcomeAdaptiveFit:
                 sentence += f", with {len(self.factors)} factors per arm"
             if self.strata:
                 sentence += f", inside each of {len(self.strata)} baseline strata"
+            if self.stacked_interval is not None:
+                sentence += f". {_STACKED_INTERVAL_NOTE.format(models=self.stacked_interval)}"
             return sentence
         return (
             f"C-TMLE outcome-adaptive fit used {count} Qbar features in one categorical mechanism"
@@ -954,6 +977,8 @@ class CTMLEOutcomeAdaptiveFit:
             )
         if self.strata:
             lines.append(f"fitted inside each baseline stratum: {'; '.join(self.strata)}")
+        if self.stacked_interval is not None:
+            lines.append(_STACKED_INTERVAL_NOTE.format(models=self.stacked_interval))
         return "\n".join(lines)
 
 
@@ -1877,6 +1902,11 @@ class CTMLE(TMLE):
                 strata=strata,
                 factors=tuple(spec.label for spec in specs),
                 risk_by_factor=risk_by_factor,
+                stacked_interval=(
+                    _stacked_interval_models(self)
+                    if per_arm_parametric_support(self, data).admitted
+                    else None
+                ),
             )
         }
 
