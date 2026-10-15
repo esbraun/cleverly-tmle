@@ -581,7 +581,7 @@ class SensitivityElements:
     nu2_estimator : str
         Which estimator of ``nu2`` produced these values.
     limit_refusal : MechanismRefusal or None
-        Why the plug-in estimator gives ``nu2`` no curve on this fit, or ``None``.
+        Why the plug-in estimator publishes no limits on this fit, or ``None``.
     plugin_mechanism : str or None
         Under the plug-in estimator with a curve, the mechanism whose score it carries:
         ``"known"`` or ``"logistic"``. ``None`` otherwise.

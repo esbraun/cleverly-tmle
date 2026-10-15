@@ -1059,17 +1059,18 @@ qualify". The remedy of a key without its own remedy is `nu2_estimator="doubly_r
 | `liblinear` | `solver="liblinear"`, which penalizes the intercept | use another solver |
 | `class_weight` | `class_weight` is not `None`, which changes the score | declare observation weights with `weights=` |
 
-The fit-level keys read the record of the first fold. The key `cross_fit` follows them. A
-numerical check then runs on each fold in fold order. These keys carry the reason `inference_gap`
-and no roadmap item, because F26 does not track a declared model that failed a check.
+The fit-level keys read the record of the first fold. The key `cross_fit` follows them, with the
+reason `inference_gap` and the roadmap item F26. A numerical check then runs on each fold in fold
+order. The numerical keys carry the reason `inference_gap` and no roadmap item, because F26 does
+not track a declared model that failed a check.
 
 | key | the refusal fires when | remedy |
 | --- | --- | --- |
-| `cross_fit` | the fit is cross-fitted. Out-of-fold fitting adds a second-order bias to $E_n[\hat\alpha^2]$ that the limits do not cover. A pilot study measured the shortfall | fit in sample, or use `nu2_estimator="doubly_robust"` |
+| `cross_fit` | the fit is cross-fitted. Out-of-fold fitting adds a second-order bias to $E_n[\hat\alpha^2]$ that the limits do not cover. [`tests/diagnostics/x26_crossfit_bias/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x26_crossfit_bias) measures it | fit in sample, or use `nu2_estimator="doubly_robust"` |
 | `missing_arm` | the model of a fold has classes that differ from the fit's arms, for example because the training rows of the fold hold no unit of an arm | `nu2_estimator="doubly_robust"` |
 | `score_not_zero` | the Newton step from the captured coefficients to the root of the penalized score exceeds `ROOT_TOLERANCE`, 0.05 standard errors of a coefficient. The clause adds a note when the solver stopped at `max_iter` | lower `tol`, raise `max_iter`, or use `solver="newton-cholesky"` |
 | `singular` | the information $H_k + P/C$ loses rank against the design, or its condition number on the design's range exceeds `CONDITION_LIMIT`, $10^{10}$ | remove the covariates that separate the arms, or use a fixed C |
-| `mismatch` | the softmax of the recomputed linear predictor differs from the stored out-of-fold mechanism by more than `MISMATCH_TOLERANCE`, $10^{-8}$, or the fit holds a different number of records than folds | `nu2_estimator="doubly_robust"` |
+| `mismatch` | the softmax of the recomputed linear predictor differs from the stored mechanism by more than `MISMATCH_TOLERANCE`, $10^{-8}$, or the fit holds a different number of records than folds | `nu2_estimator="doubly_robust"` |
 | `penalty_bias` | see the next paragraph | raise C |
 
 **The penalty gate.** A fixed L2 penalty shrinks $\nu^2$ by $\sum_k D_k J_k^{+} P\theta_k/C$ at

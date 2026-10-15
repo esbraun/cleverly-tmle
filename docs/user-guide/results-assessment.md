@@ -601,8 +601,8 @@ print(plugin_bounds.ci_lower, plugin_bounds.robustness_value_ci)
 
 The summary names the mechanism whose score the standard error carries. A treatment learner
 outside the admitted set, such as a random forest, makes `ci_lower`, `ci_upper`,
-`robustness_value_ci` and `rva` raise `CapabilityError` with the roadmap item F26. The bounds and
-`robustness_value` stay available.
+`robustness_value_ci` raise `CapabilityError` with the roadmap item F26, and `robustness_value`
+omits `rva`. The bounds and the rest of `robustness_value` stay available.
 
 A fixed L2 penalty shrinks $\nu^2$ by an amount of order $1/n$. The bound refuses its limits with
 the key `penalty_bias` when that shrinkage exceeds a tenth of the standard error of $\nu^2$. A

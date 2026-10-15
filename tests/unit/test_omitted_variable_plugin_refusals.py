@@ -487,7 +487,7 @@ class TestEveryLearnerClauseHasAQualifyingTwin:
                 "Fit the bound with nu2_estimator='doubly_robust', which has derived limits for "
                 "a cross-fitted fit, or fit the TMLE with cross_fit=False."
             ),
-            roadmap=None,
+            roadmap="F26",
         )
 
     def test_the_cross_fitted_stack_opens_when_the_refusal_is_lifted(
@@ -645,6 +645,7 @@ class TestEveryFoldClauseCarriesNoRoadmapItem:
         fits = result.repeats[0].nuisance.treatment_fits
         bound = bound_of(with_nuisance(result, treatment_fits=fits[:1]), "ey[1.0]")
         assert bound.limit_refusal.key == "mismatch"
+        assert "the fit records 1 treatment models for 2 folds" in bound.limit_refusal.text
 
     def test_treatment_design(self) -> None:
         """The treatment model read other covariates than the design the stack rebuilds."""
@@ -775,14 +776,14 @@ class TestTheRidgeShrinkageGate:
     """
 
     @staticmethod
-    def shift_and_se(result: Any) -> tuple[float, float]:
+    def shift_and_se(result: Any, estimand: str = "ate") -> tuple[float, float]:
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(omitted_variable, "PENALTY_BIAS_FRACTION", np.inf)
-            elements = sensitivity_elements(result, "ate", nu2_estimator="plugin")
+            elements = sensitivity_elements(result, estimand, nu2_estimator="plugin")
         term = plugin_mechanism_term(
             result,
             result.repeats[0],
-            resolve_parameter(result, "ate"),
+            resolve_parameter(result, estimand),
             elements.riesz_representer,
             (0.0, 1.0),
             None,
@@ -820,6 +821,24 @@ class TestTheRidgeShrinkageGate:
             - sensitivity_elements(penalized, "ate", nu2_estimator="plugin").nu2
         )
         assert shift > 0.0
+        assert shift == pytest.approx(change, rel=0.02)
+
+    def test_the_multinomial_shift_is_the_change_when_the_penalty_is_lifted(self) -> None:
+        """The three-arm penalty ``(I - 11'/K) kron S`` moves ``nu^2`` as the refit does."""
+        name = "ate[2.0 vs 0.0]"
+        learner = {"solver": "newton-cg", "tol": 1e-12, "max_iter": 1000}
+        penalized = fit_three_arm(
+            cross_fit=False, treatment_learner=LogisticRegression(C=10.0, **learner)
+        )
+        lifted = fit_three_arm(
+            cross_fit=False, treatment_learner=LogisticRegression(C=np.inf, **learner)
+        )
+        shift, _ = self.shift_and_se(penalized, name)
+        change = (
+            sensitivity_elements(lifted, name, nu2_estimator="plugin").nu2
+            - sensitivity_elements(penalized, name, nu2_estimator="plugin").nu2
+        )
+        assert shift != 0.0
         assert shift == pytest.approx(change, rel=0.02)
 
     def test_the_gate_reads_the_standard_error_of_nu2(self) -> None:

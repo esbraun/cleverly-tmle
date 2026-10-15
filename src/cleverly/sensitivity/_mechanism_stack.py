@@ -442,8 +442,7 @@ def _stacks(
     if len(rows) != len(fits):
         return _refusal(
             "mismatch",
-            "the stored treatment mechanism does not equal the LogisticRegression's own "
-            "predictions",
+            f"the fit records {len(fits)} treatment models for {len(rows)} folds",
         )
     out: list[_FoldStack] = []
     for fold, (fit, (train, test)) in enumerate(zip(fits, rows, strict=True)):
@@ -632,11 +631,13 @@ def plugin_mechanism_term(
     if refusal is not None:
         return refusal
     if OUT_OF_FOLD_REFUSED and nuisance.folds.n_folds > 1:
-        return _refusal(
-            "cross_fit",
-            "the treatment mechanism was fitted out of fold, and the out-of-fold "
-            "E_n[alpha_hat^2] carries a second-order bias that the stacked curve does not cover",
-            _DOUBLY_ROBUST_CROSS_FIT,
+        return MechanismRefusal(
+            key="cross_fit",
+            text=f"nu2_estimator='plugin': {_STEM}. This fit does not qualify: the treatment "
+            "mechanism was fitted out of fold, and the out-of-fold E_n[alpha_hat^2] carries a "
+            "second-order bias that the stacked curve does not cover.",
+            alternative=_DOUBLY_ROBUST_CROSS_FIT,
+            roadmap="F26",
         )
     folds = _stacks(fits, nuisance, data)
     if isinstance(folds, MechanismRefusal):
