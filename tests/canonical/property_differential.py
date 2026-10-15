@@ -3,7 +3,7 @@
 Each declared rule restates a verdict that a study's own ``summarize_properties`` computes.
 The differential perturbs every committed study's property rows, summarizes them with the
 study's own code, and requires the declared rules to give the same ``passed`` and
-``property_passed`` on every verdict row.  Three modules have no committed rows, so they run on
+``property_passed`` on every verdict row.  Six modules have no committed rows, so they run on
 synthetic rows built from their declared cells.  ``longitudinal_sdr_properties`` runs on both
 its committed rows and synthetic rows: its committed rows make no perturbation decide the
 ``P_D`` two-size clause alone, and its synthetic rows do.
@@ -76,12 +76,17 @@ DIFFERENTIAL_BOOTSTRAP = 200
 #: The property modules that run on :func:`synthetic_rows`: each module with no committed rows,
 #: and ``longitudinal_sdr_properties``, whose committed rows leave the clause
 #: ``P_D large-size bias bound under the small`` without a binding witness.
-#: ``vector_mtp_properties`` stays here until its declared run commits its rows.
+#: ``vector_mtp_properties`` and the three X40 modules (``mtp_boundaries_properties``,
+#: ``mtp_pricing_properties`` and ``mtp_tuning_properties``) stay here until their declared runs
+#: commit their rows.
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.longitudinal_incremental_properties",
     "tests.studies.longitudinal_incremental_dropout_properties",
     "tests.studies.vector_mtp_properties",
+    "tests.studies.mtp_boundaries_properties",
+    "tests.studies.mtp_pricing_properties",
+    "tests.studies.mtp_tuning_properties",
 )
 
 #: The synthetic modules whose ``interval_calibration`` cells draw at the module's own
