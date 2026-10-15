@@ -173,6 +173,19 @@ class StudyRecord:
     #: recorded reason is the point.  It relaxes nothing about the subject.  ``passed`` still
     #: gates on similarity and non-inferiority, and ``subject_valid`` is still required.
     accepted_reference_failure: str = ""
+    #: The declared comparator whose runs are pending, or ``None``.
+    #:
+    #: The owner's rule: a method merges once its Python studies pass, and a comparator study
+    #: is registered by a later change when its runs come in.  A pending record keeps
+    #: ``reference`` at ``None``, so every reader that pairs rows reads it as unpaired, and
+    #: :attr:`comparator_state` reads ``"pending"``.  The regeneration driver runs no reference
+    #: process for it, and the manifest records the comparator as pending with the runner bytes
+    #: declared at the run.  The change that adds the comparator moves this name to
+    #: ``reference`` and regenerates the study.
+    pending_reference: str | None = None
+    #: Why the comparator runs are pending, and the roadmap item or queue row that owns them.
+    #: Required with ``pending_reference``, in the spirit of ``accepted_reference_failure``.
+    pending_reason: str = ""
     #: Estimands whose reference reports its standard error on a different scale, so a raw
     #: SE comparison would compare two different reported quantities.
     incomparable_se: frozenset[str] = frozenset()
@@ -196,6 +209,10 @@ class StudyRecord:
     #: for the same estimand, which is what decides a disagreement between two
     #: implementations rather than merely reporting one.
     efficiency_bounds: Mapping[str, float] = field(default_factory=dict)
+    #: The outcome a horizon-indexed key reports: ``"absorbing"`` for a cumulative risk or
+    #: incidence, ``"repeated"`` for the mean of a repeated outcome.  A key alone cannot
+    #: tell ``ate_regimen[a vs b @ t=2]`` of the two apart, so the record declares it.
+    outcome_kind: str = "absorbing"
     #: Whether interval-calibration cells publish ratios against an exact efficiency bound.
     #: A study may use an exact bound only to size a negative control without claiming that
     #: its deliberately misspecified estimator attains the bound.
@@ -273,9 +290,34 @@ class StudyRecord:
                 )
         if self.comparison_overrides and self.comparison is None:
             raise ValueError("comparison_overrides needs a comparison default")
+        if self.pending_reference is not None:
+            if self.reference is not None:
+                raise ValueError(
+                    "a record declares either a compared reference or a pending one, not both: "
+                    "the change that adds the comparator moves pending_reference to reference"
+                )
+            if not self.pending_reason.strip():
+                raise ValueError(
+                    "pending_reference needs a pending_reason that names why the comparator "
+                    "runs are pending and which item owns them"
+                )
+            if self.truth_varies_by_replicate:
+                raise ValueError(
+                    "a record whose truth varies by replication cannot declare a pending "
+                    "reference: the paired comparison it waits for reads one truth per cell"
+                )
+            if self.accepted_reference_failure:
+                raise ValueError(
+                    "accepted_reference_failure judges a comparator run, and a pending "
+                    "comparator has not run"
+                )
+        elif self.pending_reason:
+            raise ValueError("pending_reason is set without a pending_reference")
         if self.resampling_seed is not None and self.resampling_seed < 0:
             raise ValueError("resampling_seed must be non-negative")
-        unknown_bounds = set(self.failure_bound) - set(self.implementations)
+        # A bound may be declared for a pending comparator before its first run.
+        declared = {*self.implementations, *filter(None, (self.pending_reference,))}
+        unknown_bounds = set(self.failure_bound) - declared
         if unknown_bounds:
             raise ValueError(
                 f"failure_bound names undeclared implementations: {sorted(unknown_bounds)}"
@@ -317,6 +359,13 @@ class StudyRecord:
             if self.reference is None
             else (self.implementation, self.reference)
         )
+
+    @property
+    def comparator_state(self) -> Literal["none", "pending", "compared"]:
+        """``"compared"`` with a reference, ``"pending"`` with a pending one, else ``"none"``."""
+        if self.reference is not None:
+            return "compared"
+        return "none" if self.pending_reference is None else "pending"
 
     @property
     def estimands(self) -> frozenset[str]:
@@ -390,6 +439,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_LTMLE_COMPETING_CROSSFIT,
     )
     from tests.studies.canonical_ltmle_crossfit import STUDY as CANONICAL_LTMLE_CROSSFIT
+    from tests.studies.canonical_ltmle_repeated import STUDY as CANONICAL_LTMLE_REPEATED
     from tests.studies.canonical_ltmle_survival import STUDY as CANONICAL_LTMLE_SURVIVAL
     from tests.studies.canonical_ltmle_survival_crossfit import (
         STUDY as CANONICAL_LTMLE_SURVIVAL_CROSSFIT,
@@ -514,6 +564,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_SURVIVAL_CROSSFIT,
         CANONICAL_LTMLE_COMPETING,
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
+        CANONICAL_LTMLE_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_POLICIES,

@@ -19,6 +19,7 @@ __all__ = [
     "IPSI_NO_FLUCTUATION",
     "IPSI_POINT_REFUSAL",
     "LTMLE_TILT_REFUSAL",
+    "REPEATED_OUTCOME_REFUSAL",
     "SDR_POINT_REFUSAL",
     "SDR_TILT_REFUSAL",
     "SHORTCUTS",
@@ -82,6 +83,13 @@ SDR_TILT_REFUSAL = Refusal(
     "Williams, Hoffman and Schenck 2023, Section 4). An odds tilt reads the treatment "
     "mechanism, so its estimator is not doubly robust (Kennedy 2019, Section 3.3).",
     alternative="Fit IPSI(regimens=[...]).",
+)
+#: Why ``SDR`` and ``IPSI`` refuse a repeated outcome (R7, ``refuse_repeated_outcome``).
+REPEATED_OUTCOME_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "SDR and IPSI do not fit a repeated outcome (outcome=Repeated([...])) in this version.",
+    alternative="LTMLE fits a repeated outcome, with one end-of-study backward pass per horizon.",
+    roadmap="X32b",
 )
 #: Why the IPSI estimator refuses a fluctuation setting (R5 in ``test_ipsi_e2e.py``).
 IPSI_NO_FLUCTUATION = Refusal(

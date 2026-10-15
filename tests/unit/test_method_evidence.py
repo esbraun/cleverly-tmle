@@ -35,11 +35,13 @@ from tests.studies.evidence.document import (
     ACCURACY_COLUMNS,
     AGREEMENT_COLUMNS,
     GENERATED,
+    PENDING_LABEL,
     PROPERTY_COLUMNS,
     _section,
     render,
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
+from tests.studies.evidence.manifest import comparator_findings
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -257,6 +259,18 @@ class TestArtifacts:
             carried_rows_sha256(raw, positions)
             == manifest["composite"]["carried_property_rows_sha256"]
         )
+
+    def test_the_manifest_and_the_rows_agree_with_the_comparator_state(
+        self, study: StudyRecord
+    ) -> None:
+        """A pending comparator is asserted, never skipped: no reference row and no paired row."""
+        manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
+        rows = pd.read_csv(study.artifact("replicates.csv.gz"), usecols=["implementation"])
+        paired = pd.read_csv(study.artifact("equivalence.csv"))
+        found = comparator_findings(
+            study, manifest, rows["implementation"].astype(str).unique(), len(paired)
+        )
+        assert found == [], f"{study.slug}: {found}"
 
     def test_the_manifest_hashes_every_published_result(self, study: StudyRecord) -> None:
         manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
@@ -650,9 +664,10 @@ class TestPublishedVerdicts:
             assert verdicts(rows & ~control, "passed") == verdicts(
                 rows & ~control, "bias_equivalent"
             ), f"{family}: a positive row's verdict is not its own bias-equivalence endpoint"
-            assert verdicts(rows & control, "passed") == verdicts(
-                rows & control, "bias_discriminated"
-            ), f"{family}: a control's verdict is not its own discrimination endpoint"
+            assert verdicts(rows & control, "passed") == [
+                bool(_with_alternative(row, row.bias_discriminated))
+                for row in published.loc[rows & control].itertuples()
+            ], f"{family}: a control's verdict is not its own discrimination endpoint"
 
         # Two clauses, and the second is the one a bias-gated rule cannot state.  Each row
         # keeps its own direction on the bias, and every row of the family must also have
@@ -661,7 +676,11 @@ class TestPublishedVerdicts:
         low, high = property_verdicts.UNION_MODEL_SE_BAND
         union = published.loc[published["property"].isin(property_verdicts.UNION_MODEL_FAMILIES)]
         for row in union.itertuples():
-            endpoint = row.bias_discriminated if row.role == "control" else row.bias_equivalent
+            endpoint = (
+                _with_alternative(row, row.bias_discriminated)
+                if row.role == "control"
+                else row.bias_equivalent
+            )
             expected = bool(endpoint) and low <= row.se_ratio <= high
             assert bool(row.passed) is expected, (
                 f"{row.cell} publishes passed={row.passed} against its own union-model "
@@ -959,6 +978,7 @@ class TestPublishedVerdicts:
             assert targeting["property_passed"].nunique() == 1
             assert bool(targeting["property_passed"].iloc[0]) is bool(
                 targeting["passed"].all()
+                and _alternatives_hold(targeting)
                 and targeting["targeting_displacement"].iloc[0]
                 >= study.properties().TARGETING_DISPLACEMENT
             )
@@ -998,22 +1018,27 @@ class TestPublishedVerdicts:
         for family, threshold in (
             ("weight_necessity", "WEIGHT_DISPLACEMENT"),
             ("learner_weight_necessity", "LEARNER_WEIGHT_DISPLACEMENT"),
+            ("repeated_outcome_necessity", "NECESSITY_DISPLACEMENT"),
+            ("outcome_history_necessity", "NECESSITY_DISPLACEMENT"),
+            ("full_history_necessity", "NECESSITY_DISPLACEMENT"),
+            # The repeated study's reversed-rule control reads its own truth.  The other
+            # studies' ``rule_necessity`` families declare no displacement threshold.
+            *(
+                [("rule_necessity", "NECESSITY_DISPLACEMENT")]
+                if study.slug == "longitudinal-repeated-outcome"
+                else []
+            ),
         ):
             frame = published.loc[published["property"] == family]
             if not frame.empty:
                 control = frame.loc[frame["role"] == "control"]
                 assert len(control) >= 1
-                alternative_ok = True
-                if (
-                    "alternative_bias_equivalent" in control
-                    and control["alternative_bias_equivalent"].notna().any()
-                ):
-                    alternative_ok = bool(control["alternative_bias_equivalent"].all())
-                    assert alternative_ok
+                alternative_ok = _alternatives_hold(control)
+                assert alternative_ok
                 displacement_column = {
                     "weight_necessity": "weight_displacement",
                     "learner_weight_necessity": "learner_weight_displacement",
-                }[family]
+                }.get(family, "necessity_displacement")
                 if displacement_column not in frame or frame[displacement_column].isna().all():
                     displacement_column = "necessity_displacement"
                 assert frame["property_passed"].nunique() == 1
@@ -1157,6 +1182,27 @@ class TestPublishedVerdicts:
         )
 
 
+def _with_alternative(row: Any, endpoint: Any) -> bool:
+    """A control's discrimination endpoint, ANDed with its alternative-target verdict if any.
+
+    A control that also answers to an exact limit passes only when its bias interval clears
+    the margin around the truth **and** lies inside the margin around that limit.  A family
+    with no alternative target leaves the ``alternative_bias_equivalent`` column empty.
+    """
+    alternative = getattr(row, "alternative_bias_equivalent", None)
+    if alternative is None or pd.isna(alternative):
+        return bool(endpoint)
+    return bool(endpoint) and bool(alternative)
+
+
+def _alternatives_hold(frame: pd.DataFrame) -> bool:
+    """Whether every control row that declares an alternative target recovers it."""
+    if "alternative_bias_equivalent" not in frame:
+        return True
+    declared = frame["alternative_bias_equivalent"].dropna()
+    return bool(declared.astype(bool).all())
+
+
 #: Property families whose per-row verdict is the bias claim read in both directions: a
 #: positive row's equivalence interval inside the margin, a control's outside it.
 BIAS_GATED_PROPERTIES = frozenset(
@@ -1181,6 +1227,11 @@ BIAS_GATED_PROPERTIES = frozenset(
         "randomizer_projection",
         "ratio_necessity",
         "rule_necessity",
+        # The two negative controls of the repeated outcome: each control must also reach
+        # its declared alternative target, which the weight-necessity block checks the same way.
+        "repeated_outcome_necessity",
+        "outcome_history_necessity",
+        "full_history_necessity",
     }
 )
 
@@ -1264,6 +1315,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         property_verdicts.FOLD_POLICY_FAMILY,
         "cluster_aggregation_rule",
         "construction_diagnostic",
+        # The repeated outcome's in-sample arms at n = 2,000: few units follow the rule to
+        # the last node, so the pilot SE ratio sits below the band (X32 pilot).
+        "small_sample_calibration",
         "in_sample_agreement",
         "sdr_tmle_agreement",
         "variance_direction",
@@ -1427,6 +1481,40 @@ class TestNegativeControls:
         untouched = summary.index.drop(changed)
         assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
             "corrupting the union-model cells moved a verdict somewhere else"
+        )
+
+    def test_a_control_that_leaves_its_exact_limit_fails_alone(self, study: StudyRecord) -> None:
+        """A control that reaches an exact limit answers to it, and a displaced one fails.
+
+        A ``double_robustness`` ``both_wrong`` cell with a declared limit passes only when its
+        bias interval clears the margin around the truth **and** lies inside the margin around
+        the limit.  The second clause is invisible to every committed cell, because every
+        committed control sits on its limit.  Moving one control's estimates four of its own
+        spreads off the limit leaves the first clause satisfied and must flip the second, and
+        the mutation must reach no other cell.
+        """
+        published = _property_summary(study.slug).set_index(["property", "cell"])
+        if "alternative_bias_equivalent" not in published:
+            pytest.skip(f"{study.slug} declares no control with an exact limit")
+        declared = published.index[
+            published["alternative_bias_equivalent"].notna()
+            & (published["role"] == "control")
+            & (published.index.get_level_values(0) == "double_robustness")
+        ]
+        if len(declared) == 0:
+            pytest.skip(f"{study.slug} reads no exact limit for a double_robustness control")
+        property_name, cell = declared[0]
+        rows = _property_rows(study.slug)
+        mutated = rows.copy()
+        mask = (mutated["property"] == property_name) & (mutated["cell"] == cell)
+        spread = float(mutated.loc[mask, "estimate"].std(ddof=1))
+        mutated.loc[mask, "estimate"] += 4.0 * spread
+        summary = study.properties().summarize_properties(mutated).set_index(["property", "cell"])
+        assert not bool(summary.loc[(property_name, cell), "alternative_bias_equivalent"])
+        assert not bool(summary.loc[(property_name, cell), "passed"])
+        untouched = summary.index.drop([(property_name, cell)])
+        assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
+            "displacing one control from its limit moved a verdict somewhere else"
         )
 
     def test_a_material_subject_regression_fails_similarity_and_noninferiority(
@@ -2008,6 +2096,16 @@ class TestTheMethodEvidenceGrid:
         reference = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))[
             "generated_with"
         ].get("reference")
+        if study.comparator_state == "pending":
+            assert reference is None, "a pending comparator has no reference provenance"
+            assert PENDING_LABEL in cell, f"{study.slug}'s cell must carry {PENDING_LABEL!r}"
+            assert str(study.pending_reference) in cell, (
+                f"{study.slug}'s cell must name the pending comparator {study.pending_reference}"
+            )
+            assert "none claimed" not in cell.casefold(), (
+                f"{study.slug} declares a pending comparator; its cell must not read as none"
+            )
+            return
         if study.reference is None:
             assert reference is None, "the record claims no comparator but the manifest names one"
             assert "none claimed" in cell.casefold(), (
@@ -2273,6 +2371,16 @@ class TestThePublishedTestTables:
         assert _OPEN.format(name="agreement") not in section, (
             f"{study.slug} has no comparator but its section carries an agreement block"
         )
+        if study.comparator_state == "pending":
+            assert PENDING_LABEL in section, (
+                f"{study.slug}'s section must say {PENDING_LABEL!r} while its comparator runs "
+                f"are pending"
+            )
+            cell = _grid()[study.name]["`cleverly` vs canonical"]
+            assert "0/0" in cell and PENDING_LABEL in cell, (
+                f"{study.slug}'s paired cell must read 0/0 with {PENDING_LABEL!r}"
+            )
+            return
         assert "no canonical implementation is compared" in section.casefold(), (
             f"{study.slug} must say in its own section that no comparator is claimed"
         )

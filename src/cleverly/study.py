@@ -27,11 +27,12 @@ from .inference.multiplier import SimultaneousBands, simultaneous_bands
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet, Stochastic
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
-from .longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult
+from .longitudinal import IPSI, LTMLE, SDR, LongitudinalData, LongitudinalResult, Repeated
 from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, tilt_nodes
 from .methods import (
     IPSI_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
+    REPEATED_OUTCOME_REFUSAL,
     SDR_POINT_REFUSAL,
     SDR_TILT_REFUSAL,
     CollaborativeTMLEMethod,
@@ -687,12 +688,13 @@ class LongitudinalTreatment:
 
     Parameters
     ----------
-    outcome : str, sequence of str, or mapping of str to sequence of str
-        End-of-study outcome, survival event nodes, or competing-risk event nodes.
+    outcome : str, sequence of str, mapping of str to sequence of str, or Repeated
+        End-of-study outcome, survival event nodes, competing-risk event nodes, or a
+        :class:`~cleverly.longitudinal.Repeated` outcome measured at every node.
     treatment : str or sequence of str
         Treatment nodes in time order.  One column name declares one baseline decision
-        held over every node.  The node count then comes from the survival outcome, else
-        from ``censoring``, else from ``time_varying``, else it is one.
+        held over every node.  The node count then comes from a survival or repeated
+        outcome, else from ``censoring``, else from ``time_varying``, else it is one.
     baseline : sequence of str
         Covariates observed before the first treatment.
     time_varying : sequence of sequence of str or None
@@ -750,7 +752,7 @@ class LongitudinalTreatment:
     ((), ('L2',))
     """
 
-    outcome: str | Sequence[str] | Mapping[str, Sequence[str]]
+    outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated
     treatment: str | Sequence[str]
     baseline: Sequence[str]
     time_varying: Sequence[Sequence[str]] | None = None
@@ -837,7 +839,7 @@ class LongitudinalTreatment:
         container records them as ``event_names`` plus ``cause_labels``, so composing them
         forward is what makes the three comparable without inspecting arrays.
         """
-        if isinstance(self.outcome, str):
+        if isinstance(self.outcome, (str, Repeated)):
             return (), ()
         if isinstance(self.outcome, Mapping):
             causes = tuple(self.outcome)
@@ -860,18 +862,29 @@ class LongitudinalTreatment:
             if self.time_varying is None
             else tuple(tuple(block) for block in self.time_varying)
         )
+        repeated = self.outcome.columns if isinstance(self.outcome, Repeated) else ()
+        # The container records Y_s as the first covariate of node s + 1, unless the covariate
+        # screen dropped a constant copy.  The repeated nodes are compared on their own below,
+        # so they are removed from both sides of the covariate comparison.
+        unmatched = {*repeated, *data.repeated_names}
+        blocks = tuple(tuple(name for name in block if name not in unmatched) for block in blocks)
+        prepared_blocks = tuple(
+            tuple(name for name in block if name not in unmatched)
+            for block in data.time_varying_names
+        )
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("treatment", declared_treatment, tuple(data.treatment_names)),
             ("held treatment", held, data.treatment_held),
             ("time grid", None, data.time_grid),
             ("baseline", tuple(self.baseline), tuple(data.baseline_names)),
-            ("time_varying", blocks, tuple(data.time_varying_names)),
+            ("time_varying", blocks, prepared_blocks),
             ("censoring", tuple(self.censoring or ()), tuple(data.censoring_names)),
             ("cluster", self.cluster, data.cluster_name),
             ("weights", self.weights, data.weights_name),
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("outcome event nodes", events, tuple(data.event_names)),
+            ("repeated outcome nodes", repeated, tuple(data.repeated_names)),
             ("outcome causes", causes, tuple(data.cause_labels)),
             (
                 "continuous_treatment",
@@ -3706,10 +3719,22 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         """
         if not self.functional.longitudinal:
             return True, None, False, SDR_POINT_REFUSAL, False, IPSI_POINT_REFUSAL
+        data = getattr(self._study, "data", None)
+        tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._tilt_methods(data)
+        # The fit refuses a repeated outcome on SDR and IPSI before any learner (R7), so the
+        # listing must not offer them.
+        if getattr(data, "is_repeated", False):
+            refusal = REPEATED_OUTCOME_REFUSAL
+            return tmle, tmle_reason, False, refusal, False, refusal
+        return tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason
+
+    def _tilt_methods(
+        self, data: Any
+    ) -> tuple[bool, str | None, bool, str | None, bool, str | None]:
+        """The three sequential methods' availability as the plan set's odds tilts allow."""
         regimens = self.functional.interventions
         if not declares_tilt(regimens):
             return True, None, True, None, True, None
-        data = getattr(self._study, "data", None)
         known = getattr(data, "known_mechanisms", None)
         n_times = getattr(data, "n_times", 0)
         declared = known is not None and all(

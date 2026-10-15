@@ -169,7 +169,7 @@ def accuracy_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[s
         (
             descriptions.scenario(str(row.scenario)),
             f"`{row.estimand}`",
-            descriptions.estimand(str(row.estimand)),
+            descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
             descriptions.implementation(str(row.implementation)),
             _interval(row.bias_ci_lower, row.bias_ci_upper),
             render(float(row.coverage)),
@@ -188,7 +188,7 @@ def agreement_table(record: StudyRecord, data: dict[str, pd.DataFrame]) -> list[
         (
             descriptions.scenario(str(row.scenario)),
             f"`{row.estimand}`",
-            descriptions.estimand(str(row.estimand)),
+            descriptions.estimand(str(row.estimand), outcome_kind=record.outcome_kind),
             render(float(row.mean_difference)),
             render(float(row.margin_utilization)),
             render(float(row.rmse_ratio_upper)),
@@ -303,6 +303,14 @@ def measured(row: Any) -> str:
         ):
             measured += (
                 ", selected-target bias "
+                f"{_interval(row.alternative_bias_ci_lower, row.alternative_bias_ci_upper)}, "
+                f"margin {render(float(row.alternative_bias_margin))}"
+            )
+        elif str(row.role) == "control" and pd.notna(getattr(row, "alternative_truth", None)):
+            # A control that also answers to an exact limit: its own bias interval says it
+            # misses the truth, and this one says it reaches the limit it claims.
+            measured += (
+                ", bias around its limit "
                 f"{_interval(row.alternative_bias_ci_lower, row.alternative_bias_ci_upper)}, "
                 f"margin {render(float(row.alternative_bias_margin))}"
             )
@@ -518,10 +526,13 @@ _BIAS_GATED = frozenset(
         "competing_risk_recursion_necessity",
         "density_necessity",
         "fold_locality",
+        "full_history_necessity",
         "inverse_necessity",
         "learner_weight_necessity",
         "mar_robustness",
         "missingness_necessity",
+        "outcome_history_necessity",
+        "repeated_outcome_necessity",
         "robustness_contract",
         "policy_necessity",
         "projection_necessity",
@@ -589,6 +600,12 @@ def _replace_block(
     changed = lines[head + 1 : tail] != replacement
     lines[head + 1 : tail] = replacement
     return changed, (start, stop + len(replacement) - (tail - head - 1))
+
+
+#: The label every grid cell and study section carries while a comparator's runs are pending
+#: (:attr:`~tests.studies.evidence.registry.StudyRecord.pending_reference`).  The owner's
+#: rule: a method merges on its Python evidence, and the comparator study follows.
+PENDING_LABEL = "Python property evidence, with comparator runs pending"
 
 
 def fill(record: StudyRecord) -> list[str]:
