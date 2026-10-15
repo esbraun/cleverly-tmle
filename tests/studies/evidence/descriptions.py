@@ -81,13 +81,30 @@ ARMS: dict[str, str] = {
         for horizon in (1, 2, 3)
     },
     "survival_t5": "difference of arm 1 and arm 0 at visit 5, five-visit held law",
+    "survival_t5_per_horizon": (
+        "difference of arm 1 and arm 0 at visit 5, five-visit held law, targeted one horizon "
+        "at a time"
+    ),
     "rmst_5": "RMST difference up to visit 5, five-visit held law",
     "competing_t4": "difference in the death incidence at visit 4, two causes",
     "three_arm_t3": "difference of arm 2 and arm 0 at visit 3, three arms with L_t",
     "continuous_t4": "difference at grid time 3, exponential event time, visit dropout",
     "end_of_study": "held end-of-study difference after two censoring nodes",
     "weighted_t5": "difference at visit 5 under the weight 1 + W1 / 2",
+    "policy_t3": (
+        "difference of a known baseline policy and arm 0 at visit 3, three arms without L_t"
+    ),
+    "isotonic_t2": (
+        "risk at visit 2 under treatment at both nodes, two-node law, fitted with the isotonic "
+        "projection"
+    ),
     "clustered_t5": "arm-0 risk at visit 5, 25 clusters of 80 that share W",
+    "clustered_t5_per_horizon": (
+        "arm-0 risk at visit 5, 25 clusters of 80 that share W, targeted one horizon at a time"
+    ),
+    "weighted_t5_per_horizon": (
+        "difference at visit 5 under the weight 1 + W1 / 2, targeted one horizon at a time"
+    ),
     "policy_t5": "baseline policy against the natural course at visit 5",
     "mtp_t5": "baseline minus one against the natural course at visit 5",
     "ate": "average treatment effect",
@@ -159,6 +176,8 @@ ARMS: dict[str, str] = {
     "regimens": "the three regimen means and their two contrasts",
     "all_reported": "every parameter the calibration fit reports",
     "curve_always": "the always plan alone, at every declared horizon",
+    "curve_arm1": "the arm-1 risk curve alone, at the five visits",
+    "curve_arm0": "the arm-0 risk curve alone, at the five visits",
     "strata": "the six marginal and eighteen stratum parameters of the in-sample fit",
     "crossfit_strata": "the three marginal and nine stratum parameters of the cross-fitted fit",
     "default_fit": "the shipped TMLE() defaults on the binary law",
@@ -499,6 +518,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "ltmle-known-gform": "R `ltmle` with the known factors as a numeric `gform`",
     "cleverly": "`cleverly`",
     "cleverly-cross-fitted-point-survival": "`cleverly` cross-fitted point-treatment survival",
+    "cleverly-cross-fitted-hazard-survival": (
+        "`cleverly` cross-fitted point-treatment survival with hazard targeting"
+    ),
     "cleverly-held-policy-ltmle": "`cleverly` LTMLE with a policy at a held baseline treatment",
     "survtmle": 'R `survtmle`, `method="mean"`',
     "cleverly-categorical-ltmle": "`cleverly` ordinary categorical LTMLE",
@@ -526,6 +548,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-cross-fitted-ltmle-survival": "`cleverly` cross-fitted survival LTMLE",
     "cleverly-cross-fitted-competing-ltmle": "`cleverly` cross-fitted competing-risk LTMLE",
     "cleverly-competing-ltmle": "`cleverly` competing-risk LTMLE",
+    "cleverly-ctmle-derivative": "`cleverly` C-TMLE0 derivative covariate",
     "cleverly-ctmle-oat": "`cleverly` outcome-adaptive C-TMLE",
     "cleverly-ctmle-selector": "`cleverly` selector-based C-TMLE",
     "cleverly-ctmle-sequences": "`cleverly` C-TMLE lasso and declared-learner sequences",
@@ -646,6 +669,11 @@ SCENARIOS: dict[str, str] = {
     "binary": "binary-outcome law",
     "binary_lasso": "binary-outcome law, lasso candidate sequence",
     "binary_learners": "binary-outcome law, four declared lasso learners",
+    "binary_declared_pair": "binary-outcome law, both sides at one declared pair of penalties",
+    "binary_pipeline": "binary-outcome law, each side's own penalty cross-validation",
+    "binary_constant_q": (
+        "binary-outcome law, one declared pair of penalties, a constant outcome regression"
+    ),
     "survival": "five visits, a binary baseline treatment held over every node, visit dropout",
     "competing": "four visits, two competing causes, a held binary treatment, visit dropout",
     "three_arm": "three visits, three arms held over every node, a binary L_t at each later visit",
@@ -1092,6 +1120,10 @@ PROPERTIES: dict[str, str] = {
     ),
     "root_n_rate": "the sampling spread contracts at the root-n rate the theory predicts",
     "rule_necessity": "the covariate-dependent rule, rather than a static substitute, determines the target",
+    "isotonic_projection": (
+        "the isotonic projection leaves a regular curve unchanged, and the study records how "
+        "often it moves a level"
+    ),
     "simultaneous_coverage": (
         "the multiplier band over a law's reported estimands covers the whole truth vector at "
         "the nominal joint rate"
@@ -1616,6 +1648,24 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the same fit evaluates the flag map at the value's own first dose",
         "bias interval must fall entirely outside the margin",
     ),
+    ("double_robustness", "multi_arm_treatment_correct"): (
+        "three arms with a multinomial lasso and a constant outcome regression, on the "
+        "contrast of arm 1.0 against arm 0.0",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "missing_outcome_treatment_correct"): (
+        "outcomes missing at random with a correct response learner, and an outcome GLM "
+        "that omits a confounder",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("double_robustness", "cross_fitted_treatment_correct"): (
+        "five cross-fitting folds, a consistent lasso mechanism, and an outcome GLM that "
+        "omits a confounder",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
     ("double_robustness", "both_wrong_lasso"): (
         "the lasso sequence with a constant outcome regression, so both nuisances are misspecified",
         "bias interval must fall entirely outside the margin",
@@ -1719,6 +1769,23 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "both nuisances are correctly specified",
         "SE ratio and coverage intervals both inside their calibration bands",
     ),
+    ("interval_calibration", "in_sample"): (
+        "the internal lasso is consistent for the main-terms treatment law, and the outcome "
+        "regression is a correct GLM",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "cross_fitted"): (
+        "the same law and nuisances, cross-fitted over five folds",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "multi_arm"): (
+        "three arms with a multinomial lasso, on the contrast of arm 1.0 against arm 0.0",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
+    ("interval_calibration", "missing_outcome"): (
+        "outcomes are missing at random, with a correct response learner",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    ),
     ("interval_calibration", "flexible_learning"): (
         "separate depth-five trees fit the outcome and response nuisances out of fold; on this "
         "six-cell law each tree fits the saturated, correct model",
@@ -1770,6 +1837,10 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ("power", "alternative"): (
         "the same test applied to a law with a real effect",
         "rejection lower bound clears the minimum power",
+    ),
+    ("isotonic_projection", "moved"): (
+        "per replication, the distance the projection moved the level, against a truth of zero",
+        "none. The row is a diagnostic and states no verdict",
     ),
     ("simultaneous_coverage", "simultaneous_band"): (
         "the max-t multiplier band over every estimand the law reports, from the same-row "
@@ -2302,6 +2373,23 @@ ARM_CELLS.update(
         )
     }
 )
+#: A reading of a label or a cell kind that holds for one study only, keyed by study slug.  A
+#: label such as ``rule_t3`` names different estimands in different studies, and the shared
+#: tables above cannot say which.
+STUDY_ARMS: dict[tuple[str, str], str] = {
+    ("point-survival-curve", "rule_t3"): (
+        "difference of the rule that treats where W1 is one and arm 0 at visit 3, three arms "
+        "without L_t"
+    ),
+}
+STUDY_ARM_CELLS: dict[tuple[str, str, str, str], tuple[str, str]] = {
+    ("point-survival-curve", "clustered_inference", label, "cluster_robust"): (
+        "the cluster-robust interval from the cluster-level influence curve of a single-fold "
+        "hazard fit",
+        "SE-ratio and coverage intervals both stay inside their calibration bands",
+    )
+    for label in ("clustered_t5", "clustered_t5_per_horizon")
+}
 ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (
     "the outcome regression, treatment mechanism and observation mechanism are correct",
     "SE ratio and coverage intervals both inside their calibration bands",
@@ -2544,6 +2632,7 @@ def cell(
     role: str | None = None,
     nuisance_count: int = 2,
     response_nuisance: bool = False,
+    slug: str | None = None,
 ) -> tuple[str, str]:
     """What a property cell configures, and what its verdict requires.
 
@@ -2563,8 +2652,10 @@ def cell(
         base = size.group("cell")
     try:
         tested, required = (
-            ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None
-        ) or CELLS[family, base]
+            (STUDY_ARM_CELLS.get((slug, family, arm.group("arm"), base)) if arm and slug else None)
+            or (ARM_CELLS.get((family, arm.group("arm"), base)) if arm else None)
+            or CELLS[family, base]
+        )
     except KeyError:
         raise Undescribed(f"no description for cell {key!r} of {family!r}") from None
     if size is not None:
@@ -2615,7 +2706,8 @@ def cell(
                 f"{role!r} selects neither, and the two rules are not interchangeable"
             )
     if arm is not None:
-        tested = f"{ARMS[arm.group('arm')]}: {tested}"
+        words = STUDY_ARMS.get((slug, arm.group("arm"))) if slug else None
+        tested = f"{words or ARMS[arm.group('arm')]}: {tested}"
     if term is not None:
         tested = f"{TERMS[term.group('term')]}: {tested}"
     return tested, required

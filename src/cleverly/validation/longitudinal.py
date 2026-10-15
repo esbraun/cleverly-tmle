@@ -599,12 +599,15 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     # that key is the regimen *and* the horizon, and a ``regimen`` column carrying both would
     # be the one column here nobody could group by.
     for fit in result.fits.values():
-        for step in fit.steps:
-            weights = (fit.obs_weights * step.clever)[step.trained_on]
-            assigned = fit.assignment[step.at_risk, step.time - 1]
-            kind = _node_kind(fit, step.time)
+        # A hazard fit has no fluctuation per node: one score per target sums over the
+        # nodes, so its node rows carry no fitted ``epsilon`` and the fit's own verdict.
+        hazard = fit.hazard
+        for step, node in zip(fit.steps or (None,) * fit.horizon, fit.scored_nodes, strict=True):
+            weights = (fit.obs_weights * node.clever)[node.trained_on]
+            assigned = fit.assignment[node.at_risk, node.time - 1]
+            kind = _node_kind(fit, node.time)
             levels = (
-                () if data.node_kind(step.time) == "mixed" else data.treatment_levels[step.time - 1]
+                () if data.node_kind(node.time) == "mixed" else data.treatment_levels[node.time - 1]
             )
             assignment: float | str
             if kind == "mtp":
@@ -612,40 +615,46 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                 # raw ratio of the node over the at-risk rows, whose expectation is one when
                 # the policy preserves the support.
                 ratio = (
-                    float(np.mean(fit.node_ratio[step.at_risk, step.time - 1]))
-                    if fit.node_ratio is not None and step.at_risk.any()
+                    float(np.mean(fit.node_ratio[node.at_risk, node.time - 1]))
+                    if fit.node_ratio is not None and node.at_risk.any()
                     else float("nan")
                 )
                 assignment = f"mean ratio={ratio:.3g}" if categorical else ratio
             elif kind in ("policy", "tilt"):
-                density = fit.policy[step.time - 1][step.at_risk]
+                density = fit.policy[node.time - 1][node.at_risk]
                 assignment = _policy_shares(density, levels, categorical)
             elif categorical:
                 assignment = _assigned_shares(assigned, levels)
             else:
                 assignment = float(np.mean(assigned == 1.0)) if assigned.size else float("nan")
-            raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
-            bounded = fit.cumulative[:, step.time - 1][step.trained_on]
+            raw = fit.cumulative_unbounded[:, node.time - 1][node.trained_on]
+            bounded = fit.cumulative[:, node.time - 1][node.trained_on]
             rows.append(
                 LongitudinalStageRow(
                     regimen=fit.regimen.label,
                     cause=fit.cause,
                     horizon=fit.horizon if result.data.reports_curve else None,
-                    time=step.time,
+                    time=node.time,
                     node_kind=kind,
-                    n_followed=step.n_trained,
+                    n_followed=int(node.trained_on.sum()),
                     assignment=assignment,
                     max_weight=float(np.max(weights)) if weights.size else float("nan"),
                     effective_n=effective_sample_size(weights, on_degenerate=0.0),
                     share_truncated=float(np.mean(raw != bounded)) if raw.size else float("nan"),
                     epsilon=(
-                        ()
+                        (float("nan"),) * len(epsilon_names)
+                        if step is None
+                        else ()
                         if step.fluctuation is None
                         else tuple(float(value) for value in step.fluctuation.epsilon)
                     ),
-                    converged=step.fluctuation is None or bool(step.fluctuation.converged),
-                    sdr=_sdr_node_row(step),
-                    ipsi=_ipsi_node_row(result, fit, step),
+                    converged=bool(
+                        hazard.converged
+                        if step is None
+                        else step.fluctuation is None or step.fluctuation.converged
+                    ),
+                    sdr=None if step is None else _sdr_node_row(step),
+                    ipsi=None if step is None else _ipsi_node_row(result, fit, step),
                 )
             )
     return LongitudinalDiagnostics(
@@ -767,6 +776,35 @@ def _longitudinal_msm_scores(result: Any, *, tolerance: float) -> LongitudinalSc
     return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
 
 
+def _hazard_score_row(result: Any, fit: Any, *, tolerance: float) -> LongitudinalScoreRow:
+    """The one solver row of a hazard fit's target.
+
+    A hazard fit solves one score per regimen, cause and horizon, summed over the nodes up
+    to the horizon, so the row sits at the horizon node.  ``converged`` is the targeting
+    record's verdict over every target it solved together: a one-step walk and a
+    per-horizon Newton solve stop on the largest relative score of their targets.
+    """
+    record = fit.hazard
+    index = record.targets.index((fit.regimen.label, fit.cause, fit.horizon))
+    score = abs(float(record.score[index]))
+    relative = score / max(float(record.score_scale[index]), 1e-300)
+    converged = bool(record.converged)
+    return LongitudinalScoreRow(
+        fit.regimen.label,
+        fit.cause,
+        fit.horizon,
+        fit.horizon,
+        None,
+        "solver",
+        float(result.scaler.range * score),
+        relative,
+        converged,
+        converged and relative <= tolerance,
+        int(record.n_iter),
+        record.failure,
+    )
+
+
 def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreDiagnostics:
     """Every node's targeting verdicts: one row per question the node's fit poses.
 
@@ -790,6 +828,9 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
 
     rows = []
     for fit in result.fits.values():
+        if fit.hazard is not None:
+            rows.append(_hazard_score_row(result, fit, tolerance=tolerance))
+            continue
         for step in fit.steps:
             fluctuation = step.fluctuation
             horizon = fit.horizon if result.data.reports_curve else None
@@ -833,7 +874,7 @@ def _nuisance_row(
     :func:`~cleverly.validation.nuisance._binary_report` also emits.  ``frame["mse"].max()``
     therefore answers about node regressions alone.
     """
-    regression = role in {"outcome", "pseudo_outcome"}
+    regression = role in {"outcome", "pseudo_outcome", "hazard"}
     return LongitudinalNuisanceRow(
         regimen=regimen,
         cause=cause,
@@ -1108,4 +1149,73 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                     horizon=fit.horizon if result.data.reports_curve else None,
                 )
             )
+    if result.initial_hazards is not None:
+        _hazard_nuisances(result, evaluation, rows, omissions)
     return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend, tuple(omissions))
+
+
+def _hazard_nuisances(
+    result: Any,
+    evaluation: EvaluationBasis,
+    rows: list[LongitudinalNuisanceRow],
+    omissions: list[LongitudinalNuisanceOmission],
+) -> None:
+    """One ``"hazard"`` row per node and cause of a hazard fit.
+
+    Each row scores the regression the learner fitted: the pseudo-hazard
+    :math:`\\rho_j = \\lambda_j / (1 - \\sum_{i < j} \\lambda_i)` at the observed level,
+    against the event of cause ``j``, on the rows at risk with no event of an earlier cause
+    at the node.  A node and cause whose training rows held no event fits no learner and
+    reports :data:`LONGITUDINAL_CONSTANT_TARGET`.
+    """
+    from ..longitudinal.hazard import event_indicators
+
+    initial = result.initial_hazards
+    at_risk, events = event_indicators(result.data)
+    observed = np.asarray(np.nan_to_num(result.data.treatment[:, 0], nan=0.0), dtype=np.int64)
+    hazards = initial.hazards[np.arange(result.data.n), :, observed, :]
+    causes: tuple[str | None, ...] = result.data.cause_labels or (None,)
+    empty = set(initial.no_event_nodes)
+    position = 0
+    for time in range(1, result.data.n_times + 1):
+        earlier = np.zeros(result.data.n, dtype=bool)
+        taken = np.zeros(result.data.n)
+        for index, cause in enumerate(causes):
+            mask = at_risk[:, time - 1] & ~earlier
+            event = events[:, time - 1, index]
+            target = event > 0
+            hazard = hazards[:, time - 1, index]
+            diagnostics = initial.diagnostics[position] if initial.diagnostics else ()
+            position += 1
+            if (time, index) in empty:
+                omissions.append(
+                    LongitudinalNuisanceOmission(
+                        "hazard", time, LONGITUDINAL_CONSTANT_TARGET, cause=cause
+                    )
+                )
+            else:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    rho = np.where(taken < 1.0, hazard / (1.0 - taken), 0.0)
+                report = _binary_report(
+                    f"hazard[t={time}" + (f", cause={cause}" if cause is not None else "") + "]",
+                    np.clip(rho, 0.0, 1.0),
+                    event,
+                    result.data.weights,
+                    diagnostics,
+                    mask=mask,
+                    folds=result.folds.assignment,
+                    cluster=result.data.cluster,
+                )
+                rows.append(
+                    _nuisance_row(
+                        role="hazard",
+                        time=time,
+                        report=report,
+                        loss_name="log_loss",
+                        evaluation=evaluation,
+                        n=int(mask.sum()),
+                        cause=cause,
+                    )
+                )
+            taken = taken + hazard
+            earlier = earlier | target

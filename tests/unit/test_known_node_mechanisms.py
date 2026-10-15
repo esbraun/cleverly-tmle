@@ -19,9 +19,17 @@ import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly import CapabilityError, CausalStudy, DataError, LongitudinalTreatment, RegimeMean
+from cleverly import (
+    CapabilityError,
+    CausalStudy,
+    DataError,
+    LongitudinalTreatment,
+    PositivityWarning,
+    RegimeMean,
+)
 from cleverly.assessment import LONGITUDINAL_KNOWN_MECHANISM
 from cleverly.data.known_mechanism import CONTINUOUS_REFUSAL
+from cleverly.exceptions import RefusalReason
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from tests.unit import _known_mechanism_support as law
 from tests.unit._natural_course_support import NeverFit
@@ -732,3 +740,67 @@ def test_a_time_to_event_container_declares_its_baseline_mechanism() -> None:
     design.prepare(declared_data)
     with pytest.raises(DataError, match="names columns"):
         TimeToEvent(**roles, treatment_probabilities=matrix)
+
+
+# ----------------------------------------------------------------------------- truncation curve
+#
+# On the SMART law the declared treatment product on a follower of "always" is 0.5 at node one
+# and 0.5 * 0.25 = 0.125 at node two.  The retention after node one is 0.5 or 0.75, so the
+# product with censoring falls to 0.0625.
+
+
+def _replayable(**settings: Any) -> LTMLE:
+    """An LTMLE whose learner templates are seeded, so the curve can replay the fit."""
+    return _ltmle(outcome_learner=LogisticRegression(max_iter=1000, random_state=0), **settings)
+
+
+def test_the_curve_refuses_a_pair_that_the_fit_refuses() -> None:
+    """A curve pair that truncates the declared product is the pair a fit refuses.
+
+    Before this refusal the curve replayed ``(0.2, 1)`` and truncated the declared factors.
+    """
+    frame = law.smart_frame(censoring=False)
+    result = _replayable().fit(frame, **_columns(False), **_mappings(False))
+    with pytest.raises(CapabilityError) as fitted:
+        _replayable(g_bounds=(0.2, 1.0)).fit(frame, **_columns(False), **_mappings(False))
+    with pytest.raises(CapabilityError) as raised:
+        result.diagnostics.truncation_curve(bounds=[0.05, 0.2])
+    assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    message = str(raised.value)
+    assert "a fit refuses this one" in message
+    assert "g_bounds=[0.2, 1] first at node 2" in message
+    # The curve quotes the fit's own sentence, so the two cannot disagree.
+    assert fitted.value.refusal.condition in message
+
+
+def test_the_curve_over_admitted_pairs_truncates_no_declared_cell() -> None:
+    """With every factor declared, an admitted pair moves no score cell and no estimate."""
+    frame = law.smart_frame(censoring=True)
+    result = _replayable().fit(frame, **_columns(True), **_mappings(True))
+    curve = result.diagnostics.truncation_curve(bounds=[0.001, 0.05])
+    assert list(curve["truncated_score_cells"]) == [0] * len(curve["truncated_score_cells"])
+    np.testing.assert_allclose(curve["delta_from_fitted"], 0.0, atol=1e-12)
+    with pytest.raises(CapabilityError, match="a fit refuses this one"):
+        result.diagnostics.truncation_curve(bounds=[0.1])
+
+
+def test_the_curve_still_truncates_an_estimated_censoring_factor() -> None:
+    """The refusal reads the declared factors only, as the fit's does.
+
+    At ``(0.1, 1)`` the declared treatment product, 0.125, is inside the bounds, and the
+    product with the estimated retention, near 0.0625, is not.  The fit admits the pair, so
+    the curve replays it and truncates the cells that the estimated factor puts below 0.1.
+    """
+    frame = law.smart_frame(censoring=True)
+    censoring = LogisticRegression(max_iter=1000, random_state=0)
+    result = _replayable(censoring_learner=censoring).fit(
+        frame, **_columns(True), treatment_probabilities=law.SMART_TREATMENT
+    )
+    with pytest.warns(PositivityWarning):
+        _replayable(censoring_learner=censoring, g_bounds=(0.1, 1.0)).fit(
+            frame, **_columns(True), treatment_probabilities=law.SMART_TREATMENT
+        )
+    curve = result.diagnostics.truncation_curve(bounds=[0.1])
+    assert min(curve["truncated_score_cells"]) > 0
+    with pytest.raises(CapabilityError, match="a fit refuses this one"):
+        result.diagnostics.truncation_curve(bounds=[0.2])

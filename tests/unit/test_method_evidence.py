@@ -1419,6 +1419,8 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "censoring_complete_case",
         "in_sample_fit",
         "one_wrong_reported",
+        # The isotonic cell's binding share: the projection moved a level or it did not.
+        "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
     }

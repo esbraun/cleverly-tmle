@@ -14,6 +14,7 @@ from .base import (
 )
 from .ctmle import (
     CTMLE,
+    CTMLEDerivativeFit,
     CTMLEOutcomeAdaptiveFit,
     CTMLEPreorder,
     CTMLESelection,
@@ -31,6 +32,7 @@ __all__ = [
     "DEFAULT_ESTIMANDS",
     "DRTMLE",
     "TMLE",
+    "CTMLEDerivativeFit",
     "CTMLEOutcomeAdaptiveFit",
     "CTMLEPreorder",
     "CTMLESelection",
