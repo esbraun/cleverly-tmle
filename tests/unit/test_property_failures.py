@@ -1950,6 +1950,39 @@ class TestDifferential:
         shares = rejected.groupby(["property", "cell"])["rejected"].mean()
         assert np.allclose(shares, 0.1, atol=1.0 / 380)
 
+    def test_a_role_kind_moves_that_role_alone(self) -> None:
+        """M1: the role kinds of the binding search leave the other role's rows unchanged."""
+        _, rows = self._ladder()
+        first = sorted(set(rows["cell"]))[0]
+        rows = rows.assign(role=np.where(rows["cell"] == first, "control", rows["role"]))
+        control = (rows["role"] == "control").to_numpy()
+        assert control.any() and (~control).any()
+        keys = [rows["property"], rows["cell"]]
+        for kind in ("centre/control/0", "spread_role/control/4", "se_role/control/2"):
+            moved = property_failures.perturbed(rows, kind)
+            pd.testing.assert_frame_equal(moved.loc[~control], rows.loc[~control])
+            assert not moved.loc[control].equals(rows.loc[control]), kind
+        centred = property_failures.perturbed(rows, "centre/control/0")
+        errors = centred["estimate"] - centred["truth"]
+        assert np.allclose(errors[control].groupby([k[control] for k in keys]).mean(), 0.0)
+        flipped = property_failures.perturbed(rows, "coverage_role/control/0.5")
+        pd.testing.assert_series_equal(flipped["covered"][~control], rows["covered"][~control])
+        shares = flipped.loc[control].groupby(["property", "cell"])["covered"].mean()
+        assert np.allclose(shares, 0.5, atol=1.0 / 380)
+
+    def test_a_composed_kind_applies_its_parts_in_order(self) -> None:
+        _, rows = self._ladder()
+        composed = property_failures.perturbed(rows, "se/1.03+coverage/0.9")
+        stepwise = property_failures.perturbed(
+            property_failures.perturbed(rows, "se/1.03"), "coverage/0.9"
+        )
+        pd.testing.assert_frame_equal(composed, stepwise)
+        assert set(property_failures.targeted_perturbations()).isdisjoint(
+            property_failures.binding_perturbations()
+        )
+        with pytest.raises(ValueError, match="unknown perturbation"):
+            property_failures.perturbed(rows, "se/x")
+
     def test_an_extra_column_is_scaled_and_shifted_in_one_cell(self) -> None:
         _, rows = self._ladder()
         rows = rows.assign(bootstrap_failed=0)
@@ -2656,10 +2689,30 @@ def _point_extremes(options: Sequence[np.ndarray], statistic) -> tuple[float, fl
 
 CASES = [(seed, k) for seed in (1, 2, 3) for k in (1, 2, 3)]
 
+#: How far the box's least slack may sit above the worst candidate.  A candidate is a
+#: completion in the box, so for an exact type the box attains the worst case.
+ATTAINED = 1e-9
+
+
+def _sound_and_attained(slacks: Sequence[float], worst: float) -> None:
+    """No completion is more adverse than the worst candidate, and one is as adverse."""
+    assert min(slacks) >= worst - 1e-12
+    assert min(slacks) <= worst + ATTAINED
+
+
+def _pairs(rng: np.random.Generator, left: np.ndarray, right: np.ndarray, k: int) -> list:
+    """Completions of two cells: the diagonal of their boxes, and every pair of corners."""
+    lefts, rights = _box(rng, left, k), _box(rng, right, k)
+    corners = itertools.product(lefts[: 2**k], rights[: 2**k])
+    return [*zip(lefts, rights, strict=True), *corners]
+
 
 class TestExactness:
     """p30: for each type labelled exact, no completion in the box is more adverse than the
-    worst candidate, at ``R = 30`` and ``k = 1..3``."""
+    worst candidate, and one completion is as adverse, at ``R = 30`` and ``k = 1..3``.
+
+    Two cells enumerate every pair of their corners.  Where a candidate fills inside the range,
+    such as an equal fill, its completion joins the box."""
 
     @staticmethod
     def _cell_control(errors: np.ndarray, k: int, clause, columns, *, role="positive") -> Control:
@@ -2688,13 +2741,14 @@ class TestExactness:
         side = 1 if np.mean(errors) >= 0 else -1
         level = study.margins.confidence_level
         rng = np.random.default_rng(seed)
+        slacks = []
         for completed in _box(rng, errors, k):
             interval = student_interval(completed, confidence_level=level)
             if kind == "equivalent":
-                slack = 0.3 - max(-interval.low, interval.high)
+                slacks.append(0.3 - max(-interval.low, interval.high))
             else:
-                slack = interval.low - 0.3 if side > 0 else -0.3 - interval.high
-            assert slack >= worst - 1e-12
+                slacks.append(interval.low - 0.3 if side > 0 else -0.3 - interval.high)
+        _sound_and_attained(slacks, worst)
 
     @pytest.mark.parametrize(("seed", "k"), CASES)
     @pytest.mark.parametrize("statistic", ["S2", "S3"])
@@ -2738,9 +2792,11 @@ class TestExactness:
         )
         control = Control(rows, summary, study, family, "subject", "rate", rules)
         worst = min(judged.slack for judged in _candidates(control).values())
+        slacks = []
         for fill in itertools.product((0, 1), repeat=k):
             whole = clopper_pearson(int(hits.sum()) + sum(fill), 30, confidence_level=level)
-            assert min(whole.low - 0.7, 0.95 - whole.high) >= worst - 1e-12
+            slacks.append(min(whole.low - 0.7, 0.95 - whole.high))
+        _sound_and_attained(slacks, worst)
 
     @pytest.mark.parametrize(("seed", "k"), CASES)
     def test_s4(self, seed: int, k: int) -> None:
@@ -2768,16 +2824,16 @@ class TestExactness:
         )
         control = Control(rows, summary, study, family, "subject", "ratio", rules)
         worst = min(judged.slack for judged in _candidates(control).values())
-        fills = _box(rng, errors, k)
-        se_fills = _box(rng, std_errors, k)
-        for completed, ses in zip(fills, se_fills, strict=True):
+        # The ratio is extreme at independent ends of the two boxes, so every corner pair runs.
+        # The SE-ratio set's high end fills the SEs at their maximum and the errors at their
+        # mean, inside the box: pair that completion too.
+        at_mean = np.concatenate([errors, np.full(k, float(np.mean(errors)))])
+        at_max = np.concatenate([std_errors, np.full(k, float(np.max(std_errors)))])
+        slacks = []
+        for completed, ses in [*_pairs(rng, errors, std_errors, k), (at_mean, at_max)]:
             value = float(ses.mean() / np.std(completed, ddof=1))
-            assert min(value - 0.8, 1.2 - value) >= worst - 1e-12
-        # The ratio is extreme at independent ends of the two boxes, so pair them too.
-        for completed in fills[: 2**k]:
-            for ses in se_fills[: 2**k]:
-                value = float(ses.mean() / np.std(completed, ddof=1))
-                assert min(value - 0.8, 1.2 - value) >= worst - 1e-12
+            slacks.append(min(value - 0.8, 1.2 - value))
+        _sound_and_attained(slacks, worst)
 
     @pytest.mark.parametrize(("seed", "k"), CASES)
     def test_s7(self, seed: int, k: int) -> None:
@@ -2841,6 +2897,7 @@ class TestExactness:
         worst = min(judged.slack for judged in _candidates(control).values())
         positive = dict(zip(range(30 - k), positive_hits, strict=True))
         negative = dict(zip(range(k, 30), control_hits, strict=True))
+        slacks = []
         for fills in itertools.product((0, 1), repeat=2 * k):
             p = {**positive, **dict(zip(positive_lost, fills[:k], strict=True))}
             c = {**negative, **dict(zip(control_lost, fills[k:], strict=True))}
@@ -2852,7 +2909,8 @@ class TestExactness:
                 confidence_level=study.margins.confidence_level,
                 seed=9,
             )
-            assert whole.low - 0.2 >= worst - 1e-12
+            slacks.append(whole.low - 0.2)
+        _sound_and_attained(slacks, worst)
 
     @pytest.mark.parametrize(("seed", "k"), CASES)
     def test_s12_under_the_held_scale(self, seed: int, k: int) -> None:
@@ -2902,11 +2960,11 @@ class TestExactness:
             rows.loc[rows["cell"] == "a__targeted"], rows.loc[rows["cell"] == "a__untargeted"]
         )
         held = float(np.std(kept.sort_values("replicate")["estimate"], ddof=1))
-        for completed_left, completed_right in zip(
-            _box(rng, left, k), _box(rng, right, k), strict=True
-        ):
-            moved = abs(float(np.mean(completed_right) - np.mean(completed_left))) / held
-            assert moved - 0.5 >= worst - 1e-12
+        slacks = [
+            abs(float(np.mean(completed_right) - np.mean(completed_left))) / held - 0.5
+            for completed_left, completed_right in _pairs(rng, left, right, k)
+        ]
+        _sound_and_attained(slacks, worst)
 
     @pytest.mark.parametrize(("seed", "k"), CASES)
     def test_s13_with_truth_in_the_denominator_s_range(self, seed: int, k: int) -> None:
@@ -2954,9 +3012,17 @@ class TestExactness:
         control = Control(rows, summary, _study(), SELECTOR, "collaborative", "r", rules)
         worst = min(judged.slack for judged in _candidates(control).values())
         assert denominator.min() <= 0.0 <= denominator.max()
-        for top, bottom in zip(_box(rng, numerator, k), _box(rng, denominator, k), strict=True):
-            value = float(np.sqrt(np.mean(top**2) / np.mean(bottom**2)))
-            assert 0.5 - value >= worst - 1e-12
+        # The denominator is least with its fills at the truth, 0, inside its range.
+        at_truth = np.concatenate([denominator, np.zeros(k)])
+        tops = _box(rng, numerator, k)[: 2**k]
+        slacks = [
+            0.5 - float(np.sqrt(np.mean(top**2) / np.mean(bottom**2)))
+            for top, bottom in [
+                *_pairs(rng, numerator, denominator, k),
+                *((top, at_truth) for top in tops),
+            ]
+        ]
+        _sound_and_attained(slacks, worst)
 
     @pytest.mark.parametrize(("seed", "k"), CASES)
     @pytest.mark.parametrize("kind", ["tolerance", "below small"])
@@ -2997,9 +3063,15 @@ class TestExactness:
         )
         control = Control(rows, summary, _study(), SINGLE, "large", "b", rules)
         worst = min(judged.slack for judged in _candidates(control).values())
-        for top, bottom in zip(_box(rng, large, k), _box(rng, small, k), strict=True):
-            limit = 0.5 if kind == "tolerance" else bound(bottom)
-            assert limit - bound(top) >= worst - 1e-12
+        # The small size's bound is least at equal fills, inside its range: pair that too.
+        _, centre = property_failures._equal_fill_bound(small, k)
+        equal = np.concatenate([small, np.full(k, centre)])
+        tops = _box(rng, large, k)[: 2**k]
+        slacks = [
+            (0.5 if kind == "tolerance" else bound(bottom)) - bound(top)
+            for top, bottom in [*_pairs(rng, large, small, k), *((top, equal) for top in tops)]
+        ]
+        _sound_and_attained(slacks, worst)
 
     @pytest.mark.parametrize(("seed", "k"), CASES)
     @pytest.mark.parametrize("statistic", ["spread", "bias"])

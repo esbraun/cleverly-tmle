@@ -12,6 +12,7 @@ not it can see anything.  Each one therefore has a deliberate mutation beside it
 from __future__ import annotations
 
 import dataclasses
+import math
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -492,6 +493,29 @@ def test_a_cell_red_at_its_complete_case_keeps_its_own_rule() -> None:
     assert row.fails_by == "its own rule"
 
 
+def test_a_not_accountable_cell_red_at_its_complete_case_keeps_its_own_rule() -> None:
+    """L5: a not-accountable cell's clause legs give the complete case, and it comes first."""
+    tables = _synthetic(passed=False, property_passed=False)
+    accounting = _property_accounting(failures.NOT_ACCOUNTABLE, complete_case=-0.01)
+    accounting.loc[1, ["worst_case", "imputation"]] = [math.nan, "complete case only"]
+    unaccountable = accounting.iloc[[0]].assign(
+        leg=property_failures.NOT_ACCOUNTABLE_LEG,
+        complete_case=math.nan,
+        worst_case=math.nan,
+        imputation="rejection ceiling",
+        leg_passed=False,
+    )
+    tables["property_accounting"] = pd.concat(
+        [accounting.iloc[[0]], unaccountable, accounting.iloc[[1]]], ignore_index=True
+    )
+    (row,) = red_rows(RECORD, tables)
+    assert row.fails_by == "its own rule"
+    # The mutation control: the same cell green at its complete case reads the accounting.
+    tables["property_accounting"].loc[2, ["complete_case", "leg_passed"]] = [0.01, True]
+    (row,) = red_rows(RECORD, tables)
+    assert row.fails_by == "failure accounting: failures not accountable"
+
+
 def test_a_failed_truth_row_is_red() -> None:
     (row,) = red_rows(RECORD, _synthetic(truth_passed=False))
     assert row.key == RedKey(RECORD.slug, "truth", "cleverly/law/ate")
@@ -499,8 +523,12 @@ def test_a_failed_truth_row_is_red() -> None:
 
 
 def test_an_accepted_reference_failure_is_not_red() -> None:
+    # The renamed reference declares no bound of its own; the bound does not enter this test.
     record = dataclasses.replace(
-        RECORD, reference="reference", accepted_reference_failure="declared in advance"
+        RECORD,
+        reference="reference",
+        accepted_reference_failure="declared in advance",
+        failure_bound={},
     )
     frames_ = _synthetic(truth_passed=False, implementation="reference")
     frames_["performance"] = pd.concat(

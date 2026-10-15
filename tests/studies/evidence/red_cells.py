@@ -764,8 +764,9 @@ def _property_fails_by(accounting: pd.DataFrame) -> tuple[str | None, str]:
 
     The suffix is ``, failures k of R (<reason>)`` whenever the cell has accounting rows.  The
     accounting replaces ``fails by`` only when it alone turned the cell red: its gate failed,
-    and no failing clause is below its threshold at the complete case already, which a
-    negative ``complete_case`` slack shows.
+    and no clause fails at the complete case already.  A clause leg's ``leg_passed`` false
+    with a negative ``complete_case`` slack shows such a clause.  This holds for a
+    ``failures not accountable`` cell too, whose clause legs give the complete case alone.
 
     Parameters
     ----------
@@ -788,7 +789,8 @@ def _property_fails_by(accounting: pd.DataFrame) -> tuple[str | None, str]:
         property_failures.NOT_ACCOUNTABLE_LEG,
         property_failures.WITNESS_LEG,
     )
-    failing = accounting.loc[~accounting["leg"].isin(legs) & ~accounting["leg_passed"].astype(bool)]
+    clauses = accounting.loc[~accounting["leg"].isin(legs)]
+    failing = clauses.loc[~clauses["leg_passed"].astype(bool)]
     if (failing["complete_case"].astype(float) < 0.0).any():
         return None, suffix
     return f"failure accounting: {first['reason']}", suffix

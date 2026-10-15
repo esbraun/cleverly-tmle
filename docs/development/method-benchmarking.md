@@ -115,7 +115,8 @@ bytes it published before.
 | derived noise | `calibration_controls` draws `noise_control` over the requested range and indexes the noise by replicate. A lost base replicate changes no other control row |
 | verdict budget | `_at_verdict_budget` keeps the ids below the verdict budget. It never refills a lost id from a later one. It sets `failed_replicates` to the ids lost below the budget. A loss at a higher id shows on the slope row only |
 | rate rows | `fitted_rate_row` stamps the sum of its rungs' failures |
-| draw split | Each property loop draws its sample in `draw=`, outside the classifier. An error in the draw stops the run. `WORKER_EXCEPTIONS` in `tests/canonical/python_phase_identity.py` lists the modules whose worker source changed with the split. The split leaves the rows byte-identical (`RM39b2-identity.log`) |
+| draw split | Each property loop draws its sample in `draw=`, outside the classifier. An error in the draw stops the run. `WORKER_EXCEPTIONS` in `tests/canonical/python_phase_identity.py` lists the modules whose worker source changed with the split |
+| byte identity | `tests/canonical/python_phase_identity.py` runs the base and the head in one environment and compares their rows. It does not compare a rerun with the committed rows. Those carry float noise of 1e-16 to 3e-12 from the environment that wrote them, and a rerun of the base shows the same noise |
 | no-draw loop | `repeated_crossfit_properties` passes no `draw=`. Its stability trial draws one sample before the loop, and each key only varies the fold seed. An error in that draw stops the run before any fit. `UNSPLIT_LOOPS` in `tests/unit/test_property_loops.py` pins this list |
 | `known_mechanism` | A bootstrap that lost draws writes the side column `bootstrap_failed_draws`. The row check records that row as an `invalid_result`, and the published row writes 0. This extends the row rules of the `invalid result` rule |
 | memory cap | `longitudinal_mtp` caps its workers for each size. The pool keeps at least two workers, so a size with a cap of 1 can run two fits. The driver retries a worker killed for memory alone |
@@ -168,12 +169,12 @@ the case `k = 0` reproduces the complete case.
 | S3 rejection rate | type-I error, power, warning rate | `rejected = 1` for `j` of `k`, for every `j` | exact | `support` |
 | S4 SE ratio, point | the SE sanity band | the SEs at the survivor extremes against the estimates at the survivor mean and at each vertex split | exact | `range` |
 | S5 SE and efficiency ratio intervals | calibration bands and controls | the S4 set, through `ratio_intervals` | enumerated | `range` |
-| S6 rate slope | root-n rate, contraction slopes | for each lost rung, every vertex split and the survivor mean, with exact pruning. For a bias slope, also the fill nearest a zero mean | point exact, interval enumerated | `range` |
+| S6 rate slope | root-n rate, contraction slopes | for each lost rung, every vertex split and one fill at the survivor mean, with exact pruning. For a bias slope, the fill nearest a zero mean replaces the survivor-mean fill | point exact, interval enumerated | `range` |
 | S7 coverage gain | paired overfitting and clustered gain | a lost positive arm at `covered = 0`, a lost control arm at `covered = 1`, the surviving arms at their real values | exact | `support` |
 | S9 paired spread ratio | randomizer projection, repeat stability | the numerator at each vertex split and the denominator at the survivor mean, or the reverse for a lower bound | point exact, interval enumerated | `range` |
 | S10 extra column mean | a cap or a floor on a published column | the lost rows at the adverse support bound for a share, otherwise at the survivor maximum or minimum | exact | `support` for a share, else `range` |
 | S12 paired displacement | the 16 necessity families | the attainable difference of the arm means, with `sd` of the left arm held | exact under the held scale | `range` |
-| S13 RMSE ratio, point | selector necessity | the numerator errors at the farther survivor end, the denominator estimates at the truth | exact when the truth lies in the survivor range | `range` and `support` |
+| S13 RMSE ratio, point | selector necessity | the numerator errors at the farther survivor end, the denominator estimates at the truth | exact when the truth lies in the survivor range | `range` |
 | S14 two-size absolute-bias bound | single robustness, sequential robustness | the larger size at every vertex split, the smaller size at equal fills | exact | `range` |
 | S15 standardized-bias growth | `one_wrong_inference` rule G | every vertex split, the equal fills that maximize and minimize the ratio, and the fill nearest a zero mean | point exact, interval enumerated | `range` |
 
@@ -245,12 +246,21 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 | check | where | content |
 | --- | --- | --- |
 | differential | the `property-differential` job of `.github/workflows/ci.yml`, from `tests/canonical/property_differential.py` | The job perturbs the property rows of every committed study. It also perturbs synthetic rows of the two uncommitted modules and of `longitudinal_sdr_properties`. The committed `longitudinal-sdr` rows give no witness for one clause. It summarizes them with the study's own code. The declared rules must give the same `passed` and `property_passed` on every verdict row. The perturbations scale `std_error`, shift `estimate`, flip indicators, push a slope across zero, collapse one arm of a pair, apply a seeded affine map, and scale or shift each extra column |
-| clause binding | the same job | Each declared clause must decide a verdict alone under at least one perturbation of at least one study. `tests/canonical/clause-bindings.csv` names the witness. A clause that no perturbation moves fails the job |
+| clause binding | the same job | Each clause that a subject uses must decide a verdict alone under a perturbation of that subject. Many clauses read a threshold of their own module, so a witness in another study does not bind them. `tests/canonical/clause-bindings.csv` names one perturbation for each subject and clause. The search adds a two-point grid for a module's own band, and role-restricted and composed kinds, where the shared kinds bind nothing |
+| binding reasons | the same job | A pair that its subject cannot decide alone has a row in `tests/canonical/clause-binding-reasons.csv`. The job verifies each reason. The reasons follow this table |
+| no-loss candidates | the same job | At `k = 0`, each candidate of each clause of each subject must give the complete-case value and verdict (F18). This covers every statistic type |
 | fast tier | `tests/unit/test_method_evidence.py` | The job's parametrization lists every committed study. Every verdict family resolves to a rule. A module that writes `passed` outside a shared function declares `PROPERTY_RULES`. Each shared rule reproduces the committed verdicts. The bound and the manifest key agree |
 
+| reason | check | where it applies |
+| --- | --- | --- |
+| `fixed at size` | The S2 or S3 clause gives one verdict at every success count from 0 to `R` on each of its rows. No perturbation changes `R` | the root-n control's `coverage resolves` at `R` of 800 or more: the 99 per cent interval is narrower than the gap between the floor and nominal |
+| `same module as: <subject>` | The other subject runs the same module and record, and its witness decides the pair | the committed and the synthetic rows of `longitudinal_sdr_properties` |
+| `implied by: <clause>` | On every row, the other clause fails wherever this one fails. The check sweeps each role's mean error from -3 to 3 times, scales its spread, and reads every shared perturbation | `bias discriminated` under `alternative bias equivalent` in the two weighted studies |
+
 The job needs about 4,700 CPU-seconds, so it does not run in the fast tier. It runs on every pull
-request that touches `tests/studies/` or `tests/canonical/`. Make it a required check. It always
-reports, and it skips its steps on other pull requests.
+request that touches `tests/studies/`, `tests/canonical/`, `src/cleverly/`, `pyproject.toml`,
+`uv.lock` or the workflow. A failed `git diff` fails the job instead of skipping it. Make it a
+required check. It always reports, and it skips its steps on other pull requests.
 
 ### Choose the comparator before you write the runner
 

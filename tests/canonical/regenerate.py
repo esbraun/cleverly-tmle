@@ -1065,22 +1065,39 @@ def _property_artifacts(
         records = property_failures.frame(recorded)
         witnesses = recorded.witness_values
         rows = property_failures.stamp(rows, records)
+        # A family with a cell left below two survivors is not summarized: the cell exceeds
+        # every bound, so its family reads ``bound exceeded`` instead of stopping the phase.
+        exhausted = property_failures.exhausted(rows, records)
+        kept, kept_records, aside, aside_accounting = property_failures.set_aside(
+            rows,
+            records,
+            {family for family, _ in exhausted},
+            bound=float(properties.FAILURE_BOUND),
+        )
         property_failures.reconcile(
-            rows, records, derived=getattr(properties, "DERIVED_CELLS", None)
+            kept, kept_records, derived=getattr(properties, "DERIVED_CELLS", None)
         )
         write_csv(
             rows, paths["property-replicates.csv.gz"], compression={"method": "gzip", "mtime": 0}
         )
-        summary = properties.summarize_properties(rows)
-        accounting = property_failures.property_accounting(
-            rows,
-            records,
-            summary,
-            record=record,
-            module=properties,
-            witnesses=witnesses,
-            n_jobs=arguments.jobs,
-        )
+        if kept.empty:
+            summary = pd.DataFrame(columns=aside.columns)
+            accounting = aside_accounting.iloc[0:0]
+        else:
+            summary = properties.summarize_properties(kept)
+            accounting = property_failures.property_accounting(
+                kept,
+                kept_records,
+                summary,
+                record=record,
+                module=properties,
+                witnesses=witnesses,
+                n_jobs=arguments.jobs,
+            )
+        if not aside.empty:
+            print(f"cells below two survivors, read as bound exceeded: {sorted(exhausted)}")
+            summary = pd.concat([summary, aside], ignore_index=True)
+            accounting = pd.concat([accounting, aside_accounting], ignore_index=True)
         summary = property_failures.correct_properties(summary, accounting, module=properties)
         write_csv(summary, paths["properties.csv"])
         if records is None:

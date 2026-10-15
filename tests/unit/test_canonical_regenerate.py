@@ -390,6 +390,68 @@ def _toy_properties(bad: set[int], *, bound: float = 0.0, replicates: int = 20) 
     )
 
 
+def test_a_cell_left_below_two_survivors_reads_bound_exceeded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """L6: a cell that kept one replicate is red by its bound, and the phase completes.
+
+    The summary's spread needs two survivors, so the driver does not summarize that family.
+    The mutation control: one replicate more survives, and the cell is summarized.
+    """
+    from tests.studies.evidence import property_failures
+
+    record = dataclasses.replace(
+        fold_evaluated_cvtmle.STUDY, artifacts=tmp_path, publication_policy="reporting"
+    )
+    study = SimpleNamespace(
+        STUDY=record,
+        PRIMARY_REPLICATES=record.replicates,
+        PRIMARY_N=record.n,
+        CONFIGURATION={},
+    )
+    out = tmp_path / "out"
+    arguments = _arguments(out, primary_only=False)
+    monkeypatch.setattr(regenerate, "_arguments", lambda *args: arguments)
+    monkeypatch.setattr(
+        regenerate,
+        "_python_phase",
+        lambda *args: regenerate._Phase(rows=_rows(record.implementation)),
+    )
+    monkeypatch.setattr(regenerate, "validate_replicates", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regenerate, "summarize", lambda rows, truth_varies: pd.DataFrame({"summary": [1.0]})
+    )
+    monkeypatch.setattr(
+        regenerate,
+        "independent_performance_tests",
+        lambda *args, **kwargs: pd.DataFrame({"passed": [True]}),
+    )
+    monkeypatch.setattr(regenerate, "empty_equivalence", lambda: pd.DataFrame({"passed": []}))
+    hashed: list[list[str]] = []
+    monkeypatch.setattr(
+        regenerate,
+        "write_manifest",
+        lambda path, record, artifacts, **kwargs: hashed.append(
+            [Path(artifact).name for artifact in artifacts]
+        ),
+    )
+
+    regenerate.main(study, _toy_properties(set(range(1, 20))), here=tmp_path)
+
+    summary = pd.read_csv(out / "properties.csv")
+    assert list(summary["cell"]) == ["c"]
+    assert not summary["passed"].any() and not summary["property_passed"].any()
+    assert int(summary["failed_replicates"].iloc[0]) == 19
+    accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
+    assert list(accounting["reason"]) == ["bound exceeded"]
+    assert list(accounting["complete_case"]) == [19.0]
+
+    regenerate.main(study, _toy_properties(set(range(2, 20))), here=tmp_path)
+    summary = pd.read_csv(out / "properties.csv")
+    assert int(summary["replicates"].iloc[0]) == 2
+    assert "coverage" in summary.columns
+
+
 def test_a_property_failure_is_recorded_accounted_and_hashed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

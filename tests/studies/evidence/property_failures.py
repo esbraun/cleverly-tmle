@@ -19,13 +19,14 @@ lost a replicate (rev 3 D3'f).
 from __future__ import annotations
 
 import ast
+import functools
 import hashlib
 import importlib.util
 import itertools
 import json
 import math
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -348,6 +349,9 @@ MAXIMUM_BOUND = 0.05
 #: for, and the reported row of a lost replicate's draw-level witness.
 BOUND_LEG = "failure bound"
 NOT_ACCOUNTABLE_LEG = "failures not accountable"
+#: The ``imputation`` of a clause leg of a not-accountable cell: no candidate set exists, so
+#: the leg gives the complete case alone and its ``worst_case`` is empty.
+COMPLETE_CASE_ONLY = "complete case only"
 WITNESS_LEG = "informative-failure witness"
 
 #: The two leg labels (D3'e).  A ``support`` leg fills a bounded variable over its full
@@ -2312,9 +2316,16 @@ def _account_row(ctx: Context, item: _Accounted, bound: float) -> list[dict[str,
     unaccountable = [clause.name for clause in applying if not clause.accountable]
     if rule is None or not applying or unaccountable:
         named = "; ".join(unaccountable) if unaccountable else "no declared clause"
+        # Each applying clause still reads its complete case, so a reader can tell a cell
+        # that its complete case already fails from one that the accounting alone turned red.
+        complete = [(clause, clause.read(ctx, row)) for clause in applying]
         legs = [
             (bound_leg, True),
             (Leg(NOT_ACCOUNTABLE_LEG, math.nan, math.nan, named, False), True),
+            *(
+                (Leg(clause.name, value.slack, math.nan, COMPLETE_CASE_ONLY, value.passed), True)
+                for clause, value in complete
+            ),
         ]
         gate = (False, BOUND_EXCEEDED if exceeded else NOT_ACCOUNTABLE)
     else:
@@ -2492,6 +2503,144 @@ def module_context(
         The context every clause of the module reads.
     """
     return Context(record, summary_rows(module, rows), summary, lost, module_groups(module))
+
+
+def exhausted(
+    rows: pd.DataFrame, records: pd.DataFrame | None
+) -> dict[tuple[str, str], tuple[int, int]]:
+    """The cells that the records left with fewer than two surviving replicates.
+
+    A spread needs two survivors, so the study's summary refuses such a cell
+    (:func:`~tests.studies.evidence.properties.require_accounted`).  The cell lost at least
+    ``R - 1`` of its ``R`` replicates, which every bound up to :data:`MAXIMUM_BOUND` exceeds
+    for ``R >= 2``.  So its verdict is ``bound exceeded`` without a summary.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The stamped surviving replication rows.
+    records : pandas.DataFrame or None
+        The property failure records.
+
+    Returns
+    -------
+    dict
+        ``(requested, lost)`` for each such ``(property, cell)``.
+    """
+    out: dict[tuple[str, str], tuple[int, int]] = {}
+    for (family, cell), lost in counts(records).items():
+        group = rows.loc[(rows["property"] == family) & (rows["cell"] == cell)]
+        if len(group) >= 2:
+            continue
+        requested = int(group["requested_replicates"].iloc[0]) if len(group) else lost
+        if requested != len(group) + lost:
+            raise ValueError(
+                f"{family}/{cell} requested {requested} replicates, kept {len(group)} and lost "
+                f"{lost}"
+            )
+        out[(family, cell)] = (requested, lost)
+    return out
+
+
+def set_aside(
+    rows: pd.DataFrame,
+    records: pd.DataFrame | None,
+    families: Collection[str],
+    *,
+    bound: float,
+) -> tuple[pd.DataFrame, pd.DataFrame | None, pd.DataFrame, pd.DataFrame]:
+    """Remove the families of exhausted cells from a run, and read each of their cells red.
+
+    A family's summary can read every cell of it, so a family with an exhausted cell
+    (:func:`exhausted`) is not summarized.  Each of its cells gets a summary row that is red
+    on ``passed`` and ``property_passed``, and an accounting row whose gate is
+    ``bound exceeded``.  The bound leg gives the family's lost replicates and its allowance,
+    because each cell's verdict reads the family.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The stamped surviving replication rows.
+    records : pandas.DataFrame or None
+        The property failure records.
+    families : Collection of str
+        The families to set aside.
+    bound : float
+        The module's ``FAILURE_BOUND``.
+
+    Returns
+    -------
+    tuple
+        The kept rows, the kept records (each cell of a set-aside family removed from its
+        ``scenarios``), the set-aside summary rows, and their accounting rows.
+    """
+    if not families:
+        empty = pd.DataFrame(columns=list(PROPERTY_ACCOUNTING_COLUMNS))
+        return rows, records, pd.DataFrame(), empty
+    aside = rows["property"].astype(str).isin(families)
+    kept_records = records
+    if records is not None and not records.empty:
+        scenarios = [
+            ";".join(
+                name
+                for name in str(value).split(";")
+                if name and name.split("/")[0] not in families
+            )
+            for value in records["scenarios"]
+        ]
+        kept_records = records.assign(scenarios=scenarios)
+        kept_records = kept_records.loc[kept_records["scenarios"] != ""].reset_index(drop=True)
+    lost = counts(records)
+    cells: dict[tuple[str, str], tuple[str, int, int]] = {}
+    for (family, cell), group in rows.loc[aside].groupby(["property", "cell"], sort=True):
+        key = (str(family), str(cell))
+        requested = int(group["requested_replicates"].iloc[0])
+        cells[key] = (str(group["role"].iloc[0]), requested, lost.get(key, 0))
+    for key, count in lost.items():
+        if key[0] in families and key not in cells:
+            cells[key] = ("positive", count, count)
+    summary, accounting = [], []
+    for family in sorted(families):
+        members = {key: value for key, value in cells.items() if key[0] == family}
+        read = sum(failed for _, _, failed in members.values())
+        allowance = sum(allowed(bound, requested) for _, requested, _ in members.values())
+        for (_, cell), (role, requested, failed) in sorted(members.items()):
+            summary.append(
+                {
+                    "property": family,
+                    "cell": cell,
+                    "role": role,
+                    "replicates": requested - failed,
+                    "failed_replicates": failed,
+                    "passed": False,
+                    "property_passed": False,
+                }
+            )
+            accounting.append(
+                {
+                    "property": family,
+                    "cell": cell,
+                    "role": role,
+                    "requested": requested,
+                    "failed": failed,
+                    "rate": failed / requested if requested else math.nan,
+                    "bound": bound,
+                    "allowed": allowance,
+                    "leg": BOUND_LEG,
+                    "complete_case": float(read),
+                    "worst_case": float(allowance),
+                    "imputation": "",
+                    "leg_passed": False,
+                    "gate_passed": False,
+                    "reason": BOUND_EXCEEDED,
+                }
+            )
+    return (
+        rows.loc[~aside].reset_index(drop=True),
+        kept_records,
+        pd.DataFrame(summary),
+        pd.DataFrame(accounting, columns=list(PROPERTY_ACCOUNTING_COLUMNS)),
+    )
 
 
 def property_accounting(
@@ -2781,6 +2930,17 @@ REJECTION_TARGETS = (0.01, 0.04, 0.06, 0.1, 0.5, 0.8, 0.95)
 #: have the least sampling variance of a spread, so the intervals of an SE ratio and of an
 #: efficiency ratio narrow, and their product can leave a band that each of them stays in.
 TWO_POINT_STEPS = ((1.06, 1.05), (0.94, 0.95), (1.08, 1.03), (0.92, 0.97))
+#: The spreads and SE ratios of :func:`targeted_perturbations`.  A per-module band sits at its
+#: own place, so the grid steps by 3 per cent on each side of 1, out to 1.3 and its inverse.
+TARGETED_SPREADS = tuple(
+    float(f"{value:.4g}")
+    for value in (*np.geomspace(1.03, 1.3, 9), *np.geomspace(0.97, 1 / 1.3, 9))
+)
+TARGETED_RATIOS = (1.0, *TARGETED_SPREADS)
+#: The mean-error factors of ``centre/<role>/<c>`` and the SE factors of ``se_role/<role>/<f>``.
+CENTRE_FACTORS = (0.9, 0.75, 0.5, 0.25, 0.0, -0.5, -1.0, 1.5, 3.0)
+ROLE_SE_FACTORS = (0.5, 0.25, 0.8, 1.25, 2.0, 4.0)
+ROLE_SPREADS = (2.0, 4.0, 10.0, 0.5)
 #: The amplitude of each ``mixed/<k>`` draw, and the seed root of the draws.
 MIXED_AMPLITUDES = tuple(float(value) for value in np.geomspace(0.1, 1.0, 16))
 MIXED_SEED = 20_261_015
@@ -2877,7 +3037,16 @@ def perturbed(rows: pd.DataFrame, kind: str, *, alpha: float = 0.05) -> pd.DataF
     """
     if kind.startswith("extra|"):
         return _extra(rows, kind)
-    if kind in binding_perturbations():
+    if "+" in kind:
+        out = rows
+        for part in kind.split("+"):
+            out = perturbed(out, part, alpha=alpha)
+        return out
+    if kind.partition("/")[0] in {"centre", "se_role", "coverage_role", "spread_role"}:
+        return _role_kind(rows, kind, alpha)
+    name, _, level = kind.partition("/")
+    graded = name in {"se", "coverage"} and re.fullmatch(r"\d+(\.\d+)?(e-?\d+)?", level)
+    if graded or kind in binding_perturbations() or kind in _targeted():
         return _graded(rows, kind, alpha)
     if kind not in PERTURBATIONS:
         raise ValueError(f"unknown perturbation {kind!r}")
@@ -2966,6 +3135,113 @@ def binding_perturbations() -> tuple[str, ...]:
         *(f"two_point/{spread:g}/{ratio:g}" for spread, ratio in TWO_POINT_STEPS),
         *(f"mixed/{draw}" for draw in range(len(MIXED_AMPLITUDES))),
     )
+
+
+def targeted_perturbations() -> tuple[str, ...]:
+    """The ``two_point/<g>/<r>`` grid that the binding search tries per subject.
+
+    A clause with a per-module threshold, such as an efficiency band, binds only where a
+    perturbation reaches that module's own threshold.  The search runs this grid on a subject
+    after :data:`PERTURBATIONS` and :func:`binding_perturbations` leave a clause of it unbound.
+    ``g`` moves the empirical spread, ``g r`` the reported standard error, and ``r`` the SE
+    ratio, so two of the three can sit inside their bands while the third leaves.  The kinds
+    are ordered by their distance from no change, so the search finds the smallest witness.
+
+    Returns
+    -------
+    tuple of str
+        Every ``two_point/<g>/<r>`` with ``g`` in :data:`TARGETED_SPREADS` and ``r`` in
+        :data:`TARGETED_RATIOS`.
+    """
+    return _targeted()
+
+
+@functools.cache
+def _targeted() -> tuple[str, ...]:
+    grid = [(g, r) for g in TARGETED_SPREADS for r in TARGETED_RATIOS]
+    grid.sort(key=lambda pair: (abs(np.log(pair[0])) + abs(np.log(pair[1])), pair))
+    return tuple(f"two_point/{g:g}/{r:g}" for g, r in grid)
+
+
+def composed_perturbations() -> tuple[str, ...]:
+    """The role-restricted and composed kinds the binding search tries last.
+
+    A clause can share its row with a clause that already fails, or with a clause that reads
+    the same quantity.  It then decides a verdict alone only under a change that repairs the
+    other clause, or that moves one role's cells and not the other's.
+
+    | kind | change | ``covered``, ``rejected`` |
+    | --- | --- | --- |
+    | ``centre/<role>/<c>`` | each cell of the role keeps its spread, and its mean error times ``c`` | recomputed for the role |
+    | ``se_role/<role>/<f>`` | each standard error of the role times ``f`` | kept |
+    | ``coverage_role/<role>/<p>`` | ``coverage/<p>`` on the role's cells alone | ``rejected`` kept |
+    | ``spread_role/<role>/<g>`` | each cell of the role dilated ``g`` times about its mean, and its standard errors times ``g`` | recomputed for the role |
+    | ``<a>+<b>`` | kind ``a``, then kind ``b`` | as each kind says |
+
+    Returns
+    -------
+    tuple of str
+        The coverage, centre and spread kinds of each role, then an SE scale of every cell and of each role, each
+        followed by a coverage share.
+    """
+    return _composed()
+
+
+@functools.cache
+def _composed() -> tuple[str, ...]:
+    roles = ("control", "positive")
+    return (
+        *(f"coverage_role/{role}/{p:g}" for p in COVERAGE_TARGETS for role in roles),
+        *(f"centre/{role}/{c:g}" for c in CENTRE_FACTORS for role in roles),
+        *(f"spread_role/{role}/{g:g}" for g in ROLE_SPREADS for role in roles),
+        *(
+            f"se/{f:g}+coverage/{p:g}"
+            for f in sorted(TARGETED_SPREADS, key=lambda value: abs(np.log(value)))
+            for p in COVERAGE_TARGETS
+        ),
+        *(
+            f"se_role/{role}/{f:g}+coverage/{p:g}"
+            for f in ROLE_SE_FACTORS
+            for role in roles
+            for p in COVERAGE_TARGETS
+        ),
+    )
+
+
+def _role_kind(rows: pd.DataFrame, kind: str, alpha: float) -> pd.DataFrame:
+    """A ``centre``, ``spread_role``, ``se_role`` or ``coverage_role`` kind on a copy."""
+    name, role, level = kind.split("/")
+    out = rows.copy()
+    chosen = (out["role"] == role).to_numpy()
+    if name == "coverage_role":
+        flipped = _graded(out, f"coverage/{level}", alpha)["covered"].to_numpy()
+        values = out["covered"].to_numpy().copy()
+        values[chosen] = flipped[chosen]
+        out["covered"] = values
+        return out
+    if name == "se_role":
+        scaled = out["std_error"].astype(float).to_numpy().copy()
+        scaled[chosen] *= float(level)
+        out["std_error"] = scaled
+        return out
+    errors = out["estimate"].astype(float) - out["truth"].astype(float)
+    centre = errors.groupby([out["property"], out["cell"]]).transform("mean")
+    if name == "spread_role":
+        moved = (centre + float(level) * (errors - centre)).to_numpy()
+        scaled = out["std_error"].astype(float).to_numpy().copy()
+        scaled[chosen] *= float(level)
+        out["std_error"] = scaled
+    else:
+        moved = (errors - centre + float(level) * centre).to_numpy()
+    estimates = out["estimate"].astype(float).to_numpy().copy()
+    estimates[chosen] = out["truth"].astype(float).to_numpy()[chosen] + moved[chosen]
+    out["estimate"] = estimates
+    retested = _retested(out.copy(), alpha)
+    for column in ("covered", "rejected"):
+        values = out[column].to_numpy().copy()
+        values[chosen] = retested[column].to_numpy()[chosen]
+        out[column] = values
+    return out
 
 
 def _graded(rows: pd.DataFrame, kind: str, alpha: float) -> pd.DataFrame:

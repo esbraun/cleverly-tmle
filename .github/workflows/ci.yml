@@ -98,16 +98,24 @@ jobs:
   # that touches neither `tests/studies/` nor `tests/canonical/` its steps are skipped.
   property-differential:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Decide whether the change touches the property studies
+      # The summaries read `src/cleverly` (for example `summarize_replications`) and the pinned
+      # dependencies, so a change there can move a verdict too. A failed `git diff`, such as on
+      # a shallow history, fails this step rather than skip the job.
+      - name: Decide whether the change can move a property verdict
         id: scope
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ] \
-            || git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
-              | grep -qE '^tests/(studies|canonical)/'; then
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+          pattern='^(tests/(studies|canonical)/|src/cleverly/|pyproject\.toml$|uv\.lock$|\.github/workflows/ci\.yml$|\.github/actions/)'
+          if printf '%s\n' "$changed" | grep -qE "$pattern"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"

@@ -2932,6 +2932,36 @@ class TestPropertyFailures:
                 wrong.append((row["property"], row["cell"], value, row["se_ratio"]))
         assert wrong == []
 
+    def test_each_paired_clause_reads_one_positive_and_one_control(
+        self, study: StudyRecord
+    ) -> None:
+        """L4: an S7 pair group has one arm of each role, checked before any run needs it.
+
+        The accounting reads the two arms only when a replicate is lost, so a group of the
+        wrong shape would otherwise raise after every fit of a run.
+        """
+        rows = _property_rows(study.slug)
+        summary = _complete_case_summary(study.slug)
+        ctx = _context(study, rows, summary)
+        module = study.properties()
+        wrong = []
+        for _, row in summary.iterrows():
+            rule = property_failures.rule_for(str(row["property"]), module)
+            if rule is None:
+                continue
+            for clause in rule.clauses:
+                if clause.statistic != "S7" or not clause.applies(ctx, row):
+                    continue
+                assert clause.reads is not None
+                cells = {cell for _, cell in clause.reads(ctx, row)}
+                selected = summary.loc[
+                    (summary["property"] == row["property"]) & summary["cell"].isin(cells)
+                ]
+                roles = sorted(selected["role"].astype(str))
+                if roles != ["control", "positive"]:
+                    wrong.append((row["property"], row["cell"], roles))
+        assert wrong == []
+
     def test_each_shared_rule_reproduces_the_committed_verdicts(self, study: StudyRecord) -> None:
         """Each rule read on the complete-case summary gives every target's published verdict."""
         summary = (
@@ -3076,7 +3106,7 @@ class TestPropertyDifferential:
             study.slug for study in STUDIES if study.artifact("property-replicates.csv.gz").exists()
         }
         parametrized = {
-            value
+            value.values[0]
             for mark in job.test_the_rules_agree_with_the_study_on_each_perturbation.pytestmark
             if mark.args[0] == "subject"
             for value in mark.args[1]
@@ -3107,8 +3137,13 @@ class TestPropertyDifferential:
     def test_each_binding_witness_names_what_exists(self) -> None:
         job = self._job()
         table = job.read_bindings()
-        assert not table.duplicated(["property", "clause"]).any()
-        for family, clause, subject, kind in table.itertuples(index=False, name=None):
+        assert not table.duplicated(["subject", "property", "clause"]).any()
+        searched = {
+            *job.KINDS,
+            *property_failures.targeted_perturbations(),
+            *property_failures.composed_perturbations(),
+        }
+        for subject, family, clause, kind in table.itertuples(index=False, name=None):
             assert subject in job.SUBJECTS, subject
             module, _ = job.subject_of(subject)
             rule = property_failures.rule_for(family, module)
@@ -3117,4 +3152,26 @@ class TestPropertyDifferential:
             if kind.startswith("extra|"):
                 assert kind.split("|")[2:4] != ["", ""], kind
             else:
-                assert kind in job.KINDS, kind
+                assert kind in searched or kind.startswith("coverage_role/"), kind
+
+    def test_each_stated_binding_reason_names_what_exists(self) -> None:
+        """M1: a reason names a subject, a clause of it, and a check of the job."""
+        job = self._job()
+        reasons = job.read_reasons()
+        witnesses = job.read_bindings()
+        keys = ["subject", "property", "clause"]
+        assert not reasons.duplicated(keys).any()
+        both = reasons.merge(witnesses, on=keys)
+        assert both.empty, both.to_string()
+        for subject, family, clause, why in reasons.itertuples(index=False, name=None):
+            assert subject in job.SUBJECTS, subject
+            module, _ = job.subject_of(subject)
+            rule = property_failures.rule_for(family, module)
+            assert rule is not None, (family, subject)
+            rule.clause(clause)
+            code, _, argument = why.partition(": ")
+            assert code in job.REASON_CHECKS, why
+            if code == "implied by":
+                rule.clause(argument)
+            if code == "same module as":
+                assert argument in job.SUBJECTS, argument
