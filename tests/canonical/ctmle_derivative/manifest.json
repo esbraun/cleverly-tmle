@@ -6,8 +6,8 @@
     "subject": {
       "implementation": "cleverly-ctmle-derivative",
       "cleverly_version": "0.1.3",
-      "cleverly_commit": "330d6ec82f2a676cb6fbdff690cdb3b6cbe1e6da",
-      "cleverly_worktree_clean": false,
+      "cleverly_commit": "00cf59c247526ecf005261c3fb8e7c64da9ac7a8",
+      "cleverly_worktree_clean": true,
       "python": "3.13.16",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
@@ -75,7 +75,7 @@
   },
   "study_module_sha256": {
     "tests/studies/canonical_ctmle_derivative.py": "621db751f58503596a182930dabf344511effca21410e77f509afc5a849d3d6b",
-    "tests/studies/ctmle_derivative_properties.py": "f753109a0c2caec30e120cdfff049f634529d05e29788e399c92a360dd90bcd0",
+    "tests/studies/ctmle_derivative_properties.py": "934ffbb521e0d3fd43287afabc3bb636682982486e534b45357eec837bb996c2",
     "tests/studies/ctmle_derivative_laws.py": "924595d6915223e87c2511e5983ea2eebcaed75bc1c7194e0025c95d2058e144",
     "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
     "tests/conftest.py": "8adf5363471ccc6aa16e94a141b521552bc7098983bfa59d7a80878590db6ba5",
@@ -98,7 +98,7 @@
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "a09acd2c6dd531515a08f779eb56224b6ad37e460c987038bc08d6272877c11f",
     "property-replicates.csv.gz": "969e0849599b4b8074be9e276a14434eb8f06b2c061b0e2314ab720818f69875",
-    "properties.csv": "e5364a9ae5d22ff334b7a7e6224679fd1d55a923560061f16fecb7c73e6fc2c7",
+    "properties.csv": "0a9da22d046ae0e94b84b3b93967786b0b9934b9f01f1e3b80e7260126becc07",
     "paired-tmle.csv": "fb2384a57f3e83891beaa394e8a6e6269e7dcd78f462b59a0c85760625c838ea",
     "chosen-penalties.csv": "01747ff7ab1b8fc8ba6385a1313d439f35f39aac882b7a16cb20edb7ba7a858f"
   },
