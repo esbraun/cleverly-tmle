@@ -31,6 +31,7 @@ from cleverly import (
     CausalStudy,
     IncrementalEffect,
     LongitudinalTreatment,
+    ParametricGFormulaMethod,
     RegimeMean,
     SplitPlan,
 )
@@ -754,6 +755,26 @@ def fit_ipw() -> Any:
     return _fit_baseline("ipw")
 
 
+def fit_gformula() -> Any:
+    """The two-node regime fit of ``make_longitudinal(400, 12)``, by the parametric g-formula."""
+    frame, _ = make_longitudinal(n=400, seed=12)
+    study = CausalStudy(
+        frame,
+        design=LongitudinalTreatment(
+            outcome="Y",
+            treatment=["A1", "A2"],
+            baseline=["W1", "W2"],
+            time_varying=[[], ["L2"]],
+            censoring=["C1", "C2"],
+        ),
+    )
+    return study.identify(RegimeMean({"always": 1, "never": 0})).estimate(
+        method=ParametricGFormulaMethod(covariate_types={"L2": "normal"}),
+        random_state=5,
+        simultaneous=False,
+    )
+
+
 # ------------------------------------------------------------------------- the kinds
 
 
@@ -891,6 +912,8 @@ KINDS: dict[str, Kind] = {
     # no treatment mechanism, so its bounds move nothing and no truncation curve exists.
     "gcomp": _kind(fit_gcomp, "nuisance_models", "support"),
     "ipw": _kind(fit_ipw, "nuisance_models", "support", "truncation_curve"),
+    # The parametric g-formula divides by no mechanism, so it answers the rows g-computation does.
+    "gformula": _kind(fit_gformula, "nuisance_models", "support"),
 }
 
 

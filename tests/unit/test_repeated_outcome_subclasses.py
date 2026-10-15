@@ -93,10 +93,14 @@ def _fit(
     kind: type[_SequentialEstimator], learner: Any, roles: dict[str, Any] | None = None
 ) -> Any:
     regimens, reference = _plans(kind)
-    # IPW fits no outcome regression and refuses an outcome learner when it is built.
+    # IPW fits no outcome regression and refuses an outcome learner when it is built.  The
+    # parametric g-formula fits no pseudo-outcome regression and refuses that learner.
+    estimator = getattr(kind, "_estimator", "tmle")
     outcomes = (
         {}
-        if getattr(kind, "_estimator", "tmle") == "ipw"
+        if estimator == "ipw"
+        else {"outcome_learner": learner}
+        if estimator == "parametric_gformula"
         else {"outcome_learner": learner, "pseudo_learner": LinearRegression()}
     )
     with warnings.catch_warnings():
@@ -157,7 +161,20 @@ def test_each_estimator_reduces_or_refuses(kind: type[_SequentialEstimator]) -> 
         assert sequential._REPEATED_OUTCOME_NAMES[allowed] in str(raised.value)
 
 
-@pytest.mark.parametrize("kind", _every_subclass(), ids=lambda kind: kind.__qualname__)
+#: The estimators whose reduction is not built.  Each is refused by the allowlist gate, which
+#: ``test_each_estimator_reduces_or_refuses`` checks, and the roadmap row names the work.
+_NO_REDUCTION_YET = {"parametric_gformula": "X71 (b)"}
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        kind
+        for kind in _every_subclass()
+        if getattr(kind, "_estimator", "tmle") not in _NO_REDUCTION_YET
+    ],
+    ids=lambda kind: kind.__qualname__,
+)
 def test_an_allowlisted_kind_reduces(kind: type[_SequentialEstimator], monkeypatch: Any) -> None:
     """The allowlist is the only gate: add a kind to it and the fit reduces.
 

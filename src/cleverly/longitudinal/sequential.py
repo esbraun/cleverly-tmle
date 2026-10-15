@@ -164,6 +164,7 @@ from .data import LongitudinalData, RegimenMasks
 from .regimen import Plan, Regimen, RegimenSpec
 
 __all__ = [
+    "FitSimulation",
     "FoldRecursionCell",
     "Mechanism",
     "NodeInputs",
@@ -589,6 +590,33 @@ class SequentialStep:
 
 
 @dataclass(frozen=True)
+class FitSimulation:
+    """What a parametric g-formula cell simulated, for the Monte Carlo share of its curve.
+
+    Parameters
+    ----------
+    n_draws : int
+        The simulated histories per unit behind the estimate.
+    n_derivative_draws : int
+        The simulated histories per unit behind the derivatives.
+    copy_values : FloatArray
+        ``(n, n_derivative_draws)`` outcome functional of each derivative-stream copy, on the
+        ``[0, 1]`` scale.  The copies of two regimens share their uniforms, so a contrast reads
+        their difference.
+    exact : bool
+        Whether a test supplied the exact terms in place of the simulation.
+    report : object
+        The ``GFormulaReport`` of the fit, shared by every cell of it.
+    """
+
+    n_draws: int
+    n_derivative_draws: int
+    copy_values: FloatArray
+    exact: bool = False
+    report: Any = None
+
+
+@dataclass(frozen=True)
 class RegimenFit:
     """The estimate under one regimen, with the pieces that produced it."""
 
@@ -653,6 +681,8 @@ class RegimenFit:
     #: indicator or outcome among the followers, which :func:`constant_nodes` returns.  Such
     #: a fit has no node regression to read.  ``None`` on every other fit.
     constant_terms: tuple[int, ...] | None = None
+    #: On a parametric g-formula fit, the simulation behind the cell.  ``None`` on every other fit.
+    simulation: FitSimulation | None = None
 
     @property
     def leverage(self) -> FloatArray:

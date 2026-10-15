@@ -1636,8 +1636,8 @@ for each request that stays refused.
 
 ### X71. Repeated outcomes for the sequential baselines
 
-`SequentialGComputation` and `SequentialIPW` refuse a repeated outcome, declared with
-`outcome=Repeated([...])`, before any learner. `LTMLE` fits one: each horizon is the
+`SequentialGComputation`, `SequentialIPW` and `ParametricGFormula` refuse a repeated outcome,
+declared with `outcome=Repeated([...])`, before any learner. `LTMLE` fits one: each horizon is the
 end-of-study fit of the panel truncated after it
 ([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). The same
 reduction applies to each baseline, and its stacked estimating equation covers several horizons
@@ -1646,8 +1646,9 @@ as it covers several plans.
 | part | what to add | evidence |
 | --- | --- | --- |
 | (a) | `gcomp` and `ipw` in `REPEATED_OUTCOME_KINDS`, with the per-horizon fit of the truncated panel | `tests/unit/test_repeated_outcome_subclasses.py` requires each horizon's estimate and curve to equal the end-of-study fit of the truncated panel |
+| (b) | `gformula` in `REPEATED_OUTCOME_KINDS`, with one simulation of the truncated panel per horizon. Each horizon fits the covariate and outcome models of its own truncated panel | the same reduction test, which exempts `ParametricGFormula` until this part ships |
 
-Acceptance: the exact reduction test for both baselines, and a registered property study of the
+Acceptance: the exact reduction test for all three estimators, and a registered property study of the
 repeated-outcome cells.
 
 ### P1. EP learner

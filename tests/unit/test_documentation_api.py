@@ -66,6 +66,7 @@ EXAMPLE_TARGETS = (
     "cleverly.IPSIMethod",
     "cleverly.GComputationMethod",
     "cleverly.IPWMethod",
+    "cleverly.ParametricGFormulaMethod",
     "cleverly.ModelSpec",
     "cleverly.CrossFitting",
     "cleverly.SplitPlan",
