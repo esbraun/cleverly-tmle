@@ -157,6 +157,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="ltmle",
+    failure_bound={"cleverly": 0.01, "ltmle": 0.01},
     comparison="matching implementation",
     modules=(
         "tests/studies/clustered_few_cluster_tmle.py",

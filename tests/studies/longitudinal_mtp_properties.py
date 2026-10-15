@@ -90,6 +90,7 @@ from tests.studies.canonical_longitudinal_mtp import (
     edges_of,
     fit,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -99,15 +100,21 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 from tests.studies.oracle_density_bins import fit_bytes, oracle_bins
 
 DOUBLE_ROBUST_REPLICATES = 1_000
@@ -721,10 +728,33 @@ def _role(family: str, label: str, n: int) -> str:
     return "positive"
 
 
+def _draw_fit_set(payload: tuple[str, str, str, int, int, int, str]) -> pd.DataFrame:
+    """The sample one draw of one fit set fits, a function of the payload alone."""
+    family, label, _, replicate, n, _, law_name = payload
+    seed = _seed(family, label, replicate)
+    if law_name == "categorical":
+        return common.CATEGORICAL_LAW.sample(n, seed)
+    if law_name == "vector":
+        return vector_sample(n, seed)
+    if law_name == "survival":
+        return survival_sample(n, seed)
+    if family == "crossfit_overfitting":
+        return common.sample_continuous(n, seed, noise=True)
+    if law_name == "continuous_null":
+        return null_sample(n, seed)
+    return common.sample_continuous(n, seed)
+
+
 def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dict[str, Any]]:
+    """Every row one draw of one fit set publishes, drawn and fitted in one call."""
+    return _fit_set_drawn(payload, _draw_fit_set(payload))
+
+
+def _fit_set_drawn(
+    payload: tuple[str, str, str, int, int, int, str], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
     """Every row one draw of one fit set publishes."""
     family, label, configuration, replicate, n, requested, law_name = payload
-    seed = _seed(family, label, replicate)
     alpha = STUDY.margins.alpha
     common_row = {"replicate": replicate, "n": n, "requested": requested}
 
@@ -741,26 +771,25 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
 
     calibration = f"{label}__correctly_specified"
     if law_name == "continuous_classifier":
-        result = classifier_fit(common.sample_continuous(n, seed))
+        result = classifier_fit(frame)
         return [row(calibration, "positive", float(TRUTH[CONTINUOUS][UP]), result[UP])]
     if law_name == "categorical":
-        result = categorical_fit(common.CATEGORICAL_LAW.sample(n, seed))
+        result = categorical_fit(frame)
         truth = float(TRUTH[CATEGORICAL][CATEGORICAL_NAME])
         return [row(calibration, "positive", truth, result[CATEGORICAL_NAME])]
     if law_name == "vector":
-        result = vector_fit(vector_sample(n, seed))
+        result = vector_fit(frame)
         return [row(calibration, "positive", VECTOR_TRUTH, result[VECTOR_NAME])]
     if law_name == "continuous_random":
-        result = random_fit(common.sample_continuous(n, seed))
+        result = random_fit(frame)
         return [row(calibration, "positive", RANDOM_TRUTH, result[RANDOM_NAME])]
     if law_name == "survival":
-        result = survival_fit(survival_sample(n, seed))
+        result = survival_fit(frame)
         return [row(calibration, "positive", SURVIVAL_TRUTH, result[SURVIVAL_NAME])]
     if law_name == "continuous_msm":
-        result = msm_fit(common.sample_continuous(n, seed))
+        result = msm_fit(frame)
         return [row(calibration, "positive", MSM_TRUTH, result[MSM_NAME])]
     if family == "crossfit_overfitting":
-        frame = common.sample_continuous(n, seed, noise=True)
         truth = float(TRUTH[CONTINUOUS][UP])
         return [
             row(
@@ -777,7 +806,6 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
             ),
         ]
     if family == "inverse_necessity":
-        frame = common.sample_continuous(n, seed)
         truth = float(TRUTH[CONTINUOUS][HISTORY])
         declared = history_fit(frame)
         dropped = history_fit(frame, drop_inverse=True)
@@ -793,9 +821,6 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
                 **common_row,
             ),
         ]
-    frame = (
-        null_sample(n, seed) if law_name == "continuous_null" else common.sample_continuous(n, seed)
-    )
     result = continuous_fit(frame, configuration)
     truth = NULL_TRUTH if law_name == "continuous_null" else float(TRUTH[CONTINUOUS][UP])
     stream = "correctly_specified" if family == "interval_calibration" else label
@@ -815,9 +840,12 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
     return rows
 
 
-def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
+def _draw_band(payload: tuple[int, int]) -> pd.DataFrame:
+    return common.sample_continuous(PRIMARY_N, _seed(JOINT, BAND_LABEL, payload[0]))
+
+
+def _band_rows(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     replicate, requested = payload
-    frame = common.sample_continuous(PRIMARY_N, _seed(JOINT, BAND_LABEL, replicate))
     result = fit(frame, CONTINUOUS, simultaneous=True)
     return joint_coverage_rows(
         result,
@@ -831,28 +859,88 @@ def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
     )
 
 
-def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+#: A fit-set key is ``("fit_set", payload)`` and a band key is ``("band", (replicate, requested))``.
+_Key = tuple[str, tuple[Any, ...]]
+
+
+def _payloads(budget: int | None) -> list[_Key]:
+    out: list[_Key] = []
     for family, label, configuration, n, replicates, law_name in FIT_SETS:
         requested = replicates if budget is None else budget
         out.extend(
-            ((_fit_set_rows, (family, label, configuration, r, n, requested, law_name)),)
+            ("fit_set", (family, label, configuration, r, n, requested, law_name))
             for r in range(requested)
         )
     band = BAND_REPLICATES if budget is None else budget
-    out.extend(((_band_rows, (r, band)),) for r in range(band))
+    out.extend(("band", (r, band)) for r in range(band))
     return out
 
 
-def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
-    function, payload = job
-    return list(function(payload))
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    kind, payload = key
+    return _draw_band(payload) if kind == "band" else _draw_fit_set(payload)
 
 
-def _size(job: tuple[Any, tuple[Any, ...]]) -> int:
+def _run(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    kind, payload = key
+    return list(_band_rows(payload, frame) if kind == "band" else _fit_set_drawn(payload, frame))
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    kind, payload = key
+    if kind == "band":
+        return [f"{JOINT}/{name}" for name in joint_cells(BAND_LABEL)]
+    family, label, _, _, _, _, law_name = payload
+    if family == "crossfit_overfitting":
+        return [f"{family}/cross_fitted_mtp_ltmle", f"{family}/in_sample_control"]
+    if family == "inverse_necessity":
+        return [f"{family}/history__declared_inverse", f"{family}/history__inverse_dropped_control"]
+    if law_name in {
+        "continuous_classifier",
+        "categorical",
+        "vector",
+        "continuous_random",
+        "survival",
+        "continuous_msm",
+    }:
+        base = f"{family}/{label}__correctly_specified"
+    else:
+        stream = "correctly_specified" if family == "interval_calibration" else label
+        base = f"{family}/up__{stream}"
+        if family == "targeting_necessity":
+            return [base, f"{family}/up__untargeted"]
+    return [base, *DERIVED_CELLS.get(base, ())]
+
+
+def _cell_of(key: _Key) -> str:
+    kind, payload = key
+    return f"{JOINT}/{BAND_LABEL}" if kind == "band" else f"{payload[0]}/{payload[1]}"
+
+
+def _replicate_of(key: _Key) -> int:
+    kind, payload = key
+    return payload[0] if kind == "band" else payload[3]
+
+
+def _size(key: _Key) -> int:
     """The rows of a payload's fit: its declared ``n``, or the primary size for a band row."""
-    function, payload = job
-    return int(payload[4]) if function is _fit_set_rows else PRIMARY_N
+    kind, payload = key
+    return int(payload[4]) if kind == "fit_set" else PRIMARY_N
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
@@ -864,10 +952,20 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     """
     jobs = _payloads(budget)
     outcomes: list[Any] = []
-    for size in sorted({_size(job[0]) for job in jobs}):
-        group = [job for job in jobs if _size(job[0]) == size]
+    for size in sorted({_size(job) for job in jobs}):
+        group = [job for job in jobs if _size(job) == size]
         workers = memory_capped_workers(n_jobs, fit_bytes(size))
-        outcomes += map_parallel(_run, group, n_jobs=workers)
+        outcomes += fit_properties(
+            group,
+            _run,
+            cells_of=_cells_of,
+            cell_of=_cell_of,
+            replicate_of=_replicate_of,
+            n_jobs=workers,
+            label=f"properties/n{size}",
+            draw=_draw,
+            derived=DERIVED_CELLS,
+        )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -917,6 +1015,25 @@ def _probe_one(payload: tuple[str, str, str, int, int, int, str]) -> bool:
 # ---------------------------------------------------------------------------- verdicts
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("up",),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+#: The ``inverse_necessity`` family's declaration, read by its verdict and its rule.
+INVERSE_NECESSITY = property_verdicts.Necessity(
+    family="inverse_necessity",
+    labels=("history",),
+    arms=("declared_inverse", "inverse_dropped_control"),
+    column="inverse_displacement",
+    threshold=INVERSE_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts and the study's own declared rules."""
     summary, rates = apply_shared_verdicts(
@@ -932,24 +1049,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("up",),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="inverse_necessity",
-        labels=("history",),
-        arms=("declared_inverse", "inverse_dropped_control"),
-        column="inverse_displacement",
-        threshold=INVERSE_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, INVERSE_NECESSITY)
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_mtp_ltmle")
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     return finish(summary, rates)
@@ -962,3 +1063,11 @@ __all__ = [
     "generate_property_rows",
     "summarize_properties",
 ]
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY, INVERSE_NECESSITY),
+)

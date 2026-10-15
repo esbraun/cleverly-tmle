@@ -147,6 +147,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-calibration-slope-rule",
     reference=None,
+    failure_bound={"cleverly-calibration-slope-rule": 0.01},
     modules=(
         "tests/studies/calibration_slope_warning.py",
         "tests/studies/calibration_slope_warning_properties.py",

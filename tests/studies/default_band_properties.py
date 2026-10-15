@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import beta, binom, norm
 
-from cleverly.utils.parallel import map_parallel
 from tests.discrete_law_competing import TRUTH as COMPETING_TRUTH
 from tests.parallel import STUDY_JOBS
 from tests.studies import (
@@ -54,16 +53,19 @@ from tests.studies import (
     fold_evaluated_cvtmle,
 )
 from tests.studies.default_bands import SHAPES, STUDY, Shape
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     finish,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import (
     CONTROL,
     FAMILY,
+    joint_cells,
     joint_coverage_rows,
     joint_property_cells,
 )
@@ -238,15 +240,43 @@ def full_truth(label: str, result: Any, truth: dict[str, float]) -> dict[str, fl
 
 def fit_shape(label: str, n: int, seed: int) -> tuple[Any, dict[str, float]]:
     """One replication's fit of ``label`` and the truth of every name it reports."""
-    source = SOURCES[label]
-    frame, truth = source.draw(n, seed)
-    result = source.fit(frame)
+    return _fit_sample(label, SOURCES[label].draw(n, seed))
+
+
+def _fit_sample(label: str, drawn: Sample) -> tuple[Any, dict[str, float]]:
+    frame, truth = drawn
+    result = SOURCES[label].fit(frame)
     return result, full_truth(label, result, truth)
 
 
-def _fit_replication(payload: tuple[str, int, int, int, int]) -> list[dict[str, Any]]:
-    label, replicate, n, requested, seed = payload
-    result, truth = fit_shape(label, n, seed)
+_Key = tuple[tuple[str, int, int, int, int]]
+
+
+def _draw(key: _Key) -> Sample:
+    """The sample a key fits, a function of the key alone."""
+    label, _, n, _, seed = key[0]
+    return SOURCES[label].draw(n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``simultaneous_coverage/<cell>`` names the key's rows fill."""
+    label = key[0][0]
+    band, control = joint_cells(label)
+    names = [band, control] if SHAPE_BY_LABEL[label].pointwise_control else [band]
+    return [f"{FAMILY}/{name}" for name in names]
+
+
+def _cell_of(key: _Key) -> str:
+    return f"{FAMILY}/{joint_cells(key[0][0])[0]}"
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[0][1]
+
+
+def _fit_replication(key: _Key, drawn: Sample) -> list[dict[str, Any]]:
+    label, replicate, n, requested, _ = key[0]
+    result, truth = _fit_sample(label, drawn)
     rows = joint_coverage_rows(
         result,
         truth,
@@ -262,30 +292,41 @@ def _fit_replication(payload: tuple[str, int, int, int, int]) -> list[dict[str, 
     return rows
 
 
-def _payloads(replicates: int | None = None) -> list[tuple[tuple[str, int, int, int, int]]]:
-    out: list[tuple[tuple[str, int, int, int, int]]] = []
+def _payloads() -> list[_Key]:
+    out: list[_Key] = []
     for shape in SHAPES:
-        count = shape.replicates if replicates is None else replicates
         out += [
-            ((shape.label, replicate, shape.n, count, _seed(shape.label, replicate)),)
-            for replicate in range(count)
+            ((shape.label, replicate, shape.n, shape.replicates, _seed(shape.label, replicate)),)
+            for replicate in range(shape.replicates)
         ]
     return out
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Fit every declared replication of every joint cell."""
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
-
-
-def generate_smoke_property_rows(*, n_jobs: int = 1, replicates: int = 1) -> pd.DataFrame:
-    """Fit the first ``replicates`` declared replications of every cell, unsummarized."""
-    outcomes = map_parallel(_fit_replication, _payloads(replicates), n_jobs=n_jobs)
-    return pd.DataFrame([row for result in outcomes for row in result])
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

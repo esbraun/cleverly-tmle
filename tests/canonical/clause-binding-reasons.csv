@@ -1,0 +1,32 @@
+subject,property,clause,reason
+canonical-categorical-ltmle-crossfit,root_n_and_efficiency,coverage resolves,fixed at size
+canonical-categorical-ltmle,root_n_and_efficiency,coverage resolves,fixed at size
+canonical-drtmle,root_n_and_efficiency,coverage resolves,fixed at size
+canonical-ltmle-crossfit,root_n_and_efficiency,coverage resolves,fixed at size
+canonical-ltmle-survival-crossfit,root_n_and_efficiency,coverage resolves,fixed at size
+canonical-ltmle-survival,root_n_and_efficiency,coverage resolves,fixed at size
+canonical-ltmle,root_n_and_efficiency,coverage resolves,fixed at size
+cde-tmle,root_n_and_efficiency,coverage resolves,fixed at size
+composite-missing-drtmle,root_n_and_efficiency,coverage resolves,fixed at size
+deterministic-regimes,root_n_and_efficiency,coverage resolves,fixed at size
+incremental-interventions,root_n_and_efficiency,coverage resolves,fixed at size
+known-treatment-mechanism,root_n_and_efficiency,coverage resolves,fixed at size
+learned-rule-cvtmle,root_n_and_efficiency,coverage resolves,fixed at size
+mar-attributable-tmle,root_n_and_efficiency,coverage resolves,fixed at size
+mar-drtmle,root_n_and_efficiency,coverage resolves,fixed at size
+mar-natural-course-tmle,root_n_and_efficiency,coverage resolves,fixed at size
+mar-tmle,root_n_and_efficiency,coverage resolves,fixed at size
+multi-arm-mar-drtmle,root_n_and_efficiency,coverage resolves,fixed at size
+point-msm,root_n_and_efficiency,coverage resolves,fixed at size
+point-treatment-survival,root_n_and_efficiency,coverage resolves,fixed at size
+shift-policies,root_n_and_efficiency,coverage resolves,fixed at size
+stochastic-categorical-ltmle,root_n_and_efficiency,coverage resolves,fixed at size
+stochastic-regimes,root_n_and_efficiency,coverage resolves,fixed at size
+weighted-ltmle-crossfit,root_n_and_efficiency,coverage resolves,fixed at size
+weighted-ltmle,root_n_and_efficiency,coverage resolves,fixed at size
+longitudinal-sdr,sequential_double_robustness,P_D large-size bias bound under the small,same module as: tests.studies.longitudinal_sdr_properties
+tests.studies.longitudinal_sdr_properties,crossfit_overfitting,coverage gain,same module as: longitudinal-sdr
+tests.studies.longitudinal_sdr_properties,interval_calibration,coverage in calibration band,same module as: longitudinal-sdr
+learned-weighted-tmle,learner_weight_necessity,bias discriminated,implied by: alternative bias equivalent
+weighted-tmle,weight_necessity,bias discriminated,implied by: alternative bias equivalent
+longitudinal-repeated-outcome,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent

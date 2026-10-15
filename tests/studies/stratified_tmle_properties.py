@@ -52,7 +52,6 @@ from scipy.stats import norm
 from sklearn.base import BaseEstimator, ClassifierMixin, clone
 from sklearn.dummy import DummyClassifier
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import stratified_law as law
 from tests.studies.canonical_stratified_tmle import (
@@ -69,22 +68,32 @@ from tests.studies.canonical_stratified_tmle import (
     label_name,
     logistic,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 
 CALIBRATION_N = 2_000
 CALIBRATION_REPLICATES = 2_400
@@ -317,9 +326,40 @@ def _necessity(
     return rows
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    family, _, replicate, n, requested, seed, configuration = payload
-    frame = law.sample(n, seed)
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived((*CALIBRATION_LABELS, *CROSSFIT_LABELS))
+
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    _, _, _, n, _, seed, _ = key[0]
+    return law.sample(n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    family, _, _, _, _, _, configuration = key[0]
+    if configuration in {"in_sample", "crossfit"}:
+        crossfit = configuration == "crossfit"
+        names = []
+        for label in CROSSFIT_LABELS if crossfit else CALIBRATION_LABELS:
+            name = f"{family}/{label}__correctly_specified"
+            names += [name, *DERIVED_CELLS[name]]
+        joint = joint_cells("crossfit_strata" if crossfit else "strata")
+        return names + [f"{JOINT_FAMILY}/{name}" for name in joint]
+    if family == "double_robustness":
+        return [f"{family}/{label}__{configuration}" for label in ATE_LABELS]
+    return [
+        f"{family}/{label}__{kind}"
+        for label in NECESSITY_LABELS
+        for kind in ("stratified", "marginal_fluctuation")
+    ]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    family, _, replicate, n, requested, _seed, configuration = key[0]
     if configuration in {"in_sample", "crossfit"}:
         return _calibration(frame, family, replicate, n, requested, configuration == "crossfit")
     if family == "double_robustness":
@@ -343,22 +383,38 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     raise KeyError(family)  # pragma: no cover - declaration guard
 
 
-def _payloads(
-    replicates: int | None = None,
-) -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
-    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
+def _payloads() -> list[_Key]:
+    out: list[_Key] = []
     for family, key, n, budget, configuration in BATCHES:
-        count = budget if replicates is None else replicates
         out += [
             ((family, key, replicate, n, budget, _seed(family, key, replicate), configuration),)
-            for replicate in range(count)
+            for replicate in range(budget)
         ]
     return out
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     """Fit every declared replication, then derive the calibration controls."""
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -380,10 +436,14 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     )
 
 
-def generate_smoke_property_rows(*, n_jobs: int = 1, replicates: int = 1) -> pd.DataFrame:
-    """Fit the first ``replicates`` declared replications of every batch, unsummarized."""
-    outcomes = map_parallel(_fit_replication, _payloads(replicates), n_jobs=n_jobs)
-    return pd.DataFrame([row for result in outcomes for row in result])
+#: The ``stratum_targeting_necessity`` family's declaration, read by its verdict and its rule.
+STRATUM_TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="stratum_targeting_necessity",
+    labels=NECESSITY_LABELS,
+    arms=NECESSITY_ARMS,
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -398,15 +458,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     calibration_verdicts(summary, margins=margins, efficiency_band=EFFICIENCY_RATIO_BAND)
     simultaneous_coverage_verdicts(summary, margins=margins)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="stratum_targeting_necessity",
-        labels=NECESSITY_LABELS,
-        arms=NECESSITY_ARMS,
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, STRATUM_TARGETING_NECESSITY)
     return finish(summary, rates)
 
 
@@ -486,3 +538,11 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 NECESSITY_REPLICATES,
             )
     return tuple(cells)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(STRATUM_TARGETING_NECESSITY),
+)
