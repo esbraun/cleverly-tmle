@@ -65,7 +65,7 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, NoReturn
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NoReturn, TypeAlias
 
 import numpy as np
 from sklearn.base import clone
@@ -137,6 +137,7 @@ from ..methods import (
     IPSI_NO_FLUCTUATION,
     IPSI_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
+    REPEATED_OUTCOME_REFUSAL,
     SDR_NO_FLUCTUATION,
     SDR_TILT_REFUSAL,
 )
@@ -152,7 +153,7 @@ from ..utils.bounds import (
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
 from ..utils.text import format_pvalue, format_table
-from .data import LongitudinalData
+from .data import LongitudinalData, Repeated
 from .ipsi import IPSICell, fit_cells_ipsi
 from .msm import (
     MSMRegimenFit,
@@ -404,9 +405,40 @@ HORIZON_INFIX = " @ t="
 CAUSE_INFIX = ", "
 
 
-def _index(label: str, cause: str | None, horizon: int, survival: bool) -> str:
-    """What goes inside the brackets of a parameter name."""
-    if not survival:
+#: The parameter an outcome declaration makes a fit answer; see
+#: :attr:`LongitudinalConfig.outcome_kind`.
+OutcomeKind: TypeAlias = Literal["end_of_study", "survival", "competing", "repeated"]
+
+
+def outcome_kind(data: LongitudinalData) -> OutcomeKind:
+    """The parameter ``data``'s outcome declaration makes a fit answer.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+
+    Returns
+    -------
+    str
+        ``"competing"``, ``"survival"``, ``"repeated"`` or ``"end_of_study"``.
+    """
+    if data.is_competing:
+        return "competing"
+    if data.is_survival:
+        return "survival"
+    if data.is_repeated:
+        return "repeated"
+    return "end_of_study"
+
+
+def _index(label: str, cause: str | None, horizon: int, curve: bool) -> str:
+    """What goes inside the brackets of a parameter name.
+
+    ``curve`` is :attr:`~cleverly.longitudinal.LongitudinalData.reports_curve`: a survival
+    or a repeated outcome reports one parameter per horizon, and the horizon is in the name.
+    """
+    if not curve:
         return label
     stem = label if cause is None else f"{label}{CAUSE_INFIX}{cause}"
     return f"{stem}{HORIZON_INFIX}{horizon}"
@@ -432,6 +464,14 @@ SURVIVAL_VIEW_COMPETING_REFUSAL = (
     "a competing-risk fit reports one cumulative incidence per cause, and 1 - one cause's "
     "incidence is not all-cause survival. Event-free survival is 1 - the sum of the "
     "cause-specific incidences; use incidence_total() to inspect that sum"
+)
+
+#: What a repeated-outcome fit reports, in the refusals of the survival-curve functionals.
+REPEATED_NOT_A_RISK = (
+    "the mean of a repeated outcome at each horizon, not a cumulative risk: a repeated "
+    "outcome can return to zero, so neither a survival complement, a restricted mean "
+    "survival time nor an incidence total is defined on it. Use contrast() for a linear "
+    "functional of the means"
 )
 
 #: The head name of a *contrast* between two regimens, whatever the outcome is.  A
@@ -490,14 +530,44 @@ def _level_head(*, survival: bool, competing: bool, complement: bool) -> str:
     return "cif_regimen" if competing else "risk_regimen"
 
 
-def _fit_key(label: str, cause: str | None, horizon: int, survival: bool) -> str:
+def _fit_key(label: str, cause: str | None, horizon: int, curve: bool) -> str:
     """The key one regimen's fit at one cause and horizon is filed under.
 
     The same string :func:`_index` builds, and deliberately so: a terminal fit is keyed
     by its regimen label exactly as it always was, and a survival fit by the tuple that
     indexes its parameter.
     """
-    return _index(label, cause, horizon, survival)
+    return _index(label, cause, horizon, curve)
+
+
+def refuse_repeated_outcome(estimator: str, name: str) -> None:
+    """Refuse a repeated outcome on any longitudinal estimator other than the TMLE.
+
+    The sequential TMLE fits a repeated outcome by one backward pass per horizon, each the
+    end-of-study fit of the panel truncated after it.  Another estimator that shares
+    :meth:`LTMLE.fit`, such as a sequentially doubly robust or an incremental-intervention
+    estimator, fits nothing until its own reduction and evidence exist, so it refuses here,
+    before any learner, rather than fitting by inheritance.
+    ``tests/unit/test_repeated_outcome_subclasses.py`` fits every subclass of
+    :class:`LTMLE` on a repeated outcome and requires either this refusal or, for a TMLE kind,
+    an estimate and influence curve at each horizon equal to the end-of-study fit of the
+    truncated panel.
+
+    Parameters
+    ----------
+    estimator : str
+        The estimator kind, ``"tmle"`` for :class:`LTMLE` itself.
+    name : str
+        The class name, for the message.
+
+    Raises
+    ------
+    CapabilityError
+        For every kind other than ``"tmle"``.
+    """
+    if estimator == "tmle":
+        return
+    raise CapabilityError(f"{name} does not fit a repeated outcome. {REPEATED_OUTCOME_REFUSAL}")
 
 
 def refuse_unsupported(passed: Mapping[str, Any], *, where: str = "LTMLE") -> None:
@@ -828,6 +898,13 @@ class LongitudinalConfig:
     #: :class:`IPSI`.
     estimator: str = "tmle"
 
+    #: Which parameter the outcome declaration made the fit answer: ``"end_of_study"`` (a
+    #: mean), ``"survival"`` (a risk curve), ``"competing"`` (an incidence curve per cause)
+    #: or ``"repeated"`` (a curve of means).  The report reads this rather than counting
+    #: :attr:`outcome_names`, because a survival and a repeated outcome both name a column
+    #: per node.
+    outcome_kind: OutcomeKind = "end_of_study"
+
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
 
@@ -873,10 +950,14 @@ class LongitudinalConfig:
             lines.insert(1, f"time grid: {', '.join(f'{g:g}' for g in self.time_grid)}")
         if self.panel is not None:
             lines.insert(1, self.panel)
-        if len(self.outcome_names) > 1:
+        if self.outcome_kind != "end_of_study":
             lines.insert(
                 1,
-                f"outcome: survival, event indicator at {', '.join(self.outcome_names)}",
+                (
+                    f"outcome: repeated, a non-absorbing outcome at {', '.join(self.outcome_names)}"
+                    if self.outcome_kind == "repeated"
+                    else f"outcome: survival, event indicator at {', '.join(self.outcome_names)}"
+                ),
             )
             reported = ", ".join(str(horizon) for horizon in self.horizons)
             lines.insert(2, f"horizons reported: t = {reported}")
@@ -905,8 +986,14 @@ class LongitudinalConfig:
             # how the follower counts below should be read: a static regimen's followers
             # are whoever happened to receive that sequence, and a rule's are whoever the
             # rule would have treated -- a set this sample determines.
+            # A repeated outcome's earlier nodes open the later blocks, so they are in H_t.
+            history = (
+                "L_1, ..., L_t, with Y_{t-1} first in each block L_t, t > 1"
+                if self.outcome_kind == "repeated"
+                else "L_1, ..., L_t"
+            )
             lines.append(
-                "  a 'd' is a rule d_t(H_t) read off [W, L_1, ..., L_t]; its followers "
+                f"  a 'd' is a rule d_t(H_t) read off [W, {history}]; its followers "
                 "are a covariate-dependent set, so the counts below describe this sample"
             )
             # Only for the regimens that have a rule in them, and only when one does:
@@ -1273,6 +1360,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         """Refuse a functional of the survival curve on a fit that reports no curve."""
         if self.msm is not None:
             reported = "the coefficients of a working model"
+        elif self.data.is_repeated:
+            raise ValueError(
+                f"{what} sums a survival curve, and this fit reports {REPEATED_NOT_A_RISK}"
+            )
         elif not self.data.is_survival:
             reported = f"one end-of-study mean of {self.data.outcome_name!r}"
         else:
@@ -1369,6 +1460,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             )
         survival = self.data.is_survival
         if view == "survival":
+            if self.data.is_repeated:
+                raise ValueError(f"this fit reports {REPEATED_NOT_A_RISK}. Drop view=")
             if not survival:
                 raise ValueError(
                     "an end-of-study fit reports means, not a survival curve. Drop view="
@@ -1419,7 +1512,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             and top[1:] == bottom[1:]
         ):
             label = f"{top[0]} vs {bottom[0]}"
-            arm = _index(label, top[1], top[2], self.data.is_survival)
+            arm = _index(label, top[1], top[2], self.data.reports_curve)
             return parameter_name(f"{prefix}{kind}_regimen", arm=arm)
         return f"{prefix}{kind}[{numerator} vs {denominator}]"
 
@@ -1812,6 +1905,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             One row per regimen and horizon, with the incidences summed over causes.
         """
         if not self.data.is_competing:
+            if self.data.is_repeated:
+                raise ValueError(f"this fit reports {REPEATED_NOT_A_RISK}")
             raise ValueError(
                 "this fit reports one parameter per regimen per horizon, so there is "
                 "nothing to sum over. Declare competing risks -- outcome={cause: [...]} "
@@ -1894,8 +1989,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
     # ---------------------------------------------------------------- reports
 
-    def curve(self, scale: str = "risk") -> Any:
-        """The survival report as a curve: a row per parameter per horizon.
+    def curve(self, scale: str | None = None) -> Any:
+        """The report as a curve: a row per parameter per horizon.
+
+        On a repeated outcome (:class:`~cleverly.longitudinal.Repeated`) the only scale is
+        ``"mean"``: the mean :math:`E[Y_t^d]` of each regimen and the difference between
+        regimens at each horizon.  A repeated outcome can return to zero, so it has no
+        survival complement.  The rest of this description is about a survival fit.
 
         ``scale="risk"`` reports what the fit estimated, the cumulative risk
         :math:`F(t)` and the risk difference between regimens at each horizon.
@@ -1933,8 +2033,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
 
         Parameters
         ----------
-        scale : {"risk", "survival"}
-            Outcome scale for levels and contrasts.
+        scale : {"risk", "survival", "mean"} or None
+            Outcome scale for levels and contrasts.  ``None`` reads ``"risk"`` on a survival
+            fit and ``"mean"`` on a repeated outcome.
 
         Returns
         -------
@@ -1969,10 +2070,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             ``scale``
                 ``"level"`` or ``"difference"``, as :meth:`to_frame` reports it.
             ``view``
-                ``"risk"`` or ``"survival"``, the view the caller requested.
+                ``"risk"``, ``"survival"`` or ``"mean"``, the view the caller requested.
         """
-        if scale not in ("risk", "survival"):
-            raise ValueError(f"scale must be 'risk' or 'survival'; got {scale!r}")
+        repeated = self.data.is_repeated
+        if scale is None:
+            scale = "mean" if repeated else "risk"
+        if scale not in ("risk", "survival", "mean"):
+            raise ValueError(f"scale must be 'risk', 'survival' or 'mean'; got {scale!r}")
+        if repeated and scale != "mean":
+            raise ValueError(f"this fit reports {REPEATED_NOT_A_RISK}. Use scale='mean'")
         if self.msm is not None:
             raise ValueError(
                 "this fit reports the coefficients of a working model, and a coefficient "
@@ -1982,12 +2088,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 "result.to_frame() is the report for this fit, and "
                 "result.coefficients() the view that names what each one is"
             )
-        if not self.data.is_survival:
+        if not self.data.reports_curve:
             raise ValueError(
                 f"this fit has one end-of-study outcome ({self.data.outcome_name!r}), so "
                 "its report is a number and not a curve. Pass one outcome column per "
                 "time point -- outcome=[...] -- to estimate a cumulative risk at every "
                 "horizon; result.to_frame() is the report for this fit"
+            )
+        if not repeated and scale == "mean":
+            raise ValueError(
+                "scale='mean' is the view of a repeated outcome; this fit reports a "
+                "cumulative risk at every horizon. Use scale='risk' or scale='survival'"
             )
         # Gated on how many causes the fit *declared*, not on whether it declared any.
         # ``outcome={"death": [...]}`` is a competing-risks declaration with one cause,
@@ -2041,7 +2152,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             # The plug-in bodies, which ``ci`` and ``std_error`` also read, so an ordinary
             # fit's numbers are unchanged and a diagnostic fit's are the same arithmetic.
             low, high = estimate.plugin_interval
-            if scale == "risk":
+            if scale in ("risk", "mean"):
                 psi, low, high = estimate.psi, low, high
             elif estimate.scale == "level":
                 psi, low, high = 1.0 - estimate.psi, 1.0 - high, 1.0 - low
@@ -2051,7 +2162,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             # built ``name`` in the first place.  Recovering the head by matching a
             # prefix would be the parsing the comment above refuses, one step later.
             head = (
-                _level_head(survival=True, competing=competing, complement=scale == "survival")
+                _level_head(
+                    survival=not repeated, competing=competing, complement=scale == "survival"
+                )
                 if estimate.scale == "level"
                 else CONTRAST_HEAD
             )
@@ -2503,7 +2616,7 @@ def _run_recursion(
     ratios = {plan.label: node_ratios(data, plan, mechanism) for plan in plans}
     if msm is None:
         return {
-            _fit_key(plan.label, cause, horizon, data.is_survival): _with_node_ratio(
+            _fit_key(plan.label, cause, horizon, data.reports_curve): _with_node_ratio(
                 fit_regimen(data, plan, mechanism, horizon=horizon, cause=cause, **recursion),
                 ratios[plan.label],
             )
@@ -2520,7 +2633,7 @@ def _run_recursion(
         fit_regimens_msm(data, plans, mechanism, msm, cause=cause, **recursion) for cause in causes
     )
     return {
-        _fit_key(fit.regimen.label, fit.cause, fit.horizon, data.is_survival): _with_node_ratio(
+        _fit_key(fit.regimen.label, fit.cause, fit.horizon, data.reports_curve): _with_node_ratio(
             fit, ratios[fit.regimen.label]
         )
         for msm_fit in msm_fits
@@ -2793,9 +2906,11 @@ def _estimates(
         The estimates, the parameter index, and the fits behind each name.
     """
     survival = data.is_survival
-    # ``ey_regimen`` is a mean of the outcome, ``risk_regimen`` a probability of an
-    # event by a horizon, and ``cif_regimen`` the probability of leaving through one
-    # particular cause by then.  E[Y_k] *is* the second, and with a single cause the
+    curve = data.reports_curve
+    # ``ey_regimen`` is a mean of the outcome (at each horizon, on a repeated outcome),
+    # ``risk_regimen`` a probability of an event by a horizon, and ``cif_regimen`` the
+    # probability of leaving through one particular cause by then.  E[Y_k] *is* the second, and
+    # with a single cause the
     # second *is* the third -- so one name would not be wrong anywhere.  But the three
     # come from different derivations, and a saved frame or a coverage study's truth
     # dict keyed by name is where that would stop being a distinction without a
@@ -2810,7 +2925,7 @@ def _estimates(
     index: dict[str, tuple[str, str | None, int]] = {}
     contributors: dict[str, tuple[RegimenFit, ...]] = {}
     for fit in fits.values():
-        name = parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, survival))
+        name = parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
         index[name] = (fit.regimen.label, fit.cause, fit.horizon)
         contributors[name] = (fit,)
         estimates[name] = make_estimate(
@@ -2830,9 +2945,9 @@ def _estimates(
         # The contrast is between the same two regimens at the same cause *and* the
         # same horizon; a difference of incidences across either is not a treatment
         # effect, and with two indexes there are now two ways to pair the wrong ones.
-        base = fits[_fit_key(reference.label, fit.cause, fit.horizon, survival)]
+        base = fits[_fit_key(reference.label, fit.cause, fit.horizon, curve)]
         contrast = f"{fit.regimen.label} vs {reference.label}"
-        name = parameter_name(CONTRAST_HEAD, arm=_index(contrast, fit.cause, fit.horizon, survival))
+        name = parameter_name(CONTRAST_HEAD, arm=_index(contrast, fit.cause, fit.horizon, curve))
         index[name] = (contrast, fit.cause, fit.horizon)
         contributors[name] = (fit, base)
         estimates[name] = make_estimate(
@@ -2884,8 +2999,8 @@ def _warn_parameter_statuses(estimates: Mapping[str, ParameterEstimate]) -> None
             f"{len(names)} reported parameter(s) take the {status!r} status: {shown}{more} "
             "(constant_node_parameters(result) lists them). "
             + status_record(status).reason
-            + " Report horizons at which every regimen's followers at risk have an event, or "
-            "declare a coarser grid, for intervals there",
+            + " Report horizons at which the followers of every regimen hold both outcome "
+            "values, or declare a coarser grid, for intervals there",
             DataWarning,
             stacklevel=3,
         )
@@ -3179,7 +3294,7 @@ class _SequentialEstimator:
         self,
         data: Any,
         *,
-        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | None = None,
+        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated | None = None,
         treatment: str | Sequence[str] | None = None,
         baseline: Sequence[str] | None = None,
         time_varying: Sequence[Sequence[str]] | None = None,
@@ -3220,9 +3335,10 @@ class _SequentialEstimator:
             One wide frame, a row per unit and a column per node, or a container that
             has already read the columns.  A container takes none of the column
             keywords below.
-        outcome : str, sequence of str, mapping, or None
+        outcome : str, sequence of str, mapping, Repeated, or None
             One column for an end-of-study outcome, one column per node for a survival
-            outcome, or a mapping of cause to one column per node for competing risks,
+            outcome, a mapping of cause to one column per node for competing risks, or a
+            :class:`~cleverly.longitudinal.Repeated` of one non-absorbing outcome per node,
             as for :meth:`LongitudinalData.from_frame`.
         treatment : str, sequence of str, or None
             The treatment column of each node, in time order.  Its length declares ``T``.
@@ -3298,12 +3414,14 @@ class _SequentialEstimator:
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
         )
+        if prepared.is_repeated:
+            refuse_repeated_outcome(getattr(self, "_estimator", "tmle"), type(self).__name__)
         regimens = resolve_regimens(
             self.regimens,
             prepared.n_decisions,
             held_nodes=prepared.n_times if prepared.treatment_held else None,
         )
-        if prepared.is_survival:
+        if prepared.reports_curve:
             infixes = (HORIZON_INFIX,) + ((CAUSE_INFIX,) if prepared.is_competing else ())
             for infix in infixes:
                 clashing = sorted(r.label for r in regimens if infix in r.label)
@@ -3444,7 +3562,10 @@ class _SequentialEstimator:
         config = LongitudinalConfig(
             family=prepared.family,
             n_times=prepared.n_times,
-            outcome_names=(prepared.event_names or (prepared.outcome_name,)),
+            outcome_names=(
+                prepared.event_names or prepared.repeated_names or (prepared.outcome_name,)
+            ),
+            outcome_kind=outcome_kind(prepared),
             horizons=horizons,
             causes=prepared.cause_labels,
             regimens=regimens,
@@ -3575,7 +3696,7 @@ class _SequentialEstimator:
         self,
         data: Any,
         *,
-        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | None,
+        outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated | None,
         treatment: str | Sequence[str] | None,
         baseline: Sequence[str] | None,
         time_varying: Sequence[Sequence[str]] | None,
@@ -3648,13 +3769,14 @@ class _SequentialEstimator:
 
     def _horizons(self, data: LongitudinalData) -> tuple[int, ...]:
         """Which nodes the fit reports a parameter at."""
-        if not data.is_survival:
+        if not data.reports_curve:
             if self.horizons is not None:
                 raise ValueError(
-                    "horizons= applies to a survival outcome, and this fit has one "
-                    f"end-of-study outcome ({data.outcome_name!r}), whose only horizon is "
-                    "the end of the study. Pass one outcome column per time point -- "
-                    "outcome=[...] -- to report a curve"
+                    "horizons= applies to a survival or a repeated outcome, and this fit has "
+                    f"one end-of-study outcome ({data.outcome_name!r}), whose only horizon is "
+                    "the end of the study. Pass one event column per time point -- "
+                    "outcome=[...] -- or a repeated outcome -- outcome=Repeated([...]) -- to "
+                    "report a curve"
                 )
             return (data.n_times,)
         if self.horizons is None:
@@ -3801,8 +3923,8 @@ class _SequentialEstimator:
             if self.q_bounds is not None:
                 raise ValueError("q_bounds does not apply to a binary outcome")
             return OutcomeScaler.identity()
-        observed = data.outcome[data.uncensored_through(data.n_times)]
-        return OutcomeScaler.from_outcome(observed, self.q_bounds)
+        # Every horizon's observed values on a repeated outcome: one scale for the curve.
+        return OutcomeScaler.from_outcome(data.observed_outcomes(), self.q_bounds)
 
     def _provenance(self, data: LongitudinalData, folds: Folds) -> Provenance:
         """The same record a point-treatment fit carries, over the longitudinal nodes.
@@ -3836,6 +3958,16 @@ class _SequentialEstimator:
                     [repr(level) for levels in data.treatment_levels for level in levels],
                     dtype=str,
                 ),
+                # Which cause fired is in no other array: ``outcome`` and the ``nan``
+                # pattern of the later nodes are all-cause.  A repeated outcome's last
+                # node is ``outcome``, and its earlier nodes may be screened out of the
+                # covariate blocks.  Each is fingerprinted when the fit has it.
+                *(
+                    ()
+                    if data.cause_event is None
+                    else (np.asarray(data.cause_event, dtype=float).reshape(data.n, -1),)
+                ),
+                *(() if data.repeated is None else (data.repeated,)),
             ),
             fold_fingerprint=fingerprint_array(folds.assignment),
             random_state=self.random_state,
@@ -4655,6 +4787,10 @@ def bootstrap_design_kind(
     """
     if (
         msm is not None
+        # A repeated outcome's horizon is, by the truncation identity, a licensed
+        # end-of-study replicate, but no registered cell measures the joint curve, so its
+        # bootstrap stays a diagnostic.
+        or data.is_repeated
         or data.treatment_held
         or data.is_competing
         or data.is_weighted
@@ -5018,7 +5154,7 @@ def ltmle(
     data: Any,
     *,
     regimens: Any,
-    outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
+    outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated,
     treatment: Sequence[str],
     baseline: Sequence[str],
     time_varying: Sequence[Sequence[str]] | None = None,

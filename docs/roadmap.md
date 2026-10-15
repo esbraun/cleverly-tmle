@@ -129,7 +129,7 @@ not change the package version.
 | B3 | Applied tutorials for offers and pricing | no new theory | X40, X41 | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
-| BP | Repeated-outcome curves | published support for the incremental case; a fixed-dimension stack for static and dynamic plans | the shipped `IPSI` estimator | [X32](#x32-repeated-outcome-curves) |
+| BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | BP | C-TMLE candidate sequences | published support; pending source read | shipped selector paths | [X16](#x16-c-tmle-candidate-sequences) |
 | BP | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
@@ -737,31 +737,6 @@ Acceptance:
 - a test that each curve is monotone on a law where per-horizon targeting is not;
 - a registered study with joint coverage over the horizons.
 
-### X32. Repeated-outcome curves
-
-`LongitudinalData` reads `outcome=[...]` only as an absorbing event. X32 adds a declaration of a
-non-absorbing outcome $Y_t$ at each node. It also adds the curve $t \mapsto E[Y_t^{Q}]$ over a
-declared set of horizons.
-
-| item | contract |
-| --- | --- |
-| base | Kim, Kennedy and Naimi (2021), *Journal of Causal Inference* 9(1):302–344, Theorems 3.1, 4.1 and 5.1 (tilts, dropout, and the joint process over $\delta$ and $t$). For static and dynamic plans, each horizon is the shipped end-of-study estimand on the panel truncated after node $t$. The curve is their fixed-dimension stack |
-| estimators | one backward pass per horizon, seeded at $Y_t$, with earlier $Y_s$ in the history. `IPSI`, `LTMLE` and `SDR` each fit the declaration or refuse it by name |
-| inference | a joint band over plans and horizons from the stacked curve |
-
-Today a user can fit one horizon by hand. Truncate the panel after node $t$, and declare $Y_t$ as
-the outcome and earlier $Y_s$ as covariates.
-[Incremental interventions over time](technical-reference/longitudinal-tmle.md#the-incremental-estimand)
-states that route.
-
-Acceptance:
-
-- exact-law witnesses with a non-absorbing outcome that returns to zero, so an absorbing reading
-  fails;
-- a mutation control that treats $Y_t$ as absorbing;
-- a truth-calibrated registered study. Kim's research code is unpinned, so no paired comparator
-  exists.
-
 ### X22. Targeting and fitting options
 
 One pull request delivers these options. Each comparator ships the option, and none needs new
@@ -1203,6 +1178,28 @@ Acceptance:
 - exact-law Gateaux witnesses for each part on a coarse discrete law;
 - a mutation control that drops one component's ratio;
 - a registered study against the pinned `lmtp` 1.5.4, with the ratio supplied to both sides.
+
+### X32b. Repeated outcomes for SDR and IPSI
+
+`LTMLE` fits a repeated outcome, declared with `outcome=Repeated([...])`. Each horizon is the
+end-of-study fit of the panel truncated after it
+([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). `LTMLE.fit`
+refuses a repeated outcome for any other estimator kind, before any learner. So `SDR` and `IPSI`
+refuse it now.
+
+| part | what to add | evidence |
+| --- | --- | --- |
+| (a) `SDR` | the per-horizon reduction of the sequentially doubly robust fit | the reduction test of `tests/unit/test_repeated_outcome.py` for `SDR`, and exact-law Gateaux witnesses |
+| (b) `IPSI` | the curve $t \mapsto E[Y_t^{Q}]$ under a tilt. Kim, Kennedy and Naimi (2021), *Journal of Causal Inference* 9(1):302–344, Theorems 3.1, 4.1 and 5.1, cover tilts, dropout, and the joint process over $\delta$ and $t$ | the same, for `IPSI` |
+
+Acceptance:
+
+- `tests/unit/test_repeated_outcome_subclasses.py` passes with each estimator fitting rather than
+  refusing;
+- exact-law witnesses with a non-absorbing outcome that returns to zero, and a mutation control
+  that seeds every horizon at $Y_T$;
+- a truth-calibrated registered study per estimator, or a row in `longitudinal-repeated-outcome`
+  for each. Kim's research code is unpinned, so `IPSI` has no paired comparator.
 
 ### X47. Simulated-confounding laws for point-treatment fits
 

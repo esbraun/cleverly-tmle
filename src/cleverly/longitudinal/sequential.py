@@ -1387,17 +1387,27 @@ def _continuous_node_ratios(
     return density
 
 
-def seed_carried(data: LongitudinalData, scaler: OutcomeScaler) -> FloatArray:
-    r""":math:`\bar Q_{k+1}`, what the backward recursion starts from.
+def seed_carried(data: LongitudinalData, scaler: OutcomeScaler, *, horizon: int) -> FloatArray:
+    r""":math:`\bar Q_{h+1}`, what the backward recursion from horizon ``h`` starts from.
 
     On a survival fit it is zero, so that the composition at the first node visited
-    returns :math:`Y_k` exactly and the two statements of the recursion are one.  On an
-    end-of-study fit it is the scaled outcome, filled at the rows no node reads.
+    returns :math:`Y_h` exactly and the two statements of the recursion are one.  On an
+    end-of-study fit it is the scaled outcome, filled at the rows no node reads, and the
+    only horizon is ``T``.  On a repeated outcome it is the scaled :math:`Y_h`, the outcome
+    of the panel truncated after node ``h``, filled where the unit was censored by then.
+
+    ``horizon`` is required, so that a caller cannot seed every horizon of a repeated
+    outcome with the last node's value by omission.
     """
     if data.is_survival:
         return np.zeros(data.n)
-    observed_outcome = data.uncensored_through(data.n_times)
-    scaled = np.where(observed_outcome, scaler.scale(np.nan_to_num(data.outcome, nan=0.0)), _FILLER)
+    if not data.is_repeated and horizon != data.n_times:
+        raise LongitudinalError(
+            f"an end-of-study outcome has one horizon, t={data.n_times}; got t={horizon}"
+        )
+    observed_outcome = data.uncensored_through(horizon)
+    values = np.nan_to_num(data.outcome_at(horizon), nan=0.0)
+    scaled = np.where(observed_outcome, scaler.scale(values), _FILLER)
     return np.clip(scaled, 0.0, 1.0)
 
 
@@ -2153,7 +2163,10 @@ def fit_regimen(
     and the pseudo-outcome carried back is composed with that node's event indicator:
     a unit that had the event contributes a one and a unit that did not contributes the
     later node's targeted prediction.  Seeding :math:`\\bar{Q}_{k+1} = 0` makes the two
-    statements one, since at ``k`` the composition is exactly :math:`Y_k`.
+    statements one, since at ``k`` the composition is exactly :math:`Y_k`.  On a repeated
+    fit it is the horizon ``h`` of a mean :math:`E[Y_h^d]`.  The recursion starts at ``h``
+    seeded with the observed :math:`Y_h`, which is the end-of-study recursion on the panel
+    truncated after ``h``.
 
     ``cause`` names which absorbing state the parameter is the incidence *of*, on a fit
     that declared competing risks, and is ``None`` when there is one.  It changes the
@@ -2188,7 +2201,7 @@ def fit_regimen(
             n_jobs=n_jobs,
         )
     cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
-    carried = seed_carried(data, scaler)
+    carried = seed_carried(data, scaler, horizon=horizon)
     # Once per regimen, not once per node: the masks are prefix scans of one conjunction,
     # and rebuilding them at every node is what made this pass quadratic in T.
     masks = plan.masks(data)
@@ -2353,7 +2366,7 @@ def _untargeted_recursion_in_fold(
     """
     inner = Folds.single(data.n)
     outputs: _FoldOutputs = {}
-    carried = seed_carried(data, scaler)
+    carried = seed_carried(data, scaler, horizon=cell.horizon)
     for time in range(cell.horizon, 0, -1):
         node = _fit_node_regression(
             data,
@@ -2672,7 +2685,7 @@ def _pooled_targeting(
         One step per node, in time order.
     """
     steps: list[SequentialStep] = []
-    carried = seed_carried(data, scaler)
+    carried = seed_carried(data, scaler, horizon=horizon)
     for time in range(horizon, 0, -1):
         node = pooled_node_inputs(
             data, plan, stitched, masks, cumulative, numerator, carried, time, cause

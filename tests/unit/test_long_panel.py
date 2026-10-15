@@ -30,6 +30,7 @@ from cleverly.longitudinal import (
     DynamicRegimen,
     LongitudinalData,
     Regimen,
+    Repeated,
     each_node,
 )
 
@@ -356,7 +357,7 @@ def test_the_wide_path_refuses_an_event_on_a_censored_row() -> None:
         ("age", {}, r"'age' holds more than one value.*time-varying"),
         ("store", {"cluster": "store"}, r"'store' holds more than one value"),
         ("w", {"weights": "w"}, r"'w' holds more than one value"),
-        ("bought", {}, r"'bought' holds more than one value.*event="),
+        ("bought", {}, r"'bought' holds more than one value.*event=.*Repeated"),
     ],
 )
 def test_refuses_a_unit_level_column_that_varies(
@@ -369,6 +370,11 @@ def test_refuses_a_unit_level_column_that_varies(
     rows = (panel["customer"] == unit) & (panel["week"] == 30)
     panel.loc[rows, column] = "other" if column == "store" else 99.0
     _refused(panel, match, **role)
+
+
+def test_refuses_a_repeated_outcome() -> None:
+    """A long panel takes one end-of-study outcome column; a repeated outcome is wide only."""
+    _refused(long_panel(n=60), r"repeated outcome.*wide frame", outcome=Repeated(["bought"]))
 
 
 def test_refuses_a_baseline_recorded_after_the_first_row() -> None:

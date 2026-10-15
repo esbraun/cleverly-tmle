@@ -39,6 +39,7 @@ from tests.studies.evidence.property_verdicts import (
     SE_CONTROL_SIDES,
     Necessity,
     alternative_target_necessity_verdicts,
+    alternative_target_verdicts,
     calibration_verdicts,
     se_ratio_leaves_band,
 )
@@ -259,6 +260,87 @@ def test_an_alternative_target_control_must_recover_the_target_it_claims() -> No
     assert not bool(control["alternative_bias_equivalent"].iloc[0])
     assert not bool(control["passed"].iloc[0])
     assert not changed["property_passed"].any()
+
+
+def test_a_control_with_no_paired_arm_still_answers_to_its_alternative_target() -> None:
+    """``alternative_target_verdicts`` ANDs one named cell and leaves every other cell alone."""
+    rng = np.random.default_rng(5)
+    noise = rng.normal(scale=0.1, size=2_000)
+    rows = pd.DataFrame.from_records(
+        [
+            {
+                "property": "double_robustness",
+                "cell": f"ate__{cell}",
+                "role": role,
+                "replicate": replicate,
+                "n": 1000,
+                "requested_replicates": len(noise),
+                "failed_replicates": 0,
+                "truth": 0.0,
+                "estimate": float(value + (0.0 if role == "positive" else 1.0)),
+                "std_error": 0.1,
+                "covered": 1,
+                "rejected": 0,
+            }
+            for replicate, value in enumerate(noise)
+            for cell, role in (("mechanism_correct", "positive"), ("both_wrong", "control"))
+        ]
+    )
+    margins = Margins()
+    summary = summarize_cells(
+        rows,
+        margin=margins.standardized_bias,
+        confidence_level=margins.confidence_level,
+        alpha=margins.alpha,
+    )
+    summary["passed"] = True
+    summary["property_passed"] = pd.Series([None] * len(summary), dtype=object, index=summary.index)
+    record = StudyRecord(
+        name="test",
+        slug="test",
+        artifacts=Path("."),
+        document="test.md",
+        anchor="test",
+        scenarios={"test": ("ate",)},
+        replicates=len(noise),
+        n=1000,
+        seed=0,
+    )
+
+    recovered = alternative_target_verdicts(
+        summary,
+        rows,
+        record,
+        family="double_robustness",
+        alternative_truths={"ate__both_wrong": 1.0},
+    )
+    assert recovered == [True]
+    assert summary["passed"].all()
+    # Only the named control row carries the alternative columns.
+    flagged = summary.set_index("cell")["alternative_bias_equivalent"].notna()
+    assert flagged.to_dict() == {"ate__both_wrong": True, "ate__mechanism_correct": False}
+    assert summary["property_passed"].isna().all()
+
+    changed = summary.copy()
+    recovered = alternative_target_verdicts(
+        changed,
+        rows,
+        record,
+        family="double_robustness",
+        alternative_truths={"ate__both_wrong": 0.5},
+    )
+    assert recovered == [False]
+    verdicts = changed.set_index("cell")["passed"]
+    assert not bool(verdicts["ate__both_wrong"])
+    assert bool(verdicts["ate__mechanism_correct"])
+    with pytest.raises(ValueError, match="no rows"):
+        alternative_target_verdicts(
+            changed,
+            rows,
+            record,
+            family="double_robustness",
+            alternative_truths={"ate__absent": 0.0},
+        )
 
 
 class TestInterval:
