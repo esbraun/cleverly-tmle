@@ -513,7 +513,7 @@ class PointTreatment:
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         object.__setattr__(self, "strata", tuple(self.strata))
         if self.treatment_probabilities is not None:
-            columns = probability_columns(self.treatment_probabilities)
+            columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
                 raise DataError(
                     "PointTreatment(treatment_probabilities=) maps each treatment level to "
@@ -643,12 +643,28 @@ class PointTreatment:
             )
 
 
+def _stored_pairs(supplied: Any) -> Any:
+    """Read the stored form of a mapping field, a tuple of key and value pairs, as a mapping.
+
+    A frozen design stores each declared mapping as a tuple of pairs, so that the design is
+    hashable.  ``dataclasses.replace`` hands every stored field back to ``__init__``, so each
+    normalizer has to read the form it stores.  Any other value is returned unchanged.
+    """
+    if isinstance(supplied, tuple) and all(
+        isinstance(pair, tuple) and len(pair) == 2 for pair in supplied
+    ):
+        return dict(supplied)
+    return supplied
+
+
 def _node_probability_columns(supplied: Any) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...]:
     """A longitudinal design's treatment declaration, as hashable column pairs by node."""
     pairs = None
+    supplied = _stored_pairs(supplied)
     if isinstance(supplied, Mapping):
         pairs = tuple(
-            (str(node), probability_columns(per_node)) for node, per_node in supplied.items()
+            (str(node), probability_columns(_stored_pairs(per_node)))
+            for node, per_node in supplied.items()
         )
     if pairs is None or any(columns is None for _, columns in pairs):
         raise DataError(
@@ -662,6 +678,7 @@ def _node_probability_columns(supplied: Any) -> tuple[tuple[str, tuple[tuple[Any
 
 def _censoring_probability_columns(supplied: Any) -> tuple[tuple[str, str], ...]:
     """A longitudinal design's censoring declaration, as hashable column pairs."""
+    supplied = _stored_pairs(supplied)
     if not isinstance(supplied, Mapping) or not all(
         isinstance(column, str) for column in supplied.values()
     ):
@@ -713,7 +730,7 @@ class LongitudinalTreatment:
         held over every node.  The node count then comes from a survival or repeated
         outcome, else from ``censoring``, else from ``time_varying``, else it is one.
     baseline : sequence of str
-        Covariates observed before the first treatment.
+        Covariates observed before the first treatment.  The list names at least one column.
     time_varying : sequence of sequence of str or None
         Covariate blocks observed before each treatment node.
     censoring : sequence of str or None
@@ -964,7 +981,7 @@ class TimeToEvent:
     treatment : str
         The baseline treatment column.
     baseline : sequence of str
-        Covariates measured before the treatment.
+        Covariates measured before the treatment.  The list names at least one column.
     grid : sequence of float or None
         The grid times, which are the visit times.  ``None`` needs integer times and uses
         :math:`g_k = k` up to the largest event time.  The fit costs :math:`K(K+1)/2`
@@ -1031,7 +1048,7 @@ class TimeToEvent:
 
     def __post_init__(self) -> None:
         if self.treatment_probabilities is not None:
-            columns = probability_columns(self.treatment_probabilities)
+            columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
                 raise DataError(
                     "TimeToEvent(treatment_probabilities=) maps each treatment level to the "
@@ -1168,7 +1185,8 @@ class LongPanel:
     treatment : str or sequence of str
         The decision at each row.  A list of columns is one vector node per time.
     baseline : sequence of str
-        Unit-level covariates measured before the first decision.
+        Unit-level covariates measured before the first decision.  The list names at least one
+        column.
     time_varying : sequence of str
         Covariates measured at each row before that row's decision.
     censoring : str or None
@@ -1254,9 +1272,8 @@ class LongPanel:
         if self.times is not None:
             object.__setattr__(self, "times", tuple(self.times))
         if self.treatment_probabilities is not None:
-            object.__setattr__(
-                self, "treatment_probabilities", tuple(self.treatment_probabilities.items())
-            )
+            declared = _stored_pairs(self.treatment_probabilities)
+            object.__setattr__(self, "treatment_probabilities", tuple(declared.items()))
 
     @property
     def outcome_role(self) -> Any:
