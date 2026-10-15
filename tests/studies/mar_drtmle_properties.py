@@ -10,7 +10,6 @@ from scipy.stats import norm
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.estimators import DRTMLE
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_mar as mar
 from tests.conftest import OracleMissingness, OracleOutcome, OracleTreatment
 from tests.parallel import STUDY_JOBS
@@ -23,14 +22,22 @@ from tests.studies.canonical_mar_drtmle import (
     RANDOMIZATION,
     STUDY,
 )
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.properties import (
+    control_row,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     robustness_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.missing_outcome_study_helpers import (
     efficiency_sd,
@@ -105,9 +112,32 @@ def _fit(frame: pd.DataFrame, configuration: str) -> Any:
     )
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
-    frame = sample_discrete(PROBS, n, seed)
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(("ate",))
+
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    _, _, _, n, _, seed, _ = key[0]
+    return sample_discrete(PROBS, n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "correction_necessity":
+        return [
+            f"{property_name}/five_reduction_cycle__closed_score",
+            f"{property_name}/five_reduction_cycle__initial_score_control",
+        ]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _seed, configuration = key[0]
     result = _fit(frame, configuration)
     role = "control" if configuration == "both_wrong" else "positive"
     if property_name == "root_n_and_efficiency" and n == min(RATE_SIZES):
@@ -152,7 +182,7 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     return rows
 
 
-def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
+def _payloads() -> list[_Key]:
     specs: list[tuple[str, str, int, int, str]] = []
     for configuration in ("both_correct", "outcome_drift", "observation_drift", "both_wrong"):
         specs.append(
@@ -184,7 +214,7 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
             ),
         ]
     )
-    out: list[tuple[tuple[str, str, int, int, int, int, str]]] = []
+    out: list[_Key] = []
     for property_name, cell, n, replicates, configuration in specs:
         for replicate in range(replicates):
             seed = stream_seed(STUDY, "property_sample", property_name, cell, replicate)
@@ -192,8 +222,27 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     return out
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     controls = calibration_controls(
         rows,
@@ -237,3 +286,16 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
             passed = float(summary.loc[index, "bias_ci_lower"]) >= UNCORRECTED_SCORE_FLOOR
         summary.loc[index, "passed"] = bool(passed)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.corrected_mar_rules(
+        both_wrong_floor=None,
+        uncorrected_floor=UNCORRECTED_SCORE_FLOOR,
+        correction_ratio=CORRECTION_SCORE_RATIO,
+        shared="summarize_properties",
+    ),
+)

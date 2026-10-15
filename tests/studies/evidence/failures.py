@@ -34,6 +34,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import gzip
+import json
 import math
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -137,10 +138,105 @@ SUPERIORITY_ROUTE = ("coverage superiority", "rmse ratio", "calibration excess")
 _FLOOR_SLACK = 1e-9
 
 
+def allowance(bound: float, replicates: int) -> int:
+    """How many of ``replicates`` may fail under ``bound``: ``floor(bound * replicates)``."""
+    return math.floor(bound * replicates + _FLOOR_SLACK)
+
+
 def allowed(record: StudyRecord, implementation: str) -> int:
     """How many replicates of one cell may fail before the cell is red."""
-    bound = float(record.failure_bound.get(implementation, 0.0))
-    return math.floor(bound * record.replicates + _FLOOR_SLACK)
+    return allowance(float(record.failure_bound.get(implementation, 0.0)), record.replicates)
+
+
+#: The manifest configuration key that records the primary bounds a run applied.
+BOUND_KEY = "failure_bound"
+
+
+def applied_bounds(manifest: Path) -> dict[str, float]:
+    """The primary bounds a committed run applied, from its manifest.
+
+    A run writes ``configuration.failure_bound`` when its record declares a bound.  A manifest
+    without the key is a run under bound 0 for every implementation.
+
+    Parameters
+    ----------
+    manifest : pathlib.Path
+        The study's ``manifest.json``.
+
+    Returns
+    -------
+    dict
+        Implementation to bound; empty when the file or the key is absent.
+    """
+    if not manifest.exists():
+        return {}
+    configuration = json.loads(manifest.read_text()).get("configuration") or {}
+    return {str(name): float(bound) for name, bound in (configuration.get(BOUND_KEY) or {}).items()}
+
+
+def bound_consistent(
+    configuration: Mapping[str, Any], record: StudyRecord, *, failures_recorded: bool
+) -> bool:
+    """Whether a committed manifest's primary bounds agree with the record (RM39b2).
+
+    A stated key must equal the record's ``failure_bound``.  A manifest without the key is a
+    run under bound 0.  It is consistent only when the run recorded no failure, because then
+    no bound decided any of its verdicts.  A record may declare a bound for its next run.
+
+    Parameters
+    ----------
+    configuration : Mapping
+        The manifest's ``configuration``.
+    record : StudyRecord
+        The study.
+    failures_recorded : bool
+        Whether the study commits ``failures.csv``.
+
+    Returns
+    -------
+    bool
+        ``True`` when the manifest and the record agree.
+    """
+    if BOUND_KEY in configuration:
+        return dict(configuration[BOUND_KEY]) == dict(record.failure_bound)
+    return not failures_recorded
+
+
+def raised_after_failures(here: Path, record: StudyRecord) -> list[str]:
+    """The implementations whose bound a run would raise after a committed run lost replicates.
+
+    A committed ``failures.csv`` shows which sides lost a replicate.  A re-run draws the same
+    seeds and meets the same failures, so a bound above the one the committed run applied
+    (:func:`applied_bounds`) would buy the pass.  A ``paired_input_missing`` record counts
+    against the subject, as the accounting counts it.
+
+    Parameters
+    ----------
+    here : pathlib.Path
+        The study's artifact directory.
+    record : StudyRecord
+        The study as the run declares it.
+
+    Returns
+    -------
+    list of str
+        The implementations whose declared bound exceeds the applied one, sorted.
+    """
+    applied = applied_bounds(here / "manifest.json")
+    raised = {
+        side
+        for side, bound in record.failure_bound.items()
+        if float(bound) > applied.get(side, 0.0)
+    }
+    if not raised:
+        return []
+    recorded = read(here / FAILURES)
+    if recorded is None or recorded.empty:
+        return []
+    sides = set(recorded["implementation"].astype(str))
+    if (recorded["class"].astype(str) == PAIRED_INPUT_MISSING).any():
+        sides.add(record.implementation)
+    return sorted(sides & raised)
 
 
 def read(path: Path) -> pd.DataFrame | None:

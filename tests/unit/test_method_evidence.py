@@ -26,7 +26,13 @@ import pandas as pd
 import pytest
 
 from tests.documents import pipe_table
-from tests.studies.evidence import descriptions, failures, property_verdicts
+from tests.studies.evidence import (
+    descriptions,
+    failures,
+    property_failures,
+    property_verdicts,
+    replication,
+)
 from tests.studies.evidence.claims import load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
@@ -211,11 +217,62 @@ def _property_rows(slug: str) -> pd.DataFrame:
     return pd.read_csv(STUDY_BY_SLUG[slug].artifact("property-replicates.csv.gz"))
 
 
+def _property_records(study: StudyRecord) -> pd.DataFrame | None:
+    """The study's ``property-failures.csv``, or ``None`` when no property fit failed."""
+    return property_failures.read(study.artifact(property_failures.PROPERTY_FAILURES))
+
+
+def _property_accounting(study: StudyRecord) -> pd.DataFrame:
+    """The study's ``property-failure-accounting.csv``, empty when no property fit failed."""
+    path = study.artifact(property_failures.PROPERTY_ACCOUNTING)
+    if not path.exists():
+        return pd.DataFrame(columns=list(property_failures.PROPERTY_ACCOUNTING_COLUMNS))
+    return pd.read_csv(path, keep_default_na=False, na_values=[""])
+
+
 @functools.cache
-def _property_summary(slug: str) -> pd.DataFrame:
-    """Recompute an immutable property summary once per study and worker."""
+def _complete_case_summary(slug: str) -> pd.DataFrame:
+    """The study's own property verdicts on the committed rows, before any accounting."""
     study = STUDY_BY_SLUG[slug]
     return study.properties().summarize_properties(_property_rows(slug))
+
+
+@functools.cache
+def _property_summary(slug: str) -> pd.DataFrame:
+    """Recompute an immutable property summary once per study and worker.
+
+    The study's complete-case verdicts, corrected by the committed property failure
+    accounting, which a separate test recomputes from the rows and the records.
+    """
+    study = STUDY_BY_SLUG[slug]
+    return property_failures.correct_properties(
+        _complete_case_summary(slug), _property_accounting(study), module=study.properties()
+    )
+
+
+def property_bound_consistent(
+    configuration: dict[str, Any], bound: float, *, failures_recorded: bool
+) -> bool:
+    """Whether a manifest's ``property_failure_bound`` obeys rev 3 section 6.
+
+    Parameters
+    ----------
+    configuration : dict
+        The manifest's ``configuration``.
+    bound : float
+        The module's ``FAILURE_BOUND``.
+    failures_recorded : bool
+        Whether the study commits ``property-failures.csv``.
+
+    Returns
+    -------
+    bool
+        ``True`` when a stated key equals ``bound`` and the key is stated wherever failure
+        records are committed.
+    """
+    if "property_failure_bound" in configuration:
+        return float(configuration["property_failure_bound"]) == bound
+    return not failures_recorded
 
 
 def _cheap(study: StudyRecord) -> StudyRecord:
@@ -282,9 +339,15 @@ class TestArtifacts:
             "property-replicates.csv.gz",
             "properties.csv",
         } | set(study.extra_artifacts) | {
-            # The failure files exist only when a fit failed, and then both are hashed.
+            # The failure files exist only when a fit failed, and then each is hashed.
             name
-            for name in (failures.FAILURES, failures.ACCOUNTING)
+            for name in (
+                failures.FAILURES,
+                failures.ACCOUNTING,
+                property_failures.PROPERTY_FAILURES,
+                property_failures.PROPERTY_ACCOUNTING,
+                property_failures.PROPERTY_WITNESSES,
+            )
             if study.artifact(name).exists()
         }
         for name, digest in manifest["sha256"].items():
@@ -321,12 +384,21 @@ class TestArtifacts:
             assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
         else:
             assert "accepted_reference_failure" not in configuration
-        if study.failure_bound:
-            assert configuration["failure_bound"] == dict(study.failure_bound)
-        else:
-            assert "failure_bound" not in configuration
         recorded = _recorded_failures(study)
+        # RM39b2: a stated primary bound equals the record's.  A manifest without it ran under
+        # bound 0, which is consistent only when that run recorded no failure.
+        assert failures.bound_consistent(
+            configuration, study, failures_recorded=recorded is not None
+        )
         assert (recorded is None) == (not study.artifact(failures.ACCOUNTING).exists())
+        # Rev 3 section 6 (M1): a stated key equals the module's bound, and committed property
+        # failure records need the key.  A manifest without either is a run that lost nothing,
+        # written before the key existed or carried by ``--skip-properties``.
+        assert property_bound_consistent(
+            configuration,
+            float(study.properties().FAILURE_BOUND),
+            failures_recorded=study.artifact(property_failures.PROPERTY_FAILURES).exists(),
+        )
 
     def test_the_subject_side_is_identified_rather_than_described(self, study: StudyRecord) -> None:
         """``"working tree"`` names no run; a version and a revision name one.
@@ -2906,6 +2978,353 @@ class TestTheQuantityVocabulary:
         )
 
 
+def _context(study: StudyRecord, rows: pd.DataFrame, summary: pd.DataFrame):
+    return property_failures.module_context(study, rows, summary, {}, study.properties())
+
+
+def _differential(study: StudyRecord, summary: pd.DataFrame, rows: pd.DataFrame) -> pd.DataFrame:
+    return property_failures.differential(
+        summary, _context(study, rows, summary), module=study.properties()
+    )
+
+
+class TestPropertyFailures:
+    """RM39 part b2: the property failure records, their stamps and their accounting."""
+
+    def test_the_property_failure_files_exist_together(self, study: StudyRecord) -> None:
+        present = {
+            study.artifact(name).exists()
+            for name in (
+                property_failures.PROPERTY_FAILURES,
+                property_failures.PROPERTY_ACCOUNTING,
+                property_failures.PROPERTY_WITNESSES,
+            )
+        }
+        assert len(present) == 1
+
+    def test_the_records_explain_every_gap_in_the_property_rows(self, study: StudyRecord) -> None:
+        property_failures.reconcile(
+            _property_rows(study.slug),
+            _property_records(study),
+            derived=getattr(study.properties(), "DERIVED_CELLS", None),
+        )
+
+    def test_each_cell_is_stamped_with_its_record_count(self, study: StudyRecord) -> None:
+        lost = property_failures.counts(_property_records(study))
+        stamps = _property_rows(study.slug).groupby(["property", "cell"], sort=True)[
+            "failed_replicates"
+        ]
+        for (family, cell), values in stamps:
+            assert set(values) == {lost.get((family, cell), 0)}, (family, cell)
+
+    def test_the_property_failure_accounting_is_recomputed_from_the_rows_and_records(
+        self, study: StudyRecord
+    ) -> None:
+        records = _property_records(study)
+        committed = _property_accounting(study)
+        if records is None:
+            assert committed.empty
+            return
+        recomputed = property_failures.property_accounting(
+            _property_rows(study.slug),
+            records,
+            _complete_case_summary(study.slug),
+            record=study,
+            module=study.properties(),
+            witnesses=property_failures.read_witnesses(
+                study.artifact(property_failures.PROPERTY_WITNESSES)
+            ),
+        )
+        pd.testing.assert_frame_equal(
+            committed, recomputed, check_dtype=False, check_exact=False, rtol=1e-12
+        )
+
+    def test_the_failure_bound_is_inside_its_range(self, study: StudyRecord) -> None:
+        bound = float(study.properties().FAILURE_BOUND)
+        assert 0.0 <= bound <= property_failures.MAXIMUM_BOUND
+
+    def test_the_module_declares_its_informative_failure_witness(self, study: StudyRecord) -> None:
+        """D3'f: the regeneration driver reads ``PROPERTY_WITNESS``, a draw-level statistic."""
+        assert isinstance(study.properties().PROPERTY_WITNESS, replication.Witness)
+
+    def test_each_se_ratio_candidate_at_no_loss_reproduces_the_published_ratio(
+        self, study: StudyRecord
+    ) -> None:
+        """F18 for S4: the accounting's rows are on the scale the summary read.
+
+        A row whose verdict reads every replicate of its own cell is compared.  A contraction
+        rung publishes its ratio at a smaller verdict budget, so it is not.
+        """
+        rows = _property_rows(study.slug)
+        summary = _complete_case_summary(study.slug)
+        ctx = _context(study, rows, summary)
+        varies = study.truth_varies_by_replicate
+        wrong = []
+        for _, row in summary.iterrows():
+            if not math.isfinite(float(row.get("se_ratio", math.nan))):
+                continue
+            group = ctx.cell(str(row["property"]), str(row["cell"]))
+            if group.empty or len(group) != int(row["replicates"]):
+                continue
+            ((_, frame), *_) = property_failures.se_ratio_sets(group, 0, truth_varies=varies)
+            value = property_failures._se_ratio(frame, varies)
+            if not math.isclose(value, float(row["se_ratio"]), rel_tol=1e-9):
+                wrong.append((row["property"], row["cell"], value, row["se_ratio"]))
+        assert wrong == []
+
+    def test_each_paired_clause_reads_one_positive_and_one_control(
+        self, study: StudyRecord
+    ) -> None:
+        """L4: an S7 pair group has one arm of each role, checked before any run needs it.
+
+        The accounting reads the two arms only when a replicate is lost, so a group of the
+        wrong shape would otherwise raise after every fit of a run.
+        """
+        rows = _property_rows(study.slug)
+        summary = _complete_case_summary(study.slug)
+        ctx = _context(study, rows, summary)
+        module = study.properties()
+        wrong = []
+        for _, row in summary.iterrows():
+            rule = property_failures.rule_for(str(row["property"]), module)
+            if rule is None:
+                continue
+            for clause in rule.clauses:
+                if clause.statistic != "S7" or not clause.applies(ctx, row):
+                    continue
+                assert clause.reads is not None
+                cells = {cell for _, cell in clause.reads(ctx, row)}
+                selected = summary.loc[
+                    (summary["property"] == row["property"]) & summary["cell"].isin(cells)
+                ]
+                roles = sorted(selected["role"].astype(str))
+                if roles != ["control", "positive"]:
+                    wrong.append((row["property"], row["cell"], roles))
+        assert wrong == []
+
+    def test_each_shared_rule_reproduces_the_committed_verdicts(self, study: StudyRecord) -> None:
+        """Each rule read on the complete-case summary gives every target's published verdict."""
+        summary = (
+            pd.read_csv(study.artifact("properties.csv"))
+            if _property_accounting(study).empty
+            else _complete_case_summary(study.slug)
+        )
+        wrong = _differential(study, summary, _property_rows(study.slug))
+        assert wrong.empty, wrong.to_string()
+
+
+#: The ``(family, clause)`` pairs that may resolve to not accountable (rev 3 section 2, R3-1).
+#: Each has a stated reason to have no candidate set, and a row of it that lost a replicate
+#: is red at any bound.
+NOT_ACCOUNTABLE_CLAUSES = frozenset(
+    {
+        ("natural_course_identity", "sup-norm identity"),
+        ("static_reduction", "sup-norm identity"),
+        ("correction_necessity", "closed score below the initial"),
+    }
+)
+
+#: The property modules with no committed rows, which declare their cells but publish none.
+UNCOMMITTED_MODULES = (
+    "tests.studies.longitudinal_incremental_properties",
+    "tests.studies.longitudinal_incremental_dropout_properties",
+)
+
+
+def _property_modules() -> list[Any]:
+    """Every registered study's property module and every uncommitted one, once each."""
+    import importlib
+
+    modules = {study.properties().__name__: study.properties() for study in STUDIES}
+    for name in UNCOMMITTED_MODULES:
+        modules.setdefault(name, importlib.import_module(name))
+    return [modules[name] for name in sorted(modules)]
+
+
+def _verdict_families(module: Any) -> set[str]:
+    """The families a module gives a verdict: declared non-diagnostic cells, and published ones."""
+    families = {
+        cell.property
+        for cell in getattr(module, "declared_cells", tuple)()
+        if cell.role != property_verdicts.DIAGNOSTIC_ROLE
+    }
+    for study in STUDIES:
+        path = study.artifact("properties.csv")
+        if study.properties() is module and path.exists():
+            published = pd.read_csv(path)
+            families |= set(
+                published.loc[published["role"] != property_verdicts.DIAGNOSTIC_ROLE, "property"]
+            )
+    return families
+
+
+@pytest.mark.parametrize(
+    ("configuration", "bound", "failures_recorded", "consistent"),
+    [
+        ({"property_failure_bound": 0.01}, 0.01, True, True),
+        ({"property_failure_bound": 0.0}, 0.0, False, True),
+        ({}, 0.01, False, True),
+        ({"property_failure_bound": 0.0}, 0.01, False, False),
+        ({"property_failure_bound": 0.01}, 0.0, True, False),
+        ({}, 0.01, True, False),
+    ],
+)
+def test_p36_the_manifest_bound_rule(
+    configuration: dict[str, Any], bound: float, failures_recorded: bool, consistent: bool
+) -> None:
+    """P36: a key present and unequal fails, and failure files without the key fail."""
+    assert (
+        property_bound_consistent(configuration, bound, failures_recorded=failures_recorded)
+        is consistent
+    )
+
+
+class TestDeclaredRules:
+    """Rev 3 section 8: every verdict resolves to a declared rule, and the rule is checked."""
+
+    def test_every_verdict_family_resolves_to_a_rule(self) -> None:
+        missing = sorted(
+            (module.__name__, family)
+            for module in _property_modules()
+            for family in _verdict_families(module)
+            if property_failures.rule_for(family, module) is None
+        )
+        assert missing == [], "verdict families no declared rule restates"
+
+    def test_only_the_stated_clauses_are_not_accountable(self) -> None:
+        rules = [
+            rule for module in _property_modules() for rule in getattr(module, "PROPERTY_RULES", ())
+        ]
+        found = {
+            (family, clause.name)
+            for rule in (*rules, *property_verdicts.FAMILY_RULES)
+            for clause in rule.clauses
+            if not clause.accountable
+            for family in rule.families
+        }
+        assert found <= NOT_ACCOUNTABLE_CLAUSES, sorted(found - NOT_ACCOUNTABLE_CLAUSES)
+
+    def test_a_module_that_writes_a_verdict_declares_its_rules(self) -> None:
+        """L9: the check needs the declaration; the differential checks what it says."""
+        undeclared = {
+            module.__name__: property_failures.undeclared_verdict_writers(module)
+            for module in _property_modules()
+        }
+        assert {name: found for name, found in undeclared.items() if found} == {}
+
+    def test_every_verdict_writer_is_read_by_a_property_module(self) -> None:
+        """A helper that writes a verdict for no property module escapes the check above."""
+        reached = set().union(
+            *(property_failures.verdict_writers(module.__name__) for module in _property_modules())
+        )
+        writers = {
+            f"tests.studies.{path.stem}"
+            for path in (ROOT / "tests" / "studies").glob("*.py")
+            if property_failures.verdict_writes(path.read_text())
+        }
+        assert sorted(writers - reached) == []
+
+
+class TestPropertyDifferential:
+    """R3-2 fallback: the all-study differential runs as a CI job, never as a sample.
+
+    ``tests/canonical/property_differential.py`` measured 5,892 cases, about 7,600 CPU-seconds
+    and about 35 minutes on four workers, so it is the ``property-differential`` job of
+    ``.github/workflows/ci.yml``.
+    The fast tier checks that the job's parametrization lists every committed study and that
+    its clause-binding witnesses name what exists.
+    """
+
+    @staticmethod
+    def _job() -> Any:
+        from tests.canonical import property_differential
+
+        return property_differential
+
+    def test_the_differential_lists_every_committed_study(self) -> None:
+        job = self._job()
+        committed = {
+            study.slug for study in STUDIES if study.artifact("property-replicates.csv.gz").exists()
+        }
+        parametrized = {
+            value.values[0]
+            for mark in job.test_the_rules_agree_with_the_study_on_each_perturbation.pytestmark
+            if mark.args[0] == "subject"
+            for value in mark.args[1]
+        }
+        assert parametrized == committed | set(job.SYNTHETIC_MODULES)
+        assert set(UNCOMMITTED_MODULES) <= set(job.SYNTHETIC_MODULES)
+
+    def test_the_differential_runs_every_perturbation(self) -> None:
+        job = self._job()
+        kinds = {
+            value
+            for mark in job.test_the_rules_agree_with_the_study_on_each_perturbation.pytestmark
+            if mark.args[0] == "kind"
+            for value in mark.args[1]
+        }
+        expected = {
+            *property_failures.PERTURBATIONS,
+            *property_failures.binding_perturbations(),
+        }
+        assert kinds == expected
+        assert {"contract", "pair_collapse", "affine"} <= kinds
+
+    def test_the_ci_job_runs_the_differential(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        assert "property-differential:" in workflow
+        assert "tests/canonical/property_differential.py" in workflow
+        job = workflow.split("property-differential:", 1)[1].split("\n  # ", 1)[0]
+        # M3: a change to the package or its dependencies can move a verdict, a failed diff
+        # fails the job rather than skip it, and the job cannot hang.
+        for path in ("tests/(studies|canonical)/", "src/cleverly/", "pyproject", "uv"):
+            assert path in job, path
+        assert "timeout-minutes:" in job
+        assert '="$(git diff' in job and "|| git diff" not in job
+
+    def test_each_binding_witness_names_what_exists(self) -> None:
+        job = self._job()
+        table = job.read_bindings()
+        assert not table.duplicated(["subject", "property", "clause"]).any()
+        searched = {
+            *job.KINDS,
+            *property_failures.targeted_perturbations(),
+            *property_failures.composed_perturbations(),
+        }
+        for subject, family, clause, kind in table.itertuples(index=False, name=None):
+            assert subject in job.SUBJECTS, subject
+            module, _ = job.subject_of(subject)
+            rule = property_failures.rule_for(family, module)
+            assert rule is not None, (family, subject)
+            rule.clause(clause)
+            if kind.startswith("extra|"):
+                assert kind.split("|")[2:4] != ["", ""], kind
+            else:
+                assert kind in searched or kind.startswith("coverage_role/"), kind
+
+    def test_each_stated_binding_reason_names_what_exists(self) -> None:
+        """M1: a reason names a subject, a clause of it, and a check of the job."""
+        job = self._job()
+        reasons = job.read_reasons()
+        witnesses = job.read_bindings()
+        keys = ["subject", "property", "clause"]
+        assert not reasons.duplicated(keys).any()
+        both = reasons.merge(witnesses, on=keys)
+        assert both.empty, both.to_string()
+        for subject, family, clause, why in reasons.itertuples(index=False, name=None):
+            assert subject in job.SUBJECTS, subject
+            module, _ = job.subject_of(subject)
+            rule = property_failures.rule_for(family, module)
+            assert rule is not None, (family, subject)
+            rule.clause(clause)
+            code, _, argument = why.partition(": ")
+            assert code in job.REASON_CHECKS, why
+            if code == "implied by":
+                rule.clause(argument)
+            if code == "same module as":
+                assert argument in job.SUBJECTS, argument
+
+
 def _comparator_label_findings(
     rows: dict[str, dict[str, str]], studies: tuple[StudyRecord, ...]
 ) -> list[str]:
@@ -2968,7 +3387,11 @@ def test_a_comparator_backed_study_with_no_property_cells_has_a_row() -> None:
         real, name="a synthetic comparator-only method", property_cells={}
     )
     unbacked = dataclasses.replace(
-        synthetic, reference=None, comparison=None, comparison_overrides={}
+        synthetic,
+        reference=None,
+        comparison=None,
+        comparison_overrides={},
+        failure_bound={synthetic.implementation: synthetic.failure_bound[synthetic.implementation]},
     )
     assert _on_the_grid(synthetic)
     assert not _on_the_grid(unbacked)

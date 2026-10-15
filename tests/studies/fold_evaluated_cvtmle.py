@@ -64,6 +64,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-fold-evaluated-cvtmle",
     reference=None,
+    failure_bound={"cleverly-fold-evaluated-cvtmle": 0.01},
     modules=(
         "tests/studies/fold_evaluated_cvtmle.py",
         "tests/studies/canonical_tmle.py",

@@ -139,6 +139,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stratified-tmle",
     reference="tmle3-stratified",
+    failure_bound={"cleverly-stratified-tmle": 0.01, "tmle3-stratified": 0.01},
     comparison="matching implementation",
     modules=(
         "tests/studies/canonical_stratified_tmle.py",

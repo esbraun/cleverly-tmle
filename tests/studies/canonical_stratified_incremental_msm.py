@@ -202,6 +202,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stratified-incremental",
     reference="npcausal-stratified",
+    failure_bound={"cleverly-stratified-incremental": 0.01, "npcausal-stratified": 0.01},
     comparison="related target",
     comparison_overrides={
         "stratified_incremental:ey_ipsi[natural course]": "different estimator",
