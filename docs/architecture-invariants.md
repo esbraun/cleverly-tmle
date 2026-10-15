@@ -614,6 +614,13 @@ Competing events affect the at-risk population but do not add a denominator fact
 estimand explicitly intervenes on them. Cause-specific estimates need not be renormalized to a
 simplex.
 
+A repeated outcome is not an event. It has no risk set and no survival complement. Each horizon
+$h$ seeds its own observed $Y_h$, so horizon $h$ is the end-of-study fit of the panel truncated
+after $h$. The container puts $Y_s$ first in block $s + 1$, so $Y_s$ precedes $L_{s+1}$ in every
+history. A caller that keys or groups parameters by horizon reads `reports_curve`. A caller that
+uses the absorbing structure reads `is_survival`. `tests/unit/test_repeated_outcome.py` checks the
+reduction, and a permuted `outcome` field changes no estimate of a repeated fit.
+
 A held design has one treatment decision, at node 1, held over every node. Each later node is an
 identity node. Its plan value is the observed node-1 value, its factor is exactly one in the ratio
 numerator and denominator, and it fits no model. It is never a policy node or a modified treatment

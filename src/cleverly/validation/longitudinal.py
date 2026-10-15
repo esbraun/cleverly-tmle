@@ -250,7 +250,7 @@ class LongitudinalDiagnostics:
     rows: tuple[LongitudinalStageRow, ...]
     epsilon_names: tuple[str, ...]
     categorical: bool
-    survival: bool
+    horizon_indexed: bool
     competing: bool
     backend: str | None = None
     #: How many cross-fitting draws the fit combined.
@@ -263,7 +263,7 @@ class LongitudinalDiagnostics:
         payload: dict[str, Any] = {
             "regimen": [row.regimen for row in self.rows],
             **({"cause": [row.cause for row in self.rows]} if self.competing else {}),
-            **({"horizon": [row.horizon for row in self.rows]} if self.survival else {}),
+            **({"horizon": [row.horizon for row in self.rows]} if self.horizon_indexed else {}),
             "time": [row.time for row in self.rows],
             **(
                 {"node_kind": [row.node_kind for row in self.rows]}
@@ -451,7 +451,7 @@ class LongitudinalNuisanceOmission:
     cause : str or None
         The cause of a competing-risk outcome role, else ``None``.
     horizon : int or None
-        The horizon of a survival outcome role, else ``None``.
+        The horizon of a survival or repeated outcome role, else ``None``.
     folds : tuple of int
         The one-based outer folds the omission applies to, for a fold-level reason. Empty
         otherwise.
@@ -619,7 +619,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     # before any node is read.
     categorical = any(len(levels) > 2 for levels in result.data.treatment_levels)
     rows = []
-    # Read off the fit's own fields rather than the key it is filed under: on a survival fit
+    # Read off the fit's own fields rather than the key it is filed under: on a curve fit
     # that key is the regimen *and* the horizon, and a ``regimen`` column carrying both would
     # be the one column here nobody could group by.
     for fit in result.fits.values():
@@ -652,7 +652,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                 LongitudinalStageRow(
                     regimen=fit.regimen.label,
                     cause=fit.cause,
-                    horizon=fit.horizon if result.data.is_survival else None,
+                    horizon=fit.horizon if result.data.reports_curve else None,
                     time=step.time,
                     node_kind=kind,
                     n_followed=step.n_trained,
@@ -674,7 +674,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
         tuple(rows),
         epsilon_names,
         categorical,
-        result.data.is_survival,
+        result.data.reports_curve,
         result.data.is_competing,
         result.data.backend,
         n_repeats=int(getattr(result, "n_repeats", 1)),
@@ -844,7 +844,7 @@ def _score_rows(
     for fit in fits.values():
         for step in fit.steps:
             fluctuation = step.fluctuation
-            horizon = fit.horizon if result.data.is_survival else None
+            horizon = fit.horizon if result.data.reports_curve else None
             converged = bool(fluctuation.converged)
             solver_relative = float(fluctuation.relative_score_norm)
             rows.append(
@@ -1058,7 +1058,7 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
             name = (
                 f"{role}[regimen={fit.regimen.label}, t={step.time}"
                 + (f", cause={fit.cause}" if fit.cause is not None else "")
-                + (f", horizon={fit.horizon}" if result.data.is_survival else "")
+                + (f", horizon={fit.horizon}" if result.data.reports_curve else "")
                 + "]"
             )
             binary = role == "outcome" and result.data.family == "binomial"
@@ -1076,7 +1076,7 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                         LONGITUDINAL_CONSTANT_TARGET,
                         regimen=fit.regimen.label,
                         cause=fit.cause,
-                        horizon=fit.horizon if result.data.is_survival else None,
+                        horizon=fit.horizon if result.data.reports_curve else None,
                     )
                 )
                 continue
@@ -1088,7 +1088,7 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                         LONGITUDINAL_CONSTANT_TARGET_IN_FOLD,
                         regimen=fit.regimen.label,
                         cause=fit.cause,
-                        horizon=fit.horizon if result.data.is_survival else None,
+                        horizon=fit.horizon if result.data.reports_curve else None,
                         folds=step.constant_folds,
                     )
                 )
@@ -1123,7 +1123,7 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                     n=int(mask.sum()),
                     regimen=fit.regimen.label,
                     cause=fit.cause,
-                    horizon=fit.horizon if result.data.is_survival else None,
+                    horizon=fit.horizon if result.data.reports_curve else None,
                 )
             )
     spread_rows, spread_omission = _spread_rows(result)
