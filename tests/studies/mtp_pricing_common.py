@@ -580,40 +580,90 @@ class OracleRatio(BaseEstimator):
 
 
 class SplineHazard(BaseEstimator):
-    """The declared learned density: a logistic pooled hazard on a spline of the bin.
+    """The declared learned density: a logistic pooled hazard on the support-relative position.
 
     The density layer hands this the history followed by the bin index (``bin_design =
-    "index"``).  The hazard's log-odds is a B-spline basis of the bin position (8 degrees of
-    freedom), the history, and the products of the two, fitted by an unpenalized-in-effect
-    logistic regression (``C = 1e6``).  The position is the bin index over the largest index
-    in the training design, so the basis spans the bins at any bin count.
+    "index"``).  The declared support of ``A_t`` is ``[l_t, u_t] = [4 + 2 L_t, 8 + 2 L_t]``,
+    so a bin's place on the pooled grid ``[4, 10]`` means different things at ``L_t = 0`` and
+    ``L_t = 1`` (design review M1).  The hazard therefore reads the bin's midpoint relative to
+    the row's own support, ``(m_k - l_t) / (u_t - l_t)``, through a B-spline basis (8 degrees of
+    freedom), with the history and the products of the two, fitted by an unpenalized-in-effect
+    logistic regression (``C = 1e6``) on the standardized design.  The declared support fixes
+    two hazards: a bin wholly below ``l_t`` has hazard 0 (no dose lies there), and the bin that
+    reaches ``u_t`` has hazard 1 (every dose stops by ``u_t``).  Those rows are not fitted.
+
+    Parameters
+    ----------
+    edges : tuple of tuple of float
+        The bin edges of each node, in node order: the density layer's grid
+        (``bin_edges(A_t, bins)`` over every row at risk).
+    df : int
+        The spline's degrees of freedom.
     """
 
     bin_design = "index"
 
-    def __init__(self, df: int = 8) -> None:
+    def __init__(self, edges: tuple[tuple[float, ...], ...] = (), df: int = 8) -> None:
+        self.edges = edges
         self.df = df
 
-    def _design(self, X: Any) -> np.ndarray:
+    def _parts(self, X: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         x = np.asarray(X, dtype=float)
-        history, position = x[:, :-1], x[:, -1:] / self.top_
-        basis = self.spline_.transform(np.clip(position, 0.0, 1.0))
-        products = (basis[:, :, None] * history[:, None, :]).reshape(len(x), -1)
+        history, index = x[:, :-1], np.rint(x[:, -1]).astype(int)
+        t = _history_node(history.shape[1])
+        edges = np.asarray(self.edges[t - 1], dtype=float)
+        l = history[:, node_columns(t, t)[f"L{t}"]]
+        low, high = lower(l), upper(l)
+        left, right = edges[index], edges[index + 1]
+        below = right <= low
+        top = (right >= high) | (index == edges.size - 2)
+        position = np.clip((0.5 * (left + right) - low) / (high - low), 0.0, 1.0)
+        return history, position, below, top
+
+    def _design(self, history: np.ndarray, position: np.ndarray) -> np.ndarray:
+        basis = self.spline_.transform(position[:, None])
+        products = (basis[:, :, None] * history[:, None, :]).reshape(len(history), -1)
         return np.column_stack([basis, history, products])
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> SplineHazard:
-        self.top_ = max(float(np.max(np.asarray(X, dtype=float)[:, -1])), 1.0)
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        history, position, below, top = self._parts(X)
+        free = ~(below | top)
         self.spline_ = SplineTransformer(n_knots=self.df - 2, degree=3, include_bias=False).fit(
             np.array([[0.0], [1.0]])
         )
-        self.model_ = LogisticRegression(C=1e6, max_iter=2_000).fit(
-            self._design(X), np.asarray(y), sample_weight=sample_weight
+        weight = None if sample_weight is None else np.asarray(sample_weight)[free]
+        self.model_ = make_pipeline(
+            StandardScaler(), LogisticRegression(C=1e6, max_iter=2_000)
+        ).fit(
+            self._design(history[free], position[free]),
+            np.asarray(y)[free],
+            logisticregression__sample_weight=weight,
         )
-        self.classes_ = self.model_.classes_
+        self.classes_ = np.array([0.0, 1.0])
         return self
 
     def predict_proba(self, X: Any) -> np.ndarray:
-        return np.asarray(self.model_.predict_proba(self._design(X)), dtype=float)
+        history, position, below, top = self._parts(X)
+        hazard = np.asarray(
+            self.model_.predict_proba(self._design(history, position))[:, 1], dtype=float
+        )
+        hazard = np.where(below, 1e-12, np.where(top, 1.0 - 1e-12, hazard))
+        return np.column_stack([1.0 - hazard, hazard])
+
+
+def spline_hazard(frame: pd.DataFrame, tau: int, bins: int) -> SplineHazard:
+    """The declared hazard with the density layer's grid of each node at ``bins`` bins."""
+    from cleverly.learners.density import bin_edges
+
+    return SplineHazard(
+        tuple(
+            tuple(float(v) for v in bin_edges(frame[f"A{t}"].to_numpy(dtype=float), bins))
+            for t in range(1, tau + 1)
+        )
+    )
 
 
 def piece_indicators(a: np.ndarray, l: np.ndarray) -> np.ndarray:
@@ -629,7 +679,9 @@ class QuadraticLogistic(BaseEstimator):
     """Classifier candidate 1: a logistic regression on ``[a, a^2, h, a h, 1{piece}]``.
 
     The stacked design is ``[A_t, H_t]``.  ``1{piece}`` holds :func:`piece_indicators` at
-    the node's declared support.
+    the node's declared support.  The design is standardized before an L-BFGS fit, which
+    converges well inside its cap; unscaled, ``a^2`` and ``a h`` on ``[4, 10]`` left every fit
+    at the 2,000-iteration cap (design review M8).  ``n_iter_`` records the iterations.
     """
 
     def _design(self, X: Any) -> np.ndarray:
@@ -640,14 +692,21 @@ class QuadraticLogistic(BaseEstimator):
         return np.column_stack([a, a**2, h, a[:, None] * h, piece_indicators(a, l)])
 
     def fit(self, X: Any, y: Any, sample_weight: Any = None) -> QuadraticLogistic:
+        from sklearn.preprocessing import StandardScaler
+
+        design = self._design(X)
+        self.scaler_ = StandardScaler().fit(design)
         self.model_ = LogisticRegression(C=1e6, max_iter=2_000).fit(
-            self._design(X), np.asarray(y), sample_weight=sample_weight
+            self.scaler_.transform(design), np.asarray(y), sample_weight=sample_weight
         )
+        self.n_iter_ = int(np.max(self.model_.n_iter_))
         self.classes_ = self.model_.classes_
         return self
 
     def predict_proba(self, X: Any) -> np.ndarray:
-        return np.asarray(self.model_.predict_proba(self._design(X)), dtype=float)
+        return np.asarray(
+            self.model_.predict_proba(self.scaler_.transform(self._design(X))), dtype=float
+        )
 
 
 def boosted(depth: int = 2) -> Any:
