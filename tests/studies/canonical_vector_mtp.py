@@ -366,6 +366,9 @@ STUDY = StudyRecord(
         "container lacks. The beta plans' Study queue owns them: item 30, the vector_mtp lmtp "
         "parity fixture, and then item 31, the R smoke and the declared R run"
     ),
+    # RM39b2 rev 3 section 6: the primary bound each side's next run applies, the pending
+    # comparator's included.
+    failure_bound={"cleverly-vector-mtp": 0.01, "lmtp": 0.01},
     modules=(
         "tests/studies/canonical_vector_mtp.py",
         "tests/studies/vector_mtp_properties.py",

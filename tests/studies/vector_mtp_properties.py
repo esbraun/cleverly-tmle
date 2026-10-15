@@ -56,8 +56,10 @@ safe only because each property fit runs in its own worker process
 thread backend, or ``n_jobs > 1`` inside a fit, would leak the defect into concurrent fits.
 :func:`density_defect` refuses to start while any other patch is active.
 
-The failure rule is ``longitudinal-mtp``'s: a replication that raises is never redrawn, and the
-property phase records no failure, so a raise stops the run.
+A replication that raises is never redrawn.  Every property fit runs through
+:func:`~tests.studies.evidence.replication.fit_properties`.  Inside the regeneration driver a
+recordable failure costs the cells its key writes one replicate each, and
+:data:`FAILURE_BOUND` bounds that loss.  Outside the driver a failure stops the run.
 """
 
 from __future__ import annotations
@@ -75,6 +77,7 @@ from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS, memory_capped_workers
 from tests.studies import canonical_vector_mtp as study
 from tests.studies import vector_mtp_common as common
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
@@ -84,10 +87,12 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 STUDY = study.STUDY
@@ -169,6 +174,17 @@ NECESSITY_COLUMNS: dict[str, tuple[str, float]] = {
     "jacobian_necessity": ("necessity_displacement", NECESSITY_DISPLACEMENT),
     "image_necessity": ("necessity_displacement", NECESSITY_DISPLACEMENT),
 }
+#: Each necessity family's declaration, read by its verdict and its rule.
+NECESSITIES: tuple[property_verdicts.Necessity, ...] = tuple(
+    property_verdicts.Necessity(
+        family=family,
+        labels=(label,),
+        arms=arms,
+        column=NECESSITY_COLUMNS[family][0],
+        threshold=NECESSITY_COLUMNS[family][1],
+    )
+    for family, (_, _, label, arms, _) in NECESSITY.items()
+)
 
 
 def estimand(estimator: str, plan: str) -> str:
@@ -466,10 +482,25 @@ def declared_cells() -> tuple[PropertyCell, ...]:
 # ---------------------------------------------------------------------------- rows
 
 
-def _fit_set_rows(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]]:
+#: A fit-set key: ``(family, stream label, replicate, n, requested)``.
+_Payload = tuple[str, str, int, int, int]
+
+
+def _draw_fit_set(payload: _Payload) -> pd.DataFrame:
+    """The sample one draw of one fit set fits, a function of the payload alone."""
+    family, label, replicate, n, _ = payload
+    return common.SAMPLERS[_law_of(family, label)](n, _seed(family, label, replicate))
+
+
+def _fit_set_rows(payload: _Payload) -> list[dict[str, Any]]:
+    """Every row one draw of one fit set publishes, drawn and fitted in one call."""
+    return _fit_set_drawn(payload, _draw_fit_set(payload))
+
+
+def _fit_set_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Every row one draw of one fit set publishes."""
     family, label, replicate, n, requested = payload
     law = _law_of(family, label)
-    frame = common.SAMPLERS[law](n, _seed(family, label, replicate))
     common_row: dict[str, Any] = {"replicate": replicate, "n": n, "requested": requested}
 
     def row(cell: str, role: str, value: float, estimate: Any) -> dict[str, Any]:
@@ -525,18 +556,60 @@ def fit_bytes(n: int) -> int:
     return max(3 * one_dose(n), 2**29)
 
 
-def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(tuple(CELLS))
+
+
+def _payloads(budget: int | None) -> list[_Payload]:
+    out: list[_Payload] = []
     for family, label, n, replicates in FIT_SETS:
         requested = replicates if budget is None else budget
-        out.extend(((family, label, r, n, requested),) for r in range(requested))
+        out.extend((family, label, r, n, requested) for r in range(requested))
     return out
+
+
+def _cells_of(payload: _Payload) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    family, label, *_ = payload
+    if family == "interval_calibration":
+        base = f"{family}/{label}__correctly_specified"
+        return [base, *DERIVED_CELLS[base]]
+    if family == "double_robustness":
+        return [f"{family}/{label}"]
+    _, _, stem, arms, _ = NECESSITY[family]
+    return [f"{family}/{stem}__{arm}" for arm in arms]
+
+
+def _cell_of(payload: _Payload) -> str:
+    return f"{payload[0]}/{payload[1]}"
+
+
+def _replicate_of(payload: _Payload) -> int:
+    return payload[2]
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6).  Up to ``floor(0.01 R)`` lost
+#: replicates are judged by the worst case of each clause; one more is ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
     jobs = memory_capped_workers(n_jobs, fit_bytes(max(n for _, _, n, _ in FIT_SETS)))
-    outcomes = map_parallel(_fit_set_rows, _payloads(budget), n_jobs=jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _fit_set_drawn,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=jobs,
+        draw=_draw_fit_set,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -591,15 +664,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    for family, (_, _, label, arms, _) in NECESSITY.items():
-        column, threshold = NECESSITY_COLUMNS[family]
-        necessity_verdicts(
-            summary,
-            rows,
-            family=family,
-            labels=(label,),
-            arms=arms,
-            column=column,
-            threshold=threshold,
-        )
+    for necessity in NECESSITIES:
+        necessity_verdicts(summary, rows, necessity)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(*NECESSITIES),
+)
