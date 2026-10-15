@@ -380,7 +380,7 @@ _Key = tuple[str, str, int, int, int]
 
 #: Each positive's derived controls, which the keys name and :func:`calibration_controls` writes
 #: after the loop.  The cell's own extra control comes from the worker.
-DERIVED_CELLS: dict[str, tuple[str, ...]] = calibration_derived(CELLS)
+DERIVED_CELLS: dict[str, tuple[str, ...]] = calibration_derived(tuple(CELLS))
 
 
 def _draw(key: _Key) -> pd.DataFrame:
