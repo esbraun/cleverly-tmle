@@ -862,7 +862,10 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
     if data.node_kind(time) == "mixed":
         components = data.node_components(time)
         doses = [component.name for component in components if component.continuous]
-        if (time, doses[0]) not in mechanism.densities:
+        if (time, doses[0]) not in mechanism.densities or data.component_atoms(time):
+            # The classifier route fits no density.  A dose with declared atoms has a mixed
+            # factor whose atom probabilities the mechanism does not keep, so its
+            # likelihood against the dominating measure is not reported.
             return None
         natural = np.nan_to_num(data.node_values(time), nan=0.0)
         # Every plan's denominator factor at a mixed node on the density route is the

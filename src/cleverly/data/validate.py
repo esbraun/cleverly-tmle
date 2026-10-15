@@ -24,6 +24,7 @@ __all__ = [
     "MISSING_TREATMENT_DECLARATION",
     "RANDOMIZED_INTERCEPT",
     "arm_indicators",
+    "atom_block",
     "check_binary",
     "check_covariates",
     "check_delta",
@@ -301,6 +302,41 @@ def encode_continuous_treatment(values: np.ndarray, name: str) -> FloatArray:
             stacklevel=3,
         )
     return numeric
+
+
+#: Two doses are the same declared atom when they agree to this tolerance, relative to the
+#: atom.  :func:`cleverly.interventions.policy._atom_index` reads the same value.
+ATOM_TOLERANCE = 1e-12
+
+
+def atom_block(dose: np.ndarray, atoms: Sequence[float]) -> FloatArray:
+    """A dose as a design block: the dose, then the indicator of each declared atom.
+
+    **The one place a declared atom enters a design matrix**, for a dose of one column and
+    for each continuous component of a vector.  The indicators are read from the values
+    given, so a counterfactual design reads the assigned dose.  A regression on a
+    positive-mass cell can then differ from its limit beside the atom, and a classifier
+    can represent the jump of the odds there.  Without atoms the block is the dose as one
+    column.
+
+    Parameters
+    ----------
+    dose : ndarray
+        ``(n,)`` doses.
+    atoms : sequence of float
+        The declared atoms of the dose.
+
+    Returns
+    -------
+    ndarray
+        ``(n, 1 + K)`` block, with ``K`` the number of declared atoms.
+    """
+    values = np.asarray(dose, dtype=float).reshape(-1)
+    columns = [values]
+    for atom in atoms:
+        tolerance = ATOM_TOLERANCE * max(1.0, abs(float(atom)))
+        columns.append((np.abs(values - float(atom)) <= tolerance).astype(float))
+    return np.column_stack(columns)
 
 
 def arm_indicators(codes: np.ndarray, n_levels: int) -> FloatArray:

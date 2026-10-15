@@ -36,6 +36,7 @@ from typing import Any
 import numpy as np
 
 from .._typing import FloatArray, IntArray, Learner
+from ..data.validate import atom_block
 from ..exceptions import DataError
 from ..utils.parallel import map_parallel
 from ._fitting import fit_learner, predict_mean
@@ -176,17 +177,20 @@ def classifier_ratio(
 
 
 def _with_atoms(block: FloatArray, atoms: tuple[float, ...]) -> FloatArray:
-    """A one-column dose block with the indicator of each declared atom appended."""
+    """A one-column dose block with the indicator of each declared atom appended.
+
+    A vector treatment passes no ``atoms``: its design already holds each component's
+    indicators (:meth:`cleverly.data.CausalData.component_design`), built by the same
+    :func:`~cleverly.data.validate.atom_block`.
+    """
     if not atoms:
         return block
     if block.shape[1] != 1:
-        raise DataError("declared atoms apply to a dose of one column")
-    dose = block[:, 0]
-    columns = [dose]
-    for atom in atoms:
-        tolerance = 1e-12 * max(1.0, abs(atom))
-        columns.append((np.abs(dose - atom) <= tolerance).astype(float))
-    return np.column_stack(columns)
+        raise DataError(
+            "atoms= applies to a dose of one column; a vector design carries the indicators "
+            "of its components' atoms itself"
+        )
+    return atom_block(block[:, 0], atoms)
 
 
 def _treatment_block(values: Any, n: int, width: int | None, what: str) -> FloatArray:

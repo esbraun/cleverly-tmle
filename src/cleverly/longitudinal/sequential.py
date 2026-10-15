@@ -152,8 +152,10 @@ from ..interventions.policy import (
     _atom_index,
     _refuse_undeclared_atoms,
     branch_ratio,
+    check_component_atoms,
     check_declared_atoms,
     check_observed_support,
+    component_atom_layout,
     induced_probabilities,
     joint_branches,
     joint_policy_moves,
@@ -857,6 +859,17 @@ def preflight_mechanism_support(
         if data.node_kind(time) == "mixed":
             if ratio == "density":
                 _check_mixed_cell_support(data, time, at_risk, folds)
+            if data.component_atoms(time):
+                # R-b2 of each component's declared atoms, in every training fold, and on
+                # the density route within every cell that records the atom.
+                check_component_atoms(
+                    np.nan_to_num(data.node_values(time), nan=0.0),
+                    data.node_components(time),
+                    at_risk,
+                    data.component_atoms(time),
+                    folds,
+                    ratio=ratio,
+                )
             continue
         if data.node_kind(time) != "categorical":
             if data.node_atoms(time):
@@ -918,12 +931,15 @@ def preflight_declared_doses(
         if data.is_held_node(time):
             continue
         if data.node_kind(time) == "mixed":
-            # Each dose of a mixed node takes no declared atom, so R-b4 refuses a recorded
-            # one wherever some regimen moves a component of the node.
+            # R-b4 refuses a recorded atom a dose of the node does not declare, wherever
+            # some regimen moves a component of the node, and R-b2 a declared atom with no
+            # row at risk.
+            values = np.nan_to_num(data.node_values(time), nan=0.0)
+            reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
             refuse_component_atoms(
-                np.nan_to_num(data.node_values(time), nan=0.0),
+                values,
                 data.node_components(time),
-                data.uncensored_through(time - 1) & data.event_free_through(time - 1),
+                reachable,
                 moved=any(
                     joint_policy_moves(regimen.plan[time - 1])
                     for regimen in regimens
@@ -932,7 +948,17 @@ def preflight_declared_doses(
                 ),
                 ratio=ratio,
                 density_bins=density_bins,
+                atoms=data.component_atoms(time),
             )
+            if data.component_atoms(time):
+                check_component_atoms(
+                    values,
+                    data.node_components(time),
+                    reachable,
+                    data.component_atoms(time),
+                    None,
+                    ratio=ratio,
+                )
             continue
         if data.node_kind(time) != "continuous":
             continue
@@ -1828,6 +1854,7 @@ def _mixed_node_density(
         lambda extra: data.policy_frame(time, extra),
         data.history_design(time),
         f"node {data.treatment_names[time - 1]!r} at time {time}",
+        component_atom_layout(components, data.component_atoms(time)),
     )
     branches: list[JointBranch] = []
     owners: list[tuple[str, float, int]] = []

@@ -907,19 +907,22 @@ def test_t_s1_with_the_default_every_exact_grid_law_is_refused() -> None:
 # ------------------------------------------------------------------ declarations
 
 
-def test_a_component_of_a_vector_node_cannot_declare_atoms() -> None:
+def test_a_component_of_a_vector_node_declares_atoms() -> None:
+    """The declaration is stored by component; a categorical component refuses atoms."""
     frame = law.frame(vector=True)
     frame["D2"] = frame["A2b"].astype(float) + 0.5
-    with pytest.raises(CapabilityError, match="a component of a vector node"):
-        LongitudinalData.from_frame(
-            frame,
-            outcome="Y",
-            treatment=["A1a", ["A2a", "D2"]],
-            baseline=["W"],
-            time_varying=[[], ["L2"]],
-            continuous_treatment=["D2"],
-            dose_atoms={"D2": (0.5,)},
-        )
+    columns: dict[str, Any] = {
+        "outcome": "Y",
+        "treatment": ["A1a", ["A2a", "D2"]],
+        "baseline": ["W"],
+        "time_varying": [[], ["L2"]],
+        "continuous_treatment": ["D2"],
+    }
+    data = LongitudinalData.from_frame(frame, dose_atoms={"D2": (0.5,)}, **columns)
+    assert data.component_atoms(2) == {"D2": (0.5,)}
+    assert data.node_atoms(2) == ()
+    with pytest.raises(DataError, match="declares atoms for 'A2a', a categorical component"):
+        LongitudinalData.from_frame(frame, dose_atoms={"A2a": (0.0,)}, **columns)
 
 
 def test_atoms_on_a_categorical_node_are_refused() -> None:

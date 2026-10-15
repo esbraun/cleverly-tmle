@@ -80,6 +80,7 @@ from ..data.validate import (
     MIN_CONTINUOUS_LEVELS,
     MIN_OBSERVATIONS,
     arm_indicators,
+    atom_block,
     check_covariates,
     check_weights,
     encode_clusters,
@@ -365,9 +366,9 @@ class LongitudinalData:
     #: declares one.  Declared by the mapping form of ``continuous_treatment=``.
     dose_supports: tuple[Any, ...] = ()
     #: Per node, the declared atoms of a continuous dose (the doses with a recorded point
-    #: mass), and ``()`` elsewhere.  Empty when no node declares one.  Declared by
-    #: ``dose_atoms=``.
-    dose_atoms: tuple[tuple[float, ...], ...] = ()
+    #: mass), and ``()`` elsewhere.  A vector node holds ``(component, atoms)`` pairs in
+    #: column order.  Empty when no node declares one.  Declared by ``dose_atoms=``.
+    dose_atoms: tuple[tuple[Any, ...], ...] = ()
     #: The long-panel roles of a container built by :meth:`from_long_panel`, else ``None``.
     panel: PanelLayout | None = None
     #: The unit identifier of each row on a container built by :meth:`from_long_panel`, in
@@ -701,18 +702,16 @@ class LongitudinalData:
         Raises
         ------
         DataError
-            If a name is not a continuous treatment node, an entry is malformed, or an
-            atom is declared twice.
-        CapabilityError
-            If a name is a component of a vector node and declares atoms, which this
-            release supports at a dose of one column only.
+            If a name is not a continuous treatment node or component, an entry is
+            malformed, or an atom is declared twice.
 
         Notes
         -----
-        A continuous component of a vector node takes a declared support.  The support is
-        given the history, the node's categorical components and its doses before the
-        component in column order, the conditioning set of the component's factor in the
-        joint density.
+        A continuous component of a vector node takes a declared support and declared
+        atoms.  The support is given the history, the node's categorical components and its
+        doses before the component in column order, the conditioning set of the component's
+        factor in the joint density.  The atoms make that factor mixed: it is taken against
+        Lebesgue measure plus counting measure on the atoms.
         """
         from ..interventions.policy import Support
 
@@ -726,27 +725,34 @@ class LongitudinalData:
             for name in block
         }
         node_supports: list[Any] = [None] * self.n_times
-        node_atoms: list[tuple[float, ...]] = [()] * self.n_times
+        node_atoms: list[tuple[Any, ...]] = [()] * self.n_times
         component_supports: dict[int, dict[str, Any]] = {}
+        component_atoms: dict[int, dict[str, tuple[float, ...]]] = {}
         for keyword, declared in (("continuous_treatment", supports), ("dose_atoms", atoms)):
             for name, value in declared.items():
                 if name in components:
-                    if keyword == "dose_atoms":
-                        raise CapabilityError(
-                            f"dose_atoms= declares atoms for {name!r}, a component of a vector "
-                            "node. Declared atoms apply to a continuous node of one column in "
-                            "this release: an atom of a component makes its factor of the "
-                            "joint density mixed, which the joint density evaluator does not "
-                            "build"
-                        )
                     node = components[name]
                     index = self.treatment_components[node - 1].index(name)
                     if self.component_levels[node - 1][index]:
+                        what = "a support" if keyword == "continuous_treatment" else "atoms"
                         raise DataError(
-                            f"continuous_treatment= declares a support for {name!r}, a "
-                            "categorical component of a vector node. A support applies to a "
+                            f"{keyword}= declares {what} for {name!r}, a categorical component "
+                            "of a vector node. A declaration of the dose applies to a "
                             "continuous component"
                         )
+                    if keyword == "dose_atoms":
+                        values = tuple(float(atom) for atom in value)
+                        if (
+                            not values
+                            or not all(np.isfinite(atom) for atom in values)
+                            or len(set(values)) != len(values)
+                        ):
+                            raise DataError(
+                                f"dose_atoms= for {name!r} holds distinct finite doses; got "
+                                f"{list(values)!r}"
+                            )
+                        component_atoms.setdefault(node, {})[name] = tuple(sorted(values))
+                        continue
                     if value is None:
                         continue
                     if not isinstance(value, Support):
@@ -785,6 +791,11 @@ class LongitudinalData:
             order = self.treatment_components[time - 1]
             node_supports[time - 1] = tuple(
                 (name, declared[name]) for name in order if name in declared
+            )
+        for time, declared_atoms in component_atoms.items():
+            order = self.treatment_components[time - 1]
+            node_atoms[time - 1] = tuple(
+                (name, declared_atoms[name]) for name in order if name in declared_atoms
             )
         if self.treatment_held:
             node_supports = [node_supports[0]] * self.n_times
@@ -839,9 +850,29 @@ class LongitudinalData:
         Returns
         -------
         tuple of float
-            The declared atoms, in increasing order.
+            The declared atoms, in increasing order.  A vector node returns ``()``; its
+            components' atoms are :meth:`component_atoms`.
         """
-        return self.dose_atoms[time - 1] if self.dose_atoms else ()
+        value = self.dose_atoms[time - 1] if self.dose_atoms else ()
+        return () if value and isinstance(value[0], tuple) else tuple(value)
+
+    def component_atoms(self, time: int) -> dict[str, tuple[float, ...]]:
+        """The declared atoms of each continuous component of vector node ``time``.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        dict of str to tuple of float
+            Empty at a node of one column, or when no component declares atoms.
+        """
+        value = self.dose_atoms[time - 1] if self.dose_atoms else ()
+        if not value or not isinstance(value[0], tuple):
+            return {}
+        return {str(name): tuple(atoms) for name, atoms in value}
 
     def dose_block(self, time: int, dose: FloatArray) -> FloatArray:
         """A continuous node's design block: the dose and the indicator of each declared atom.
@@ -862,12 +893,7 @@ class LongitudinalData:
         ndarray
             ``(n, 1 + K)`` block, with ``K`` the number of declared atoms.
         """
-        values = np.asarray(dose, dtype=float).reshape(-1)
-        columns = [values]
-        for atom in self.node_atoms(time):
-            tolerance = 1e-12 * max(1.0, abs(atom))
-            columns.append((np.abs(values - atom) <= tolerance).astype(float))
-        return np.column_stack(columns)
+        return atom_block(dose, self.node_atoms(time))
 
     @classmethod
     def from_long_panel(
@@ -1918,11 +1944,12 @@ class LongitudinalData:
     def component_design(self, time: int, values: FloatArray | None = None) -> FloatArray:
         """The design block of mixed node ``time``: doses as themselves, labels as indicators.
 
-        A continuous component enters as its dose, one column.  A categorical component
-        enters as :func:`~cleverly.data.validate.arm_indicators` of its own codes, drop-first,
-        as a categorical node does in :meth:`history_design`.  The joint level code of the
-        components is never a column.  A missing value fills with zero, on rows no fit
-        reads.
+        A continuous component enters as its dose, one column, and the indicator of each of
+        its declared atoms (:func:`~cleverly.data.validate.atom_block`).  A categorical
+        component enters as :func:`~cleverly.data.validate.arm_indicators` of its own codes,
+        drop-first, as a categorical node does in :meth:`history_design`.  The joint level
+        code of the components is never a column.  A missing value fills with zero, on rows
+        no fit reads.
 
         Parameters
         ----------
@@ -1938,11 +1965,15 @@ class LongitudinalData:
             The block, one row per unit.
         """
         observed = self.node_values(time) if values is None else np.asarray(values, dtype=float)
+        atoms = self.component_atoms(time)
+        names = self.component_names(time)
         columns = []
         for index, levels in enumerate(self.component_levels[time - 1]):
             column = np.nan_to_num(observed[:, index], nan=0.0)
             if not levels:
-                columns.append(column.reshape(-1, 1))
+                # A dose with declared atoms adds the indicator of each atom, read from the
+                # values given, as a dose of one column does (:meth:`dose_block`).
+                columns.append(atom_block(column, atoms.get(names[index], ())))
             else:
                 columns.append(arm_indicators(column, len(levels)))
         return np.hstack(columns)

@@ -2242,16 +2242,44 @@ def _check_atom_images(
         bad = rows & (_atom_index(image, atoms) < 0)
         if bad.any():
             moved_to = float(image[np.flatnonzero(bad)[0]])
-            raise CapabilityError(
-                f"policy {name!r} at {where} moves the declared atom {atom:g} to {moved_to:g} "
-                f"({label}). The natural dose has no recorded mass at {moved_to:g}, so every row "
-                f"that holds the dose {atom:g} receives a dose where the observed law has no "
-                "mass. The law of the assigned dose then has an atom that the observed law "
-                "lacks, and no density ratio exists: this is the failure of a collapse (Díaz et "
-                "al. 2023, Section 4, journal page 850) reached from the atom. Hold the atom in "
-                "place (a cap or a piece that keeps it), send it to another declared atom, or, "
-                f"if the dose has recorded mass at {moved_to:g}, declare it in dose_atoms"
-            )
+            raise CapabilityError(atom_image_refusal(name, where, atom, moved_to, describe=label))
+
+
+def atom_image_refusal(
+    name: str, where: str, atom: float, moved_to: float, *, describe: str, note: str = ""
+) -> str:
+    """The R-b3 text: a policy moves a declared atom to a dose with no recorded mass.
+
+    Parameters
+    ----------
+    name : str
+        The policy's name.
+    where : str
+        The node or component.
+    atom : float
+        The declared atom.
+    moved_to : float
+        The dose the policy sends it to.
+    describe : str
+        The policy's description, or the branch it holds.
+    note : str
+        A sentence on the frames the check read, appended to the text.
+
+    Returns
+    -------
+    str
+        The text.
+    """
+    return (
+        f"policy {name!r} at {where} moves the declared atom {atom:g} to {moved_to:g} "
+        f"({describe}). The natural dose has no recorded mass at {moved_to:g}, so every row "
+        f"that holds the dose {atom:g} receives a dose where the observed law has no "
+        "mass. The law of the assigned dose then has an atom that the observed law "
+        "lacks, and no density ratio exists: this is the failure of a collapse (Díaz et "
+        "al. 2023, Section 4, journal page 850) reached from the atom. Hold the atom in "
+        "place (a cap or a piece that keeps it), send it to another declared atom, or, "
+        f"if the dose has recorded mass at {moved_to:g}, declare it in dose_atoms{note}"
+    )
 
 
 def _assigned_outside_support(
@@ -2661,8 +2689,8 @@ def _refuse_undeclared_atoms(
         The declaration the refusal suggests, with ``{values}`` for the flagged doses.
         ``None`` gives the longitudinal mapping form.
     component : bool
-        Whether ``where`` is a continuous component of a vector, which takes no declared
-        atoms, so the refusal names the categorical coding as the remedy.
+        Whether ``where`` is a continuous component of a vector, whose declaration names
+        the component in the mapping form.
 
     Raises
     ------
@@ -2681,10 +2709,9 @@ def _refuse_undeclared_atoms(
             f"component {where!r} of a vector treatment records {finding}. A continuous dose "
             "with a recorded point mass needs that mass declared: a density has no mass at a "
             "point, so a ratio that treats the atom as density is wrong at every row a policy "
-            "moves to or from it. Declared atoms apply to a dose of one column in this "
-            "release: an atom makes the factor of the component in the joint density mixed, "
-            "which the joint density evaluator does not build. Code the component as "
-            f"categorical if every dose sits on a grid (the flagged doses: {doses_text})"
+            f"moves to or from it. Declare dose_atoms={{{where!r}: ({doses_text})}}, which "
+            "makes the component's factor of the joint density mixed, or code the component "
+            "as categorical if every dose sits on a grid"
         )
     declare = (
         f"dose_atoms={{{where!r}: ({doses_text})}}"
@@ -3140,6 +3167,7 @@ def joint_assignments(
     where: str,
     supports: Mapping[str, Support] | None = None,
     regimen: str | None = None,
+    atoms: Mapping[str, Sequence[float]] | None = None,
 ) -> tuple[tuple[float, FloatArray], ...]:
     """Each branch of a joint policy as the ``(n, d)`` component values it assigns.
 
@@ -3169,6 +3197,10 @@ def joint_assignments(
         :func:`check_component_supports`.
     regimen : str or None
         The label the support refusal names; ``None`` names the policy.
+    atoms : mapping of str to sequence of float or None
+        The declared atoms of each continuous component that declares them.  Each dose map
+        is then checked for the existence condition of the mixed law on the observed
+        frame (R-b1, R-b3).
 
     Returns
     -------
@@ -3190,7 +3222,15 @@ def joint_assignments(
     out = []
     for probability, declared in joint_branches(policy):
         assigned = _joint_branch(
-            policy.name, declared, components, values, frame_with, rows, where, policy.order
+            policy.name,
+            declared,
+            components,
+            values,
+            frame_with,
+            rows,
+            where,
+            policy.order,
+            atoms,
         )
         out.append((probability, np.where(rows[:, None], assigned, 0.0)))
     if supports:
@@ -3519,12 +3559,14 @@ def _joint_branch(
     rows: BoolArray,
     where: str,
     order: Sequence[str] | None = None,
+    atoms: Mapping[str, Sequence[float]] | None = None,
 ) -> FloatArray:
     """One deterministic branch of a joint policy, applied component by component.
 
     The categorical maps read the natural value of every other component.  Each dose map
     reads the natural categorical values and the natural doses before it in ``order``, so a
-    map never reads a value this function has assigned.
+    map never reads a value this function has assigned.  ``atoms`` holds each continuous
+    component's declared atoms, which its checks read.
     """
     names = [component.name for component in components]
     unknown = sorted(set(declared) - set(names))
@@ -3571,7 +3613,12 @@ def _joint_branch(
             readable.update({other: labels[other] for other in earlier})
             source = guarded_source(frame_with, readable, set(names) - set(readable))
             assigned[:, index] = _continuous_component(
-                declared[component.name], natural[:, index], source, rows, here
+                declared[component.name],
+                natural[:, index],
+                source,
+                rows,
+                here,
+                (atoms or {}).get(component.name, ()),
             )
             source.check()
     except ForbiddenRead as error:
@@ -3708,11 +3755,20 @@ def read_order_refusal(
 
 
 def _continuous_component(
-    policy: Any, dose: FloatArray, frame: FrameSource, rows: BoolArray, where: str
+    policy: Any,
+    dose: FloatArray,
+    frame: FrameSource,
+    rows: BoolArray,
+    where: str,
+    atoms: Sequence[float] = (),
 ) -> FloatArray:
-    """A continuous component's assigned dose, after the Assumption-4 check."""
+    """A continuous component's assigned dose, after the Assumption-4 and atom checks.
+
+    With declared ``atoms`` the checks of the mixed law run on the observed frame: every
+    collapse target is a declared atom (R-b1) and every atom image is one (R-b3).
+    """
     observed = np.asarray(dose, dtype=float)
-    check_continuous_policy(policy, observed, frame, rows, where=where)
+    check_continuous_policy(policy, observed, frame, rows, where=where, atoms=atoms)
     ((_, branch),) = policy_branches(policy)
     return _per_row(np.asarray(branch.assign(observed, frame), dtype=float), observed.size)
 
@@ -4302,6 +4358,7 @@ class PolicySet:
             setup.frame_with,
             np.asarray(data.covariates, dtype=float),
             setup.where,
+            component_atom_layout(setup.components, data.component_atoms),
         )
         branches = [
             JointBranch(policy.name, mapping, policy.order) for _, policy, mapping in setup.owners
@@ -4327,9 +4384,14 @@ class PolicySet:
             if not moved[:, c].any():
                 continue
             for index, component in enumerate(setup.components):
-                if component.continuous and component.name in mapping:
+                if (
+                    component.continuous
+                    and component.name in mapping
+                    and component.name in parts.densities
+                ):
                     # Only the rows whose dose this policy changes: a gated map leaves
-                    # the others alone, and they say nothing about the bin width.
+                    # the others alone, and they say nothing about the bin width.  A dose
+                    # whose every row holds a declared atom fits no density to resolve.
                     changed = shifted[:, c, index] != setup.natural[:, index]
                     if not changed.any():
                         continue
@@ -4579,9 +4641,11 @@ def preflight_vector_policies(
 ) -> None:
     """Apply each joint policy to a point vector before any learner, with every check.
 
-    The undeclared-atom check of each continuous component (R-b4), the maps, Assumption 4
-    of each dose map and the declared support of each continuous component (R-a2, R-a1)
-    read observed values only, so the fit runs them before its first learner.
+    The undeclared-atom check of each continuous component (R-b4), a declared atom with no
+    row (R-b2), the maps, Assumption 4 of each dose map, the existence condition of each
+    mixed factor on the observed frame (R-b1, R-b3), and the declared support of each
+    continuous component (R-a2, R-a1) read observed values only, so the fit runs them
+    before its first learner.  The training-fold half of R-b2 runs in the nuisance fit.
 
     Parameters
     ----------
@@ -4608,16 +4672,23 @@ def preflight_vector_policies(
         JointComponent(name, levels)
         for name, levels in zip(data.component_names, data.component_levels, strict=True)
     )
+    natural = np.asarray(data.treatment_components, dtype=float)
+    everyone = np.ones(data.n, dtype=bool)
     if all(isinstance(policy, JointPolicy) for policy in policies):
         refuse_component_atoms(
-            np.asarray(data.treatment_components, dtype=float),
+            natural,
             components,
-            np.ones(data.n, dtype=bool),
+            everyone,
             moved=any(joint_policy_moves(policy) for policy in policies),
             ratio=ratio,
             density_bins=density_bins,
+            atoms=data.component_atoms,
         )
-    if data.component_supports:
+    if data.component_atoms:
+        check_component_atoms(
+            natural, components, everyone, data.component_atoms, None, ratio=ratio
+        )
+    if data.component_supports or data.component_atoms:
         _vector_setup(tuple(policies), data)
 
 
@@ -4646,6 +4717,105 @@ def joint_policy_moves(policy: object) -> bool:
     )
 
 
+def component_atom_layout(
+    components: Sequence[JointComponent], atoms: Mapping[str, Sequence[float]]
+) -> tuple[tuple[float, ...], ...]:
+    """Each dose's declared atoms, in the column order of the doses, or ``()`` for none.
+
+    Parameters
+    ----------
+    components : sequence of JointComponent
+        The node's components, in column order.
+    atoms : mapping of str to sequence of float
+        The declared atoms of each continuous component that declares them.
+
+    Returns
+    -------
+    tuple of tuple of float
+        One entry per dose, empty when no dose declares atoms.
+    """
+    if not atoms:
+        return ()
+    return tuple(
+        tuple(float(atom) for atom in atoms.get(component.name, ()))
+        for component in components
+        if component.continuous
+    )
+
+
+def check_component_atoms(
+    natural: FloatArray,
+    components: Sequence[JointComponent],
+    rows: BoolArray,
+    atoms: Mapping[str, Sequence[float]],
+    folds: Folds | None,
+    *,
+    ratio: str,
+) -> None:
+    r"""R-b2 at each continuous component of a vector with declared atoms.
+
+    Each declared atom needs rows at risk, overall and in every outer training fold, as at
+    a dose of one column (:func:`check_declared_atoms`).  On the density route the factor
+    at an atom divides by :math:`P(D_k = a \mid d_{<k}, c, h)`, which conditions on the
+    categorical cell.  So each atom also needs rows in each training fold within every
+    observed cell that records it.
+
+    Parameters
+    ----------
+    natural : ndarray
+        ``(n, d)`` natural values: level codes and doses.
+    components : sequence of JointComponent
+        The node's components, in column order.
+    rows : ndarray
+        ``(n,)`` the rows that hold the node.
+    atoms : mapping of str to sequence of float
+        The declared atoms of each continuous component that declares them.
+    folds : Folds or None
+        The outer split, or ``None`` for the overall check alone.
+    ratio : {"density", "classifier"}
+        The ratio route, which decides whether the cell rule applies.
+
+    Raises
+    ------
+    DataError
+        If a declared atom has no row at risk, none in some training fold, or none in some
+        training fold within a cell that records it.
+    """
+    categorical = [index for index, component in enumerate(components) if not component.continuous]
+    for index, component in enumerate(components):
+        declared = tuple(atoms.get(component.name, ()))
+        if not component.continuous or not declared:
+            continue
+        dose = np.asarray(natural[:, index], dtype=float)
+        check_declared_atoms(dose, rows, declared, folds, node=component.name)
+        if ratio != "density" or not categorical or folds is None or folds.is_single:
+            continue
+        which = _atom_index(dose, declared)
+        codes = np.asarray(natural[:, categorical], dtype=np.int64)
+        for k, atom in enumerate(declared):
+            holds = rows & (which == k)
+            for cell in np.unique(codes[holds], axis=0):
+                in_cell = holds & np.all(codes == cell, axis=1)
+                for fold, (train, _) in enumerate(folds, start=1):
+                    if in_cell[train].any():
+                        continue
+                    label = ", ".join(
+                        f"{components[c].name}={components[c].levels[int(code)]!r}"
+                        for c, code in zip(categorical, cell, strict=True)
+                    )
+                    raise DataError(
+                        f"dose_atoms declares {float(atom):g} at component {component.name!r}, "
+                        f"but the training rows of outer fold {fold} hold no row at risk with "
+                        f"that dose in the cell ({label}), which records it. A declared atom "
+                        "needs recorded mass where the ratio divides by its probability: on "
+                        "the density route the factor at the atom is "
+                        f"P({component.name} = {float(atom):g} | earlier doses, cell, H), which "
+                        "the data estimate only from rows of that cell that received it. "
+                        "Collect more rows at the atom in that cell, or pass "
+                        "ratio='classifier'"
+                    )
+
+
 def refuse_component_atoms(
     natural: FloatArray,
     components: Sequence[JointComponent],
@@ -4654,8 +4824,9 @@ def refuse_component_atoms(
     moved: bool,
     ratio: str,
     density_bins: int | None,
+    atoms: Mapping[str, Sequence[float]] | None = None,
 ) -> None:
-    """R-b4 at each continuous component of a vector, which takes no declared atoms.
+    """R-b4 at each continuous component of a vector: a recorded atom it does not declare.
 
     Parameters
     ----------
@@ -4671,6 +4842,8 @@ def refuse_component_atoms(
         The ratio route, which decides whether the bin count rule applies.
     density_bins : int or None
         The declared bin count of the density route, or ``None`` for the default.
+    atoms : mapping of str to sequence of float or None
+        The declared atoms of each continuous component, whose rows the rules do not read.
 
     Raises
     ------
@@ -4682,12 +4855,14 @@ def refuse_component_atoms(
     for index, component in enumerate(components):
         if not component.continuous:
             continue
+        declared = tuple((atoms or {}).get(component.name, ()))
         doses = np.asarray(natural[rows, index], dtype=float)
         bins: int | None = None
         if ratio == "density":
-            bins = density_bins if density_bins is not None else default_density_bins(doses.size)
+            continuous = int(np.sum(_atom_index(doses, declared) < 0)) if declared else doses.size
+            bins = density_bins if density_bins is not None else default_density_bins(continuous)
         _refuse_undeclared_atoms(
-            doses, atoms=(), moved=moved, bins=bins, where=component.name, component=True
+            doses, atoms=declared, moved=moved, bins=bins, where=component.name, component=True
         )
 
 
@@ -4723,6 +4898,7 @@ def _vector_setup(declared: tuple[object, ...], data: CausalData) -> _VectorSetu
             everyone,
             where=where,
             supports=data.component_supports,
+            atoms=data.component_atoms,
         )
         for (probability, values), (_, mapping) in zip(
             evaluated, joint_branches(policy), strict=True

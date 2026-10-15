@@ -1393,6 +1393,7 @@ def _resolve_mtp_node(
             where=where,
             supports=data.component_supports(time),
             regimen=regimen.label,
+            atoms=data.component_atoms(time),
         )
         weights = np.array([probability for probability, _ in joint])
         carry = np.where(reachable[:, None], np.tile(weights, (data.n, 1)), 0.0)

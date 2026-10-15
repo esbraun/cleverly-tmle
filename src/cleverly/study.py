@@ -454,9 +454,10 @@ class PointTreatment:
         :meth:`cleverly.TMLE.fit` takes it.  A vector treatment maps each continuous
         component to its support.  A modified treatment policy must assign each row a dose
         inside it.
-    dose_atoms : sequence of float
+    dose_atoms : sequence of float, or mapping of str to sequence of float
         The doses of a continuous treatment with a recorded point mass, as
-        :meth:`cleverly.TMLE.fit` takes them.
+        :meth:`cleverly.TMLE.fit` takes them.  A vector treatment maps each continuous
+        component to its atoms.
 
     Attributes
     ----------
@@ -512,12 +513,12 @@ class PointTreatment:
     treatment_probabilities: Any = None
     continuous_treatment: Sequence[str] = field(default_factory=tuple)
     treatment_support: Any = None
-    dose_atoms: Sequence[float] = field(default_factory=tuple)
+    dose_atoms: Sequence[float] | Mapping[str, Sequence[float]] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         object.__setattr__(self, "strata", tuple(self.strata))
-        object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
+        object.__setattr__(self, "dose_atoms", _point_atoms(self.dose_atoms))
         continuous = self.continuous_treatment
         object.__setattr__(
             self,
@@ -622,7 +623,7 @@ class PointTreatment:
             treatment_probabilities=(
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
-        ).with_dose_declarations(self.treatment_support, self.dose_atoms)
+        ).with_dose_declarations(self.treatment_support, _declared_atoms(self.dose_atoms))
 
     def _check_prepared(self, data: CausalData) -> None:
         """Reconcile an already-built container with the roles this design declares.
@@ -661,7 +662,7 @@ class PointTreatment:
                 _point_support(self.treatment_support),
                 _point_support(data.treatment_support),
             ),
-            ("dose_atoms", tuple(sorted(self.dose_atoms)), tuple(data.dose_atoms)),
+            ("dose_atoms", _point_atoms(self.dose_atoms), _point_atoms(data.dose_atoms)),
             # Not role names, but they change what the reported variance means, so a
             # disagreement here is as consequential as a mis-named column.
             ("weights_type", self.weights_type, data.weight_spec.kind),
@@ -1480,6 +1481,29 @@ def _declared_continuous(declared: Any) -> Sequence[str] | Mapping[str, Any]:
     return declared
 
 
+def _point_atoms(declared: Any) -> Any:
+    """Declared point atoms in one form: sorted floats, or sorted ``(component, atoms)`` pairs.
+
+    A vector treatment declares its atoms by component, as a mapping or as the pairs
+    :attr:`cleverly.data.CausalData.dose_atoms` holds.
+    """
+    if isinstance(declared, Mapping):
+        declared = tuple(declared.items())
+    pairs = [entry for entry in declared if isinstance(entry, tuple)]
+    if pairs:
+        return tuple(
+            sorted((str(name), tuple(sorted(float(a) for a in atoms))) for name, atoms in pairs)
+        )
+    return tuple(sorted(float(atom) for atom in declared))
+
+
+def _declared_atoms(declared: Any) -> Any:
+    """The atoms as ``with_dose_declarations`` takes them: a mapping for a vector."""
+    if declared and isinstance(declared[0], tuple):
+        return dict(declared)
+    return declared
+
+
 def _point_support(declared: Any) -> Any:
     """A point support for comparison: a vector's component supports become a dict."""
     return dict(declared) if isinstance(declared, Mapping | tuple) else declared
@@ -1501,15 +1525,18 @@ def _held_supports(data: LongitudinalData) -> dict[str, Any]:
 
 
 def _held_atoms(data: LongitudinalData) -> dict[str, tuple[float, ...]]:
-    """The declared atoms of each continuous node of ``data``, by node name."""
+    """The declared atoms of each continuous node or component of ``data``, by name."""
     if data.treatment_held:
         atoms = data.node_atoms(1)
         return {data.treatment_names[0]: atoms} if atoms else {}
-    return {
+    held = {
         name: data.node_atoms(time)
         for time, name in enumerate(data.treatment_names, start=1)
         if data.node_atoms(time)
     }
+    for time in range(1, data.n_times + 1):
+        held.update(data.component_atoms(time))
+    return held
 
 
 def _declare_every_node(

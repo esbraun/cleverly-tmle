@@ -35,7 +35,12 @@ from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
-from ..interventions.policy import check_declared_atoms, vector_route_refusal
+from ..interventions.policy import (
+    JointComponent,
+    check_component_atoms,
+    check_declared_atoms,
+    vector_route_refusal,
+)
 from ..learners._fitting import (
     Task,
     as_target,
@@ -1384,6 +1389,20 @@ def fit_nuisances(
     density: ConditionalDensity | MixedDensity | None = None
     policy_set: PolicySet | None = None
     ipsi_set: IPSISet | None = None
+    if vector and data.component_atoms:
+        # R-b2 in each training fold, and on the density route in each cell that records
+        # the atom: every factor at an atom divides by its probability (X40 part (b)).
+        check_component_atoms(
+            np.asarray(data.treatment_components, dtype=float),
+            tuple(
+                JointComponent(name, levels)
+                for name, levels in zip(data.component_names, data.component_levels, strict=True)
+            ),
+            np.ones(data.n, dtype=bool),
+            data.component_atoms,
+            folds,
+            ratio=policy_ratio,
+        )
     if vector and policy_ratio != "classifier":
         # The density route at a vector treatment: the chain rule over the components, and
         # each policy's induced density by its preimages (interventions.joint_density).
@@ -1402,7 +1421,7 @@ def fit_nuisances(
         # The classifier route of Diaz et al. (2023), Section 5.4: no density is fitted, and
         # each policy's ratio is the odds of a stacked label.  The classifier is
         # ``treatment_learner``, cross-fitted on the same folds every other nuisance uses.
-        if data.dose_atoms:
+        if data.dose_atoms and not vector:
             check_declared_atoms(
                 data.treatment,
                 np.ones(data.n, dtype=bool),

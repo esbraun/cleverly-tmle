@@ -86,9 +86,9 @@ def test_m10_a_jacobian_dropped_from_one_dose_is_caught(
 ) -> None:
     """``|d beta_k / d b_k|`` is replaced by one for dose ``k``.  Measured: dose 1 7.9, dose 2 3.9."""
     edit = (
-        "jacobian * np.abs(np.where(inside, slope, 0.0)),",
-        f"jacobian * (np.abs(np.where(inside, slope, 0.0)) if index != layout.doses[{dose}] "
-        "else inside.astype(float)),",
+        "jacobian * np.abs(np.where(kept, slope, 0.0)),",
+        f"jacobian * (np.abs(np.where(kept, slope, 0.0)) if index != layout.doses[{dose}] "
+        "else kept.astype(float)),",
     )
     mutate(monkeypatch, *_ENUMERATE, [edit])
     assert _geo_ordered() > CAUGHT
