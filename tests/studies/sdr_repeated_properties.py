@@ -46,22 +46,25 @@ C1 ``interval_calibration``     ``*__in_sample`` for all thirteen labels: one fo
                                 :class:`~tests.studies.ltmle_repeated_properties.
                                 CellMeansBackoff` for the outcome and pseudo-outcome
                                 regressions, GLM mechanisms, ``simultaneous=True``.
-                                ``n = 8,000``, :data:`CALIBRATION_REPLICATES`.  The
+                                ``n =`` :data:`IN_SAMPLE_N`, :data:`CALIBRATION_REPLICATES`.  The
                                 derived ``shrunken_se_control`` and ``noise_control`` arms
                                 read these rows (twenty-six controls)
-C3 ``interval_calibration``     ``*_t3__crossfit``: C1 at five folds, five labels
+C3 ``interval_calibration``     ``*_t3__crossfit``: C1 at five folds, five labels,
+                                ``n =`` :data:`CALIBRATION_N`
 C6 ``interval_calibration``     ``*_t3__continuous``: the three-value law
                                 :data:`~tests.studies.ltmle_repeated_law.CONTINUOUS`,
                                 ``q_bounds = (0, 1)``, in sample, five labels, ``n =``
                                 :data:`CONTINUOUS_N`
-C5 ``interval_calibration``     ``*_t3__crossfit_boosted``: five folds, a shallow
+C5 ``interval_calibration``     ``*_t3__crossfit_boosted``: five folds, ``n =``
+                                :data:`CALIBRATION_N`, a shallow
                                 regularized booster for both regressions.  Gated one-sided
                                 (plan 5.6): the SE ratio's 99% lower bound is at least the
                                 lower band end, and so is the coverage interval's lower
                                 end.  The two-sided result is the ``two_sided_passed``
                                 column
 C4 ``simultaneous_coverage``    ``all_reported``: the default band of the C1 fits over all
-                                fifteen reported parameters, and its pointwise control
+                                fifteen reported parameters, and its pointwise control.
+                                It reads the C1 rows, so ``n =`` :data:`IN_SAMPLE_N`
 ``small_sample_calibration``    C1 and C6 refitted at ``n = 2,000``, five labels.  Role
                                 ``diagnostic``.  2,000 replications
 C2 ``double_robustness``        Five ``*_t3`` labels, ``n = 2,000``.  ``mechanism_correct``:
@@ -114,7 +117,8 @@ reads.
 pilot                      draws        sets
 =========================  ===========  ====================================================
 P1 primary, two scenarios  2,000 each   the primary ``n`` rule and ``PRIMARY_REPLICATES``
-P2 C1, C3, C5, C6 (and C4) 8,000 each   ``CALIBRATION_REPLICATES`` or the cap, the C6 rule
+P2 C1, C3, C5, C6 (and C4) 8,000 each   ``CALIBRATION_REPLICATES`` or the cap, the C6 rule.
+                                         C1 and C6 re-run at 32,000 (see Pilot P2 finding)
 P3 every property family   2,000 each   each family's size, and the N1 ``n`` rule
 =========================  ===========  ====================================================
 
@@ -122,11 +126,50 @@ The union bound gives the discrimination checks 0.001 and each of the three size
 :math:`d = 0.049 / 3`.  The calibration instrument has five terms: C1, C3, C5, C6 and C4.  The
 property instrument has six families.  The study fails with probability at most 0.05.
 
+Pilot P2 finding
+----------------
+
+Pilot P2 at ``n = 8,000`` gave in-sample SE ratios of 0.920 (C1 ``rule_t3``), 0.949 (C1
+``rule_vs_never_t3``), 0.897 and 0.911 (C6 ``rule_t3`` and ``rule_vs_never_t3``).  The
+cross-fit (C3) and booster (C5) arms sit at 0.98 to 1.00.  The cause is a finite-sample
+shortfall of the in-sample variance estimate under saturated full-history
+:class:`CellMeansBackoff` outcome regressions.  The in-sample residuals of a cell with ``k``
+units lose variance by the factor ``(k - 1) / k``, and the rare high-weight cells of the rule at
+node 3 dominate the estimate.  The deficit decays as ``1 / n``.  The in-sample standard error
+times :math:`\sqrt{n}`, over the standard deviation of the efficient influence function, for
+``rule_t3`` is 0.857, 0.907, 0.944, 0.966 and 0.984 at ``n`` = 2,000, 4,000, 8,000, 16,000 and
+32,000.
+
+This is not an estimator defect.  A read-only probe gave the same standard error as ``LTMLE``
+with the same learners, to 1e-6.  A GLM outcome regression gives ratios of 0.98 to 1.00 at every
+``n``.  The declared route for a finite-sample shortfall applies: the cell gets the ``n`` that a
+pilot shows removes it, re-declared and re-run on fresh seeds.  A design change would move the
+study off the saturated regression that makes the in-sample cells test the plug-in and the
+mechanism terms.  So :data:`IN_SAMPLE_N` and :data:`CONTINUOUS_N` double twice, from 8,000 to
+32,000.  :data:`CALIBRATION_N` stays at 8,000, because the C3 and C5 arms show no shortfall.
+The C4 joint band reads the C1 rows, so it moves with :data:`IN_SAMPLE_N`.  The re-pilot at
+32,000 has not run, so the C1 and C6 pins of P2 are pending.
+
+Pilot P3 shows ratios below 1 in two families that gate bias only.  The ``double_robustness``
+cell ``rule_t3__outcome_correct`` has ratio 0.763 and ``full_history_necessity``
+``rule_t3__full_history`` has 0.772.  Both fits use a wrong mechanism (``W`` only, or intercept
+only).  Under a wrong mechanism the Wald standard error is inconsistent, and the study reports
+it with no calibration claim.  The robustness and
+necessity rules gate bias, never coverage or the SE ratio.  The ratios are therefore expected,
+and they are not a shortfall.
+
+Pilot state
+-----------
+
+Pilots P1 and P3 and the cross-fit and booster arms of P2 are recorded.  The in-sample and
+continuous arms of P2 are pending, and their pins hold the planning values below.  The state
+stays ``"placeholder"`` until the re-pilot is recorded.
+
 While :data:`~tests.studies.canonical_sdr_repeated.PILOT_STATE` is ``"placeholder"``, the
-tables below hold declared uniform planning values (SE ratio 1, standardized bias 0, coverage
-0.95), and the sizes are the rules applied to them.  They are planning sizes, not results.  A
-declared run is refused.  The pilot driver (``tests/canonical/sdr_repeated/pilot.py``) writes
-the pilot rows in resumable parts, and :func:`summarize_primary_pilot`,
+pending P2 cells and the C4 joint coverage hold declared uniform planning values (SE ratio 1,
+standardized bias 0, coverage 0.95), and the sizes that read them are planning sizes, not
+results.  A declared run is refused.  The pilot driver
+(``tests/canonical/sdr_repeated/pilot.py``) writes the pilot rows in resumable parts, and :func:`summarize_primary_pilot`,
 :func:`summarize_calibration_pilot` and :func:`summarize_property_pilot` turn them into these
 tables.
 """
@@ -232,13 +275,21 @@ from tests.studies.ltmle_repeated_properties import (
 
 MARGINS = STUDY.margins
 N = 2_000
-#: The sample size of the in-sample, cross-fit and booster ``interval_calibration`` arms.
+#: The sample size of the cross-fit and booster ``interval_calibration`` arms.
 CALIBRATION_N = 8_000
+#: The sample size of the C1 in-sample arm, which the C4 joint band and the two derived
+#: calibration controls also read.  It is declared apart from :data:`CALIBRATION_N`, because
+#: pilot P2 showed a finite-sample shortfall of the in-sample variance estimate (module
+#: docstring, "Pilot P2 finding").  The declared route is a doubling of this size alone.
+IN_SAMPLE_N_BASE = 8_000
+#: How many times the in-sample ``n`` rule has doubled :data:`IN_SAMPLE_N` (0, 1 or 2).
+IN_SAMPLE_N_DOUBLINGS = 2
+IN_SAMPLE_N = IN_SAMPLE_N_BASE * 2**IN_SAMPLE_N_DOUBLINGS
 #: The sample size of the C6 arm (``continuous``).  It is declared apart from
 #: :data:`CALIBRATION_N`, so the C6 ``n`` rule doubles this size alone.
 CONTINUOUS_N_BASE = 8_000
 #: How many times the C6 ``n`` rule has doubled :data:`CONTINUOUS_N` (0, 1 or 2).
-CONTINUOUS_N_DOUBLINGS = 0
+CONTINUOUS_N_DOUBLINGS = 2
 CONTINUOUS_N = CONTINUOUS_N_BASE * 2**CONTINUOUS_N_DOUBLINGS
 #: The sample size of N1, which the ``n`` rule may double, twice at most.
 ABSORBING_N_BASE = 8_000
@@ -278,19 +329,21 @@ INTERCEPT_G = frozenset({"both_wrong", "full_history", "markov_history"})
 
 # ---------------------------------------------------------------------------- declared sizes
 #
-# Each size is the rule applied to the placeholder pilot tables of the section "pilot tables"
-# below, until the pilots are recorded.  A fast test re-derives every one of them.
+# Each size is the rule applied to the pilot tables of the section "pilot tables" below: the
+# recorded P1 and P3 pins, the recorded cross-fit and booster pins of P2, and placeholder
+# values for the pending in-sample and continuous pins of P2.  A fast test re-derives every one
+# of them.
 
 #: ``calibration_size`` on P2 (``CALIBRATION_BUDGET_MET`` is False when the rule reached the cap).
 CALIBRATION_REPLICATES = 4_000
 CALIBRATION_BUDGET_MET = True
 #: ``property_replicates`` on P3 at the share ``family_share(6)``.
-DOUBLE_ROBUST_REPLICATES = 800
-CORRECTION_REPLICATES = 800
-RULE_REPLICATES = 800
-ABSORBING_REPLICATES = 800
-HISTORY_FREE_REPLICATES = 800
-FULL_HISTORY_REPLICATES = 800
+DOUBLE_ROBUST_REPLICATES = 1_000
+CORRECTION_REPLICATES = 1_000
+RULE_REPLICATES = 1_000
+ABSORBING_REPLICATES = 1_000
+HISTORY_FREE_REPLICATES = 1_000
+FULL_HISTORY_REPLICATES = 1_000
 BOOSTER_REPLICATES = CALIBRATION_REPLICATES
 
 # ---------------------------------------------------------------------------- label limits
@@ -493,7 +546,7 @@ def sample(configuration: str, seed: int, n: int = N) -> pd.DataFrame:
 
 
 def family_n(family: str) -> int:
-    """The sample size a property family draws (the C6 arm: see :func:`fit_n`)."""
+    """The sample size a property family draws (the C1 and C6 arms: see :func:`fit_n`)."""
     if family in {"interval_calibration"}:
         return CALIBRATION_N
     if family == "repeated_outcome_necessity":
@@ -506,9 +559,11 @@ def family_n(family: str) -> int:
 
 
 def fit_n(family: str, configuration: str) -> int:
-    """The sample size of one fit set: the C6 arm has its own size."""
+    """The sample size of one fit set: the C1 in-sample and C6 arms have their own sizes."""
     if family == "interval_calibration" and configuration == "continuous":
         return CONTINUOUS_N
+    if family == "interval_calibration" and configuration == "in_sample":
+        return IN_SAMPLE_N
     return family_n(family)
 
 
@@ -815,7 +870,7 @@ def assemble_property_rows(outcomes: Sequence[Sequence[Mapping[str, Any]]]) -> p
                 STUDY,
                 labels=LABELS,
                 efficiency_bounds=EFFICIENCY_SD,
-                calibration_n=CALIBRATION_N,
+                calibration_n=IN_SAMPLE_N,
                 shrunken_se_factor=SHRUNKEN_SE_FACTOR,
                 critical=CRITICAL,
                 positive_suffix="in_sample",
@@ -922,7 +977,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     cells.extend(
         joint_property_cells(
             JOINT_LABEL,
-            n=CALIBRATION_N,
+            n=IN_SAMPLE_N,
             replicates=CALIBRATION_REPLICATES,
             seed=stream_seed(STUDY, "property_sample", "interval_calibration", "in_sample", 0),
         )
@@ -1207,20 +1262,114 @@ def effective_cells(labels: Sequence[str]) -> float:
 PRIMARY_PILOT_REPLICATES = 2_000
 #: The sample size P1 ran at.  A recorded table must equal :data:`PRIMARY_N`.
 PRIMARY_PILOT_N = 12_000
-PRIMARY_PILOT_COVERED = {f"{scenario}/{name}": 1_900 for scenario in SCENARIOS for name in LABELS}
-PRIMARY_PILOT_BIASES = {f"{scenario}/{name}": 0.0 for scenario in SCENARIOS for name in LABELS}
+# Recorded from pilot P1: 2,000 draws per scenario at n = 12,000.  The primary ``n`` rule did
+# not fire, and the rule gives 2,400 replications.
+PRIMARY_PILOT_COVERED = {
+    "repeated_folds_1/never_t1": 1901,
+    "repeated_folds_1/never_t2": 1901,
+    "repeated_folds_1/never_t3": 1909,
+    "repeated_folds_1/always_t1": 1875,
+    "repeated_folds_1/always_t2": 1897,
+    "repeated_folds_1/always_t3": 1898,
+    "repeated_folds_1/rule_t2": 1899,
+    "repeated_folds_1/rule_t3": 1900,
+    "repeated_folds_1/always_vs_never_t1": 1889,
+    "repeated_folds_1/always_vs_never_t2": 1904,
+    "repeated_folds_1/always_vs_never_t3": 1915,
+    "repeated_folds_1/rule_vs_never_t2": 1913,
+    "repeated_folds_1/rule_vs_never_t3": 1900,
+    "repeated_folds_5/never_t1": 1907,
+    "repeated_folds_5/never_t2": 1907,
+    "repeated_folds_5/never_t3": 1899,
+    "repeated_folds_5/always_t1": 1885,
+    "repeated_folds_5/always_t2": 1898,
+    "repeated_folds_5/always_t3": 1892,
+    "repeated_folds_5/rule_t2": 1890,
+    "repeated_folds_5/rule_t3": 1915,
+    "repeated_folds_5/always_vs_never_t1": 1907,
+    "repeated_folds_5/always_vs_never_t2": 1903,
+    "repeated_folds_5/always_vs_never_t3": 1898,
+    "repeated_folds_5/rule_vs_never_t2": 1903,
+    "repeated_folds_5/rule_vs_never_t3": 1912,
+}
 #: Mean reported standard error over the empirical spread of the estimate, by cell (reported).
-PRIMARY_PILOT_RATIOS = {f"{scenario}/{name}": 1.0 for scenario in SCENARIOS for name in LABELS}
+PRIMARY_PILOT_RATIOS = {
+    "repeated_folds_1/never_t1": 0.9957,
+    "repeated_folds_1/never_t2": 1.0087,
+    "repeated_folds_1/never_t3": 1.0095,
+    "repeated_folds_1/always_t1": 0.9712,
+    "repeated_folds_1/always_t2": 1.0091,
+    "repeated_folds_1/always_t3": 0.9978,
+    "repeated_folds_1/rule_t2": 1.014,
+    "repeated_folds_1/rule_t3": 1.0091,
+    "repeated_folds_1/always_vs_never_t1": 0.9826,
+    "repeated_folds_1/always_vs_never_t2": 1.0142,
+    "repeated_folds_1/always_vs_never_t3": 1.0246,
+    "repeated_folds_1/rule_vs_never_t2": 1.0157,
+    "repeated_folds_1/rule_vs_never_t3": 1.0171,
+    "repeated_folds_5/never_t1": 1.0104,
+    "repeated_folds_5/never_t2": 1.0048,
+    "repeated_folds_5/never_t3": 0.9885,
+    "repeated_folds_5/always_t1": 0.9873,
+    "repeated_folds_5/always_t2": 1.0068,
+    "repeated_folds_5/always_t3": 0.9946,
+    "repeated_folds_5/rule_t2": 0.9847,
+    "repeated_folds_5/rule_t3": 1.036,
+    "repeated_folds_5/always_vs_never_t1": 0.9992,
+    "repeated_folds_5/always_vs_never_t2": 1.0289,
+    "repeated_folds_5/always_vs_never_t3": 0.9976,
+    "repeated_folds_5/rule_vs_never_t2": 1.0117,
+    "repeated_folds_5/rule_vs_never_t3": 1.0305,
+}
+PRIMARY_PILOT_BIASES = {
+    "repeated_folds_1/never_t1": -0.0064,
+    "repeated_folds_1/never_t2": 0.0292,
+    "repeated_folds_1/never_t3": -0.0047,
+    "repeated_folds_1/always_t1": 0.004,
+    "repeated_folds_1/always_t2": 0.0572,
+    "repeated_folds_1/always_t3": 0.0208,
+    "repeated_folds_1/rule_t2": -0.0084,
+    "repeated_folds_1/rule_t3": 0.0058,
+    "repeated_folds_1/always_vs_never_t1": 0.0075,
+    "repeated_folds_1/always_vs_never_t2": 0.0103,
+    "repeated_folds_1/always_vs_never_t3": 0.017,
+    "repeated_folds_1/rule_vs_never_t2": -0.0281,
+    "repeated_folds_1/rule_vs_never_t3": 0.0074,
+    "repeated_folds_5/never_t1": -0.0407,
+    "repeated_folds_5/never_t2": 0.0059,
+    "repeated_folds_5/never_t3": -0.0379,
+    "repeated_folds_5/always_t1": -0.021,
+    "repeated_folds_5/always_t2": -0.0195,
+    "repeated_folds_5/always_t3": -0.0101,
+    "repeated_folds_5/rule_t2": 0.0193,
+    "repeated_folds_5/rule_t3": -0.0106,
+    "repeated_folds_5/always_vs_never_t1": 0.0222,
+    "repeated_folds_5/always_vs_never_t2": -0.0166,
+    "repeated_folds_5/always_vs_never_t3": 0.0237,
+    "repeated_folds_5/rule_vs_never_t2": 0.008,
+    "repeated_folds_5/rule_vs_never_t3": 0.0218,
+}
 
 #: Pilot P2 (calibration): the SE ratio and the standardized bias of each gated calibration
 #: cell over :data:`CALIBRATION_PILOT_REPLICATES` draws per arm, and the joint coverage of the
 #: C4 band over the C1 fits.
+#:
+#: PARTLY RECORDED.  The cross-fit and booster arms are recorded from the 8,000-draw pilot at
+#: ``n = 8,000``.  The in-sample and continuous arms are PENDING: the 8,000-draw pilot at
+#: ``n = 8,000`` showed a finite-sample shortfall (module docstring, "Pilot P2 finding"), the
+#: declared route doubled their size twice, and their rows at 32,000 are not yet drawn.  The
+#: pending cells hold uniform planning values (SE ratio 1, bias 0, coverage 0.95), as does the
+#: C4 joint coverage, which reads the in-sample fits.  The 8,000 rows are not pinned, because
+#: no table may describe a size the study no longer declares.
 CALIBRATION_PILOT_REPLICATES = 8_000
-#: The sample size each P2 arm ran at.  A recorded table must equal the arm's declared size.
+#: The arms of P2 whose pins are pending the re-pilot at the doubled size.
+CALIBRATION_PILOT_PENDING_ARMS = ("in_sample", "continuous")
+#: The sample size each P2 arm ran at.  The pending arms hold the size the re-pilot must draw.
+#: A recorded table must equal the arm's declared size.
 CALIBRATION_PILOT_N = {
-    "in_sample": 8_000,
+    "in_sample": IN_SAMPLE_N,
     "crossfit": 8_000,
-    "continuous": 8_000,
+    "continuous": CONTINUOUS_N,
     BOOSTER_ARM: 8_000,
 }
 CALIBRATION_CELLS = (
@@ -1229,14 +1378,72 @@ CALIBRATION_CELLS = (
     *(f"{name}__continuous" for name in GATED_LABELS),
     *(f"{name}__{BOOSTER_ARM}" for name in GATED_LABELS),
 )
-CALIBRATION_PILOT_RATIOS = dict.fromkeys(CALIBRATION_CELLS, 1.0)
-CALIBRATION_PILOT_BIASES = dict.fromkeys(CALIBRATION_CELLS, 0.0)
+_RECORDED_CALIBRATION_RATIOS = {
+    "never_t3__crossfit": 1.0048,
+    "always_t3__crossfit": 1.0058,
+    "rule_t3__crossfit": 0.9815,
+    "always_vs_never_t3__crossfit": 1.0102,
+    "rule_vs_never_t3__crossfit": 0.9913,
+    "never_t3__crossfit_boosted": 1.0056,
+    "always_t3__crossfit_boosted": 0.9964,
+    "rule_t3__crossfit_boosted": 1.0036,
+    "always_vs_never_t3__crossfit_boosted": 1.0042,
+    "rule_vs_never_t3__crossfit_boosted": 1.0015,
+}
+_RECORDED_CALIBRATION_BIASES = {
+    "never_t3__crossfit": 0.0015,
+    "always_t3__crossfit": -0.0064,
+    "rule_t3__crossfit": 0.01,
+    "always_vs_never_t3__crossfit": -0.0052,
+    "rule_vs_never_t3__crossfit": 0.0059,
+    "never_t3__crossfit_boosted": -0.003,
+    "always_t3__crossfit_boosted": -0.0099,
+    "rule_t3__crossfit_boosted": 0.0153,
+    "always_vs_never_t3__crossfit_boosted": -0.0038,
+    "rule_vs_never_t3__crossfit_boosted": 0.0127,
+}
+_RECORDED_CALIBRATION_COVERED = {
+    "never_t3__crossfit": 7593,
+    "always_t3__crossfit": 7606,
+    "rule_t3__crossfit": 7520,
+    "always_vs_never_t3__crossfit": 7612,
+    "rule_vs_never_t3__crossfit": 7585,
+    "never_t3__crossfit_boosted": 7595,
+    "always_t3__crossfit_boosted": 7578,
+    "rule_t3__crossfit_boosted": 7579,
+    "always_vs_never_t3__crossfit_boosted": 7609,
+    "rule_vs_never_t3__crossfit_boosted": 7589,
+}
+_RECORDED_CALIBRATION_SPREADS = {
+    "never_t3__crossfit": 0.0154934,
+    "always_t3__crossfit": 0.0120405,
+    "rule_t3__crossfit": 0.0150922,
+    "always_vs_never_t3__crossfit": 0.0195123,
+    "rule_vs_never_t3__crossfit": 0.0216704,
+    "never_t3__crossfit_boosted": 0.0150606,
+    "always_t3__crossfit_boosted": 0.0120505,
+    "rule_t3__crossfit_boosted": 0.0141239,
+    "always_vs_never_t3__crossfit_boosted": 0.0192321,
+    "rule_vs_never_t3__crossfit_boosted": 0.0206962,
+}
+CALIBRATION_PILOT_RATIOS = {
+    cell: _RECORDED_CALIBRATION_RATIOS.get(cell, 1.0) for cell in CALIBRATION_CELLS
+}
+CALIBRATION_PILOT_BIASES = {
+    cell: _RECORDED_CALIBRATION_BIASES.get(cell, 0.0) for cell in CALIBRATION_CELLS
+}
 #: The covered count of each calibration cell over the pilot draws of its arm (reported).
-CALIBRATION_PILOT_COVERED = dict.fromkeys(CALIBRATION_CELLS, 7_600)
-#: The empirical spread of each calibration cell's estimate (reported).  The placeholder is the
+CALIBRATION_PILOT_COVERED = {
+    cell: _RECORDED_CALIBRATION_COVERED.get(cell, 7_600) for cell in CALIBRATION_CELLS
+}
+#: The empirical spread of each calibration cell's estimate (reported).  A pending cell holds the
 #: efficiency bound over the root of the arm's size, which is the law's own spread.
 CALIBRATION_PILOT_SPREADS = {
-    cell: EFFICIENCY_SD[cell.split("__", 1)[0]] / 8_000**0.5 for cell in CALIBRATION_CELLS
+    cell: _RECORDED_CALIBRATION_SPREADS.get(
+        cell,
+        EFFICIENCY_SD[cell.split("__", 1)[0]] / CALIBRATION_PILOT_N[cell.split("__", 1)[1]] ** 0.5,
+    )
+    for cell in CALIBRATION_CELLS
 }
 CALIBRATION_PILOT_JOINT_COVERAGE = 0.95
 
@@ -1257,18 +1464,6 @@ def property_cells() -> dict[str, list[str]]:
     }
 
 
-def placeholder_spread(family: str, cell: str) -> float:
-    """The law's own spread of a cell's estimate at the family's size, before any pilot.
-
-    The positive arm and most controls estimate the label's parameter, so the efficient
-    standard deviation of the label stands in.  The ``reversed_rule`` control estimates the
-    reversed rule, and its own efficient standard deviation stands in.
-    """
-    name, arm = cell.split("__", 1)
-    scale = REVERSED_EFFICIENCY_SD[name] if arm == RULE_ARMS[1] else EFFICIENCY_SD[name]
-    return scale / PROPERTY_PILOT_N[family] ** 0.5
-
-
 #: Pilot P3 (property families): the standardized bias of each ``family/cell`` around its
 #: target (the truth for a positive arm, the control's own limit for a control) over
 #: :data:`PROPERTY_PILOT_REPLICATES` draws at the family's own size.
@@ -1282,15 +1477,245 @@ PROPERTY_PILOT_N = {
     "outcome_history_necessity": 2_000,
     "full_history_necessity": 8_000,
 }
-PROPERTY_PILOT_BIASES = {name: 0.0 for names in property_cells().values() for name in names}
-PROPERTY_PILOT_RATIOS = {name: 1.0 for names in property_cells().values() for name in names}
-PROPERTY_PILOT_COVERED = {name: 1_900 for names in property_cells().values() for name in names}
+# Recorded from pilot P3: 2,000 draws per family at the family's declared size.  The N1 ``n``
+# rule did not fire, and the rule gives 1,000 replications for every family.
+PROPERTY_PILOT_BIASES = {
+    "double_robustness/never_t3__mechanism_correct": -0.046,
+    "double_robustness/never_t3__outcome_correct": -0.0282,
+    "double_robustness/never_t3__both_wrong": -0.0077,
+    "double_robustness/always_t3__mechanism_correct": 0.024,
+    "double_robustness/always_t3__outcome_correct": -0.0038,
+    "double_robustness/always_t3__both_wrong": 0.0129,
+    "double_robustness/rule_t3__mechanism_correct": 0.0177,
+    "double_robustness/rule_t3__outcome_correct": -0.0162,
+    "double_robustness/rule_t3__both_wrong": 0.0058,
+    "double_robustness/always_vs_never_t3__mechanism_correct": 0.0519,
+    "double_robustness/always_vs_never_t3__outcome_correct": 0.0208,
+    "double_robustness/always_vs_never_t3__both_wrong": 0.0145,
+    "double_robustness/rule_vs_never_t3__mechanism_correct": 0.0443,
+    "double_robustness/rule_vs_never_t3__outcome_correct": 0.0106,
+    "double_robustness/rule_vs_never_t3__both_wrong": 0.0095,
+    "correction_necessity/never_t3__corrected": 0.0503,
+    "correction_necessity/never_t3__uncorrected": 0.0633,
+    "correction_necessity/always_t3__corrected": 0.0101,
+    "correction_necessity/always_t3__uncorrected": -0.005,
+    "correction_necessity/rule_t3__corrected": -0.0259,
+    "correction_necessity/rule_t3__uncorrected": -0.012,
+    "correction_necessity/always_vs_never_t3__corrected": -0.0342,
+    "correction_necessity/always_vs_never_t3__uncorrected": -0.0498,
+    "correction_necessity/rule_vs_never_t3__corrected": -0.0541,
+    "correction_necessity/rule_vs_never_t3__uncorrected": -0.0564,
+    "rule_necessity/rule_t2__declared": 0.0097,
+    "rule_necessity/rule_t2__reversed_rule": -0.0154,
+    "rule_necessity/rule_t3__declared": -0.0131,
+    "rule_necessity/rule_t3__reversed_rule": -0.0226,
+    "repeated_outcome_necessity/never_t2__repeated": 0.0132,
+    "repeated_outcome_necessity/never_t2__absorbing_reading": -0.0023,
+    "repeated_outcome_necessity/never_t3__repeated": 0.0245,
+    "repeated_outcome_necessity/never_t3__absorbing_reading": 0.0223,
+    "repeated_outcome_necessity/always_t2__repeated": -0.0181,
+    "repeated_outcome_necessity/always_t2__absorbing_reading": -0.038,
+    "repeated_outcome_necessity/always_t3__repeated": 0.0217,
+    "repeated_outcome_necessity/always_t3__absorbing_reading": 0.0117,
+    "repeated_outcome_necessity/rule_t2__repeated": -0.0471,
+    "repeated_outcome_necessity/rule_t2__absorbing_reading": -0.0642,
+    "repeated_outcome_necessity/rule_t3__repeated": 0.0141,
+    "repeated_outcome_necessity/rule_t3__absorbing_reading": -0.0443,
+    "outcome_history_necessity/never_t3__repeated": 0.0226,
+    "outcome_history_necessity/never_t3__history_free": 0.0217,
+    "outcome_history_necessity/always_t3__repeated": 0.0226,
+    "outcome_history_necessity/always_t3__history_free": 0.0264,
+    "outcome_history_necessity/always_vs_never_t3__repeated": -0.0041,
+    "outcome_history_necessity/always_vs_never_t3__history_free": 0.0008,
+    "full_history_necessity/never_t3__full_history": -0.0627,
+    "full_history_necessity/never_t3__markov_history": -0.0518,
+    "full_history_necessity/always_t3__full_history": -0.0416,
+    "full_history_necessity/always_t3__markov_history": -0.0383,
+    "full_history_necessity/rule_t3__full_history": -0.0131,
+    "full_history_necessity/rule_t3__markov_history": -0.0056,
+    "full_history_necessity/always_vs_never_t3__full_history": 0.0227,
+    "full_history_necessity/always_vs_never_t3__markov_history": 0.0118,
+    "full_history_necessity/rule_vs_never_t3__full_history": 0.0371,
+    "full_history_necessity/rule_vs_never_t3__markov_history": 0.0366,
+}
+PROPERTY_PILOT_RATIOS = {
+    "double_robustness/never_t3__mechanism_correct": 1.0531,
+    "double_robustness/never_t3__outcome_correct": 0.9676,
+    "double_robustness/never_t3__both_wrong": 1.1691,
+    "double_robustness/always_t3__mechanism_correct": 0.9996,
+    "double_robustness/always_t3__outcome_correct": 1.2117,
+    "double_robustness/always_t3__both_wrong": 1.2818,
+    "double_robustness/rule_t3__mechanism_correct": 1.0238,
+    "double_robustness/rule_t3__outcome_correct": 0.7629,
+    "double_robustness/rule_t3__both_wrong": 0.9028,
+    "double_robustness/always_vs_never_t3__mechanism_correct": 1.0504,
+    "double_robustness/always_vs_never_t3__outcome_correct": 1.0745,
+    "double_robustness/always_vs_never_t3__both_wrong": 1.2245,
+    "double_robustness/rule_vs_never_t3__mechanism_correct": 1.0181,
+    "double_robustness/rule_vs_never_t3__outcome_correct": 0.8746,
+    "double_robustness/rule_vs_never_t3__both_wrong": 1.0504,
+    "correction_necessity/never_t3__corrected": 1.0209,
+    "correction_necessity/never_t3__uncorrected": 1.1502,
+    "correction_necessity/always_t3__corrected": 0.9917,
+    "correction_necessity/always_t3__uncorrected": 0.9186,
+    "correction_necessity/rule_t3__corrected": 1.0208,
+    "correction_necessity/rule_t3__uncorrected": 1.2952,
+    "correction_necessity/always_vs_never_t3__corrected": 1.0127,
+    "correction_necessity/always_vs_never_t3__uncorrected": 1.0445,
+    "correction_necessity/rule_vs_never_t3__corrected": 1.0182,
+    "correction_necessity/rule_vs_never_t3__uncorrected": 1.2158,
+    "rule_necessity/rule_t2__declared": 0.9701,
+    "rule_necessity/rule_t2__reversed_rule": 0.982,
+    "rule_necessity/rule_t3__declared": 0.7981,
+    "rule_necessity/rule_t3__reversed_rule": 0.9321,
+    "repeated_outcome_necessity/never_t2__repeated": 1.0087,
+    "repeated_outcome_necessity/never_t2__absorbing_reading": 0.9866,
+    "repeated_outcome_necessity/never_t3__repeated": 0.9501,
+    "repeated_outcome_necessity/never_t3__absorbing_reading": 0.9978,
+    "repeated_outcome_necessity/always_t2__repeated": 1.0018,
+    "repeated_outcome_necessity/always_t2__absorbing_reading": 1.0052,
+    "repeated_outcome_necessity/always_t3__repeated": 0.9762,
+    "repeated_outcome_necessity/always_t3__absorbing_reading": 0.998,
+    "repeated_outcome_necessity/rule_t2__repeated": 0.9955,
+    "repeated_outcome_necessity/rule_t2__absorbing_reading": 0.9942,
+    "repeated_outcome_necessity/rule_t3__repeated": 0.9188,
+    "repeated_outcome_necessity/rule_t3__absorbing_reading": 1.0071,
+    "outcome_history_necessity/never_t3__repeated": 0.8583,
+    "outcome_history_necessity/never_t3__history_free": 0.9452,
+    "outcome_history_necessity/always_t3__repeated": 0.9333,
+    "outcome_history_necessity/always_t3__history_free": 0.9789,
+    "outcome_history_necessity/always_vs_never_t3__repeated": 0.8876,
+    "outcome_history_necessity/always_vs_never_t3__history_free": 0.9577,
+    "full_history_necessity/never_t3__full_history": 1.0638,
+    "full_history_necessity/never_t3__markov_history": 1.1367,
+    "full_history_necessity/always_t3__full_history": 1.3138,
+    "full_history_necessity/always_t3__markov_history": 1.2589,
+    "full_history_necessity/rule_t3__full_history": 0.7717,
+    "full_history_necessity/rule_t3__markov_history": 0.9471,
+    "full_history_necessity/always_vs_never_t3__full_history": 1.165,
+    "full_history_necessity/always_vs_never_t3__markov_history": 1.1857,
+    "full_history_necessity/rule_vs_never_t3__full_history": 0.9621,
+    "full_history_necessity/rule_vs_never_t3__markov_history": 1.0777,
+}
+PROPERTY_PILOT_COVERED = {
+    "double_robustness/never_t3__mechanism_correct": 1916,
+    "double_robustness/never_t3__outcome_correct": 1874,
+    "double_robustness/never_t3__both_wrong": 1242,
+    "double_robustness/always_t3__mechanism_correct": 1889,
+    "double_robustness/always_t3__outcome_correct": 1955,
+    "double_robustness/always_t3__both_wrong": 1920,
+    "double_robustness/rule_t3__mechanism_correct": 1879,
+    "double_robustness/rule_t3__outcome_correct": 1740,
+    "double_robustness/rule_t3__both_wrong": 1613,
+    "double_robustness/always_vs_never_t3__mechanism_correct": 1920,
+    "double_robustness/always_vs_never_t3__outcome_correct": 1936,
+    "double_robustness/always_vs_never_t3__both_wrong": 1263,
+    "double_robustness/rule_vs_never_t3__mechanism_correct": 1908,
+    "double_robustness/rule_vs_never_t3__outcome_correct": 1840,
+    "double_robustness/rule_vs_never_t3__both_wrong": 1760,
+    "correction_necessity/never_t3__corrected": 1904,
+    "correction_necessity/never_t3__uncorrected": 1348,
+    "correction_necessity/always_t3__corrected": 1875,
+    "correction_necessity/always_t3__uncorrected": 1680,
+    "correction_necessity/rule_t3__corrected": 1890,
+    "correction_necessity/rule_t3__uncorrected": 1865,
+    "correction_necessity/always_vs_never_t3__corrected": 1908,
+    "correction_necessity/always_vs_never_t3__uncorrected": 1101,
+    "correction_necessity/rule_vs_never_t3__corrected": 1892,
+    "correction_necessity/rule_vs_never_t3__uncorrected": 1889,
+    "rule_necessity/rule_t2__declared": 1890,
+    "rule_necessity/rule_t2__reversed_rule": 136,
+    "rule_necessity/rule_t3__declared": 1756,
+    "rule_necessity/rule_t3__reversed_rule": 646,
+    "repeated_outcome_necessity/never_t2__repeated": 1899,
+    "repeated_outcome_necessity/never_t2__absorbing_reading": 0,
+    "repeated_outcome_necessity/never_t3__repeated": 1875,
+    "repeated_outcome_necessity/never_t3__absorbing_reading": 0,
+    "repeated_outcome_necessity/always_t2__repeated": 1897,
+    "repeated_outcome_necessity/always_t2__absorbing_reading": 0,
+    "repeated_outcome_necessity/always_t3__repeated": 1886,
+    "repeated_outcome_necessity/always_t3__absorbing_reading": 0,
+    "repeated_outcome_necessity/rule_t2__repeated": 1890,
+    "repeated_outcome_necessity/rule_t2__absorbing_reading": 0,
+    "repeated_outcome_necessity/rule_t3__repeated": 1853,
+    "repeated_outcome_necessity/rule_t3__absorbing_reading": 0,
+    "outcome_history_necessity/never_t3__repeated": 1810,
+    "outcome_history_necessity/never_t3__history_free": 1372,
+    "outcome_history_necessity/always_t3__repeated": 1864,
+    "outcome_history_necessity/always_t3__history_free": 1819,
+    "outcome_history_necessity/always_vs_never_t3__repeated": 1821,
+    "outcome_history_necessity/always_vs_never_t3__history_free": 1309,
+    "full_history_necessity/never_t3__full_history": 1924,
+    "full_history_necessity/never_t3__markov_history": 221,
+    "full_history_necessity/always_t3__full_history": 1976,
+    "full_history_necessity/always_t3__markov_history": 1557,
+    "full_history_necessity/rule_t3__full_history": 1738,
+    "full_history_necessity/rule_t3__markov_history": 527,
+    "full_history_necessity/always_vs_never_t3__full_history": 1950,
+    "full_history_necessity/always_vs_never_t3__markov_history": 168,
+    "full_history_necessity/rule_vs_never_t3__full_history": 1888,
+    "full_history_necessity/rule_vs_never_t3__markov_history": 1705,
+}
 #: The empirical spread of each cell's estimate.  The discrimination test reads the gaps of the
-#: controls in these spreads once the pilots are recorded.
+#: controls in these spreads.
 PROPERTY_PILOT_SPREADS = {
-    key: placeholder_spread(key.split("/", 1)[0], key.split("/", 1)[1])
-    for names in property_cells().values()
-    for key in names
+    "double_robustness/never_t3__mechanism_correct": 0.0320336,
+    "double_robustness/never_t3__outcome_correct": 0.0329263,
+    "double_robustness/never_t3__both_wrong": 0.0276271,
+    "double_robustness/always_t3__mechanism_correct": 0.0245427,
+    "double_robustness/always_t3__outcome_correct": 0.0241385,
+    "double_robustness/always_t3__both_wrong": 0.0266817,
+    "double_robustness/rule_t3__mechanism_correct": 0.0311515,
+    "double_robustness/rule_t3__outcome_correct": 0.0284902,
+    "double_robustness/rule_t3__both_wrong": 0.0252038,
+    "double_robustness/always_vs_never_t3__mechanism_correct": 0.0397248,
+    "double_robustness/always_vs_never_t3__outcome_correct": 0.0402684,
+    "double_robustness/always_vs_never_t3__both_wrong": 0.0384181,
+    "double_robustness/rule_vs_never_t3__mechanism_correct": 0.045669,
+    "double_robustness/rule_vs_never_t3__outcome_correct": 0.0440528,
+    "double_robustness/rule_vs_never_t3__both_wrong": 0.0375926,
+    "correction_necessity/never_t3__corrected": 0.0329861,
+    "correction_necessity/never_t3__uncorrected": 0.0292795,
+    "correction_necessity/always_t3__corrected": 0.0247195,
+    "correction_necessity/always_t3__uncorrected": 0.026686,
+    "correction_necessity/rule_t3__corrected": 0.0310519,
+    "correction_necessity/rule_t3__uncorrected": 0.0244743,
+    "correction_necessity/always_vs_never_t3__corrected": 0.0411442,
+    "correction_necessity/always_vs_never_t3__uncorrected": 0.0398937,
+    "correction_necessity/rule_vs_never_t3__corrected": 0.0454851,
+    "correction_necessity/rule_vs_never_t3__uncorrected": 0.0380934,
+    "rule_necessity/rule_t2__declared": 0.0171295,
+    "rule_necessity/rule_t2__reversed_rule": 0.0159923,
+    "rule_necessity/rule_t3__declared": 0.0297429,
+    "rule_necessity/rule_t3__reversed_rule": 0.025696,
+    "repeated_outcome_necessity/never_t2__repeated": 0.0100373,
+    "repeated_outcome_necessity/never_t2__absorbing_reading": 0.0105292,
+    "repeated_outcome_necessity/never_t3__repeated": 0.0153341,
+    "repeated_outcome_necessity/never_t3__absorbing_reading": 0.0121653,
+    "repeated_outcome_necessity/always_t2__repeated": 0.00741439,
+    "repeated_outcome_necessity/always_t2__absorbing_reading": 0.00829078,
+    "repeated_outcome_necessity/always_t3__repeated": 0.0121135,
+    "repeated_outcome_necessity/always_t3__absorbing_reading": 0.0126401,
+    "repeated_outcome_necessity/rule_t2__repeated": 0.00837,
+    "repeated_outcome_necessity/rule_t2__absorbing_reading": 0.00895662,
+    "repeated_outcome_necessity/rule_t3__repeated": 0.0142244,
+    "repeated_outcome_necessity/rule_t3__absorbing_reading": 0.011185,
+    "outcome_history_necessity/never_t3__repeated": 0.0320719,
+    "outcome_history_necessity/never_t3__history_free": 0.0306699,
+    "outcome_history_necessity/always_t3__repeated": 0.0246629,
+    "outcome_history_necessity/always_t3__history_free": 0.0263881,
+    "outcome_history_necessity/always_vs_never_t3__repeated": 0.0404344,
+    "outcome_history_necessity/always_vs_never_t3__history_free": 0.0405456,
+    "full_history_necessity/never_t3__full_history": 0.0148269,
+    "full_history_necessity/never_t3__markov_history": 0.0140667,
+    "full_history_necessity/always_t3__full_history": 0.0119434,
+    "full_history_necessity/always_t3__markov_history": 0.0130565,
+    "full_history_necessity/rule_t3__full_history": 0.014324,
+    "full_history_necessity/rule_t3__markov_history": 0.0118688,
+    "full_history_necessity/always_vs_never_t3__full_history": 0.0190868,
+    "full_history_necessity/always_vs_never_t3__markov_history": 0.0193299,
+    "full_history_necessity/rule_vs_never_t3__full_history": 0.0199951,
+    "full_history_necessity/rule_vs_never_t3__markov_history": 0.0181201,
 }
 
 #: The control arm of each property family, with the limit it reads its bias around.

@@ -7,7 +7,7 @@ Hoffman and Schenck 2023, Equation (4), Lemmas 3 and 4 and Theorem 4).
 
 The truths come from the exact law in `tests/studies/ltmle_repeated_law.py`.
 
-## State: comparator pending, placeholder pilots
+## State: comparator pending, partly recorded pilots
 
 The study declares `pending_reference="lmtp"`. No reference process runs in this change. The
 change that registers the R `lmtp` 1.5.4 rows adds them as the TRACKER Study queue item of
@@ -26,12 +26,45 @@ The R side of PR C must read samples sharded by scenario and replicate, one file
 not one CSV of about 12 GB. `pairing_sample` in `canonical_sdr_repeated.py` builds one
 replicate's frame. The `shift__` columns are `int8` arm codes.
 
-The pilot tables in `tests/studies/sdr_repeated_properties.py` are placeholders. The marker
-`PILOT_STATE` in `tests/studies/canonical_sdr_repeated.py` reads `"placeholder"`. The declared
-sizes follow the rules in `tests/studies/repeated_sizing.py` applied to those placeholders, so
-they are not final. The declared run refuses to start until the pilots are recorded. The
-study stays unregistered until its artifacts and its row of the implementation validation grid
-exist.
+Pilots P1 and P3 and the cross-fit and booster arms of P2 are recorded in
+`tests/studies/sdr_repeated_properties.py`. The in-sample and continuous arms of P2 are pending.
+Their pins hold uniform planning values until the re-pilot at 32,000 runs (see the next
+section). The marker `PILOT_STATE` in `tests/studies/canonical_sdr_repeated.py` reads
+`"placeholder"`, and the declared run refuses to start. The study stays unregistered until its
+artifacts and its row of the implementation validation grid exist.
+
+## Finding of pilot P2: the in-sample n doubles
+
+Pilot P2 at `n = 8,000` gave these SE ratios:
+
+| arm | cell | SE ratio |
+| --- | --- | --- |
+| C1 in sample | `rule_t3` | 0.920 |
+| C1 in sample | `rule_vs_never_t3` | 0.949 |
+| C6 continuous | `rule_t3` | 0.897 |
+| C6 continuous | `rule_vs_never_t3` | 0.911 |
+| C3 cross-fit, C5 booster | all gated labels | 0.98 to 1.00 |
+
+The cause is a finite-sample shortfall of the in-sample variance estimate. The outcome
+regressions are saturated, full-history `CellMeansBackoff` fits. The in-sample residuals of a
+cell with `k` units lose variance by the factor `(k - 1) / k`. The rare high-weight cells of the
+rule at node 3 dominate the estimate. The deficit decays as `1 / n`:
+
+| n | 2,000 | 4,000 | 8,000 | 16,000 | 32,000 |
+| --- | --- | --- | --- | --- | --- |
+| in-sample SE times root n, over EIF standard deviation, `rule_t3` | 0.857 | 0.907 | 0.944 | 0.966 | 0.984 |
+
+This is not an estimator defect. `LTMLE` with the same learners gives the same standard error
+to 1e-6. A GLM outcome regression gives ratios of 0.98 to 1.00 at every `n`. The declared route
+for a finite-sample shortfall is the `n` that a pilot shows removes it, re-run on fresh seeds. A
+design change would drop the saturated regression that the in-sample cells need. So
+`IN_SAMPLE_N` and `CONTINUOUS_N` each double twice, to 32,000. `CALIBRATION_N` stays at 8,000 for
+C3 and C5. The C4 joint band reads the C1 rows, so it moves with `IN_SAMPLE_N`.
+
+Pilot P3 also shows ratios below 1 under a wrong mechanism: 0.763 for `double_robustness`
+`rule_t3__outcome_correct` and 0.772 for `full_history_necessity` `rule_t3__full_history`. The
+Wald standard error is inconsistent under a wrong mechanism, so the study reports it with no
+calibration claim. Those families gate bias only. The ratios are expected, not a shortfall.
 
 To record the pilots:
 
@@ -51,7 +84,7 @@ parts that exist, and a part that exists is never replaced.
 | pilot | units | fit | fits per unit |
 | --- | --- | --- | --- |
 | P1 | scenarios `repeated_folds_1` and `repeated_folds_5` | `n = PRIMARY_N` | 2,000 |
-| P2 | arms `in_sample`, `crossfit`, `continuous`, `crossfit_boosted` | `CALIBRATION_N`, `CONTINUOUS_N` for `continuous` | 8,000 |
+| P2 | arms `in_sample`, `crossfit`, `continuous`, `crossfit_boosted` | `IN_SAMPLE_N` for `in_sample`, `CONTINUOUS_N` for `continuous`, `CALIBRATION_N` for the others | 8,000 |
 | P3 | the six property families | family `n` | 2,000 |
 
 P2 also yields the C4 joint coverage. The pilots draw from streams that no declared run uses.
@@ -100,7 +133,8 @@ a part is missing. It refuses a table that no size up to 50,000 replications can
 ### After an `n` rule fires
 
 The `n` rules change one constant at a time. Each has a doubling count beside its base size:
-`PRIMARY_N_DOUBLINGS`, `CONTINUOUS_N_DOUBLINGS` and `ABSORBING_N_DOUBLINGS`.
+`PRIMARY_N_DOUBLINGS`, `IN_SAMPLE_N_DOUBLINGS`, `CONTINUOUS_N_DOUBLINGS` and
+`ABSORBING_N_DOUBLINGS`.
 Take N1 as the example. Its rule doubles `ABSORBING_N` to 16,000.
 
 1. Set `ABSORBING_N_DOUBLINGS = 1` in `sdr_repeated_properties.py`.
@@ -116,8 +150,22 @@ uv run python -m tests.canonical.sdr_repeated.pilot assemble P3 `
 ```
 
 The primary rule changes `PRIMARY_N`. The expected number of unseen-cell fits then still holds,
-because the count falls as `n` grows. The C6 rule doubles `CONTINUOUS_N` alone, and the C1, C3
-and C5 arms keep `CALIBRATION_N`. Run `--units continuous` in the same way.
+because the count falls as `n` grows. The C6 rule doubles `CONTINUOUS_N` alone. The in-sample
+route doubles `IN_SAMPLE_N` alone. The C3 and C5 arms keep `CALIBRATION_N`.
+
+### Re-pilot of P2 at the doubled size
+
+`IN_SAMPLE_N_DOUBLINGS = 2` and `CONTINUOUS_N_DOUBLINGS = 2` set both sizes to 32,000. Re-run
+the two units into a new directory, then assemble it with the old one. The old directory still
+supplies `crossfit` and `crossfit_boosted` at 8,000. `assemble` skips its `in_sample` and
+`continuous` rows, because they were drawn at 8,000.
+
+```powershell
+uv run python -m tests.canonical.sdr_repeated.pilot run P2 `
+  --units in_sample continuous --output .tmp/sdr-p2-32k --jobs 8
+uv run python -m tests.canonical.sdr_repeated.pilot assemble P2 `
+  --output .tmp/sdr-p2 --output .tmp/sdr-p2-32k
+```
 
 ## What the sampled rows do not show
 

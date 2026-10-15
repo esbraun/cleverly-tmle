@@ -14,7 +14,7 @@ statistics of every cell and the tables to paste into
 pilot   units                                  fit
 ======  =====================================  ========================================
 P1      scenario (2 x 2,000)                   primary fit at ``PRIMARY_N``
-P2      arm (4 x 8,000)                        calibration fit at the arm's declared n
+P2      arm (4)                                calibration fit at the arm's declared n
 P3      family (6 x 2,000)                     control fit at the family's declared n
 ======  =====================================  ========================================
 
