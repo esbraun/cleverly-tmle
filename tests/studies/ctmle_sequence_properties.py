@@ -67,9 +67,7 @@ from sklearn.preprocessing import FunctionTransformer
 from cleverly.datasets import DGP, instrument_dgp, linear_dgp
 from cleverly.estimators import CTMLE
 from cleverly.utils.bounds import expit
-from cleverly.utils.parallel import map_parallel
-from cleverly.validation import CoverageStudy
-from cleverly.validation._seeds import sample_seed_streams
+from cleverly.validation._seeds import sample_seed_streams, validate_sample_seeds
 from tests.parallel import STUDY_JOBS
 from tests.studies import bounded_cv_laws, multi_arm_common
 from tests.studies.canonical_ctmle_sequences import (
@@ -79,13 +77,22 @@ from tests.studies.canonical_ctmle_sequences import (
     STUDY,
     penalty_design,
 )
+from tests.studies.evidence import property_failures, property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyBatch,
     PropertyCell,
+    _cell_of,
+    _CellDraw,
+    _CellFit,
+    _CellsOf,
+    _replicate_of,
+    _seed_of,
     bootstrap_draw_blocks,
+    paired,
 )
 from tests.studies.evidence.property_verdicts import apply_shared_verdicts, finish
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.studies.multi_arm_properties import ESTIMAND as MULTI_ARM_ESTIMAND
@@ -497,18 +504,38 @@ def _recorded(factory: Any) -> Any:
     return lambda: _Recording(factory())
 
 
-def _replication(study: CoverageStudy, index: int, seed: int) -> tuple[Any, dict[str, Any]]:
-    outcome = study.run_replication(index, seed)
-    return outcome, dict(_LAST_SELECTION)
+def _selection_estimator(cell: PropertyCell) -> Any:
+    """The cell's estimator factory, recording the selection of a lasso or learners fit."""
+    factory = _estimator(cell)
+    return factory if _strategy(cell.cell) == "discrete" else _recorded(factory)
+
+
+@dataclass(frozen=True)
+class _SelectionFit:
+    """Fit one key as :func:`~tests.studies.evidence.properties.run_cells` does.
+
+    Returns the row, the alpha, and the selection of a lasso or learners fit (``None`` for
+    a discrete fit).
+    """
+
+    fit: _CellFit
+
+    def __call__(
+        self, key: tuple[PropertyCell, int, int], drawn: Any
+    ) -> tuple[dict[str, Any], float, dict[str, Any] | None]:
+        row, alpha = self.fit(key, drawn)
+        selection = None if _strategy(key[0].cell) == "discrete" else dict(_LAST_SELECTION)
+        return row, alpha, selection
 
 
 @dataclass(frozen=True)
 class SelectionBatch(PropertyBatch):
     """The property batch, with the selection of every lasso and learners fit.
 
-    :meth:`run_with_selection` fits each replication once.  Its rows are those
-    :func:`~tests.studies.evidence.properties.run_cells` returns for the same cells, and it
-    also returns ``property-selection.csv``.
+    :meth:`run_with_selection` fits each replication once, through the same
+    :func:`~tests.studies.evidence.replication.fit_properties` loop and keys as
+    :func:`~tests.studies.evidence.properties.run_cells`.  Its rows are the rows that
+    ``run_cells`` returns for the same cells, and it also returns ``property-selection.csv``.
     """
 
     def run_with_selection(self, *, n_jobs: int) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -523,79 +550,73 @@ class SelectionBatch(PropertyBatch):
         -------
         tuple of DataFrame
             The property rows, and :data:`SELECTION_COLUMNS` rows.
+
+        Raises
+        ------
+        RuntimeError
+            If every replication of a cell failed, or if the replications of a cell report
+            more than one alpha.
         """
         budgets: dict[int, int] = {}
         for cell in self.cells:
             budgets[cell.seed] = max(budgets.get(cell.seed, 0), cell.replicates)
         sample_seeds = sample_seed_streams(budgets)
-        frames: list[pd.DataFrame] = []
-        selections: list[dict[str, Any]] = []
+        keys: list[tuple[PropertyCell, int, int]] = []
         for cell in self.cells:
-            records_selection = _strategy(cell.cell) != "discrete"
-            factory = self.estimator(cell)
-            study = CoverageStudy(
-                dgp=cell.dgp,
-                estimator=_recorded(factory) if records_selection else factory,
-                n=cell.n,
-                n_replicates=cell.replicates,
-                estimands=(cell.estimand,),
-                fit_kwargs=dict(cell.fit_kwargs),
-                seed=cell.seed,
-                sample_seeds=sample_seeds[cell.seed][: cell.replicates],
-                n_jobs=n_jobs,
+            seeds = validate_sample_seeds(
+                sample_seeds[cell.seed][: cell.replicates], cell.replicates
             )
-            outcomes = map_parallel(
-                _replication,
-                [
-                    (study, index, int(seed))
-                    for index, seed in enumerate(sample_seeds[cell.seed][: cell.replicates])
-                ],
-                n_jobs=n_jobs,
-            )
-            records = []
-            failed = 0
-            for outcome, selection in outcomes:
-                if not isinstance(outcome, tuple):
-                    failed += 1
-                    continue
-                kept = [record for record in outcome if record.estimand == cell.estimand]
-                records.extend(kept)
-                if records_selection and kept:
-                    selections.append(
-                        {
-                            "property": cell.property,
-                            "cell": cell.cell,
-                            "replicate": kept[0].replicate,
-                            **selection,
-                        }
-                    )
-            if not records:
-                raise RuntimeError(f"every replication of {cell.property}/{cell.cell} failed")
-            frames.append(
-                pd.DataFrame(
+            keys.extend((cell, replicate, int(seed)) for replicate, seed in enumerate(seeds))
+        values = fit_properties(
+            keys,
+            _SelectionFit(_CellFit(_selection_estimator)),
+            cells_of=_CellsOf({}),
+            cell_of=_cell_of,
+            replicate_of=_replicate_of,
+            n_jobs=n_jobs,
+            label=f"properties/{self.name}",
+            draw=_CellDraw(self.estimator),
+            rows_at=0,
+            seed_of=_seed_of,
+        )
+        alphas: dict[tuple[str, str], set[float]] = {}
+        selections: list[dict[str, Any]] = []
+        for row, alpha, selection in values:
+            alphas.setdefault((row["property"], row["cell"]), set()).add(alpha)
+            if selection is not None:
+                selections.append(
                     {
-                        "property": cell.property,
-                        "cell": cell.cell,
-                        "role": cell.role,
-                        "replicate": [record.replicate for record in records],
-                        "n": cell.n,
-                        "requested_replicates": cell.replicates,
-                        "failed_replicates": failed,
-                        "truth": [record.truth for record in records],
-                        "estimate": [record.estimate for record in records],
-                        "std_error": [record.std_error for record in records],
-                        "covered": [int(record.covered) for record in records],
-                        "rejected": [int(record.rejected) for record in records],
+                        "property": row["property"],
+                        "cell": row["cell"],
+                        "replicate": row["replicate"],
+                        **selection,
                     }
                 )
-            )
-        rows = pd.concat(frames, ignore_index=True).loc[:, list(REPLICATE_COLUMNS)]
+        for cell in self.cells:
+            name = (cell.property, cell.cell)
+            if name not in alphas:
+                raise RuntimeError(f"every replication of {cell.property}/{cell.cell} failed")
+            if len(alphas[name]) != 1:
+                raise RuntimeError(
+                    f"replications returned inconsistent alpha levels: {sorted(alphas[name])}"
+                )
+        rows = pd.DataFrame([row for row, _, _ in values]).loc[:, list(REPLICATE_COLUMNS)]
         return rows, pd.DataFrame(selections, columns=list(SELECTION_COLUMNS))
 
 
 def sampling_batches() -> tuple[PropertyBatch, ...]:
     """The actual sampling calls, shared by complete and targeted regeneration."""
     return (SelectionBatch("properties", cells(), _estimator),)
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -667,6 +688,64 @@ def rmse_ratio_bound(chosen: pd.DataFrame, control: pd.DataFrame, *, seed: int) 
     return float(np.quantile(np.concatenate(ratios), RMSE_BOUND_LEVEL))
 
 
+#: The collaborative cells of ``selector_necessity``, each divided by ``empty_control``.
+SELECTOR_CELLS = ("lasso_collaborative", "learners_collaborative")
+
+
+def _paired_arms(
+    collaborative: pd.DataFrame, control: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    # Paired on the replication index: the cells share one seed, so the ratio divides two
+    # error curves of the same draws.  A recorded failure may cost the arms different
+    # replicates, so the pair reads the replicates both kept.
+    chosen, kept = paired(collaborative, control)
+    return chosen.sort_values("replicate"), kept.sort_values("replicate")
+
+
+def selector_rmse_ratio(collaborative: pd.DataFrame, control: pd.DataFrame) -> float:
+    """A collaborative cell's RMSE over the empty control's, on the replicates both kept.
+
+    Parameters
+    ----------
+    collaborative : pandas.DataFrame
+        The collaborative cell's rows.
+    control : pandas.DataFrame
+        The empty control's rows.
+
+    Returns
+    -------
+    float
+        The ratio of the two RMSEs.
+    """
+    chosen, kept = _paired_arms(collaborative, control)
+    return _rmse(chosen) / _rmse(kept)
+
+
+def selector_rmse_ratio_upper(collaborative: pd.DataFrame, control: pd.DataFrame) -> float:
+    """The verdict's paired bootstrap bound on one RMSE ratio, on the replicates both kept.
+
+    The resampling stream is the collaborative cell's, so a candidate of the failure
+    accounting reads the verdict's own seed.
+
+    Parameters
+    ----------
+    collaborative : pandas.DataFrame
+        The collaborative cell's rows.
+    control : pandas.DataFrame
+        The empty control's rows.
+
+    Returns
+    -------
+    float
+        :func:`rmse_ratio_bound` of the pair.
+    """
+    chosen, kept = _paired_arms(collaborative, control)
+    name = str(chosen["cell"].iloc[0])
+    return rmse_ratio_bound(
+        chosen, kept, seed=stream_seed(STUDY, "selector_necessity", name, "rmse_ratio")
+    )
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     # The study declares no ``root_n_and_efficiency`` ladder, so it publishes no rate row.
     summary, rates = apply_shared_verdicts(
@@ -674,18 +753,14 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
 
     necessity = rows.loc[rows["property"] == "selector_necessity"]
-    control = necessity.loc[necessity["cell"] == "empty_control"].sort_values("replicate")
+    control = necessity.loc[necessity["cell"] == "empty_control"]
     ratios: dict[str, tuple[float, float]] = {}
-    for name in ("lasso_collaborative", "learners_collaborative"):
-        chosen = necessity.loc[necessity["cell"] == name].sort_values("replicate")
-        # Paired on the replication index: the cells share one seed, so the ratio divides
-        # two error curves of the same draws.
-        if not np.array_equal(chosen["replicate"], control["replicate"]):
-            raise ValueError(f"the {name!r} selector cell is not paired with its control")
-        bound = rmse_ratio_bound(
-            chosen, control, seed=stream_seed(STUDY, "selector_necessity", name, "rmse_ratio")
+    for name in SELECTOR_CELLS:
+        chosen = necessity.loc[necessity["cell"] == name]
+        ratios[name] = (
+            selector_rmse_ratio(chosen, control),
+            selector_rmse_ratio_upper(chosen, control),
         )
-        ratios[name] = (_rmse(chosen) / _rmse(control), bound)
     mask = summary["property"] == "selector_necessity"
     for name, (ratio, bound) in ratios.items():
         summary.loc[mask & (summary["cell"] == name), "rmse_ratio"] = ratio
@@ -710,3 +785,34 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[negative, "passed"] = summary.loc[negative, "bias_discriminated"]
     summary.loc[multi, "property_passed"] = bool(summary.loc[multi, "passed"].all())
     return finish(summary, rates)
+
+
+def _selector_rule() -> property_failures.FamilyRule:
+    """``selector_necessity``: each arm's bias endpoint, and S13 on the RMSE ratio bound."""
+    return property_failures.FamilyRule(
+        families=frozenset({"selector_necessity"}),
+        shared="summarize_properties",
+        clauses=(
+            property_failures.bias_clause(
+                "bias equivalent", kind="equivalent", applies=property_failures.roles("positive")
+            ),
+            property_failures.bias_clause(
+                "bias discriminated", kind="beyond", applies=property_failures.roles("control")
+            ),
+            property_failures.rmse_ratio_clause(
+                "rmse ratio bound under its ceiling",
+                paths=tuple((name, "empty_control") for name in SELECTOR_CELLS),
+                statistic=selector_rmse_ratio_upper,
+                threshold=SELECTOR_RMSE_RATIO,
+                column="rmse_ratio_upper",
+            ),
+        ),
+        group="family",
+    )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (
+    _selector_rule(),
+    property_verdicts.requirement_rule("multi_arm", shared="summarize_properties"),
+)

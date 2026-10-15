@@ -18,14 +18,15 @@ from typing import Any
 
 import pandas as pd
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.omitted_variable_bound import (
     ENDS,
@@ -66,9 +67,13 @@ def _row(
     }
 
 
-def _replicate(replicate: int) -> list[dict[str, Any]]:
+def _draw(replicate: int) -> Any:
     seed = stream_seed(STUDY, "property_sample", "interval_calibration", "linear", replicate)
-    frame, truth = draw_from_seed("linear", PRIMARY_N, seed)
+    return draw_from_seed("linear", PRIMARY_N, seed)
+
+
+def _replicate(replicate: int, drawn: Any) -> list[dict[str, Any]]:
+    frame, truth = drawn
     result = fit(frame)
     rows: list[dict[str, Any]] = []
     for name in FITTED:
@@ -101,11 +106,42 @@ def _replicate(replicate: int) -> list[dict[str, Any]]:
     return rows
 
 
+def _cells_of(key: tuple[int]) -> list[str]:
+    """Every cell reads the same fit, so a key fills all of them."""
+    return [f"interval_calibration/{cell}" for cell in PROPERTY_CELLS["interval_calibration"]]
+
+
+def _cell_of(key: tuple[int]) -> str:
+    return "interval_calibration/linear"
+
+
+def _replicate_of(key: tuple[int]) -> int:
+    return key[0]
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(
     *, n_jobs: int = STUDY_JOBS, replicates: int = PROPERTY_REPLICATES
 ) -> pd.DataFrame:
     """Fit every property replication and return one row per cell and replication."""
-    outcomes = map_parallel(_replicate, [(index,) for index in range(replicates)], n_jobs=n_jobs)
+    outcomes = fit_properties(
+        [(index,) for index in range(replicates)],
+        splat_drawn(_replicate),
+        draw=splat_draw(_draw),
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+    )
     rows = pd.DataFrame([row for records in outcomes for row in records])
     if replicates != PROPERTY_REPLICATES:
         rows["requested_replicates"] = replicates

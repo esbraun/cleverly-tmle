@@ -53,35 +53,37 @@ from sklearn.tree import DecisionTreeRegressor
 
 from cleverly.estimators import CTMLE
 from cleverly.estimators import ctmle as ctmle_module
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import cvtmle_properties
 from tests.studies import oat_per_arm_laws as laws
 from tests.studies.bounded_cv_laws import GENERATED_DESIGN_REPLICATES
 from tests.studies.canonical_ctmle_oat_per_arm import STRATIFY_FOLDS, STUDY
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyBatch,
     PropertyCell,
-    run_cells,
     se_ratio_deficit_interval,
     se_ratio_interval,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import (
     FAMILY as JOINT_FAMILY,
 )
 from tests.studies.evidence.simultaneous import (
+    joint_cells,
     joint_coverage_rows,
     joint_property_cells,
 )
@@ -425,9 +427,14 @@ def _fit_joint(frame: pd.DataFrame) -> Any:
     )
 
 
-def _joint_replication(payload: tuple[int, int, int]) -> list[dict[str, Any]]:
-    replicate, n, requested = payload
-    frame, truth = laws.THREE_ARM_ACTIVE.sample(n, _joint_seed(replicate))
+def _joint_draw(key: tuple[int, int, int]) -> Any:
+    replicate, n, _ = key
+    return laws.THREE_ARM_ACTIVE.sample(n, _joint_seed(replicate))
+
+
+def _joint_replication(key: tuple[int, int, int], drawn: Any) -> list[dict[str, Any]]:
+    replicate, n, requested = key
+    frame, truth = drawn
     result = fit_joint(frame)
     return joint_coverage_rows(
         result,
@@ -441,19 +448,50 @@ def _joint_replication(payload: tuple[int, int, int]) -> list[dict[str, Any]]:
     )
 
 
+def _joint_cells_of(key: tuple[int, int, int]) -> list[str]:
+    return [f"{JOINT_FAMILY}/{cell}" for cell in joint_cells(JOINT_LABEL)]
+
+
+def _joint_cell_of(key: tuple[int, int, int]) -> str:
+    return f"{JOINT_FAMILY}/{JOINT_LABEL}"
+
+
+def _joint_replicate_of(key: tuple[int, int, int]) -> int:
+    return key[0]
+
+
 def joint_rows(*, n_jobs: int, replicates: int = JOINT_REPLICATES) -> pd.DataFrame:
     """Every replication of the joint pair."""
-    outcomes = map_parallel(
+    outcomes = fit_properties(
+        [(replicate, JOINT_N, replicates) for replicate in range(replicates)],
         _joint_replication,
-        [((replicate, JOINT_N, replicates),) for replicate in range(replicates)],
+        cells_of=_joint_cells_of,
+        cell_of=_joint_cell_of,
+        replicate_of=_joint_replicate_of,
         n_jobs=n_jobs,
+        label="properties/joint",
+        draw=_joint_draw,
     )
     return pd.DataFrame([row for result in outcomes for row in result])
 
 
+#: Each label's positive arm to the controls :func:`calibration_controls` derives from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+
 def sampling_batches() -> tuple[PropertyBatch, ...]:
     """The actual sampling calls, shared by complete and targeted regeneration."""
-    return (PropertyBatch("properties", cells(), _estimator),)
+    return (PropertyBatch("properties", cells(), _estimator, derived=DERIVED_CELLS),)
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
@@ -469,29 +507,6 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
     )
     joint = joint_rows(n_jobs=n_jobs)
     return pd.concat([rows, controls, joint], ignore_index=True).loc[:, list(REPLICATE_COLUMNS)]
-
-
-def generate_smoke_property_rows(*, n_jobs: int = 1, replicates: int = 20) -> pd.DataFrame:
-    """The first ``replicates`` replications of every cell, for a disposable smoke run."""
-    smoke = tuple(
-        PropertyCell(
-            cell.property,
-            cell.cell,
-            cell.dgp,
-            cell.outcome_learner,
-            cell.treatment_learner,
-            cell.n,
-            min(replicates, cell.replicates),
-            cell.seed,
-            role=cell.role,
-            estimand=cell.estimand,
-            fit_kwargs=cell.fit_kwargs,
-        )
-        for cell in cells()
-    )
-    rows = run_cells(smoke, _estimator, n_jobs=n_jobs)
-    joint = joint_rows(n_jobs=n_jobs, replicates=replicates)
-    return pd.concat([rows, joint], ignore_index=True)
 
 
 def _generated_design_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
@@ -602,3 +617,16 @@ def revert_flag_red_cells(summary: pd.DataFrame, primary: pd.DataFrame) -> list[
         if float(row.coverage_ci_lower) < STUDY.margins.coverage_floor:
             red.append(f"primary/{row.scenario}/{row.estimand}")
     return red
+
+
+#: The label pairs that share a ``generated_design`` joint verdict (RM39b2 rev 3, section 5.0).
+PROPERTY_GROUPS = {
+    "generated_design": tuple(
+        (f"{label}__oracle_design", f"{label}__estimated") for label in CALIBRATION_LABELS
+    )
+}
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = (
+    property_verdicts.generated_design_rule(group="label", shared="_generated_design_verdicts"),
+)

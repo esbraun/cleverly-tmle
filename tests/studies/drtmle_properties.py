@@ -7,15 +7,16 @@ from typing import Any
 
 import pandas as pd
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_drtmle import STUDY, draw_from_seed, fit_cleverly
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
 from tests.studies.evidence.property_verdicts import (
     CONTRACTION_SCENARIOS,
     control_role,
     summarize_contraction_properties,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 DOUBLE_ROBUST_REPLICATES = 800
@@ -215,9 +216,13 @@ def cells() -> tuple[Cell, ...]:
     return tuple(out)
 
 
-def _property_replicate(payload: tuple[Cell, int]) -> dict[str, Any]:
-    cell, replicate = payload
-    frame, reference_truth = draw_from_seed(
+_Key = tuple[tuple[Cell, int]]
+
+
+def _draw(key: _Key) -> tuple[pd.DataFrame, dict[str, float]]:
+    """The sample a key fits, a function of the key alone."""
+    cell, replicate = key[0]
+    return draw_from_seed(
         cell.scenario,
         cell.n,
         stream_seed(
@@ -228,6 +233,35 @@ def _property_replicate(payload: tuple[Cell, int]) -> dict[str, Any]:
             str(replicate + cell.seed_offset),
         ),
     )
+
+
+def _cells_of(key: _Key) -> list[str]:
+    cell = key[0][0]
+    return [f"{cell.property}/{cell.cell}"]
+
+
+def _cell_of(key: _Key) -> str:
+    return _cells_of(key)[0]
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[0][1]
+
+
+def _property_replicate(payload: tuple[Cell, int]) -> dict[str, Any]:
+    """One replicate, drawn and fitted in one call."""
+    return _fit_drawn(payload, _draw((payload,)))
+
+
+def _fit_key(key: _Key, drawn: tuple[pd.DataFrame, dict[str, float]]) -> dict[str, Any]:
+    return _fit_drawn(key[0], drawn)
+
+
+def _fit_drawn(
+    payload: tuple[Cell, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> dict[str, Any]:
+    cell, replicate = payload
+    frame, reference_truth = drawn
     estimate = fit_cleverly(frame, cell.scenario).estimates["ate"]
     return replicate_row(
         property_name=cell.property,
@@ -242,9 +276,29 @@ def _property_replicate(payload: tuple[Cell, int]) -> dict[str, Any]:
     )
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    payloads = [((cell, replicate),) for cell in cells() for replicate in range(cell.replicates)]
-    rows = map_parallel(_property_replicate, payloads, n_jobs=n_jobs)
+    payloads: list[_Key] = [
+        ((cell, replicate),) for cell in cells() for replicate in range(cell.replicates)
+    ]
+    rows = fit_properties(
+        payloads,
+        _fit_key,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+    )
     return pd.DataFrame(rows).loc[:, list(REPLICATE_COLUMNS)]
 
 

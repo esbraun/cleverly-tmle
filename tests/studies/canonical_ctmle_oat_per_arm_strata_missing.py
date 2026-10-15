@@ -199,6 +199,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=REFERENCE,
+    failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
     comparison="matching implementation",
     comparison_overrides={
         "strata:*": "related target",

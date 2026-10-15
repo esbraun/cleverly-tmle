@@ -64,6 +64,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="tmle3",
+    failure_bound={"cleverly": 0.01, "tmle3": 0.01},
     comparison="matching implementation",
     comparison_overrides={
         "binary:paf": "related target",

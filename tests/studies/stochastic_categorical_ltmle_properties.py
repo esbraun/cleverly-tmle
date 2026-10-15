@@ -57,6 +57,7 @@ change.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,24 +87,34 @@ from tests.studies.canonical_stochastic_categorical_ltmle import (
     TRUTH,
     fit,
 )
+from tests.studies.evidence import property_failures as pf
+from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.inference import Interval
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     PropertyCell,
     control_row,
+    paired,
     replicate_row,
 )
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     crossfit_overfitting_verdicts,
     finish,
     necessity_verdicts,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 
 DOUBLE_ROBUST_REPLICATES = 1_200
 DOUBLE_ROBUST_N = 2_000
@@ -732,7 +743,27 @@ def _role(family: str, label: str, n: int) -> str:
     return "positive"
 
 
+def _draw_fit_set(payload: tuple[str, str, str, int, int, int, str]) -> pd.DataFrame:
+    """The sample one draw of one fit set fits, a function of the payload alone."""
+    family, label, _, replicate, n, _, law_name = payload
+    seed = _seed(family, label, replicate)
+    if law_name == "survival_policy":
+        return survival_sample(n, seed)
+    if law_name == "policy_msm":
+        return law.sample(law.PROBS, n, seed)
+    if family == "crossfit_overfitting":
+        return law.sample(law.PROBS, n, seed, noise=True)
+    return law.sample(NULL_PROBS if law_name == "policy_null" else law.PROBS, n, seed)
+
+
 def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dict[str, Any]]:
+    """Every row one draw of one fit set publishes, drawn and fitted in one call."""
+    return _fit_set_drawn(payload, _draw_fit_set(payload))
+
+
+def _fit_set_drawn(
+    payload: tuple[str, str, str, int, int, int, str], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
     """Every row one draw of one fit set publishes."""
     family, label, configuration, replicate, n, requested, law_name = payload
     seed = _seed(family, label, replicate)
@@ -751,15 +782,14 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
         )
 
     if law_name == "survival_policy":
-        result = survival_fit(survival_sample(n, seed))
+        result = survival_fit(frame)
         return [
             row(f"{label}__correctly_specified", "positive", SURVIVAL_TRUTH, result[SURVIVAL_NAME])
         ]
     if law_name == "policy_msm":
-        result = msm_fit(law.sample(law.PROBS, n, seed))
+        result = msm_fit(frame)
         return [row(f"{label}__correctly_specified", "positive", MSM_TRUTH, result[MSM_NAME])]
     if family == "crossfit_overfitting":
-        frame = law.sample(law.PROBS, n, seed, noise=True)
         truth = float(TRUTH[MIX])
         return [
             row(
@@ -775,8 +805,6 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
                 fit(frame, configuration="overfit_control", n_folds=1)[MIX],
             ),
         ]
-    probs = NULL_PROBS if law_name == "policy_null" else law.PROBS
-    frame = law.sample(probs, n, seed)
     if family == "randomizer_projection":
         truth = float(TRUTH[MIX_MEAN])
         integrated = fit(frame, configuration=configuration)
@@ -820,9 +848,12 @@ def _fit_set_rows(payload: tuple[str, str, str, int, int, int, str]) -> list[dic
     return rows
 
 
-def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
+def _draw_band(payload: tuple[int, int]) -> pd.DataFrame:
+    return law.sample(law.PROBS, PRIMARY_N, _seed(JOINT, BAND_LABEL, payload[0]))
+
+
+def _band_rows(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str, Any]]:
     replicate, requested = payload
-    frame = law.sample(law.PROBS, PRIMARY_N, _seed(JOINT, BAND_LABEL, replicate))
     result = fit(frame, simultaneous=True)
     return joint_coverage_rows(
         result,
@@ -836,27 +867,91 @@ def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
     )
 
 
-def _payloads(budget: int | None) -> list[tuple[Any, ...]]:
-    out: list[tuple[Any, ...]] = []
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+#: A fit-set key is ``("fit_set", payload)`` and a band key is ``("band", (replicate, requested))``.
+_Key = tuple[str, tuple[Any, ...]]
+
+
+def _payloads(budget: int | None) -> list[_Key]:
+    out: list[_Key] = []
     for family, label, configuration, n, replicates, law_name in FIT_SETS:
         requested = replicates if budget is None else budget
         out.extend(
-            ((_fit_set_rows, (family, label, configuration, r, n, requested, law_name)),)
+            ("fit_set", (family, label, configuration, r, n, requested, law_name))
             for r in range(requested)
         )
     band = BAND_REPLICATES if budget is None else budget
-    out.extend(((_band_rows, (r, band)),) for r in range(band))
+    out.extend(("band", (r, band)) for r in range(band))
     return out
 
 
-def _run(job: tuple[Any, tuple[Any, ...]]) -> list[dict[str, Any]]:
-    function, payload = job
-    return list(function(payload))
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    kind, payload = key
+    return _draw_band(payload) if kind == "band" else _draw_fit_set(payload)
+
+
+def _run(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    kind, payload = key
+    return list(_band_rows(payload, frame) if kind == "band" else _fit_set_drawn(payload, frame))
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names the key's rows and derived controls fill."""
+    kind, payload = key
+    if kind == "band":
+        return [f"{JOINT}/{name}" for name in joint_cells(BAND_LABEL)]
+    family, label, _, _, _, _, law_name = payload
+    if family == "crossfit_overfitting":
+        return [f"{family}/cross_fitted_policy_ltmle", f"{family}/in_sample_control"]
+    if family == "randomizer_projection":
+        return [f"{family}/mix__integrated", f"{family}/mix__recorded_randomizer"]
+    if family == "policy_necessity":
+        return [f"{family}/mix__declared_policy", f"{family}/mix__uniform_control"]
+    if law_name in {"survival_policy", "policy_msm"}:
+        base = f"{family}/{label}__correctly_specified"
+    else:
+        stream = "correctly_specified" if family == "interval_calibration" else label
+        base = f"{family}/mix__{stream}"
+        if family == "targeting_necessity":
+            return [base, f"{family}/mix__untargeted"]
+    return [base, *DERIVED_CELLS.get(base, ())]
+
+
+def _cell_of(key: _Key) -> str:
+    kind, payload = key
+    return f"{JOINT}/{BAND_LABEL}" if kind == "band" else f"{payload[0]}/{payload[1]}"
+
+
+def _replicate_of(key: _Key) -> int:
+    kind, payload = key
+    return payload[0] if kind == "band" else payload[3]
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every property replication; ``budget`` caps each fit set for a pre-run check."""
-    outcomes = map_parallel(_run, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _run,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -911,16 +1006,22 @@ def projection_sd_ratio(
 ) -> tuple[float, float]:
     """``sd(integrated) / sd(recorded)`` and its one-sided bootstrap upper bound.
 
-    The two arms are paired on ``replicate``, so a bootstrap draw resamples replicates and
-    keeps each pair together.
+    The two arms are paired on ``replicate`` through
+    :func:`~tests.studies.evidence.properties.paired`, which reads the replicates both arms
+    kept and refuses a gap the stamps do not explain (rev 3 G10).  A bootstrap draw resamples
+    replicates and keeps each pair together.
     """
     family = rows.loc[rows["property"] == "randomizer_projection"]
-    integrated = family.loc[family["cell"] == "mix__integrated"].set_index("replicate")["estimate"]
-    recorded = family.loc[family["cell"] == "mix__recorded_randomizer"].set_index("replicate")[
-        "estimate"
-    ]
-    paired = pd.concat([integrated, recorded], axis=1, keys=["integrated", "recorded"]).dropna()
-    values = paired.to_numpy(dtype=float)
+    integrated, recorded = paired(
+        family.loc[family["cell"] == "mix__integrated"],
+        family.loc[family["cell"] == "mix__recorded_randomizer"],
+    )
+    values = np.column_stack(
+        [
+            arm.sort_values("replicate")["estimate"].to_numpy(dtype=float)
+            for arm in (integrated, recorded)
+        ]
+    )
     point = float(np.std(values[:, 0], ddof=1) / np.std(values[:, 1], ddof=1))
     rng = np.random.default_rng(seed)
     draws = rng.integers(0, len(values), size=(replicates, len(values)))
@@ -952,6 +1053,25 @@ def randomizer_projection_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) ->
     summary.loc[mask, "property_passed"] = bool(summary.loc[mask, "passed"].all() and upper < 1.0)
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=("mix",),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+#: The ``policy_necessity`` family's declaration, read by its verdict and its rule.
+POLICY_NECESSITY = property_verdicts.Necessity(
+    family="policy_necessity",
+    labels=("mix",),
+    arms=("declared_policy", "uniform_control"),
+    column="policy_displacement",
+    threshold=POLICY_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts and the study's own declared rules."""
     summary, rates = apply_shared_verdicts(
@@ -969,25 +1089,54 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         efficiency_bounds=EFFICIENCY_SD,
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=("mix",),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="policy_necessity",
-        labels=("mix",),
-        arms=("declared_policy", "uniform_control"),
-        column="policy_displacement",
-        threshold=POLICY_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, POLICY_NECESSITY)
     randomizer_projection_verdicts(summary, rows)
     crossfit_overfitting_verdicts(summary, rows, STUDY, positive_cell="cross_fitted_policy_ltmle")
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+def _projection_statistic(
+    ctx: pf.Context, row: pd.Series, numerator: pd.DataFrame, denominator: pd.DataFrame
+) -> Interval:
+    """The verdict's own :func:`projection_sd_ratio` bound, as an S9 hook (rev 3 G6)."""
+    _, upper = projection_sd_ratio(
+        pd.concat([numerator, denominator], ignore_index=True),
+        replicates=ctx.margins.bootstrap_replicates,
+        level=PROJECTION_LEVEL,
+        seed=stream_seed(ctx.record, "randomizer_projection", "sd_ratio"),
+    )
+    return Interval(math.nan, upper)
+
+
+def _projection_rule() -> pf.FamilyRule:
+    """``randomizer_projection``: each arm's bias, and the one-sided spread bound under one."""
+    return pf.FamilyRule(
+        families=frozenset({"randomizer_projection"}),
+        shared="randomizer_projection_verdicts",
+        clauses=(
+            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.every),
+            pf.spread_ratio_clause(
+                "projection spread ratio under one",
+                cells=("mix__integrated", "mix__recorded_randomizer"),
+                side="upper",
+                judge=pf.below_judge(lambda ctx: 1.0),
+                seed=lambda ctx, row: stream_seed(ctx.record, "randomizer_projection", "sd_ratio"),
+                applies=pf.every,
+                statistic=_projection_statistic,
+                columns=(None, "projection_sd_ratio_ci_upper"),
+                target="property_passed",
+            ),
+        ),
+        group="family",
+    )
+
+
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY, POLICY_NECESSITY),
+    _projection_rule(),
+)

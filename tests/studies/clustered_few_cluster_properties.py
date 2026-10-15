@@ -41,10 +41,12 @@ centres the cluster totals in each of the ``V = 5`` folds, so it has ``J - V``. 
 ``t_j_minus_2_reference``, keeps ``J - 2`` on the same fits, so the run shows what the rule buys
 at 2, 4 and 6 clusters per fold.
 
-A fit that raises, or that returns a non-finite estimate or standard error, is a failed
-replication. The study publishes the count in ``failed_replicates`` and never drops one
-silently; the framework then refuses to summarise the cell. The policy is ``reporting``, the
-owner of every red cell is F28, and nothing changes after a result is seen.
+A fit that raises a recordable error, or that returns a non-finite estimate or standard error,
+is a failed replication. Each fit of a draw is its own key, so one failed fit costs that fit's
+cells one replication and no other fit's. The property loop records the failure and the
+accounting reads it. The sample is drawn outside the fit, so a sampler error stops the run. The
+policy is ``reporting``, the owner of every red cell is F28, and nothing changes after a result
+is seen.
 """
 
 from __future__ import annotations
@@ -59,7 +61,6 @@ from sklearn.linear_model import LinearRegression
 
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.inference import influence_variance
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import clustered_unequal_laws as laws
 from tests.studies.canonical_drtmle import G_BOUNDS as DRTMLE_G_BOUNDS
@@ -78,6 +79,7 @@ from tests.studies.clustered_few_cluster_tmle import (
     fits_at,
 )
 from tests.studies.clustered_unequal_cvtmle import tmle_settings
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     PropertyCell,
     control_row,
@@ -90,6 +92,7 @@ from tests.studies.evidence.property_verdicts import (
     few_cluster_reference_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 NORMAL_CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
@@ -212,104 +215,131 @@ def fit_estimate(fit: str, frame: pd.DataFrame, clusters: int) -> Any:
     raise KeyError(fit)
 
 
-def _cell_rows(
-    payload: tuple[str, int, int, int],
-) -> tuple[list[dict[str, Any]], list[tuple[str, str, int]]]:
-    """Every fit of one draw: its arms' rows, and the fits that failed."""
-    sizes, clusters, replicate, requested = payload
-    frame = draw(sizes, clusters, _seed(sizes, clusters, replicate))
+#: One key per fit of a draw: ``(sizes, J, replicate, fit, requested)``.
+_Key = tuple[str, int, int, str, int]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of ``(sizes, J, replicate)`` alone.
+
+    The fits of one draw share a seed, so they share the sample.
+    """
+    sizes, clusters, replicate = key[:3]
+    return draw(sizes, clusters, _seed(sizes, clusters, replicate))
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``family/cell`` names one fit of one draw fills."""
+    sizes, clusters, _, fit, _ = key
+    return [f"{FAMILY}/{cell_name(fit, sizes, clusters, arm)}" for arm, _ in arms(fit)]
+
+
+def _cell_of(key: _Key) -> str:
+    sizes, clusters, _, fit, _ = key
+    return f"{FAMILY}/{cell_name(fit, sizes, clusters, 't_reference')}"
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[2]
+
+
+def _cell_rows(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """The arms of one fit of one draw."""
+    sizes, clusters, replicate, fit, requested = key
     truth = SizeLaw(f"{sizes}/J{clusters}").truth()["ate"]
     rows: list[dict[str, Any]] = []
-    failures: list[tuple[str, str, int]] = []
     common = {"property_name": FAMILY, "replicate": replicate, "requested": requested}
-    for fit in fits_at(clusters):
-        try:
-            estimate = fit_estimate(fit, frame, clusters)
-            standard_error = estimate.plugin_std_error
-            if not (np.isfinite(estimate.psi) and np.isfinite(standard_error)):
-                raise ValueError("a non-finite estimate or standard error")
-        except Exception:
-            failures.append((fit, sizes, clusters))
-            continue
-        if estimate.reference_df != expected_reference_df(fit, clusters):
-            raise AssertionError(
-                f"{fit} at J = {clusters} reports reference_df {estimate.reference_df}"
-            )
-        n = 10 * clusters
-        rows.append(
-            replicate_row(
-                cell=cell_name(fit, sizes, clusters, "t_reference"),
-                role="positive",
-                n=n,
-                truth=truth,
-                estimate=estimate,
-                alpha=STUDY.margins.alpha,
-                **common,
-            )
+    estimate = fit_estimate(fit, frame, clusters)
+    standard_error = estimate.plugin_std_error
+    if estimate.reference_df != expected_reference_df(fit, clusters):
+        raise AssertionError(
+            f"{fit} at J = {clusters} reports reference_df {estimate.reference_df}"
         )
+    n = 10 * clusters
+    rows.append(
+        replicate_row(
+            cell=cell_name(fit, sizes, clusters, "t_reference"),
+            role="positive",
+            n=n,
+            truth=truth,
+            estimate=estimate,
+            alpha=STUDY.margins.alpha,
+            **common,
+        )
+    )
+    rows.append(
+        control_row(
+            cell=cell_name(fit, sizes, clusters, "iid_t_control"),
+            n=n,
+            truth=truth,
+            estimate=float(estimate.psi),
+            standard_error=float(np.sqrt(influence_variance(estimate.influence_curve))),
+            critical=t_critical(estimate.reference_df),
+            **common,
+        )
+    )
+    rows.append(
+        control_row(
+            cell=cell_name(fit, sizes, clusters, "normal_reference"),
+            n=n,
+            truth=truth,
+            estimate=float(estimate.psi),
+            standard_error=float(standard_error),
+            critical=NORMAL_CRITICAL,
+            role=DIAGNOSTIC_ROLE,
+            **common,
+        )
+    )
+    if fit == "tmle_cv_evaluation":
         rows.append(
             control_row(
-                cell=cell_name(fit, sizes, clusters, "iid_t_control"),
-                n=n,
-                truth=truth,
-                estimate=float(estimate.psi),
-                standard_error=float(np.sqrt(influence_variance(estimate.influence_curve))),
-                critical=t_critical(estimate.reference_df),
-                **common,
-            )
-        )
-        rows.append(
-            control_row(
-                cell=cell_name(fit, sizes, clusters, "normal_reference"),
+                cell=cell_name(fit, sizes, clusters, "t_j_minus_2_reference"),
                 n=n,
                 truth=truth,
                 estimate=float(estimate.psi),
                 standard_error=float(standard_error),
-                critical=NORMAL_CRITICAL,
+                critical=t_critical(clusters - 2),
                 role=DIAGNOSTIC_ROLE,
                 **common,
             )
         )
-        if fit == "tmle_cv_evaluation":
-            rows.append(
-                control_row(
-                    cell=cell_name(fit, sizes, clusters, "t_j_minus_2_reference"),
-                    n=n,
-                    truth=truth,
-                    estimate=float(estimate.psi),
-                    standard_error=float(standard_error),
-                    critical=t_critical(clusters - 2),
-                    role=DIAGNOSTIC_ROLE,
-                    **common,
-                )
-            )
-    return rows, failures
+    return rows
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every replication; ``budget`` caps each cell for a pre-run check.
 
-    The count of failed fits of each ``(fit, sizes, J)`` is written into every row of its three
-    cells, so a cell that lost a replication is refused when it is summarised.
+    A failed fit costs the cells of that fit one replication and no other fit's. The property
+    loop records the failure, and the accounting reads the records.
     """
     replicates = PROPERTY_REPLICATES if budget is None else budget
-    payloads = [
-        ((sizes, clusters, replicate, replicates),)
+    keys: list[_Key] = [
+        (sizes, clusters, replicate, fit, replicates)
         for sizes in SIZE_LAWS
         for clusters in CLUSTER_COUNTS
         for replicate in range(replicates)
+        for fit in fits_at(clusters)
     ]
-    outcomes = map_parallel(_cell_rows, payloads, n_jobs=n_jobs)
-    rows = pd.DataFrame([row for result, _ in outcomes for row in result])
-    failed: dict[tuple[str, str, int], int] = {}
-    for _, failures in outcomes:
-        for key in failures:
-            failed[key] = failed.get(key, 0) + 1
-    for (fit, sizes, clusters), count in failed.items():
-        for arm, _ in arms(fit):
-            mask = rows["cell"] == cell_name(fit, sizes, clusters, arm)
-            rows.loc[mask, "failed_replicates"] = count
-    return rows
+    outcomes = fit_properties(
+        keys,
+        _cell_rows,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+    )
+    return pd.DataFrame([row for result in outcomes for row in result])
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

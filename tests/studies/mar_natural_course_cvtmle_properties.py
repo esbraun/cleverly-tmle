@@ -10,7 +10,6 @@ import pandas as pd
 from scipy.stats import norm
 from sklearn.tree import DecisionTreeClassifier
 
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_mar as mar
 from tests.conftest import OracleMissingness, OracleOutcome
 from tests.parallel import STUDY_JOBS
@@ -22,9 +21,12 @@ from tests.studies.canonical_mar_natural_course_cvtmle import (
     flexible_outcome_learner,
     flexible_response_learner,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     ReplicationSpec,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
     replication_payloads,
 )
@@ -34,6 +36,7 @@ from tests.studies.evidence.property_verdicts import (
     crossfit_overfitting_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.missing_outcome_study_helpers import (
     NaturalCourseLaw,
     natural_course_law,
@@ -74,9 +77,28 @@ def _fully_grown_outcome() -> DecisionTreeClassifier:
     return DecisionTreeClassifier(min_samples_leaf=1, random_state=23)
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+_Key = tuple[tuple[str, str, int, int, int, int, str]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, which is a function of the key alone."""
+    property_name, _, _, n, _, seed, _ = key[0]
     frame = sample_discrete(mar.PROBS, n, seed)
+    return _with_noise(frame, seed) if property_name == "crossfit_overfitting" else frame
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows fill."""
+    property_name, cell = key[0][:2]
+    names = [f"{property_name}/{cell}"]
+    if property_name == "interval_calibration":
+        names.append(f"{property_name}/ey_obs__shrunken_se_control")
+    return names
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    (payload,) = key
+    property_name, cell, replicate, n, requested, _seed, configuration = payload
     role = "control" if configuration in {"both_wrong", "in_sample"} else "positive"
 
     if property_name == "double_robustness":
@@ -88,7 +110,6 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
             missingness_learner=flexible_response_learner(),
         )
     elif property_name == "crossfit_overfitting":
-        frame = _with_noise(frame, seed)
         result = fit_cleverly(
             frame,
             outcome_learner=_fully_grown_outcome(),
@@ -187,15 +208,38 @@ def _payloads(
     return replication_payloads(STUDY, independent) + alternating
 
 
-def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+def _fit(payloads: list[_Key], *, n_jobs: int, label: str, checkpoint: Any) -> pd.DataFrame:
+    outcomes = fit_properties(
+        payloads,
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        label=label,
+        draw=_draw,
+        checkpoint=checkpoint,
+    )
     return pd.DataFrame([row for result in outcomes for row in result])
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
+def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
+    return _fit(_payloads(), n_jobs=n_jobs, label="properties", checkpoint="ambient")
 
 
 def generate_smoke_property_rows(*, n_jobs: int = 1) -> pd.DataFrame:
     """Fit one declared replication of every property cell without summarizing it."""
-    outcomes = map_parallel(_fit_replication, _payloads(replicates=1), n_jobs=n_jobs)
-    return pd.DataFrame([row for result in outcomes for row in result])
+    return _fit(_payloads(replicates=1), n_jobs=n_jobs, label="properties/smoke", checkpoint=None)
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
