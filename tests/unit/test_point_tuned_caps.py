@@ -795,12 +795,11 @@ def test_m3_a_point_tuned_cap_with_declared_atoms_is_refused_before_any_learner(
             Shift(0.5, cap=DoseQuantile(0.5), target=target, name="tuned"),
             Shift(0.0, cap=None),
         ]
-        with pytest.raises(CapabilityError) as caught:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                TMLE(policies=policies, n_folds=2, **_settings(**_raising())).fit(
-                    held, dose_atoms=(3.0,), **COLUMNS
-                )
+        with pytest.raises(CapabilityError) as caught, warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            TMLE(policies=policies, n_folds=2, **_settings(**_raising())).fit(
+                held, dose_atoms=(3.0,), **COLUMNS
+            )
         assert str(caught.value) == (
             "a data-tuned cap is not combined with declared dose atoms: the treatment declares "
             "the atom(s) 3. The cap is a quantile of the dose law. Where that law has an atom, "

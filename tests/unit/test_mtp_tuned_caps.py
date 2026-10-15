@@ -1293,12 +1293,11 @@ def test_m3_a_tuned_cap_at_a_declared_atom_is_refused_before_any_learner(
     """M3: the text names the missing derivation, and no learner is fitted."""
     held = _atom_frame(frame)
     assert np.mean(held["A1"] == 3.0) > 0.4
-    with pytest.raises(CapabilityError) as caught:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            estimator(
-                [_regimen(target)], **_settings(**_raising(), n_folds=2 if target[0] == "f" else 1)
-            ).fit(held, dose_atoms={"A1": (3.0,)}, **COLUMNS)
+    with pytest.raises(CapabilityError) as caught, warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        estimator(
+            [_regimen(target)], **_settings(**_raising(), n_folds=2 if target[0] == "f" else 1)
+        ).fit(held, dose_atoms={"A1": (3.0,)}, **COLUMNS)
     assert str(caught.value) == _atom_refusal("the node 'A1'")
 
 
