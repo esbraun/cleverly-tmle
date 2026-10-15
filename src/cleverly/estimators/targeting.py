@@ -53,6 +53,7 @@ from ..fluctuation.iterative import (
     Fluctuation,
     InitialFit,
     TargetingFailure,
+    _rule_state,
     solve_fluctuation,
 )
 from ..fluctuation.mechanism import (
@@ -229,6 +230,22 @@ def _solved(relative: float, absolute: float, tol: float, negligible: float) -> 
     solver that needs more rounds.
     """
     return relative <= tol or absolute <= negligible
+
+
+def _outcome_ruler(spec: TargetingSpec, relative: float, rule_ratio: float | None) -> float:
+    """The outcome equation's entry in the loops' exit and stall rulers.
+
+    Under ``stopping="relative"`` it is the relative score norm, the value the loops always
+    used.  Under a declared rule it is ``spec.tol`` times the rule ratio, so the equation is
+    judged by its rule and the entry still reads on the ``tol`` scale the other equations
+    use: the exit test ``entry <= spec.tol`` is the rule met (ratio at most one), and the
+    stall rule compares one ruler on every round.  The ratio must be the one computed at the
+    pair being judged (:func:`~cleverly.fluctuation._score.rule_ratio_at`).
+    """
+    if spec.stopping == "relative":
+        return relative
+    assert rule_ratio is not None
+    return spec.tol * rule_ratio
 
 
 def _largest(score: FloatArray) -> float:
@@ -646,6 +663,7 @@ def solve_with_projection(
     warn: bool = True,
     project: Callable[[InitialFit], FloatArray] | None = None,
     submodel_at: Callable[[FloatArray], Submodel] | None = None,
+    stop: StopContext | None = None,
 ) -> tuple[Submodel, Fluctuation]:
     r"""Target ``Qbar`` and solve the working model's projection, alternating until both settle.
 
@@ -698,6 +716,10 @@ def solve_with_projection(
     ``I(S = s) H(beta_s) / P_n(S = s)`` per stratum.  That is the working model with the
     expanded design ``(I(S = s) phi)_s``, whose projection loss separates by stratum.
     Both must be given together, and without ``rows``.
+
+    ``stop`` is the context of a declared stopping rule over **all** the rows, and a fold's
+    solves receive ``stop.restrict(rows)``.  The loop's own exit tests the shift in ``beta``
+    and does not read the rule.
     """
     if nuisance.msm is None:  # pragma: no cover - guarded by needs_projection
         raise ValueError(
@@ -712,6 +734,7 @@ def solve_with_projection(
     y = scaled if index is None else scaled[index]
     w = weights if index is None else weights[index]
     seen = observed if index is None else observed[index]
+    fold_stop = stop if stop is None or index is None else stop.restrict(index)
     scaler = nuisance.scaler
     if project is None or submodel_at is None:
 
@@ -729,7 +752,7 @@ def solve_with_projection(
     trace: list[tuple[int, float, float]] = []
     previous: float | None = None
     submodel = submodel_at(beta)
-    fluctuation = solve_submodel(y, initial, submodel, w, seen, spec, warn=warn)
+    fluctuation = solve_submodel(y, initial, submodel, w, seen, spec, warn=warn, stop=fold_stop)
 
     for outer in range(1, max_outer + 1):
         solved = project(fluctuation.targeted)
@@ -747,7 +770,9 @@ def solve_with_projection(
         beta = solved
         submodel = submodel_at(beta)
         # From Qbar^0 again, not from the current Qbar*: see above.
-        fluctuation = solve_submodel(y, initial, submodel, w, seen, spec, warn=False)
+        fluctuation = solve_submodel(
+            y, initial, submodel, w, seen, spec, warn=False, stop=fold_stop
+        )
 
     last = trace[-1][2] if trace else 0.0
     failure = None if last <= _UNSOLVED else "max_iter_reached"
@@ -771,6 +796,7 @@ def solve_with_stratified_projection(
     blocks_at: Callable[[Sequence[FloatArray]], Submodel],
     max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
+    stop: StopContext | None = None,
 ) -> tuple[Submodel, Fluctuation]:
     r"""The stratum coefficients of a linked working model, by one blocks-only alternation.
 
@@ -826,6 +852,7 @@ def solve_with_stratified_projection(
         warn=warn,
         project=project,
         submodel_at=submodel_at,
+        stop=stop,
     )
 
 
@@ -878,6 +905,7 @@ def solve_with_mechanism(
     warn: bool = True,
     outcome_submodel: Callable[[NuisanceEstimates], Submodel] | None = None,
     mechanism_columns: Callable[[InitialFit, IPSISet], FloatArray] | None = None,
+    stop: StopContext | None = None,
 ) -> tuple[Submodel, Fluctuation, NuisanceEstimates]:
     r"""Target ``Qbar`` and the treatment mechanism together, alternating until both settle.
 
@@ -906,6 +934,12 @@ def solve_with_mechanism(
     block per stratum, ``I(S = s) H / P_n(S = s)``, for both equations.  Both losses then
     separate by stratum, so the coupled fixed point is the product of the stratum fixed
     points.
+
+    Under a declared ``spec.stopping`` the outer exit judges the **outcome** equation by the
+    rule ratio of its solve, ``spec.tol * fluctuation.rule_ratio`` standing where the relative
+    score norm stood.  That ratio is current at the exit: the outcome solve is the last step
+    of each round, at the pair the mechanism score is then restated at.  The mechanism
+    equation keeps ``spec.tol``.  ``stop`` is the context the rule needs.
     """
     if outcome_submodel is None:
 
@@ -928,8 +962,11 @@ def solve_with_mechanism(
     tilt = nuisance.incremental
     fit = nuisance.outcome
     submodel = outcome_submodel(current)
-    fluctuation = solve_submodel(scaled, fit, submodel, weights, observed, spec, warn=warn)
+    fluctuation = solve_submodel(
+        scaled, fit, submodel, weights, observed, spec, warn=warn, stop=stop
+    )
     trace: list[tuple[int, float, float, float]] = []
+    rule_trace: list[float] = []
     mechanism: MechanismFluctuation | None = None
     previous: float | None = None
 
@@ -944,7 +981,14 @@ def solve_with_mechanism(
 
         submodel = outcome_submodel(current)
         fluctuation = solve_submodel(
-            scaled, fluctuation.targeted, submodel, weights, observed, spec, warn=False
+            scaled,
+            fluctuation.targeted,
+            submodel,
+            weights,
+            observed,
+            spec,
+            warn=False,
+            stop=stop,
         )
         # The mechanism covariate moved when Qbar did, so `mechanism.score` is now stale.
         # Re-evaluate it at the fluctuated pair before testing convergence: a loop that
@@ -960,7 +1004,12 @@ def solve_with_mechanism(
         joint = float(fluctuation.loglik) + float(mechanism.loglik or 0.0)
         settled_score = mechanism.relative_score
         trace.append((outer, fluctuation.relative_score_norm, settled_score, joint))
-        if max(fluctuation.relative_score_norm, settled_score) <= spec.tol:
+        if fluctuation.rule_ratio is not None:
+            rule_trace.append(fluctuation.rule_ratio)
+        outcome_entry = _outcome_ruler(
+            spec, fluctuation.relative_score_norm, fluctuation.rule_ratio
+        )
+        if max(outcome_entry, settled_score) <= spec.tol:
             break
         # The alternation converges linearly, so the score falls by a roughly constant
         # factor each round until it reaches the fixed point of the coupled system and
@@ -977,7 +1026,9 @@ def solve_with_mechanism(
         # Reported, never raised, on the terms every other targeting failure is: a
         # sensitivity sweep that pushes a fit into bad territory must still return.
         failure = "max_iter_reached"
-    mechanism = replace(mechanism, trace=tuple(trace), failure=failure)
+    mechanism = replace(
+        mechanism, trace=tuple(trace), failure=failure, rule_trace=tuple(rule_trace)
+    )
     return submodel, replace(fluctuation, mechanism=mechanism), current
 
 
@@ -1167,6 +1218,13 @@ class ReductionFluctuation:
     evaluation: CompanionEstimates | None = None
     observation: ObservationMechanismFluctuation | None = None
     missingness_bound: float | None = None
+    #: Under a declared stopping rule, one ``(ratio the exit read, ratio the outcome solve
+    #: reported)`` pair per :attr:`trace` row.  The first is the rule ratio of the outcome
+    #: equation at the pair the round exited at (``_restated_outcome_score``, or the
+    #: restated scores of the missing-outcome loop); the second is the solver's own, at the
+    #: pair it solved at.  They differ where the round moved the fit after the solve.  The
+    #: closing row holds the ratio of the closing record.  Empty under ``"relative"``.
+    rule_trace: tuple[tuple[float, float], ...] = ()
 
     @property
     def relative_score(self) -> float:
@@ -1551,6 +1609,7 @@ def solve_with_reduction(
     max_outer: int = DEFAULT_MAX_OUTER,
     warn: bool = True,
     blocks: StratumBlocks | None = None,
+    stop: StopContext | None = None,
 ) -> tuple[Submodel, Fluctuation]:
     r"""Solve the outcome equation and the two extra ones together, alternating until all settle.
 
@@ -1729,6 +1788,7 @@ def solve_with_reduction(
             max_outer=max_outer,
             warn=warn,
             blocks=blocks,
+            stop=stop,
         )
     guard = tuple(reduction.guard)
     order = reduction.order
@@ -1800,6 +1860,7 @@ def solve_with_reduction(
             inner_q,
             () if companion is None else companion.outcome_carry(group, bounds, nuisance_bound),
         ),
+        stop=stop,
     )
     inner_q, tail = _split_carried(fluctuation.carried, inner_q)
     if companion is not None:
@@ -1815,6 +1876,8 @@ def solve_with_reduction(
     first_initial: FloatArray | None = None
     ill_conditioned = 0
     trace: list[tuple[int, float, float, float, float]] = []
+    # Under a declared rule: (ratio the exit read, ratio the solve reported) per trace row.
+    rule_rows: list[tuple[float, float]] = []
     previous: float | None = None
     previous_joint: float | None = None
     # The cap is what happens when neither break below fires, so it is the starting value
@@ -1852,6 +1915,7 @@ def solve_with_reduction(
                     if companion is None
                     else companion.outcome_carry(group, bounds, nuisance_bound),
                 ),
+                stop=stop,
             )
             targeted_q = fluctuation.targeted
             inner_q, tail = _split_carried(fluctuation.carried, inner_q)
@@ -1882,6 +1946,7 @@ def solve_with_reduction(
                     carry=_combine(
                         inner_q, () if companion is None else companion.extra_carry(bounds)
                     ),
+                    stop=stop,
                 )
                 targeted_q = extra.targeted
                 inner_q, tail = _split_carried(extra.carried, inner_q)
@@ -1968,6 +2033,7 @@ def solve_with_reduction(
                     carry=_combine(
                         inner_q, () if companion is None else companion.extra_carry(bounds)
                     ),
+                    stop=stop,
                 )
                 inner_extra, companion_extra = _split_carried(extra.carried, inner_q)
                 # Updated in place rather than held aside the way `inner_extra` is: the
@@ -2002,6 +2068,7 @@ def solve_with_reduction(
                     if companion is None
                     else companion.outcome_carry(group, bounds, nuisance_bound),
                 ),
+                stop=stop,
             )
             targeted_q = fluctuation.targeted
             inner_q, tail = _split_carried(fluctuation.carried, inner_q)
@@ -2028,6 +2095,9 @@ def solve_with_reduction(
         submodel = build_submodel(
             data, current, group, bounds=bounds, nuisance_bound=nuisance_bound
         )
+        # The ratio the solve itself reported, at the pair it solved at: kept beside the
+        # restated one so a loop that exits under a declared rule shows both per round.
+        solver_ratio = fluctuation.rule_ratio
         fluctuation = _restated_outcome_score(
             fluctuation,
             scaled=scaled,
@@ -2035,6 +2105,8 @@ def solve_with_reduction(
             submodel=_blocked(blocks, submodel),
             weights=weights,
             mask=mask,
+            stopping=spec.stopping,
+            stop=stop,
         )
 
         reduced_score = 0.0
@@ -2077,7 +2149,16 @@ def solve_with_reduction(
         joint = float(fluctuation.loglik) + float(
             0.0 if mechanism is None else (mechanism.loglik or 0.0)
         )
-        worst = max(fluctuation.relative_score_norm, reduced_score, mechanism_relative)
+        if spec.stopping != "relative":
+            assert fluctuation.rule_ratio is not None and solver_ratio is not None
+            rule_rows.append((fluctuation.rule_ratio, solver_ratio))
+        # Under a declared rule the outcome equation's entry is its restated rule ratio
+        # scaled by `spec.tol`; the other two equations keep their own rulers.
+        worst = max(
+            _outcome_ruler(spec, fluctuation.relative_score_norm, fluctuation.rule_ratio),
+            reduced_score,
+            mechanism_relative,
+        )
         trace.append(
             (outer, fluctuation.relative_score_norm, reduced_score, mechanism_relative, joint)
         )
@@ -2089,8 +2170,15 @@ def solve_with_reduction(
         # rule measures progress with and a mixed quantity would make "improving" mean two
         # things on alternate rounds.
         negligible = _negligible_bar(data.n)
+        if spec.stopping == "relative":
+            outcome_solved = _solved(
+                fluctuation.relative_score_norm, fluctuation.score_norm, spec.tol, negligible
+            )
+        else:
+            assert fluctuation.rule_ratio is not None
+            outcome_solved = fluctuation.rule_ratio <= 1.0
         if (
-            _solved(fluctuation.relative_score_norm, fluctuation.score_norm, spec.tol, negligible)
+            outcome_solved
             and _solved(reduced_score, reduced_absolute, spec.tol, negligible)
             and _solved(mechanism_relative, mechanism_absolute, spec.tol, negligible)
         ):
@@ -2142,6 +2230,7 @@ def solve_with_reduction(
         extra=extra,
         companion=companion,
         blocks=blocks,
+        stop=stop,
     )
     submodel = closing.submodel
     fluctuation = closing.fluctuation
@@ -2157,6 +2246,9 @@ def solve_with_reduction(
             closing.joint,
         )
     )
+    if spec.stopping != "relative":
+        assert fluctuation.rule_ratio is not None and closing.solver_ratio is not None
+        rule_rows.append((fluctuation.rule_ratio, closing.solver_ratio))
 
     # **On both rulers, the pair the loop's own exit test uses.**  Each equation is judged by
     # :func:`_solved`, so a score that is absolutely negligible counts as solved whatever its
@@ -2181,6 +2273,19 @@ def solve_with_reduction(
         )
         else "max_iter_reached"
     )
+    if spec.stopping != "relative":
+        # Equation (8) is judged by the rule ratio of the closing record, computed at the
+        # pair that record holds; equations (10) and (9) keep their own rulers.
+        assert fluctuation.rule_ratio is not None
+        unsolved = (
+            None
+            if fluctuation.rule_ratio <= 1.0
+            and all(
+                _solved(relative, absolute, _UNSOLVED, negligible)
+                for relative, absolute in equations[1:]
+            )
+            else "max_iter_reached"
+        )
     failure = unsolved
     if mechanism is not None:
         mechanism = replace(
@@ -2211,6 +2316,15 @@ def solve_with_reduction(
                 _solved(relative, absolute, spec.tol, negligible)
                 for relative, absolute in equations
             )
+            if spec.stopping == "relative"
+            else (
+                fluctuation.rule_ratio is not None
+                and fluctuation.rule_ratio <= 1.0
+                and all(
+                    _solved(relative, absolute, spec.tol, negligible)
+                    for relative, absolute in equations[1:]
+                )
+            )
         ),
         failure=failure,
         exit_reason=exit_reason,
@@ -2218,6 +2332,7 @@ def solve_with_reduction(
         closing=closing.steps,
         closing_capped=closing.capped,
         evaluation=None if companion is None else companion.record(),
+        rule_trace=tuple(rule_rows),
     )
     return submodel, replace(fluctuation, mechanism=mechanism, reduction=record)
 
@@ -2237,6 +2352,7 @@ def _solve_missing_outcome_reduction(
     max_outer: int,
     warn: bool,
     blocks: StratumBlocks | None = None,
+    stop: StopContext | None = None,
 ) -> tuple[Submodel, Fluctuation]:
     r"""Target the three Díaz--van der Laan drift blocks separately.
 
@@ -2272,6 +2388,8 @@ def _solve_missing_outcome_reduction(
     observation_fit: ObservationMechanismFluctuation | None = None
     first_extra: FloatArray | None = None
     trace: list[tuple[int, float, float, float, float]] = []
+    # Under a declared rule: (ratio the exit read, ratio the outcome solve reported) per round.
+    rule_rows: list[tuple[float, float]] = []
     exit_reason: ReductionExit = "cap"
     for outer in range(1, max_outer + 1):
         current = _missing_outcome_state(nuisance, targeted_q, targeted_g, targeted_m)
@@ -2293,6 +2411,7 @@ def _solve_missing_outcome_reduction(
             observed,
             spec,
             warn=False,
+            stop=stop,
         )
         targeted_q = outcome_fit.targeted
         if first_extra is None:
@@ -2379,7 +2498,28 @@ def _solve_missing_outcome_reduction(
             np.asarray(targeted_q.observed, dtype=float)[mask],
             np.asarray(weights, dtype=float)[mask],
         )
-        worst = max(value[0] for value in scores)
+        if spec.stopping == "relative":
+            worst = max(value[0] for value in scores)
+        else:
+            # The outcome solve moved Q*, and the observation and treatment solves, the
+            # refits and the restated covariates moved everything its ratio was computed at.
+            # So the ratio is computed again, here, from the restated scores and their
+            # contributions at the targeted Q*; the solver's `rule_ratio` is never read.
+            assert stop is not None and outcome_fit.rule_ratio is not None
+            _, restated_ratio = _rule_state(
+                scaled,
+                targeted_q,
+                _stacked(standard_blocks, extra_blocks),
+                weights,
+                mask,
+                np.concatenate([standard_score, extra_score]),
+                stop,
+                spec.stopping,
+            )
+            rule_rows.append((restated_ratio, outcome_fit.rule_ratio))
+            worst = max(
+                _outcome_ruler(spec, scores[0][0], restated_ratio), scores[2][0], scores[3][0]
+            )
         joint_loglik = outcome_loglik + float(treatment_fit.loglik or 0.0)
         joint_loglik += float(observation_fit.loglik)
         trace.append(
@@ -2444,6 +2584,34 @@ def _solve_missing_outcome_reduction(
         )
         else "max_iter_reached"
     )
+    standard_thresholds: FloatArray | None = None
+    standard_ratio: float | None = None
+    if spec.stopping != "relative":
+        # The outcome blocks (standard and drift) are judged by the ratio at the pair the
+        # loop leaves, which is the pair the last round restated its scores at.
+        assert stop is not None
+        _, outcome_ratio = _rule_state(
+            scaled,
+            targeted_q,
+            _stacked(standard_blocks, extra_blocks),
+            weights,
+            mask,
+            np.concatenate([standard_score, extra_score]),
+            stop,
+            spec.stopping,
+        )
+        standard_thresholds, standard_ratio = _rule_state(
+            scaled, targeted_q, standard_blocks, weights, mask, standard_score, stop, spec.stopping
+        )
+        unsolved = (
+            None
+            if outcome_ratio <= 1.0
+            and all(
+                _solved(relative, absolute, _UNSOLVED, negligible)
+                for relative, absolute in equations[2:]
+            )
+            else "max_iter_reached"
+        )
     width = standard_blocks.dim
     record = ReductionFluctuation(
         reduced=reduced,
@@ -2462,11 +2630,20 @@ def _solve_missing_outcome_reduction(
                 _solved(relative, absolute, spec.tol, negligible)
                 for relative, absolute in equations
             )
+            if spec.stopping == "relative"
+            else (
+                outcome_ratio <= 1.0
+                and all(
+                    _solved(relative, absolute, spec.tol, negligible)
+                    for relative, absolute in equations[2:]
+                )
+            )
         ),
         failure=unsolved,
         exit_reason=exit_reason,
         observation=replace(observation_fit, failure=observation_fit.failure or unsolved),
         missingness_bound=float(nuisance_bound),
+        rule_trace=tuple(rule_rows),
     )
     treatment_fit = replace(treatment_fit, failure=treatment_fit.failure or unsolved)
     return standard, replace(
@@ -2480,6 +2657,10 @@ def _solve_missing_outcome_reduction(
         mechanism=treatment_fit,
         reduction=record,
         failure=outcome_fit.failure or unsolved,
+        thresholds=standard_thresholds
+        if standard_thresholds is not None
+        else outcome_fit.thresholds,
+        rule_ratio=standard_ratio if standard_ratio is not None else outcome_fit.rule_ratio,
     )
 
 
@@ -2657,6 +2838,8 @@ def _restated_outcome_score(
     submodel: Submodel,
     weights: FloatArray,
     mask: BoolArray,
+    stopping: str = "relative",
+    stop: StopContext | None = None,
 ) -> Fluctuation:
     r"""Equation (8)'s score, re-read at the pair the round exits at rather than solved at.
 
@@ -2694,11 +2877,59 @@ def _restated_outcome_score(
     the two-column submodel's, so its ``score`` is deliberately not this expression at the
     submodel the solve ran along, and restating it there would change a number rather than
     recover one.
+
+    **Under a declared** ``stopping`` **the restatement also refreshes the rule.**  The
+    record's ``rule_ratio`` and ``thresholds`` were computed at the pair the equation was
+    solved at, and a ratio is valid only at the pair it was computed at.  Under the
+    ``"benkeser"`` order steps 4 and 6 move the regression and the mechanism after the
+    solve, so the stale ratio would judge a pair the loop no longer holds.  This calls
+    :func:`~cleverly.fluctuation._score.rule_ratio_at` on the restated score and on the
+    contributions at the restated ``Q*``, so ``sd_j`` is the restated one.  Under the
+    ``"drtmle"`` order nothing moved and the fresh ratio equals the solver's.
     """
+    if stopping != "relative":
+        return _restated_outcome_score_ruled(
+            fluctuation,
+            scaled=scaled,
+            targeted=targeted,
+            submodel=submodel,
+            weights=weights,
+            mask=mask,
+            stopping=stopping,
+            stop=stop,
+        )
     return replace(
         fluctuation,
         score=score_columns(scaled, targeted.observed, submodel.observed, weights, mask),
         score_scale=score_scale(submodel.observed, weights, mask),
+    )
+
+
+def _restated_outcome_score_ruled(
+    fluctuation: Fluctuation,
+    *,
+    scaled: FloatArray,
+    targeted: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    mask: BoolArray,
+    stopping: str,
+    stop: StopContext | None,
+) -> Fluctuation:
+    """:func:`_restated_outcome_score` under a declared rule: score, scale, thresholds and ratio."""
+    if stop is None:
+        raise ValueError(STOP_CONTEXT_MISSING)
+    score = score_columns(scaled, targeted.observed, submodel.observed, weights, mask)
+    thresholds, ratio = _rule_state(
+        scaled, targeted, submodel, weights, mask, score, stop, stopping
+    )
+    return replace(
+        fluctuation,
+        score=score,
+        score_scale=score_scale(submodel.observed, weights, mask),
+        stopping=stopping,
+        thresholds=thresholds,
+        rule_ratio=ratio,
     )
 
 
@@ -2722,6 +2953,10 @@ class _Closing:
     joint: float
     steps: int
     capped: bool
+    #: Under a declared rule, the ratio the closing solve itself reported, at its own pair.
+    #: For the joint solve that is over all four columns; ``fluctuation.rule_ratio`` is
+    #: restated over equation (8)'s two.  ``None`` under ``"relative"``.
+    solver_ratio: float | None = None
 
 
 def _close_at_frozen_reductions(
@@ -2747,6 +2982,7 @@ def _close_at_frozen_reductions(
     companion: _Companion | None = None,
     max_steps: int = 20,
     blocks: StratumBlocks | None = None,
+    stop: StopContext | None = None,
 ) -> _Closing:
     r"""Re-solve the three equations at the reductions the influence curve will read.
 
@@ -2898,6 +3134,7 @@ def _close_at_frozen_reductions(
             carry=()
             if companion is None
             else companion.outcome_carry(group, bounds, nuisance_bound),
+            stop=stop,
         )
         if companion is not None:
             companion.take_outcome(fluctuation.carried)
@@ -2915,6 +3152,7 @@ def _close_at_frozen_reductions(
             + float(0.0 if mechanism is None else (mechanism.loglik or 0.0)),
             steps=steps,
             capped=capped,
+            solver_ratio=fluctuation.rule_ratio,
         )
 
     extra_submodel = reduced_outcome_submodel(
@@ -2942,6 +3180,7 @@ def _close_at_frozen_reductions(
         # endpoint is the same map of its own initial fit rather than an approximation of
         # one taken from the two-column submodel this function returns.
         carry=() if companion is None else companion.joint_carry(group, bounds, nuisance_bound),
+        stop=stop,
     )
     if companion is not None:
         companion.take_outcome(joint.carried)
@@ -2964,6 +3203,19 @@ def _close_at_frozen_reductions(
         score_scale=scale_q,
     )
     reduced_score = relative_score(settled_q, scale_q)
+    if spec.stopping != "relative":
+        # The joint solve judged all four columns at its own pair. Equation (8) is judged by
+        # its two, and equation (10) keeps its own ruler, so each record carries the
+        # thresholds and the ratio of its own columns at this pair (`rule_ratio_at`).
+        assert stop is not None
+        outcome_thresholds, outcome_ratio = _rule_state(
+            scaled, joint.targeted, outcome_blocks, weights, mask, settled, stop, spec.stopping
+        )
+        extra_thresholds, extra_ratio = _rule_state(
+            scaled, joint.targeted, extra_blocks, weights, mask, settled_q, stop, spec.stopping
+        )
+        fluctuation = replace(fluctuation, thresholds=outcome_thresholds, rule_ratio=outcome_ratio)
+        extra = replace(extra, thresholds=extra_thresholds, rule_ratio=extra_ratio)
 
     return _Closing(
         submodel=submodel,
@@ -2979,6 +3231,7 @@ def _close_at_frozen_reductions(
         + float(0.0 if mechanism is None else (mechanism.loglik or 0.0)),
         steps=steps,
         capped=capped,
+        solver_ratio=joint.rule_ratio,
     )
 
 

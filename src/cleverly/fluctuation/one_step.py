@@ -295,6 +295,7 @@ def _solve_one_step_ruled(
         absolute_score_weights=absolute_score_weights(scoring_h, w, mask),
         stopping=stopping,
         thresholds=thresholds,
+        rule_ratio=ratio,
     )
 
 

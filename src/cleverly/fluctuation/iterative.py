@@ -247,6 +247,12 @@ class FoldFluctuation:
     score_scale : ndarray or None
         Per-column largest score this fold's rows could produce, or ``None`` when the
         solver reported no scale.
+    thresholds : ndarray or None
+        Under a declared stopping rule, the threshold of each score column on this fold's
+        rows, whose unit count is the fold's own; ``None`` under ``"relative"``.
+    rule_ratio : float or None
+        Under a declared rule, the largest score over its threshold on this fold; the fold
+        met the rule when it is at most one.  ``None`` under ``"relative"``.
 
     Attributes
     ----------
@@ -269,6 +275,9 @@ class FoldFluctuation:
     trace: tuple[float, ...] = ()
     #: Component-wise scale used to decide whether this fold reached its score root.
     score_scale: FloatArray | None = None
+    #: The fold's thresholds and rule ratio under a declared stopping rule.
+    thresholds: FloatArray | None = None
+    rule_ratio: float | None = None
 
     @property
     def n(self) -> int:
@@ -384,6 +393,12 @@ class Fluctuation:
         Under a declared rule, the threshold of each score column at the reported fit,
         in the outcome's units; the rule is met when ``|score| * span`` is at most the
         threshold in every column.  ``None`` under ``"relative"``.
+    rule_ratio : float or None
+        Under a declared rule, ``max_j |P_n S_j| * span / threshold_j`` at the reported fit
+        (:func:`~cleverly.fluctuation._score.rule_ratio_at`); the rule is met when it is at
+        most one.  The outer exits of the alternating engines read it.  A ratio is valid
+        only at the pair it was computed at, so an engine that moves the fit after a solve
+        restates it.  ``None`` under ``"relative"``.
 
     Attributes
     ----------
@@ -455,6 +470,9 @@ class Fluctuation:
     #: The per-column threshold of a declared rule at the reported fit, in the outcome's
     #: units.  ``None`` under ``"relative"``.
     thresholds: FloatArray | None = None
+    #: The largest score over its threshold at the reported fit, under a declared rule.
+    #: ``None`` under ``"relative"``.
+    rule_ratio: float | None = None
 
     @property
     def score_norm(self) -> float:
@@ -798,6 +816,7 @@ def _solve_fluctuation_ruled(
         absolute_score_weights=absolute_score_weights(submodel.observed, w, mask),
         stopping=stopping,
         thresholds=thresholds,
+        rule_ratio=ratio,
     )
 
 

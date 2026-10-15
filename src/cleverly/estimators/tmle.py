@@ -133,6 +133,7 @@ from ..exceptions import (
     refuse_after_repeats,
 )
 from ..fluctuation._score import (
+    StopContext,
     check_stopping_rule,
     relative_score,
     score_columns,
@@ -3712,6 +3713,11 @@ class TMLE:
             conditional_bounds = mean_bounds
             missingness = None
 
+        # The units and the outcome range a declared stopping rule computes its threshold
+        # from, built once on the data the solvers see, which is the composite data when the
+        # composite route replaced it. `None` under `stopping="relative"`, which never reads it.
+        stop = self._stop_context(data, nuisance)
+
         estimates: dict[str, ParameterEstimate] = {}
         fluctuations: dict[str, Fluctuation] = {}
         pooled_report: dict[str, ParameterEstimate] = {}
@@ -3752,7 +3758,7 @@ class TMLE:
             known_tilt = nuisance.incremental is not None and nuisance.incremental.mechanism_known
             if needs_mechanism(group) and not known_tilt:
                 submodel, fluctuation, targeted, targeting_submodel = self._solve_mechanism(
-                    data, nuisance, group, bounds, nuisance_bound
+                    data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
             elif needs_reduction(nuisance, group):
                 # A fit carrying reduced-dimension regressions solves two further score
@@ -3761,7 +3767,7 @@ class TMLE:
                 # regression -- so this returns two values, as the projection does and
                 # unlike the mechanism alternation.
                 submodel, fluctuation, targeting_submodel = self._solve_reduction(
-                    data, nuisance, group, bounds, nuisance_bound
+                    data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
             elif needs_projection(nuisance, group):
                 # A working model with a non-identity link has a clever covariate that
@@ -3769,14 +3775,14 @@ class TMLE:
                 # solved for together. Nothing about the nuisances moves, which is why
                 # this returns two values where the mechanism alternation returns three.
                 submodel, fluctuation = self._solve_projection(
-                    data, nuisance, group, bounds, nuisance_bound
+                    data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
                 if data.has_strata:
                     # The marginal coefficients above are the unstratified solve.  The
                     # stratum coefficients need their own fluctuation, because each
                     # stratum block reads its own coefficients.
                     targeting_submodel, nested = self._solve_stratified_projection(
-                        data, nuisance, group, bounds, nuisance_bound
+                        data, nuisance, group, bounds, nuisance_bound, stop=stop
                     )
                     fluctuation = replace(fluctuation, stratified=nested)
             else:
@@ -3808,7 +3814,7 @@ class TMLE:
                     if data.has_strata
                     else submodel
                 )
-                _, fluctuation = self._solve(data, nuisance, targeting_submodel)
+                _, fluctuation = self._solve(data, nuisance, targeting_submodel, stop=stop)
             fluctuations[group] = fluctuation
 
             if joint and group == "natural_course":
@@ -4203,7 +4209,11 @@ class TMLE:
         return stratify(pieces, data.strata, probabilities, labels)
 
     def _solve(
-        self, data: CausalData, nuisance: NuisanceEstimates, submodel: Submodel
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        submodel: Submodel,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """Solve the fluctuation, pooled over folds or one fluctuation per fold.
 
@@ -4212,6 +4222,9 @@ class TMLE:
         a linked working model's ``beta`` -- differs between folds, and the score has to be
         taken against the covariate each row was actually fluctuated by.  For every other
         group the returned submodel is the one that went in, value for value.
+
+        ``stop`` is the stopping-rule context over all the rows.  A fold-targeted solve
+        receives ``stop.restrict(test)``, so its threshold counts the fold's own units.
         """
         scaled = nuisance.scaler.scale(data.outcome)
         if self.targeting_scheme == "fold" and self.cross_fit:
@@ -4228,6 +4241,7 @@ class TMLE:
                             data.weights[test],
                             data.observed[test],
                             warn=False,
+                            stop=None if stop is None else stop.restrict(test),
                         ),
                     ),
                     submodel.group,
@@ -4248,6 +4262,7 @@ class TMLE:
             submodel,
             self._validation_weights(data, nuisance),
             data.observed,
+            stop=stop,
         )
 
     def _validation_weights(self, data: CausalData, nuisance: NuisanceEstimates) -> FloatArray:
@@ -4297,6 +4312,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation, NuisanceEstimates, Submodel]:
         """Alternate the outcome and the treatment mechanism, with one block per stratum.
 
@@ -4338,6 +4354,7 @@ class TMLE:
             observed=data.observed,
             outcome_submodel=outcome_submodel,
             mechanism_columns=mechanism_columns,
+            stop=stop,
         )
         if not data.has_strata:
             return solved, fluctuation, targeted, solved
@@ -4351,6 +4368,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation, Submodel]:
         """Alternate the outcome, the mechanism and the reduced regressions.
 
@@ -4391,6 +4409,7 @@ class TMLE:
             # fetched defensively rather than assumed onto a class that does not declare it.
             max_outer=getattr(self, "max_outer", DEFAULT_MAX_OUTER),
             blocks=blocks,
+            stop=stop,
         )
         return submodel, fluctuation, submodel if blocks is None else blocks.submodel(submodel)
 
@@ -4401,6 +4420,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """Alternate the projection and the fluctuation, pooled or fold by fold.
 
@@ -4424,6 +4444,7 @@ class TMLE:
             scaled=scaled,
             weights=self._validation_weights(data, nuisance),
             observed=data.observed,
+            stop=stop,
         )
         if self.targeting_scheme == "fold" and self.cross_fit and not nuisance.folds.is_single:
             per_fold: list[ProjectionFluctuation] = []
@@ -4466,6 +4487,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """The stratum coefficients of a linked working model, pooled over the sample.
 
@@ -4487,6 +4509,7 @@ class TMLE:
             blocks_at=lambda betas: self._stratified_submodel(
                 data, nuisance, group, bounds, None, None, lower, reference, msm_beta=betas
             ),
+            stop=stop,
         )
 
     def _solve_rows(
@@ -4498,10 +4521,30 @@ class TMLE:
         observed: BoolArray,
         *,
         warn: bool = True,
+        stop: StopContext | None = None,
     ) -> Fluctuation:
         return solve_submodel(
-            scaled, initial, submodel, weights, observed, self.targeting_spec(), warn=warn
+            scaled,
+            initial,
+            submodel,
+            weights,
+            observed,
+            self.targeting_spec(),
+            warn=warn,
+            stop=stop,
         )
+
+    def _stop_context(self, data: CausalData, nuisance: NuisanceEstimates) -> StopContext | None:
+        """What a declared stopping rule needs besides the score, or ``None`` under ``relative``.
+
+        The unit of each row is its cluster (:attr:`~cleverly.data.CausalData.cluster`), else
+        the row itself, and the span is the outcome range the solver's ``[0, 1]`` scale was
+        mapped from.  Every solve that receives a subset of the rows takes
+        :meth:`~cleverly.fluctuation._score.StopContext.restrict` of this one.
+        """
+        if self.stopping == "relative":
+            return None
+        return StopContext(data.cluster, nuisance.scaler.range)
 
     def _solve_by_fold(
         self,
@@ -4569,6 +4612,8 @@ class TMLE:
                     n_iter=fold_fluctuation.n_iter,
                     trace=fold_fluctuation.trace,
                     score_scale=fold_fluctuation.score_scale,
+                    thresholds=fold_fluctuation.thresholds,
+                    rule_ratio=fold_fluctuation.rule_ratio,
                 )
             )
             masses.append(float(data.weights[test].sum()))
@@ -4611,7 +4656,14 @@ class TMLE:
             epsilon=epsilon,
             targeted=targeted,
             score=score,
-            converged=bool(relative_score(score, scale) <= self.tol),
+            # Under a declared rule each fold met or missed the rule on its own units, so the
+            # pooled verdict is that every fold met it; the pooled score is not judged on a
+            # ruler no fold used.
+            converged=(
+                bool(relative_score(score, scale) <= self.tol)
+                if self.stopping == "relative"
+                else all(record.converged for record in fold_records)
+            ),
             n_iter=iterations,
             # These are independent fold solves, not one iteration trajectory.
             trace=(),
@@ -4633,6 +4685,16 @@ class TMLE:
             # needed by the concentration diagnostic, while column order is shared by the
             # stitched submodels and checked above.
             absolute_score_weights=np.vstack(absolute_score_weight_parts),
+            stopping=self.stopping,
+            # The largest fold ratio. The thresholds differ by fold (each counts its own
+            # units) and live on `folds`, so the pooled record holds none.
+            rule_ratio=(
+                None
+                if self.stopping == "relative"
+                else max(
+                    record.rule_ratio for record in fold_records if record.rule_ratio is not None
+                )
+            ),
         )
 
     @staticmethod

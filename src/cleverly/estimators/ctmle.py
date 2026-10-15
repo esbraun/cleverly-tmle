@@ -2018,6 +2018,9 @@ class _Selector:
             random_state=self.seed,
         )
         self.spec = estimator.targeting_spec()
+        #: The units and outcome range a declared stopping rule needs, over all the rows;
+        #: `target` hands each candidate solve `stop.restrict(rows)`. `None` under `relative`.
+        self.stop = estimator._stop_context(data, base)
         self._cache: dict[tuple[Any, ...], FloatArray] = {}
         self.reference = estimator._reference_arm(data)
         self.target_names = self._target_names()
@@ -2160,6 +2163,7 @@ class _Selector:
             self.data.observed[rows],
             self.spec,
             warn=False,
+            stop=None if self.stop is None else self.stop.restrict(rows),
         )
         return self.apply(initial, submodel, fluctuation.epsilon), fluctuation.epsilon
 
