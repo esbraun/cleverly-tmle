@@ -13,7 +13,6 @@ from sklearn.linear_model import LinearRegression
 from cleverly.datasets import ShiftDGP
 from cleverly.estimators import TMLE
 from cleverly.learners.density import bin_edges
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_shift_policies import (
     DENSITY_BINS,
@@ -27,12 +26,19 @@ from tests.studies.canonical_shift_policies import (
     reversed_ratio_control,
     shifts,
 )
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.properties import (
+    control_row,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     finish,
     necessity_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.intervention_study_helpers import INTERVENTION_CALIBRATION_REPLICATES
 
@@ -108,14 +114,25 @@ def fit(
     return fit_shift_estimator(estimator, frame, dgp)
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
-    dgp = (
+def _law(property_name: str) -> ShiftDGP:
+    return (
         policy_dgp(effect=0.0, curvature=0.0)
         if property_name == "type_i_error"
         else policy_dgp(curvature=PROPERTY_CURVATURE)
     )
-    frame, truth_map = dgp.sample(n, policies=POLICIES, seed=seed, backend="pandas")
+
+
+def _draw_replication(payload: tuple[str, str, int, int, int, int, str]) -> Any:
+    property_name, _, _, n, _, seed, _ = payload
+    return _law(property_name).sample(n, policies=POLICIES, seed=seed, backend="pandas")
+
+
+def _fit_replication(
+    payload: tuple[str, str, int, int, int, int, str], drawn: Any
+) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _, configuration = payload
+    dgp = _law(property_name)
+    frame, truth_map = drawn
     truth = float(truth_map[TARGET])
     result = fit(frame, dgp, configuration)
     role = (
@@ -215,6 +232,28 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     return rows
 
 
+#: The calibration positive arm to the one control the generator derives from it.
+DERIVED_CELLS = {
+    "interval_calibration/correctly_specified": ("interval_calibration/shrunken_se_control",)
+}
+
+_PAIRS = {
+    "targeting_necessity": ("shift__targeted", "shift__untargeted"),
+    "ratio_necessity": ("shift__declared", "shift__reversed_control"),
+    "cap_necessity": ("shift__declared_cap", "shift__uncapped_control"),
+    "natural_course_identity": ("natural__shift", "natural__mean"),
+}
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived control fill."""
+    property_name, cell = key[0][:2]
+    if property_name in _PAIRS:
+        return [f"{property_name}/{name}" for name in _PAIRS[property_name]]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     specs: list[tuple[str, str, int, int, str]] = []
     for configuration in ("both_correct", "outcome_correct", "density_correct", "both_wrong"):
@@ -266,8 +305,27 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     return out
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat_drawn(_fit_replication),
+        draw=splat_draw(_draw_replication),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     source = rows.loc[
         (rows["property"] == "interval_calibration") & (rows["cell"] == "correctly_specified")
@@ -285,6 +343,35 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
         int
     )
     return pd.concat([rows, shrunken], ignore_index=True)
+
+
+#: The three necessity declarations, read by the verdicts and the rules.
+NECESSITIES = (
+    property_verdicts.Necessity(
+        family="targeting_necessity",
+        labels=("shift",),
+        arms=("targeted", "untargeted"),
+        column="targeting_displacement",
+        threshold=TARGETING_DISPLACEMENT,
+    ),
+    property_verdicts.Necessity(
+        family="ratio_necessity",
+        labels=("shift",),
+        arms=("declared", "reversed_control"),
+        column="necessity_displacement",
+        threshold=NECESSITY_DISPLACEMENT,
+    ),
+    property_verdicts.Necessity(
+        family="cap_necessity",
+        labels=("shift",),
+        arms=("declared_cap", "uncapped_control"),
+        column="necessity_displacement",
+        threshold=NECESSITY_DISPLACEMENT,
+    ),
+)
+
+#: The cells the ``natural_course_identity`` supremum compares.
+IDENTITY_CELLS = ("natural__shift", "natural__mean")
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -309,40 +396,30 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[control, "passed"] = (
         summary.loc[control, "se_ratio_ci_upper"] < STUDY.margins.calibration_se_ratio[0]
     )
-    for family, arms, column, threshold in (
-        (
-            "targeting_necessity",
-            ("targeted", "untargeted"),
-            "targeting_displacement",
-            TARGETING_DISPLACEMENT,
-        ),
-        (
-            "ratio_necessity",
-            ("declared", "reversed_control"),
-            "necessity_displacement",
-            NECESSITY_DISPLACEMENT,
-        ),
-        (
-            "cap_necessity",
-            ("declared_cap", "uncapped_control"),
-            "necessity_displacement",
-            NECESSITY_DISPLACEMENT,
-        ),
-    ):
-        necessity_verdicts(
-            summary,
-            rows,
-            family=family,
-            labels=("shift",),
-            arms=arms,
-            column=column,
-            threshold=threshold,
-        )
+    for necessity in NECESSITIES:
+        necessity_verdicts(summary, rows, necessity)
     identity = summary["property"] == "natural_course_identity"
     source = rows.loc[rows["property"] == "natural_course_identity"]
     wide = source.pivot(index="replicate", columns="cell", values="estimate")
-    difference = float(np.max(np.abs(wide["natural__shift"] - wide["natural__mean"])))
+    shifted, natural = IDENTITY_CELLS
+    difference = float(np.max(np.abs(wide[shifted] - wide[natural])))
     summary.loc[identity, "maximum_identity_difference"] = difference
     summary.loc[identity, "passed"] = difference < IDENTITY_TOLERANCE
     summary.loc[identity, "property_passed"] = bool(difference < IDENTITY_TOLERANCE)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration verdict is
+#: this module's own code, declared with the shared rule's clauses and no efficiency band.  The
+#: natural-course identity is a sup-norm with a fixed tolerance and is not accountable (R3-1).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=None),
+    *property_verdicts.necessity_rules(*NECESSITIES),
+    property_verdicts.identity_rule(
+        "natural_course_identity",
+        column="maximum_identity_difference",
+        cells=IDENTITY_CELLS,
+        tolerance=IDENTITY_TOLERANCE,
+        shared="shift_policy_properties.summarize_properties",
+    ),
+)

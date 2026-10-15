@@ -1126,3 +1126,73 @@ def test_the_score_audit_pairs_around_a_recorded_reference_failure(tmp_path: Pat
     assert claims._aggregates(record)["failure_rate"](data) == pytest.approx(1 / 3)
     with pytest.raises(ValueError, match="not paired"):
         audit["score_audited_fits"]({claims.FIT_DIAGNOSTICS: diagnostics})
+
+
+class TestPrimaryBound:
+    """RM39b2: each side's primary bound is 0.01, declared for the study's next run."""
+
+    def test_every_registered_study_declares_each_side_s_bound(self) -> None:
+        from tests.studies.evidence.registry import registered
+
+        # A pending comparator's bound is declared before its first run, as every other side's.
+        for study in registered():
+            sides = [*study.implementations, *filter(None, (study.pending_reference,))]
+            assert dict(study.failure_bound) == dict.fromkeys(sides, 0.01), study.slug
+
+    def test_one_failure_reaches_the_legs_at_0_01_and_exceeds_the_bound_at_0(self) -> None:
+        """A failed replicate inside the allowance is judged by its worst case."""
+        within = _truth(_record(bound=0.01), _rows(_record(bound=0.01), failed=(4,)), "4")
+        assert set(within["reason"]) == {failures.WITHIN_BOUND}
+        exceeded = _truth(_record(bound=0.0), _rows(_record(bound=0.0), failed=(4,)), "4")
+        assert set(exceeded["reason"]) == {failures.BOUND_EXCEEDED}
+
+    def test_a_manifest_agrees_with_the_record_by_its_key_or_by_no_failure(self) -> None:
+        record = _record(bound=0.01)
+        stated = {"failure_bound": {REFERENCE: 0.01}}
+        assert failures.bound_consistent(stated, record, failures_recorded=True)
+        assert failures.bound_consistent({}, record, failures_recorded=False)
+        # Mutation controls: a different stated bound, and failures decided under no key.
+        other = {"failure_bound": {REFERENCE: 0.02}}
+        assert not failures.bound_consistent(other, record, failures_recorded=False)
+        assert not failures.bound_consistent({}, record, failures_recorded=True)
+
+    @staticmethod
+    def _committed(tmp_path: Path, bounds: dict[str, float] | None, *groups: pd.DataFrame) -> Path:
+        import json
+
+        configuration = {} if bounds is None else {"failure_bound": bounds}
+        (tmp_path / "manifest.json").write_text(json.dumps({"configuration": configuration}))
+        if groups:
+            pd.concat(groups, ignore_index=True).to_csv(tmp_path / failures.FAILURES, index=False)
+        return tmp_path
+
+    def test_a_bound_is_never_raised_after_a_run_that_lost_replicates(self, tmp_path: Path) -> None:
+        record = _record(bound=0.01)
+        here = self._committed(tmp_path, None, _failures(("law", "3")))
+        assert failures.raised_after_failures(here, record) == [REFERENCE]
+        assert failures.raised_after_failures(here, _record(bound=0.0)) == []
+        self._committed(tmp_path, {REFERENCE: 0.01})
+        assert failures.raised_after_failures(here, record) == []
+        assert failures.raised_after_failures(here, _record(bound=0.005)) == []
+
+    def test_a_paired_input_record_counts_against_the_subject(self, tmp_path: Path) -> None:
+        record = _record(failure_bound={REFERENCE: 0.0, SUBJECT: 0.01})
+        missing = _failures(("law", "3"), kind=failures.PAIRED_INPUT_MISSING)
+        here = self._committed(tmp_path, None, missing)
+        assert failures.raised_after_failures(here, record) == [SUBJECT]
+
+    def test_a_run_without_failures_may_take_any_declared_bound(self, tmp_path: Path) -> None:
+        assert failures.raised_after_failures(self._committed(tmp_path, None), _record()) == []
+
+    def test_the_claims_quote_the_bound_the_committed_run_applied(self, tmp_path: Path) -> None:
+        """A bound declared for the next run is not quoted for a run made without it."""
+        record = _record(bound=0.01, artifacts=tmp_path)
+        self._committed(tmp_path, None)
+        declared = claims.thresholds(record)
+        assert "margin:reference_failure_bound" not in declared
+        assert "margin:reference_failures_allowed" not in declared
+        self._committed(tmp_path, {REFERENCE: 0.01})
+        declared = claims.thresholds(record)
+        assert declared["margin:reference_failure_bound"] == 0.01
+        assert declared["margin:reference_failures_allowed"] == 2.0
+        assert "margin:subject_failure_bound" not in declared

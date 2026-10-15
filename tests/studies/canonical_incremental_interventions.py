@@ -49,6 +49,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly",
     reference="npcausal",
+    failure_bound={"cleverly": 0.01, "npcausal": 0.01},
     comparison="different estimator",
     modules=(
         "tests/studies/canonical_incremental_interventions.py",

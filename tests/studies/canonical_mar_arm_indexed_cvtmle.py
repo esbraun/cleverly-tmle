@@ -91,6 +91,10 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-stacked-mar-arm-indexed-cvtmle",
     reference="tmle-r-stitched-arm-indexed",
+    failure_bound={
+        "cleverly-stacked-mar-arm-indexed-cvtmle": 0.01,
+        "tmle-r-stitched-arm-indexed": 0.01,
+    },
     comparison="matching implementation",
     comparison_overrides={
         "binary_mar_three_arm_stacked:ate[low vs high]": "related target",

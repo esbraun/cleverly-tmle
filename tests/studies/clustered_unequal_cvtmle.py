@@ -106,6 +106,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-clustered-unequal-cvtmle",
     reference=None,
+    failure_bound={"cleverly-clustered-unequal-cvtmle": 0.01},
     modules=(
         "tests/studies/clustered_unequal_cvtmle.py",
         "tests/studies/clustered_unequal_properties.py",
