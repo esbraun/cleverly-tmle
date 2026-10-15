@@ -201,7 +201,7 @@ scope, not dates.
 | B3 | sequential baselines and the two applied tutorials | B1; B2 for the continuous examples | completes the first beta |
 | B4 | categorical incremental policies and repeated longitudinal cross-fitting | the relevant B1 to B3 engine | the prioritized beta expansion |
 | BP | the beta parity group: the former priority-1 rows that this reorganization does not place in B0 to B4 | their own dependencies | required for the first beta |
-| BD | the worked examples and the documentation, reviewed against the methods that ship at that time | every other first-beta row | the last work before the first beta |
+| BD | the worked examples and the documentation, reviewed against the methods that ship at that time | every row of milestones B0 to B4 and BP, merged | the last work before the first beta |
 | B5 | honest learned-policy evaluation and selected production extensions | a stable evaluation engine | later beta releases |
 
 The first beta needs B0 to B3, BP, and BD. It does not need every estimator to support every policy,
@@ -226,8 +226,8 @@ not change the package version.
 | BP | Hazard-based and monotone survival curves | published support; pending source read | the shipped point-treatment survival design | [X14](#x14-hazard-based-and-monotone-survival-curves) |
 | BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; oracle diagnostic | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
-| BD | Worked examples for the shipped methods | no new theory | every other first-beta row | [X68](#x68-worked-examples-for-the-shipped-methods) |
-| BD | Documentation review for new and changed methods | no new theory | every other first-beta row; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
+| BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
+| BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (o); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | B5 | Structural dynamic treatment effects | source audit | X41 | [X44](#x44-structural-dynamic-treatment-effects) |
 | B5 | Parametric forward-simulation g-formula | source audit | X41 | [X45](#x45-parametric-forward-simulation-g-formula) |
@@ -1043,8 +1043,9 @@ its red cells.
 
 ### X68. Worked examples for the shipped methods
 
-Review every worked example in `docs/examples/` against the methods that ship when the other
-first-beta rows have merged. Start this item last, so that it covers each method that exists then.
+Review every worked example in `docs/examples/` against the methods that ship when every row
+of milestones B0 to B4 and BP has merged. Start this item only then, so that it covers each method
+that exists then.
 A method here means one implementation family of the
 [implementation matrix](technical-reference/index.md#implementation-matrix).
 
@@ -1065,14 +1066,14 @@ executes in the documentation build.
 
 ### X69. Documentation review for new and changed methods
 
-Update the reader-facing documentation for each method that the first-beta rows add or change.
-Then review all of it for quality. Start this item after X68, so that the review includes the new
+Update the reader-facing documentation for each method that the rows of milestones B0 to B4 and BP
+add or change. Then review all of it for quality. Start this item after X68, so that the review includes the new
 example pages. The scope is `README.md` and every reader-facing source in `docs/`. This item is
 the broad review that step 1 of the documentation procedure otherwise excludes.
 
 | check | required result |
 | --- | --- |
-| coverage | each added or changed method has a user-guide path, a technical-reference entry, an evidence row, and its refusals. The merged pull requests of the first-beta rows give the list of methods |
+| coverage | each added or changed method has a user-guide path, a technical-reference entry, an evidence row, and its refusals. The merged pull requests of those rows give the list of methods |
 | correctness | each technical claim agrees with the code, a test, a registered artifact, or a cited source. Correct or remove each claim that does not |
 | clarity | each page follows the [documentation procedure](development/contributing.md#write-documentation) |
 | succinctness | each sentence adds verifiable information. Remove repetition, generic introductions, restated headings, closing summaries, and adjectives with no evidence |
