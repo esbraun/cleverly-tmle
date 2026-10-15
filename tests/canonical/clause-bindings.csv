@@ -87,6 +87,14 @@ canonical-ctmle-selector,selector_necessity,bias equivalent,none
 canonical-ctmle-selector,selector_necessity,rmse ratio under its ceiling,control_concentrated
 canonical-ctmle-selector,type_i_error,coverage floor,rejection/0.01
 canonical-ctmle-selector,type_i_error,rejection ceiling,coverage/0.94
+canonical-ctmle-sequences,double_robustness,bias discriminated,pair_collapse
+canonical-ctmle-sequences,double_robustness,bias equivalent,bias
+canonical-ctmle-sequences,double_robustness,se ratio in union band,se/0.05
+canonical-ctmle-sequences,multi_arm,bias discriminated,pair_collapse
+canonical-ctmle-sequences,multi_arm,bias equivalent,bias
+canonical-ctmle-sequences,selector_necessity,bias discriminated,pair_collapse
+canonical-ctmle-sequences,selector_necessity,bias equivalent,none
+canonical-ctmle-sequences,selector_necessity,rmse ratio bound under its ceiling,control_concentrated
 canonical-cvtmle,crossfit_overfitting,control se ratio under its ceiling,se_high
 canonical-cvtmle,crossfit_overfitting,coverage gain,shift/3
 canonical-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low

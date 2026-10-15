@@ -169,8 +169,8 @@ def variable_importance(
 
     Refuses, before the first fit, when the estimator's inference status on any
     candidate's prepared data supplies no inference. A
-    :class:`~cleverly.estimators.CTMLE` whose ``strategy`` is ``"greedy"``, ``"ordered"``
-    or ``"discrete"`` is one such case, and the
+    :class:`~cleverly.estimators.CTMLE` whose ``strategy`` is ``"greedy"``, ``"ordered"``,
+    ``"discrete"``, ``"lasso"`` or ``"learners"`` is one such case, and the
     :doc:`inference reference </technical-reference/inference>` lists each status. The
     adjustment above needs one p-value per candidate, and such a fit supplies none, so
     this procedure has no diagnostic form to fall back to. Before that check, an estimator
