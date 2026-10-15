@@ -380,7 +380,7 @@ from ._nuisance import (
     cross_fit_predictions,
     fit_on_rows,
 )
-from ._oat_stack import StackReport, stack_from_fit, stack_report
+from ._oat_stack import FoldCoefficients, StackReport, stack_from_fit, stack_report
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
@@ -735,6 +735,10 @@ STACKED_ESTIMANDS: Final[frozenset[str]] = frozenset({"ate", "rr", "or", "ey", "
 #: :meth:`CTMLE._corrections` reads the stack only for a call the stack covers. A
 #: :meth:`~cleverly.TMLE.retarget` can request names the estimator never declared.
 _REQUESTED: ContextVar[tuple[str, ...] | None] = ContextVar("_REQUESTED", default=None)
+
+#: The stack report :meth:`CTMLE._corrections` built inside the :meth:`CTMLE._estimates_for`
+#: call in progress, so the call reads one solve of the stack.
+_REPORT: ContextVar[list[StackReport | None] | None] = ContextVar("_REPORT", default=None)
 
 
 def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdict:
@@ -1626,7 +1630,11 @@ default="greedy"
         return "generated_design_plugin"
 
     def _stack_report(
-        self, data: CausalData, nuisance: NuisanceEstimates, fluctuation: Any
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        fluctuation: Any,
+        submodel: Submodel,
     ) -> StackReport | None:
         """The stacked-curve report of an admitted per-arm fit, ``None`` for any other fit.
 
@@ -1648,6 +1656,7 @@ default="greedy"
                 data,
                 nuisance,
                 fluctuation,
+                np.column_stack([submodel.column_for(arm) for arm in arms]),
                 (float(bounds[0]), float(bounds[1])),
                 float(self.alpha),
             )
@@ -1669,6 +1678,7 @@ default="greedy"
         fluctuation: Any,
         targeted: InitialFit,
         scaled: FloatArray,
+        submodel: Submodel,
     ) -> dict[float, FloatArray] | None:
         """The shipped curve minus the stacked curve per arm on an admitted per-arm fit.
 
@@ -1676,9 +1686,12 @@ default="greedy"
         arm mean and every contrast of the arm means reads the stacked curve. A failed arm
         subtracts zeros and keeps the shipped curve, which :meth:`_estimates_for` marks.
         """
-        report = self._stack_report(data, nuisance, fluctuation)
+        report = self._stack_report(data, nuisance, fluctuation, submodel)
+        held = _REPORT.get()
+        if held is not None:
+            held.append(report)
         if report is None:
-            return super()._corrections(data, nuisance, fluctuation, targeted, scaled)
+            return super()._corrections(data, nuisance, fluctuation, targeted, scaled, submodel)
         return report.corrections
 
     def _estimates_for(
@@ -1703,6 +1716,8 @@ default="greedy"
         and every estimate it builds takes ``"generated_design_plugin"``.
         """
         token = _REQUESTED.set(tuple(requested))
+        reports: list[StackReport | None] = []
+        held_token = _REPORT.set(reports)
         try:
             estimates = super()._estimates_for(
                 data,
@@ -1730,8 +1745,13 @@ default="greedy"
                     )
                     for name, estimate in estimates.items()
                 }
-            report = self._stack_report(data, nuisance, fluctuation)
+            # ``_corrections`` built the report for this call; reading it again would solve
+            # the stack twice.
+            report = (
+                reports[0] if reports else self._stack_report(data, nuisance, fluctuation, submodel)
+            )
         finally:
+            _REPORT.reset(held_token)
             _REQUESTED.reset(token)
         if report is None or not report.failures:
             return estimates
@@ -2703,12 +2723,21 @@ default="greedy"
         per_arm = self.oat_design == "per_arm"
         learner = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
         factor_diagnostics: dict[str, Any]
+        stack_record: FoldCoefficients | None = None
         if base.folds.is_single and per_arm:
             generated = np.column_stack([base.outcome.arms[arm] for arm in arms])
             every = np.arange(data.n)
             factors, factor_diagnostics = _fit_per_arm_factors(
                 data, generated, learner, every, every
             )
+            if self._records_fold_coefficients(data):
+                outcome_entries = base.diagnostics.get("outcome") or []
+                stack_record = FoldCoefficients.from_entries(
+                    {0: outcome_entries[0] if len(outcome_entries) == 1 else None},
+                    {0: _single_entries(factor_diagnostics["treatment"])},
+                    folds=1,
+                    arms=len(arms),
+                )
         elif base.folds.is_single:
             design = np.column_stack([base.outcome.arms[arm] for arm in arms])
             predictions, diagnostics = cross_fit_predictions(
@@ -2727,7 +2756,7 @@ default="greedy"
             factors = {"treatment": predictions["g"]}
             factor_diagnostics = {"treatment": diagnostics}
         else:
-            base, factors, factor_diagnostics = self._cross_fit_outcome_adaptive(
+            base, factors, factor_diagnostics, stack_record = self._cross_fit_outcome_adaptive(
                 data, base, learner, seed=seed
             )
         risk_by_arm: dict[str, float] | None
@@ -2769,6 +2798,8 @@ default="greedy"
         treatment_diagnostics = factor_diagnostics["treatment"]
         if (per_arm and any(treatment_diagnostics)) or (not per_arm and treatment_diagnostics):
             nuisance_diagnostics["propensity"] = treatment_diagnostics
+        if stack_record is not None:
+            nuisance_diagnostics["stack"] = stack_record
         observation: dict[str, Any] = {}
         if per_arm and data.has_missing_outcome:
             # The targeting reads the design factor. The full-W model stays for the tilt.
@@ -2821,7 +2852,7 @@ default="greedy"
         treatment_learner: Learner,
         *,
         seed: int | None,
-    ) -> tuple[NuisanceEstimates, dict[str, FloatArray], dict[str, Any]]:
+    ) -> tuple[NuisanceEstimates, dict[str, FloatArray], dict[str, Any], FoldCoefficients | None]:
         """Cross-fit ``Qbar -> g`` as one fold-local nuisance algorithm.
 
         The first implementation stitched global out-of-fold ``Qbar`` predictions and
@@ -2844,13 +2875,19 @@ default="greedy"
         outcome regression used to build a clever covariate cannot be a second refit
         that merely has the same learner settings.
 
+        With the parametric learners of the stacked interval, the fold loop also records
+        each fold's outcome and mechanism coefficients by fold index
+        (:class:`~cleverly.estimators._oat_stack.FoldCoefficients`), and a fold without
+        its entry raises rather than shift the later folds.
+
         Returns
         -------
         tuple
             The base nuisances with the fold-local outcome predictions, each factor's
             stitched out-of-fold predictions keyed by factor name (``"treatment"`` alone
-            under the shared design), and each factor's learner diagnostics: per arm under
-            the per-arm design, per fold under the shared design.
+            under the shared design), each factor's learner diagnostics (per arm under
+            the per-arm design, per fold under the shared design), and the fold
+            coefficient record, ``None`` without the parametric learners.
         """
         arms = data.arm_codes
         per_arm = self.oat_design == "per_arm"
@@ -2938,8 +2975,10 @@ default="greedy"
         factors: dict[str, FloatArray] = {}
         outcome_diagnostics: list[Any] = []
         factor_diagnostics: dict[str, Any] = {}
+        outcome_by_fold: dict[int, Any] = {}
+        mechanism_by_fold: dict[int, list[Any]] = {}
         for (
-            _,
+            fold,
             test,
             fold_observed,
             fold_arms,
@@ -2954,6 +2993,11 @@ default="greedy"
                 factors[name][test] = values
             for arm in arms:
                 by_arm[arm][test] = fold_arms[arm]
+            # Keyed by the fold the job ran, never by position, so a missing entry cannot
+            # shift a later fold's coefficients into its place (X58 plan, F10).
+            outcome_by_fold[fold] = q_diagnostic
+            if per_arm:
+                mechanism_by_fold[fold] = _single_entries(fold_diagnostics["treatment"])
             if q_diagnostic is not None:
                 outcome_diagnostics.append(q_diagnostic)
             for name, entry in fold_diagnostics.items():
@@ -2977,7 +3021,27 @@ default="greedy"
             outcome=InitialFit(observed, by_arm),
             diagnostics=diagnostics,
         )
-        return honest_base, factors, factor_diagnostics
+        record = (
+            FoldCoefficients.from_entries(
+                outcome_by_fold, mechanism_by_fold, folds=folds.n_folds, arms=len(arms)
+            )
+            if per_arm and self._records_fold_coefficients(data)
+            else None
+        )
+        return honest_base, factors, factor_diagnostics, record
+
+    def _records_fold_coefficients(self, data: CausalData) -> bool:
+        """Whether the per-arm fit records its fold coefficients for the stacked curve.
+
+        The record needs one coefficient vector per fold from each learner: the parametric
+        learners of :func:`per_arm_parametric_support`, and one treatment factor fit per arm
+        and fold, which baseline strata would split.
+        """
+        return (
+            type(self.outcome_learner) is ParametricOutcome
+            and type(self.treatment_learner) is ParametricMechanism
+            and not data.has_strata
+        )
 
     def _retarget_detailed(
         self, data: CausalData, nuisance: NuisanceEstimates, **kwargs: Any
@@ -4299,6 +4363,11 @@ def _fit_per_arm_factors(
         factors[spec.name] = out
         diagnostics[spec.name] = entries
     return factors, diagnostics
+
+
+def _single_entries(entries: Sequence[Sequence[Any]]) -> list[Any]:
+    """Per arm, the one learner diagnostics entry of a factor fit, or ``None`` without one."""
+    return [arm[0] if len(arm) == 1 else None for arm in entries]
 
 
 def _move_diagnostics(diagnostics: dict[str, Any], key: str, entries: list[list[Any]]) -> None:

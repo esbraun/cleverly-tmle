@@ -4655,8 +4655,14 @@ class TMLE:
         fluctuation: Fluctuation,
         targeted: InitialFit,
         scaled: FloatArray,
+        submodel: Submodel,
     ) -> dict[float, FloatArray] | None:
-        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other."""
+        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other.
+
+        ``submodel`` is the mean submodel the estimates read. This hook does not read it; the
+        per-arm :class:`~cleverly.CTMLE` reads its clever covariate.
+        """
+        del submodel
         parts = correction_parts(data, nuisance, fluctuation, targeted, scaled)
         return None if parts is None else parts.total()
 
@@ -4702,7 +4708,7 @@ class TMLE:
         # alternation exited at: the refitted reductions and the *targeted* mechanism, both
         # of which live on the fluctuation rather than on the nuisances. `None` for every
         # other fit, and then `counterfactual_means` is untouched character for character.
-        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled)
+        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled, submodel)
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)

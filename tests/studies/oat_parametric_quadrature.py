@@ -298,7 +298,7 @@ def population_fit(
         alpha,
         mass=mass,
     )
-    theta = problem.pack(beta, gammas, epsilons, psis)
+    theta = problem.pack([beta], [[gamma] for gamma in gammas], epsilons, psis)
     truth = [float(mass @ law.outcome(arm, cells.covariates)) for arm in (0, 1)]
     return PopulationFit(
         grid=cells,
