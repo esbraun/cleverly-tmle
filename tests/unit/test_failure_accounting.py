@@ -1133,10 +1133,10 @@ class TestPrimaryBound:
     def test_every_registered_study_declares_each_side_s_bound(self) -> None:
         from tests.studies.evidence.registry import registered
 
+        # A pending comparator's bound is declared before its first run, as every other side's.
         for study in registered():
-            assert dict(study.failure_bound) == dict.fromkeys(study.implementations, 0.01), (
-                study.slug
-            )
+            sides = [*study.implementations, *filter(None, (study.pending_reference,))]
+            assert dict(study.failure_bound) == dict.fromkeys(sides, 0.01), study.slug
 
     def test_one_failure_reaches_the_legs_at_0_01_and_exceeds_the_bound_at_0(self) -> None:
         """A failed replicate inside the allowance is judged by its worst case."""

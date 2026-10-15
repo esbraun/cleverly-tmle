@@ -3196,8 +3196,8 @@ class TestDeclaredRules:
 class TestPropertyDifferential:
     """R3-2 fallback: the all-study differential runs as a CI job, never as a sample.
 
-    ``tests/canonical/property_differential.py`` measured 5,797 cases, about 6,400 CPU-seconds
-    and about 30 minutes on four workers, so it is the ``property-differential`` job of
+    ``tests/canonical/property_differential.py`` measured 5,892 cases, about 7,600 CPU-seconds
+    and about 35 minutes on four workers, so it is the ``property-differential`` job of
     ``.github/workflows/ci.yml``.
     The fast tier checks that the job's parametrization lists every committed study and that
     its clause-binding witnesses name what exists.

@@ -255,9 +255,9 @@ a conjunct would let a lost replicate turn a cell green. Two checks guard the ru
 | --- | --- | --- |
 | `fixed at size` | The S2 or S3 clause gives one verdict at every success count from 0 to `R` on each of its rows. No perturbation changes `R` | the root-n control's `coverage resolves` at `R` of 800 or more: the 99 per cent interval is narrower than the gap between the floor and nominal |
 | `same module as: <subject>` | The other subject runs the same module and record, and its witness decides the pair | the committed and the synthetic rows of `longitudinal_sdr_properties` |
-| `implied by: <clause>` | On every row, the other clause fails wherever this one fails. The check sweeps each role's mean error from -3 to 3 times, scales its spread, and reads every shared perturbation | `bias discriminated` under `alternative bias equivalent` in the two weighted studies |
+| `implied by: <clause>` | On every row, the other clause fails wherever this one fails. The check sweeps each role's mean error from -3 to 3 times, scales its spread, and reads every shared perturbation | `bias discriminated` under `alternative bias equivalent` in the two weighted studies and in `repeated_outcome_necessity` |
 
-The job runs 5,797 cases in about 6,400 CPU-seconds, about 30 minutes on four workers. So it does not run in the fast tier, and its timeout is 90 minutes. It runs on every pull
+The job runs 5,892 cases in about 7,600 CPU-seconds, about 35 minutes on four workers. So it does not run in the fast tier, and its timeout is 105 minutes, three times the measured run. It runs on every pull
 request that touches `tests/studies/`, `tests/canonical/`, `src/cleverly/`, `pyproject.toml`,
 `uv.lock` or the workflow. A failed `git diff` fails the job instead of skipping it. Make it a
 required check. It always reports, and it skips its steps on other pull requests.
