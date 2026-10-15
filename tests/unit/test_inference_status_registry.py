@@ -40,6 +40,7 @@ PRECEDENCE = (
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
+    "adaptive_baseline_plugin",
     "few_cluster_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",

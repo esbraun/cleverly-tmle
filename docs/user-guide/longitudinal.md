@@ -508,6 +508,74 @@ changes the treatment after baseline is refused, because the design holds one de
 [One baseline treatment held over the nodes](../technical-reference/longitudinal-tmle.md#one-baseline-treatment-held-over-the-nodes)
 gives the contract and its evidence.
 
+## A survival curve that never decreases
+
+The default survival fit targets each horizon in its own backward pass, so its curve can decrease
+by a small amount. Two options give a non-decreasing curve.
+
+| option | what it does | what it needs |
+| --- | --- | --- |
+| `survival_model="hazard", targeting="one_step"` | fits the cause-specific hazard at every node, and targets one set of hazards for every horizon together | one categorical treatment at baseline, held over every node, and no covariate after baseline |
+| `isotonic=True` | projects each fitted curve and its band limits onto a non-decreasing curve | any survival or competing-risk fit |
+
+Pass the hazard learner as `outcome_learner`. A hazard fit does not use `pseudo_learner`.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from cleverly import CausalStudy, RegimeMean, TimeToEvent
+from cleverly.datasets import make_point_survival
+
+frame, truth = make_point_survival(n=1_000, seed=4, n_times=4)
+study = CausalStudy(
+    frame,
+    design=TimeToEvent(
+        time="time", event="event", treatment="A", baseline=("W1", "W2"), grid=(1, 2, 3, 4)
+    ),
+)
+hazard_curve = study.estimate(
+    RegimeMean({"arm1": 1, "arm0": 0}),
+    survival_model="hazard",
+    targeting="one_step",
+    outcome_learner=LogisticRegression(max_iter=1000),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+print(hazard_curve.curve()[["estimand", "psi", "ci_lower", "ci_upper"]])
+```
+
+The risks of each arm do not decrease over the four grid times. Call `summary()` to see the walk: the
+parameter count, the step count, the largest relative score, and whether the walk converged.
+
+`targeting="iterative"`, the default, targets the hazards at each horizon on its own. That curve is
+not guaranteed to be monotone.
+
+To keep the iterated-mean fit and project its curve, pass `isotonic=True`.
+
+```python
+projected = study.estimate(
+    RegimeMean({"arm1": 1, "arm0": 0}),
+    isotonic=True,
+    outcome_learner=LinearRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+)
+print(projected.isotonic_moves)
+```
+
+`isotonic_moves` lists each level the projection moved. On this sample it is empty, because the
+fitted curve already does not decrease. The projection keeps every influence curve and standard
+error. A pointwise interval at a moved level is valid only where the true curve strictly
+increases. [The isotonic projection](../technical-reference/longitudinal-tmle.md#the-isotonic-projection)
+states each claim and its condition.
+
+The hazard model refuses a treatment at several nodes, a covariate after baseline, a continuous
+treatment, and a modified treatment policy. Each message names the iterated-mean route.
+[Hazard-based survival targeting](../technical-reference/longitudinal-tmle.md#hazard-based-survival-targeting)
+gives the contract, both algorithms, and the evidence. No registered study measures the coverage
+of a hazard fit or a projected fit yet.
+
 ## Fit the sequentially doubly robust estimator
 
 Pass `method="sdr"` to `estimate()` to fit the sequentially doubly robust estimator. It reports
@@ -549,6 +617,61 @@ level can leave the outcome range too. The fit then warns with `ParameterSpaceWa
 `ratio()` refuses a scale that is undefined at that level.
 [The sequentially doubly robust estimator](../technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
 states the contract and what differs from the default method.
+
+## Report the sequential baselines
+
+`SequentialGComputation` and `SequentialIPW` estimate the regimen levels and contrasts that
+`LTMLE` estimates. Report them beside an `LTMLE` or `SDR` fit as reference estimators.
+
+| estimator | the estimate reads | use it to |
+| --- | --- | --- |
+| `SequentialGComputation` | the outcome and pseudo-outcome regressions | check the targeted estimate against the plug-in |
+| `SequentialIPW` | the treatment and censoring mechanisms | check the targeted estimate against the weighted mean |
+
+```python
+from cleverly.datasets import make_longitudinal
+from cleverly.learners import GLM
+from cleverly.longitudinal import SequentialGComputation, SequentialIPW
+
+frame, _ = make_longitudinal(n=300, seed=0)
+columns = dict(
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+regimens = {"always": 1, "never": 0}
+gcomp = SequentialGComputation(regimens, reference="never", outcome_learner=GLM()).fit(
+    frame, **columns
+)
+ipw = SequentialIPW(regimens, reference="never", treatment_learner=GLM()).fit(frame, **columns)
+print(gcomp.summary())
+print(ipw.summary())
+```
+
+`gcomp()` and `ipw()` are the one-call forms. Both take the same columns and `regimens=`.
+
+The interval of each baseline holds only when every `GLM` that the estimate reads is correctly
+specified. Under misspecification the interval covers the limit of the misspecified fit, not the
+target. A targeted estimator has no such condition on one of its two models.
+
+When a regression that the estimate reads uses a data-adaptive learner, the result reports the
+status `adaptive_baseline_plugin`. It gives the point estimate only. The standard error is a
+diagnostic under `plugin_std_error`. Fit `LTMLE` or `SDR` when you need an interval with
+data-adaptive learners.
+
+The answers can differ from `LTMLE` for three reasons.
+
+| reason | effect |
+| --- | --- |
+| g-computation applies no fluctuation | its estimate reads the outcome regressions alone |
+| IPW uses no outcome regression | its estimate reads the mechanisms alone, and a large weight moves it |
+| both baselines fit `GLM` models by default | `LTMLE` fits a Super Learner by default |
+
+With the same outcome learner, the g-computation estimate equals the untargeted first step of
+`LTMLE`. [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md) gives
+the estimators, the stacked influence curve, the settings, and the refusals.
 
 ## Estimate an incremental intervention over time
 

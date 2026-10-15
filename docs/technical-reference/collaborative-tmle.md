@@ -38,7 +38,9 @@ The implementation follows the published pooled construction step by step.
 
 | paper operation | implementation invariant | how it is validated |
 | --- | --- | --- |
-| build increasingly adaptive candidates | the greedy, preordered, and discrete paths retain nested candidate state | exact path and treatment-risk tests |
+| build increasingly adaptive candidates | the greedy, preordered, and discrete paths retain nested candidate state. The lasso and learners paths index a declared sequence of mechanisms | exact path and treatment-risk tests |
+| construct the indexed candidates (lasso, learners) | from the current initial fit, fluctuate with every remaining candidate and take the first smallest criterion. Stop when it does not improve on the best so far. Otherwise record the skipped candidates as fluctuations of the current fit, and continue from the accepted candidate's targeted fit | a scripted criterion table, and R `ctmleGeneral` and `ctmleGlmnet` on R's own propensity arrays |
+| take the C-TMLE1 final step (lasso) | fluctuate the selected candidate's targeted fit with each smaller penalty, and report the one with the smallest unpenalized loss | the R `ctmleGlmnet` final step on R's explicit-penalty columns |
 | target the outcome regression with each candidate | every candidate carries its complete targeted regression, its fluctuation, and its influence curve | longhand loss, penalty, and score equations |
 | cross-validate the stopping index | every selection fold refits the outcome regression, the auxiliary mechanisms, and every candidate. Training-row predictions are inner-fold out of fold, and validation-row predictions come from the full selection-training fit | row-identity spy learners, and the two-fold degeneracy case |
 | select the candidate estimator | the final fit persists both the selected mechanism and the selected targeted regression | a mutation test in which discarding the targeted regression fails |
@@ -90,6 +92,11 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 | `strategy="greedy"` | the package's scalable candidate path. The default |
 | `strategy="ordered"` | both scalable preorders from Ju et al. (2019). `preorder="logistic"` uses one-variable targeting loss and is the default. `preorder="partial_correlation"` conditions the residual-covariate correlation on one-hot treatment indicators rather than on numeric arm codes. Marginal correlation with the outcome is not a published preorder and is not used |
 | `strategy="discrete"` | selection among explicitly supplied candidate covariate sets |
+| `strategy="lasso"` | the L1-penalized logistic mechanism at each penalty of a decreasing grid, then the C-TMLE1 final step. The analogue of R `ctmleGlmnet(ctmletype = 1)`. See [candidate sequences](#candidate-sequences) |
+| `lambdas=` | the penalty grid of `strategy="lasso"`, with two or more penalties. The default is the `glmnet` rule: 100 log-spaced values from `lambda_max` down to `lambda_max` times `1e-4` (or `1e-2` when `n < p`), then 0 |
+| `strategy="learners"` | each declared treatment learner in the declared order, then `treatment_learner` on every covariate. The analogue of R `build_gn_seq` with `ctmleGeneral(ctmletype = 1)` |
+| `treatment_candidates=` | the declared entries of `strategy="learners"`, least adaptive first. An entry is an unfitted learner or a `PropensityArrays(full=..., cv=...)` pair |
+| `selection_split=` | fold labels `0` to `V - 1`, one for each row, in place of the random selection split. Valid on every selector strategy. `selection_folds=` must equal `V` |
 | `strategy="oat"` | the outcome-adaptive mechanism, fitted on the arm-specific outcome predictions. It has no candidate path and no parameter-specific selector |
 | `oat_design=` | the design of `strategy="oat"`. `"per_arm"` (the default) fits one binary mechanism per arm on that arm's own prediction. `"shared"` fits the one categorical mechanism of the archived `ctmle3`. See [the per-arm outcome-adaptive design](#the-per-arm-outcome-adaptive-design) |
 | `candidates=`, `ordering=` | supply the candidate sets or the preorder explicitly. A refit that adds a covariate, such as the `random_common_cause` refutation, places it after the declared ordering. Independent noise has no prior relevance, so it ranks last |
@@ -145,6 +152,85 @@ This fixed-weight surface claims no numerical parity with either implementation.
 defines a different estimand, so the search would select between estimands rather than between
 estimators.
 
+## Candidate sequences
+
+The `lasso` and `learners` strategies index a declared sequence of treatment mechanisms. They do
+not search over covariate sets. The table gives the base result and the locator of each part.
+
+| item | content | locator |
+| --- | --- | --- |
+| general template | candidates over an index set, ordered by empirical fit. The most adaptive end is consistent for $g_0$. Each candidate gives a TMLE, and cross-validation selects the index | van der Laan and Gruber (2010), Section 2.4 |
+| ordering requirement | the empirical losses of the candidates decrease in the index, and the last candidate is consistent | Ju, Gruber et al. (2019), Section 4.1, Algorithm 1, step 2 |
+| indexed construction rule | from the current initial fit, fluctuate with every remaining candidate and take the smallest criterion. Record every skipped candidate as a fluctuation of the current fit. The accepted candidate's targeted fit becomes the next initial fit | Ju, Wyss et al. (2019), Appendix A, Algorithm 1, steps 5 to 12. R `ctmle` `construct_candidates_general` |
+| construction criterion and stop | the selection `risk`: the loss, plus the penalty when `penalty=True`. Construction stops when the best try does not improve on the best score so far. The remaining candidates then fluctuate the last initial fit. With `penalty=False` the stop never binds | R `ctmle` `R/functions_general.R`, lines 60 to 129 |
+| C-TMLE1 final step (`lasso` only) | after the cross-validation selects a penalty, fluctuate the selected candidate's targeted fit with each smaller penalty. Report the one with the smallest unpenalized loss. With no smaller penalty, report the selected candidate | Ju, Wyss et al. (2019), Section 4.2, and Appendix A, Algorithm 1, steps 13 to 16. R `ctmle` `R/ctmle_glmnet.R`, lines 265 to 325 |
+| lasso candidate | the `glmnet` objective: weighted mean binomial deviance over two, with the weights normalized to mean 1, columns standardized by the weighted population standard deviation, an unpenalized intercept, and an L1 penalty. At `K > 2` arms it is the symmetric `ungrouped` multinomial | Ju, Wyss et al. (2019), Section 4.2 |
+| declared candidates | each entry in the declared order, least adaptive first, then `treatment_learner` on every covariate | R `ctmle` `R/build_gn_seq.R` and `ctmleGeneral` |
+
+The final step of Ju, Wyss et al. (2019), Algorithm 1, fluctuates the selected candidate's
+*initial* fit. R `ctmleGlmnet` and this package fluctuate its *targeted* fit
+(`R/ctmle_glmnet.R`, line 291).
+
+**The solver has a residual contract.** `cleverly.learners._l1_logistic` solves the lasso by
+coordinate descent with a Newton polish on the active set, warm-started along the grid. Its
+Karush-Kuhn-Tucker residual is at most `1e-10` at every penalty. When the residual is larger, the
+fit raises `L1ConvergenceError`, and the message names the layer and the penalty. The usual cause
+is separation at penalty 0. A grid that ends above 0 avoids it.
+
+**The ends of the default grid hold on the analysis sample.** There, the first
+default candidate is the intercept-only mechanism exactly, and the last is the unpenalized
+main-terms logistic fit. The grid is fixed on the analysis sample. The training rows of a
+selection fold or an outer fold have their own `lambda_max`, so there the first candidate can
+have a nonzero coefficient.
+
+**A `PropensityArrays` pair is the `ctmleGeneral` input.** `full` holds the predictions of a fit on
+every row. `cv` holds out-of-fold predictions under the split that `selection_split=` declares. The
+analysis-sample path reads `full`. Inside each selection fold, the training and the validation
+rows read `cv`, as R does. The pair needs `selection_split=`, `cross_fit=False`, `repeats=1`, and
+`n_bootstrap=0`, and a refit refuses it.
+
+**The pair carries a declared exception.** Each training-row prediction in `cv` came from a fit
+that used the validation fold's treatment and covariates, though never its outcome. R `ctmle` has
+the same property. This is an exception to the rule that a selection-validation observation
+contributes to no nuisance fit that scores it. The package cannot check that `cv` respects
+`selection_split`, so the caller must make sure it does. A learner entry has no exception: the
+package fits it on the same rows a covariate-set candidate uses.
+
+**`CTMLESelection` records the sequence.** `labels` names each candidate, for example
+`"lambda=0.0123"`, `"lambda=0"`, `"LogisticRegression[2]"`, or `"arrays[1]"`. `final` is the
+final-step candidate, or `None` when no final step ran. `selected` stays the cross-validated index.
+The reported mechanism is `final` when it is set, and `selected` otherwise. Under `lasso`,
+`path[k]` holds the covariates with a nonzero coefficient in some fit of candidate `k`. `summary()`
+also reports whether the treatment risk decreases along the declared order, which the template
+requires. A fit does not refuse when it does not.
+
+**R `ctmle` differs in these ways.** The package does not reproduce them.
+
+| R behavior | locator | package behavior |
+| --- | --- | --- |
+| `cv_general` discards the supplied `folds` and draws new ones | `R/functions_general.R`, line 287 | `selection_split=` is used as given |
+| inside each fold, the evaluation refits the fluctuation on all rows before it scores the validation rows | `R/functions_glmnet.R`, lines 32 and 86 to 97; `R/functions_general.R`, lines 184 and 213 to 218 | the fluctuation uses the training rows only |
+| inside each fold, `glmnet` is refitted on every row | `R/functions_glmnet.R`, line 24 | each fold fits its own training rows |
+| `predict(s = )` interpolates the default path and clamps below its smallest penalty, and the default path can stop early | `glmnet` | each penalty is solved exactly |
+| the next accepted column is found by a squared distance below `1e-5` | `R/functions_general.R`, line 209 | candidates are matched by index |
+| `calc_varIC(ICg = TRUE)` reads only the first covariate column | `R/functions_general.R`, line 198 | not used |
+| type 1 has no branch for a selected last penalty | `R/ctmle_glmnet.R`, line 270 | the selected candidate is reported |
+| the construction criterion adds `var(D*)` whatever `PEN` is | `R/functions_glmnet.R`, lines 172 to 177; `R/functions_general.R`, lines 65 to 72 | the construction adds the penalty only when `penalty=True` |
+| the construction penalty carries the factor `n_train / n` inside each fold | `R/functions_glmnet.R`, line 172 | no factor |
+
+Under `lasso`, `treatment_learner` remains the fallback for a missingness mechanism, and the lasso
+candidates do not use it. A scikit-learn `FrozenEstimator` passes as a learner entry and is not
+refitted, because `clone` returns it unchanged. This holds for every learner argument.
+
+**Evidence.** `tests/unit/test_ctmle_candidate_sequences.py` holds the scripted construction rule,
+the solver residual, the path ends, the row-identity audits, the refusals, and forced selection.
+`tests/unit/test_ctmle_sequence_witness.py` compares the solver with `glmnet`, and the construction
+and the final step with R `ctmleGeneral` and `ctmleGlmnet`, on the fixture in
+`tests/canonical/ctmle_sequence_witness/`. The registered study
+[C-TMLE candidate sequences](method-evidence/c-tmle-candidate-sequences.md) replays R `ctmle`'s
+construction and final step on R's own arrays over repeated samples. Its paired selected
+estimates are descriptive, because R's cross-validation leaks (quirk 2).
+
 ## Validation issues special to this method
 
 **A favourable comparison against plain TMLE can be won by a selector that selects nothing.** When
@@ -164,17 +250,19 @@ shared out-of-fold-nuisance and pooled-fluctuation architecture, and it localise
 that training rows use fold fits while new rows use a full-training refit. It does not implement
 C-TMLE selection. The candidate search is therefore accepted on the paper equations, the exact
 identities, the row-membership audits, the mutation controls, the score checks, and the registered
-studies. It is not accepted on numerical R parity.
+studies. It is not accepted on numerical R parity. The indexed construction rule and the final step
+are the exception. R `ctmle` implements both, and a fixture compares them on R's own arrays (see
+[candidate sequences](#candidate-sequences)).
 
 **Scoring only one contrast is a load-bearing mutation.** The multi-arm selector's joint penalty is
 checked by a mutation that scores only the first contrast. It changes the penalty by more than 100.
 
-**The selector paths publish no inference.** The greedy, ordered, and discrete paths refuse
-`ci`, `pvalue`, and `std_error`. Each accessor raises `CapabilityError`. One `discrete` fit is the
-exception, and the paragraph on a declared full candidate below states it. The refusal says that the
-reported curve is the ordinary efficient influence curve at the candidate the search stopped at,
-and that no result shows it is this estimator's influence curve when that working mechanism is not
-consistent for the treatment law.
+**The selector paths publish no inference.** The greedy, ordered, discrete, lasso, and learners
+paths refuse `ci`, `pvalue`, and `std_error`. Each accessor raises `CapabilityError`. Two declared
+fits are the exception, and the paragraph on a declared full candidate below states them. The
+refusal says that the reported curve is the ordinary efficient influence curve at the candidate the
+search stopped at, or at the final-step candidate. It also says that no result shows it is this
+estimator's influence curve when that working mechanism is not consistent for the treatment law.
 
 The point estimate, the selection path, and the curve remain. Two accessors report the retained
 diagnostic. `plugin_std_error` gives the plug-in standard error of that curve. `plugin_interval`
@@ -202,23 +290,30 @@ one emits `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper`
 the point estimate, and it answers for these paths.
 
 [F18](../roadmap.md#f18-selector-path-c-tmle-inference) is the condition that reopens this. It
-reopens when it supplies the estimator's influence curve.
+reopens when it supplies the estimator's influence curve. A result that reopens a path must bound
+the adaptive-mechanism term without conditioning on the outcome regression, or must show that the
+term is a product. A term that is linear in $g_n - g_0$ when $\bar Q$ is wrong does not qualify.
 
-**A declared full candidate is the ordinary TMLE.** A `discrete` fit whose declared list holds one
-candidate, equal to the full adjustment set, takes the ordinary TMLE status. It reports `ci`,
+**A declared full candidate is the ordinary TMLE.** Two declarations select nothing. A `discrete`
+fit whose declared list holds one candidate, equal to the full adjustment set, is the first. A
+`learners` fit with an empty `treatment_candidates=` list is the second: its one candidate is
+`treatment_learner` on every covariate. Each takes the ordinary TMLE status. It reports `ci`,
 `pvalue`, `std_error`, a simultaneous band, and every derived operation that the TMLE fit reports.
 The [natural-extension verdicts](natural-extension-verdicts.md) record this as part (j).
+
+A single declared `learners` entry gives two candidates. That fit selects and keeps the plug-in
+status.
 
 | item | content |
 | --- | --- |
 | base result | the TMLE interval result that [point-treatment TMLE](point-treatment-tmle.md) cites |
 | argument | the search has one candidate, so it selects nothing. The candidate is the full set, so the mechanism is the TMLE mechanism, and the estimator is the TMLE estimator |
-| key | `declares_full_adjustment_only` in `src/cleverly/estimators/ctmle.py`. It reads the strategy, the declared list, and the prepared covariate names. It never reads the fitted path |
+| key | `declares_no_selection` in `src/cleverly/estimators/ctmle.py`. It reads the strategy, the declared lists, and the prepared covariate names. It never reads the fitted path |
 | match rule | one candidate that holds each prepared covariate name once, in any order. A repeated candidate counts as two candidates. A repeated name is not the full set |
 | admitted configurations | every configuration that `CTMLE` accepts: in sample and cross-fitted, two or more arms, fixed weights, `delta=` in sample, `ey`, `ate`, `rr`, `or`, a simultaneous band, `repeats`, and `n_bootstrap` |
 | refit rule | a refit appends each covariate that `CausalData.with_extra_covariate` recorded to every candidate. So the `random_common_cause` refit of an admitted fit is the TMLE refit, and it keeps the status |
 | still refused | the omitted-variable bound. It keys on the fitted method, and its sentence tells the caller to fit `TMLE` |
-| evidence | `tests/unit/test_ctmle.py::TestEquivalenceWithPlainTmle` pins point, curve, standard error, interval, p-value, band, and bootstrap draws against `TMLE` to `1e-12` on ten configurations. The registered `TMLE` studies cover the identical estimator |
+| evidence | `tests/unit/test_ctmle.py::TestEquivalenceWithPlainTmle` pins point, curve, standard error, interval, p-value, band, and bootstrap draws against `TMLE` to `1e-12` on ten configurations. `tests/unit/test_ctmle_candidate_sequences.py::test_an_empty_learners_list_is_the_ordinary_tmle` does the same for the empty `learners` list. The registered `TMLE` studies cover the identical estimator |
 
 The key reads the declaration, so a caller knows the status before the fit. A key on the fitted path
 would admit a fit whose candidate list happened to stop at the full set. The caller cannot predict

@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import copy
 import warnings
+from abc import ABCMeta, abstractmethod
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
@@ -71,6 +72,7 @@ import numpy as np
 from sklearn.base import clone
 
 from .._inference_status import (
+    ADAPTIVE_BASELINE_STATUS,
     CONSTANT_NODE_STATUS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     NO_SIMULTANEOUS_BANDS,
@@ -135,6 +137,7 @@ from ..inference.results import (
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
 from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
+from ..learners.glm import GLM
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
 from ..methods import (
@@ -143,6 +146,7 @@ from ..methods import (
     LTMLE_TILT_REFUSAL,
     REPEATED_OUTCOME_REFUSAL,
     SDR_TILT_REFUSAL,
+    baseline_no_fluctuation_refusal,
     sdr_no_fluctuation_refusal,
 )
 from ..msm import MSM, refuse_msm_functions
@@ -157,7 +161,23 @@ from ..utils.bounds import (
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
 from ..utils.text import format_pvalue, format_table
+from .baselines import (
+    IPW_NORMALIZATIONS,
+    fit_gcomp_cell,
+    fit_ipw_cell,
+    mechanism_reads_parametric,
+)
 from .data import LongitudinalData, Repeated
+from .hazard import (
+    HazardAlgorithm,
+    InitialHazards,
+    fit_hazards,
+    level_plans,
+    project_curves,
+    refuse_hazard_design,
+    refuse_hazard_settings,
+    target_regimens,
+)
 from .ipsi import IPSICell, fit_cells_ipsi
 from .msm import (
     MSMRegimenFit,
@@ -187,6 +207,7 @@ from .sequential import (
     constant_nodes,
     fit_mechanism,
     fit_regimen,
+    known_product_refusal,
     node_ratios,
     preflight_known_mechanisms,
     preflight_mechanism_support,
@@ -199,8 +220,12 @@ __all__ = [
     "SDR",
     "LongitudinalConfig",
     "LongitudinalResult",
+    "SequentialGComputation",
+    "SequentialIPW",
     "constant_node_parameters",
+    "gcomp",
     "ipsi",
+    "ipw",
     "ltmle",
     "sdr",
 ]
@@ -219,6 +244,96 @@ LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
 #: :func:`~cleverly.methods.sdr_no_fluctuation_refusal`.
 SDR_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol")
 
+#: Why a baseline estimator refuses cross-fitting.  ``{estimator}`` is the class name, which
+#: :func:`baseline_cross_fit_refusal` fills in.
+_BASELINE_CROSS_FIT_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "{estimator} fits in sample. Its interval is the stacked estimating equation of in-sample "
+    "parametric fits. With a data-adaptive learner neither baseline has a root-n result, in "
+    "sample or cross-fitted, and cross-fitting does not remove the first-order bias of a "
+    "plug-in or IPW estimate.",
+    alternative="Pass n_folds=1, or for a cross-fitted analysis fit LTMLE or SDR.",
+    roadmap="F35",
+)
+#: Why a baseline estimator refuses a working model over regimens.
+BASELINE_MSM_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "sequential g-computation and IPW report regimen levels and contrasts only.",
+    alternative="A working model over regimens is fitted by LTMLE(msm=...) or SDR(msm=...).",
+)
+#: Why a baseline estimator refuses an odds tilt whose mechanism is estimated.
+BASELINE_TILT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "an incremental policy depends on the observed treatment law, so its estimator needs a "
+    "mechanism term at every tilt node (Kennedy 2019, Theorem 2).",
+    alternative=(
+        "Fit IPSI(regimens=[...]). With a known treatment mechanism the tilt is a known "
+        "stochastic policy, which both baselines fit."
+    ),
+)
+#: Why IPW refuses a modified treatment policy.
+IPW_MTP_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "IPW of a modified treatment policy needs the density ratio of the shifted law at each "
+    "node, which SequentialIPW does not estimate.",
+    alternative="Fit SequentialGComputation, LTMLE or SDR.",
+)
+#: Why IPW refuses a density setting.  ``{name}`` is the setting.
+IPW_DENSITY_REFUSAL = (
+    "SequentialIPW estimates no density ratio, so {name}= has nothing to set. It applies to "
+    "a modified treatment policy, which SequentialGComputation, LTMLE and SDR fit."
+)
+#: Why IPW refuses an outcome learner.  ``{name}`` is the setting.
+IPW_OUTCOME_LEARNER_REFUSAL = (
+    "SequentialIPW fits no outcome regression, so {name}= has nothing to fit. The estimate "
+    "reads the treatment and censoring mechanisms only."
+)
+#: Why g-computation refuses a binomial GLM on a continuous outcome with no declared scale.
+GCOMP_SCALE_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "the quasi-binomial GLM fits a continuous outcome on a scale taken from the observed "
+    "range, so its estimate moves with the sample extremes and has no fixed limit for an "
+    "unbounded outcome.",
+    alternative="Declare q_bounds= at the outcome's known support, or pass GLM(family='gaussian').",
+)
+#: Why a truncation curve refuses a g-computation result.
+GCOMP_TRUNCATION_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "a g-computation estimate reads no treatment mechanism, so g_bounds does not move it and "
+    "no truncation curve exists.",
+    alternative="Fit SequentialIPW or LTMLE for a truncation curve.",
+)
+
+
+def baseline_cross_fit_refusal(estimator: str) -> Refusal:
+    """The refusal of cross-fitting by a sequential baseline estimator.
+
+    Parameters
+    ----------
+    estimator : str
+        The class name of the refusing estimator.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly.exceptions.RefusalReason.IMPLEMENTATION_GAP` record that F35 in
+        ``docs/roadmap.md`` tracks.
+    """
+    return replace(
+        _BASELINE_CROSS_FIT_REFUSAL,
+        condition=_BASELINE_CROSS_FIT_REFUSAL.condition.format(estimator=estimator),
+    )
+
+
+#: The warning when the diagnostic mechanism of a g-computation fit does not fit.
+GCOMP_MECHANISM_WARNING = (
+    "the diagnostic treatment and censoring mechanism of this g-computation fit did not fit "
+    "({error}). The g-computation estimate does not read it, so the fit continues. Where no "
+    "unit follows the regimen, the outcome GLMs extrapolate, and the interval holds only if "
+    "they are correct there. The positivity diagnostics and the diagnostic curve read the "
+    "mechanism, so they are unavailable (nan)"
+)
+
 
 #: Why a one-step level can leave the outcome range, by estimator.
 _RANGE_CAUSE: dict[str, str] = {
@@ -229,6 +344,10 @@ _RANGE_CAUSE: dict[str, str] = {
     "ipsi": (
         "Kennedy's estimator averages influence-function values and can leave the outcome "
         "range (Kennedy 2019, Section 4.1)"
+    ),
+    "ipw": (
+        "A Horvitz-Thompson IPW estimate divides by n rather than by the sum of its weights, "
+        "and can leave the outcome range"
     ),
 }
 
@@ -351,7 +470,16 @@ def _warn_parameter_space(
 
 
 #: The summary title of each estimator.
-_ESTIMATOR_TITLE: dict[str, str] = {"tmle": "TMLE", "sdr": "SDR", "ipsi": "IPSI"}
+_ESTIMATOR_TITLE: dict[str, str] = {
+    "tmle": "TMLE",
+    "sdr": "SDR",
+    "ipsi": "IPSI",
+    "gcomp": "g-computation",
+    "ipw": "IPW",
+}
+
+#: The estimators that fit no targeting step and read parametric nuisances for an interval.
+_BASELINES: frozenset[str] = frozenset({"gcomp", "ipw"})
 
 #: Match the point-treatment estimator's warning threshold.  The exact share remains
 #: available in ``diagnostics()`` below this value; the warning is only the interruption.
@@ -639,7 +767,13 @@ def _fit_key(label: str, cause: str | None, horizon: int, curve: bool) -> str:
 REPEATED_OUTCOME_KINDS: frozenset[str] = frozenset({"tmle"})
 
 #: How the refusal names each estimator kind.
-_REPEATED_OUTCOME_NAMES: dict[str, str] = {"tmle": "LTMLE", "sdr": "SDR", "ipsi": "IPSI"}
+_REPEATED_OUTCOME_NAMES: dict[str, str] = {
+    "tmle": "LTMLE",
+    "sdr": "SDR",
+    "ipsi": "IPSI",
+    "gcomp": "SequentialGComputation",
+    "ipw": "SequentialIPW",
+}
 
 
 def repeated_outcome_refusal(name: str) -> Refusal:
@@ -658,11 +792,15 @@ def repeated_outcome_refusal(name: str) -> Refusal:
     kinds = sorted(_REPEATED_OUTCOME_NAMES.get(kind, kind) for kind in REPEATED_OUTCOME_KINDS)
     listed = kinds[0] if len(kinds) == 1 else f"{', '.join(kinds[:-1])} and {kinds[-1]}"
     verb = "s" if len(kinds) == 1 else ""
-    return replace(
+    refusal = replace(
         REPEATED_OUTCOME_REFUSAL,
         condition=REPEATED_OUTCOME_REFUSAL.condition.format(name=name),
         alternative=str(REPEATED_OUTCOME_REFUSAL.alternative).format(kinds=listed, verb=verb),
     )
+    if name in ("SequentialGComputation", "SequentialIPW"):
+        # X32b holds SDR and IPSI.  The baselines' reduction is its own item.
+        return replace(refusal, roadmap="X71")
+    return refusal
 
 
 def refuse_repeated_outcome(estimator: str, name: str) -> None:
@@ -865,6 +1003,18 @@ def _clipped_prefix(
 
 
 @dataclass(frozen=True)
+class _HazardReplay:
+    """The settings a hazard replay re-targets the retained initial hazards with."""
+
+    levels: tuple[Plan, ...]
+    algorithm: HazardAlgorithm
+    step_size: float
+    alpha: float
+    max_iter: int
+    tol: float
+
+
+@dataclass(frozen=True)
 class _LongitudinalReplayRecipe:
     """Unfitted state required to repeat the bound-dependent recursion."""
 
@@ -878,8 +1028,19 @@ class _LongitudinalReplayRecipe:
     tol: float | None
     n_jobs: int
     omissions: tuple[str, ...] = ()
-    #: ``"tmle"``, ``"sdr"`` or ``"ipsi"``: which recursion a replay repeats.
+    #: Whether the fit projected each curve with ``isotonic=True``.
+    isotonic: bool = False
+    #: The hazard targeting settings, ``None`` on an iterated-mean fit.  A hazard replay
+    #: re-targets the retained initial hazards and refits no learner.
+    hazard: _HazardReplay | None = None
+    #: ``"tmle"``, ``"sdr"``, ``"ipsi"``, ``"gcomp"`` or ``"ipw"``: which recursion a replay
+    #: repeats.
     estimator: str = "tmle"
+    #: The IPW normalization, ``None`` on every other estimator.
+    normalization: str | None = None
+    #: Whether every regression a baseline estimator reads is a GLM, which decides its
+    #: status.  Always ``True`` on a targeted fit, which does not read it.
+    parametric: bool = True
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a persisted recipe, then retake ownership of its plan matrices.
@@ -894,6 +1055,10 @@ class _LongitudinalReplayRecipe:
         """
         self.__dict__.update(state)
         object.__setattr__(self, "plans", _frozen_plans(self.plans))
+        if self.hazard is not None:
+            object.__setattr__(
+                self, "hazard", replace(self.hazard, levels=_frozen_plans(self.hazard.levels))
+            )
 
 
 def _replay_random_state_omissions(learners: Sequence[Learner]) -> tuple[str, ...]:
@@ -947,6 +1112,7 @@ def _replay_recipe(
     tol: float | None,
     n_jobs: int,
     estimator: str = "tmle",
+    normalization: str | None = None,
 ) -> _LongitudinalReplayRecipe:
     """Freeze resolved plans and clone the unfitted recursive learner specifications.
 
@@ -977,6 +1143,7 @@ def _replay_recipe(
         n_jobs=n_jobs,
         omissions=tuple(dict.fromkeys(omissions)),
         estimator=estimator,
+        normalization=normalization,
     )
 
 
@@ -1047,9 +1214,23 @@ class LongitudinalConfig:
     #: (:attr:`~cleverly.longitudinal.LongitudinalData.known_mechanisms`), in node order.
     #: Each fits no learner and is not truncated.  Empty on a fit that declares none.
     known_factors: tuple[str, ...] = ()
+    #: How a survival curve is modelled: ``"iterated_mean"`` (one backward recursion per
+    #: horizon) or ``"hazard"`` (targeted cause-specific hazards).
+    survival_model: str = "iterated_mean"
+    #: The hazard targeting algorithm: ``"iterative"`` (per horizon) or ``"one_step"``.
+    targeting: str = "iterative"
+    #: The first step of a one-step walk.  Recorded, and unused, under ``"iterative"``.
+    step_size: float = 1e-3
+    #: Whether each curve's reported levels and band limits were projected onto
+    #: non-decreasing curves.
+    isotonic: bool = False
     #: ``"tmle"`` for :class:`LTMLE`, ``"sdr"`` for :class:`SDR`, ``"ipsi"`` for
-    #: :class:`IPSI`.
+    #: :class:`IPSI`, ``"gcomp"`` for :class:`SequentialGComputation` and ``"ipw"`` for
+    #: :class:`SequentialIPW`.
     estimator: str = "tmle"
+    #: The IPW normalization, ``"hajek"`` or ``"horvitz_thompson"``, and ``None`` on every
+    #: other estimator.
+    normalization: str | None = None
 
     #: Which parameter the outcome declaration made the fit answer: ``"end_of_study"`` (a
     #: mean), ``"survival"`` (a risk curve), ``"competing"`` (an incidence curve per cause)
@@ -1092,6 +1273,24 @@ class LongitudinalConfig:
                 "estimator: Kennedy (2019) Algorithm 1, the mean of the influence function "
                 "at the fitted nuisances (Kim, Kennedy and Naimi 2021, Algorithm 1, under "
                 "censoring), no fluctuation",
+            )
+        if self.estimator == "gcomp":
+            lines.insert(
+                0,
+                "estimator: sequential g-computation, the iterated conditional expectation "
+                "plug-in (Bang and Robins 2005, Section 4), no fluctuation; an interval "
+                "assumes every outcome GLM is correctly specified",
+            )
+        if self.estimator == "ipw":
+            form = (
+                "Hajek (normalized by the weight sum)"
+                if self.normalization == "hajek"
+                else "Horvitz-Thompson (normalized by n)"
+            )
+            lines.insert(
+                0,
+                f"estimator: inverse probability weighting, {form}; an interval assumes "
+                "every treatment and censoring GLM is correctly specified",
             )
         if self.held_treatment is not None:
             lines.insert(
@@ -1207,6 +1406,16 @@ class LongitudinalConfig:
                 else ""
             ),
         ]
+        if len(self.outcome_names) > 1:
+            lines.append(f"survival model: {self.survival_model}")
+            lines.append(
+                f"targeting: {self.targeting}"
+                + (f", step size {self.step_size:g}" if self.targeting == "one_step" else "")
+            )
+            lines.append(
+                "isotonic projection: "
+                + ("each curve's levels and band limits" if self.isotonic else "none")
+            )
         if self.known_factors:
             lines.append(
                 f"known factors (declared, no learner): {', '.join(self.known_factors)}; no "
@@ -1267,6 +1476,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Method identity stamped by the estimator.
     bootstrap : BootstrapResult or None
         The full-refit bootstrap draws, when ``n_bootstrap > 0`` was requested.
+    isotonic_moves : tuple of tuple
+        The levels an ``isotonic=True`` projection moved, as
+        ``(regimen, cause, horizon, before, after)``.
+    initial_hazards : InitialHazards or None
+        The initial cause-specific hazards of a ``survival_model="hazard"`` fit.
     fold_mechanisms : tuple of FoldMechanism
         Each outer fold's own mechanism on a cross-fitted SDR fit, empty otherwise.
         Keyword-only.
@@ -1355,6 +1569,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The full-refit bootstrap draws, ``None`` unless ``n_bootstrap > 0``.  A replayed
     #: fit never reruns the bootstrap.
     bootstrap: BootstrapResult | None = None
+    #: ``(regimen, cause, horizon, before, after)`` of every level the isotonic projection
+    #: moved, empty when it moved none or ``isotonic=False``.
+    isotonic_moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
+    #: The initial cause-specific hazards of a ``survival_model="hazard"`` fit, which the
+    #: nuisance report and a truncation replay read.  ``None`` on an iterated-mean fit.
+    initial_hazards: InitialHazards | None = None
     #: Each outer fold's own mechanism, fitted on its training rows, on a cross-fitted SDR
     #: fit.  Empty otherwise.  A truncation replay reuses them.
     fold_mechanisms: tuple[FoldMechanism, ...] = field(default=(), kw_only=True)
@@ -2625,11 +2845,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 else "followed it throughout"
             )
             lines.append(
-                f"  {fit.regimen.label}: {fit.steps[-1].n_trained} of {self.n} units "
-                f"{kept}; max weight {fit.max_weight:.1f}, "
+                f"  {fit.regimen.label}: {int(fit.scored_nodes[-1].trained_on.sum())} of "
+                f"{self.n} units {kept}; max weight {fit.max_weight:.1f}, "
                 f"effective n {fit.effective_n:.0f}; max truncated share "
                 f"{truncated:.1%} at t={truncated_time}"
             )
+        lines.extend(f"  {line}" for line in self._targeting_lines())
         if self.simultaneous is None and record is not None and len(self.estimates) > 1:
             # Stated rather than left blank, as on a point-treatment fit: the bands are on
             # by default, so a reader would otherwise have to guess why none are here.
@@ -2664,6 +2885,30 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"LongitudinalResult({', '.join(self.estimates)})"
 
+    def _targeting_lines(self) -> list[str]:
+        """What the hazard targeting and the isotonic projection did, one line each."""
+        lines: list[str] = []
+        records = {id(fit.hazard): fit.hazard for fit in self.fits.values() if fit.hazard}
+        if records:
+            converged = all(record.converged for record in records.values())
+            largest = max(record.relative_score for record in records.values())
+            verdict = "converged" if converged else "not converged"
+            first = next(iter(records.values()))
+            if first.algorithm == "one_step":
+                lines.append(
+                    f"hazard targeting: one step over {len(first.targets)} parameter(s), "
+                    f"{first.n_iter} step(s), largest relative score {largest:.2g}, {verdict}"
+                )
+            else:
+                steps = max(record.n_iter for record in records.values())
+                lines.append(
+                    f"hazard targeting: per horizon over {len(records)} horizon(s), at most "
+                    f"{steps} iteration(s), largest relative score {largest:.2g}, {verdict}"
+                )
+        if self.config.isotonic:
+            lines.append(f"isotonic projection moved {len(self.isotonic_moves)} level(s)")
+        return lines
+
     @staticmethod
     def _max_truncated(fit: RegimenFit) -> tuple[float, int]:
         """Largest on-score truncation share and its earliest node.
@@ -2672,11 +2917,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         divided by.
         """
         shares = []
-        for step in fit.steps:
+        for node in fit.scored_nodes:
             clipped = _clipped_prefix(
-                fit.cumulative_unbounded, fit.cumulative, step.time, step.trained_on
+                fit.cumulative_unbounded, fit.cumulative, node.time, node.trained_on
             )
-            shares.append((float(np.mean(clipped)) if clipped.size else 0.0, step.time))
+            shares.append((float(np.mean(clipped)) if clipped.size else 0.0, node.time))
         return max(shares, key=lambda item: (item[0], -item[1]))
 
 
@@ -2698,6 +2943,8 @@ def _run_recursion(
     n_jobs: int,
     estimator: str = "tmle",
     fold_mechanisms: Sequence[FoldMechanism] = (),
+    normalization: str | None = None,
+    parametric: bool = True,
 ) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
     """Run the backward recursion over every reported cell, and file the fits by key.
 
@@ -2746,10 +2993,15 @@ def _run_recursion(
         Targeting tolerance per node.  ``None`` on an SDR fit.
     n_jobs : int
         Worker count for the parallel fan-out.
-    estimator : {"tmle", "sdr", "ipsi"}
+    estimator : {"tmle", "sdr", "ipsi", "gcomp", "ipw"}
         Which recursion runs.
     fold_mechanisms : sequence of FoldMechanism
         Each outer fold's own mechanism, on a cross-fitted SDR or IPSI fit.
+    normalization : str or None
+        The IPW normalization, on an IPW fit.
+    parametric : bool
+        On a g-computation or IPW fit, whether the curve is the stacked one.  The status reads
+        the same flag, so the two agree.
 
     Returns
     -------
@@ -2757,6 +3009,21 @@ def _run_recursion(
         The fits keyed by :func:`_fit_key`, and the projection fits, empty without a
         working model.
     """
+    if estimator in _BASELINES:
+        assert msm is None
+        return _run_baseline(
+            data,
+            plans,
+            mechanism,
+            horizons=horizons,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            scaler=scaler,
+            g_bounds=g_bounds,
+            estimator=estimator,
+            normalization=normalization,
+            parametric=parametric,
+        ), ()
     if estimator == "ipsi":
         return _run_ipsi(
             data,
@@ -2828,6 +3095,213 @@ def _run_recursion(
         for msm_fit in msm_fits
         for fit in msm_fit.fits
     }, msm_fits
+
+
+def _run_hazard(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    levels: Sequence[Plan],
+    mechanism: Mechanism,
+    initial: InitialHazards,
+    *,
+    horizons: Sequence[int],
+    g_bounds: tuple[float, float],
+    alpha: float,
+    algorithm: HazardAlgorithm,
+    max_iter: int,
+    tol: float,
+    step_size: float,
+) -> dict[str, RegimenFit]:
+    """Target the initial hazards and file one fit per regimen, cause and horizon.
+
+    The one driver :meth:`LTMLE.fit` and :func:`_refit_bound` share on a hazard fit.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        A survival panel of a held design.
+    plans : sequence of Plan
+        The regimens' plans.
+    levels : sequence of Plan
+        One static plan per treatment level, from
+        :func:`~cleverly.longitudinal.hazard.level_plans`.
+    mechanism : Mechanism
+        The mechanism, evaluated at every regimen and every level.
+    initial : InitialHazards
+        The initial hazards.
+    horizons : sequence of int
+        The reported horizons.
+    g_bounds : tuple of float
+        Truncation applied to each cumulative mechanism probability.
+    alpha : float
+        The probability bound of every hazard.
+    algorithm : {"per_horizon", "one_step"}
+        The targeting algorithm.
+    max_iter : int
+        Outer iterations per horizon of a per-horizon fit.
+    tol : float
+        Relative-score tolerance.
+    step_size : float
+        The first step of a one-step walk.
+
+    Returns
+    -------
+    dict of str to RegimenFit
+        The fits keyed by :func:`_fit_key`.
+    """
+    pairs = [mechanism.cumulative_with_unbounded(data, level, g_bounds) for level in levels]
+    rows = np.arange(data.n)
+    observed = np.asarray(np.nan_to_num(data.treatment[:, 0], nan=0.0), dtype=np.int64)
+    unbounded = np.stack([pair[0] for pair in pairs], axis=2)[rows, :, observed]
+    bounded = np.stack([pair[1] for pair in pairs], axis=2)[rows, :, observed]
+    fits = target_regimens(
+        data,
+        plans,
+        initial,
+        [pair[1] for pair in pairs],
+        (unbounded, bounded),
+        horizons=horizons,
+        algorithm=algorithm,
+        alpha=alpha,
+        max_iter=max_iter,
+        tol=tol,
+        step_size=step_size,
+    )
+    return {
+        _fit_key(label, cause, horizon, True): fit for (label, cause, horizon), fit in fits.items()
+    }
+
+
+def _project_fits(
+    fits: Mapping[str, RegimenFit],
+) -> tuple[dict[str, RegimenFit], tuple[tuple[str, str | None, int, float, float], ...]]:
+    """Project each regimen's and cause's levels onto a non-decreasing curve.
+
+    Unit-weight isotonic regression over the reported horizons, in horizon order
+    (Westling, van der Laan and Carone 2020, Section 2.1).  Only the level moves: the
+    influence curve, and so every standard error, is the fit's own.
+
+    Parameters
+    ----------
+    fits : mapping of str to RegimenFit
+        The fits keyed by :func:`_fit_key`.
+
+    Returns
+    -------
+    tuple
+        The fits with projected levels, and ``(regimen, cause, horizon, before, after)`` of
+        every level the projection moved.
+    """
+    curves: dict[tuple[str, str | None], list[str]] = {}
+    for key, fit in fits.items():
+        curves.setdefault((fit.regimen.label, fit.cause), []).append(key)
+    out = dict(fits)
+    moves: list[tuple[str, str | None, int, float, float]] = []
+    for (label, cause), keys in curves.items():
+        keys = sorted(keys, key=lambda key: fits[key].horizon)
+        values = np.array([fits[key].psi_scaled for key in keys])
+        projected = project_curves(values[None, :])[0]
+        for key, before, after in zip(keys, values, projected, strict=True):
+            if after != before:
+                out[key] = replace(fits[key], psi_scaled=float(after))
+                moves.append((label, cause, fits[key].horizon, float(before), float(after)))
+    return out, tuple(moves)
+
+
+def _project_bands(
+    bands: SimultaneousBands | None,
+    index: Mapping[str, tuple[str, str | None, int]] | None,
+) -> SimultaneousBands | None:
+    """Project the band limits of every level curve, and keep every contrast's band.
+
+    Each curve's lower limits and upper limits are projected by the same unit-weight
+    isotonic regression as its levels (Westling et al. 2020, Section 2.1 and Theorem 1
+    (iv)-(v)): the projected band covers whenever the band it came from covers, and is no
+    wider on average or at its maximum.  A contrast keeps its band as built.
+
+    Parameters
+    ----------
+    bands : SimultaneousBands or None
+        The band built at the unprojected levels.
+    index : mapping or None
+        ``name -> (regimen, cause, horizon)`` of every reported name.
+
+    Returns
+    -------
+    SimultaneousBands or None
+        The band with projected level limits.
+    """
+    if bands is None or index is None:
+        return bands
+    curves: dict[tuple[str, str | None], list[tuple[int, str]]] = {}
+    for name in bands.bands:
+        if name.startswith(CONTRAST_HEAD) or name not in index:
+            continue
+        label, cause, horizon = index[name]
+        curves.setdefault((label, cause), []).append((horizon, name))
+    limits = dict(bands.bands)
+    for members in curves.values():
+        names = [name for _, name in sorted(members)]
+        lower = project_curves(np.array([[bands.bands[name][0] for name in names]]))[0]
+        upper = project_curves(np.array([[bands.bands[name][1] for name in names]]))[0]
+        for name, low, high in zip(names, lower, upper, strict=True):
+            limits[name] = (float(low), float(high))
+    return replace(bands, bands=limits)
+
+
+def _run_baseline(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    mechanism: Mechanism,
+    *,
+    horizons: Sequence[int],
+    outcome_learner: Learner,
+    pseudo_learner: Learner,
+    scaler: OutcomeScaler,
+    g_bounds: tuple[float, float],
+    estimator: str,
+    normalization: str | None,
+    parametric: bool,
+) -> dict[str, RegimenFit]:
+    """The g-computation and IPW branch of :func:`_run_recursion`, in the same cell order.
+
+    Each cell is fitted in sample and alone: neither estimator pools a step across cells.
+    """
+    causes: tuple[str | None, ...] = data.cause_labels or (None,)
+    ratios = {plan.label: node_ratios(data, plan, mechanism) for plan in plans}
+    fits: dict[str, RegimenFit] = {}
+    for plan in plans:
+        for cause in causes:
+            for horizon in horizons:
+                if estimator == "gcomp":
+                    fit = fit_gcomp_cell(
+                        data,
+                        plan,
+                        mechanism,
+                        scaler=scaler,
+                        g_bounds=g_bounds,
+                        horizon=horizon,
+                        cause=cause,
+                        outcome_learner=outcome_learner,
+                        pseudo_learner=pseudo_learner,
+                        stacked=parametric,
+                    )
+                else:
+                    assert normalization is not None
+                    fit = fit_ipw_cell(
+                        data,
+                        plan,
+                        mechanism,
+                        scaler=scaler,
+                        g_bounds=g_bounds,
+                        horizon=horizon,
+                        cause=cause,
+                        normalization=normalization,
+                        stacked=parametric,
+                    )
+                key = _fit_key(plan.label, cause, horizon, data.reports_curve)
+                fits[key] = _with_node_ratio(fit, ratios[plan.label])
+    return fits
 
 
 def _run_sdr(
@@ -2995,7 +3469,13 @@ class _Reported:
     contributors: dict[str, tuple[RegimenFit, ...]]
 
 
-def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
+def _inference_status(
+    data: LongitudinalData,
+    folds: Folds,
+    *,
+    estimator: str = "tmle",
+    parametric: bool = True,
+) -> InferenceStatus:
     """The fit status that every estimate of a longitudinal fit starts from.
 
     :func:`_parameter_status` may replace it on a parameter whose recursion read a constant
@@ -3016,12 +3496,22 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
     :func:`_msm_estimates`, which also set the Student t reference of an inferential fit
     with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters.
 
+    A g-computation or IPW fit adds two statuses.  It takes ``"adaptive_baseline_plugin"``
+    when a regression it reads is not a :class:`~cleverly.learners.GLM`, and
+    ``"estimated_weight_plugin"`` with weights declared estimated, because its stacked curve
+    conditions on the weights.  :func:`~cleverly._inference_status.precedent_status` orders
+    them.
+
     Parameters
     ----------
     data : LongitudinalData
         The prepared data of the fit.
     folds : Folds
         The outer fold assignment of the fit.
+    estimator : str
+        The recursion the fit ran.
+    parametric : bool
+        On a g-computation or IPW fit, whether every regression it reads is a GLM.
 
     Returns
     -------
@@ -3029,10 +3519,19 @@ def _inference_status(data: LongitudinalData, folds: Folds) -> InferenceStatus:
         One of :data:`~cleverly.inference.influence.InferenceStatus`.
         ``"influence_curve"`` on an unclustered fit.
     """
-    return cluster_inference_status(
+    cluster = cluster_inference_status(
         data.cluster,
         weights=data.weights if data.is_weighted else None,
         minimum=MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
+    )
+    if estimator not in _BASELINES:
+        return cluster
+    return precedent_status(
+        (
+            cluster,
+            "influence_curve" if parametric else ADAPTIVE_BASELINE_STATUS,
+            "estimated_weight_plugin" if data.weight_spec.estimated else "influence_curve",
+        )
     )
 
 
@@ -3293,6 +3792,13 @@ class _SequentialEstimator:
 
     #: ``"tmle"``, ``"sdr"`` or ``"ipsi"``: the recursion :func:`_run_recursion` runs.
     _estimator: ClassVar[str]
+    #: The survival model, the hazard targeting algorithm, its first step and the isotonic
+    #: projection.  Only :class:`LTMLE` takes them, so every other estimator keeps the
+    #: iterated-mean recursion and reports its curve unprojected.
+    survival_model: str = "iterated_mean"
+    targeting: str = "iterative"
+    step_size: float = 1e-3
+    isotonic: bool = False
 
     def __init__(
         self,
@@ -3391,6 +3897,14 @@ class _SequentialEstimator:
                 "model over arms is, and its design is handed "
                 "(regimen_label, horizon, baseline_frame)"
             )
+        refuse_hazard_settings(
+            survival_model=self.survival_model,
+            targeting=self.targeting,
+            step_size=self.step_size,
+            isotonic=self.isotonic,
+            msm=self.msm is not None,
+            pseudo_learner=self.pseudo_learner is not None,
+        )
         if self.msm is not None and self.reference is not None:
             raise ValueError(
                 "msm= and reference= cannot be combined. reference= names the regimen "
@@ -3445,6 +3959,90 @@ class _SequentialEstimator:
     def _targeting(self) -> dict[str, Any]:
         """The fluctuation settings the recursion and the replay recipe take."""
         return {"alpha": None, "max_iter": None, "tol": None}
+
+    def _normalization(self) -> str | None:
+        """The IPW normalization, ``None`` on every other estimator."""
+        return None
+
+    def _refuse_design(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> None:
+        """Refuse a design this estimator cannot fit, before any learner runs.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans, with their tilt nodes read.
+        """
+
+    def _fit_mechanism(
+        self,
+        data: LongitudinalData,
+        plans: tuple[Plan, ...],
+        *,
+        treatment_learner: Learner,
+        censoring_learner: Learner,
+        folds: Folds,
+    ) -> Mechanism:
+        """Fit the out-of-fold treatment and censoring mechanism.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+        treatment_learner : Learner
+            The treatment mechanism learner.
+        censoring_learner : Learner
+            The censoring mechanism learner.
+        folds : Folds
+            The realized outer split.
+
+        Returns
+        -------
+        Mechanism
+            The fitted mechanism.
+        """
+        return fit_mechanism(
+            data,
+            plans,
+            treatment_learner=treatment_learner,
+            censoring_learner=censoring_learner,
+            folds=folds,
+            n_jobs=self.n_jobs,
+            density_bins=self.density_bins,
+            ratio=self.ratio,
+        )
+
+    def _parametric(
+        self,
+        outcome_learner: Learner,
+        pseudo_learner: Learner,
+        mechanism: Mechanism,
+        horizons: Sequence[int],
+    ) -> bool:
+        """Whether every regression the estimator reads is a GLM.
+
+        A targeted fit's status does not read it, so the base answer is ``True``.
+
+        Parameters
+        ----------
+        outcome_learner : Learner
+            The resolved outcome learner.
+        pseudo_learner : Learner
+            The resolved pseudo-outcome learner.
+        mechanism : Mechanism
+            The fitted mechanism.
+        horizons : sequence of int
+            The reported horizons.
+
+        Returns
+        -------
+        bool
+            ``True`` here.
+        """
+        return True
 
     def _pseudo_learner(self) -> Learner:
         """The learner of every node before the horizon."""
@@ -3627,6 +4225,11 @@ class _SequentialEstimator:
                         "separates a cause from the regimen and horizon it is reported at. "
                         "Two parameters would then share a name; rename the cause"
                     )
+        # Before any rule is evaluated and before any learner: a hazard fit and a projection
+        # read only the design and the regimen declarations to refuse.
+        refuse_hazard_design(
+            prepared, regimens, survival_model=self.survival_model, isotonic=self.isotonic
+        )
         reference = self._reference(regimens)
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
@@ -3634,6 +4237,7 @@ class _SequentialEstimator:
         # An odds tilt node reads the mechanism, so each estimator decides here, before any
         # learner, whether it fits one.
         plans = self._resolve_tilts(prepared, plans)
+        self._refuse_design(prepared, plans)
         # Every declared factor is checked against the bounds before any learner.
         preflight_known_mechanisms(prepared, plans, resolve_cumulative_g_bounds(self.g_bounds))
 
@@ -3672,11 +4276,16 @@ class _SequentialEstimator:
             **targeting,
             n_jobs=self.n_jobs,
             estimator=self._estimator,
+            normalization=self._normalization(),
         )
 
         horizons = self._horizons(prepared)
         preflight_mechanism_support(prepared, prepared.regimen_masks(prepared.treatment), folds)
         preflight_terminal_outcomes(prepared, plans, horizons, folds)
+        hazard = self.survival_model == "hazard"
+        # A hazard fit reads the censoring factors at every level of the baseline treatment,
+        # so the shared mechanism fit is evaluated at one static plan per level as well.
+        levels = level_plans(prepared) if hazard else ()
         treatment_learner = resolve_learner(
             self.treatment_learner,
             task="classification",
@@ -3690,16 +4299,15 @@ class _SequentialEstimator:
             random_state=self.random_state,
             fallback=self.treatment_learner,
         )
-        mechanism = fit_mechanism(
+        mechanism = self._fit_mechanism(
             prepared,
-            plans,
+            (*plans, *levels),
             treatment_learner=treatment_learner,
             censoring_learner=censoring_learner,
             folds=folds,
-            n_jobs=self.n_jobs,
-            density_bins=self.density_bins,
-            ratio=self.ratio,
         )
+        parametric = self._parametric(outcome_learner, pseudo_learner, mechanism, horizons)
+        replay_recipe = replace(replay_recipe, parametric=parametric)
         # A modified treatment policy's ratio numerator reads the fitted mechanism, so it is
         # attached to its plan here, once, from the out-of-fold fit.  The replay recipe holds
         # the attached plans, because a truncation replay reuses this mechanism.
@@ -3729,24 +4337,64 @@ class _SequentialEstimator:
         model = (
             None if self.msm is None else evaluate_regimen_msm(self.msm, prepared, plans, horizons)
         )
-        fits, msm_fits = _run_recursion(
-            prepared,
-            plans,
-            mechanism,
-            msm=model,
-            horizons=horizons,
-            outcome_learner=outcome_learner,
-            pseudo_learner=pseudo_learner,
-            folds=folds,
-            scaler=scaler,
-            g_bounds=bounds,
-            **targeting,
-            n_jobs=self.n_jobs,
-            estimator=self._estimator,
-            fold_mechanisms=fold_mechanisms,
-        )
+        initial: InitialHazards | None = None
+        algorithm: HazardAlgorithm = "one_step" if self.targeting == "one_step" else "per_horizon"
+        msm_fits: tuple[MSMRegimenFit, ...]
+        if hazard:
+            initial = fit_hazards(
+                prepared, levels, learner=outcome_learner, folds=folds, n_jobs=self.n_jobs
+            )
+            # A hazard replay refits no learner, so the learner audit does not apply to it.
+            replay_recipe = replace(
+                replay_recipe,
+                omissions=(),
+                hazard=_HazardReplay(
+                    _frozen_plans(levels),
+                    algorithm,
+                    float(self.step_size),
+                    targeting["alpha"],
+                    targeting["max_iter"],
+                    targeting["tol"],
+                ),
+            )
+            fits = _run_hazard(
+                prepared,
+                plans,
+                levels,
+                mechanism,
+                initial,
+                horizons=horizons,
+                g_bounds=bounds,
+                alpha=targeting["alpha"],
+                algorithm=algorithm,
+                max_iter=targeting["max_iter"],
+                tol=targeting["tol"],
+                step_size=self.step_size,
+            )
+            msm_fits = ()
+        else:
+            fits, msm_fits = _run_recursion(
+                prepared,
+                plans,
+                mechanism,
+                msm=model,
+                horizons=horizons,
+                outcome_learner=outcome_learner,
+                pseudo_learner=pseudo_learner,
+                folds=folds,
+                scaler=scaler,
+                g_bounds=bounds,
+                **targeting,
+                n_jobs=self.n_jobs,
+                estimator=self._estimator,
+                fold_mechanisms=fold_mechanisms,
+                normalization=self._normalization(),
+                parametric=parametric,
+            )
 
-        self._warn_on_truncation(fits)
+        if self._estimator != "gcomp":
+            # A g-computation estimate divides by no mechanism, so a bound moves none of it.
+            self._warn_on_truncation(fits)
 
         config = LongitudinalConfig(
             family=prepared.family,
@@ -3782,6 +4430,7 @@ class _SequentialEstimator:
             time_grid=prepared.time_grid,
             known_factors=_known_factors(prepared),
             estimator=self._estimator,
+            normalization=self._normalization(),
             msm_terms=None if model is None else model.terms,
             msm_link=None if model is None else str(model.link),
             # The evaluated arrays rather than the design, for the reason the plans are
@@ -3790,8 +4439,19 @@ class _SequentialEstimator:
             msm_fingerprint=(
                 None if model is None else fingerprint_array(model.design, model.weights)
             ),
+            survival_model=self.survival_model,
+            targeting=self.targeting,
+            step_size=float(self.step_size),
+            isotonic=self.isotonic,
         )
-        status = _inference_status(prepared, folds)
+        status = _inference_status(
+            prepared, folds, estimator=self._estimator, parametric=parametric
+        )
+        unprojected = fits
+        moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
+        if self.isotonic:
+            replay_recipe = replace(replay_recipe, isotonic=True)
+            fits, moves = _project_fits(fits)
         with phase("influence_curve"):
             reported = (
                 _estimates(
@@ -3811,7 +4471,21 @@ class _SequentialEstimator:
             }
             _warn_parameter_space(estimates, ranges, estimator=self._estimator)
         with phase("inference"):
-            bands = self._bands(estimates, prepared, status)
+            if moves:
+                # The band is built at the unprojected levels, and each curve's limits are
+                # then projected (Westling et al. 2020, Theorem 1 (iv)).  The critical value
+                # reads the influence curves only, so it is the same either way.
+                before = _estimates(
+                    prepared,
+                    unprojected,
+                    scaler,
+                    reference,
+                    alpha_sig=self.alpha_sig,
+                    inference=status,
+                ).estimates
+                bands = _project_bands(self._bands(before, prepared, status), reported.index)
+            else:
+                bands = self._bands(estimates, prepared, status)
         result = LongitudinalResult(
             estimates=estimates,
             fits=fits,
@@ -3825,6 +4499,8 @@ class _SequentialEstimator:
             parameter_index=reported.index,
             msm=model,
             msm_fits=msm_fits,
+            isotonic_moves=moves,
+            initial_hazards=initial,
             replay_recipe=replay_recipe,
             fold_mechanisms=fold_mechanisms,
             fitted_method=self._estimator,
@@ -3840,11 +4516,12 @@ class _SequentialEstimator:
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
             )
-            # No registered study measures the SDR bootstrap, so its draws report a
-            # bootstrap sd and no percentile inference.
+            # The registered bootstrap studies measure the unprojected iterated-mean TMLE.
+            # No registered study measures the SDR, IPSI, hazard or projected bootstrap,
+            # so their draws report a bootstrap sd and no percentile inference.
             kind = (
                 bootstrap_design_kind(prepared, folds, regimens, model)
-                if self._estimator == "tmle"
+                if self._estimator == "tmle" and not hazard and not self.isotonic
                 else None
             )
             result = attach_bootstrap(
@@ -4023,7 +4700,7 @@ class _SequentialEstimator:
         """
         found: dict[tuple[str, int], tuple[float, bool]] = {}
         for fit in fits.values():
-            for step in fit.steps:
+            for step in fit.scored_nodes:
                 bounded = fit.cumulative[:, step.time - 1][step.trained_on]
                 clipped = _clipped_prefix(
                     fit.cumulative_unbounded, fit.cumulative, step.time, step.trained_on
@@ -4346,6 +5023,27 @@ class LTMLE(_SequentialEstimator):
         nuisances on finite binary laws, at ``n = 1000``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    survival_model : {"iterated_mean", "hazard"}
+        How a survival curve is modelled.  ``"iterated_mean"`` runs one backward
+        recursion per horizon, and its curve can decrease.  ``"hazard"`` fits the
+        cause-specific hazard at every node and targets it (Moore and van der Laan 2009;
+        Cai and van der Laan 2020).  It needs one baseline treatment held over every node,
+        categorical, and no covariate after baseline; other designs are refused before any
+        learner.  The outcome learner is then the hazard learner.
+    targeting : {"iterative", "one_step"}
+        The hazard targeting algorithm.  ``"iterative"`` targets each horizon on its own,
+        restarting from the initial hazards.  ``"one_step"`` walks one set of hazards until
+        every horizon's score is solved, so every curve is non-decreasing.  It requires
+        ``survival_model="hazard"``.
+    step_size : float
+        The first step of the one-step walk, halved after any step that raises the score
+        norm.  Accepted and unused under ``targeting="iterative"``.
+    isotonic : bool
+        Whether to project each regimen's and cause's reported levels, and the limits of
+        its simultaneous band, onto a non-decreasing curve over the reported horizons by
+        unit-weight isotonic regression (Westling, van der Laan and Carone 2020).  Every
+        influence curve, standard error and critical value is unchanged.  A curve with no
+        violation is returned bit for bit.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
@@ -4382,11 +5080,19 @@ class LTMLE(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        survival_model: str = "iterated_mean",
+        targeting: str = "iterative",
+        step_size: float = 1e-3,
+        isotonic: bool = False,
         **refused: Any,
     ) -> None:
         self.alpha = alpha
         self.max_iter = max_iter
         self.tol = tol
+        self.survival_model = survival_model
+        self.targeting = targeting
+        self.step_size = step_size
+        self.isotonic = isotonic
         super().__init__(
             regimens,
             reference=reference,
@@ -4909,6 +5615,585 @@ class IPSI(_SequentialEstimator):
         return super()._pseudo_learner()
 
 
+class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
+    """The settings the two baseline estimators share and refuse.
+
+    Both fit in sample with no fluctuation and no working model, and every learner defaults to
+    a main-terms :class:`~cleverly.learners.GLM`, as R ``ltmle``'s ``SL.library="glm"``.  The
+    class is abstract: each baseline names the regressions its status reads.
+    """
+
+    @abstractmethod
+    def _parametric(
+        self,
+        outcome_learner: Learner,
+        pseudo_learner: Learner,
+        mechanism: Mechanism,
+        horizons: Sequence[int],
+    ) -> bool:
+        """Whether every regression the estimator reads is a GLM.
+
+        Parameters
+        ----------
+        outcome_learner : Learner
+            The resolved outcome learner.
+        pseudo_learner : Learner
+            The resolved pseudo-outcome learner.
+        mechanism : Mechanism
+            The fitted mechanism.
+        horizons : sequence of int
+            The reported horizons.
+
+        Returns
+        -------
+        bool
+            Whether the status may report an interval.
+        """
+
+    def __init__(
+        self,
+        regimens: Any,
+        *,
+        reference: str | None = None,
+        horizons: Sequence[int] | None = None,
+        outcome_learner: Learner | None = None,
+        pseudo_learner: Learner | None = None,
+        treatment_learner: Learner | None = None,
+        censoring_learner: Learner | None = None,
+        n_folds: int = 1,
+        g_bounds: CumulativeGBounds = DEFAULT_LTMLE_G_BOUNDS,
+        q_bounds: tuple[float, float] | None = None,
+        alpha_sig: float = 0.05,
+        simultaneous: bool = True,
+        n_multiplier: int = 2000,
+        multiplier_kind: str = "rademacher",
+        random_state: int | None = None,
+        run_id: str | None = None,
+        n_jobs: int = 1,
+        n_bootstrap: int = 0,
+        bootstrap_resampling: Resampling = "auto",
+        density_bins: int | None = None,
+        ratio: str = "density",
+        msm: MSM | None = None,
+        **refused: Any,
+    ) -> None:
+        named = [name for name in SDR_REFUSED_SETTINGS if name in refused]
+        if named:
+            raise MethodConfigurationError.from_refusal(baseline_no_fluctuation_refusal(named[0]))
+        if msm is not None:
+            raise CapabilityError(refusal=BASELINE_MSM_REFUSAL)
+        super().__init__(
+            regimens,
+            reference=reference,
+            horizons=horizons,
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            treatment_learner=GLM() if treatment_learner is None else treatment_learner,
+            censoring_learner=GLM() if censoring_learner is None else censoring_learner,
+            n_folds=n_folds,
+            g_bounds=g_bounds,
+            q_bounds=q_bounds,
+            alpha_sig=alpha_sig,
+            simultaneous=simultaneous,
+            n_multiplier=n_multiplier,
+            multiplier_kind=multiplier_kind,
+            random_state=random_state,
+            run_id=run_id,
+            n_jobs=n_jobs,
+            n_bootstrap=n_bootstrap,
+            bootstrap_resampling=bootstrap_resampling,
+            density_bins=density_bins,
+            ratio=ratio,
+            **refused,
+        )
+
+    def _validate_settings(self) -> None:
+        """Refuse cross-fitting before any other setting is read."""
+        if self.n_folds > 1:
+            raise CapabilityError(refusal=baseline_cross_fit_refusal(type(self).__name__))
+        super()._validate_settings()
+
+    def _resolve_tilts(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> tuple[Plan, ...]:
+        """Read a tilt with a known mechanism as a known policy, and refuse the rest.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+
+        Returns
+        -------
+        tuple of Plan
+            The plans, with each tilt node read as a known policy.
+
+        Raises
+        ------
+        CapabilityError
+            When a tilt node's treatment mechanism is estimated.
+        """
+        try:
+            return super()._resolve_tilts(data, plans)
+        except CapabilityError as error:
+            raise CapabilityError(refusal=BASELINE_TILT_REFUSAL) from error
+
+
+class SequentialGComputation(_Baseline):
+    r"""Sequential g-computation of a treatment regimen over time.
+
+    The iterated conditional expectation form of the longitudinal g-formula (Bang and Robins
+    2005, Section 4).  It runs the backward sequential regression of :class:`LTMLE` with no
+    fluctuation, and the estimate is the weighted mean of the first node's prediction.  See
+    :mod:`cleverly.longitudinal.baselines`.
+
+    The estimate is consistent only when every outcome regression is correctly specified.
+    With every regression a :class:`~cleverly.learners.GLM`, the interval is the stacked
+    estimating equation of the GLM fits and the estimate (Stefanski and Boos 2002, Section 2).
+    That interval is valid for the target only when every GLM is correctly specified.  Under
+    misspecification it covers the limit of the misspecified fit.  With another learner the
+    fit takes the ``"adaptive_baseline_plugin"`` status: the point estimate stands, and the
+    diagnostic curve is the efficient influence curve at the untargeted fits.
+
+    The treatment and censoring mechanisms are fitted for the positivity diagnostics only.
+    The estimate does not read them, and ``g_bounds`` moves only those diagnostics.
+
+    Parameters
+    ----------
+    regimens : mapping, Regimen, DynamicRegimen, or sequence of regimens
+        The regimens, as for :class:`LTMLE`.  Modified treatment policies are accepted: the
+        recursion predicts each node regression at the policy's dose.
+    reference : str or None
+        The regimen every contrast is taken against, as for :class:`LTMLE`.
+    horizons : sequence of int or None
+        The survival horizons, as for :class:`LTMLE`.
+    outcome_learner : object or None
+        The regression at the reported horizon.  The default is a main-terms
+        :class:`~cleverly.learners.GLM`.
+    pseudo_learner : object or None
+        The regression of every earlier node.  It defaults to ``outcome_learner``.
+    treatment_learner : object or None
+        The treatment mechanism of the diagnostics.  The default is a
+        :class:`~cleverly.learners.GLM`.
+    censoring_learner : object or None
+        The censoring mechanism of the diagnostics.  The default is a
+        :class:`~cleverly.learners.GLM`.
+    n_folds : int
+        Must be ``1``.  The estimator fits in sample.
+    g_bounds : float or tuple of float
+        The cumulative bound of the diagnostic clever covariate.
+    q_bounds : tuple of float or None
+        The known support of a continuous outcome.  A binomial-family GLM on a continuous
+        outcome needs it.
+    alpha_sig : float
+        Significance level for confidence intervals.
+    simultaneous : bool
+        Whether to report simultaneous confidence bands, as for :class:`LTMLE`.
+    n_multiplier : int
+        The number of multiplier draws behind each band.
+    multiplier_kind : {"rademacher", "mammen", "normal"}
+        The distribution of the multiplier draws.
+    random_state : int or None
+        The seed inherited by a default learner.
+    run_id : str or None
+        An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
+    n_jobs : int
+        Worker count for the parallel fan-out.
+    n_bootstrap : int
+        Full-refit bootstrap replicates, ``0`` for none.  The draws report a bootstrap sd and
+        no percentile inference.
+    bootstrap_resampling : {"auto", "iid", "cluster"}
+        ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    density_bins : int or None
+        The bin count of a continuous node's diagnostic density.
+    ratio : {"density", "classifier"}
+        How a continuous node's diagnostic policy ratio is estimated.
+    msm : None
+        Refused: a working model over regimens is fitted by :class:`LTMLE` or :class:`SDR`.
+    **refused : Any
+        ``alpha``, ``max_iter`` and ``tol``, which raise :class:`TypeError` because the
+        estimator fits no fluctuation, and each point-treatment keyword that :class:`LTMLE`
+        refuses.
+
+    See Also
+    --------
+    SequentialIPW : The inverse probability weighted estimator of the same parameters.
+    LTMLE : The targeted estimator of the same parameters.
+    gcomp : The one-call form of this estimator.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import make_longitudinal
+    >>> from cleverly.longitudinal import SequentialGComputation
+    >>> frame, _ = make_longitudinal(n=300, seed=0)
+    >>> result = SequentialGComputation({"always": 1, "never": 0}).fit(
+    ...     frame,
+    ...     outcome="Y",
+    ...     treatment=["A1", "A2"],
+    ...     baseline=["W1", "W2"],
+    ...     time_varying=[[], ["L2"]],
+    ...     censoring=["C1", "C2"],
+    ... )
+    >>> sorted(result.estimates)
+    ['ate_regimen[never vs always]', 'ey_regimen[always]', 'ey_regimen[never]']
+    >>> result.inference_status
+    'influence_curve'
+    """
+
+    _estimator: ClassVar[str] = "gcomp"
+
+    def __init__(
+        self,
+        regimens: Any,
+        *,
+        outcome_learner: Learner | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            regimens,
+            outcome_learner=GLM() if outcome_learner is None else outcome_learner,
+            **kwargs,
+        )
+
+    def _refuse_design(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> None:
+        """Refuse a binomial GLM on a continuous outcome with no declared scale.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+
+        Raises
+        ------
+        CapabilityError
+            When the outcome is continuous, ``q_bounds`` is ``None`` and a read GLM is not
+            Gaussian.
+        """
+        if data.family == "binomial" or self.q_bounds is not None:
+            return
+        pseudo = self.outcome_learner if self.pseudo_learner is None else self.pseudo_learner
+        if any(
+            isinstance(learner, GLM) and learner.family != "gaussian"
+            for learner in (self.outcome_learner, pseudo)
+        ):
+            raise CapabilityError(refusal=GCOMP_SCALE_REFUSAL)
+
+    def _fit_mechanism(
+        self,
+        data: LongitudinalData,
+        plans: tuple[Plan, ...],
+        *,
+        treatment_learner: Learner,
+        censoring_learner: Learner,
+        folds: Folds,
+    ) -> Mechanism:
+        """Fit the diagnostic mechanism, and degrade the diagnostics when it cannot fit.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+        treatment_learner : Learner
+            The treatment mechanism learner.
+        censoring_learner : Learner
+            The censoring mechanism learner.
+        folds : Folds
+            The single in-sample fold.
+
+        Returns
+        -------
+        Mechanism
+            The fitted mechanism, or one that holds ``nan`` everywhere.
+        """
+        try:
+            return fit_mechanism(
+                data,
+                plans,
+                treatment_learner=treatment_learner,
+                censoring_learner=censoring_learner,
+                folds=folds,
+                n_jobs=self.n_jobs,
+                density_bins=self.density_bins,
+                ratio=self.ratio,
+            )
+        except DataError as error:
+            warnings.warn(
+                GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=4
+            )
+            return _unavailable_mechanism(data, plans)
+
+    def _parametric(
+        self,
+        outcome_learner: Learner,
+        pseudo_learner: Learner,
+        mechanism: Mechanism,
+        horizons: Sequence[int],
+    ) -> bool:
+        """Whether every outcome regression is a GLM.
+
+        Parameters
+        ----------
+        outcome_learner : Learner
+            The resolved outcome learner.
+        pseudo_learner : Learner
+            The resolved pseudo-outcome learner.
+        mechanism : Mechanism
+            The diagnostic mechanism, which the estimate does not read.
+        horizons : sequence of int
+            The reported horizons.
+
+        Returns
+        -------
+        bool
+            ``True`` when the outcome learner, and the pseudo-outcome learner of a fit with a
+            node before its last horizon, are GLMs.
+        """
+        if not isinstance(outcome_learner, GLM):
+            return False
+        return max(horizons) == 1 or isinstance(pseudo_learner, GLM)
+
+
+class SequentialIPW(_Baseline):
+    r"""Inverse probability weighting of a treatment regimen over time.
+
+    The estimate reweights the units that follow a regimen by the cumulative ratio of the
+    intervention density to the treatment and censoring mechanism, the clever covariate of
+    :class:`LTMLE`.  ``normalization="hajek"`` divides the weighted outcome sum by the weight
+    sum, as R ``ltmle``'s ``CalcIPTW`` does.  ``"horvitz_thompson"`` divides by ``n``.  A
+    survival risk under Hajek is the product of the IPW discrete hazards, and a competing
+    cause's incidence is their Aalen-Johansen sum.  See :mod:`cleverly.longitudinal.baselines`.
+
+    The estimate is consistent only when every treatment and censoring model is correctly
+    specified.  With every model a :class:`~cleverly.learners.GLM`, the interval is the
+    stacked estimating equation of the mechanism fits and the estimate, which adds the
+    projection term of each mechanism score (Lunceford and Davidian 2004, Section 3.1).  That
+    interval is valid for the target only when every GLM is correctly specified.  With
+    another learner the fit takes the ``"adaptive_baseline_plugin"`` status, and the
+    diagnostic curve is the fixed-mechanism curve.
+
+    Parameters
+    ----------
+    regimens : mapping, Regimen, DynamicRegimen, or sequence of regimens
+        The regimens, as for :class:`LTMLE`.  A modified treatment policy is refused.
+    normalization : {"hajek", "horvitz_thompson"}
+        How the weighted outcome sum is normalized.
+    reference : str or None
+        The regimen every contrast is taken against, as for :class:`LTMLE`.
+    horizons : sequence of int or None
+        The survival horizons, as for :class:`LTMLE`.
+    treatment_learner : object or None
+        The treatment mechanism at each node.  The default is a
+        :class:`~cleverly.learners.GLM`.
+    censoring_learner : object or None
+        The censoring mechanism at each node.  The default is a
+        :class:`~cleverly.learners.GLM`.
+    n_folds : int
+        Must be ``1``.  The estimator fits in sample.
+    g_bounds : float or tuple of float
+        The bound pair applied to each cumulative mechanism probability.  The default is
+        ``(0.01, 1.0)``.  A bound that binds changes the estimator, and
+        :func:`~cleverly.longitudinal.estimator.longitudinal_truncation_curve` replays it.
+    q_bounds : tuple of float or None
+        The bounds of a continuous outcome, as for :class:`LTMLE`.
+    alpha_sig : float
+        Significance level for confidence intervals.
+    simultaneous : bool
+        Whether to report simultaneous confidence bands, as for :class:`LTMLE`.
+    n_multiplier : int
+        The number of multiplier draws behind each band.
+    multiplier_kind : {"rademacher", "mammen", "normal"}
+        The distribution of the multiplier draws.
+    random_state : int or None
+        The seed inherited by a default learner.
+    run_id : str or None
+        An identifier of your own, recorded on :attr:`LongitudinalResult.provenance`.
+    n_jobs : int
+        Worker count for the parallel fan-out.
+    n_bootstrap : int
+        Full-refit bootstrap replicates, ``0`` for none.  The draws report a bootstrap sd and
+        no percentile inference.
+    bootstrap_resampling : {"auto", "iid", "cluster"}
+        ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    **refused : Any
+        ``outcome_learner``, ``pseudo_learner``, ``density_bins``, ``ratio`` and ``msm``,
+        which raise because the estimator fits no outcome regression and no density ratio;
+        ``alpha``, ``max_iter`` and ``tol``, which raise :class:`TypeError`; and each
+        point-treatment keyword that :class:`LTMLE` refuses.
+
+    See Also
+    --------
+    SequentialGComputation : The sequential regression estimator of the same parameters.
+    LTMLE : The targeted estimator of the same parameters.
+    ipw : The one-call form of this estimator.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import make_longitudinal
+    >>> from cleverly.longitudinal import SequentialIPW
+    >>> frame, _ = make_longitudinal(n=300, seed=0)
+    >>> result = SequentialIPW({"always": 1, "never": 0}).fit(
+    ...     frame,
+    ...     outcome="Y",
+    ...     treatment=["A1", "A2"],
+    ...     baseline=["W1", "W2"],
+    ...     time_varying=[[], ["L2"]],
+    ...     censoring=["C1", "C2"],
+    ... )
+    >>> sorted(result.estimates)
+    ['ate_regimen[never vs always]', 'ey_regimen[always]', 'ey_regimen[never]']
+    >>> result.config.normalization
+    'hajek'
+    """
+
+    _estimator: ClassVar[str] = "ipw"
+
+    def __init__(
+        self,
+        regimens: Any,
+        *,
+        normalization: str = "hajek",
+        **kwargs: Any,
+    ) -> None:
+        for name in ("outcome_learner", "pseudo_learner"):
+            if kwargs.pop(name, None) is not None:
+                raise CapabilityError(
+                    IPW_OUTCOME_LEARNER_REFUSAL.format(name=name),
+                    reason=RefusalReason.INVALID_DECLARATION,
+                )
+        if kwargs.get("density_bins") is not None:
+            raise CapabilityError(
+                IPW_DENSITY_REFUSAL.format(name="density_bins"),
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if kwargs.get("ratio", "density") != "density":
+            raise CapabilityError(
+                IPW_DENSITY_REFUSAL.format(name="ratio"),
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        if normalization not in IPW_NORMALIZATIONS:
+            raise ValueError(
+                f"normalization must be one of {list(IPW_NORMALIZATIONS)}; got "
+                f"{normalization!r}. 'hajek' divides the weighted outcome sum by the weight "
+                "sum, and 'horvitz_thompson' divides it by n"
+            )
+        self.normalization = normalization
+        # IPW fits no outcome regression.  The template is a GLM rather than ``None`` so the
+        # replay recipe clones a learner with no seed to audit, as it does for the mechanism.
+        super().__init__(regimens, outcome_learner=GLM(), **kwargs)
+
+    def _normalization(self) -> str | None:
+        """The declared normalization."""
+        return self.normalization
+
+    def _refuse_design(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> None:
+        """Refuse a modified treatment policy.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+
+        Raises
+        ------
+        CapabilityError
+            When a plan holds a modified treatment policy node.
+        """
+        if any(plan.has_mtp for plan in plans):
+            raise CapabilityError(refusal=IPW_MTP_REFUSAL)
+
+    def _fit_mechanism(
+        self,
+        data: LongitudinalData,
+        plans: tuple[Plan, ...],
+        *,
+        treatment_learner: Learner,
+        censoring_learner: Learner,
+        folds: Folds,
+    ) -> Mechanism:
+        """Fit the mechanism and keep each node's model for the stacked curve.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+        treatment_learner : Learner
+            The treatment mechanism learner.
+        censoring_learner : Learner
+            The censoring mechanism learner.
+        folds : Folds
+            The single in-sample fold.
+
+        Returns
+        -------
+        Mechanism
+            The fitted mechanism with its models.
+        """
+        return fit_mechanism(
+            data,
+            plans,
+            treatment_learner=treatment_learner,
+            censoring_learner=censoring_learner,
+            folds=folds,
+            n_jobs=self.n_jobs,
+            keep_models=True,
+        )
+
+    def _parametric(
+        self,
+        outcome_learner: Learner,
+        pseudo_learner: Learner,
+        mechanism: Mechanism,
+        horizons: Sequence[int],
+    ) -> bool:
+        """Whether every fitted treatment and censoring model is a GLM.
+
+        Parameters
+        ----------
+        outcome_learner : Learner
+            Unused: IPW fits no outcome regression.
+        pseudo_learner : Learner
+            Unused.
+        mechanism : Mechanism
+            The fitted mechanism with its models.
+        horizons : sequence of int
+            The reported horizons.
+
+        Returns
+        -------
+        bool
+            ``True`` when every kept model is a GLM.
+        """
+        return mechanism_reads_parametric(mechanism)
+
+
+def _unavailable_mechanism(data: LongitudinalData, plans: Sequence[Plan]) -> Mechanism:
+    """A mechanism that holds ``nan`` at every factor, for a diagnostic fit that failed."""
+    missing = np.full(data.n, np.nan)
+    by_plan = {plan.label: missing for plan in plans}
+    levels = [len(level) for level in data.treatment_levels]
+    return Mechanism(
+        treatment=tuple(dict(by_plan) for _ in range(data.n_times)),
+        censoring=tuple(dict(by_plan) for _ in range(data.n_times)),
+        treatment_observed=tuple(np.full((data.n, k), np.nan) for k in levels),
+        censoring_observed=tuple(missing for _ in data.censoring_names),
+        policy_numerators={
+            plan.label: {
+                time: missing for time in range(1, data.n_times + 1) if plan.is_mtp_node(time)
+            }
+            for plan in plans
+            if plan.has_mtp
+        },
+    )
+
+
 def _tilt_shorthand(regimens: Any) -> Any:
     """Read a sequence of :class:`~cleverly.interventions.Incremental` as one plan each.
 
@@ -5015,6 +6300,9 @@ def _refit_bound(
 ) -> _BoundReplay:
     """Repeat every bound-dependent regression and targeting update.
 
+    A hazard fit re-targets its retained initial hazards at ``bounds`` and refits no
+    learner, because the bounds enter the targeting and not the hazard regressions.
+
     Parameters
     ----------
     result : LongitudinalResult
@@ -5040,31 +6328,57 @@ def _refit_bound(
 
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
-    if recipe.outcome_learner is None or recipe.pseudo_learner is None:
-        _refuse_replay(
-            LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE, reason=RefusalReason.INVALID_DECLARATION
+    fits: dict[str, RegimenFit]
+    msm_fits: tuple[MSMRegimenFit, ...]
+    if recipe.hazard is not None and result.initial_hazards is not None:
+        fits = _run_hazard(
+            result.data,
+            recipe.plans,
+            recipe.hazard.levels,
+            result.mechanism,
+            result.initial_hazards,
+            horizons=result.config.horizons,
+            g_bounds=bounds,
+            alpha=recipe.hazard.alpha,
+            algorithm=recipe.hazard.algorithm,
+            max_iter=recipe.hazard.max_iter,
+            tol=recipe.hazard.tol,
+            step_size=recipe.hazard.step_size,
         )
-    fits, msm_fits = _run_recursion(
-        result.data,
-        recipe.plans,
-        result.mechanism,
-        msm=result.msm,
-        horizons=result.config.horizons,
-        outcome_learner=clone(recipe.outcome_learner),
-        pseudo_learner=clone(recipe.pseudo_learner),
-        folds=result.folds,
-        scaler=result.scaler,
-        g_bounds=bounds,
-        alpha=recipe.alpha,
-        max_iter=recipe.max_iter,
-        tol=recipe.tol,
-        n_jobs=recipe.n_jobs,
-        estimator=recipe.estimator,
-        fold_mechanisms=result.fold_mechanisms,
-    )
+        msm_fits = ()
+    else:
+        if recipe.outcome_learner is None or recipe.pseudo_learner is None:
+            _refuse_replay(
+                LONGITUDINAL_REPLAY_LEARNER_UNCLONABLE, reason=RefusalReason.INVALID_DECLARATION
+            )
+        fits, msm_fits = _run_recursion(
+            result.data,
+            recipe.plans,
+            result.mechanism,
+            msm=result.msm,
+            horizons=result.config.horizons,
+            outcome_learner=clone(recipe.outcome_learner),
+            pseudo_learner=clone(recipe.pseudo_learner),
+            folds=result.folds,
+            scaler=result.scaler,
+            g_bounds=bounds,
+            alpha=recipe.alpha,
+            max_iter=recipe.max_iter,
+            tol=recipe.tol,
+            n_jobs=recipe.n_jobs,
+            estimator=recipe.estimator,
+            fold_mechanisms=result.fold_mechanisms,
+            normalization=recipe.normalization,
+            parametric=recipe.parametric,
+        )
+    # The fit reports the projected levels, so the replay projects them too.
+    if recipe.isotonic:
+        fits, _ = _project_fits(fits)
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
-    status = _inference_status(result.data, result.folds)
+    status = _inference_status(
+        result.data, result.folds, estimator=recipe.estimator, parametric=recipe.parametric
+    )
     if result.msm is None:
         reference = next(
             plan.regimen for plan in recipe.plans if plan.label == result.config.reference
@@ -5216,8 +6530,14 @@ def _score_cell_truncation_counts(
     truncated = 0
     evaluated = 0
     for fit in fits:
-        mask = consumed[fit.regimen.label]
-        for step in fit.steps:
+        # A hazard fit divides by the mechanism at each unit's observed level, which its
+        # own cumulative arrays hold, rather than by the regimen's.
+        mask = (
+            consumed[fit.regimen.label]
+            if fit.hazard is None
+            else _truncated_cells(fit.cumulative_unbounded, fit.cumulative)
+        )
+        for step in fit.scored_nodes:
             clipped = mask[:, step.time - 1][step.trained_on]
             truncated += int(np.count_nonzero(clipped))
             evaluated += int(clipped.size)
@@ -5252,8 +6572,9 @@ def longitudinal_truncation_curve(
     CapabilityError
         When a regimen of the result has a rule node that is not declared
         ``rule_kind="known"``, when the grid is empty or holds a bound this package cannot
-        resolve, when it names an estimand this fit does not report, or when the stored
-        artifacts cannot replay the recursion.
+        resolve, when it names an estimand this fit does not report, when a pair truncates
+        the declared factors' cumulative product that the fit refuses to truncate, or when
+        the stored artifacts cannot replay the recursion.
     DataError
         When a regimen of the result carries a ``rule_kind`` outside the three states.
 
@@ -5269,6 +6590,8 @@ def longitudinal_truncation_curve(
     """
     refuse_regimen_rules(result.config.regimens)
     refuse_evaluated_msm_functions(result.msm)
+    if result.config.estimator == "gcomp":
+        raise CapabilityError(refusal=GCOMP_TRUNCATION_REFUSAL)
     recipe = result.replay_recipe
     if recipe.omissions:
         _refuse_replay(*recipe.omissions, reason=RefusalReason.INVALID_DECLARATION)
@@ -5303,6 +6626,25 @@ def longitudinal_truncation_curve(
             "the requested grid is empty.",
             reason=RefusalReason.INVALID_DECLARATION,
         )
+    # A pair the fit refuses on its declared factors is refused here too, before any replay.
+    # Such a pair truncates a known product, so its row would report a movement that no
+    # admitted fit can show and that reflects no variance trade.
+    for pair in grid:
+        refusal = known_product_refusal(result.data, recipe.plans, pair)
+        if refusal is not None:
+            raise CapabilityError.from_refusal(
+                replace(
+                    refusal,
+                    condition=(
+                        "a longitudinal truncation curve replays only the bound pairs that a "
+                        "fit admits, and a fit refuses this one: " + refusal.condition
+                    ),
+                    alternative=(
+                        "Remove the pair from the bounds grid. A pair (lower, 1) with lower "
+                        "below the smallest declared cumulative probability is admitted."
+                    ),
+                )
+            )
     try:
         reported = select_estimates(result.estimates, estimands)
     except (KeyError, ValueError) as error:
@@ -5441,6 +6783,70 @@ def ipsi(
 ) -> LongitudinalResult:
     """One-call incremental propensity-score estimation over time, mirroring :func:`ltmle`."""
     return IPSI(regimens, **kwargs).fit(
+        data,
+        outcome=outcome,
+        treatment=treatment,
+        baseline=baseline,
+        time_varying=time_varying,
+        censoring=censoring,
+        id=id,
+        weights=weights,
+        weights_type=weights_type,
+        weights_estimated=weights_estimated,
+        family=family,
+    )
+
+
+def gcomp(
+    data: Any,
+    *,
+    regimens: Any,
+    outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
+    treatment: Sequence[str],
+    baseline: Sequence[str],
+    time_varying: Sequence[Sequence[str]] | None = None,
+    censoring: Sequence[str] | None = None,
+    id: str | None = None,
+    weights: str | None = None,
+    weights_type: str = "probability",
+    weights_estimated: bool = False,
+    family: str = "auto",
+    **kwargs: Any,
+) -> LongitudinalResult:
+    """One-call sequential g-computation, mirroring :func:`ltmle`."""
+    return SequentialGComputation(regimens, **kwargs).fit(
+        data,
+        outcome=outcome,
+        treatment=treatment,
+        baseline=baseline,
+        time_varying=time_varying,
+        censoring=censoring,
+        id=id,
+        weights=weights,
+        weights_type=weights_type,
+        weights_estimated=weights_estimated,
+        family=family,
+    )
+
+
+def ipw(
+    data: Any,
+    *,
+    regimens: Any,
+    outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
+    treatment: Sequence[str],
+    baseline: Sequence[str],
+    time_varying: Sequence[Sequence[str]] | None = None,
+    censoring: Sequence[str] | None = None,
+    id: str | None = None,
+    weights: str | None = None,
+    weights_type: str = "probability",
+    weights_estimated: bool = False,
+    family: str = "auto",
+    **kwargs: Any,
+) -> LongitudinalResult:
+    """One-call inverse probability weighting over time, mirroring :func:`ltmle`."""
+    return SequentialIPW(regimens, **kwargs).fit(
         data,
         outcome=outcome,
         treatment=treatment,
