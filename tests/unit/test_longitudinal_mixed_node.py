@@ -482,6 +482,9 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/sequential.py", "Mechanism.cumulative_with_unbounded"): "fitted factors",
     ("longitudinal/sequential.py", "outcome_design"): "mixed branch first",
     ("longitudinal/sequential.py", "node_ratios"): "fitted factors",
+    ("study.py", "LongPanel._check_prepared"): (
+        "a panel container only: from_long_panel refuses a vector node with a dose"
+    ),
     ("study.py", "TimeToEvent._check_prepared"): "one baseline column",
     ("validation/longitudinal.py", "_treatment_report"): "mixed branch first",
 }
@@ -565,6 +568,16 @@ def test_every_one_column_treatment_read_sits_in_a_dispatching_function() -> Non
     found = _one_column_reads()
     assert found - set(_DISPATCHING) == set(), "unreviewed one-column treatment readers"
     assert set(_DISPATCHING) - found == set(), "stale entries in the allow-list"
+
+
+def test_a_long_panel_holds_no_mixed_node() -> None:
+    """The premise of the ``LongPanel._check_prepared`` entry: a panel node is never mixed."""
+    from .test_long_panel import build, long_panel
+
+    frame = long_panel(20)
+    frame["dose"] = np.linspace(0.0, 1.0, len(frame))
+    with pytest.raises(DataError, match="a vector node is categorical"):
+        build(frame, treatment=["offer", "dose"], continuous_treatment=True)
 
 
 def test_every_level_set_read_sits_in_a_reviewed_function() -> None:

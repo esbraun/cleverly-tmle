@@ -43,6 +43,9 @@ the new necessity pairs                        100 paired draws each,
                                                reduction below, not the sizing record
 ``LTMLE`` positives with the outcome wrong     the exact reduction below, 8,000 to 20,000
                                                replications of the closed-form ratio
+the ordered density positive's diagnosis       the pre-run re-check: 40,000 closed-form
+(:data:`ORDERED_DENSITY_DIAGNOSIS`)            replications and 240 paired package draws,
+                                               ``recheck_*`` streams
 =============================================  ===============================================
 
 **The Hajek reduction.**  With a constant initial outcome regression and one fold, each node's
@@ -96,7 +99,10 @@ VECTOR_R = (
 )
 
 #: A record, not a check: ``(probe draws, mean error / SD, SE ratio, coverage, efficiency
-#: empirical, efficiency reported, kurtosis)`` of each calibration positive.
+#: empirical, efficiency reported, kurtosis)`` of each calibration positive.  The classifier
+#: rows were fitted before the remediation, when ``OracleLogOdds`` was sklearn's unpenalized
+#: ``LogisticRegression`` (lbfgs, ``tol=1e-4``).  It is now ``QuasiBinomialGLM`` by IRLS: the
+#: same maximum-likelihood fit, to a tighter tolerance.
 PROBE_CALIBRATION: dict[str, tuple[int, float, float, float, float, float, float]] = {
     "point_vector_density": (1_200, -0.0389, 1.0283, 0.9550, 0.9718, 0.9993, 2.95),
     "point_vector_classifier": (2_400, 0.0182, 1.0058, 0.9517, 0.9941, 0.9999, 3.08),
@@ -169,6 +175,23 @@ PROBE_PAIR: dict[str, tuple[float, float, float, float]] = {
     "ate_regimen[full vs natural course]": (0.0067, 0.9903, 0.9570, 2.81),
 }
 PROBE_PAIR_LARGEST_RATIO = 49.4
+#: A record, not a check: the pre-run re-check's diagnosis of the ordered density positive,
+#: whose remediation probe read an SE ratio of 0.968 (:data:`PROBE_CALIBRATION`).  Both probes
+#: use fresh ``recheck_*`` streams, at n = 2,000 under ``full``.
+#:
+#: * ``closed_form``: an independent re-implementation of the one-node ``LTMLE`` with the
+#:   closed-form ordered ratio, 40,000 replications.  ``(mean error / SD, SE ratio, its Monte
+#:   Carlo SE, coverage, efficiency empirical, efficiency reported)``.  With the package's own
+#:   ``node_ratio`` the same code equals the package to every printed digit, and its influence
+#:   curve to 1.8e-15, so the package's curve has no missing term.
+#: * ``paired``: 240 draws, each fitted by the package's density route and by the closed-form
+#:   ratio.  ``(draws, correlation, SD of the difference in bound SD, the package's variance
+#:   excess in bound SD squared, its Monte Carlo SE, the package's mean SE over the closed
+#:   form's)``.
+ORDERED_DENSITY_DIAGNOSIS = {
+    "closed_form": (0.006, 0.9927, 0.0035, 0.9474, 0.9989, 0.9916),
+    "paired": (240, 0.9982, 0.059, 0.012, 0.008, 1.0048),
+}
 #: The exact-law shift of each ratio defect in the outcome-wrong ``LTMLE`` estimate, by the
 #: Hajek reduction over 2,000,000 draws (the defective limit minus the declared one, on the
 #: same draws), in the contrast's SD at n = 2,000.  The two ordered-law
@@ -222,7 +245,10 @@ def test_the_declared_numbers() -> None:
     assert study.REFERENCE == "natural course"
     assert study.CLASSIFIER_PLANS == ("ordered", "full")
     assert (common.CAP, common.STEP, common.FACTOR, common.KNEE) == (5.5, 0.5, 1.25, 3.0)
-    assert record.reference == "lmtp"
+    # The owner's rule: the method merges on its Python studies, and the lmtp runs follow.
+    assert record.comparator_state == "pending"
+    assert (record.reference, record.pending_reference) == (None, "lmtp")
+    assert "Study queue" in record.pending_reason
     assert properties.CALIBRATION_REPLICATES == DECLARED_CALIBRATION
     assert {
         (family, label): (n, replicates) for family, label, n, replicates in properties.FIT_SETS
@@ -760,6 +786,29 @@ def test_the_bias_rule_cells_pass_with_high_probability() -> None:
         column, threshold = properties.NECESSITY_COLUMNS[family_name]
         del column
         assert displacement > threshold, family_name
+
+
+def test_the_ordered_density_positive_is_expected_to_pass() -> None:
+    """The remediation probe's 0.968 is Monte Carlo noise around about 0.991, not a defect.
+
+    The closed-form estimator's SE ratio is the expected one less the in-sample deflation.
+    The binned oracle ratio scales the mean SE by the paired ratio and the empirical variance by
+    one plus the paired excess.  The declared cell passes with high probability there, and the
+    probe lies within two of its own Monte Carlo SEs of it.
+    """
+    _, se_ratio, error, coverage, empirical, reported = ORDERED_DENSITY_DIAGNOSIS["closed_form"]
+    _, _, _, excess, excess_error, se_scale = ORDERED_DENSITY_DIAGNOSIS["paired"]
+    low, high = Margins().calibration_se_ratio
+    assert low + 3 * error < se_ratio < high - 3 * error
+    variance = 1.0 / empirical
+    expected = se_ratio * se_scale / math.sqrt(1.0 + excess / variance)
+    assert expected == pytest.approx(0.991, abs=0.002)
+    assert excess < 2.0 * excess_error
+    label = "longitudinal_vector_ordered_density"
+    replicates = properties.CALIBRATION_REPLICATES[label]
+    assert calibration_pass_probability(expected, coverage, empirical, reported, replicates) > 0.99
+    draws, _, probe, *_ = PROBE_CALIBRATION[label]
+    assert abs(probe - expected) < 2.0 * probe / math.sqrt(2.0 * draws)
 
 
 def test_the_unsupplied_pair_is_calibrated_on_the_package_side() -> None:

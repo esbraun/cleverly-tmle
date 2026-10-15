@@ -10,12 +10,14 @@ import inspect
 import io
 import math
 import pkgutil
+import threading
 import warnings
 import zlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import cloudpickle
 import joblib
 import numpy as np
 import pandas as pd
@@ -671,7 +673,7 @@ def _artifact(header: dict[str, Any], payload: Any) -> bytes:
     buffer = io.BytesIO()
     with gzip.GzipFile(filename="", mode="wb", fileobj=buffer, compresslevel=3, mtime=0) as stream:
         joblib.dump(header, stream)
-        joblib.dump(payload, stream)
+        cloudpickle.dump(payload, stream)
     return buffer.getvalue()
 
 
@@ -867,8 +869,8 @@ def test_a_failed_save_keeps_the_earlier_artifact(point_result, tmp_path: Path) 
     path = point_result.save(tmp_path / "result.joblib")
     saved = path.read_bytes()
     broken = loads(saved)
-    broken.estimator.outcome_learner = FunctionTransformer(lambda values: values)
-    with pytest.raises(TypeError, match="not joblib-serializable"):
+    broken.estimator.outcome_learner = FunctionTransformer(_Locked())
+    with pytest.raises(TypeError, match="not serializable"):
         broken.save(path)
     assert path.read_bytes() == saved
     assert [entry.name for entry in tmp_path.iterdir()] == ["result.joblib"]
@@ -879,7 +881,7 @@ def test_a_failed_destination_write_preserves_the_os_error_and_earlier_artifact(
 ) -> None:  # type: ignore[no-untyped-def]
     path = point_result.save(tmp_path / "result.joblib")
     saved = path.read_bytes()
-    original_dump = serialization.joblib.dump
+    original_dump = serialization.cloudpickle.dump
 
     def fail_during_payload(value: Any, stream: Any) -> Any:
         if value is point_result:
@@ -887,7 +889,7 @@ def test_a_failed_destination_write_preserves_the_os_error_and_earlier_artifact(
             raise OSError("destination is full")
         return original_dump(value, stream)
 
-    monkeypatch.setattr(serialization.joblib, "dump", fail_during_payload)
+    monkeypatch.setattr(serialization.cloudpickle, "dump", fail_during_payload)
     with pytest.raises(OSError, match="destination is full") as raised:
         point_result.save(path)
     assert raised.value.__cause__ is None
@@ -895,10 +897,26 @@ def test_a_failed_destination_write_preserves_the_os_error_and_earlier_artifact(
     assert [entry.name for entry in tmp_path.iterdir()] == ["result.joblib"]
 
 
+class _Locked:
+    """A callable that pickle cannot write, by value or by reference: it holds a lock."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+
+    def __call__(self, values: Any) -> Any:
+        return values
+
+
 def test_non_picklable_components_fail_at_save(point_result) -> None:  # type: ignore[no-untyped-def]
-    point_result.estimator.outcome_learner = FunctionTransformer(lambda values: values)
-    with pytest.raises(TypeError, match="not joblib-serializable"):
+    point_result.estimator.outcome_learner = FunctionTransformer(_Locked())
+    with pytest.raises(TypeError, match="not serializable"):
         dumps(point_result)
+
+
+def test_a_lambda_component_is_saved_by_value(point_result) -> None:  # type: ignore[no-untyped-def]
+    point_result.estimator.outcome_learner = FunctionTransformer(lambda values: values + 1)
+    restored = loads(dumps(point_result))
+    assert restored.estimator.outcome_learner.func(1) == 2
 
 
 # ------------------------------------------------------------ derived values

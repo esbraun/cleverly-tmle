@@ -4,7 +4,7 @@ A controlled direct effect is identified under two assumptions of no unmeasured 
 for the treatment and the outcome, and one for the intermediate variable and the outcome. This
 package has no implemented E-value bound for its fitted target and confounding model. So
 :func:`~cleverly.sensitivity.evalue._select_evalue` refuses every request on such a fit, before it
-resolves the estimand, and the capability row reads ``unavailable``. F25 in ``docs/roadmap.md``
+resolves the estimand, and the capability row reads ``unavailable``. X49 in ``docs/roadmap.md``
 holds the missing result.
 
 Before the change the Gaussian branch and the reported-ratio branches answered on that fit, and
@@ -199,6 +199,8 @@ def assert_refused(result: Any, estimand: str | None) -> None:
     assert not row.available
     assert row.status is AssessmentStatus.UNAVAILABLE
     assert row.reason == _DIRECT_EFFECT_REFUSAL
+    assert "one bounding factor per arm" in row.reason
+    assert "docs/roadmap.md X49 tracks the E-value of their product" in row.reason
     assert row.requires_arguments == ()
     assert raised(lambda: evalue_module.evalue(replace(result), estimand)) == (
         _DIRECT_EFFECT_REFUSAL

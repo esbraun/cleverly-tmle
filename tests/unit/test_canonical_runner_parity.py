@@ -58,6 +58,7 @@ ROOT_RUNNERS = tuple(
         "point_survival_runner.R",
         "policy_point_mtp_runner.R",
         "stochastic_categorical_ltmle_runner.R",
+        "vector_mtp_runner.R",
     )
 )
 
@@ -289,6 +290,32 @@ def _published(directory: Path) -> bool:
     )
 
 
+def _runner_hashes(manifest: dict) -> dict[str, str]:
+    """The reference sources a manifest hashes: as run, or as declared while pending.
+
+    A pending comparator ran nothing, so its sources are hashed under the manifest's
+    ``comparator`` block (``declared_sources_sha256``), which no test gates against the tree.
+    The check below still requires every sourced file there.
+    """
+    comparator = manifest.get("comparator")
+    if comparator is not None and comparator.get("status") == "pending":
+        assert manifest["reference_sha256"] == {}, "a pending manifest hashes sources as run"
+        return dict(comparator["declared_sources_sha256"])
+    return dict(manifest["reference_sha256"])
+
+
+def test_a_pending_manifest_names_its_runner_sources_as_declared() -> None:
+    """The pending branch reads the declared sources, and a run hash under it is refused."""
+    pending = {
+        "reference_sha256": {},
+        "comparator": {"status": "pending", "declared_sources_sha256": {"a/run.R": "0" * 64}},
+    }
+    assert _runner_hashes(pending) == {"a/run.R": "0" * 64}
+    assert _runner_hashes({"reference_sha256": {"b/run.R": "1" * 64}}) == {"b/run.R": "1" * 64}
+    with pytest.raises(AssertionError, match="hashes sources as run"):
+        _runner_hashes({**pending, "reference_sha256": {"a/run.R": "0" * 64}})
+
+
 @pytest.mark.parametrize("runner", RUNNERS, ids=_label)
 def test_every_file_a_runner_sources_is_hashed_by_its_own_manifest(runner: Path) -> None:
     """A shared adapter is half of a comparator, so the manifest has to record it.
@@ -312,7 +339,7 @@ def test_every_file_a_runner_sources_is_hashed_by_its_own_manifest(runner: Path)
     manifests = runner_manifests(runner)
     assert manifests, f"no study manifest hashes {_label(runner)}"
     for path in manifests:
-        hashed = set(json.loads(path.read_text())["reference_sha256"])
+        hashed = set(_runner_hashes(json.loads(path.read_text())))
         for source in sourced_files(runner):
             name = source.relative_to(ROOT).as_posix()
             assert name in hashed, (

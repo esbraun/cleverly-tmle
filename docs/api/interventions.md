@@ -5,11 +5,14 @@ assignments. Run the matching support check before you interpret an estimate.
 
 A modified treatment policy is a `Shift`, a `Scale`, a `Piecewise` map, a `ModifiedPolicy` with
 declared pieces, or a `RiskRatioTilt`. Pass the policy to `TMLE(policies=...)` or as a node of
-a longitudinal plan. A `DoseQuantile` or a `SupportBoundary` tunes the cap of a `Shift` or a
-`Scale` from the treatment law. `LTMLE` and `SDR` accept a tuned cap, and `TMLE` refuses it.
+a longitudinal plan. A vector treatment takes a `JointPolicy`, which declares one policy for each
+component. A `DoseQuantile` or a `SupportBoundary` tunes the cap of a `Shift` or a `Scale` from
+the treatment law.
 
 `DynamicRegimen` defines a plan across the treatment nodes of a longitudinal fit. A node of that
 plan can be a rule. It can also be a `Stochastic` node that draws its arm from a known policy.
+`each_node` writes one rule for every node of a long panel, and it returns one `NodeRule` per node.
+
 `LearnedRule` declares a rule that the fit learns inside each training fold, and
 `LearnedRuleRecord` records that fit.
 
@@ -22,6 +25,8 @@ plan can be a rule. It can also be a `Stochastic` node that draws its arm from a
    cleverly.interventions.Rule
    cleverly.interventions.Stochastic
    cleverly.longitudinal.DynamicRegimen
+   cleverly.longitudinal.each_node
+   cleverly.longitudinal.NodeRule
    cleverly.interventions.LearnedRule
    cleverly.interventions.LearnedRuleRecord
    cleverly.interventions.RegimeSet
@@ -37,6 +42,7 @@ plan can be a rule. It can also be a `Stochastic` node that draws its arm from a
    cleverly.interventions.ModifiedPolicy
    cleverly.interventions.Randomizer
    cleverly.interventions.RiskRatioTilt
+   cleverly.interventions.JointPolicy
    cleverly.interventions.PolicySet
    cleverly.interventions.SupportReport
    cleverly.interventions.RegimeSupport

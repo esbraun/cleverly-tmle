@@ -359,10 +359,9 @@ gives the ratio at a continuous node, and the discrete formula gives it at a cat
 | continuous dose | `LTMLE.fit(..., continuous_treatment=["A1", "A2"])` | a pooled-hazard density with `density_bins` bins, or `ratio="classifier"` |
 | categorical | the default | the discrete formula over the fitted mechanism |
 | vector of categorical columns | a list of columns as one entry of `treatment=` | the discrete formula over the joint levels |
+| mixed vector, with categorical and continuous columns | a list of columns as one entry of `treatment=`, with a column of the list in `continuous_treatment=` | the joint ratio of a `JointPolicy`: a chain-rule density with `ratio="density"`, or `ratio="classifier"`. See [vector nodes with a continuous component](#vector-nodes-with-a-continuous-component) |
 
-`LTMLE.fit` refuses a vector node with a continuous component with `CapabilityError`, before any
-learner. [X31](../roadmap.md#x31-continuous-vector-components-at-a-node) owns it. At a
-continuous node the treatment factor of the cumulative product is the ratio itself. So
+At a continuous node the treatment factor of the cumulative product is the ratio itself. So
 `g_bounds` bounds the censoring and categorical factors only, and the fit stores each node's
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
@@ -420,6 +419,67 @@ refusals. The registered study is
 [`longitudinal-mtp`](method-evidence/longitudinal-modified-treatment-policies.md). Its
 mechanism-only cells read oracle bins that grow as $n^{2/3}$, 320 at n = 2,000, for the reason
 above. So they test the targeting with a nearly exact ratio and not the default density.
+
+### Vector nodes with a continuous component
+
+A node can hold several treatment columns. A list of columns is one entry of `treatment=`, and
+`continuous_treatment=` names the columns that hold a dose. A node with a dose and a categorical
+column is a *mixed node*. Díaz, Williams, Hoffman and Schenck (2023), Section 2, let the
+treatment at a node be a vector $A_t = (C_t, D_t)$, and Theorem 1 identifies the mean for it.
+
+```text
+LTMLE(regimens, ratio="classifier", ...).fit(
+    frame,
+    outcome="Y",
+    treatment=[["flag1", "dose1"], ["flag2", "dose2"]],
+    baseline=["W"],
+    continuous_treatment=["dose1", "dose2"],
+)
+```
+
+`LTMLE` and `SDR` fit a mixed node. Each regimen sets the node with a `JointPolicy`, which
+[the point-treatment section](point-treatment-tmle.md#vector-treatments) defines. The policy
+frame at the node holds the history. Each map reads the natural values of the components as the
+table of that section states.
+
+| item | rule at a mixed node |
+| --- | --- |
+| ratio | the joint ratio $g^d / g$ at the observed vector. It sits in the numerator of the cumulative product, as the ratio of a continuous node does |
+| `ratio="density"` | the chain rule: the categorical mechanism, then a pooled-hazard density for each dose in `order`. A sum over the categorical preimages and Equation (3) for each dose give the induced density. `g_bounds` bounds the categorical factor in the running denominator |
+| `ratio="classifier"` | the stacked classification of Section 5.4. The design holds the history, an indicator for each categorical component and the raw doses. The classifier cannot split the ratio, so `g_bounds` reaches no factor of the node |
+| history of a later node | both components of an earlier node, with a dose as a dose column and a categorical component as its own drop-first indicators |
+| a flag with a dose | the dose map of one mixed node reads the natural flag. Two consecutive nodes, a flag node and then a dose node, read the flag that the first node assigned. With an identity flag map the two readings coincide, and the fits are equal (W10) |
+
+**What composes.** Each row has a witness in `tests/unit/test_longitudinal_mixed_node.py`.
+
+| composition | status |
+| --- | --- |
+| censoring, whose retention reads both components of an earlier node | supported (W9) |
+| survival outcomes and one-cause competing risks | supported. A one-cause fit equals the survival fit |
+| weights, clusters with `id=`, cross-fitting | supported. A cluster stays whole, and the folds split units |
+| `msm=` over joint-policy plans | supported. A saturated working model equals the separate fits |
+| truncation replay, bootstrap, `subset`, `dumps` and `loads` | supported |
+| `SDR` | supported on both routes, in sample and with folds that are each an exact copy of the law |
+| a known randomizer on the `JointPolicy` or on one component | supported (W11, `tests/unit/test_vector_component_randomizer.py`) |
+| `RiskRatioTilt` on a binary component | supported. It joins the product randomizer |
+
+[Scope and refusals](scope-and-refusals.md#vector-treatments) lists what a vector refuses and
+gives the reason for each refusal.
+
+**Evidence.** `tests/unit/test_longitudinal_mixed_node.py` checks the estimate and the influence
+curve of every plan on the two-node mixed law of `tests/discrete_law_longitudinal_mtp.py`
+against the g-formula and its complex-step Gateaux derivative (W3). The law gives each node a
+flag and a dose on the grid $\{0, 1, 2\}$. W4 sets the flag and gates the dose on the natural
+flag. Its law moves the estimand by more than $10^{-2}$ between that reading and the reading of
+the assigned flag. W5 checks that the later history holds both components.
+
+`tests/unit/test_longitudinal_mixed_node_mutations.py` holds the mutation controls, and each
+control moves a witness by more than $10^{-4}$. They drop the flag or the dose from the
+classifier, read the assigned flag, drop the earlier flag from the history, read the kind off the
+first component only, and drop a component from the censoring or outcome design.
+`tests/unit/test_vector_density_route.py` repeats the plans on the density route and adds an
+ordered plan on a law with two doses per node. The registered study is
+[`vector-mtp`](method-evidence/vector-modified-treatment-policies.md).
 
 ### One baseline treatment held over the nodes
 
@@ -506,6 +566,39 @@ whose times sit on the grid. `tests/unit/test_time_to_event_input.py` checks one
 and the round trip on two grids. It also checks the long fit against the wide held fit. Floor
 binning and the censor-first map are its mutations, and each one misses the truth.
 
+### Long-panel input
+
+`LongitudinalData.from_long_panel` and the design `LongPanel` read one row per unit and decision
+time. A row holds the covariates measured before its decision, the decision, and the censoring
+indicator of the node. The reader reshapes the rows into the wide arrays and calls
+`LongitudinalData.from_frame`, so the wide checks apply unchanged. The estimand, the recursion, and
+the influence curve are those of the wide layout. One unit is one observation, and `cluster=` maps to the cluster
+contract.
+
+| item | rule |
+| --- | --- |
+| node | the $t$-th decision time, counted from 1. `times=` declares the grid in time order and cannot coarsen it. Without it the reader sorts the times, which must be numbers, dates or durations |
+| generated column | `"column@t"` for the treatment, each time-varying column, the censoring column, each event column and each known probability column. `PanelLayout` keeps the original time labels |
+| unit order | the sorted unit identifiers. Unsorted input gives the same container |
+| history | the baseline columns and the time-varying columns of nodes 1 to $t$. Every $L_t$ block adds columns to the history design of every later node |
+| leaving the study | censoring 0 on the last row of a unit that left, or the event row. A row after that row is refused |
+| event and censoring | an event value on a row whose censoring is 0 is refused on both layouts, because the order at a node is $A_t, C_t, Y_t$ |
+| leading missing values | a time-varying column with no value at the first nodes starts at its first recorded node. `PanelLayout.omitted` records the nodes left out |
+| report | `summary()` adds a `long panel:` line from `PanelLayout.describe()` |
+| inverse | `to_long_panel()` returns one row per unit and node in the study. It normalizes the weights to mean one, leaves a screened-out covariate missing, and omits the known probability columns |
+
+A time-varying column is measured before the row's decision, and the declaration states it. A
+rule at node $t$ reads the columns of nodes 1 to $t$ through `each_node`. The reader refuses what
+the data can show: a unit-level column that varies, a covariate that copies the outcome, and a
+time-varying column that stops being recorded.
+The [scope and refusals](scope-and-refusals.md) page lists them. The registered evidence uses two
+decision nodes. [X39](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) plans three to five.
+
+`tests/unit/test_long_panel.py` checks the round trip on irregular censoring and unsorted input,
+one refusal per row of the table, and the equality of `LTMLE` and `SDR` fits on the adapted panel
+and on the equivalent wide frame. The `LTMLE` comparison also checks a nonzero targeting update, so
+the equality is not between two plug-in estimates.
+
 ### A censoring node with no censoring
 
 A censoring node at which no eligible unit is censored has the fixed factor one and fits no
@@ -551,7 +644,8 @@ theirs.
 | the simultaneous band | the other parameters only. A `CausalStudy` band narrowed to `RegimeMean` or `RegimeContrast` leaves them out too |
 | `assess()` | the nuisance item adds the status note, with the count of such parameters |
 
-[F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) owns an interval at such a node.
+[X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (i) holds an interval at such a node at a fixed law, and
+[F31](../roadmap.md#f31-inference-at-a-boundary-node-estimate) keeps the rare-event regime.
 The nuisance report shows `LONGITUDINAL_CONSTANT_TARGET` in place of the node's row, with the
 regimen, the cause and the horizon. A cross-fitted training fold that reads a constant while the
 sample does not adds `LONGITUDINAL_CONSTANT_TARGET_IN_FOLD`, which names the folds, and the node's
@@ -904,7 +998,7 @@ $t$ reference at 20 and 30 clusters, and all 8 scored cells pass.
 | no informative-size cell | the size enters no longitudinal study law. `clustered-unequal-cvtmle` measures the row-weighted target for point treatment |
 | no bootstrap licence | the `cluster_cross_fit` kind has no study cell |
 | the `lmtp` pair at equal sizes only | `ife` aggregates cluster means, which equal cluster sums at equal sizes only |
-| 4 to 19 clusters | the fit takes `"few_cluster_plugin"` and reports no interval. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) owns it |
+| 4 to 19 clusters | the fit takes `"few_cluster_plugin"` and reports no interval. No cross-fitted study measures that range: a probe of 2,000 draws at 10 clusters found 3 and 8 draws that admit no fit, and the harness refuses a cell that loses a replication. [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) part (b) holds it |
 
 ## The sequentially doubly robust estimator
 

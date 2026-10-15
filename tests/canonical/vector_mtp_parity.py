@@ -15,8 +15,11 @@ grid.  ``compare`` reads both and applies three checks.
 1. **The R transcription.**  Every grid ratio agrees with Python at ``rtol = 1e-12`` (absolute
    floor :data:`RATIO_FLOOR_ATOL`), and every log-ratio feature at ``1e-12``.
 2. **The nonzero witness.**  On each moved plan the fraction of rows with a positive ``lmtp``
-   ratio equals the package's.  With ``mtp = FALSE`` ``lmtp`` multiplies its ratio by the
-   indicator that no component moved, so that fraction falls to the share of unmoved rows.
+   ratio equals the package's.  Under ``mtp = TRUE`` both fractions are 1: the package's
+   floored log-ratio classifier never predicts 0, and ``lmtp`` bounds its predictions away from
+   0.  The fraction is therefore not the share of rows with a positive true ratio.  With
+   ``mtp = FALSE`` ``lmtp`` multiplies its ratio by the indicator that no component moved, so
+   its fraction falls to the share of unmoved rows and the witness fails.
 3. **The ratios.**  The reading takes one of three outcomes, declared before the run:
 
    ===================================================  ======================================

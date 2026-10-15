@@ -175,7 +175,7 @@ On a point-treatment design, each typed estimand holds one intervention kind.
 `Incremental` in `RegimeContrast`. The message names the typed estimands for that item.
 `identify` raises `DataError` when the set is a mapping, an iterator, a string, or a single item.
 Write one item as a one-item tuple.
-[F17](../roadmap.md#f17-joint-point-treatment-parameter-axes) tracks a fit with two kinds.
+[X57](../roadmap.md#x57-joint-intervention-axes-and-tilt-compositions) tracks a fit with two kinds.
 
 ## Learned treatment rules
 
@@ -235,9 +235,9 @@ default `CrossFitting()` refuses before any learner and names that remedy. The f
 binary treatment, complete outcomes, iid rows without weights, and no strata or intermediate
 variable. `CausalStudy.identify` refuses each of those designs.
 
-A refit relearns the rules, so `refute` reads `unavailable` on this fit. No sensitivity
-derivation for this target was reviewed, so every sensitivity analysis reads `unavailable`
-too. The support report and `truncation_curve` run.
+A refit relearns the rules, so `refute` reads `unavailable` on this fit. The package does not
+implement a sensitivity analysis for this target, so every sensitivity analysis reads
+`unavailable` too. The support report and `truncation_curve` run.
 [X11](../roadmap.md#x11-learned-policy-follow-ups) and
 [F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) hold the refused
 requests.
@@ -274,6 +274,7 @@ Other maps of the dose use the same `policies=` axis. The table names each class
 | `ModifiedPolicy(name, pieces=..., policy_kind="known")` | your own map, with its inverse and its derivative on each piece |
 | `ModifiedPolicy(name, apply=..., policy_kind="known")` | a map of the levels of a categorical treatment |
 | `RiskRatioTilt(delta)` | the `ipsi` tilt of `lmtp` on a 0/1 treatment, reported as `ey_rr_tilt`. Fit it with `TMLE(policies=...)`. The typed study requests refuse it |
+| `JointPolicy(name, components={column: policy}, policy_kind="known")` | a vector treatment of several columns. It sets one policy for each component, as the [vector treatments](../technical-reference/point-treatment-tmle.md#vector-treatments) section states |
 
 ```python
 from cleverly.interventions import ModifiedPolicy, Piece, Scale
