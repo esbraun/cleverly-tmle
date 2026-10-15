@@ -68,6 +68,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-repeated-cvtmle",
     reference=None,
+    failure_bound={"cleverly-repeated-cvtmle": 0.01},
     modules=(
         "tests/studies/repeated_crossfit.py",
         "tests/studies/repeated_crossfit_properties.py",

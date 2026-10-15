@@ -443,9 +443,8 @@ def test_the_composite_study_publishes_exactly_its_declared_cells() -> None:
         warnings.simplefilter("ignore")
         for property_name, cell, _, _, configuration in design._specs():
             for replicate in range(2):
-                rows += design._fit_replication(
-                    (property_name, cell, replicate, 300, 2, 1_000 + replicate, configuration)
-                )
+                payload = (property_name, cell, replicate, 300, 2, 1_000 + replicate, configuration)
+                rows += design._fit_replication(payload, design._draw(payload))
         frame = pd.DataFrame(rows)
         controls = design.calibration_controls(
             frame,

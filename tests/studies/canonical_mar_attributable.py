@@ -340,6 +340,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation="cleverly-mar-attributable-tmle",
     reference="tmle-r-composed-attributable",
+    failure_bound={"cleverly-mar-attributable-tmle": 0.01, "tmle-r-composed-attributable": 0.01},
     comparison="matching implementation",
     comparison_overrides={
         "binary_mar_attributable:paf": "related target",

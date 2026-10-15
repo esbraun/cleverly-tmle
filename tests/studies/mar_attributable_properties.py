@@ -53,7 +53,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law_mar as mar
 from tests.parallel import STUDY_JOBS
 from tests.studies import mar_arm_indexed_laws as laws
@@ -71,10 +70,13 @@ from tests.studies.canonical_mar_attributable import (
     initial_estimates,
     oracle_learners,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     PropertyCell,
     ReplicationSpec,
     control_row,
+    payload_cell,
+    payload_replicate,
     property_role,
     replicate_row,
     replication_payloads,
@@ -82,13 +84,20 @@ from tests.studies.evidence.properties import (
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     necessity_verdicts,
     robustness_verdicts,
     simultaneous_coverage_verdicts,
 )
-from tests.studies.evidence.simultaneous import joint_coverage_rows, joint_property_cells
+from tests.studies.evidence.replication import fit_properties
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import (
+    joint_cells,
+    joint_coverage_rows,
+    joint_property_cells,
+)
 from tests.studies.missing_outcome_study_helpers import WRONG_PI, WRONG_Q
 
 ROBUSTNESS_REPLICATES = 1_200
@@ -179,11 +188,46 @@ def independent_se(result: Any, name: str) -> float:
     )
 
 
-def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived((TARGET,))
+
+
+def _sample(key: tuple[Payload]) -> tuple[pd.DataFrame, dict[str, float]]:
+    """The sample and truth a key fits, which are a function of the key alone."""
+    property_name, cell, _, n, _, seed, _ = key[0]
+    scenario = BAND_SCENARIOS[cell] if property_name == "simultaneous_coverage" else BINARY
+    return _draw(scenario, n, seed)
+
+
+def _cells_of(key: tuple[Payload]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "simultaneous_coverage":
+        return [f"{JOINT_FAMILY}/{name}" for name in joint_cells(cell)]
+    if property_name == "interval_calibration":
+        names = [
+            f"{property_name}/{name}__{kind}"
+            for kind in ("correctly_specified", "inflated_se_control")
+            for name in ("par", "paf")
+        ]
+        return names + list(DERIVED_CELLS[f"{property_name}/{cell}"])
+    if property_name == "targeting_necessity":
+        return [f"{property_name}/par__targeted", f"{property_name}/par__untargeted"]
+    if property_name == "missingness_necessity":
+        return [
+            f"{property_name}/par__declared",
+            f"{property_name}/par__complete_case_control",
+            f"{property_name}/paf__complete_case_control",
+        ]
+    return [f"{property_name}/{cell}"]
+
+
+def _fit_replication(key: tuple[Payload], drawn: tuple[pd.DataFrame, dict[str, float]]) -> Any:
+    (payload,) = key
+    property_name, cell, replicate, n, requested, _seed, configuration = payload
+    frame, truth = drawn
     if property_name == "simultaneous_coverage":
         scenario = BAND_SCENARIOS[cell]
-        frame, truth = _draw(scenario, n, seed)
         result = fit_cleverly(frame, scenario, simultaneous=True)
         return joint_coverage_rows(
             result,
@@ -195,7 +239,6 @@ def _fit_replication(payload: Payload) -> list[dict[str, Any]]:
             requested=requested,
             pointwise_critical=CRITICAL,
         )
-    frame, _ = _draw(BINARY, n, seed)
     result = _fit(frame, configuration)
     if property_name == "interval_calibration":
         rows = [
@@ -410,8 +453,27 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     return tuple(out)
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        draw=_sample,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     controls = calibration_controls(
         rows,
@@ -425,6 +487,25 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     return pd.concat([rows, controls], ignore_index=True)
 
 
+#: The ``targeting_necessity`` family's declaration, read by its verdict and its rule.
+TARGETING_NECESSITY = property_verdicts.Necessity(
+    family="targeting_necessity",
+    labels=(TARGET,),
+    arms=("targeted", "untargeted"),
+    column="targeting_displacement",
+    threshold=TARGETING_DISPLACEMENT,
+)
+
+#: The ``missingness_necessity`` family's declaration, read by its verdict and its rule.
+MISSINGNESS_NECESSITY = property_verdicts.Necessity(
+    family="missingness_necessity",
+    labels=(TARGET,),
+    arms=("declared", "complete_case_control"),
+    column="missingness_displacement",
+    threshold=MISSINGNESS_DISPLACEMENT,
+)
+
+
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary, rates = apply_shared_verdicts(
         rows,
@@ -434,23 +515,15 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     robustness_verdicts(summary, family="mar_robustness")
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
-    necessity_verdicts(
-        summary,
-        rows,
-        family="targeting_necessity",
-        labels=(TARGET,),
-        arms=("targeted", "untargeted"),
-        column="targeting_displacement",
-        threshold=TARGETING_DISPLACEMENT,
-    )
-    necessity_verdicts(
-        summary,
-        rows,
-        family="missingness_necessity",
-        labels=(TARGET,),
-        arms=("declared", "complete_case_control"),
-        column="missingness_displacement",
-        threshold=MISSINGNESS_DISPLACEMENT,
-    )
+    necessity_verdicts(summary, rows, TARGETING_NECESSITY)
+    necessity_verdicts(summary, rows, MISSINGNESS_NECESSITY)
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (
+    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
+    *property_verdicts.necessity_rules(TARGETING_NECESSITY, MISSINGNESS_NECESSITY),
+)

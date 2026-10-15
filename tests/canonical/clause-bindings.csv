@@ -1,0 +1,1180 @@
+subject,property,clause,perturbation
+calibration-slope-warning,power,rejection floor,rejection/0.01
+calibration-slope-warning,warning_rate,false warnings under the ceiling,se_low
+calibration-slope-warning,warning_rate,warnings above the ceiling,se_high
+canonical-categorical-ltmle,categorical_probability_necessity,bias discriminated,pair_collapse
+canonical-categorical-ltmle,categorical_probability_necessity,bias equivalent,bias
+canonical-categorical-ltmle,categorical_probability_necessity,least displacement over labels,control_concentrated
+canonical-categorical-ltmle,double_robustness,bias discriminated,pair_collapse
+canonical-categorical-ltmle,double_robustness,bias equivalent,bias
+canonical-categorical-ltmle,double_robustness,se ratio in union band,se/0.05
+canonical-categorical-ltmle,interval_calibration,coverage in calibration band,bias
+canonical-categorical-ltmle,interval_calibration,efficiency above band,pair_collapse
+canonical-categorical-ltmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+canonical-categorical-ltmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-categorical-ltmle,interval_calibration,se ratio below band,se_high
+canonical-categorical-ltmle,interval_calibration,se ratio in calibration band,se/0.95
+canonical-categorical-ltmle,power,rejection floor,rejection/0.01
+canonical-categorical-ltmle,root_n_and_efficiency,bias equivalent,bias
+canonical-categorical-ltmle,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-categorical-ltmle,root_n_and_efficiency,se ratio sanity,se_high
+canonical-categorical-ltmle,root_n_rate,slope in root-n band,contract
+canonical-categorical-ltmle,rule_necessity,bias discriminated,pair_collapse
+canonical-categorical-ltmle,rule_necessity,bias equivalent,bias
+canonical-categorical-ltmle,rule_necessity,least displacement over labels,control_concentrated
+canonical-categorical-ltmle,targeting_necessity,bias discriminated,pair_collapse
+canonical-categorical-ltmle,targeting_necessity,bias equivalent,bias
+canonical-categorical-ltmle,targeting_necessity,least displacement over labels,control_concentrated
+canonical-categorical-ltmle,type_i_error,coverage floor,coverage/0.5
+canonical-categorical-ltmle,type_i_error,rejection ceiling,rejection/0.1
+canonical-categorical-ltmle-crossfit,categorical_probability_necessity,bias discriminated,pair_collapse
+canonical-categorical-ltmle-crossfit,categorical_probability_necessity,bias equivalent,bias
+canonical-categorical-ltmle-crossfit,categorical_probability_necessity,least displacement over labels,control_concentrated
+canonical-categorical-ltmle-crossfit,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+canonical-categorical-ltmle-crossfit,crossfit_overfitting,coverage gain,shift/3
+canonical-categorical-ltmle-crossfit,crossfit_overfitting,cross-fit se ratio honest,se_low
+canonical-categorical-ltmle-crossfit,double_robustness,bias discriminated,pair_collapse
+canonical-categorical-ltmle-crossfit,double_robustness,bias equivalent,bias
+canonical-categorical-ltmle-crossfit,double_robustness,se ratio in union band,se/0.05
+canonical-categorical-ltmle-crossfit,interval_calibration,coverage in calibration band,bias
+canonical-categorical-ltmle-crossfit,interval_calibration,efficiency above band,pair_collapse
+canonical-categorical-ltmle-crossfit,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/0.97
+canonical-categorical-ltmle-crossfit,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-categorical-ltmle-crossfit,interval_calibration,se ratio below band,se_high
+canonical-categorical-ltmle-crossfit,interval_calibration,se ratio in calibration band,se/0.9
+canonical-categorical-ltmle-crossfit,power,rejection floor,rejection/0.01
+canonical-categorical-ltmle-crossfit,root_n_and_efficiency,bias equivalent,bias
+canonical-categorical-ltmle-crossfit,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-categorical-ltmle-crossfit,root_n_and_efficiency,se ratio sanity,se_high
+canonical-categorical-ltmle-crossfit,root_n_rate,slope in root-n band,contract
+canonical-categorical-ltmle-crossfit,rule_necessity,bias discriminated,pair_collapse
+canonical-categorical-ltmle-crossfit,rule_necessity,bias equivalent,bias
+canonical-categorical-ltmle-crossfit,rule_necessity,least displacement over labels,control_concentrated
+canonical-categorical-ltmle-crossfit,targeting_necessity,bias discriminated,pair_collapse
+canonical-categorical-ltmle-crossfit,targeting_necessity,bias equivalent,bias
+canonical-categorical-ltmle-crossfit,targeting_necessity,least displacement over labels,control_concentrated
+canonical-categorical-ltmle-crossfit,type_i_error,coverage floor,coverage/0.5
+canonical-categorical-ltmle-crossfit,type_i_error,rejection ceiling,rejection/0.1
+canonical-ctmle-oat,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+canonical-ctmle-oat,crossfit_overfitting,coverage gain,shift/1
+canonical-ctmle-oat,crossfit_overfitting,cross-fit se ratio honest,se_low
+canonical-ctmle-oat,generated_design,coverage in calibration band,bias
+canonical-ctmle-oat,generated_design,se ratio in calibration band,se/0.05
+canonical-ctmle-oat,interval_calibration,coverage in calibration band,bias
+canonical-ctmle-oat,interval_calibration,se ratio in calibration band,se/0.05
+canonical-ctmle-oat,power,rejection floor,rejection/0.01
+canonical-ctmle-oat,robustness_contract,bias discriminated,pair_collapse
+canonical-ctmle-oat,robustness_contract,bias equivalent,bias
+canonical-ctmle-oat,robustness_contract,se ratio in union band,se/0.05
+canonical-ctmle-oat,root_n_and_efficiency,bias equivalent,bias
+canonical-ctmle-oat,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-ctmle-oat,root_n_and_efficiency,se ratio sanity,se_high
+canonical-ctmle-oat,root_n_rate,slope in root-n band,contract
+canonical-ctmle-oat,type_i_error,coverage floor,coverage/0.5
+canonical-ctmle-oat,type_i_error,rejection ceiling,rejection/0.1
+canonical-ctmle-selector,double_robustness,bias discriminated,pair_collapse
+canonical-ctmle-selector,double_robustness,bias equivalent,bias
+canonical-ctmle-selector,double_robustness,se ratio in union band,se/0.05
+canonical-ctmle-selector,interval_calibration,coverage in calibration band,bias
+canonical-ctmle-selector,interval_calibration,se ratio in calibration band,se/0.05
+canonical-ctmle-selector,power,rejection floor,rejection/0.01
+canonical-ctmle-selector,root_n_and_efficiency,bias equivalent,bias
+canonical-ctmle-selector,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-ctmle-selector,root_n_and_efficiency,se ratio sanity,se_high
+canonical-ctmle-selector,root_n_rate,slope in root-n band,contract
+canonical-ctmle-selector,selector_necessity,bias discriminated,pair_collapse
+canonical-ctmle-selector,selector_necessity,bias equivalent,none
+canonical-ctmle-selector,selector_necessity,rmse ratio under its ceiling,control_concentrated
+canonical-ctmle-selector,type_i_error,coverage floor,rejection/0.01
+canonical-ctmle-selector,type_i_error,rejection ceiling,coverage/0.94
+canonical-cvtmle,crossfit_overfitting,control se ratio under its ceiling,se_high
+canonical-cvtmle,crossfit_overfitting,coverage gain,shift/3
+canonical-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low
+canonical-cvtmle,double_robustness,bias discriminated,pair_collapse
+canonical-cvtmle,double_robustness,bias equivalent,bias
+canonical-cvtmle,double_robustness,se ratio in union band,se/0.05
+canonical-cvtmle,interval_calibration,coverage in calibration band,shift/0.7
+canonical-cvtmle,interval_calibration,se ratio in calibration band,se/0.05
+canonical-cvtmle,power,rejection floor,rejection/0.01
+canonical-cvtmle,root_n_and_efficiency,bias equivalent,bias
+canonical-cvtmle,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-cvtmle,root_n_and_efficiency,se ratio sanity,se_high
+canonical-cvtmle,root_n_rate,slope in root-n band,contract
+canonical-cvtmle,type_i_error,coverage floor,coverage/0.5
+canonical-cvtmle,type_i_error,rejection ceiling,rejection/0.1
+canonical-drtmle,double_robust_contraction,bias contracts,contract
+canonical-drtmle,double_robust_contraction,bias does not contract,bias
+canonical-drtmle,double_robust_contraction,rung coverage below floor,pair_collapse
+canonical-drtmle,double_robust_contraction,rung coverage floor,none
+canonical-drtmle,double_robustness,bias discriminated,pair_collapse
+canonical-drtmle,double_robustness,bias equivalent,none
+canonical-drtmle,double_robustness,se ratio in union band,se/0.05
+canonical-drtmle,interval_calibration,coverage in calibration band,shift/0.7
+canonical-drtmle,interval_calibration,se ratio in calibration band,se/0.05
+canonical-drtmle,root_n_and_efficiency,bias equivalent,bias
+canonical-drtmle,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-drtmle,root_n_and_efficiency,se ratio sanity,se_high
+canonical-drtmle,root_n_rate,slope in root-n band,contract
+canonical-ltmle,double_robustness,bias discriminated,bias
+canonical-ltmle,double_robustness,bias equivalent,bias
+canonical-ltmle,double_robustness,se ratio in union band,se/0.05
+canonical-ltmle,interval_calibration,coverage in calibration band,bias
+canonical-ltmle,interval_calibration,efficiency above band,pair_collapse
+canonical-ltmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+canonical-ltmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-ltmle,interval_calibration,se ratio below band,se_high
+canonical-ltmle,interval_calibration,se ratio in calibration band,se/0.95
+canonical-ltmle,power,rejection floor,se_high
+canonical-ltmle,root_n_and_efficiency,bias equivalent,bias
+canonical-ltmle,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-ltmle,root_n_and_efficiency,se ratio sanity,se_high
+canonical-ltmle,root_n_rate,slope in root-n band,contract
+canonical-ltmle,simultaneous_coverage,joint coverage below nominal,se_low
+canonical-ltmle,simultaneous_coverage,joint coverage in calibration band,se_low
+canonical-ltmle,targeting_necessity,bias discriminated,bias
+canonical-ltmle,targeting_necessity,bias equivalent,bias
+canonical-ltmle,targeting_necessity,least displacement over labels,control_concentrated
+canonical-ltmle,type_i_error,coverage floor,coverage/0.5
+canonical-ltmle,type_i_error,rejection ceiling,rejection/0.1
+canonical-ltmle-competing,competing_risk_recursion_necessity,bias discriminated,pair_collapse
+canonical-ltmle-competing,competing_risk_recursion_necessity,bias equivalent,bias
+canonical-ltmle-competing,competing_risk_recursion_necessity,least displacement over labels,control_concentrated
+canonical-ltmle-competing,double_robustness,bias discriminated,bias
+canonical-ltmle-competing,double_robustness,bias equivalent,bias
+canonical-ltmle-competing,double_robustness,se ratio in union band,se/0.05
+canonical-ltmle-competing,interval_calibration,coverage in calibration band,shift/0.7
+canonical-ltmle-competing,interval_calibration,efficiency above band,pair_collapse
+canonical-ltmle-competing,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+canonical-ltmle-competing,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-ltmle-competing,interval_calibration,se ratio below band,se_high
+canonical-ltmle-competing,interval_calibration,se ratio in calibration band,se/0.95
+canonical-ltmle-competing,power,rejection floor,shift/3
+canonical-ltmle-competing,root_n_and_efficiency,bias equivalent,bias
+canonical-ltmle-competing,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-ltmle-competing,root_n_and_efficiency,se ratio sanity,se_high
+canonical-ltmle-competing,root_n_rate,slope in root-n band,contract
+canonical-ltmle-competing,simultaneous_coverage,joint coverage below nominal,se_low
+canonical-ltmle-competing,simultaneous_coverage,joint coverage in calibration band,se_low
+canonical-ltmle-competing,targeting_necessity,bias discriminated,bias
+canonical-ltmle-competing,targeting_necessity,bias equivalent,bias
+canonical-ltmle-competing,targeting_necessity,least displacement over labels,control_concentrated
+canonical-ltmle-competing,type_i_error,coverage floor,coverage/0.5
+canonical-ltmle-competing,type_i_error,rejection ceiling,rejection/0.1
+canonical-ltmle-competing-crossfit,competing_risk_recursion_necessity,bias discriminated,pair_collapse
+canonical-ltmle-competing-crossfit,competing_risk_recursion_necessity,bias equivalent,bias
+canonical-ltmle-competing-crossfit,competing_risk_recursion_necessity,least displacement over labels,control_concentrated
+canonical-ltmle-competing-crossfit,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+canonical-ltmle-competing-crossfit,crossfit_overfitting,coverage gain,shift/3
+canonical-ltmle-competing-crossfit,crossfit_overfitting,cross-fit se ratio honest,se_low
+canonical-ltmle-competing-crossfit,double_robustness,bias discriminated,bias
+canonical-ltmle-competing-crossfit,double_robustness,bias equivalent,bias
+canonical-ltmle-competing-crossfit,double_robustness,se ratio in union band,se/0.05
+canonical-ltmle-competing-crossfit,interval_calibration,coverage in calibration band,shift/0.7
+canonical-ltmle-competing-crossfit,interval_calibration,efficiency above band,pair_collapse
+canonical-ltmle-competing-crossfit,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+canonical-ltmle-competing-crossfit,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-ltmle-competing-crossfit,interval_calibration,se ratio below band,se_high
+canonical-ltmle-competing-crossfit,interval_calibration,se ratio in calibration band,se/0.9
+canonical-ltmle-competing-crossfit,power,rejection floor,shift/3
+canonical-ltmle-competing-crossfit,root_n_and_efficiency,bias equivalent,bias
+canonical-ltmle-competing-crossfit,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-ltmle-competing-crossfit,root_n_and_efficiency,se ratio sanity,se_high
+canonical-ltmle-competing-crossfit,root_n_rate,slope in root-n band,contract
+canonical-ltmle-competing-crossfit,targeting_necessity,bias discriminated,bias
+canonical-ltmle-competing-crossfit,targeting_necessity,bias equivalent,bias
+canonical-ltmle-competing-crossfit,targeting_necessity,least displacement over labels,control_concentrated
+canonical-ltmle-competing-crossfit,type_i_error,coverage floor,coverage/0.5
+canonical-ltmle-competing-crossfit,type_i_error,rejection ceiling,rejection/0.1
+canonical-ltmle-crossfit,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+canonical-ltmle-crossfit,crossfit_overfitting,coverage gain,shift/3
+canonical-ltmle-crossfit,crossfit_overfitting,cross-fit se ratio honest,se_low
+canonical-ltmle-crossfit,double_robustness,bias discriminated,bias
+canonical-ltmle-crossfit,double_robustness,bias equivalent,bias
+canonical-ltmle-crossfit,double_robustness,se ratio in union band,se/0.05
+canonical-ltmle-crossfit,interval_calibration,coverage in calibration band,bias
+canonical-ltmle-crossfit,interval_calibration,efficiency above band,pair_collapse
+canonical-ltmle-crossfit,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/0.97
+canonical-ltmle-crossfit,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-ltmle-crossfit,interval_calibration,se ratio below band,se_high
+canonical-ltmle-crossfit,interval_calibration,se ratio in calibration band,se/0.9
+canonical-ltmle-crossfit,power,rejection floor,se_high
+canonical-ltmle-crossfit,root_n_and_efficiency,bias equivalent,bias
+canonical-ltmle-crossfit,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-ltmle-crossfit,root_n_and_efficiency,se ratio sanity,se_high
+canonical-ltmle-crossfit,root_n_rate,slope in root-n band,contract
+canonical-ltmle-crossfit,targeting_necessity,bias discriminated,bias
+canonical-ltmle-crossfit,targeting_necessity,bias equivalent,bias
+canonical-ltmle-crossfit,targeting_necessity,least displacement over labels,control_concentrated
+canonical-ltmle-crossfit,type_i_error,coverage floor,coverage/0.5
+canonical-ltmle-crossfit,type_i_error,rejection ceiling,rejection/0.1
+canonical-ltmle-survival,double_robustness,bias discriminated,pair_collapse
+canonical-ltmle-survival,double_robustness,bias equivalent,bias
+canonical-ltmle-survival,double_robustness,se ratio in union band,se/0.05
+canonical-ltmle-survival,interval_calibration,coverage in calibration band,bias
+canonical-ltmle-survival,interval_calibration,efficiency above band,pair_collapse
+canonical-ltmle-survival,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+canonical-ltmle-survival,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-ltmle-survival,interval_calibration,se ratio below band,se_high
+canonical-ltmle-survival,interval_calibration,se ratio in calibration band,se/0.95
+canonical-ltmle-survival,power,rejection floor,rejection/0.01
+canonical-ltmle-survival,root_n_and_efficiency,bias equivalent,bias
+canonical-ltmle-survival,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-ltmle-survival,root_n_and_efficiency,se ratio sanity,se_high
+canonical-ltmle-survival,root_n_rate,slope in root-n band,contract
+canonical-ltmle-survival,simultaneous_coverage,joint coverage below nominal,se_low
+canonical-ltmle-survival,simultaneous_coverage,joint coverage in calibration band,none
+canonical-ltmle-survival,survival_recursion_necessity,bias discriminated,pair_collapse
+canonical-ltmle-survival,survival_recursion_necessity,bias equivalent,bias
+canonical-ltmle-survival,survival_recursion_necessity,least displacement over labels,control_concentrated
+canonical-ltmle-survival,targeting_necessity,bias discriminated,pair_collapse
+canonical-ltmle-survival,targeting_necessity,bias equivalent,bias
+canonical-ltmle-survival,targeting_necessity,least displacement over labels,control_concentrated
+canonical-ltmle-survival,type_i_error,coverage floor,coverage/0.5
+canonical-ltmle-survival,type_i_error,rejection ceiling,rejection/0.1
+canonical-ltmle-survival-crossfit,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+canonical-ltmle-survival-crossfit,crossfit_overfitting,coverage gain,shift/3
+canonical-ltmle-survival-crossfit,crossfit_overfitting,cross-fit se ratio honest,se_low
+canonical-ltmle-survival-crossfit,double_robustness,bias discriminated,pair_collapse
+canonical-ltmle-survival-crossfit,double_robustness,bias equivalent,bias
+canonical-ltmle-survival-crossfit,double_robustness,se ratio in union band,se/0.05
+canonical-ltmle-survival-crossfit,interval_calibration,coverage in calibration band,bias
+canonical-ltmle-survival-crossfit,interval_calibration,efficiency above band,pair_collapse
+canonical-ltmle-survival-crossfit,interval_calibration,efficiency empirical in efficiency band,mixed/10
+canonical-ltmle-survival-crossfit,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-ltmle-survival-crossfit,interval_calibration,se ratio below band,se_high
+canonical-ltmle-survival-crossfit,interval_calibration,se ratio in calibration band,se/0.9
+canonical-ltmle-survival-crossfit,power,rejection floor,rejection/0.01
+canonical-ltmle-survival-crossfit,root_n_and_efficiency,bias equivalent,bias
+canonical-ltmle-survival-crossfit,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-ltmle-survival-crossfit,root_n_and_efficiency,se ratio sanity,se_high
+canonical-ltmle-survival-crossfit,root_n_rate,slope in root-n band,contract
+canonical-ltmle-survival-crossfit,survival_recursion_necessity,bias discriminated,pair_collapse
+canonical-ltmle-survival-crossfit,survival_recursion_necessity,bias equivalent,bias
+canonical-ltmle-survival-crossfit,survival_recursion_necessity,least displacement over labels,control_concentrated
+canonical-ltmle-survival-crossfit,targeting_necessity,bias discriminated,pair_collapse
+canonical-ltmle-survival-crossfit,targeting_necessity,bias equivalent,bias
+canonical-ltmle-survival-crossfit,targeting_necessity,least displacement over labels,control_concentrated
+canonical-ltmle-survival-crossfit,type_i_error,coverage floor,coverage/0.5
+canonical-ltmle-survival-crossfit,type_i_error,rejection ceiling,rejection/0.1
+canonical-multi-arm-ctmle-oat,generated_design,coverage in calibration band,se/0.97+coverage/0.5
+canonical-multi-arm-ctmle-oat,generated_design,se ratio in calibration band,none
+canonical-multi-arm-ctmle-oat,interval_calibration,coverage in calibration band,bias
+canonical-multi-arm-ctmle-oat,interval_calibration,se ratio in calibration band,se/0.05
+canonical-multi-arm-ctmle-oat,power,rejection floor,rejection/0.01
+canonical-multi-arm-ctmle-oat,robustness_contract,bias discriminated,pair_collapse
+canonical-multi-arm-ctmle-oat,robustness_contract,bias equivalent,bias
+canonical-multi-arm-ctmle-oat,robustness_contract,se ratio in union band,se/0.05
+canonical-multi-arm-ctmle-oat,root_n_and_efficiency,bias equivalent,bias
+canonical-multi-arm-ctmle-oat,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-multi-arm-ctmle-oat,root_n_and_efficiency,se ratio sanity,se_high
+canonical-multi-arm-ctmle-oat,root_n_rate,slope in root-n band,contract
+canonical-multi-arm-ctmle-oat,type_i_error,coverage floor,coverage/0.5
+canonical-multi-arm-ctmle-oat,type_i_error,rejection ceiling,rejection/0.1
+canonical-multi-arm-ctmle-selector,interval_calibration,coverage in calibration band,se/1.05
+canonical-multi-arm-ctmle-selector,interval_calibration,se ratio in calibration band,affine
+canonical-multi-arm-ctmle-selector,power,rejection floor,rejection/0.01
+canonical-multi-arm-ctmle-selector,root_n_and_efficiency,bias equivalent,shift/0.15
+canonical-multi-arm-ctmle-selector,root_n_and_efficiency,coverage floor,none
+canonical-multi-arm-ctmle-selector,root_n_and_efficiency,se ratio sanity,se_high
+canonical-multi-arm-ctmle-selector,root_n_rate,slope in root-n band,contract
+canonical-multi-arm-ctmle-selector,selector_necessity,bias discriminated,control_diffuse
+canonical-multi-arm-ctmle-selector,selector_necessity,bias equivalent,none
+canonical-multi-arm-ctmle-selector,selector_necessity,largest path rmse ratio under its ceiling,control_concentrated
+canonical-multi-arm-ctmle-selector,type_i_error,coverage floor,rejection/0.01
+canonical-multi-arm-ctmle-selector,type_i_error,rejection ceiling,coverage/0.94
+canonical-multi-arm-drtmle,double_robust_contraction,bias contracts,contract
+canonical-multi-arm-drtmle,double_robust_contraction,bias does not contract,bias
+canonical-multi-arm-drtmle,double_robust_contraction,rung coverage below floor,pair_collapse
+canonical-multi-arm-drtmle,double_robust_contraction,rung coverage floor,none
+canonical-multi-arm-drtmle,double_robustness,bias discriminated,pair_collapse
+canonical-multi-arm-drtmle,double_robustness,bias equivalent,none
+canonical-multi-arm-drtmle,double_robustness,se ratio in union band,se/0.05
+canonical-multi-arm-drtmle,interval_calibration,coverage in calibration band,bias
+canonical-multi-arm-drtmle,interval_calibration,se ratio in calibration band,se/0.05
+canonical-multi-arm-drtmle,root_n_and_efficiency,bias equivalent,bias
+canonical-multi-arm-drtmle,root_n_and_efficiency,coverage floor,none
+canonical-multi-arm-drtmle,root_n_and_efficiency,se ratio sanity,se_high
+canonical-multi-arm-drtmle,root_n_rate,slope in root-n band,contract
+canonical-multi-arm-tmle,double_robustness,bias discriminated,pair_collapse
+canonical-multi-arm-tmle,double_robustness,bias equivalent,bias
+canonical-multi-arm-tmle,double_robustness,se ratio in union band,se/0.05
+canonical-multi-arm-tmle,interval_calibration,coverage in calibration band,bias
+canonical-multi-arm-tmle,interval_calibration,se ratio in calibration band,se/0.05
+canonical-multi-arm-tmle,power,rejection floor,rejection/0.01
+canonical-multi-arm-tmle,root_n_and_efficiency,bias equivalent,bias
+canonical-multi-arm-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-multi-arm-tmle,root_n_and_efficiency,se ratio sanity,se_high
+canonical-multi-arm-tmle,root_n_rate,slope in root-n band,contract
+canonical-multi-arm-tmle,simultaneous_coverage,joint coverage below nominal,se_low
+canonical-multi-arm-tmle,simultaneous_coverage,joint coverage in calibration band,se_low
+canonical-multi-arm-tmle,type_i_error,coverage floor,coverage/0.5
+canonical-multi-arm-tmle,type_i_error,rejection ceiling,rejection/0.1
+canonical-stratified-drtmle,double_robustness,bias discriminated,pair_collapse
+canonical-stratified-drtmle,double_robustness,bias equivalent,none
+canonical-stratified-drtmle,double_robustness,se ratio in union band,se/0.05
+canonical-stratified-drtmle,interval_calibration,coverage in calibration band,shift/0.7
+canonical-stratified-drtmle,interval_calibration,efficiency above band,pair_collapse
+canonical-stratified-drtmle,interval_calibration,efficiency empirical in efficiency band,coverage/0.94
+canonical-stratified-drtmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-stratified-drtmle,interval_calibration,se ratio below band,se_high
+canonical-stratified-drtmle,interval_calibration,se ratio in calibration band,se/0.9
+canonical-stratified-incremental-msm,double_robustness,bias discriminated,pair_collapse
+canonical-stratified-incremental-msm,double_robustness,bias equivalent,bias
+canonical-stratified-incremental-msm,double_robustness,se ratio in union band,se/0.05
+canonical-stratified-incremental-msm,interval_calibration,coverage in calibration band,bias
+canonical-stratified-incremental-msm,interval_calibration,noise se ratio below band,se_high
+canonical-stratified-incremental-msm,interval_calibration,se ratio below band,se_high
+canonical-stratified-incremental-msm,interval_calibration,se ratio in calibration band,none
+canonical-stratified-incremental-msm,simultaneous_coverage,joint coverage below nominal,se_high
+canonical-stratified-incremental-msm,simultaneous_coverage,joint coverage in calibration band,se_low
+canonical-stratified-incremental-msm,stratum_targeting_necessity,bias discriminated,pair_collapse
+canonical-stratified-incremental-msm,stratum_targeting_necessity,bias equivalent,bias
+canonical-stratified-incremental-msm,stratum_targeting_necessity,least displacement over labels,control_concentrated
+canonical-stratified-incremental-msm,targeting_necessity,bias discriminated,pair_collapse
+canonical-stratified-incremental-msm,targeting_necessity,bias equivalent,bias
+canonical-stratified-incremental-msm,targeting_necessity,least displacement over labels,control_concentrated
+canonical-stratified-msm-identity,interval_calibration,coverage in calibration band,bias
+canonical-stratified-msm-identity,interval_calibration,efficiency above band,pair_collapse
+canonical-stratified-msm-identity,interval_calibration,efficiency empirical in efficiency band,mixed/1
+canonical-stratified-msm-identity,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-stratified-msm-identity,interval_calibration,se ratio below band,se_high
+canonical-stratified-msm-identity,interval_calibration,se ratio in calibration band,none
+canonical-stratified-tmle,double_robustness,bias discriminated,pair_collapse
+canonical-stratified-tmle,double_robustness,bias equivalent,bias
+canonical-stratified-tmle,double_robustness,se ratio in union band,se/0.05
+canonical-stratified-tmle,interval_calibration,coverage in calibration band,bias
+canonical-stratified-tmle,interval_calibration,efficiency above band,pair_collapse
+canonical-stratified-tmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.06/1
+canonical-stratified-tmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+canonical-stratified-tmle,interval_calibration,se ratio below band,se_high
+canonical-stratified-tmle,interval_calibration,se ratio in calibration band,none
+canonical-stratified-tmle,simultaneous_coverage,joint coverage below nominal,se_high
+canonical-stratified-tmle,simultaneous_coverage,joint coverage in calibration band,none
+canonical-stratified-tmle,stratum_targeting_necessity,bias discriminated,pair_collapse
+canonical-stratified-tmle,stratum_targeting_necessity,bias equivalent,bias
+canonical-stratified-tmle,stratum_targeting_necessity,least displacement over labels,control_concentrated
+canonical-tmle,double_robustness,bias discriminated,pair_collapse
+canonical-tmle,double_robustness,bias equivalent,bias
+canonical-tmle,double_robustness,se ratio in union band,se/0.05
+canonical-tmle,interval_calibration,coverage in calibration band,shift/0.7
+canonical-tmle,interval_calibration,se ratio in calibration band,se/0.05
+canonical-tmle,power,rejection floor,rejection/0.01
+canonical-tmle,root_n_and_efficiency,bias equivalent,bias
+canonical-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
+canonical-tmle,root_n_and_efficiency,se ratio sanity,se_high
+canonical-tmle,root_n_rate,slope in root-n band,contract
+canonical-tmle,type_i_error,coverage floor,coverage/0.5
+canonical-tmle,type_i_error,rejection ceiling,rejection/0.1
+cde-tmle,cde_robustness,bias discriminated,pair_collapse
+cde-tmle,cde_robustness,bias equivalent,bias
+cde-tmle,cde_robustness,se ratio in union band,se/0.05
+cde-tmle,interval_calibration,coverage in calibration band,shift/0.7
+cde-tmle,interval_calibration,efficiency above band,pair_collapse
+cde-tmle,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+cde-tmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+cde-tmle,interval_calibration,se ratio below band,se_high
+cde-tmle,interval_calibration,se ratio in calibration band,se/0.95
+cde-tmle,power,rejection floor,shift/3
+cde-tmle,root_n_and_efficiency,bias equivalent,bias
+cde-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
+cde-tmle,root_n_and_efficiency,se ratio sanity,se_high
+cde-tmle,root_n_rate,slope in root-n band,contract
+cde-tmle,targeting_necessity,bias discriminated,pair_collapse
+cde-tmle,targeting_necessity,bias equivalent,bias
+cde-tmle,targeting_necessity,least displacement over labels,control_concentrated
+cde-tmle,type_i_error,coverage floor,coverage/0.5
+cde-tmle,type_i_error,rejection ceiling,rejection/0.1
+clustered-cross-fitted-ltmle,clustered_inference,control se ratio under its ceiling,se_high
+clustered-cross-fitted-ltmle,clustered_inference,coverage gain,coverage/0.94
+clustered-cross-fitted-ltmle,clustered_inference,coverage in calibration band,shift/0.7
+clustered-cross-fitted-ltmle,clustered_inference,se ratio in calibration band,affine
+clustered-cross-fitted-ltmle,simultaneous_coverage,joint coverage below nominal,se_low
+clustered-cross-fitted-ltmle,simultaneous_coverage,joint coverage in calibration band,none
+clustered-few-cluster-tmle,few_cluster_reference,bias equivalent,none
+clustered-few-cluster-tmle,few_cluster_reference,coverage floor,se_low
+clustered-few-cluster-tmle,few_cluster_reference,iid se ratio under its ceiling,none
+clustered-tmle,clustered_inference,control se ratio under its ceiling,se_high
+clustered-tmle,clustered_inference,coverage gain,coverage/0.94
+clustered-tmle,clustered_inference,coverage in calibration band,bias
+clustered-tmle,clustered_inference,se ratio in calibration band,se/0.05
+clustered-unequal-cvtmle,clustered_inference,control se ratio under its ceiling,se_high
+clustered-unequal-cvtmle,clustered_inference,coverage gain,coverage/0.94
+clustered-unequal-cvtmle,clustered_inference,coverage in calibration band,none
+clustered-unequal-cvtmle,clustered_inference,se ratio in calibration band,se/0.05
+clustered-unequal-cvtmle,estimand_weighting,coverage floor,se_low
+clustered-unequal-cvtmle,estimand_weighting,coverage under the control ceiling,pair_collapse
+composite-missing-drtmle,corrected_mar_inference,bias clears the both-wrong floor,shift/0.7
+composite-missing-drtmle,corrected_mar_inference,bias discriminated,spread_role/control/4
+composite-missing-drtmle,corrected_mar_inference,bias equivalent,bias
+composite-missing-drtmle,corrected_mar_inference,coverage floor,coverage/0.5
+composite-missing-drtmle,corrected_mar_inference,se ratio in union band,se/0.05
+composite-missing-drtmle,corrected_mar_inference,se ratio sanity,se_high
+composite-missing-drtmle,correction_necessity,closed score below the initial,pair_collapse
+composite-missing-drtmle,correction_necessity,initial score above its floor,pair_collapse
+composite-missing-drtmle,interval_calibration,coverage in calibration band,se/1.03+coverage/0.5
+composite-missing-drtmle,interval_calibration,efficiency above band,pair_collapse
+composite-missing-drtmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+composite-missing-drtmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+composite-missing-drtmle,interval_calibration,se ratio below band,se_high
+composite-missing-drtmle,interval_calibration,se ratio in calibration band,none
+composite-missing-drtmle,ordinary_targeting,bias equivalent,bias
+composite-missing-drtmle,ordinary_targeting,coverage floor,affine
+composite-missing-drtmle,ordinary_targeting,se ratio in band,se_high
+composite-missing-drtmle,power,rejection floor,se_high
+composite-missing-drtmle,root_n_and_efficiency,bias equivalent,bias
+composite-missing-drtmle,root_n_and_efficiency,coverage floor,coverage/0.5
+composite-missing-drtmle,root_n_and_efficiency,se ratio sanity,se_high
+composite-missing-drtmle,root_n_rate,slope in root-n band,contract
+composite-missing-drtmle,simultaneous_coverage,joint coverage below nominal,se_low
+composite-missing-drtmle,simultaneous_coverage,joint coverage in calibration band,se_low
+composite-missing-drtmle,treatment_complete_case,bias discriminated,affine
+composite-missing-drtmle,type_i_error,coverage floor,coverage/0.5
+composite-missing-drtmle,type_i_error,rejection ceiling,rejection/0.1
+cross-fitted-longitudinal-msm,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+cross-fitted-longitudinal-msm,crossfit_overfitting,coverage gain,shift/3
+cross-fitted-longitudinal-msm,crossfit_overfitting,cross-fit se ratio honest,se_low
+cross-fitted-longitudinal-msm,double_robustness,bias discriminated,pair_collapse
+cross-fitted-longitudinal-msm,double_robustness,bias equivalent,bias
+cross-fitted-longitudinal-msm,double_robustness,se ratio in union band,se/0.05
+cross-fitted-longitudinal-msm,interval_calibration,coverage in calibration band,bias
+cross-fitted-longitudinal-msm,interval_calibration,efficiency above band,pair_collapse
+cross-fitted-longitudinal-msm,interval_calibration,efficiency empirical in efficiency band,two_point/1.06/1
+cross-fitted-longitudinal-msm,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+cross-fitted-longitudinal-msm,interval_calibration,se ratio below band,se_high
+cross-fitted-longitudinal-msm,interval_calibration,se ratio in calibration band,affine
+cross-fitted-longitudinal-msm,power,rejection floor,rejection/0.01
+cross-fitted-longitudinal-msm,projection_necessity,bias discriminated,pair_collapse
+cross-fitted-longitudinal-msm,projection_necessity,bias equivalent,bias
+cross-fitted-longitudinal-msm,projection_necessity,least displacement over labels,control_concentrated
+cross-fitted-longitudinal-msm,root_n_and_efficiency,bias equivalent,bias
+cross-fitted-longitudinal-msm,root_n_and_efficiency,coverage floor,coverage/0.5
+cross-fitted-longitudinal-msm,root_n_and_efficiency,coverage resolves,mixed/5
+cross-fitted-longitudinal-msm,root_n_and_efficiency,se ratio sanity,se_high
+cross-fitted-longitudinal-msm,root_n_rate,slope in root-n band,contract
+cross-fitted-longitudinal-msm,simultaneous_coverage,joint coverage below nominal,se_low
+cross-fitted-longitudinal-msm,simultaneous_coverage,joint coverage in calibration band,se_low
+cross-fitted-longitudinal-msm,targeting_necessity,bias discriminated,pair_collapse
+cross-fitted-longitudinal-msm,targeting_necessity,bias equivalent,bias
+cross-fitted-longitudinal-msm,targeting_necessity,least displacement over labels,control_concentrated
+cross-fitted-longitudinal-msm,type_i_error,coverage floor,coverage/0.5
+cross-fitted-longitudinal-msm,type_i_error,rejection ceiling,rejection/0.1
+ctmle-oat-per-arm,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+ctmle-oat-per-arm,crossfit_overfitting,coverage gain,bias
+ctmle-oat-per-arm,crossfit_overfitting,cross-fit se ratio honest,se_low
+ctmle-oat-per-arm,generated_design,coverage in calibration band,se/1.1
+ctmle-oat-per-arm,generated_design,se ratio in calibration band,se/0.05
+ctmle-oat-per-arm,interval_calibration,coverage in calibration band,se/1.1
+ctmle-oat-per-arm,interval_calibration,noise se ratio below band,se_high
+ctmle-oat-per-arm,interval_calibration,se ratio below band,se_high
+ctmle-oat-per-arm,interval_calibration,se ratio in calibration band,affine
+ctmle-oat-per-arm,power,rejection floor,rejection/0.01
+ctmle-oat-per-arm,robustness_contract,bias discriminated,pair_collapse
+ctmle-oat-per-arm,robustness_contract,bias equivalent,bias
+ctmle-oat-per-arm,robustness_contract,se ratio in union band,se/0.05
+ctmle-oat-per-arm,root_n_and_efficiency,bias equivalent,mixed/8
+ctmle-oat-per-arm,root_n_and_efficiency,coverage floor,none
+ctmle-oat-per-arm,root_n_and_efficiency,se ratio sanity,se_high
+ctmle-oat-per-arm,root_n_rate,slope in root-n band,contract
+ctmle-oat-per-arm,simultaneous_coverage,joint coverage below nominal,se_high
+ctmle-oat-per-arm,simultaneous_coverage,joint coverage in calibration band,none
+ctmle-oat-per-arm,type_i_error,coverage floor,rejection/0.01
+ctmle-oat-per-arm,type_i_error,rejection ceiling,coverage/0.94
+ctmle-oat-per-arm-strata-missing,robustness_contract,bias discriminated,centre/control/0
+ctmle-oat-per-arm-strata-missing,robustness_contract,bias equivalent,bias
+ctmle-oat-per-arm-strata-missing,robustness_contract,se ratio in union band,se/0.05
+ctmle-oat-per-arm-strata-missing,root_n_and_efficiency,bias equivalent,affine
+ctmle-oat-per-arm-strata-missing,root_n_and_efficiency,coverage floor,none
+ctmle-oat-per-arm-strata-missing,root_n_and_efficiency,se ratio sanity,se_high
+ctmle-oat-per-arm-strata-missing,root_n_rate,slope in root-n band,contract
+default-simultaneous-bands,simultaneous_coverage,joint coverage below nominal,se_low
+default-simultaneous-bands,simultaneous_coverage,joint coverage in calibration band,none
+deterministic-regimes,double_robustness,bias discriminated,pair_collapse
+deterministic-regimes,double_robustness,bias equivalent,bias
+deterministic-regimes,double_robustness,se ratio in union band,se/0.05
+deterministic-regimes,interval_calibration,coverage in calibration band,shift/0.7
+deterministic-regimes,interval_calibration,efficiency above band,pair_collapse
+deterministic-regimes,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+deterministic-regimes,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+deterministic-regimes,interval_calibration,se ratio below band,se_high
+deterministic-regimes,interval_calibration,se ratio in calibration band,se/1.05
+deterministic-regimes,power,rejection floor,rejection/0.01
+deterministic-regimes,root_n_and_efficiency,bias equivalent,bias
+deterministic-regimes,root_n_and_efficiency,coverage floor,coverage/0.5
+deterministic-regimes,root_n_and_efficiency,se ratio sanity,se_high
+deterministic-regimes,root_n_rate,slope in root-n band,contract
+deterministic-regimes,rule_necessity,bias discriminated,pair_collapse
+deterministic-regimes,rule_necessity,bias equivalent,bias
+deterministic-regimes,rule_necessity,least displacement over labels,control_concentrated
+deterministic-regimes,static_reduction,sup-norm identity,affine
+deterministic-regimes,targeting_necessity,bias discriminated,pair_collapse
+deterministic-regimes,targeting_necessity,bias equivalent,bias
+deterministic-regimes,targeting_necessity,least displacement over labels,control_concentrated
+deterministic-regimes,type_i_error,coverage floor,coverage/0.5
+deterministic-regimes,type_i_error,rejection ceiling,rejection/0.1
+drtmle-one-wrong,one_wrong_inference,bias beyond margin on the predicted side,bias
+drtmle-one-wrong,one_wrong_inference,bias equivalent,bias
+drtmle-one-wrong,one_wrong_inference,coverage floor,affine
+drtmle-one-wrong,one_wrong_inference,se ratio above calibration band,se/0.05
+drtmle-one-wrong,one_wrong_inference,se ratio in union band,contract
+drtmle-one-wrong,one_wrong_inference,se ratio sanity,se_high
+drtmle-one-wrong,one_wrong_inference,standardized bias grows,pair_collapse
+few-cluster-cross-fitted-ltmle,few_cluster_reference,bias equivalent,bias
+few-cluster-cross-fitted-ltmle,few_cluster_reference,coverage floor,se_low
+few-cluster-cross-fitted-ltmle,few_cluster_reference,iid se ratio under its ceiling,se_high
+fold-evaluated-cvtmle,crossfit_overfitting,control se ratio under its ceiling,se_high
+fold-evaluated-cvtmle,crossfit_overfitting,coverage gain,shift/3
+fold-evaluated-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low
+fold-evaluated-cvtmle,double_robustness,bias discriminated,pair_collapse
+fold-evaluated-cvtmle,double_robustness,bias equivalent,bias
+fold-evaluated-cvtmle,double_robustness,se ratio in union band,se/0.05
+fold-evaluated-cvtmle,interval_calibration,coverage in calibration band,shift/0.7
+fold-evaluated-cvtmle,interval_calibration,se ratio in calibration band,se/0.05
+fold-evaluated-cvtmle,power,rejection floor,rejection/0.01
+fold-evaluated-cvtmle,root_n_and_efficiency,bias equivalent,bias
+fold-evaluated-cvtmle,root_n_and_efficiency,coverage floor,coverage/0.5
+fold-evaluated-cvtmle,root_n_and_efficiency,se ratio sanity,se_high
+fold-evaluated-cvtmle,root_n_rate,slope in root-n band,contract
+fold-evaluated-cvtmle,type_i_error,coverage floor,coverage/0.5
+fold-evaluated-cvtmle,type_i_error,rejection ceiling,rejection/0.1
+fold-targeted-cvtmle,crossfit_overfitting,control se ratio under its ceiling,se_high
+fold-targeted-cvtmle,crossfit_overfitting,coverage gain,shift/3
+fold-targeted-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low
+fold-targeted-cvtmle,double_robustness,bias discriminated,pair_collapse
+fold-targeted-cvtmle,double_robustness,bias equivalent,bias
+fold-targeted-cvtmle,double_robustness,se ratio in union band,se/0.05
+fold-targeted-cvtmle,interval_calibration,coverage in calibration band,bias
+fold-targeted-cvtmle,interval_calibration,se ratio in calibration band,se/0.05
+fold-targeted-cvtmle,power,rejection floor,rejection/0.01
+fold-targeted-cvtmle,root_n_and_efficiency,bias equivalent,bias
+fold-targeted-cvtmle,root_n_and_efficiency,coverage floor,coverage/0.5
+fold-targeted-cvtmle,root_n_and_efficiency,se ratio sanity,se_high
+fold-targeted-cvtmle,root_n_rate,slope in root-n band,contract
+fold-targeted-cvtmle,type_i_error,coverage floor,coverage/0.5
+fold-targeted-cvtmle,type_i_error,rejection ceiling,rejection/0.1
+full-refit-bootstrap-and-derived-contrasts,interval_calibration,coverage in calibration band,none
+full-refit-bootstrap-and-derived-contrasts,interval_calibration,failed bootstrap share under the cap,extra|bootstrap_failed|interval_calibration|boot_ate_end_of_study__correctly_specified|shift
+full-refit-bootstrap-and-derived-contrasts,interval_calibration,se ratio below band,se_high
+full-refit-bootstrap-and-derived-contrasts,interval_calibration,se ratio in calibration band,bias
+incremental-interventions,interval_calibration,coverage in calibration band,shift/0.7
+incremental-interventions,interval_calibration,efficiency above band,pair_collapse
+incremental-interventions,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+incremental-interventions,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+incremental-interventions,interval_calibration,se ratio below band,se_high
+incremental-interventions,interval_calibration,se ratio in calibration band,se/1.05
+incremental-interventions,mechanism_requirement,bias discriminated,pair_collapse
+incremental-interventions,mechanism_requirement,bias equivalent,bias
+incremental-interventions,natural_course_identity,sup-norm identity,affine
+incremental-interventions,power,rejection floor,rejection/0.01
+incremental-interventions,root_n_and_efficiency,bias equivalent,bias
+incremental-interventions,root_n_and_efficiency,coverage floor,coverage/0.5
+incremental-interventions,root_n_and_efficiency,se ratio sanity,se_high
+incremental-interventions,root_n_rate,slope in root-n band,contract
+incremental-interventions,targeting_necessity,bias discriminated,pair_collapse
+incremental-interventions,targeting_necessity,bias equivalent,bias
+incremental-interventions,targeting_necessity,least displacement over labels,control_concentrated
+incremental-interventions,treatment_score_necessity,control below calibration band,se_high
+incremental-interventions,treatment_score_necessity,full curve in efficiency band,se_low
+incremental-interventions,type_i_error,coverage floor,coverage/0.5
+incremental-interventions,type_i_error,rejection ceiling,rejection/0.1
+known-node-mechanisms,known_mechanism_accuracy,bias equivalent,bias
+known-node-mechanisms,known_mechanism_accuracy,coverage floor,coverage/0.5
+known-node-mechanisms,known_mechanism_accuracy,se ratio in band,se_high
+known-treatment-mechanism,bootstrap_coverage,coverage floor,se_low
+known-treatment-mechanism,interval_calibration,coverage in calibration band,shift/0.7
+known-treatment-mechanism,interval_calibration,noise se ratio below band,se_high
+known-treatment-mechanism,interval_calibration,se ratio below band,se_high
+known-treatment-mechanism,interval_calibration,se ratio in calibration band,se/0.05
+known-treatment-mechanism,known_mechanism_accuracy,bias discriminated,pair_collapse
+known-treatment-mechanism,known_mechanism_accuracy,bias equivalent,bias
+known-treatment-mechanism,known_mechanism_accuracy,coverage floor,coverage/0.5
+known-treatment-mechanism,known_mechanism_accuracy,se ratio in band,se_high
+known-treatment-mechanism,root_n_and_efficiency,bias equivalent,bias
+known-treatment-mechanism,root_n_and_efficiency,coverage floor,coverage/0.5
+known-treatment-mechanism,root_n_and_efficiency,se ratio sanity,se_high
+known-treatment-mechanism,root_n_rate,slope in root-n band,contract
+known-treatment-mechanism-drtmle,known_mechanism_accuracy,bias equivalent,bias
+known-treatment-mechanism-drtmle,known_mechanism_accuracy,coverage floor,coverage/0.5
+known-treatment-mechanism-drtmle,known_mechanism_accuracy,se ratio in band,se_high
+learned-rule-cvtmle,fold_locality,bias discriminated,pair_collapse
+learned-rule-cvtmle,fold_locality,bias equivalent,bias
+learned-rule-cvtmle,fold_locality,least displacement over labels,control_concentrated
+learned-rule-cvtmle,interval_calibration,coverage in calibration band,shift/0.7
+learned-rule-cvtmle,interval_calibration,noise se ratio below band,se_high
+learned-rule-cvtmle,interval_calibration,se ratio below band,se_high
+learned-rule-cvtmle,interval_calibration,se ratio in calibration band,se/0.05
+learned-rule-cvtmle,root_n_and_efficiency,bias equivalent,bias
+learned-rule-cvtmle,root_n_and_efficiency,coverage floor,coverage/0.5
+learned-rule-cvtmle,root_n_and_efficiency,se ratio sanity,se_high
+learned-rule-cvtmle,root_n_rate,slope in root-n band,contract
+learned-rule-cvtmle,targeting_necessity,bias discriminated,pair_collapse
+learned-rule-cvtmle,targeting_necessity,bias equivalent,bias
+learned-rule-cvtmle,targeting_necessity,least displacement over labels,control_concentrated
+learned-weighted-tmle,interval_calibration,coverage in calibration band,shift/0.7
+learned-weighted-tmle,interval_calibration,noise se ratio below band,se_high
+learned-weighted-tmle,interval_calibration,se ratio below band,se_high
+learned-weighted-tmle,interval_calibration,se ratio in calibration band,se/0.05
+learned-weighted-tmle,learner_weight_necessity,alternative bias equivalent,bias
+learned-weighted-tmle,learner_weight_necessity,bias equivalent,bias
+learned-weighted-tmle,learner_weight_necessity,least displacement over labels,positive_diffuse
+learned-weighted-tmle,power,rejection floor,rejection/0.01
+learned-weighted-tmle,root_n_and_efficiency,bias equivalent,bias
+learned-weighted-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
+learned-weighted-tmle,root_n_and_efficiency,se ratio sanity,se_high
+learned-weighted-tmle,root_n_rate,slope in root-n band,contract
+learned-weighted-tmle,type_i_error,coverage floor,coverage/0.5
+learned-weighted-tmle,type_i_error,rejection ceiling,rejection/0.1
+longitudinal-incremental,interval_calibration,coverage in calibration band,bias
+longitudinal-incremental,interval_calibration,efficiency above band,pair_collapse
+longitudinal-incremental,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+longitudinal-incremental,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+longitudinal-incremental,interval_calibration,se ratio below band,se_high
+longitudinal-incremental,interval_calibration,se ratio in calibration band,se/0.9
+longitudinal-incremental,mechanism_term_necessity,control below calibration band,se_high
+longitudinal-incremental,mechanism_term_necessity,full curve in efficiency band,se_low
+longitudinal-incremental,power,rejection floor,se_high
+longitudinal-incremental,root_n_and_efficiency,bias equivalent,bias
+longitudinal-incremental,root_n_and_efficiency,coverage floor,coverage/0.5
+longitudinal-incremental,root_n_and_efficiency,se ratio sanity,se_high
+longitudinal-incremental,root_n_rate,slope in root-n band,contract
+longitudinal-incremental,simultaneous_coverage,joint coverage below nominal,se_low
+longitudinal-incremental,simultaneous_coverage,joint coverage in calibration band,se_low
+longitudinal-incremental,single_robustness,bias equivalent,bias
+longitudinal-incremental,targeting_necessity,bias discriminated,bias
+longitudinal-incremental,targeting_necessity,bias equivalent,bias
+longitudinal-incremental,targeting_necessity,least displacement over labels,control_concentrated
+longitudinal-incremental,type_i_error,coverage floor,coverage/0.5
+longitudinal-incremental,type_i_error,rejection ceiling,rejection/0.1
+longitudinal-incremental-dropout,clustered_inference,control se ratio under its ceiling,se_high
+longitudinal-incremental-dropout,clustered_inference,coverage gain,coverage/0.94
+longitudinal-incremental-dropout,clustered_inference,coverage in calibration band,shift/0.7
+longitudinal-incremental-dropout,clustered_inference,se ratio in calibration band,se/0.05
+longitudinal-incremental-dropout,interval_calibration,coverage in calibration band,shift/0.7
+longitudinal-incremental-dropout,interval_calibration,efficiency above band,pair_collapse
+longitudinal-incremental-dropout,interval_calibration,efficiency empirical in efficiency band,mixed/6
+longitudinal-incremental-dropout,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+longitudinal-incremental-dropout,interval_calibration,se ratio below band,se_high
+longitudinal-incremental-dropout,interval_calibration,se ratio in calibration band,none
+longitudinal-incremental-dropout,simultaneous_coverage,joint coverage below nominal,se_low
+longitudinal-incremental-dropout,simultaneous_coverage,joint coverage in calibration band,se_low
+longitudinal-msm,double_robustness,bias discriminated,bias
+longitudinal-msm,double_robustness,bias equivalent,bias
+longitudinal-msm,double_robustness,se ratio in union band,se/0.05
+longitudinal-msm,interval_calibration,coverage in calibration band,bias
+longitudinal-msm,interval_calibration,efficiency above band,pair_collapse
+longitudinal-msm,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+longitudinal-msm,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+longitudinal-msm,interval_calibration,se ratio below band,se_high
+longitudinal-msm,interval_calibration,se ratio in calibration band,affine
+longitudinal-msm,power,rejection floor,rejection/0.01
+longitudinal-msm,projection_necessity,bias discriminated,pair_collapse
+longitudinal-msm,projection_necessity,bias equivalent,bias
+longitudinal-msm,projection_necessity,least displacement over labels,control_concentrated
+longitudinal-msm,root_n_and_efficiency,bias equivalent,bias
+longitudinal-msm,root_n_and_efficiency,coverage floor,coverage/0.5
+longitudinal-msm,root_n_and_efficiency,coverage resolves,coverage_role/control/0.928571428571
+longitudinal-msm,root_n_and_efficiency,se ratio sanity,se_high
+longitudinal-msm,root_n_rate,slope in root-n band,contract
+longitudinal-msm,targeting_necessity,bias discriminated,pair_collapse
+longitudinal-msm,targeting_necessity,bias equivalent,bias
+longitudinal-msm,targeting_necessity,least displacement over labels,control_concentrated
+longitudinal-msm,type_i_error,coverage floor,coverage/0.5
+longitudinal-msm,type_i_error,rejection ceiling,rejection/0.1
+longitudinal-mtp,crossfit_overfitting,control se ratio under its ceiling,se_high
+longitudinal-mtp,crossfit_overfitting,coverage gain,coverage/0.5
+longitudinal-mtp,crossfit_overfitting,cross-fit se ratio honest,se_low
+longitudinal-mtp,double_robustness,bias discriminated,pair_collapse
+longitudinal-mtp,double_robustness,bias equivalent,bias
+longitudinal-mtp,double_robustness,se ratio in union band,se/0.05
+longitudinal-mtp,interval_calibration,coverage in calibration band,bias
+longitudinal-mtp,interval_calibration,efficiency above band,pair_collapse
+longitudinal-mtp,interval_calibration,efficiency empirical in efficiency band,none
+longitudinal-mtp,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+longitudinal-mtp,interval_calibration,se ratio below band,se_high
+longitudinal-mtp,interval_calibration,se ratio in calibration band,se/0.9
+longitudinal-mtp,inverse_necessity,bias discriminated,pair_collapse
+longitudinal-mtp,inverse_necessity,bias equivalent,bias
+longitudinal-mtp,inverse_necessity,least displacement over labels,control_concentrated
+longitudinal-mtp,power,rejection floor,rejection/0.01
+longitudinal-mtp,root_n_and_efficiency,bias equivalent,shift/0.15
+longitudinal-mtp,root_n_and_efficiency,coverage floor,coverage/0.5
+longitudinal-mtp,root_n_and_efficiency,coverage resolves,shift/0.15
+longitudinal-mtp,root_n_and_efficiency,se ratio sanity,se_high
+longitudinal-mtp,root_n_rate,slope in root-n band,contract
+longitudinal-mtp,simultaneous_coverage,joint coverage below nominal,se_low
+longitudinal-mtp,simultaneous_coverage,joint coverage in calibration band,se_low
+longitudinal-mtp,targeting_necessity,bias discriminated,pair_collapse
+longitudinal-mtp,targeting_necessity,bias equivalent,bias
+longitudinal-mtp,targeting_necessity,least displacement over labels,positive_diffuse
+longitudinal-mtp,type_i_error,coverage floor,coverage/0.5
+longitudinal-mtp,type_i_error,rejection ceiling,rejection/0.1
+longitudinal-repeated-outcome,double_robustness,alternative bias equivalent,bias
+longitudinal-repeated-outcome,double_robustness,bias discriminated,control_diffuse
+longitudinal-repeated-outcome,double_robustness,bias equivalent,bias
+longitudinal-repeated-outcome,double_robustness,se ratio in union band,se/0.05
+longitudinal-repeated-outcome,full_history_necessity,alternative bias equivalent,bias
+longitudinal-repeated-outcome,full_history_necessity,bias discriminated,control_diffuse
+longitudinal-repeated-outcome,full_history_necessity,bias equivalent,bias
+longitudinal-repeated-outcome,full_history_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-outcome,interval_calibration,coverage in calibration band,affine
+longitudinal-repeated-outcome,interval_calibration,noise se ratio below band,se_high
+longitudinal-repeated-outcome,interval_calibration,se ratio below band,se_high
+longitudinal-repeated-outcome,interval_calibration,se ratio in calibration band,affine
+longitudinal-repeated-outcome,outcome_history_necessity,alternative bias equivalent,bias
+longitudinal-repeated-outcome,outcome_history_necessity,bias discriminated,control_diffuse
+longitudinal-repeated-outcome,outcome_history_necessity,bias equivalent,bias
+longitudinal-repeated-outcome,outcome_history_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-outcome,repeated_outcome_necessity,alternative bias equivalent,bias
+longitudinal-repeated-outcome,repeated_outcome_necessity,bias equivalent,bias
+longitudinal-repeated-outcome,repeated_outcome_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-outcome,rule_necessity,alternative bias equivalent,bias
+longitudinal-repeated-outcome,rule_necessity,bias discriminated,control_diffuse
+longitudinal-repeated-outcome,rule_necessity,bias equivalent,bias
+longitudinal-repeated-outcome,rule_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-outcome,simultaneous_coverage,joint coverage below nominal,se_high
+longitudinal-repeated-outcome,simultaneous_coverage,joint coverage in calibration band,se_low
+longitudinal-repeated-outcome,targeting_necessity,alternative bias equivalent,bias
+longitudinal-repeated-outcome,targeting_necessity,bias discriminated,control_diffuse
+longitudinal-repeated-outcome,targeting_necessity,bias equivalent,bias
+longitudinal-repeated-outcome,targeting_necessity,least displacement over labels,positive_diffuse
+longitudinal-sdr,clustered_calibration,coverage in calibration band,bias
+longitudinal-sdr,clustered_calibration,se ratio below band,se_high
+longitudinal-sdr,clustered_calibration,se ratio in calibration band,se/0.05
+longitudinal-sdr,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+longitudinal-sdr,crossfit_overfitting,coverage gain,shift/3
+longitudinal-sdr,crossfit_overfitting,cross-fit se ratio honest,se_low
+longitudinal-sdr,interval_calibration,coverage in calibration band,bias
+longitudinal-sdr,interval_calibration,efficiency above band,pair_collapse
+longitudinal-sdr,interval_calibration,efficiency empirical in efficiency band,two_point/1.06/1
+longitudinal-sdr,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+longitudinal-sdr,interval_calibration,se ratio below band,se_high
+longitudinal-sdr,interval_calibration,se ratio in calibration band,se/0.9
+longitudinal-sdr,power,rejection floor,se_high
+longitudinal-sdr,root_n_and_efficiency,bias equivalent,bias
+longitudinal-sdr,root_n_and_efficiency,coverage floor,coverage/0.5
+longitudinal-sdr,root_n_and_efficiency,se ratio sanity,se_high
+longitudinal-sdr,root_n_rate,slope in root-n band,contract
+longitudinal-sdr,sequential_double_robustness,P_A large-size bias bound under the small,mixed/7
+longitudinal-sdr,sequential_double_robustness,P_A large-size bias bound under the tolerance,bias
+longitudinal-sdr,sequential_double_robustness,P_A large-size se ratio in union band,se/0.05
+longitudinal-sdr,sequential_double_robustness,P_B large-size bias bound under the small,mixed/5
+longitudinal-sdr,sequential_double_robustness,P_B large-size bias bound under the tolerance,bias
+longitudinal-sdr,sequential_double_robustness,P_B large-size se ratio in union band,se/0.05
+longitudinal-sdr,sequential_double_robustness,P_D large-size bias bound under the tolerance,bias
+longitudinal-sdr,sequential_double_robustness,P_D large-size se ratio in union band,se/0.05
+longitudinal-sdr,sequential_double_robustness,bias beyond the control floor,pair_collapse
+longitudinal-sdr,sequential_double_robustness,bias equivalent,bias
+longitudinal-sdr,sequential_double_robustness,coverage floor,none
+longitudinal-sdr,sequential_double_robustness,se ratio in union band,se/0.05
+longitudinal-sdr,simultaneous_coverage,joint coverage below nominal,se_high
+longitudinal-sdr,simultaneous_coverage,joint coverage in calibration band,none
+longitudinal-sdr,type_i_error,coverage floor,coverage/0.5
+longitudinal-sdr,type_i_error,rejection ceiling,rejection/0.1
+longitudinal-sdr,weighted_calibration,coverage in calibration band,bias
+longitudinal-sdr,weighted_calibration,se ratio below band,se_high
+longitudinal-sdr,weighted_calibration,se ratio in calibration band,se/0.05
+mar-attributable-tmle,interval_calibration,coverage in calibration band,bias
+mar-attributable-tmle,interval_calibration,efficiency above band,pair_collapse
+mar-attributable-tmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+mar-attributable-tmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+mar-attributable-tmle,interval_calibration,se ratio above band,pair_collapse
+mar-attributable-tmle,interval_calibration,se ratio below band,se_high
+mar-attributable-tmle,interval_calibration,se ratio in calibration band,se/0.95
+mar-attributable-tmle,mar_robustness,bias discriminated,pair_collapse
+mar-attributable-tmle,mar_robustness,bias equivalent,bias
+mar-attributable-tmle,mar_robustness,se ratio in union band,se/0.05
+mar-attributable-tmle,missingness_necessity,bias discriminated,pair_collapse
+mar-attributable-tmle,missingness_necessity,bias equivalent,bias
+mar-attributable-tmle,missingness_necessity,least displacement over labels,control_concentrated
+mar-attributable-tmle,root_n_and_efficiency,bias equivalent,bias
+mar-attributable-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
+mar-attributable-tmle,root_n_and_efficiency,se ratio sanity,se_high
+mar-attributable-tmle,root_n_rate,slope in root-n band,contract
+mar-attributable-tmle,simultaneous_coverage,joint coverage below nominal,se_low
+mar-attributable-tmle,simultaneous_coverage,joint coverage in calibration band,se_low
+mar-attributable-tmle,targeting_necessity,bias discriminated,pair_collapse
+mar-attributable-tmle,targeting_necessity,bias equivalent,bias
+mar-attributable-tmle,targeting_necessity,least displacement over labels,control_concentrated
+mar-drtmle,corrected_mar_inference,bias discriminated,pair_collapse
+mar-drtmle,corrected_mar_inference,bias equivalent,bias
+mar-drtmle,corrected_mar_inference,coverage floor,coverage/0.5
+mar-drtmle,corrected_mar_inference,se ratio in union band,se/0.05
+mar-drtmle,corrected_mar_inference,se ratio sanity,se_high
+mar-drtmle,correction_necessity,closed score below the initial,pair_collapse
+mar-drtmle,correction_necessity,initial score above its floor,pair_collapse
+mar-drtmle,interval_calibration,coverage in calibration band,bias
+mar-drtmle,interval_calibration,efficiency above band,pair_collapse
+mar-drtmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+mar-drtmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+mar-drtmle,interval_calibration,se ratio below band,se_high
+mar-drtmle,interval_calibration,se ratio in calibration band,se/0.95
+mar-drtmle,root_n_and_efficiency,bias equivalent,bias
+mar-drtmle,root_n_and_efficiency,coverage floor,coverage/0.5
+mar-drtmle,root_n_and_efficiency,se ratio sanity,se_high
+mar-drtmle,root_n_rate,slope in root-n band,contract
+mar-natural-course-tmle,double_robustness,bias discriminated,pair_collapse
+mar-natural-course-tmle,double_robustness,bias equivalent,bias
+mar-natural-course-tmle,double_robustness,se ratio in union band,se/0.05
+mar-natural-course-tmle,interval_calibration,coverage in calibration band,shift/0.7
+mar-natural-course-tmle,interval_calibration,efficiency above band,pair_collapse
+mar-natural-course-tmle,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+mar-natural-course-tmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+mar-natural-course-tmle,interval_calibration,se ratio below band,se_high
+mar-natural-course-tmle,interval_calibration,se ratio in calibration band,se/1.05
+mar-natural-course-tmle,missingness_necessity,bias discriminated,bias
+mar-natural-course-tmle,missingness_necessity,bias equivalent,bias
+mar-natural-course-tmle,missingness_necessity,least displacement over labels,control_concentrated
+mar-natural-course-tmle,root_n_and_efficiency,bias equivalent,bias
+mar-natural-course-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
+mar-natural-course-tmle,root_n_and_efficiency,se ratio sanity,se_high
+mar-natural-course-tmle,root_n_rate,slope in root-n band,contract
+mar-natural-course-tmle,targeting_necessity,bias discriminated,pair_collapse
+mar-natural-course-tmle,targeting_necessity,bias equivalent,bias
+mar-natural-course-tmle,targeting_necessity,least displacement over labels,control_concentrated
+mar-tmle,interval_calibration,coverage in calibration band,shift/0.7
+mar-tmle,interval_calibration,efficiency above band,pair_collapse
+mar-tmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+mar-tmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+mar-tmle,interval_calibration,se ratio below band,se_high
+mar-tmle,interval_calibration,se ratio in calibration band,se/0.95
+mar-tmle,mar_robustness,bias discriminated,pair_collapse
+mar-tmle,mar_robustness,bias equivalent,bias
+mar-tmle,mar_robustness,se ratio in union band,se/0.05
+mar-tmle,missingness_necessity,bias discriminated,pair_collapse
+mar-tmle,missingness_necessity,bias equivalent,bias
+mar-tmle,missingness_necessity,least displacement over labels,control_concentrated
+mar-tmle,power,rejection floor,rejection/0.01
+mar-tmle,root_n_and_efficiency,bias equivalent,shift/0.15
+mar-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
+mar-tmle,root_n_and_efficiency,se ratio sanity,se_high
+mar-tmle,root_n_rate,slope in root-n band,contract
+mar-tmle,targeting_necessity,bias discriminated,pair_collapse
+mar-tmle,targeting_necessity,bias equivalent,bias
+mar-tmle,targeting_necessity,least displacement over labels,control_concentrated
+mar-tmle,type_i_error,coverage floor,coverage/0.5
+mar-tmle,type_i_error,rejection ceiling,rejection/0.1
+multi-arm-mar-drtmle,corrected_mar_inference,bias clears the both-wrong floor,shift/0.15
+multi-arm-mar-drtmle,corrected_mar_inference,bias discriminated,mixed/0
+multi-arm-mar-drtmle,corrected_mar_inference,bias equivalent,bias
+multi-arm-mar-drtmle,corrected_mar_inference,coverage floor,coverage/0.5
+multi-arm-mar-drtmle,corrected_mar_inference,se ratio in union band,se/0.05
+multi-arm-mar-drtmle,corrected_mar_inference,se ratio sanity,se_high
+multi-arm-mar-drtmle,correction_necessity,closed score below the initial,pair_collapse
+multi-arm-mar-drtmle,correction_necessity,initial score above its floor,pair_collapse
+multi-arm-mar-drtmle,interval_calibration,coverage in calibration band,bias
+multi-arm-mar-drtmle,interval_calibration,efficiency above band,pair_collapse
+multi-arm-mar-drtmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+multi-arm-mar-drtmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+multi-arm-mar-drtmle,interval_calibration,se ratio below band,se_high
+multi-arm-mar-drtmle,interval_calibration,se ratio in calibration band,se/0.95
+multi-arm-mar-drtmle,power,rejection floor,shift/1.5
+multi-arm-mar-drtmle,root_n_and_efficiency,bias equivalent,bias
+multi-arm-mar-drtmle,root_n_and_efficiency,coverage floor,coverage/0.5
+multi-arm-mar-drtmle,root_n_and_efficiency,se ratio sanity,se_high
+multi-arm-mar-drtmle,root_n_rate,slope in root-n band,contract
+multi-arm-mar-drtmle,simultaneous_coverage,joint coverage below nominal,se_low
+multi-arm-mar-drtmle,simultaneous_coverage,joint coverage in calibration band,none
+multi-arm-mar-drtmle,type_i_error,coverage floor,coverage/0.5
+multi-arm-mar-drtmle,type_i_error,rejection ceiling,rejection/0.1
+omitted-variable-bound-se,interval_calibration,coverage in calibration band,affine
+omitted-variable-bound-se,interval_calibration,se ratio above band,se_low
+omitted-variable-bound-se,interval_calibration,se ratio in calibration band,affine
+point-msm,double_robustness,bias discriminated,pair_collapse
+point-msm,double_robustness,bias equivalent,bias
+point-msm,double_robustness,se ratio in union band,se/0.05
+point-msm,interval_calibration,coverage in calibration band,bias
+point-msm,interval_calibration,efficiency above band,pair_collapse
+point-msm,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+point-msm,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+point-msm,interval_calibration,se ratio below band,se_high
+point-msm,interval_calibration,se ratio in calibration band,se/0.95
+point-msm,power,rejection floor,rejection/0.01
+point-msm,projection_necessity,bias discriminated,pair_collapse
+point-msm,projection_necessity,bias equivalent,bias
+point-msm,projection_necessity,least displacement over labels,control_concentrated
+point-msm,root_n_and_efficiency,bias equivalent,bias
+point-msm,root_n_and_efficiency,coverage floor,coverage/0.5
+point-msm,root_n_and_efficiency,se ratio sanity,se_high
+point-msm,root_n_rate,slope in root-n band,contract
+point-msm,targeting_necessity,bias discriminated,pair_collapse
+point-msm,targeting_necessity,bias equivalent,bias
+point-msm,targeting_necessity,least displacement over labels,control_concentrated
+point-msm,type_i_error,coverage floor,coverage/0.5
+point-msm,type_i_error,rejection ceiling,rejection/0.1
+point-treatment-survival,clustered_inference,control se ratio under its ceiling,se_high
+point-treatment-survival,clustered_inference,coverage gain,coverage/0.94
+point-treatment-survival,clustered_inference,coverage in calibration band,bias
+point-treatment-survival,clustered_inference,se ratio in calibration band,se/0.05
+point-treatment-survival,double_robustness,bias discriminated,pair_collapse
+point-treatment-survival,double_robustness,bias equivalent,bias
+point-treatment-survival,double_robustness,se ratio in union band,se/0.05
+point-treatment-survival,interval_calibration,coverage in calibration band,bias
+point-treatment-survival,interval_calibration,efficiency above band,pair_collapse
+point-treatment-survival,interval_calibration,efficiency empirical in efficiency band,mixed/1
+point-treatment-survival,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+point-treatment-survival,interval_calibration,se ratio below band,se_high
+point-treatment-survival,interval_calibration,se ratio in calibration band,none
+point-treatment-survival,power,rejection floor,rejection/0.01
+point-treatment-survival,root_n_and_efficiency,bias equivalent,bias
+point-treatment-survival,root_n_and_efficiency,coverage floor,coverage/0.5
+point-treatment-survival,root_n_and_efficiency,se ratio sanity,se_high
+point-treatment-survival,root_n_rate,slope in root-n band,contract
+point-treatment-survival,simultaneous_coverage,joint coverage below nominal,se_high
+point-treatment-survival,simultaneous_coverage,joint coverage in calibration band,se_low
+point-treatment-survival-crossfit,double_robustness,bias discriminated,pair_collapse
+point-treatment-survival-crossfit,double_robustness,bias equivalent,bias
+point-treatment-survival-crossfit,double_robustness,se ratio in union band,se/0.05
+point-treatment-survival-crossfit,interval_calibration,coverage in calibration band,shift/0.7
+point-treatment-survival-crossfit,interval_calibration,efficiency above band,pair_collapse
+point-treatment-survival-crossfit,interval_calibration,efficiency empirical in efficiency band,none
+point-treatment-survival-crossfit,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+point-treatment-survival-crossfit,interval_calibration,se ratio below band,se_high
+point-treatment-survival-crossfit,interval_calibration,se ratio in calibration band,se/0.9
+point-treatment-survival-crossfit,simultaneous_coverage,joint coverage below nominal,se_high
+point-treatment-survival-crossfit,simultaneous_coverage,joint coverage in calibration band,se_low
+point-treatment-survival-policies,interval_calibration,coverage in calibration band,bias
+point-treatment-survival-policies,interval_calibration,efficiency above band,pair_collapse
+point-treatment-survival-policies,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/0.97
+point-treatment-survival-policies,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+point-treatment-survival-policies,interval_calibration,se ratio below band,se_high
+point-treatment-survival-policies,interval_calibration,se ratio in calibration band,se/0.9
+policy-point-mtp,double_robustness,bias discriminated,pair_collapse
+policy-point-mtp,double_robustness,bias equivalent,bias
+policy-point-mtp,double_robustness,se ratio in union band,se/0.05
+policy-point-mtp,interval_calibration,coverage in calibration band,bias
+policy-point-mtp,interval_calibration,efficiency above band,pair_collapse
+policy-point-mtp,interval_calibration,efficiency empirical in efficiency band,two_point/0.9154/1
+policy-point-mtp,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+policy-point-mtp,interval_calibration,se ratio below band,se_high
+policy-point-mtp,interval_calibration,se ratio in calibration band,none
+policy-point-mtp,inverse_necessity,bias discriminated,pair_collapse
+policy-point-mtp,inverse_necessity,bias equivalent,bias
+policy-point-mtp,inverse_necessity,least displacement over labels,positive_diffuse
+policy-point-mtp,power,rejection floor,se_high
+policy-point-mtp,root_n_and_efficiency,bias equivalent,bias
+policy-point-mtp,root_n_and_efficiency,coverage floor,coverage/0.5
+policy-point-mtp,root_n_and_efficiency,coverage resolves,coverage/0.925
+policy-point-mtp,root_n_and_efficiency,se ratio sanity,se_high
+policy-point-mtp,root_n_rate,slope in root-n band,contract
+policy-point-mtp,targeting_necessity,bias discriminated,pair_collapse
+policy-point-mtp,targeting_necessity,bias equivalent,bias
+policy-point-mtp,targeting_necessity,least displacement over labels,positive_diffuse
+policy-point-mtp,type_i_error,coverage floor,coverage/0.5
+policy-point-mtp,type_i_error,rejection ceiling,rejection/0.1
+repeated-crossfit-tmle,double_robustness,bias discriminated,pair_collapse
+repeated-crossfit-tmle,double_robustness,bias equivalent,bias
+repeated-crossfit-tmle,double_robustness,se ratio in union band,se/0.05
+repeated-crossfit-tmle,interval_calibration,coverage in calibration band,shift/0.7
+repeated-crossfit-tmle,interval_calibration,se ratio in calibration band,se/0.05
+repeated-crossfit-tmle,power,rejection floor,rejection/0.01
+repeated-crossfit-tmle,repeat_stability,repeat spread ratio under its boundary,pair_collapse
+repeated-crossfit-tmle,root_n_and_efficiency,bias equivalent,bias
+repeated-crossfit-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
+repeated-crossfit-tmle,root_n_and_efficiency,se ratio sanity,se_high
+repeated-crossfit-tmle,root_n_rate,slope in root-n band,contract
+repeated-crossfit-tmle,type_i_error,coverage floor,coverage/0.5
+repeated-crossfit-tmle,type_i_error,rejection ceiling,rejection/0.1
+shift-policies,cap_necessity,bias discriminated,pair_collapse
+shift-policies,cap_necessity,bias equivalent,bias
+shift-policies,cap_necessity,least displacement over labels,control_concentrated
+shift-policies,double_robustness,bias discriminated,pair_collapse
+shift-policies,double_robustness,bias equivalent,bias
+shift-policies,double_robustness,se ratio in union band,se/0.05
+shift-policies,interval_calibration,coverage in calibration band,shift/0.7
+shift-policies,interval_calibration,se ratio below band,se_high
+shift-policies,interval_calibration,se ratio in calibration band,se/0.05
+shift-policies,natural_course_identity,sup-norm identity,affine
+shift-policies,power,rejection floor,rejection/0.01
+shift-policies,ratio_necessity,bias discriminated,pair_collapse
+shift-policies,ratio_necessity,bias equivalent,bias
+shift-policies,ratio_necessity,least displacement over labels,control_concentrated
+shift-policies,root_n_and_efficiency,bias equivalent,bias
+shift-policies,root_n_and_efficiency,coverage floor,coverage/0.5
+shift-policies,root_n_and_efficiency,se ratio sanity,se_high
+shift-policies,root_n_rate,slope in root-n band,contract
+shift-policies,targeting_necessity,bias discriminated,pair_collapse
+shift-policies,targeting_necessity,bias equivalent,bias
+shift-policies,targeting_necessity,least displacement over labels,control_concentrated
+shift-policies,type_i_error,coverage floor,coverage/0.5
+shift-policies,type_i_error,rejection ceiling,rejection/0.1
+stacked-mar-arm-indexed-cvtmle,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+stacked-mar-arm-indexed-cvtmle,crossfit_overfitting,coverage gain,shift/3
+stacked-mar-arm-indexed-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low
+stacked-mar-arm-indexed-cvtmle,interval_calibration,coverage in calibration band,bias
+stacked-mar-arm-indexed-cvtmle,interval_calibration,se ratio below band,se_high
+stacked-mar-arm-indexed-cvtmle,interval_calibration,se ratio in calibration band,affine
+stacked-mar-arm-indexed-cvtmle,mar_robustness,bias discriminated,pair_collapse
+stacked-mar-arm-indexed-cvtmle,mar_robustness,bias equivalent,bias
+stacked-mar-arm-indexed-cvtmle,mar_robustness,se ratio in union band,se/0.05
+stacked-mar-arm-indexed-cvtmle,simultaneous_coverage,joint coverage below nominal,se_low
+stacked-mar-arm-indexed-cvtmle,simultaneous_coverage,joint coverage in calibration band,se_low
+stacked-mar-natural-course-cvtmle,crossfit_overfitting,control se ratio under its ceiling,se_high
+stacked-mar-natural-course-cvtmle,crossfit_overfitting,coverage gain,shift/3
+stacked-mar-natural-course-cvtmle,crossfit_overfitting,cross-fit se ratio honest,se_low
+stacked-mar-natural-course-cvtmle,double_robustness,bias discriminated,pair_collapse
+stacked-mar-natural-course-cvtmle,double_robustness,bias equivalent,bias
+stacked-mar-natural-course-cvtmle,double_robustness,se ratio in union band,se/0.05
+stacked-mar-natural-course-cvtmle,interval_calibration,coverage in calibration band,shift/0.7
+stacked-mar-natural-course-cvtmle,interval_calibration,se ratio below band,se_high
+stacked-mar-natural-course-cvtmle,interval_calibration,se ratio in calibration band,se/0.05
+stochastic-categorical-ltmle,crossfit_overfitting,control se ratio under its ceiling,pair_collapse
+stochastic-categorical-ltmle,crossfit_overfitting,coverage gain,shift/3
+stochastic-categorical-ltmle,crossfit_overfitting,cross-fit se ratio honest,se_low
+stochastic-categorical-ltmle,double_robustness,bias discriminated,pair_collapse
+stochastic-categorical-ltmle,double_robustness,bias equivalent,bias
+stochastic-categorical-ltmle,double_robustness,se ratio in union band,se/0.05
+stochastic-categorical-ltmle,interval_calibration,coverage in calibration band,bias
+stochastic-categorical-ltmle,interval_calibration,efficiency above band,pair_collapse
+stochastic-categorical-ltmle,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+stochastic-categorical-ltmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+stochastic-categorical-ltmle,interval_calibration,se ratio below band,se_high
+stochastic-categorical-ltmle,interval_calibration,se ratio in calibration band,se/0.95
+stochastic-categorical-ltmle,policy_necessity,bias discriminated,pair_collapse
+stochastic-categorical-ltmle,policy_necessity,bias equivalent,bias
+stochastic-categorical-ltmle,policy_necessity,least displacement over labels,control_concentrated
+stochastic-categorical-ltmle,power,rejection floor,none
+stochastic-categorical-ltmle,randomizer_projection,bias equivalent,bias
+stochastic-categorical-ltmle,randomizer_projection,projection spread ratio under one,dilate/even
+stochastic-categorical-ltmle,root_n_and_efficiency,bias equivalent,bias
+stochastic-categorical-ltmle,root_n_and_efficiency,coverage floor,coverage/0.5
+stochastic-categorical-ltmle,root_n_and_efficiency,se ratio sanity,se_high
+stochastic-categorical-ltmle,root_n_rate,slope in root-n band,contract
+stochastic-categorical-ltmle,simultaneous_coverage,joint coverage below nominal,se_low
+stochastic-categorical-ltmle,simultaneous_coverage,joint coverage in calibration band,se_low
+stochastic-categorical-ltmle,targeting_necessity,bias discriminated,pair_collapse
+stochastic-categorical-ltmle,targeting_necessity,bias equivalent,bias
+stochastic-categorical-ltmle,targeting_necessity,least displacement over labels,control_concentrated
+stochastic-categorical-ltmle,type_i_error,coverage floor,coverage/0.5
+stochastic-categorical-ltmle,type_i_error,rejection ceiling,rejection/0.1
+stochastic-regimes,density_necessity,bias discriminated,pair_collapse
+stochastic-regimes,density_necessity,bias equivalent,bias
+stochastic-regimes,density_necessity,least displacement over labels,control_concentrated
+stochastic-regimes,double_robustness,bias discriminated,pair_collapse
+stochastic-regimes,double_robustness,bias equivalent,bias
+stochastic-regimes,double_robustness,se ratio in union band,se/0.05
+stochastic-regimes,interval_calibration,coverage in calibration band,shift/0.7
+stochastic-regimes,interval_calibration,efficiency above band,pair_collapse
+stochastic-regimes,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+stochastic-regimes,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+stochastic-regimes,interval_calibration,se ratio below band,se_high
+stochastic-regimes,interval_calibration,se ratio in calibration band,se/1.05
+stochastic-regimes,power,rejection floor,rejection/0.01
+stochastic-regimes,root_n_and_efficiency,bias equivalent,bias
+stochastic-regimes,root_n_and_efficiency,coverage floor,coverage/0.5
+stochastic-regimes,root_n_and_efficiency,se ratio sanity,se_high
+stochastic-regimes,root_n_rate,slope in root-n band,contract
+stochastic-regimes,targeting_necessity,bias discriminated,pair_collapse
+stochastic-regimes,targeting_necessity,bias equivalent,bias
+stochastic-regimes,targeting_necessity,least displacement over labels,control_concentrated
+stochastic-regimes,type_i_error,coverage floor,coverage/0.5
+stochastic-regimes,type_i_error,rejection ceiling,rejection/0.1
+tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
+tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
+tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05
+tests.studies.longitudinal_sdr_properties,crossfit_overfitting,control se ratio under its ceiling,none
+tests.studies.longitudinal_sdr_properties,crossfit_overfitting,cross-fit se ratio honest,se_low
+tests.studies.longitudinal_sdr_properties,interval_calibration,efficiency above band,none
+tests.studies.longitudinal_sdr_properties,interval_calibration,efficiency empirical in efficiency band,two_point/1.124/1.03
+tests.studies.longitudinal_sdr_properties,interval_calibration,efficiency reported in efficiency band,two_point/1.157/0.97
+tests.studies.longitudinal_sdr_properties,interval_calibration,se ratio below band,se_high
+tests.studies.longitudinal_sdr_properties,interval_calibration,se ratio in calibration band,two_point/1.157/1.06
+tests.studies.longitudinal_sdr_properties,power,rejection floor,none
+tests.studies.longitudinal_sdr_properties,root_n_and_efficiency,bias equivalent,bias
+tests.studies.longitudinal_sdr_properties,root_n_and_efficiency,coverage floor,coverage/0.5
+tests.studies.longitudinal_sdr_properties,root_n_and_efficiency,se ratio sanity,se_high
+tests.studies.longitudinal_sdr_properties,root_n_rate,slope in root-n band,contract
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,P_A large-size bias bound under the small,contract
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,P_A large-size bias bound under the tolerance,shift/1
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,P_A large-size se ratio in union band,se/0.05
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,P_B large-size bias bound under the small,contract
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,P_B large-size bias bound under the tolerance,shift/1
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,P_B large-size se ratio in union band,se/0.05
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,P_D large-size bias bound under the small,contract
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,P_D large-size bias bound under the tolerance,affine
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,P_D large-size se ratio in union band,se/0.05
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,bias beyond the control floor,pair_collapse
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,bias equivalent,bias
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,coverage floor,se_low
+tests.studies.longitudinal_sdr_properties,sequential_double_robustness,se ratio in union band,se/0.05
+tests.studies.longitudinal_sdr_properties,simultaneous_coverage,joint coverage below nominal,pair_collapse
+tests.studies.longitudinal_sdr_properties,simultaneous_coverage,joint coverage in calibration band,se_low
+tests.studies.longitudinal_sdr_properties,type_i_error,coverage floor,coverage/0.5
+tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejection/0.1
+tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
+tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
+tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+weighted-ltmle,double_robustness,bias discriminated,bias
+weighted-ltmle,double_robustness,bias equivalent,bias
+weighted-ltmle,double_robustness,se ratio in union band,se/0.05
+weighted-ltmle,interval_calibration,coverage in calibration band,se/1.05
+weighted-ltmle,interval_calibration,efficiency above band,pair_collapse
+weighted-ltmle,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+weighted-ltmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+weighted-ltmle,interval_calibration,se ratio below band,se_high
+weighted-ltmle,interval_calibration,se ratio in calibration band,se/0.95
+weighted-ltmle,learner_weight_necessity,alternative bias equivalent,bias
+weighted-ltmle,learner_weight_necessity,bias discriminated,control_diffuse
+weighted-ltmle,learner_weight_necessity,bias equivalent,bias
+weighted-ltmle,learner_weight_necessity,least displacement over labels,positive_diffuse
+weighted-ltmle,power,rejection floor,se_high
+weighted-ltmle,root_n_and_efficiency,bias equivalent,bias
+weighted-ltmle,root_n_and_efficiency,coverage floor,shift/0.15
+weighted-ltmle,root_n_and_efficiency,se ratio sanity,se_high
+weighted-ltmle,root_n_rate,slope in root-n band,contract
+weighted-ltmle,targeting_necessity,bias discriminated,none
+weighted-ltmle,targeting_necessity,bias equivalent,bias
+weighted-ltmle,targeting_necessity,least displacement over labels,control_concentrated
+weighted-ltmle,type_i_error,coverage floor,rejection/0.01
+weighted-ltmle,type_i_error,rejection ceiling,coverage/0.94
+weighted-ltmle,weight_necessity,alternative bias equivalent,bias
+weighted-ltmle,weight_necessity,bias discriminated,control_diffuse
+weighted-ltmle,weight_necessity,bias equivalent,bias
+weighted-ltmle,weight_necessity,least displacement over labels,positive_diffuse
+weighted-ltmle-crossfit,double_robustness,bias discriminated,none
+weighted-ltmle-crossfit,double_robustness,bias equivalent,bias
+weighted-ltmle-crossfit,double_robustness,se ratio in union band,se/0.05
+weighted-ltmle-crossfit,interval_calibration,coverage in calibration band,bias
+weighted-ltmle-crossfit,interval_calibration,efficiency above band,pair_collapse
+weighted-ltmle-crossfit,interval_calibration,efficiency empirical in efficiency band,none
+weighted-ltmle-crossfit,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+weighted-ltmle-crossfit,interval_calibration,se ratio below band,se_high
+weighted-ltmle-crossfit,interval_calibration,se ratio in calibration band,se/0.9
+weighted-ltmle-crossfit,learner_weight_necessity,alternative bias equivalent,bias
+weighted-ltmle-crossfit,learner_weight_necessity,bias discriminated,control_diffuse
+weighted-ltmle-crossfit,learner_weight_necessity,bias equivalent,bias
+weighted-ltmle-crossfit,learner_weight_necessity,least displacement over labels,positive_diffuse
+weighted-ltmle-crossfit,power,rejection floor,se_high
+weighted-ltmle-crossfit,root_n_and_efficiency,bias equivalent,bias
+weighted-ltmle-crossfit,root_n_and_efficiency,coverage floor,coverage/0.5
+weighted-ltmle-crossfit,root_n_and_efficiency,se ratio sanity,se_high
+weighted-ltmle-crossfit,root_n_rate,slope in root-n band,contract
+weighted-ltmle-crossfit,targeting_necessity,bias discriminated,bias
+weighted-ltmle-crossfit,targeting_necessity,bias equivalent,bias
+weighted-ltmle-crossfit,targeting_necessity,least displacement over labels,control_concentrated
+weighted-ltmle-crossfit,type_i_error,coverage floor,coverage/0.5
+weighted-ltmle-crossfit,type_i_error,rejection ceiling,rejection/0.1
+weighted-ltmle-crossfit,weight_necessity,alternative bias equivalent,bias
+weighted-ltmle-crossfit,weight_necessity,bias discriminated,control_diffuse
+weighted-ltmle-crossfit,weight_necessity,bias equivalent,bias
+weighted-ltmle-crossfit,weight_necessity,least displacement over labels,positive_diffuse
+weighted-tmle,double_robustness,bias discriminated,pair_collapse
+weighted-tmle,double_robustness,bias equivalent,bias
+weighted-tmle,double_robustness,se ratio in union band,se/0.05
+weighted-tmle,interval_calibration,coverage in calibration band,shift/0.7
+weighted-tmle,interval_calibration,efficiency above band,pair_collapse
+weighted-tmle,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
+weighted-tmle,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+weighted-tmle,interval_calibration,se ratio below band,se_high
+weighted-tmle,interval_calibration,se ratio in calibration band,se/0.95
+weighted-tmle,power,rejection floor,rejection/0.01
+weighted-tmle,root_n_and_efficiency,bias equivalent,bias
+weighted-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
+weighted-tmle,root_n_and_efficiency,se ratio sanity,se_high
+weighted-tmle,root_n_rate,slope in root-n band,contract
+weighted-tmle,targeting_necessity,bias discriminated,pair_collapse
+weighted-tmle,targeting_necessity,bias equivalent,bias
+weighted-tmle,targeting_necessity,least displacement over labels,control_concentrated
+weighted-tmle,type_i_error,coverage floor,coverage/0.5
+weighted-tmle,type_i_error,rejection ceiling,rejection/0.1
+weighted-tmle,weight_necessity,alternative bias equivalent,bias
+weighted-tmle,weight_necessity,bias equivalent,bias
+weighted-tmle,weight_necessity,least displacement over labels,positive_diffuse

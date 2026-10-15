@@ -24,7 +24,6 @@ from typing import Any
 import pandas as pd
 from scipy.stats import norm
 
-from cleverly.utils.parallel import map_parallel
 from tests.parallel import STUDY_JOBS
 from tests.studies import stratified_alternating_law as law
 from tests.studies.canonical_stratified_msm_identity import (
@@ -35,13 +34,16 @@ from tests.studies.canonical_stratified_msm_identity import (
     label_name,
     logistic,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell, replicate_row
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
 )
+from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
 
 CALIBRATION_N = 2_000
@@ -71,9 +73,38 @@ def _seed(replicate: int) -> int:
     return stream_seed(STUDY, "property_sample", "interval_calibration", "identity", replicate)
 
 
-def _fit_replication(payload: tuple[int, int, int, int]) -> list[dict[str, Any]]:
-    replicate, n, requested, seed = payload
-    result = fit_cleverly(law.beta_sample(n, seed))
+#: The calibration positive arm of each label to the controls derived from it.
+DERIVED_CELLS = calibration_derived(CALIBRATION_LABELS)
+
+_Key = tuple[tuple[int, int, int, int]]
+
+
+def _draw(key: _Key) -> pd.DataFrame:
+    """The sample a key fits, a function of the key alone."""
+    _, n, _, seed = key[0]
+    return law.beta_sample(n, seed)
+
+
+def _cells_of(key: _Key) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    names = []
+    for label in CALIBRATION_LABELS:
+        name = f"interval_calibration/{label}__correctly_specified"
+        names += [name, *DERIVED_CELLS[name]]
+    return names
+
+
+def _cell_of(key: _Key) -> str:
+    return "interval_calibration/identity"
+
+
+def _replicate_of(key: _Key) -> int:
+    return key[0][0]
+
+
+def _fit_replication(key: _Key, frame: pd.DataFrame) -> list[dict[str, Any]]:
+    replicate, n, requested, _seed = key[0]
+    result = fit_cleverly(frame)
     truth = law.truths("identity")
     return [
         replicate_row(
@@ -91,7 +122,7 @@ def _fit_replication(payload: tuple[int, int, int, int]) -> list[dict[str, Any]]
     ]
 
 
-def _payloads(budget: int | None = None) -> list[tuple[tuple[int, int, int, int]]]:
+def _payloads(budget: int | None = None) -> list[_Key]:
     count = CALIBRATION_REPLICATES if budget is None else budget
     return [
         ((replicate, CALIBRATION_N, CALIBRATION_REPLICATES, _seed(replicate)),)
@@ -99,9 +130,28 @@ def _payloads(budget: int | None = None) -> list[tuple[tuple[int, int, int, int]
     ]
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = None) -> pd.DataFrame:
     """Fit every declared replication, or the first ``budget``, then derive the controls."""
-    outcomes = map_parallel(_fit_replication, _payloads(budget), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(budget),
+        _fit_replication,
+        cells_of=_cells_of,
+        cell_of=_cell_of,
+        replicate_of=_replicate_of,
+        n_jobs=n_jobs,
+        draw=_draw,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -121,12 +171,6 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     return rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
         ["property", "cell", "replicate"], ignore_index=True
     )
-
-
-def generate_smoke_property_rows(*, n_jobs: int = 1, replicates: int = 1) -> pd.DataFrame:
-    """Fit the first ``replicates`` declared replications, unsummarized."""
-    outcomes = map_parallel(_fit_replication, _payloads(replicates), n_jobs=n_jobs)
-    return pd.DataFrame([row for result in outcomes for row in result])
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -157,3 +201,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         for label in CALIBRATION_LABELS
         for kind, role in roles.items()
     )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  The calibration rule takes
+#: this study's efficiency band as an explicit argument (D3'd).
+PROPERTY_RULES = (property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),)

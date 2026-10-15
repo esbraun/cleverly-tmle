@@ -9,12 +9,19 @@ from scipy.stats import norm
 
 from cleverly.estimators import TMLE
 from cleverly.interventions import Static
-from cleverly.utils.parallel import map_parallel
 from tests import discrete_law as law
 from tests.parallel import STUDY_JOBS
 from tests.studies import regime_property_helpers as shared_regime
 from tests.studies.canonical_deterministic_regimes import G_BOUNDS, STUDY, interventions
-from tests.studies.evidence.properties import control_row, replicate_row
+from tests.studies.evidence import property_verdicts
+from tests.studies.evidence.properties import (
+    control_row,
+    payload_cell,
+    payload_replicate,
+    replicate_row,
+)
+from tests.studies.evidence.property_verdicts import calibration_derived
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.intervention_study_helpers import (
     efficiency_sd,
@@ -54,10 +61,17 @@ EFFICIENCY_SD = efficiency_sd(law.PROBS, TARGET)
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 
-def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[dict[str, Any]]:
-    property_name, cell, replicate, n, requested, seed, configuration = payload
+def _draw(payload: tuple[str, str, int, int, int, int, str]) -> pd.DataFrame:
+    property_name, _, _, n, _, seed, _ = payload
     probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
-    frame = sample_discrete(probs, n, seed)
+    return sample_discrete(probs, n, seed)
+
+
+def _fit_replication(
+    payload: tuple[str, str, int, int, int, int, str], frame: pd.DataFrame
+) -> list[dict[str, Any]]:
+    property_name, cell, replicate, n, requested, _, configuration = payload
+    probs = NULL_PROBS if property_name == "type_i_error" else law.PROBS
     result = fit_regimes(frame, probs, configuration, interventions(), g_bounds=G_BOUNDS)
     truth = NULL_TRUTH if property_name == "type_i_error" else TRUTH
     role = (
@@ -167,6 +181,23 @@ def _fit_replication(payload: tuple[str, str, int, int, int, int, str]) -> list[
     return rows
 
 
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived((LABEL,))
+
+
+def _cells_of(key: tuple[tuple[str, str, int, int, int, int, str]]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    property_name, cell = key[0][:2]
+    if property_name == "targeting_necessity":
+        return [f"{property_name}/{LABEL}__targeted", f"{property_name}/{LABEL}__untargeted"]
+    if property_name == "rule_necessity":
+        return [f"{property_name}/{LABEL}__declared", f"{property_name}/{LABEL}__static_control"]
+    if property_name == "static_reduction":
+        return [f"{property_name}/never__regime", f"{property_name}/never__arm"]
+    name = f"{property_name}/{cell}"
+    return [name, *DERIVED_CELLS.get(name, ())]
+
+
 def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     specs: list[tuple[str, str, int, int, str]] = []
     for configuration in ("both_correct", "outcome_correct", "treatment_correct", "both_wrong"):
@@ -211,10 +242,33 @@ def _payloads() -> list[tuple[tuple[str, str, int, int, int, int, str]]]:
     return out
 
 
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6, confirmed 2026-10-14).  Up to
+#: ``floor(0.01 R)`` lost replicates are judged by the worst case of each clause; one more is
+#: ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_fit_replication, _payloads(), n_jobs=n_jobs)
+    outcomes = fit_properties(
+        _payloads(),
+        splat_drawn(_fit_replication),
+        cells_of=_cells_of,
+        draw=splat_draw(_draw),
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     return add_calibration_controls(rows, STUDY, label=LABEL, efficiency_sd=EFFICIENCY_SD)
+
+
+#: The study's two necessity declarations, read by its verdicts and its rules.
+NECESSITIES = shared_regime.necessities(LABEL, "rule_necessity", ("declared", "static_control"))
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
@@ -223,7 +277,10 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
         STUDY,
         label=LABEL,
         efficiency_sd=EFFICIENCY_SD,
-        necessity_family="rule_necessity",
-        necessity_arms=("declared", "static_control"),
+        declared=NECESSITIES,
         include_static_reduction=True,
     )
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
+PROPERTY_RULES = shared_regime.property_rules(NECESSITIES, include_static_reduction=True)
