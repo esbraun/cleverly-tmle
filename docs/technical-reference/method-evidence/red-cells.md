@@ -297,6 +297,7 @@ row. A move to `gated` is a separate registry decision.
 | [cross-fitted clustered longitudinal TMLE on a t reference at few clusters](few-cluster-cross-fitted-longitudinal-tmle.md) | 13 | 0 |
 | [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 31 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
+| [vector modified treatment policies](vector-modified-treatment-policies.md) | 56 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
 | [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |

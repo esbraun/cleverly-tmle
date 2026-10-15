@@ -2665,7 +2665,9 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:inverse_displacement": lambda s: s.properties().INVERSE_DISPLACEMENT,
     "margin:preimage_displacement": lambda s: s.properties().PREIMAGE_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
-    "margin:subject_failure_bound": lambda s: s.runner().FAILURE_BOUND,
+    # The record's declaration, not a runner constant: a study may declare the bound inline in
+    # ``failure_bound`` without naming it in its runner module.
+    "margin:subject_failure_bound": lambda s: float(s.failure_bound[s.implementation]),
     "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
 }
 
