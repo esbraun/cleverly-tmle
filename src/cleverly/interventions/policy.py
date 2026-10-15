@@ -1114,31 +1114,15 @@ def tuned_components(policy: object) -> tuple[TunedSlot, ...]:
     tuple of TunedSlot
         In branch order and then component order.  Empty when no component is tuned or the
         policy is not a :class:`JointPolicy`.
-
-    Raises
-    ------
-    CapabilityError
-        If the policy has a randomizer and a tuned component.
     """
     if not isinstance(policy, JointPolicy):
         return ()
-    branches = joint_branches(policy)
-    slots = tuple(
+    return tuple(
         TunedSlot(branch, probability, name, cast(Shift | Scale, component))
-        for branch, (probability, components) in enumerate(branches)
+        for branch, (probability, components) in enumerate(joint_branches(policy))
         for name, component in components.items()
         if tuned_policy(component)
     )
-    if slots and len(branches) > 1:
-        raise CapabilityError(
-            f"policy {policy.name!r} tunes the cap of component {slots[0].component!r} "
-            "inside a randomized JointPolicy. A tuned cap's curve term is derived for one "
-            "deterministic map, as at a node of one dose: each branch of a randomizer would "
-            "need its own derivative term, weighted by the branch probability, which this "
-            "release does not build. Declare one JointPolicy without a randomizer, or the "
-            "cap as a number"
-        )
-    return slots
 
 
 def component_source(

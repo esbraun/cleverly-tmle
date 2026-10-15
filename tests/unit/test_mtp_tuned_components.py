@@ -14,8 +14,9 @@ the tuned component set to the boundary and to the last moved dose.
 - T-e7: each outer fold trains at its own tuner on both routes.
 - T-e1: the fold average at two mixed nodes of the exact grid law is the average of the
   exact fold functionals; M-e1 holds one fold map everywhere.
-- The refusals: a randomizer, declared atoms (M3), a tuner that reads the tuned dose, and a
-  point vector treatment.  ``tests/unit/test_mtp_joint_tuning.py`` covers two tuned doses.
+- The refusals: declared atoms (M3), a tuner that reads the tuned dose, and a point vector
+  treatment.  ``tests/unit/test_mtp_joint_tuning.py`` covers two tuned doses and a
+  randomizer.
 """
 
 from __future__ import annotations
@@ -40,7 +41,6 @@ from cleverly.interventions import (
     JointPolicy,
     LinearQuantileRegression,
     ModifiedPolicy,
-    Randomizer,
     Scale,
     Shift,
     SupportBoundary,
@@ -659,15 +659,6 @@ def _node2(components: dict[str, Any], **declared: Any) -> DynamicRegimen:
 
 
 TUNED = Shift(1.0, cap=DoseQuantile(0.5), target="population")
-
-
-def test_a_randomized_joint_policy_with_a_tuned_component_is_refused(frame: Any) -> None:
-    regimen = _node2(
-        {"a": {"A2": TUNED}, "b": {"F2": FLAG}},
-        randomizer=Randomizer(("a", "b"), (0.5, 0.5)),
-    )
-    with pytest.raises(CapabilityError, match="inside a randomized JointPolicy"):
-        _fit(LTMLE, [regimen], frame, n_folds=1)
 
 
 def test_a_tuned_component_with_declared_atoms_is_refused(frame: Any) -> None:

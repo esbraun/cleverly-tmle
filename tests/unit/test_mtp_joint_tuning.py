@@ -1,4 +1,4 @@
-"""Several tuned caps in one ``JointPolicy`` (X40 review remediation 2).
+"""Several tuned caps in one ``JointPolicy``: two tuned doses, and a randomizer (X40 remediation 2).
 
 The value of a joint policy is linear in its components' terms.  With
 :math:`\\Psi = \\sum_b p_b \\Phi_b(\\theta)`, the chain rule gives the curve
@@ -7,11 +7,14 @@ The value of a joint policy is linear in its components' terms.  With
 assigns with dose ``j`` set to its boundary and to its last moved dose.
 
 - T-e4 (i): on law V (``tests/law_v_joint.py``), one node :math:`(F, A, B)`, the curve is the
-  pathwise derivative along four tilts by quadrature, for two tuned doses.  Each term is
-  nonzero, and the M-e4 mutation that drops either dose's term breaks the identity.
+  pathwise derivative along four tilts by quadrature, for two tuned doses and for a
+  randomizer of two branches.  Each term is nonzero, and the M-e4 mutations break the
+  identity: drop either dose's term, drop either branch's term, or drop the branch
+  probabilities.
 - T-e4 (ii): the fitted curve adds the terms computed longhand from the fit's own probes,
   and the probes read the vector the branch assigns.  The same mutations in the library
-  fail the longhand.
+  fail the longhand.  At n = 8,000 with flexible regressions the estimated terms match the
+  oracle's, and the mutated terms do not.
 - T-e7: each fold's plan holds every tuned map at that fold's training tuner.
 """
 
@@ -33,6 +36,7 @@ from cleverly.interventions import (
     JointPolicy,
     LinearQuantileRegression,
     ModifiedPolicy,
+    Randomizer,
     Shift,
     SupportBoundary,
 )
@@ -51,6 +55,7 @@ COLUMNS: dict[str, Any] = {
     "time_varying": [[]],
     "continuous_treatment": ["A", "B"],
 }
+RANDOMIZED = (lv.Branch(0.6, 1.0, ("A",)), lv.Branch(0.4, 0.0, ("A",)))
 FEATURES = {"A": ("W", "F"), "B": ("W", "F", "A")}
 ORACLE_TUNERS = {
     "quantile": (Tuner(), Tuner()),
@@ -85,6 +90,18 @@ def _two(kind: str = "quantile", target: str = "population") -> DynamicRegimen:
     """The flag set to 1 and both doses moved by their own tuned shift."""
     components = {"F": _flag(1.0), "A": _tuned("A", kind, target), "B": _tuned("B", kind, target)}
     return DynamicRegimen("two", (JointPolicy("two", components=components, policy_kind="known"),))
+
+
+def _randomized(kind: str = "quantile", target: str = "population") -> DynamicRegimen:
+    """Branch x (0.6) sets the flag to 1, branch y (0.4) to 0; both move A by one tuned map."""
+    tuned = _tuned("A", kind, target)
+    policy = JointPolicy(
+        "randomized",
+        components={"x": {"F": _flag(1.0), "A": tuned}, "y": {"F": _flag(0.0), "A": tuned}},
+        randomizer=Randomizer(("x", "y"), (0.6, 0.4)),
+        policy_kind="known",
+    )
+    return DynamicRegimen("randomized", (policy,))
 
 
 def _settings(**overrides: Any) -> dict[str, Any]:
@@ -125,7 +142,7 @@ def test_the_oracle_does_not_import_cleverly() -> None:
     assert not [name for name in imported if name.split(".")[0] == "cleverly"]
 
 
-@pytest.mark.parametrize("branches", [TWO], ids=["two"])
+@pytest.mark.parametrize("branches", [TWO, RANDOMIZED], ids=["two", "randomized"])
 @pytest.mark.parametrize("kind", sorted(ORACLE_TUNERS))
 def test_the_oracle_derivatives_are_derivatives_of_the_mean_in_theta(
     kind: str, branches: Any
@@ -165,6 +182,24 @@ def test_m_e4_dropping_either_dose_term_breaks_the_identity(kind: str) -> None:
         kept = tuple(dose for dose in lv.DOSES if dose != dropped)
         mutated = law.score_pairing(path, lv.Curve(doses=kept))
         assert abs(lv.pathwise_derivative(law, path) - mutated) > CAUGHT
+
+
+@pytest.mark.parametrize("path", PATHS)
+@pytest.mark.parametrize("kind", sorted(ORACLE_TUNERS))
+def test_t_e4_the_randomized_curve_is_the_pathwise_derivative(kind: str, path: str) -> None:
+    law = lv.LawV(branches=RANDOMIZED, tuners=ORACLE_TUNERS[kind])
+    assert abs(lv.pathwise_derivative(law, path) - law.score_pairing(path)) < IDENTITY
+
+
+@pytest.mark.parametrize("kind", sorted(ORACLE_TUNERS))
+def test_m_e4_dropping_a_branch_term_or_its_probability_breaks_the_identity(kind: str) -> None:
+    law = lv.LawV(branches=RANDOMIZED, tuners=ORACLE_TUNERS[kind])
+    for skip in ((0,), (1,)):
+        # The nonzero witness: each branch's term alone.
+        assert np.linalg.norm(law.derivative("A", lv.Curve(skip=skip))) > 1e-3
+    pathwise = lv.pathwise_derivative(law, "a")
+    for curve in (lv.Curve(skip=(0,)), lv.Curve(skip=(1,)), lv.Curve(weighted=False)):
+        assert abs(pathwise - law.score_pairing("a", curve)) > CAUGHT
 
 
 # ------------------------------------------------------------------ the fitted curve (T-e4 (ii))
@@ -258,6 +293,7 @@ ROUTES = [
     (SDR, 3, "quantile", "classifier"),
 ]
 TWO_SLOTS = [("A", 1.0), ("B", 1.0)]
+RANDOMIZED_SLOTS = [("A", 0.6), ("A", 0.4)]
 
 
 @pytest.mark.parametrize(("estimator", "folds", "kind", "ratio"), ROUTES)
@@ -421,3 +457,133 @@ def test_t_e7_each_fold_holds_both_doses_at_its_own_tuner(
     for dose in ("A", "B"):
         natural = frame[dose].to_numpy()
         assert len({_median(natural[train]) for train in _trains(logged["folds"])}) > 1
+
+
+@pytest.mark.parametrize("target", ["population", "fold_average"])
+def test_t_e7_each_fold_holds_the_map_in_both_branches_at_its_own_tuner(
+    target: str, frame: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    logged = _resolved(monkeypatch)
+    _fit(LTMLE, [_randomized(target=target)], frame, n_folds=3)
+    _check_fold_maps(logged, frame, {"A": 1})
+    (plan,) = logged["plans"]
+    for fold_plan in plan.fold_plans:
+        flags = [values[:, 0] for values in fold_plan.carry_targets(1)]
+        np.testing.assert_array_equal(flags[0], np.ones(len(frame)))
+        np.testing.assert_array_equal(flags[1], np.zeros(len(frame)))
+
+
+# ------------------------------------------------------------------ a randomizer (T-e4 (ii))
+
+
+@pytest.mark.parametrize(("estimator", "folds", "kind", "ratio"), ROUTES)
+def test_t_e4_the_randomized_curve_adds_one_weighted_term_per_branch_longhand(
+    estimator: type, folds: int, kind: str, ratio: str, frame: Any
+) -> None:
+    result = _fit(estimator, [_randomized(kind)], frame, n_folds=folds, ratio=ratio)
+    fit = result.fits["randomized"]
+    _check_curve(estimator, fit, frame, kind, RANDOMIZED_SLOTS)
+    (step,) = fit.steps
+    for slot in RANDOMIZED_SLOTS:
+        assert np.std(_longhand_term(frame, step.probes, kind, [slot])) > 1e-3
+    # One tuner, fitted once, carries both branches' terms.
+    assert len(fit.tuning_derivatives) == 1
+
+
+def _unweighted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation: every slot carries probability one."""
+    original = sequential._probe_slots
+
+    def mutated(plan: Any, time: int) -> Any:
+        return tuple((tuning, branch, 1.0) for tuning, branch, _ in original(plan, time))
+
+    monkeypatch.setattr(sequential, "_probe_slots", mutated)
+
+
+@pytest.mark.parametrize("mutation", ["unweighted", "drop x", "drop y"])
+def test_m_e4_a_branch_without_its_term_or_probability_fails_the_longhand(
+    mutation: str, frame: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference = _fit(LTMLE, [_randomized()], frame, n_folds=1).fits["randomized"]
+    (step,) = reference.steps
+    expected = _longhand_term(frame, step.probes, "quantile", RANDOMIZED_SLOTS)
+    if mutation == "unweighted":
+        _unweighted(monkeypatch)
+    else:
+        _drop_slot(monkeypatch, 0 if mutation == "drop x" else 1)
+    mutated = _fit(LTMLE, [_randomized()], frame, n_folds=1).fits["randomized"]
+    assert np.max(np.abs(mutated.tuning_term - expected)) > CAUGHT
+
+
+def _check_branch_probes(designs: dict[str, np.ndarray], frame: pd.DataFrame) -> None:
+    """Branch x's probes set the flag to 1 and branch y's to 0, with A set and B natural."""
+    cap = _longhand_tuner(frame, "A", "quantile")[1]
+    for index, flag in enumerate((1.0, 0.0)):
+        for side, value in enumerate((cap, cap - 1.0)):
+            expected = np.array(designs["history"], dtype=float)
+            expected[:, DESIGN["F"]] = flag
+            expected[:, DESIGN["A"]] = value
+            np.testing.assert_allclose(
+                designs[f"probe_{2 * index + side}"], expected, rtol=0, atol=1e-12
+            )
+
+
+def _first_branch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mutation: every slot's probe reads the first branch's assigned vector."""
+    original = sequential.outcome_design
+
+    def mutated(data: Any, plan: Any, time: int, arm: Any = None, **kwargs: Any) -> Any:
+        if kwargs.get("component") is not None:
+            arm = 0
+        return original(data, plan, time, arm, **kwargs)
+
+    monkeypatch.setattr(sequential, "outcome_design", mutated)
+
+
+def test_t_e4_each_branch_probe_reads_its_own_assigned_vector(
+    frame: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = _recorded_designs(monkeypatch)
+    _fit(LTMLE, [_randomized()], frame, n_folds=1)
+    _check_branch_probes(seen[0], frame)
+    # The nonzero witness: both flag values occur.
+    assert 0.2 < float(np.mean(frame["F"] == 0.0)) < 0.8
+    seen.clear()
+    _first_branch(monkeypatch)
+    _fit(LTMLE, [_randomized()], frame, n_folds=1)
+    with pytest.raises(AssertionError):
+        _check_branch_probes(seen[0], frame)
+
+
+@pytest.mark.parametrize("kind", sorted(ORACLE_TUNERS))
+def test_t_e4_the_estimated_terms_match_the_oracle(kind: str) -> None:
+    """Each tuner's ``fit.tuning_derivatives`` against law V's terms by quadrature.
+
+    Flexible regressions make the probes consistent near the boundary, which the kernel
+    estimate needs.  Measured relative gaps at n = 8,000: at most 0.087 (two doses) and
+    0.034 (the randomizer).  The mutated randomizer terms, without the probabilities or
+    without one branch, differ from the estimate by 0.47 or more.
+    """
+    from sklearn.ensemble import HistGradientBoostingRegressor as HGB
+
+    learner = HGB(max_iter=300, learning_rate=0.05, random_state=0)
+    result = _fit(
+        LTMLE,
+        [_two(kind), _randomized(kind)],
+        lv.sample(8_000, 11),
+        n_folds=1,
+        outcome_learner=learner,
+        pseudo_learner=learner,
+    )
+
+    def gap(estimate: np.ndarray, truth: np.ndarray) -> float:
+        return float(np.linalg.norm(estimate - truth) / np.linalg.norm(truth))
+
+    two = lv.LawV(branches=TWO, tuners=ORACLE_TUNERS[kind])
+    for dose, estimate in zip(lv.DOSES, result.fits["two"].tuning_derivatives, strict=True):
+        assert gap(estimate, two.derivative(dose)) < 0.15
+    randomized = lv.LawV(branches=RANDOMIZED, tuners=ORACLE_TUNERS[kind])
+    (estimate,) = result.fits["randomized"].tuning_derivatives
+    assert gap(estimate, randomized.derivative("A")) < 0.15
+    for curve in (lv.Curve(weighted=False), lv.Curve(skip=(0,)), lv.Curve(skip=(1,))):
+        assert gap(estimate, randomized.derivative("A", curve)) > 0.3
