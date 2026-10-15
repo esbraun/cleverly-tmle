@@ -172,7 +172,7 @@ functions by name, because two counts of its lines differ by two.
 | X57 (d) | no interval at $\gamma \neq 0$ |
 | X11 (i) to (o) | condition C3 in its fixed-limit form (van der Laan and Luedtke 2015, Theorem 6). Part (l) uses the few-cluster rules. Part (m) waits on X28 and part (n) on X9 |
 | X26 | a declared known mechanism, with no truncation of it |
-| X58 (a) to (d) | a declared regular parametric outcome model; a declared smooth parametric adaptive mechanism; the stated `g_bounds` behavior. Coverage of $\psi_0$ needs a correct outcome model on the joint-equation route, or a known or consistently estimated $g_0$ on the full-mechanism route. Pointwise, and regular in the declared model |
+| X58 (a) to (d) | a declared regular parametric outcome model; a declared smooth parametric adaptive mechanism; the stated `g_bounds` behavior. Coverage of $\psi_0$ needs a correct outcome model, or a clipped mechanism limit equal to $g_0$. Otherwise the interval covers its limit $\psi^*$. Pointwise, and regular in the declared model. Part (a) shipped on the joint-equation route, and the full-mechanism route is not built |
 
 ## Abstract-only sources
 

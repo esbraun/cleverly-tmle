@@ -480,7 +480,15 @@ class TestDownstreamMachineryStillWorks:
             if design == "shared"
             else "C-TMLE outcome-adaptive fit used one Qbar feature per arm in 2 binary mechanisms"
         )
-        assert oat.extra["ctmle"].describe() == sentence
+        refusal = oat.extra["ctmle"].stacked_refusal
+        if design == "shared":
+            assert oat.extra["ctmle"].describe() == sentence
+        else:
+            # The default outcome learner is outside the stacked interval of X58.
+            assert refusal is not None and "outcome_learner" in refusal
+            assert (
+                oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval (X58): {refusal}"
+            )
         assert sentence in diagnostics.summary()
         assert sentence in oat.diagnostics.run_all()["nuisance_models"].detail
 
@@ -569,19 +577,10 @@ def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
     mutated-role report below is the control that shows the AUC is extreme enough for the
     suppression to be doing the work.
 
-    ``docs/examples/collaborative-tmle.ipynb`` makes the *same* claim on a different fit.
-    Its search stops at ``social_support`` rather than at the intercept, so its selected
-    mechanism reports an AUC of ``0.516`` and a calibration slope near ``1``, and the
-    suppression is what keeps those two numbers from raising a finding there. The extreme
-    end of that behaviour is pinned here and not there.
-
-    The fit here is on a binary outcome rather than the notebook's continuous one: a
-    cross-fitted fit of a continuous outcome now needs a declared ``q_bounds``
-    (the fold and scale rules), which ``instrument_dgp``'s unbounded outcome cannot state
-    truthfully. This test keeps cross-fitting, because its subject is a cross-validated
-    calibration slope, which an in-sample fit does not have. The notebook needs a
-    continuous outcome for its own closing step, so it fits in sample instead. Each is the
-    honest choice for its own subject, and the two therefore describe different fits.
+    The fit here is on a binary outcome: a cross-fitted fit of a continuous outcome needs a
+    declared ``q_bounds`` (the fold and scale rules), which ``instrument_dgp``'s unbounded
+    outcome cannot state truthfully. This test keeps cross-fitting, because its subject is a
+    cross-validated calibration slope, which an in-sample fit does not have.
     """
     frame, _ = _make_binary_instrument(n=2_000, seed=44)
     result = (

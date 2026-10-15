@@ -242,6 +242,20 @@ class StudyRecord:
     #: publishes the complete result, including red verdicts, but never relaxes schema,
     #: provenance, convergence, or replication-accounting checks.
     publication_policy: Literal["gated", "reporting"] = "gated"
+    #: What the paired comparison with the reference claims.  ``"gated"`` publishes the
+    #: similarity and non-inferiority verdict in ``equivalence.csv``'s ``passed`` column, and
+    #: the regeneration gates and the red-cell ledger read it.  ``"descriptive"`` publishes the
+    #: same endpoints with no ``passed`` column: the regeneration gates nothing on them, the
+    #: failure accounting adds no paired row, and the ledger reads none of them.  A study
+    #: declares it when the two implementations do not compute the same selected estimate by
+    #: construction, so a paired verdict would test a declared difference rather than either
+    #: implementation.  ``canonical-ctmle-sequences`` is the case: R ``ctmle`` scores its
+    #: cross-validation after an all-row refit (X16 plan, quirk 2).
+    paired_role: Literal["gated", "descriptive"] = "gated"
+    #: Further committed result files that the property module writes beside its rows, through
+    #: a ``generate_property_artifacts`` hook.  A record that declares them must have the
+    #: hook, and the regeneration driver writes and hashes each one.
+    property_artifacts: tuple[str, ...] = ()
     #: Further committed result files supplied by a study-specific ``extra_artifacts`` hook.
     extra_artifacts: tuple[str, ...] = ()
     #: Whether each replication row carries its own truth.
@@ -274,6 +288,12 @@ class StudyRecord:
                 "publication_policy must be 'gated' or 'reporting'; "
                 f"got {self.publication_policy!r}"
             )
+        if self.paired_role not in ("gated", "descriptive"):
+            raise ValueError(
+                f"paired_role must be 'gated' or 'descriptive'; got {self.paired_role!r}"
+            )
+        if self.paired_role == "descriptive" and self.reference is None:
+            raise ValueError("a descriptive paired role needs a reference to pair with")
         if self.truth_varies_by_replicate and self.reference is not None:
             raise ValueError(
                 "a record whose truth varies by replication cannot declare a reference: the "
@@ -455,12 +475,17 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_crossfit_longitudinal_msm import (
         STUDY as CROSSFIT_LONGITUDINAL_MSM,
     )
+    from tests.studies.canonical_ctmle_derivative import STUDY as CANONICAL_CTMLE_DERIVATIVE
     from tests.studies.canonical_ctmle_oat import STUDY as CANONICAL_CTMLE_OAT
     from tests.studies.canonical_ctmle_oat_per_arm import STUDY as CTMLE_OAT_PER_ARM
+    from tests.studies.canonical_ctmle_oat_per_arm_parametric import (
+        STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC,
+    )
     from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
         STUDY as CTMLE_OAT_PER_ARM_STRATA_MISSING,
     )
     from tests.studies.canonical_ctmle_selector import STUDY as CANONICAL_CTMLE_SELECTOR
+    from tests.studies.canonical_ctmle_sequences import STUDY as CANONICAL_CTMLE_SEQUENCES
     from tests.studies.canonical_cvtmle import STUDY as CANONICAL_CVTMLE
     from tests.studies.canonical_deterministic_regimes import (
         STUDY as CANONICAL_DETERMINISTIC_REGIMES,
@@ -518,6 +543,11 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_point_survival_crossfit import (
         STUDY as POINT_SURVIVAL_CROSSFIT,
     )
+    from tests.studies.canonical_point_survival_curve import STUDY as POINT_SURVIVAL_CURVE
+    from tests.studies.canonical_point_survival_curve_crossfit import (
+        STUDY as POINT_SURVIVAL_CURVE_CROSSFIT,
+    )
+    from tests.studies.canonical_point_survival_hazard import STUDY as POINT_SURVIVAL_HAZARD
     from tests.studies.canonical_point_survival_policies import (
         STUDY as POINT_SURVIVAL_POLICIES,
     )
@@ -537,6 +567,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_stratified_tmle import STUDY as CANONICAL_STRATIFIED_TMLE
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
+    from tests.studies.canonical_vector_mtp import STUDY as VECTOR_MTP
     from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
     from tests.studies.canonical_weighted_ltmle_crossfit import (
         STUDY as CANONICAL_WEIGHTED_LTMLE_CROSSFIT,
@@ -575,6 +606,8 @@ def registered() -> tuple[StudyRecord, ...]:
         REPEATED_CROSSFIT_TMLE,
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
+        CANONICAL_CTMLE_SEQUENCES,
+        CANONICAL_CTMLE_DERIVATIVE,
         CANONICAL_CTMLE_OAT,
         CANONICAL_MULTI_ARM_CTMLE_OAT,
         CANONICAL_DRTMLE,
@@ -601,6 +634,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_CATEGORICAL_LTMLE,
         STOCHASTIC_CATEGORICAL_LTMLE,
         LONGITUDINAL_MTP,
+        VECTOR_MTP,
         LONGITUDINAL_SDR,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
@@ -614,6 +648,9 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
+        POINT_SURVIVAL_HAZARD,
+        POINT_SURVIVAL_CURVE,
+        POINT_SURVIVAL_CURVE_CROSSFIT,
         POINT_SURVIVAL_POLICIES,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
@@ -621,6 +658,7 @@ def registered() -> tuple[StudyRecord, ...]:
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
         CTMLE_OAT_PER_ARM,
+        CTMLE_OAT_PER_ARM_PARAMETRIC,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         CALIBRATION_SLOPE_WARNING,

@@ -107,8 +107,10 @@ def _risk_ratio_refusal(
             ),
             roadmap="X65",
         )
-    if result.data.is_continuous_treatment:
-        return _invalid("derived risk ratios are unavailable for a continuous treatment.")
+    if not result.data.has_arms:
+        return _invalid(
+            "derived risk ratios are unavailable for a treatment with a continuous dose."
+        )
     if result.config.family != "binomial":
         return _invalid("derived risk ratios require a binomial outcome.")
     method = result.fitted_method

@@ -348,11 +348,12 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ),
     ("src/cleverly/estimators/_strata.py", "has no trainable rows for a reduced"): _SPLIT,
     ("src/cleverly/estimators/ctmle.py", "has no observed training outcomes"): _SPLIT,
+    ("src/cleverly/estimators/ctmle.py", "has no trainable rows for a nuisance"): _SPLIT,
     ("src/cleverly/estimators/reduced.py", "has no trainable rows for a reduced"): _SPLIT,
     **{
         ("src/cleverly/estimators/ctmle.py", f"{name}= only applies to strategy="): "a "
         "malformed argument: the option belongs to another strategy of the same estimator"
-        for name in ("candidates", "ordering", "preorder", "oat_design")
+        for name in ("candidates", "ordering", "preorder", "oat_design", "lambdas")
     },
     ("src/cleverly/estimators/reduced.py", "must contain only finite values"): _MALFORMED,
     ("src/cleverly/estimators/targeting.py", "intervention that defines it; this"): (_INTERNAL),
@@ -378,6 +379,7 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/inference/influence.py", "Call wald_test(null=...)"): _MALFORMED,
     ("src/cleverly/inference/results.py", "has no finite value or slope"): _MALFORMED,
     ("src/cleverly/learners/_fitting.py", "has no predict_proba"): _MALFORMED,
+    ("src/cleverly/learners/_l1_logistic.py", "lambdas must be a non-empty sequence"): (_MALFORMED),
     ("src/cleverly/sensitivity/_simulated_confounding_request.py", "contain only column"): (
         _MALFORMED
     ),
@@ -694,8 +696,14 @@ def _evalue_refusal() -> CleverlyError:
     )
 
 
+def _forbidden_read() -> CleverlyError:
+    from cleverly.interventions.policy import ForbiddenRead
+
+    return ForbiddenRead("D2")
+
+
 #: How to build a class whose constructor takes more than the record's parts.
-_ERROR_BUILDERS = {"_EValueRefusal": _evalue_refusal}
+_ERROR_BUILDERS = {"_EValueRefusal": _evalue_refusal, "ForbiddenRead": _forbidden_read}
 
 
 class TestTheErrors:

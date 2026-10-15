@@ -366,7 +366,7 @@ def test_failed_sparse_fit_is_not_dropped(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_every_declared_batch_factory_builds_fresh_learners() -> None:
     batches = repair.all_batches()
-    assert len(batches) == 12 and sum(map(len, batches.values())) == 13
+    assert len(batches) == 13 and sum(map(len, batches.values())) == 14
     for items in batches.values():
         for batch in items:
             for cell in batch.cells:

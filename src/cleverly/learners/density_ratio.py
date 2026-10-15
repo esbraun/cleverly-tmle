@@ -36,6 +36,7 @@ from typing import Any
 import numpy as np
 
 from .._typing import FloatArray, IntArray, Learner
+from ..exceptions import DataError
 from ..utils.parallel import map_parallel
 from ._fitting import fit_learner, predict_mean
 from .crossfit import Folds
@@ -66,18 +67,21 @@ def classifier_ratio(
     learner : Learner
         The binary classifier of the stacked label.
     covariates : ndarray
-        ``(n, p)`` the history :math:`H`.  The dose is prepended as column zero.
+        ``(n, p)`` the history :math:`H`.  The treatment columns are prepended to it.
     observed : ndarray
-        ``(n,)`` observed dose, the :math:`\\lambda = 0` block.
+        ``(n,)`` observed dose, or the ``(n, d)`` design of a vector treatment: the
+        :math:`\\lambda = 0` block.
     assigned : sequence of tuple
-        ``(probability, dose)`` per randomizer value, the :math:`\\lambda = 1` blocks.  A
-        deterministic policy passes one pair with probability one.
+        ``(probability, dose)`` per randomizer value, the :math:`\\lambda = 1` blocks, each
+        dose of the shape of ``observed``.  A deterministic policy passes one pair with
+        probability one.
     weights : ndarray
         ``(n,)`` observation weights.
     folds : Folds
         The outer split of the units.
     evaluate_at : sequence of ndarray
-        ``(n,)`` doses at which to return the ratio, one array per request.
+        Doses of the shape of ``observed`` at which to return the ratio, one array per
+        request.
     fit_mask : ndarray or None
         ``(n,)`` the units the classifier may train on.  ``None`` is every unit.
     groups : ndarray or None
@@ -96,11 +100,15 @@ def classifier_ratio(
     if h.ndim == 1:
         h = h.reshape(-1, 1)
     n = h.shape[0]
-    a = np.asarray(observed, dtype=float).reshape(-1)
+    a = _treatment_block(observed, n, None, "observed")
+    width = a.shape[1]
     w = np.asarray(weights, dtype=float).reshape(-1)
     mask = np.ones(n, dtype=bool) if fit_mask is None else np.asarray(fit_mask, dtype=bool)
     units = np.arange(n, dtype=np.int64) if groups is None else np.asarray(groups)
-    blocks = [(0.0, 1.0, a)] + [(1.0, float(p), np.asarray(d, dtype=float)) for p, d in assigned]
+    blocks = [(0.0, 1.0, a)] + [
+        (1.0, float(p), _treatment_block(d, n, width, "an assigned dose")) for p, d in assigned
+    ]
+    requests = [_treatment_block(dose, n, width, "evaluate_at") for dose in evaluate_at]
 
     def fit_on(rows: IntArray) -> Learner:
         keep = rows[mask[rows]]
@@ -112,14 +120,14 @@ def classifier_ratio(
 
     def ratio_at(model: Learner, rows: IntArray) -> list[FloatArray]:
         out = []
-        for dose in evaluate_at:
-            values = np.asarray(dose, dtype=float).reshape(-1)[rows]
+        for dose in requests:
+            values = dose[rows]
             u = predict_mean(model, np.column_stack([values, h[rows]]), "classification")
             u = np.minimum(np.clip(u, 0.0, 1.0), _ODDS_GUARD)
             out.append(np.asarray(u / (1.0 - u), dtype=float))
         return out
 
-    results = [np.zeros(n) for _ in evaluate_at]
+    results = [np.zeros(n) for _ in requests]
     if folds.is_single:
         everyone = np.arange(n, dtype=np.int64)
         for target, values in zip(results, ratio_at(fit_on(everyone), everyone), strict=True):
@@ -135,3 +143,25 @@ def classifier_ratio(
         for target, column in zip(results, parts, strict=True):
             target[test] = column
     return results
+
+
+def _treatment_block(values: Any, n: int, width: int | None, what: str) -> FloatArray:
+    """A dose as an ``(n, d)`` block: a vector of ``n`` doses is one column.
+
+    Two dimensions are read as they are, so a vector treatment's design is never flattened
+    into ``n * d`` rows.
+    """
+    block = np.asarray(values, dtype=float)
+    if block.ndim == 1:
+        block = block.reshape(-1, 1)
+    if block.ndim != 2 or block.shape[0] != n:
+        raise DataError(
+            f"{what} has shape {np.shape(values)}; the classifier reads (n,) or (n, d) "
+            f"treatment values with n = {n}"
+        )
+    if width is not None and block.shape[1] != width:
+        raise DataError(
+            f"{what} has {block.shape[1]} treatment column(s) and the observed treatment has "
+            f"{width}; every block of the stack holds the same columns"
+        )
+    return block

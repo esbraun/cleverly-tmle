@@ -10,7 +10,12 @@ import narwhals as nw
 
 from ._typing import Family
 from .data import CausalData
-from .data.known_mechanism import KNOWN_CTMLE_REFUSAL, probability_columns
+from .data.causal_data import _vector_components
+from .data.known_mechanism import (
+    KNOWN_CTMLE_REFUSAL,
+    KNOWN_POLICY_CLASSIFIER_REFUSAL,
+    probability_columns,
+)
 from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
 from .estimators._strata import check_stratified_targets
@@ -420,8 +425,12 @@ class PointTreatment:
     ----------
     outcome : str
         Outcome column.
-    treatment : str
-        Discrete treatment or continuous dose column.
+    treatment : str or sequence of str
+        Discrete treatment or continuous dose column, or the columns of a vector
+        treatment.  A vector of categorical columns is one categorical treatment over the
+        observed tuples.  A vector with a column in ``continuous_treatment`` takes
+        ``ModifiedTreatmentPolicy`` with :class:`~cleverly.interventions.JointPolicy`
+        declarations only.
     adjustment : sequence of str
         Baseline adjustment columns. Supply at least one unless ``randomized=True``.
     randomized : bool
@@ -445,7 +454,9 @@ class PointTreatment:
         beside an incremental estimand, and an ``MSMProjection`` whose design is singular
         inside a stratum.
     treatment_kind : {"discrete", "continuous"}
-        Treatment support used to select supported estimands.
+        Treatment support used to select supported estimands, for a treatment of one
+        column.  A vector treatment keeps ``"discrete"`` and names its doses in
+        ``continuous_treatment``.
     outcome_family : {"auto", "gaussian", "binomial"}
         Outcome family. ``"auto"`` infers it from observed values.
     treatment_missingness : str or None
@@ -455,12 +466,21 @@ class PointTreatment:
         in-sample per-arm outcome-adaptive CTMLE. It also identifies regime means and arm
         MSMs on in-sample TMLE fits.
     treatment_probabilities : mapping of level to str, or None
-        The known treatment mechanism of a randomized design: each treatment level mapped to
+        The known treatment mechanism of a randomized design (a tuple of ``(level, column)``
+        pairs, the form the design stores, is also accepted): each treatment level mapped to
         the column that holds ``P(A = level | W)``.  Every method then divides by these
         probabilities in place of an estimate, and the columns are not adjustment
         covariates.  A design names columns, so the array forms of
         :meth:`cleverly.TMLE.fit` are refused here.  ``CollaborativeTMLEMethod`` is
         unavailable on such a design, because there is no mechanism to select.
+    continuous_treatment : sequence of str
+        The columns of a vector ``treatment`` that hold a continuous dose.
+
+    Attributes
+    ----------
+    treatment_columns : tuple of str
+    treatment_name : str
+    support : {"discrete", "continuous", "vector"}
 
     See Also
     --------
@@ -494,7 +514,7 @@ class PointTreatment:
     """
 
     outcome: str
-    treatment: str
+    treatment: str | tuple[str, ...]
     adjustment: Sequence[str] = field(default_factory=tuple)
     randomized: bool = False
     missingness: str | None = None
@@ -508,12 +528,28 @@ class PointTreatment:
     outcome_family: Family = "auto"
     treatment_missingness: str | None = None
     treatment_probabilities: Any = None
+    continuous_treatment: Sequence[str] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         object.__setattr__(self, "strata", tuple(self.strata))
+        continuous = self.continuous_treatment
+        object.__setattr__(
+            self,
+            "continuous_treatment",
+            (str(continuous),) if isinstance(continuous, str) else tuple(map(str, continuous)),
+        )
+        vector = not isinstance(self.treatment, str)
+        if vector:
+            object.__setattr__(self, "treatment", tuple(str(name) for name in self.treatment))
+        # The container's own rules, so a design and the data it prepares refuse alike.
+        _vector_components(
+            self.treatment,
+            self.continuous_treatment,
+            None if vector and self.treatment_kind == "discrete" else self.treatment_kind,
+        )
         if self.treatment_probabilities is not None:
-            columns = probability_columns(self.treatment_probabilities)
+            columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
                 raise DataError(
                     "PointTreatment(treatment_probabilities=) maps each treatment level to "
@@ -524,7 +560,7 @@ class PointTreatment:
             object.__setattr__(self, "treatment_probabilities", columns)
         if not self.outcome or not self.treatment:
             raise DataError("outcome and treatment must be non-empty column names")
-        if self.outcome == self.treatment:
+        if self.outcome in self.treatment_columns:
             raise DataError("outcome and treatment must name different columns")
         if len(set(self.adjustment)) != len(self.adjustment):
             raise DataError(f"adjustment contains duplicate columns: {list(self.adjustment)}")
@@ -533,6 +569,27 @@ class PointTreatment:
                 "declare a non-empty adjustment set or randomized=True; an empty set is "
                 "an identification claim, not a nuisance-model default"
             )
+
+    @property
+    def treatment_columns(self) -> tuple[str, ...]:
+        """The treatment's columns: one, or the components of a vector."""
+        return (self.treatment,) if isinstance(self.treatment, str) else self.treatment
+
+    @property
+    def treatment_name(self) -> str:
+        """The treatment's name: its column, or its components joined by ``+``."""
+        return "+".join(self.treatment_columns)
+
+    @property
+    def support(self) -> Literal["discrete", "continuous", "vector"]:
+        """What the prepared treatment is, as :attr:`CausalData.treatment_kind` records it.
+
+        ``"vector"`` is a vector with a continuous component, which has no arms.  An
+        all-categorical vector is ``"discrete"``: one categorical treatment over its tuples.
+        """
+        if isinstance(self.treatment, str):
+            return self.treatment_kind
+        return "vector" if self.continuous_treatment else "discrete"
 
     def prepare(self, data: Any) -> CausalData:
         """Validate data and encode the declared column roles.
@@ -560,10 +617,11 @@ class PointTreatment:
                 )
             data = frame.with_columns(nw.lit(0.0).alias(RANDOMIZED_INTERCEPT)).to_native()
             covariates = (RANDOMIZED_INTERCEPT,)
+        vector = not isinstance(self.treatment, str)
         return CausalData.from_frame(
             data,
             outcome=self.outcome,
-            treatment=self.treatment,
+            treatment=list(self.treatment) if vector else self.treatment,
             covariates=covariates,
             delta=self.missingness,
             intermediate=self.intermediate,
@@ -573,7 +631,8 @@ class PointTreatment:
             id=self.cluster,
             strata=self.strata,
             family=self.outcome_family,
-            treatment_kind=self.treatment_kind,
+            treatment_kind=None if vector else self.treatment_kind,
+            continuous_treatment=self.continuous_treatment,
             treatment_delta=self.treatment_missingness,
             treatment_probabilities=(
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
@@ -591,14 +650,27 @@ class PointTreatment:
         """
         expected: tuple[tuple[str, Any, Any], ...] = (
             ("outcome", self.outcome, data.outcome_name),
-            ("treatment", self.treatment, data.treatment_name),
+            ("treatment", self.treatment_name, data.treatment_name),
+            (
+                "continuous_treatment",
+                tuple(sorted(self.continuous_treatment)),
+                tuple(
+                    sorted(
+                        name
+                        for name, levels in zip(
+                            data.component_names, data.component_levels, strict=True
+                        )
+                        if not levels
+                    )
+                ),
+            ),
             ("missingness", self.missingness, data.delta_name),
             ("treatment_missingness", self.treatment_missingness, data.treatment_delta_name),
             ("intermediate", self.intermediate, data.intermediate_name),
             ("cluster", self.cluster, data.cluster_name),
             ("weights", self.weights, data.weights_name),
             ("strata", tuple(self.strata), tuple(data.strata_names)),
-            ("treatment_kind", self.treatment_kind, data.treatment_kind),
+            ("treatment_kind", self.support, data.treatment_kind),
             # Not role names, but they change what the reported variance means, so a
             # disagreement here is as consequential as a mis-named column.
             ("weights_type", self.weights_type, data.weight_spec.kind),
@@ -643,12 +715,43 @@ class PointTreatment:
             )
 
 
+def _stored_pairs(supplied: Any) -> Any:
+    """Read the stored form of a mapping field, a tuple of key and value pairs, as a mapping.
+
+    A frozen design stores each declared mapping as a tuple of pairs, so that the design is
+    hashable.  ``dataclasses.replace`` hands every stored field back to ``__init__``, so each
+    normalizer has to read the form it stores.  Any other value is returned unchanged.  Pairs
+    that repeat a key, or hold an unhashable key, say what a mapping cannot say, so they raise
+    :class:`~cleverly.exceptions.DataError`.
+    """
+    if isinstance(supplied, tuple) and all(
+        isinstance(pair, tuple) and len(pair) == 2 for pair in supplied
+    ):
+        keys = [key for key, _ in supplied]
+        try:
+            distinct = len(set(keys))
+        except TypeError:
+            raise DataError(
+                f"a mechanism declared as pairs needs hashable keys; got {keys!r}"
+            ) from None
+        if distinct != len(keys):
+            repeated = next(key for key in keys if keys.count(key) > 1)
+            raise DataError(
+                f"a mechanism declared as pairs repeats the key {repeated!r}; a mapping "
+                "holds one column for each key"
+            )
+        return dict(supplied)
+    return supplied
+
+
 def _node_probability_columns(supplied: Any) -> tuple[tuple[str, tuple[tuple[Any, str], ...]], ...]:
     """A longitudinal design's treatment declaration, as hashable column pairs by node."""
     pairs = None
+    supplied = _stored_pairs(supplied)
     if isinstance(supplied, Mapping):
         pairs = tuple(
-            (str(node), probability_columns(per_node)) for node, per_node in supplied.items()
+            (str(node), probability_columns(_stored_pairs(per_node)))
+            for node, per_node in supplied.items()
         )
     if pairs is None or any(columns is None for _, columns in pairs):
         raise DataError(
@@ -662,6 +765,7 @@ def _node_probability_columns(supplied: Any) -> tuple[tuple[str, tuple[tuple[Any
 
 def _censoring_probability_columns(supplied: Any) -> tuple[tuple[str, str], ...]:
     """A longitudinal design's censoring declaration, as hashable column pairs."""
+    supplied = _stored_pairs(supplied)
     if not isinstance(supplied, Mapping) or not all(
         isinstance(column, str) for column in supplied.values()
     ):
@@ -713,7 +817,7 @@ class LongitudinalTreatment:
         held over every node.  The node count then comes from a survival or repeated
         outcome, else from ``censoring``, else from ``time_varying``, else it is one.
     baseline : sequence of str
-        Covariates observed before the first treatment.
+        Covariates observed before the first treatment.  The list names at least one column.
     time_varying : sequence of sequence of str or None
         Covariate blocks observed before each treatment node.
     censoring : sequence of str or None
@@ -732,12 +836,14 @@ class LongitudinalTreatment:
         The treatment nodes that hold a continuous dose.  Each such node takes a modified
         treatment policy, such as :class:`~cleverly.interventions.Shift`.
     treatment_probabilities : mapping or None
-        The known treatment mechanism of a sequentially randomized design: each treatment
+        The known treatment mechanism (a tuple of pairs, the form the design stores, is also
+        accepted) of a sequentially randomized design: each treatment
         node mapped to a mapping of its levels to the column of
         ``P(A_t = level | observed past)``.  A declared node fits no treatment learner.
     censoring_probabilities : mapping or None
-        The known retention probabilities: each censoring column mapped to the column of
-        ``P(C_t = 1 | observed past)``.  A declared node fits no censoring learner.
+        The known retention probabilities (a tuple of pairs is also accepted): each censoring
+        column mapped to the column of ``P(C_t = 1 | observed past)``.  A declared node fits no
+        censoring learner.
 
     See Also
     --------
@@ -873,7 +979,12 @@ class LongitudinalTreatment:
         events, causes = self._outcome_roles()
         empty: tuple[str, ...] = ()
         held = isinstance(self.treatment, str)
-        declared_treatment = (self.treatment,) if held else tuple(self.treatment)
+        # A vector node is declared as its list of columns and named by their join.
+        declared_treatment = (
+            (self.treatment,)
+            if held
+            else tuple(node if isinstance(node, str) else "+".join(node) for node in self.treatment)
+        )
         blocks = (
             tuple(empty for _ in range(data.n_times if held else len(declared_treatment)))
             if self.time_varying is None
@@ -906,11 +1017,7 @@ class LongitudinalTreatment:
             (
                 "continuous_treatment",
                 tuple(self.continuous_treatment),
-                tuple(
-                    name
-                    for time, name in enumerate(data.treatment_names, start=1)
-                    if data.is_continuous_node(time)
-                ),
+                data.continuous_columns,
             ),
             (
                 "treatment_probabilities",
@@ -964,7 +1071,7 @@ class TimeToEvent:
     treatment : str
         The baseline treatment column.
     baseline : sequence of str
-        Covariates measured before the treatment.
+        Covariates measured before the treatment.  The list names at least one column.
     grid : sequence of float or None
         The grid times, which are the visit times.  ``None`` needs integer times and uses
         :math:`g_k = k` up to the largest event time.  The fit costs :math:`K(K+1)/2`
@@ -989,7 +1096,8 @@ class TimeToEvent:
         Whether the treatment is a continuous dose.  A regimen is then a modified treatment
         policy at baseline.
     treatment_probabilities : mapping of level to str, or None
-        The known baseline treatment mechanism of a randomized design: each treatment level
+        The known baseline treatment mechanism (a tuple of ``(level, column)`` pairs is also
+        accepted) of a randomized design: each treatment level
         mapped to the column that holds :math:`P(A = \text{level} \mid W)`.  The fit then
         divides by these probabilities and fits no treatment learner.  A design names
         columns, so the array forms of :meth:`cleverly.longitudinal.LTMLE.fit` are refused
@@ -1031,7 +1139,7 @@ class TimeToEvent:
 
     def __post_init__(self) -> None:
         if self.treatment_probabilities is not None:
-            columns = probability_columns(self.treatment_probabilities)
+            columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
                 raise DataError(
                     "TimeToEvent(treatment_probabilities=) maps each treatment level to the "
@@ -1168,7 +1276,8 @@ class LongPanel:
     treatment : str or sequence of str
         The decision at each row.  A list of columns is one vector node per time.
     baseline : sequence of str
-        Unit-level covariates measured before the first decision.
+        Unit-level covariates measured before the first decision.  The list names at least one
+        column.
     time_varying : sequence of str
         Covariates measured at each row before that row's decision.
     censoring : str or None
@@ -1195,7 +1304,8 @@ class LongPanel:
         Whether the treatment holds a continuous dose at every node.
     treatment_probabilities : mapping of level to str, or None
         The known treatment mechanism: each level mapped to the column that holds
-        ``P(A_t = level | past)`` on each row.
+        ``P(A_t = level | past)`` on each row.  A tuple of ``(level, column)`` pairs, the form
+        the design stores, is also accepted.
     censoring_probabilities : str or None
         The column that holds ``P(C_t = 1 | past)`` on each row.
 
@@ -1254,9 +1364,8 @@ class LongPanel:
         if self.times is not None:
             object.__setattr__(self, "times", tuple(self.times))
         if self.treatment_probabilities is not None:
-            object.__setattr__(
-                self, "treatment_probabilities", tuple(self.treatment_probabilities.items())
-            )
+            declared = _stored_pairs(self.treatment_probabilities)
+            object.__setattr__(self, "treatment_probabilities", tuple(declared.items()))
 
     @property
     def outcome_role(self) -> Any:
@@ -1988,6 +2097,16 @@ _STRING_ESTIMANDS: dict[str, str] = {
 }
 
 
+#: Why :class:`~cleverly.longitudinal.IPSI` is unavailable for a plan with a policy node.
+IPSI_POLICY_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "IPSI estimates no density ratio for a modified treatment policy, a joint policy or a "
+    "risk-ratio tilt, so it has no estimator for a plan with such a node.",
+    alternative="Fit the plans by LTMLE or SDR.",
+    roadmap="F33",
+)
+
+
 def _narrow_bands(
     result: Any, retained: Mapping[str, Any], method: EstimationMethod
 ) -> SimultaneousBands | None:
@@ -2406,6 +2525,35 @@ _CONTINUOUS_DOSE_STATEMENTS = (
 )
 
 
+def _design_has_arms(design: PointTreatment) -> bool:
+    """Whether the design's treatment has arms, read from :attr:`PointTreatment.support`.
+
+    Every axis reader asks this one function, and it names each support it knows.  A
+    support it does not know raises, so a new kind of treatment cannot take the arm branch
+    of a reader written before it existed.
+    """
+    support = design.support
+    if support == "discrete":
+        return True
+    if support in ("continuous", "vector"):
+        return False
+    raise CleverlyError(
+        f"treatment support {support!r} has no reading in the study spine; the supports "
+        "are 'discrete', 'continuous' and 'vector'"
+    )
+
+
+def _vector_statements(design: PointTreatment) -> tuple[str, str]:
+    """The positivity sentence and the mechanism scope of a vector with a dose."""
+    columns = ", ".join(design.treatment_columns)
+    return (
+        f"positivity for the evaluated treatment values: the joint conditional law of "
+        f"({columns}) given W has a positive density wherever the target functional gives "
+        "a value positive weight",
+        "wherever the target functional gives a value positive weight",
+    )
+
+
 def _arm_scope(
     design: PointTreatment, functional: BackdoorMeanContrast
 ) -> tuple[_ArmScope, str, str]:
@@ -2426,12 +2574,14 @@ def _arm_scope(
         put a blank assumption in the record.
     """
     scope = _ArmScope(
-        treatment=design.treatment,
+        treatment=design.treatment_name,
         reference=functional.reference_arm,
         selected=functional.selected_arm,
         levels=functional.treatment_levels,
-        continuous=design.treatment_kind == "continuous",
+        continuous=not _design_has_arms(design),
     )
+    if design.support == "vector":
+        return (scope, *_vector_statements(design))
     if scope.continuous:
         return (scope, *_CONTINUOUS_DOSE_STATEMENTS)
     row = _ARM_STATEMENTS.get(functional.target)
@@ -2468,12 +2618,12 @@ def _conditioning_event_statement(design: PointTreatment, scope: _ArmScope, targ
     if target == "att":
         return (
             f"the conditioning event has positive probability: "
-            f"P({design.treatment} = a) > 0 for every comparison arm a"
+            f"P({design.treatment_name} = a) > 0 for every comparison arm a"
         )
     if target == "atc":
         return (
             f"the reference conditioning event has positive probability: "
-            f"P({design.treatment} = {scope.reference!r}) > 0"
+            f"P({design.treatment_name} = {scope.reference!r}) > 0"
         )
     raise CapabilityError(
         f"the target {target!r} declares a conditioning event but names no population "
@@ -2533,11 +2683,11 @@ def _bound_dr_condition(
     if target == "ey_obs":
         return (
             "consistent if either m(A, W) = E(Y | Delta = 1, A, W) is consistent "
-            f"or P({missingness} = 1 | {design.treatment}, W) is consistent; no "
+            f"or P({missingness} = 1 | {design.treatment_name}, W) is consistent; no "
             "treatment mechanism enters the remainder"
         )
     if target in POPULATION_INTERVENTION_TARGETS and missingness is not None:
-        treatment, reference = design.treatment, functional.reference_arm
+        treatment, reference = design.treatment_name, functional.reference_arm
         return (
             f"consistent if m({treatment}, W) = E({design.outcome} | {missingness} = 1, "
             f"{treatment}, W) is consistent, or if both P({missingness} = 1 | {treatment}, W) "
@@ -2558,7 +2708,7 @@ def _bound_dr_condition(
     ):
         bound = (
             "consistent if either Qbar(A, W) is consistent or the full mechanism product "
-            f"g * P({missingness} = 1 | {design.treatment}, W) is consistent; a consistent "
+            f"g * P({missingness} = 1 | {design.treatment_name}, W) is consistent; a consistent "
             "treatment mechanism alone is not sufficient once outcomes are missing"
         )
     else:
@@ -2645,7 +2795,7 @@ def _point_identification(
             assert level is not None
             assumptions.append(
                 f"consistency: {design.outcome} = {design.outcome}(a, {level:g}) when "
-                f"{design.treatment} = a and {design.intermediate} = {level:g}"
+                f"{design.treatment_name} = a and {design.intermediate} = {level:g}"
             )
             continue
         if direct and item.startswith(NO_CONFOUNDING_PREFIX):
@@ -2664,7 +2814,7 @@ def _point_identification(
                 assert level is not None
                 assumptions.append(
                     f"intermediate positivity at {design.intermediate} = {level:g}: "
-                    f"P({design.intermediate} = {level:g} | {design.treatment} = b, W) > 0 "
+                    f"P({design.intermediate} = {level:g} | {design.treatment_name} = b, W) > 0 "
                     f"{cells}"
                 )
             continue
@@ -2681,9 +2831,9 @@ def _point_identification(
         nuisances.append(INTERMEDIATE_MECHANISM)
     if missingness is not None:
         conditioning = (
-            f"({design.treatment}, {design.intermediate}, W)"
+            f"({design.treatment_name}, {design.intermediate}, W)"
             if direct
-            else f"({design.treatment}, W)"
+            else f"({design.treatment_name}, W)"
         )
         assumptions.append(
             f"missingness at random for {missingness}: {design.outcome} is independent "
@@ -2692,41 +2842,41 @@ def _point_identification(
         if target == "ey_obs":
             assumptions.append(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
-                f"{design.treatment}, W) > 0 almost surely"
+                f"{design.treatment_name}, W) > 0 almost surely"
             )
         elif target in POPULATION_INTERVENTION_TARGETS:
             reference = functional.reference_arm
             assumptions.append(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
-                f"{design.treatment}, W) > 0 almost surely, for the natural-course term"
+                f"{design.treatment_name}, W) > 0 almost surely, for the natural-course term"
             )
             assumptions.append(
-                f"product positivity at the reference arm: P({design.treatment} = "
-                f"{reference!r} | W) P({missingness} = 1 | {design.treatment} = "
+                f"product positivity at the reference arm: P({design.treatment_name} = "
+                f"{reference!r} | W) P({missingness} = 1 | {design.treatment_name} = "
                 f"{reference!r}, W) > 0 almost surely"
             )
         elif axis == "policy":
             assumptions.append(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
-                f"{design.treatment} = d(a, W), W) > 0 almost surely wherever a declared "
+                f"{design.treatment_name} = d(a, W), W) > 0 almost surely wherever a declared "
                 "shift sends an observed dose"
             )
         elif direct or target in {"att", "atc", "ey", "ey1", "ey0"}:
             _, _, cells = arms()
             assumptions.append(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
-                f"{design.treatment} = b, W) > 0 {cells}"
+                f"{design.treatment_name} = b, W) > 0 {cells}"
             )
         else:
             assumptions.append(
                 f"response positivity for {missingness}: P({missingness} = 1 | "
-                f"{design.treatment} = a, W) > 0 almost surely wherever the target "
+                f"{design.treatment_name} = a, W) > 0 almost surely wherever the target "
                 "functional evaluates arm a"
             )
         if direct:
             assumptions.append(
                 f"observation-mechanism restriction: {missingness} is independent of "
-                f"{design.intermediate} given ({design.treatment}, W), so the fitted "
+                f"{design.intermediate} given ({design.treatment_name}, W), so the fitted "
                 f"response mechanism excludes {design.intermediate}"
             )
         nuisances.append(MISSINGNESS_MECHANISM)
@@ -2739,12 +2889,13 @@ def _point_identification(
         assumptions.append(
             f"treatment missing at random for {treatment_missingness}: "
             f"{design.outcome}(a) is independent of {treatment_missingness} given "
-            f"({design.treatment}, W); the recording may depend on {design.treatment}, so "
-            f"P({design.treatment} = a | W) is not identified and only "
-            f"P({design.treatment} = a | {recorded}, W) is"
+            f"({design.treatment_name}, W); the recording may depend on "
+            f"{design.treatment_name}, so "
+            f"P({design.treatment_name} = a | W) is not identified and only "
+            f"P({design.treatment_name} = a | {recorded}, W) is"
         )
         assumptions.append(
-            f"composite positivity: P({design.treatment} = a, {recorded}{response} | W) > 0 "
+            f"composite positivity: P({design.treatment_name} = a, {recorded}{response} | W) > 0 "
             "almost surely for every arm a"
         )
         nuisances.append(TREATMENT_OBSERVATION_MECHANISM)
@@ -2758,15 +2909,15 @@ def _point_identification(
     if target == "rr":
         assumptions.append(
             f"both counterfactual risks are strictly positive: "
-            f"E_W[E({design.outcome} | {design.treatment} = a, W)] > 0 for every "
-            f"comparison arm a and at {design.treatment} = "
+            f"E_W[E({design.outcome} | {design.treatment_name} = a, W)] > 0 for every "
+            f"comparison arm a and at {design.treatment_name} = "
             f"{functional.reference_arm!r}, so the log risk ratio is defined"
         )
     if target == "or":
         assumptions.append(
             f"both counterfactual risks lie strictly inside (0, 1): "
-            f"0 < E_W[E({design.outcome} | {design.treatment} = a, W)] < 1 for every "
-            f"comparison arm a and at {design.treatment} = "
+            f"0 < E_W[E({design.outcome} | {design.treatment_name} = a, W)] < 1 for every "
+            f"comparison arm a and at {design.treatment_name} = "
             f"{functional.reference_arm!r}, so the odds are finite"
         )
     if target == "ey_obs" and missingness is None:
@@ -2986,7 +3137,7 @@ def _point_functional(
     msm = actual.model if isinstance(actual, MSMProjection) else None
     return BackdoorMeanContrast(
         outcome=design.outcome,
-        treatment=design.treatment,
+        treatment=design.treatment_name,
         adjustment=tuple(design.adjustment),
         target=target,
         axis=registered.parameter_axis,
@@ -2999,9 +3150,7 @@ def _point_functional(
         missingness=design.missingness,
         treatment_missingness=design.treatment_missingness,
         intermediate_name=design.intermediate,
-        treatment_levels=(
-            () if design.treatment_kind == "continuous" else tuple(data.treatment_levels)
-        ),
+        treatment_levels=(tuple(data.treatment_levels) if _design_has_arms(design) else ()),
         treatment_value=(actual.treatment if isinstance(actual, CounterfactualMean) else None),
     )
 
@@ -3225,6 +3374,26 @@ class ExplicitAdjustmentProvider:
         # -- while telling the caller it was "arm-indexed", which it is not.  A regime is a
         # density over arms and an incremental intervention tilts an odds, so those two stay
         # refused; both statements now come from the axis rather than from a spelling.
+        if design.support == "vector" and axis != "policy":
+            reason = (
+                "MSMProjection projects the dose-response curve of one dose over a grid on "
+                "that dose, and a vector has no one dose axis and no integration grid here"
+                if axis == "msm"
+                else f"it is indexed by {axis}, and such a treatment has no arms"
+            )
+            raise CapabilityError(
+                f"treatment {design.treatment_name!r} is a vector with a continuous "
+                f"component, and {type(actual).__name__} is refused: {reason}.",
+                reason=(
+                    RefusalReason.DIFFERENT_ESTIMAND
+                    if axis in {"arm", "regime"}
+                    else RefusalReason.INVALID_DECLARATION
+                ),
+                alternative=(
+                    "A vector design supports ModifiedTreatmentPolicy and "
+                    "ModifiedTreatmentPolicyEffect with policies=[JointPolicy(...), ...]."
+                ),
+            )
         if design.treatment_kind == "continuous" and axis not in {"policy", "msm"}:
             raise CapabilityError.from_refusal(_continuous_dose_refusal(actual, axis))
         if getattr(actual, "horizons", None) is not None:
@@ -3244,7 +3413,7 @@ class ExplicitAdjustmentProvider:
         reference = getattr(actual, "reference", None)
         if (
             reference is not None
-            and design.treatment_kind == "discrete"
+            and _design_has_arms(design)
             and axis == "arm"
             and reference not in data.treatment_levels
         ):
@@ -3651,22 +3820,16 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         # would tell them. An effect built without a study cannot answer this, and it
         # claims nothing.
         design = getattr(self._study, "design", None)
-        clustered = getattr(design, "cluster", None) is not None
-        # A design that declares its mechanism leaves C-TMLE nothing to select.
+        # A design that declares its mechanism leaves C-TMLE nothing to select. A design that
+        # declares clusters keeps the method: strategy="derivative" (C-TMLE0) selects
+        # nothing and has the ordinary TMLE's clustered result, and every other strategy
+        # refuses id= before its first learner.
         known = getattr(design, "treatment_probabilities", None) is not None
         collaborative_item = _variant_roadmap("collaborative_tmle", self.functional, design)
         drtmle_item = _variant_roadmap("drtmle", self.functional, design)
         collaborative_blocker = (
             KNOWN_CTMLE_REFUSAL
             if known
-            else Refusal(
-                RefusalReason.IMPLEMENTATION_GAP,
-                "C-TMLE has no clustered result: the search draws selection and nested folds "
-                "of its own, and no reviewed result covers a grouped draw of them.",
-                alternative="Fit method='tmle'.",
-                roadmap="F22",
-            )
-            if clustered
             else blocker
             or Refusal(
                 RefusalReason.IMPLEMENTATION_GAP,
@@ -3675,7 +3838,21 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 roadmap=collaborative_item,
             )
         )
-        collaborative = variants and not clustered and not known
+        collaborative = variants and not known
+        drtmle_blocker = blocker or Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "no reduced-dimension correction is evidenced for this functional.",
+            alternative="Fit method='tmle'.",
+            roadmap=drtmle_item,
+        )
+        if isinstance(design, PointTreatment) and design.support == "vector":
+            # A vector with a dose has no arms, as a continuous dose has none; each variant
+            # refuses it with the reason its engine gives a continuous treatment.
+            from .estimators.ctmle import vector_discrete_treatment_refusal
+            from .estimators.drtmle import drtmle_axis_refusal
+
+            collaborative_blocker = vector_discrete_treatment_refusal(design.treatment_name)
+            drtmle_blocker = drtmle_axis_refusal("policies")
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         return (
@@ -3685,19 +3862,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 collaborative,
                 None if collaborative else collaborative_blocker,
             ),
-            MethodAvailability(
-                "drtmle",
-                variants,
-                None
-                if variants
-                else blocker
-                or Refusal(
-                    RefusalReason.IMPLEMENTATION_GAP,
-                    "no reduced-dimension correction is evidenced for this functional.",
-                    alternative="Fit method='tmle'.",
-                    roadmap=drtmle_item,
-                ),
-            ),
+            MethodAvailability("drtmle", variants, None if variants else drtmle_blocker),
             MethodAvailability("sdr", sdr, sdr_reason),
             MethodAvailability("ipsi", ipsi, ipsi_reason),
             MethodAvailability("gcomp", gcomp, gcomp_reason),
@@ -3760,8 +3925,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     ) -> tuple[bool, Refusal | None, bool, Refusal | None, bool, Refusal | None]:
         """The three sequential methods' availability as the plan set's odds tilts allow."""
         regimens = self.functional.interventions
+        # IPSI estimates no density ratio, so a plan with a policy node has no IPSI fit.
+        ipsi, ipsi_reason = (False, IPSI_POLICY_REFUSAL) if declares_mtp(regimens) else (True, None)
         if not declares_tilt(regimens):
-            return True, None, True, None, True, None
+            return True, None, True, None, ipsi, ipsi_reason
         known = getattr(data, "known_mechanisms", None)
         n_times = getattr(data, "n_times", 0)
         declared = known is not None and all(
@@ -3772,8 +3939,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             None if declared else LTMLE_TILT_REFUSAL,
             False,
             SDR_TILT_REFUSAL,
-            True,
-            None,
+            ipsi,
+            ipsi_reason,
         )
 
     def _baseline_methods(self) -> tuple[bool, Refusal | None, bool, Refusal | None]:
@@ -3931,9 +4098,48 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 reason=RefusalReason.INVALID_DECLARATION,
             )
         normalized = self._method(method, overrides)
+        refusal = self._unused_ratio_refusal(normalized)
+        if refusal is not None:
+            raise MethodConfigurationError.from_refusal(refusal)
         if self.functional.longitudinal:
             return self._estimate_longitudinal(normalized)
         return self._estimate_point(normalized)
+
+    def _unused_ratio_refusal(self, method: EstimationMethod) -> Refusal | None:
+        """Why ``ratio="classifier"`` would change nothing on this fit, or ``None``.
+
+        The setting selects how a policy's density ratio is estimated.  A fit that
+        estimates no such ratio refuses it before any learner, rather than ignore it.  A
+        point fit estimates one for ``policies=`` only, and not with a declared mechanism,
+        which fixes the ratio.  A longitudinal fit estimates one at a continuous or vector
+        node only.
+        """
+        models = getattr(method, "models", None)
+        if getattr(models, "ratio", "density") != "classifier":
+            return None
+        assert self._study is not None
+        data = self._study.data
+        if isinstance(data, LongitudinalData):
+            kinds = {data.node_kind(time) for time in range(1, data.n_times + 1)}
+            if kinds & {"continuous", "mixed"}:
+                return None
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                "ratio='classifier' sets how the policy ratio of a continuous or vector node "
+                "is estimated, and every node of this design is categorical: its ratio is "
+                "the fitted probability of the assigned level.",
+                alternative="Drop ratio=.",
+            )
+        if self.functional.axis != "policy":
+            return Refusal(
+                RefusalReason.INVALID_DECLARATION,
+                "ratio='classifier' sets how a modified treatment policy's density ratio is "
+                f"estimated, and {type(self.estimand).__name__} declares no policy.",
+                alternative="Drop ratio=.",
+            )
+        if data.known_treatment is not None:
+            return KNOWN_POLICY_CLASSIFIER_REFUSAL
+        return None
 
     def _method(
         self, method: str | EstimationMethod, overrides: dict[str, Any]

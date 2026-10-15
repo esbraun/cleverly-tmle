@@ -1,0 +1,11 @@
+law binary_active, n = 1500, draws = 2000, true ate = 0.118591
+tmle      bias +0.00055  empirical sd 0.03583  status {'influence_curve': 2000}  mean se / sd 0.9333  covered 1857 of 2000
+oat       bias +0.00055  empirical sd 0.02969  status {'influence_curve': 2000}  mean se / sd 0.9759  covered 1881 of 2000
+gcomp     bias +0.00055  empirical sd 0.02966  status {'point only': 2000}
+tmle_main bias +0.00090  empirical sd 0.03707  status {'influence_curve': 2000}  mean se / sd 0.9351  covered 1849 of 2000
+oat_main  bias +0.00086  empirical sd 0.03031  status {'influence_curve': 2000}  mean se / sd 0.9762  covered 1889 of 2000
+oat sd / tmle sd 0.8287
+oat se below tmle se on 1963 of 2000 draws
+tmle   mean share of g outside (0.1, 0.9) 0.1933; median max clever covariate 40.36
+oat    mean share of g outside (0.1, 0.9) 0.0002; median max clever covariate 3.87
+|oat - tmle| median 0.0134, 95th percentile 0.0381
