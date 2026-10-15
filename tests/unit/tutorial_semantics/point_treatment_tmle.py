@@ -12,7 +12,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from cleverly.datasets import navigation_protocol
 from cleverly.datasets.synthetic import nonlinear_bounded_dgp
@@ -237,14 +236,14 @@ def check(namespace: dict[str, Any]) -> None:
     assert abs(at_rv.lower) < 1e-3
     at_rva = result.sensitivity.omitted_confounding(cf_y=robustness["rva"], cf_d=robustness["rva"])
     assert abs(at_rva.ci_lower) < 1e-3
-    # "its gain exceeds 1. The benchmark clips the gain to 1.0000, and the bound accepts no
-    # `cf_y` of 1": the residual variance more than doubles, and the bound refuses the clip.
+    # "The residual outcome variance ... more than doubles", so the implied cf_y is a clip.
+    # The bound is finite at cf_y = 1 (RM47), so the clipped benchmark still calibrates one.
     strong = namespace["strong"]
     assert strong.covariates == ("discharge_risk",)
     assert strong.sigma2_short > 2.0 * strong.sigma2_long
-    assert strong.cf_y == 1.0
-    with pytest.raises(ValueError, match=r"cf_y must lie in \[0, 1\)"):
-        result.sensitivity.omitted_confounding(cf_y=strong.cf_y, cf_d=strong.cf_d, rho=1.0)
+    assert strong.cf_y == 1.0 < strong.gain_y
+    strong_bounds = result.sensitivity.omitted_confounding(benchmark=strong)
+    assert np.isfinite(strong_bounds.lower) and strong_bounds.cf_y == 1.0
     # "Both lie below the robustness value", and the gains go to the bound unchanged, at rho = 1.
     benchmark = namespace["benchmark"]
     assert benchmark.covariates == ("medication_burden",)
