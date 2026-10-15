@@ -288,9 +288,12 @@ def fit(
     outcome: Outcome = "primary",
     ratio: Literal["density", "classifier"] = "density",
     treatment_learner: Any = None,
+    pseudo_learner: Any = None,
 ) -> Any:
     """One fold of ``LTMLE`` or ``SDR`` over ``labels`` on law B or B'."""
     q, first, g = learners(frame, outcome)
+    if pseudo_learner is not None:
+        first = pseudo_learner
     settings: dict[str, Any] = {
         "reference": REFERENCE,
         "outcome_learner": clone(q),

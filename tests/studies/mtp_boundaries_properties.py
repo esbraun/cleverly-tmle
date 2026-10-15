@@ -242,7 +242,17 @@ def ratio_defect(defect: str | None) -> Iterator[None]:
 def calibration_fit(label: str, frame: pd.DataFrame) -> Any:
     plan, estimator = CELLS[label]
     law = common.LAW_OF[plan]
-    return study.fit(frame, law, (study.REFERENCE, plan), estimator=estimator, outcome="correct")
+    # SDR regresses an unbounded transform; its earlier node reads the [0, 1] projection of
+    # the same basis (X40-pilot-diagnosis.md).  LTMLE's targets already lie in [0, 1].
+    pseudo = common.UnitRangePseudo() if estimator == "sdr" else None
+    return study.fit(
+        frame,
+        law,
+        (study.REFERENCE, plan),
+        estimator=estimator,
+        outcome="correct",
+        pseudo_learner=pseudo,
+    )
 
 
 def necessity_fit(family: str, frame: pd.DataFrame, *, control: bool) -> Any:

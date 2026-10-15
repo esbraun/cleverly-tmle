@@ -817,6 +817,20 @@ class RichPseudo(BaseEstimator):
         return np.asarray(self.model_.predict(self._design(X)), dtype=float)
 
 
+class UnitRangePseudo(RichPseudo):
+    """:class:`RichPseudo` with each prediction projected onto ``[0, 1]``.
+
+    ``Y`` is binary, so every sequential regression ``m_t`` lies in ``[0, 1]``, and the
+    projection never moves a prediction away from it.  ``SDR`` regresses a transform that
+    leaves ``[0, 1]``; under ``p4`` (cumulative ratio up to about 375 at n = 2,000) the
+    unprojected fit misses ``m_1`` by up to 19 at the assigned dose
+    (``X40-pilot-diagnosis.md``).  The SDR calibration cells read this learner.
+    """
+
+    def predict(self, X: Any) -> np.ndarray:
+        return np.clip(super().predict(X), 0.0, 1.0)
+
+
 #: The efficiency bound of each plan's contrast, pinned from :func:`contrast_sd`;
 #: ``tests/unit/test_mtp_boundaries_design.py`` recomputes them.
 BOUNDS: dict[str, float] = {
