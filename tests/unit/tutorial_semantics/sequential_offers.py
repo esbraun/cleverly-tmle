@@ -53,7 +53,7 @@ UNPRINTED_DECIMALS = {
     "0.0010": f"Monte Carlo standard error of that bias, 400 draws: "
     f"{_PROBE}/bias_check_summary.log",
     "0.0049": f"difference of the two LTMLE win-back biases, -0.0016 minus -0.0065, computed from "
-    f"{_PROBE}/summary.log and {_PROBE}/bias_check_summary.log",
+    f"{_PROBE}/summary.log and {_PROBE}/bias_check_summary.log in _check_prose_phrases",
     "-0.0029": f"largest LTMLE contrast bias (discount), 400 draws: "
     f"{_PROBE}/bias_check_summary.log",
     "-0.0009": f"smallest LTMLE contrast bias (win-back-then-ship), 400 draws: "
@@ -67,6 +67,9 @@ UNPRINTED_DECIMALS = {
     f"g-computation estimate of it, fall below the truth, 100 draws: {_PROBE}/summary.log",
     "-0.0314": f"bias of the crude win-back contrast, and of the wrong-model g-computation "
     f"estimate, 100 draws: {_PROBE}/summary.log",
+    "-0.0061": f"bias of the crude shipping contrast, and of the wrong-model g-computation "
+    f"estimate of it, 100 draws: {_PROBE}/summary.log",
+    "0.0029": f"Monte Carlo standard error of that bias, 100 draws: {_PROBE}/summary.log",
     "-0.0060": f"bias of the wrong-model LTMLE win-back contrast, 100 draws: {_PROBE}/summary.log",
     "0.0022": f"Monte Carlo standard error of that bias, 100 draws: {_PROBE}/summary.log",
     "1.059": f"mean ratio of the wrong-model LTMLE standard error to the Step 6 standard error, "
@@ -82,14 +85,12 @@ UNPRINTED_DECIMALS = {
     "0.9974": f"se_ratio of the same cell: {_KNOWN}/properties.csv",
     "0.9500": f"coverage of ate_regimen[static_12 vs static_00], g-computation, law D2: "
     f"{_BASELINES}/summary.csv",
-    "0.9590": f"coverage of the same estimand, Hajek IPW, law D2: {_BASELINES}/summary.csv",
     "0.9957": f"se_ratio of the same estimand, g-computation, law D2: {_BASELINES}/summary.csv",
-    "1.0054": f"se_ratio of the same estimand, Hajek IPW, law D2: {_BASELINES}/summary.csv",
-    "0.1306": f"lower bias of misspecification_control/hajek_x_contrast__main_terms: "
+    "0.1075": f"lower bias of misspecification_control/ice_x_contrast__main_terms: "
     f"{_BASELINES}/properties.csv",
-    "0.1344": f"upper bias of the same cell: {_BASELINES}/properties.csv",
-    "0.5072": f"lower coverage of the same cell: {_BASELINES}/properties.csv",
-    "0.5348": f"upper coverage of the same cell: {_BASELINES}/properties.csv",
+    "0.1111": f"upper bias of the same cell: {_BASELINES}/properties.csv",
+    "0.5952": f"lower coverage of the same cell: {_BASELINES}/properties.csv",
+    "0.6221": f"upper coverage of the same cell: {_BASELINES}/properties.csv",
 }
 
 CONTRASTS = ("discount", "shipping", "win_back", "win_back_ship")
@@ -110,6 +111,7 @@ def check(namespace: dict[str, Any]) -> None:
     _check_diagnostics(namespace)
     _check_deployment_and_benchmark(namespace)
     _check_probe_logs()
+    _check_prose_phrases()
     _check_registered_cells()
 
 
@@ -200,10 +202,14 @@ def _check_data(namespace: dict[str, Any]) -> None:
     assert shares[(1, "none")] > shares[(0, "none")]
     orders = kept[("full_price", 1)]
     assert orders[first_engaged == 1].mean() > orders[first_engaged == 0].mean() + 0.03
-    # "A policy that also favors engaged customers escapes the bias": free shipping, at 0.355
-    # against 0.251, is within 0.01 of its truth on this draw and also over-selects engaged
-    # customers, and the rules over-select unengaged ones.
+    # Free shipping, at 0.355 against 0.251, also over-selects engaged customers, and its followers
+    # are engaged at 0.671 against 0.646 for the followers of `none`. On this draw its crude
+    # contrast is within 0.01 of its truth. The reading claims no more: the probe bias of the crude
+    # shipping contrast is small and not zero (_check_probe_logs). The rules over-select unengaged
+    # customers.
     assert shares[(1, "shipping")] > shares[(0, "shipping")]
+    assert round(crude.loc["shipping", "engaged_week1"], 3) == 0.671
+    assert crude.loc["shipping", "engaged_week1"] > crude.loc["none", "engaged_week1"]
     assert crude.loc["shipping", "engaged_week1"] > first_engaged.mean()
     assert miss["shipping"] < 0.01 and round(crude.loc["shipping", "crude_vs_none"], 3) == 0.054
     assert crude.loc["win_back", "engaged_week1"] < first_engaged.mean()
@@ -440,9 +446,10 @@ def _check_blind(namespace: dict[str, Any]) -> None:
     # it differs from the Step 6 estimate.
     assert abs(table.loc["win_back", "blind_ltmle"] - table.loc["win_back", "blind_gcomp"]) > 0.02
     assert (table["blind_ltmle"] - table["ltmle"]).abs().max() > 0.01
-    # "The estimates sit nearer to the truth than the g-computation estimates for discount,
-    # win-back, and win-back then ship." Free shipping is the exception, and the reading does not
-    # name it.
+    # "On this draw, the wrong-model LTMLE estimates sit nearer to the truth than the
+    # g-computation estimates for discount, win-back, and win-back then ship." Free shipping is the
+    # exception, and the reading does not name it. The sentence holds only on this draw: the probe
+    # sweep has it for fewer than 90% of the draws for win-back.
     nearer = (table["blind_ltmle"] - table["truth"]).abs() < (
         table["blind_gcomp"] - table["truth"]
     ).abs()
@@ -613,6 +620,13 @@ def _check_cap(namespace: dict[str, Any]) -> None:
     ]
     assert round(float(threshold), 3) == -2.566
     assert capped[("tenure", 1)] < threshold
+    # The truncation that the reading describes comes from the fitted consent model. The fit's own
+    # unbounded cumulative probability, restricted to the rows that train the last node, falls below
+    # the cap at the same customer, so a change of the consent learner cannot separate the two.
+    fit = namespace["result"].fits["shipping"]
+    fitted = np.flatnonzero(fit.steps[-1].trained_on & (fit.cumulative_unbounded[:, -1] < 0.01))
+    assert fitted.tolist() == [wide.index.get_loc(rows.index[below[0]])]
+    assert all(wide.iloc[fitted[0]][("engaged", week)] == 0 for week in (1, 2, 3))
 
 
 def _check_deployment_and_benchmark(namespace: dict[str, Any]) -> None:
@@ -679,6 +693,8 @@ def _check_probe_logs() -> None:
     assert "bias -0.0065 (MC SE 0.0019)" in line(sweep, "  ltmle  ", "win_back       ")
     # Step 3: the crude win-back contrast, and the engagement of the followers of `none`.
     assert "bias -0.0314 (MC SE 0.0019)" in line(sweep, "  crude  ", "win_back       ")
+    # The crude shipping contrast: a small bias of about two Monte Carlo standard errors.
+    assert "bias -0.0061 (MC SE 0.0029)" in line(sweep, "  crude  ", "shipping       ")
     assert "below the truth on 96 of 100" in line(sweep, "  crude  ", "win_back       ")
     assert "followers of none above kept customers: 100 of 100" in sweep
     # Step 7: the blind fits. The blind g-computation equals the crude contrast on every draw.
@@ -711,8 +727,8 @@ def _check_probe_logs() -> None:
     ):
         assert f"bias {value}" in line(ltmle, label.ljust(34))
     assert "bias -0.0016 (MC SE 0.0010" in line(ltmle, "win_back      ")
-    # The reading quotes the gap between the two win-back biases.
-    assert f"{-0.0016 - -0.0065:.4f}" == "0.0049"
+    # The reading quotes the gap between the two win-back biases, computed from the two logs in
+    # _check_prose_phrases.
     for label, coverage400 in (
         ("discount", "0.960"),
         ("shipping", "0.955"),
@@ -728,6 +744,124 @@ def _check_probe_logs() -> None:
     assert round(first["blind_win_back_psi"], 3) == 0.080
     assert round(first["blindg_win_back_psi"], 3) == 0.049
     assert round(first["crude_win_back_psi"], 3) == 0.049
+
+
+def _prose(cell_id: str) -> str:
+    """The source of one markdown cell, with each run of whitespace collapsed to a space."""
+    notebook = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+    source = "".join(next(c for c in notebook["cells"] if c["id"] == cell_id)["source"])
+    return " ".join(source.split())
+
+
+def _check_prose_phrases() -> None:
+    """The readings attach each repeated-draw count and decimal to the quantity the log gives it.
+
+    A decimal that a log prints passes the narration test wherever it stands.  This check builds
+    each phrase of the readings from the parsed logs, so a count or a value moved to another
+    quantity fails.
+    """
+    root = Path(__file__).resolve().parents[3]
+    sweep = (root / _PROBE / "summary.log").read_text()
+    bias = (root / _PROBE / "bias_check_summary.log").read_text()
+
+    def line(text: str, *parts: str) -> str:
+        return next(row for row in text.splitlines() if all(part in row for part in parts))
+
+    def bias_of(row: str) -> tuple[str, str]:
+        found = re.search(r"bias ([+-]\d\.\d{4}) \(MC SE (\d\.\d{4})", row)
+        assert found, row
+        return found.group(1), found.group(2)
+
+    def grab(pattern: str, row: str) -> str:
+        found = re.search(pattern, row)
+        assert found, row
+        return found.group(1)
+
+    def count_of(row: str, label: str) -> str:
+        found = re.search(rf"{re.escape(label)} (\d+) of 100", row)
+        assert found, row
+        return found.group(1)
+
+    contrasts = ("discount", "shipping", "win_back", "win_back_ship")
+    ltmle = {c: line(sweep, "  ltmle  ", c.ljust(14), "coverage") for c in contrasts}
+    crude = {c: line(sweep, "  crude  ", c.ljust(14), "below the truth") for c in contrasts}
+    blind_ltmle = line(sweep, "blind LTMLE   win_back       ")
+    blind_gcomp = line(sweep, "blind g-comp  win_back       ")
+    ltmle_100 = bias_of(ltmle["win_back"])
+    ltmle_400 = bias_of(line(bias.split("ltmle: the five levels")[0], "win_back      "))
+    crude_win = bias_of(crude["win_back"])
+    crude_ship = bias_of(crude["shipping"])
+    gcomp_win = bias_of(blind_gcomp)
+    blind_win = bias_of(blind_ltmle)
+    hits = [count_of(ltmle[c], "coverage") for c in contrasts]
+    ratios = [float(ltmle[c].rsplit("ratio ", 1)[1]) for c in contrasts]
+    exclusions = [
+        grab(r"excludes zero: (\d+) of 100", row)
+        for row in sweep.splitlines()
+        if "paired interval excludes zero" in row
+    ]
+
+    trust = _prose("trust")
+    assert f"{', '.join(hits[:-1])}, and {hits[-1]} of 100 draws" in trust
+    assert f"{min(ratios):.3f} to {max(ratios):.3f}" in trust
+    assert (
+        f"bias of the LTMLE win-back contrast, 100 draws | {ltmle_100[0]}, Monte Carlo SE {ltmle_100[1]}"
+        in trust
+    )
+    assert (
+        f"bias of the LTMLE win-back contrast, 400 other draws | {ltmle_400[0]}, Monte Carlo SE {ltmle_400[1]}"
+        in trust
+    )
+    assert (
+        f"bias of the crude win-back contrast (Step 3), 100 draws | {crude_win[0]}, Monte Carlo SE "
+        f"{crude_win[1]}. It lies below the truth on {count_of(crude['win_back'], 'below the truth on')} of 100 draws"
+    ) in trust
+    assert (
+        f"bias of the wrong-model g-computation win-back estimate (Step 7), 100 draws | "
+        f"{gcomp_win[0]}, Monte Carlo SE {gcomp_win[1]}."
+    ) in trust
+    assert (
+        f"bias of the wrong-model LTMLE win-back estimate (Step 7), 100 draws | {blind_win[0]}, "
+        f"Monte Carlo SE {blind_win[1]}. The interval covers on {count_of(blind_ltmle, 'coverage')} of 100 draws"
+    ) in trust
+    assert f"win-back, mean | {blind_ltmle.rsplit('SE over main SE ', 1)[1]} |" in trust
+    assert f"| {', '.join(exclusions[:-1])}, and {exclusions[-1]} of 100 draws |" in trust
+    assert f"| {count_of(line(sweep, '|z| < 1.96'), '|z| < 1.96:')} of 100 draws |" in trust
+    assert (
+        f"| {count_of(line(sweep, 'a weight at the cap of 100'), 'cap of 100:')} of 100 draws |"
+    ) in trust
+    # The two win-back biases of the LTMLE and the four 400-draw biases and coverages.
+    gap = float(ltmle_400[0]) - float(ltmle_100[0])
+    assert f"differ by {gap:.4f}," in trust
+    ltmle_rows = bias.split("ltmle: the five levels")[0]
+    biases = [float(bias_of(line(ltmle_rows, c.ljust(34)))[0]) for c in contrasts]
+    assert f"ran from {min(biases):.4f} to {max(biases):.4f}." in trust
+    covered = [grab(r"covers (\d\.\d{3})", line(ltmle_rows, c.ljust(34))) for c in contrasts]
+    assert f"covered at {', '.join(covered[:-1])}, and {covered[-1]} in the order" in trust
+    # The sizes of the registered study: "n = 2,000, 1,000 draws".
+    configuration = json.loads((root / _KNOWN / "manifest.json").read_text())["configuration"]
+    assert f"n = {configuration['n']:,}, {configuration['replicates']:,} draws" in trust
+
+    association = _prose("association-reading")
+    assert (
+        f"fell below the truth on {count_of(crude['win_back'], 'below the truth on')} of 100 draws, by "
+        f"{crude_win[0].lstrip('-')} on average. The Monte Carlo standard error was {crude_win[1]}."
+    ) in association
+    assert (
+        f"mean bias of {crude_ship[0]} (Monte Carlo standard error {crude_ship[1]})" in association
+    )
+
+    reading = _prose("blind-outcome-reading")
+    assert (
+        f"fell below the truth by {gcomp_win[0].lstrip('-')} on average over 100 draws" in reading
+    )
+    assert (
+        f"The wrong-model LTMLE bias was {blind_win[0]}, and its interval covered the truth on "
+        f"{count_of(blind_ltmle, 'coverage')} of 100 draws"
+    ) in reading
+
+    interpret = _prose("interpret")
+    assert f"excluded zero on {exclusions[1]} and {exclusions[2]} of 100 draws" in interpret
 
 
 def _check_registered_cells() -> None:
@@ -759,15 +893,13 @@ def _check_registered_cells() -> None:
         "scenario"
     )
     assert f"{d2.loc['d2_ice', 'coverage']:.4f}" == "0.9500"
-    assert f"{d2.loc['d2_hajek', 'coverage']:.4f}" == "0.9590"
     assert f"{d2.loc['d2_ice', 'se_ratio']:.4f}" == "0.9957"
-    assert f"{d2.loc['d2_hajek', 'se_ratio']:.4f}" == "1.0054"
     control = read(f"{_BASELINES}/properties.csv")
     main_terms = control[
         (control["property"] == "misspecification_control")
-        & (control["cell"] == "hajek_x_contrast__main_terms")
+        & (control["cell"] == "ice_x_contrast__main_terms")
     ].squeeze()
-    assert f"{main_terms['bias_ci_lower']:.4f}" == "0.1306"
-    assert f"{main_terms['bias_ci_upper']:.4f}" == "0.1344"
-    assert f"{main_terms['coverage_ci_lower']:.4f}" == "0.5072"
-    assert f"{main_terms['coverage_ci_upper']:.4f}" == "0.5348"
+    assert f"{main_terms['bias_ci_lower']:.4f}" == "0.1075"
+    assert f"{main_terms['bias_ci_upper']:.4f}" == "0.1111"
+    assert f"{main_terms['coverage_ci_lower']:.4f}" == "0.5952"
+    assert f"{main_terms['coverage_ci_upper']:.4f}" == "0.6221"
