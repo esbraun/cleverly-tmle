@@ -24,8 +24,10 @@ __all__ = [
     "EXEMPT_STUDIES",
     "FAMILY_THEORY",
     "LONGITUDINAL_ROWS",
+    "MEASURED_LIMITS",
     "OPTION_ALLOWLIST",
     "POINT_ROWS",
+    "SHORTFALLS",
     "TheoryAnchor",
     "default_options",
     "long_row",
@@ -1086,8 +1088,177 @@ def _c_rows() -> tuple[SupportRow, ...]:
     return tuple(rows)
 
 
+#: The red cells that lie inside the configuration of one row, as ``(row id, kind) -> sentence``.
+#: A fit that reads the kind from the row is experimental, and the sentence gives the measured
+#: number (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell).
+SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
+    ("T10.fold_evaluated", "wald"): (
+        "Row T10.fold_evaluated is red for the fold-evaluated cluster-covariate interval: "
+        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187 (F28)."
+    ),
+    ("T11.fold_evaluated", "wald_t"): (
+        "Row T11.fold_evaluated is red when cluster sizes are informative at 10 to 30 clusters: "
+        "at 10 clusters bias 0.1146 to 0.1310, coverage 0.8940 to 0.9180 and SE ratio "
+        "0.8297 to 0.8849 (F28)."
+    ),
+    ("T16.logit_binary", "wald"): (
+        "Row T16.logit_binary is red for the logit slope at the smallest stratum: coverage "
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+    ),
+    ("T16.dose_logit", "wald"): (
+        "Row T16.dose_logit is red for the logit slope at the smallest stratum: coverage "
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+    ),
+}
+
+
+#: The measured numbers of the red cells that leave a row supported with a stated limit, by row id
+#: (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell). The
+#: row note prints each sentence after the limits of the row itself.
+MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
+    "C02.greedy": ("RM18-boundary: bias 0.0010, coverage 0.8965 to 0.9627, SE ratio 0.9892",),
+    "D01": ("RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",),
+    "D02": (
+        "RM18-boundary: coverage 0.8988 to 0.9542, bias 0.000900",
+        "RM18-boundary: coverage 0.9300 to 0.9597, SE ratio 0.9258 to 1.0123",
+        "RM18-boundary: bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888",
+    ),
+    "D03": (
+        "X8-drtmle-small-stratum: bias 0.0023 to 0.0112, coverage 0.9000, SE ratio 0.9388",
+        (
+            "X8-drtmle-small-stratum: coverage 0.9069 to 0.9380, SE ratio 0.9294 to 1.0112, "
+            "empirical efficiency ratio 1.0348 to 1.1237, reported efficiency ratio 1.0296 to"
+            " 1.0653"
+        ),
+    ),
+    "D09": (
+        (
+            "F4-calibration-draws: coverage 0.9287 to 0.9537, SE ratio 0.9294 to 1.0000, "
+            "empirical efficiency ratio 0.9994 to 1.0751, reported efficiency ratio 0.9980 to"
+            " 1.0008"
+        ),
+        "F4-calibration-draws: joint coverage 0.9196 to 0.9462",
+    ),
+    "D10.outcome": (
+        "composite-high-arm: bias -0.0054 to 0.0013, coverage 0.9225, SE ratio 0.9342",
+    ),
+    "G03": (
+        (
+            "RM18-ordinary-weighted: coverage 0.9187 to 0.9454, SE ratio 0.9263 to 0.9985, "
+            "empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to"
+            " 0.9899"
+        ),
+        "RM18-ordinary-weighted: bias -0.0025 to 0.0019, margin 0.0075",
+        "RM18-ordinary-weighted: bias -0.0027 to 0.0075, margin 0.0172",
+    ),
+    "G04": (
+        (
+            "RM18-boundary: difference -0.000150 to 0.000202 within 0.0031, RMSE ratio bound "
+            "1.0162 vs 1.1000, coverage difference bound -0.0475 vs -0.0250, calibration "
+            "excess bound 0.1050 vs 0.0500, resolution 0.1121"
+        ),
+        (
+            "RM18-fixed-weights: difference -0.000350 to 0.000263 within 0.0047, RMSE ratio "
+            "bound 1.0245 vs 1.1000, coverage difference bound -0.0300 vs -0.0250, "
+            "calibration excess bound 0.0465 vs 0.0500, resolution 0.0662"
+        ),
+        (
+            "RM18-boundary: difference -0.000118 to 0.000400 within 0.0032, RMSE ratio bound "
+            "1.0175 vs 1.1000, coverage difference bound -0.0425 vs -0.0250, calibration "
+            "excess bound 0.0382 vs 0.0500, resolution 0.1119"
+        ),
+        (
+            "RM18-fixed-weights: coverage 0.9232 to 0.9492, SE ratio 0.9430 to 1.0203, "
+            "empirical efficiency ratio 1.0195 to 1.1006, reported efficiency ratio 1.0333 to"
+            " 1.0442"
+        ),
+    ),
+    "G05.cross_fitted": ("band-finite-sample: joint coverage 0.9191 to 0.9458",),
+    "G10.continuous": (
+        (
+            "mtp-longitudinal-limits: coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, "
+            "empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to"
+            " 1.1006"
+        ),
+    ),
+    "G11": ("band-finite-sample: joint coverage 0.9140 to 0.9283",),
+    "G14.survival": (
+        (
+            "X13-finite-sample: coverage 0.9421 to 0.9689, SE ratio 0.9807 to 1.0762, "
+            "empirical efficiency ratio 0.9300 to 1.0204, reported efficiency ratio 1.0000 to"
+            " 1.0015"
+        ),
+    ),
+    "G17.survival": (
+        (
+            "X13-finite-sample: coverage 0.9421 to 0.9689, SE ratio 0.9650 to 1.0560, "
+            "empirical efficiency ratio 1.0101 to 1.1085, reported efficiency ratio 1.0592 to"
+            " 1.0764"
+        ),
+    ),
+    "G23.in_sample": (
+        (
+            "X4-finite-sample: bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to "
+            "0.9327, SE ratio 0.9459"
+        ),
+        "band-finite-sample: joint coverage 0.9085 to 0.9394",
+    ),
+    "T02.binary": (
+        "band-finite-sample: joint coverage 0.9101 to 0.9382",
+        "band-finite-sample: joint coverage 0.9173 to 0.9443",
+        "band-finite-sample: joint coverage 0.9015 to 0.9309",
+    ),
+    "T13": (
+        "strata-boundary-mean: bias -0.0027 to 0.000813, coverage 0.9170, SE ratio 0.9850",
+        (
+            "strata-boundary-mean: coverage 0.9056 to 0.9344, SE ratio 0.9315 to 1.0094, "
+            "empirical efficiency ratio 0.9753 to 1.0552, reported efficiency ratio 0.9742 to"
+            " 0.9931"
+        ),
+    ),
+    "T17": (
+        (
+            "X8-identity-small-stratum: difference -0.000049 to 0.000037 within 0.000694, "
+            "RMSE ratio bound 1.0047 vs 1.1000, coverage difference bound -0.0220 vs -0.0250,"
+            " calibration excess bound 0.0523 vs 0.0500, resolution 0.0476"
+        ),
+        (
+            "X8-identity-small-stratum: coverage 0.9233 to 0.9515, SE ratio 0.9264 to 1.0042,"
+            " empirical efficiency ratio 0.9925 to 1.0766, reported efficiency ratio 0.9937 "
+            "to 1.0005"
+        ),
+    ),
+    "T21": (
+        (
+            "RM18-comparator-density: difference 0.000061 to 0.000361 within 0.000770, RMSE "
+            "ratio bound 1.0587 vs 1.1000, coverage difference bound -0.0050 vs -0.0250, "
+            "calibration excess bound 0.0648 vs 0.0500, resolution 0.0439"
+        ),
+    ),
+    "T22": (
+        (
+            "mtp-point-calibration: coverage 0.9479 to 0.9709, SE ratio 1.0011 to 1.0881, "
+            "empirical efficiency ratio 0.9208 to 1.0003, reported efficiency ratio 1.0003 to"
+            " 1.0034"
+        ),
+    ),
+}
+
+
+def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
+    """Attach the :data:`SHORTFALLS` and :data:`MEASURED_LIMITS` sentences to their rows."""
+    out = []
+    for row in rows:
+        pairs = tuple(
+            (kind, text) for (row_id, kind), text in SHORTFALLS.items() if row_id == row.id
+        )
+        limits = tuple(dict.fromkeys((*row.limits, *MEASURED_LIMITS.get(row.id, ()))))
+        out.append(replace(row, shortfalls=pairs, limits=limits))
+    return tuple(out)
+
+
 #: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``) and C-TMLE (``C``).
-POINT_ROWS: Final[tuple[SupportRow, ...]] = (*_t_rows(), *_d_rows(), *_c_rows())
+POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls((*_t_rows(), *_d_rows(), *_c_rows()))
 
 
 # --------------------------------------------------------------------------- longitudinal
@@ -1783,7 +1954,7 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
 
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``) and
 #: the sequential baselines (``G28``).
-LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _long_rows()
+LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
 
 
 # ------------------------------------------------------------------ exemptions and anchors
