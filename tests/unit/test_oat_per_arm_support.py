@@ -154,6 +154,22 @@ class TestTheAllowList:
         }
 
 
+class TestTheArmColumns:
+    def test_a_mismatched_arm_column_count_is_refused(self) -> None:
+        estimator = CTMLE(**_options(outcome_learner=ParametricOutcome(arm_columns=2)))
+        verdict = per_arm_parametric_support(estimator, _prepared(estimator))
+        assert not verdict.admitted
+        assert verdict.axis == "outcome_learner"
+        assert "arm_columns=1" in verdict.detail
+        assert "got arm_columns=2" in verdict.detail
+
+    def test_the_mismatched_fit_keeps_the_generated_design_status(self) -> None:
+        result = _fit(outcome_learner=ParametricOutcome(arm_columns=2))
+        assert {estimate.inference for estimate in result.estimates.values()} == {
+            "generated_design_plugin"
+        }
+
+
 class TestTheDataAxes:
     def test_three_arms(self) -> None:
         frame = _frame()
@@ -306,6 +322,20 @@ class TestTheFailureStatus:
             assert np.isfinite(estimate.plugin_std_error)
         with pytest.raises(CapabilityError):
             _ = result.contrast(lambda p: p[1] - p[0], ["ey0", "ey1"]).ci
+
+    def test_the_ey_target_holds_the_sound_arm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _failing(monkeypatch, {1})
+        with pytest.warns(DataWarning, match="forced"):
+            result = (
+                CTMLE(**_options(estimands=("ey", "ate")))
+                .fit(_frame(), outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+                .single()
+            )
+        assert {name: e.inference for name, e in result.estimates.items()} == {
+            "ey[0]": "influence_curve",
+            "ey[1]": "stack_failure_plugin",
+            "ate": "stack_failure_plugin",
+        }
 
     def test_a_failed_arm_reports_the_shipped_curve(self, monkeypatch: pytest.MonkeyPatch) -> None:
         stack = _oat_stack.fitted_stack(_fit())
