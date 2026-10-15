@@ -306,6 +306,9 @@ STUDY = StudyRecord(
         "the R ltmle 1.3-0 paired runs at n = 3,000 run on the owner's machine as TRACKER "
         "Study queue item 14(c); the X32a follow-up change registers them"
     ),
+    # RM39b2 rev 3 section 6: the primary bound each side's next run applies, the pending
+    # comparator's included.
+    failure_bound={"cleverly": 0.01, "ltmle": 0.01},
     modules=(
         "tests/studies/canonical_ltmle_repeated.py",
         "tests/studies/ltmle_repeated_properties.py",

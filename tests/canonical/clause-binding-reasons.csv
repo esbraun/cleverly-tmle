@@ -29,3 +29,4 @@ tests.studies.longitudinal_sdr_properties,crossfit_overfitting,coverage gain,sam
 tests.studies.longitudinal_sdr_properties,interval_calibration,coverage in calibration band,same module as: longitudinal-sdr
 learned-weighted-tmle,learner_weight_necessity,bias discriminated,implied by: alternative bias equivalent
 weighted-tmle,weight_necessity,bias discriminated,implied by: alternative bias equivalent
+longitudinal-repeated-outcome,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent

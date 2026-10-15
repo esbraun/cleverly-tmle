@@ -1934,18 +1934,74 @@ def one_wrong_inference_verdicts(
 # ``tests/unit/test_method_evidence.py`` hold each rule to the function it restates.
 
 
-def _union_rule() -> pf.FamilyRule:
+def _union_clauses() -> tuple[pf.Clause, ...]:
     def band(ctx: pf.Context) -> tuple[float, float]:
         return UNION_MODEL_SE_BAND
 
+    return (
+        pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
+        pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
+        pf.se_point_clause(
+            "se ratio in union band", band=band, applies=pf.roles("positive", "control")
+        ),
+    )
+
+
+def _union_rule() -> pf.FamilyRule:
     return pf.FamilyRule(
         families=frozenset(UNION_MODEL_FAMILIES),
         shared="robustness_verdicts",
+        clauses=_union_clauses(),
+    )
+
+
+def robustness_rule(
+    *, family: str = "double_robustness", alternative_truths: Mapping[str, float]
+) -> pf.FamilyRule:
+    """The rule of :func:`robustness_verdicts` and then :func:`alternative_target_verdicts`.
+
+    A module whose ``both_wrong`` control reads an exact limit declares this rule in its
+    ``PROPERTY_RULES`` with the mapping it passes to :func:`alternative_target_verdicts`.  The
+    rule is the shared union-model rule plus an S1 equivalence of each named control to its
+    limit, which feeds that row's ``passed``.
+
+    Parameters
+    ----------
+    family : str
+        The union-model family the controls are filed under.
+    alternative_truths : Mapping[str, float]
+        The exact limit of each control cell, by cell name.
+
+    Returns
+    -------
+    FamilyRule
+        The rule.
+
+    Raises
+    ------
+    ValueError
+        When ``family`` is no union-model family, or the mapping names no cell.
+    """
+    if family not in UNION_MODEL_FAMILIES:
+        raise ValueError(f"{family} is not a union-model family")
+    if not alternative_truths:
+        raise ValueError(f"{family} names no alternative target")
+    truths = {str(cell): float(value) for cell, value in alternative_truths.items()}
+
+    def alternative(ctx: pf.Context, row: pd.Series) -> float:
+        return truths[str(row["cell"])]
+
+    return pf.FamilyRule(
+        families=frozenset({family}),
+        shared="alternative_target_verdicts",
         clauses=(
-            pf.bias_clause("bias equivalent", kind="equivalent", applies=pf.roles("positive")),
-            pf.bias_clause("bias discriminated", kind="beyond", applies=pf.roles("control")),
-            pf.se_point_clause(
-                "se ratio in union band", band=band, applies=pf.roles("positive", "control")
+            *_union_clauses(),
+            pf.bias_clause(
+                "alternative bias equivalent",
+                kind="equivalent",
+                applies=pf.cells(*truths),
+                prefix="alternative_bias",
+                truth=alternative,
             ),
         ),
     )

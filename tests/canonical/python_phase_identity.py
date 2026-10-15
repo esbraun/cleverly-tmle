@@ -306,6 +306,7 @@ WORKER_EXCEPTIONS: dict[str, str] = {
     "ltmle_competing_properties": _DRAW,
     "ltmle_crossfit_properties": _DRAW,
     "ltmle_properties": _DRAW,
+    "ltmle_repeated_properties": _DRAW,
     "ltmle_survival_crossfit_properties": _DRAW,
     "ltmle_survival_properties": _DRAW,
     "multi_arm_mar_drtmle_properties": _DRAW,

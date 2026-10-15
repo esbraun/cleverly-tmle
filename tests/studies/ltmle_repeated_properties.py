@@ -249,9 +249,12 @@ from tests.studies.canonical_ltmle_repeated import (
     label_estimand,
     treat_after,
 )
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     control_row,
+    payload_cell,
+    payload_replicate,
     replicate_row,
     se_ratio_interval,
 )
@@ -262,12 +265,15 @@ from tests.studies.evidence.property_verdicts import (
     alternative_target_verdicts,
     apply_shared_verdicts,
     calibration_controls,
+    calibration_derived,
     calibration_verdicts,
     finish,
     simultaneous_coverage_verdicts,
 )
+from tests.studies.evidence.replication import fit_properties, splat_draw, splat_drawn
 from tests.studies.evidence.seeds import stream_seed
-from tests.studies.evidence.simultaneous import joint_coverage_rows
+from tests.studies.evidence.simultaneous import FAMILY as JOINT_FAMILY
+from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
 from tests.studies.fractional_glm import QuasiBinomialGLM, QuasiBinomialSeparationWarning
 
 N = 2_000
@@ -838,10 +844,29 @@ def _paired_rows(
     return rows
 
 
-def _replication(payload: tuple[str, str, int, int, int]) -> list[dict[str, Any]]:
-    family, configuration, replicate, requested, seed = payload
+_Payload = tuple[str, str, int, int, int]
+
+
+def _draw(family: str, configuration: str, replicate: int, requested: int, seed: int) -> Any:
+    """One replication's sample, drawn outside the fit."""
+    return sample(configuration, seed, family_n(family))
+
+
+def _replication(payload: _Payload) -> list[dict[str, Any]]:
+    """One replication's rows, drawn and fitted in one call: the pilots' and the timer's form."""
+    return _fit_drawn(*payload, _draw(*payload))
+
+
+def _fit_drawn(
+    family: str,
+    configuration: str,
+    replicate: int,
+    requested: int,
+    seed: int,
+    frame: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    """One replication's rows from its drawn sample."""
     n = family_n(family)
-    frame = sample(configuration, seed, n)
     rows: list[dict[str, Any]] = []
     if family in {"interval_calibration", "small_sample_calibration"}:
         calibration = family == "interval_calibration"
@@ -1063,8 +1088,56 @@ def _payloads(
     return payloads
 
 
+#: The calibration positive arm to the controls derived from it.
+DERIVED_CELLS = calibration_derived(GATED_LABELS, positive_suffix="estimated_mechanisms")
+
+#: Each family's cell suffixes and labels for one fit, beside the calibration families, whose
+#: suffix is the configuration.
+_PAIRED_CELLS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "targeting_necessity": (GATED_LABELS, ("targeted", "untargeted")),
+    "rule_necessity": (RULE_LABELS, ("declared", "reversed_rule")),
+    "repeated_outcome_necessity": (ABSORBING_LABELS, ("repeated", "absorbing_reading")),
+    "outcome_history_necessity": (HISTORY_LABELS, ("repeated", "history_free")),
+    "full_history_necessity": (GATED_LABELS, ("full_history", "markov_history")),
+}
+
+
+def _cells_of(key: tuple[_Payload]) -> list[str]:
+    """The ``property/cell`` names the key's rows and derived controls fill."""
+    family, configuration = key[0][:2]
+    if family in _PAIRED_CELLS:
+        labels, arms = _PAIRED_CELLS[family]
+        return [f"{family}/{label}__{arm}" for label in labels for arm in arms]
+    names = [f"{family}/{label}__{configuration}" for label in GATED_LABELS]
+    if family == "interval_calibration" and configuration == "estimated_mechanisms":
+        names += [f"{family}/{label}__{configuration}" for label in EARLIER_LABELS]
+        names += [f"{JOINT_FAMILY}/{name}" for name in joint_cells(JOINT_LABEL)]
+    for name in list(names):
+        names += DERIVED_CELLS.get(name, ())
+    return names
+
+
+#: The share of a cell's requested replications that the accounting lets a run lose, declared
+#: for the study's next property run (RM39b2 rev 3 section 6).  Up to ``floor(0.01 R)`` lost
+#: replicates are judged by the worst case of each clause; one more is ``bound exceeded``.
+FAILURE_BOUND = 0.01
+
+#: The draw-level statistic the accounting reports for each lost replicate (rev 3 D3'f).
+PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
+
+
 def generate_property_rows(*, n_jobs: int = STUDY_JOBS) -> pd.DataFrame:
-    outcomes = map_parallel(_replication, _payloads(), n_jobs=n_jobs)
+    """Fit every fit set and derive the calibration controls from the same draws."""
+    outcomes = fit_properties(
+        _payloads(),
+        splat_drawn(_fit_drawn),
+        draw=splat_draw(_draw),
+        cells_of=_cells_of,
+        cell_of=payload_cell,
+        replicate_of=payload_replicate,
+        n_jobs=n_jobs,
+        derived=DERIVED_CELLS,
+    )
     rows = pd.DataFrame([row for result in outcomes for row in result])
     rows = pd.concat(
         [
@@ -1200,6 +1273,16 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     for necessity in NECESSITIES:
         alternative_target_necessity_verdicts(summary, rows, STUDY, necessity)
     return finish(summary, rates)
+
+
+#: The failure accounting's declared rules (RM39b2 rev 3, D3'a).  ``double_robustness`` adds
+#: the ``both_wrong`` limit to the union-model rule, and each necessity family reads its
+#: declaration.  The calibration, simultaneous-coverage and union-model clauses are the shared
+#: rules'.
+PROPERTY_RULES = (
+    property_verdicts.robustness_rule(alternative_truths=BOTH_WRONG_TARGETS),
+    *property_verdicts.necessity_rules(*NECESSITIES),
+)
 
 
 # ---------------------------------------------------------------------------- design
