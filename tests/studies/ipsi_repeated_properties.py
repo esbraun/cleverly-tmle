@@ -177,10 +177,17 @@ N = 2_000
 CALIBRATION_N = 8_000
 #: The sample size of the C6 arm (``continuous``).  It is declared apart from
 #: :data:`CALIBRATION_N`, so the C6 ``n`` rule doubles this size alone.
-CONTINUOUS_N = 8_000
+CONTINUOUS_N_BASE = 8_000
+#: The doublings the C6 ``n`` rule recorded.  Zero while the pilots are placeholders.
+CONTINUOUS_N_DOUBLINGS = 0
+CONTINUOUS_N = CONTINUOUS_N_BASE * 2**CONTINUOUS_N_DOUBLINGS
 #: The sample size of N1 and N2.  The ``n`` rule may double them, twice at most.
-ABSORBING_N = 8_000
-HISTORY_FREE_N = 8_000
+ABSORBING_N_BASE = 8_000
+ABSORBING_N_DOUBLINGS = 0
+ABSORBING_N = ABSORBING_N_BASE * 2**ABSORBING_N_DOUBLINGS
+HISTORY_FREE_N_BASE = 8_000
+HISTORY_FREE_N_DOUBLINGS = 0
+HISTORY_FREE_N = HISTORY_FREE_N_BASE * 2**HISTORY_FREE_N_DOUBLINGS
 #: The reported arms draw this many replications.
 SMALL_SAMPLE_REPLICATES = 2_000
 BOOSTER_REPLICATES = 2_000

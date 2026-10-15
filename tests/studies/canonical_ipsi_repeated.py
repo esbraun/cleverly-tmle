@@ -78,7 +78,11 @@ from tests.studies.ltmle_repeated_properties import CellMeansBackoff
 #: values, and ``"recorded"`` once pilots P4, P5 and P6 are pinned in the properties module.
 PILOT_STATE: Literal["placeholder", "recorded"] = "placeholder"
 
-PRIMARY_N = 8_000
+#: The primary sample size is its base times two to the number of doublings the ``n`` rule
+#: recorded.  Both counts are declared, so a test can check the product.
+PRIMARY_N_BASE = 8_000
+PRIMARY_N_DOUBLINGS = 0
+PRIMARY_N = PRIMARY_N_BASE * 2**PRIMARY_N_DOUBLINGS
 #: From ``ipsi_repeated_properties.primary_replicates`` on the primary pilot (see the module
 #: docstring, Pilot state).  A fast test re-derives it.
 PRIMARY_REPLICATES = 2_400

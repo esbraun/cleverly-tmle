@@ -533,7 +533,7 @@ def test_the_pilot_driver_writes_parts_records_the_plan_and_resumes(
     assert capsys.readouterr().out.count("[P4] part") == 2
     plan = json.loads((out / "plan.json").read_text())
     assert plan["resolved_n"] == dict.fromkeys(study.SCENARIOS, SMALL_N)
-    assert set(plan["modules"]) == set(pilot.STUDY_FILES)
+    assert set(plan["modules"]) == set(pilot.study_files())
     assert plan["head"]
     assert pilot.run("P4", out, jobs=1, chunk=2, replicates=2) == 0
     assert "skipped" in capsys.readouterr().out
@@ -668,3 +668,37 @@ def test_the_pilot_summaries_read_synthetic_rows() -> None:
     assert properties.pilot_row_sizes("P4", rows) == {
         scenario: {1_000} for scenario in study.SCENARIOS
     }
+
+
+def test_each_declared_n_is_its_base_times_the_recorded_doublings() -> None:
+    """The n rules double a size at most twice, and the placeholder pilots fire none."""
+    assert study.PRIMARY_N == study.PRIMARY_N_BASE * 2**study.PRIMARY_N_DOUBLINGS
+    for name in ("CONTINUOUS", "ABSORBING", "HISTORY_FREE"):
+        base = getattr(properties, f"{name}_N_BASE")
+        doublings = getattr(properties, f"{name}_N_DOUBLINGS")
+        assert getattr(properties, f"{name}_N") == base * 2**doublings
+        assert doublings in (0, 1, 2)
+    if study.PILOT_STATE == "placeholder":
+        assert study.PRIMARY_N_DOUBLINGS == 0
+        assert properties.CONTINUOUS_N_DOUBLINGS == 0
+        assert properties.ABSORBING_N_DOUBLINGS == 0
+        assert properties.HISTORY_FREE_N_DOUBLINGS == 0
+
+
+def test_the_drift_check_names_a_study_file_that_changed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A recorded hash that differs from the tree prints a warning that names the file."""
+    recorded = pilot.module_hashes()
+    assert pilot.drifted_files(recorded) == []
+    name = "tests/studies/repeated_sizing.py"
+    assert name in recorded
+    altered = {**recorded, name: "0" * 64, "src/cleverly/longitudinal/removed.py": "1" * 64}
+    expected = sorted([name, "src/cleverly/longitudinal/removed.py"])
+    assert pilot.drifted_files(altered) == expected
+    plan = {"modules": altered, "head": pilot.git_head()}
+    assert pilot.warn_on_drift(plan, tmp_path) == expected
+    printed = capsys.readouterr().out
+    assert f"differs: {name}" in printed
+    assert pilot.warn_on_drift({"modules": recorded, "head": pilot.git_head()}, tmp_path) == []
+    assert "WARNING" not in capsys.readouterr().out
