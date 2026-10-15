@@ -239,6 +239,34 @@ def roadmap_code_findings(modules: list[tuple[str, ast.Module]]) -> list[Finding
     return findings
 
 
+def unnamed_gap_findings(modules: list[tuple[str, ast.Module]]) -> list[Finding]:
+    """Every literal implementation gap that names no roadmap item.
+
+    Parameters
+    ----------
+    modules : list of tuple of str and ast.Module
+        The parsed package.
+
+    Returns
+    -------
+    list of Finding
+        One entry per call whose literal code is ``IMPLEMENTATION_GAP`` and whose
+        ``roadmap=`` is absent or the literal ``None``. A name, an attribute or a call
+        forwards an id that the caller chooses, so the check accepts it.
+    """
+    findings = []
+    for path, module in modules:
+        for node in ast.walk(module):
+            if not (isinstance(node, ast.Call) and _literal_code(node) == "IMPLEMENTATION_GAP"):
+                continue
+            keyword = _keyword(node, "roadmap")
+            if keyword is None:
+                findings.append(Finding(path, node.lineno, "names no roadmap="))
+            elif isinstance(keyword.value, ast.Constant) and keyword.value.value is None:
+                findings.append(Finding(path, node.lineno, "sets roadmap=None"))
+    return findings
+
+
 def module_refusals() -> Iterator[tuple[str, Refusal]]:
     """Every ``Refusal`` held at module level in the package, and inside a module-level record.
 
@@ -527,6 +555,63 @@ class TestOnlyAGapNamesARoadmapItem:
     def test_the_check_sees_a_literal_code(self, source: str, count: int) -> None:
         module = ast.parse(source)
         assert len(roadmap_code_findings([("synthetic.py", module)])) == count
+
+
+class TestEveryImplementationGapNamesAnItem:
+    """An ``implementation_gap`` message names the roadmap item that tracks the gap."""
+
+    def test_every_literal_gap_names_a_roadmap_id(
+        self, modules: list[tuple[str, ast.Module]]
+    ) -> None:
+        findings = unnamed_gap_findings(modules)
+        assert not findings, "\n".join(f"{f.path}:{f.line}: {f.rule}" for f in findings)
+
+    def test_every_module_level_gap_record_names_a_roadmap_id(self) -> None:
+        records = list(module_refusals())
+        unnamed = [
+            name
+            for name, record in records
+            if record.reason is RefusalReason.IMPLEMENTATION_GAP and record.roadmap is None
+        ]
+        assert not unnamed, "\n".join(unnamed)
+
+    @pytest.mark.parametrize(
+        ("source", "rule"),
+        [
+            ("Refusal(RefusalReason.IMPLEMENTATION_GAP, 'x.', 'y.')", "names no roadmap="),
+            (
+                "CapabilityError('x.', reason=RefusalReason.IMPLEMENTATION_GAP, alternative='y.')",
+                "names no roadmap=",
+            ),
+            (
+                "refuse('x.', 'y.', code=RefusalReason.IMPLEMENTATION_GAP, roadmap=None)",
+                "sets roadmap=None",
+            ),
+        ],
+    )
+    def test_the_check_fails_a_gap_without_an_item(self, source: str, rule: str) -> None:
+        module = ast.parse(source)
+        assert unnamed_gap_findings([("synthetic.py", module)]) == [
+            Finding("synthetic.py", 1, rule)
+        ]
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "Refusal(RefusalReason.IMPLEMENTATION_GAP, 'x.', 'y.', roadmap='X60')",
+            "CapabilityError('x.', reason=RefusalReason.IMPLEMENTATION_GAP, roadmap=item)",
+            "refuse('x.', 'y.', code=RefusalReason.IMPLEMENTATION_GAP, roadmap=pick(a))",
+            "CapabilityError('x.', reason=RefusalReason.INFERENCE_GAP, roadmap=None)",
+            "CapabilityError('x.', reason=code)",
+        ],
+    )
+    def test_the_check_passes_a_named_or_forwarded_item(self, source: str) -> None:
+        assert unnamed_gap_findings([("synthetic.py", ast.parse(source))]) == []
+
+    def test_the_runtime_check_sees_a_record_without_an_item(self) -> None:
+        record = Refusal(RefusalReason.IMPLEMENTATION_GAP, "x.", alternative=NO_ALTERNATIVE)
+        assert record.roadmap is None
+        assert "docs/roadmap.md" not in record.message()
 
 
 class TestTheRecord:
