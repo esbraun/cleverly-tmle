@@ -969,6 +969,10 @@ multi-arm-mar-drtmle,simultaneous_coverage,joint coverage below nominal,se_low
 multi-arm-mar-drtmle,simultaneous_coverage,joint coverage in calibration band,none
 multi-arm-mar-drtmle,type_i_error,coverage floor,coverage/0.5
 multi-arm-mar-drtmle,type_i_error,rejection ceiling,rejection/0.1
+omitted-variable-bound-plugin-se,interval_calibration,coverage in calibration band,bias
+omitted-variable-bound-plugin-se,interval_calibration,se ratio above band,se_low
+omitted-variable-bound-plugin-se,interval_calibration,se ratio below band,se_high
+omitted-variable-bound-plugin-se,interval_calibration,se ratio in calibration band,none
 omitted-variable-bound-se,interval_calibration,coverage in calibration band,affine
 omitted-variable-bound-se,interval_calibration,se ratio above band,se_low
 omitted-variable-bound-se,interval_calibration,se ratio in calibration band,affine
