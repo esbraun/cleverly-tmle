@@ -166,6 +166,7 @@ def capture(run: Callable[[], Any]) -> Observed:
 
     def at_longitudinal(estimator: Any, data: Any, **settings: Any) -> None:
         settings.pop("source", None)
+        settings.pop("conditions", None)
         raise _Reached(Observed(*longitudinal_key(estimator, data, **settings)))
 
     def at_point(
@@ -1333,6 +1334,25 @@ def _c_cases() -> tuple[RowCase, ...]:
                 ),
                 data,
                 ("ate",),
+            )
+        )
+    crossfit = "canonical_ctmle_oat_per_arm_parametric_crossfit"
+    where = _ST + "canonical_ctmle_oat_per_arm_parametric_crossfit.py:625"
+    for row, cell, repeats, names in (
+        ("C11.stacked", "crossfit_1500__ate__corrected", 1, ("ey0", "ey1", "ate", "rr", "or")),
+        ("C11.repeated", "repeats__ate__corrected", 3, ATE),
+    ):
+        add(
+            _case(
+                row,
+                "ctmle-oat-per-arm-parametric-crossfit",
+                cell,
+                where,
+                lambda repeats=repeats, names=names: _study(crossfit).estimator(
+                    _study(crossfit).Fit("main", estimands=names, repeats=repeats)
+                ),
+                {},
+                names,
             )
         )
     return tuple(cases)

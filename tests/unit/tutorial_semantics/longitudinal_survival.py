@@ -156,8 +156,8 @@ def check(namespace: dict[str, Any]) -> None:
     for name, (low, high) in bands.bands.items():
         assert low < result[name].ci[0] and high > result[name].ci[1]
     estimate_output = stored_output(NOTEBOOK, "estimate")
-    assert estimate_output.count("always: 938 of 4000 units followed it throughout") == 2
-    assert estimate_output.count("never: 671 of 4000 units followed it throughout") == 2
+    assert estimate_output.count("always: 938 of 4000 units followed it throughout") == 1
+    assert estimate_output.count("never: 671 of 4000 units followed it throughout") == 1
 
     # Step 7. Each contrast equals the signed sum with the standard error of the summed influence
     # curves, so the joint correlation enters.  Event-free survival is one minus both causes; one

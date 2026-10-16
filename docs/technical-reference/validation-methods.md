@@ -782,6 +782,13 @@ $\lVert \hat\alpha - \alpha_0 \rVert^2$. The bounds then read too narrow, and th
 reads too large. The plug-in estimate can fall on either side of $\nu_0^2$. Witness 5 in
 `tests/unit/test_omitted_variable_refusals.py` gives the plug-in 5.32 against $\nu_0^2 = 4.4$.
 
+A plain `TMLE` fit with `treatment_adjustment=` is admitted. The fitted representer uses the
+mechanism $g_n(W_g)$, which is the fit of the restricted model. So the bound is claimed only under
+the declared [statistical-model restriction](point-treatment-tmle.md#treatment-mechanism-covariates).
+The fit's summary prints that restriction. `tests/unit/test_treatment_covariates_collaborative.py` fits the
+bound on such a fit and asserts the restriction in its summary. A collaborative fit stays refused,
+including a fit that selects nothing.
+
 `cleverly` refuses every operation in this group on the fits below. The
 refusal runs in `sensitivity_elements()` before any computation. Every entry point and the
 matching capability row therefore carry one reason.

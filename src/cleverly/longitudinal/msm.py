@@ -100,6 +100,7 @@ from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import FloatArray, Learner
 from ..estimators.targeting import ProjectionFluctuation
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
+from ..fluctuation._score import StopContext
 from ..fluctuation.iterative import (
     Fluctuation,
     InitialFit,
@@ -608,6 +609,10 @@ def fit_regimens_msm(
     max_outer: int = 50,
     n_jobs: int = 1,
     warn: bool = True,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> MSMRegimenFit:
     r"""Target every declared cell against one working model, and project.
 
@@ -639,6 +644,20 @@ def fit_regimens_msm(
     working model therefore reproduces the cross-fitted per-regimen report, as it
     reproduces the single-fold one, which ``tests/e2e/test_ltmle_msm.py`` pins at both fold
     counts.
+
+    **A declared stopping rule** (``stopping="scaled_var"`` or ``"sample_size"``) judges each
+    node's stacked solve.  The stacked rows are ``C`` copies of the panel, so the unit of a
+    stacked row is still its subject (its cluster, when the data declare one), and a threshold
+    counts each subject once.  Counting the copies as separate units would shrink the threshold
+    by ``sqrt(C)``.  The score columns are contrasts of the cells in this sense, so the
+    threshold has no a priori bound as a coefficient's standard error.
+
+    **A step bound** (``step_bound=``) bounds each node's stacked iteration by the constrained
+    step along the normalised score vector of the working-model terms, as for a point fit with
+    several score columns.  ``step_search`` chooses whether the step searches its length.
+
+    **A best iterate** (``iterate="best"``) reports, at each node, the iterate of the stacked
+    walk whose score vector over the working-model terms has the smallest 2-norm.
     """
     plan_of = {plan.label: plan for plan in plans}
     missing = sorted({cell.label for cell in model.cells} - set(plan_of))
@@ -658,6 +677,9 @@ def fit_regimens_msm(
     # ``None`` for a plan without a policy node, whose loss weight is the deterministic one.
     numerators = {plan.label: plan.cumulative_numerator(data) for plan in plans}
     weights = np.asarray(data.weights, dtype=float)
+    # The subject of each row, which the stacked copies of the panel share.  Built once; a
+    # node stacks as many copies as it has live cells.
+    subject = np.arange(data.n) if data.cluster is None else np.asarray(data.cluster)
 
     def backward_pass(
         beta: FloatArray | None,
@@ -725,6 +747,15 @@ def fit_regimens_msm(
                     max_iter=max_iter,
                     tol=tol,
                     warn=warn,
+                    stopping=stopping,
+                    stop=(
+                        None
+                        if stopping == "relative"
+                        else StopContext(np.tile(subject, len(live)), scaler.range)
+                    ),
+                    step_bound=step_bound,
+                    step_search=step_search,
+                    iterate=iterate,
                 )
             targeted = np.split(fluctuation.targeted.arms[_REGIMEN_ARM], len(live))
             for position, k in enumerate(live):

@@ -5,9 +5,9 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-parametric-gformula",
-      "cleverly_version": "0.1.3",
-      "cleverly_commit": "308a6cbfac9c62b1693359a1e7ca9a14079a720b",
-      "cleverly_worktree_clean": false,
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "96074e49601337ea3513739d341bbb2a0bb68b23",
+      "cleverly_worktree_clean": true,
       "python": "3.13.16",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
@@ -23,8 +23,7 @@
     "resampling_seed": 2026450101,
     "publication_policy": "reporting",
     "failure_bound": {
-      "cleverly-parametric-gformula": 0.01,
-      "pygformula": 0.01
+      "cleverly-parametric-gformula": 0.01
     },
     "scenarios": {
       "g1_nice": [
@@ -75,7 +74,7 @@
       8000
     ],
     "calibration_n": 2000,
-    "reference": "none yet; pygformula is pending",
+    "reference": "none; pygformula 1.2.0 runs on the fixtures of compare_pygformula.py",
     "property_failure_bound": 0.01,
     "margins": {
       "confidence_level": 0.99,
@@ -104,7 +103,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_parametric_gformula.py": "7900ba6b3d7e9d648f0c8b8894372f3ff6b2a48f44f5717ea52564037cc09617",
+    "tests/studies/canonical_parametric_gformula.py": "45887dc64d2570bf78d9a93224600bacd76488a3bd3e36be99dae4ddccc5168e",
     "tests/studies/parametric_gformula_properties.py": "4f3a8bdb072524305c3b034e1d93bf5f0ebda9963f9b18c80b1330485f70a675",
     "tests/studies/parametric_gformula_laws.py": "039123ae4e42310c4481c4228fd5c75adc5ef651b54810130094ba998ccdc988",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
@@ -125,16 +124,5 @@
     "property-failures.csv": "66d79a8021b76b4745069ced330b04ac23952a7b83ee90b35bb5ff78b5eeee0e",
     "property-failure-accounting.csv": "39ddceffc0284ae9286fd25e10ffb5af4ecded326e670a13267a26d68d20c586",
     "property-failure-witnesses.csv": "decfb19e9691cae6d54fdd9a9c5657321ad1b17e946ced4ca539c62ee53ed0cc"
-  },
-  "comparator": {
-    "status": "pending",
-    "implementation": "pygformula",
-    "reason": "pygformula comparator run, follow-up PR from X45",
-    "metadata": {},
-    "declared_sources_sha256": {
-      "tests/canonical/parametric_gformula_study/Dockerfile": "accbee9f79a8986f4e7017bd5e3ac03c0d70cce451778eede3742bbf215f4dab",
-      "tests/canonical/parametric_gformula_study/run_pygformula.py": "3c47570b85d9d970a3f1927a0fb06dc1453e5ea36b768adaefd6425ff58aa598",
-      "tests/canonical/parametric_gformula_study/requirements.txt": "b61b36b88a1526fc3639c5baba5dbec5112d6a474e07ad3d7755d6175bfb791a"
-    }
   }
 }
