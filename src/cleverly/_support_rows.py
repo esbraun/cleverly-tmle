@@ -2321,13 +2321,13 @@ def _categorical_incremental_rows() -> tuple[SupportRow, ...]:
             cells=["point_stratified_t_a_v1"],
         ),
         long_row(
-            "G37.cross_fitted",
+            "G39.cross_fitted",
             slug,
             **ipsi,
             cells=["longitudinal_dropout_folds_5", "longitudinal_dropout_contrast_t_a"],
         ),
         long_row(
-            "G37.complete",
+            "G39.complete",
             slug,
             **ipsi,
             missing=("complete",),

@@ -25,10 +25,13 @@ family L, against the natural course (``{a: 1}``).  Every nuisance is saturated
 (:mod:`tests.studies.categorical_incremental_common`).
 
 **Size** (declared before any run).  The record holds one primary size for every scenario.
-:data:`PRIMARY_N` is the larger of the two families' pilot sizes: the smallest rung at which
-every primary contrast has a standardized bias of at most 0.25 in a pilot of 400 draws
-(``X43-plan.md`` 5.3).  Family P's pilot rung is :data:`POINT_PILOT_N`.  Family L's pilot
-waits for the longitudinal layer, so :data:`PRIMARY_N` is provisional until it runs.
+The plan's rung rule (``X43-plan.md`` 5.3) takes the smallest rung at which every primary
+contrast has a standardized bias of at most 0.25 in a pilot of 400 draws: 1,000 for family P
+(:data:`POINT_PILOT_N`) and 2,000 for family L (:data:`LONGITUDINAL_PILOT_N`).  At those sizes
+the 1,000-replicate bias gate of the twenty primary rows passes with a predictive chance of
+about 0.35, so :data:`PRIMARY_N` is the smallest rung at which the gate's joint predictive
+chance is at least 0.95, with each row's bias decaying as the root of ``n`` from its pilot
+fit (``tests/unit/test_categorical_incremental_design.py``).
 
 **Properties.** :mod:`tests.studies.categorical_incremental_properties` declares every family.
 
@@ -62,9 +65,10 @@ PRIMARY_REPLICATES = 1_000
 FAILURE_BOUND = 0.01
 #: Family P's pilot rung (``tests/unit/test_categorical_incremental_design.py``).
 POINT_PILOT_N = 1_000
-#: Provisional: the larger of the two families' pilot rungs.  Family L's pilot waits for the
-#: longitudinal layer (``X43-plan.md`` section 7, stage 2).
-PRIMARY_N = 24_000
+#: Family L's pilot rung.
+LONGITUDINAL_PILOT_N = 2_000
+#: The primary size of both families: the bias gate's joint predictive chance >= 0.95.
+PRIMARY_N = 8_000
 #: The size of the point calibration and necessity cells.  Every rung of family P's pilot has
 #: calibrated intervals; this one carries the 8,400-draw calibration pilot of the sizing rule.
 POINT_CALIBRATION_N = 4_000

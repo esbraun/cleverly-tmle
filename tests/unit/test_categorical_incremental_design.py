@@ -34,6 +34,7 @@ import warnings
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 from scipy.stats import binom, chi2, norm
 from scipy.stats import t as student
@@ -316,16 +317,19 @@ def test_the_power_cell_is_sized_on_the_exact_law() -> None:
 
 @pytest.mark.parametrize(
     "case",
-    [case for case in PENDING_CASES if case.row.startswith("T35")],
+    PENDING_CASES,
     ids=lambda case: case.row,
 )
-def test_each_point_case_lands_on_its_pending_row(case: Any) -> None:
-    """The study's own point fits classify onto the pending rows they stand for."""
-    built = case.build()
+def test_each_case_lands_on_its_pending_row_only(case: Any) -> None:
+    """The study's own fits classify onto the pending rows they stand for, and onto no
+    registered row: until registration such a fit is labelled experimental."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        built = case.build()
         landed = classify_key(built.key, built.learners, rows=PENDING_ROWS)
+        registered_row = classify_key(built.key, built.learners).row
     assert landed.row is not None and landed.row.id == case.row
+    assert registered_row is None
 
 
 # ---------------------------------------------------------------------- the pilot sizing
@@ -502,3 +506,141 @@ def test_the_single_robustness_pair_passes_with_the_declared_chance() -> None:
             norm.cdf((margin - half - bias) / spread) - norm.cdf((-margin + half - bias) / spread)
         )
     assert joint >= PRIMARY_PASS
+
+
+# ------------------------------------------------------------- the longitudinal fit
+
+
+def _empirical(target: Any, frame: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """The cell masses and outcome means of ``frame`` on ``target``'s axes.
+
+    After a dropout the later axes are structural zeros, which the sample writes as missing.
+    """
+    names = [axis.name for axis in target.axes]
+    cells = np.nan_to_num(frame[names].to_numpy(dtype=float), nan=0.0).astype(int)
+    index = np.ravel_multi_index(cells.T, target.shape)
+    counts = np.bincount(index, minlength=int(np.prod(target.shape))).astype(float)
+    observed = ~frame["Y"].isna().to_numpy()
+    totals = np.bincount(
+        index[observed], weights=frame["Y"].to_numpy()[observed], minlength=counts.size
+    )
+    seen = np.bincount(index[observed], minlength=counts.size)
+    means = np.where(seen > 0, totals / np.where(seen > 0, seen, 1), 0.0)
+    return (counts / counts.sum()).reshape(target.shape), means.reshape(target.shape)
+
+
+@pytest.mark.parametrize("target", [long_law.LAW_L, long_law.LAW_L0], ids=["L", "L0"])
+def test_the_one_fold_fit_is_the_empirical_functional(target: Any) -> None:
+    """``fit_longitudinal``'s regimens, level keys and columns reach the declared estimand.
+
+    One fold with saturated learners makes every nuisance the empirical law's, so the
+    estimate is the g-formula of the empirical law (Kennedy 2019, Algorithm 2).  A level key
+    read against the wrong level, or a node tilted with the other plan's factors, moves it.
+    """
+    frame = long_law.sample(target, 3_000, 4343)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = common.fit_longitudinal(frame, target, n_folds=1)
+    probs, means = _empirical(target, frame)
+    for label, plan in long_law.PLANS.items():
+        expected = float(np.real(long_law.functional(target, probs, plan, mu=means)))
+        assert float(result[f"ey_regimen[{label}]"].psi) == pytest.approx(expected, abs=1e-9)
+    swapped = {"T_a": long_law.PLANS["T_b"], "T_b": long_law.PLANS["T_a"]}
+    expected = float(np.real(long_law.functional(target, probs, swapped["T_a"], mu=means)))
+    assert abs(float(result["ey_regimen[T_a]"].psi) - expected) > 0.1
+
+
+def test_the_five_fold_fit_reads_its_truth() -> None:
+    """The cross-fitted fit of law ``L`` lands within 4 SE of its truth at n = 20,000."""
+    frame = long_law.sample(long_law.LAW_L, 20_000, 4344)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = common.fit_longitudinal(frame, long_law.LAW_L, n_folds=common.N_FOLDS)
+    estimate = result[properties.LONG_CONTRAST]
+    truth = properties.TRUTH["longitudinal_dropout_contrast_t_a"]
+    assert abs(float(estimate.psi) - truth) < 4.0 * float(estimate.std_error)
+    assert float(estimate.std_error) * math.sqrt(20_000) == pytest.approx(
+        properties.EFFICIENCY_SD["longitudinal_dropout_contrast_t_a"], rel=0.1
+    )
+
+
+#: The rung pilots' standardized bias of every primary row (``pilot_p_summary.csv``, 400 draws at
+#: 1k, 2k, 4k, 8k and 16k; ``pilot_l_summary.csv``, 400 draws at 2k, 4k, 8k and 16k).
+POINT_BIAS: dict[tuple[str, str], tuple[float, ...]] = {
+    ("crossfit", "ate_ipsi[T_a vs natural course]"): (-0.1643, -0.0560, -0.1033, 0.0260, -0.0538),
+    ("crossfit", "ate_ipsi[T_b vs natural course]"): (0.0881, 0.0511, 0.0538, -0.0277, 0.0368),
+    ("crossfit", "ey_ipsi[T_a]"): (-0.0122, -0.0047, -0.0084, 0.0168, -0.0208),
+    ("crossfit", "ey_ipsi[T_b]"): (0.0978, 0.0405, 0.0612, -0.0055, 0.0197),
+    ("crossfit", "ey_ipsi[natural course]"): (0.0530, 0.0173, 0.0352, 0.0062, 0.0012),
+    ("in_sample", "ate_ipsi[T_a vs natural course]"): (0.0839, 0.1357, 0.0289, 0.1176, 0.0127),
+    ("in_sample", "ate_ipsi[T_b vs natural course]"): (-0.0699, -0.0793, -0.0380, -0.0887, -0.0068),
+    ("in_sample", "ey_ipsi[T_a]"): (0.0845, 0.0706, 0.0475, 0.0532, 0.0063),
+    ("in_sample", "ey_ipsi[T_b]"): (0.0236, -0.0158, 0.0189, -0.0316, -0.0021),
+    ("in_sample", "ey_ipsi[natural course]"): (0.0530, 0.0173, 0.0352, 0.0062, 0.0012),
+}
+LONGITUDINAL_BIAS: dict[tuple[str, str], tuple[float, ...]] = {
+    ("crossfit_L", "ate_regimen[T_a vs natural course]"): (0.1353, 0.0441, 0.0729, 0.0462),
+    ("crossfit_L", "ate_regimen[T_b vs natural course]"): (-0.0752, -0.0493, -0.0698, -0.1297),
+    ("crossfit_L", "ey_regimen[T_a]"): (0.0501, 0.0445, 0.0502, 0.0741),
+    ("crossfit_L", "ey_regimen[T_b]"): (-0.0609, -0.0073, -0.0278, -0.0231),
+    ("crossfit_L", "ey_regimen[natural course]"): (-0.0177, 0.0248, 0.0165, 0.0582),
+    ("crossfit_L0", "ate_regimen[T_a vs natural course]"): (0.1292, 0.1105, 0.0095, 0.0499),
+    ("crossfit_L0", "ate_regimen[T_b vs natural course]"): (-0.1538, -0.1211, 0.0050, -0.0610),
+    ("crossfit_L0", "ey_regimen[T_a]"): (0.0833, -0.0115, -0.1017, 0.0418),
+    ("crossfit_L0", "ey_regimen[T_b]"): (-0.0786, -0.1464, -0.1238, -0.0192),
+    ("crossfit_L0", "ey_regimen[natural course]"): (0.0214, -0.0686, -0.1173, 0.0199),
+}
+POINT_RUNGS = (1_000, 2_000, 4_000, 8_000, 16_000)
+LONGITUDINAL_RUNGS = (2_000, 4_000, 8_000, 16_000)
+
+
+def _primary_pass(
+    table: dict[tuple[str, str], tuple[float, ...]], rungs: tuple[int, ...], n: int
+) -> float:
+    """The joint predictive chance that every primary row passes the bias gate at ``n``.
+
+    Each row's standardized bias decays as :math:`c\\sqrt{n_0/n}` (a second-order remainder),
+    with :math:`c` the least-squares fit over the rungs, each pilot bias of variance 1/400.
+    A row passes when the 99% t interval of its mean error over ``PRIMARY_REPLICATES`` lies
+    inside the margin.
+    """
+    replicates = study.PRIMARY_REPLICATES
+    margin = Margins().standardized_bias
+    half = float(student.ppf(0.995, replicates - 1)) / math.sqrt(replicates)
+    x = np.sqrt(rungs[0] / np.asarray(rungs, dtype=float))
+    joint = 1.0
+    for biases in table.values():
+        c = float(x @ np.asarray(biases)) / float(x @ x)
+        se = 1.0 / math.sqrt(400.0 * float(x @ x))
+        f = math.sqrt(rungs[0] / n)
+        spread = math.sqrt((se * f) ** 2 + 1.0 / replicates)
+        joint *= float(
+            norm.cdf((margin - half - c * f) / spread) - norm.cdf((-margin + half - c * f) / spread)
+        )
+    return joint
+
+
+def test_the_primary_size_passes_the_bias_gate() -> None:
+    """``PRIMARY_N`` is the smallest rung with joint primary pass chance >= 0.95.
+
+    The plan's rung rule (bias <= 0.25 at 400 draws) passes at every rung, 1,000 for P and
+    2,000 for L, but there the gate's joint chance is far below 0.95.
+    """
+    for table, rungs, pilot in (
+        (POINT_BIAS, POINT_RUNGS, study.POINT_PILOT_N),
+        (LONGITUDINAL_BIAS, LONGITUDINAL_RUNGS, study.LONGITUDINAL_PILOT_N),
+    ):
+        assert len(table) == 10
+        assert pilot == min(
+            n for i, n in enumerate(rungs) if max(abs(b[i]) for b in table.values()) <= SIZING_BIAS
+        )
+        assert _primary_pass(table, rungs, pilot) < PRIMARY_PASS
+
+    def joint(n: int) -> float:
+        return _primary_pass(POINT_BIAS, POINT_RUNGS, n) * _primary_pass(
+            LONGITUDINAL_BIAS, LONGITUDINAL_RUNGS, n
+        )
+
+    assert joint(study.PRIMARY_N) >= PRIMARY_PASS
+    smaller = [n for n in LONGITUDINAL_RUNGS if n < study.PRIMARY_N]
+    assert all(joint(n) < PRIMARY_PASS for n in smaller)
