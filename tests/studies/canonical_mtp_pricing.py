@@ -5,7 +5,7 @@ node's engagement, ``continuous_treatment={"A_t": Support(4 + 2 L_t, 8 + 2 L_t)}
 ``tau`` in ``{2, 3, 5}`` nodes.  ``price_up`` scales the price by 1.12 and binds at the
 upper boundary; ``price_down`` scales it by 0.85 and binds at the lower boundary, with two pieces.  The
 law, the plans, the truths and the learners live in :mod:`tests.studies.mtp_pricing_common`.
-The comparator is R ``lmtp`` 1.5.4, pending.  Six primary scenarios, 1,000 replications at
+The comparator is R ``lmtp`` 1.5.4.  Six primary scenarios, 1,000 replications at
 n = 5,000:
 
 =======================  ================================================================
@@ -22,17 +22,20 @@ scenario                 subject and pairing
 ``pricing_*_tau5``       the same at ``tau = 5``
 =======================  ================================================================
 
-**Learners.**  The primary rows match the comparator's ``SL.glm``: a quasibinomial GLM on the
-outcome design at the last node, and least squares at every earlier node.  The property rows
-read the declared learners of :mod:`tests.studies.mtp_pricing_properties`.
+**Learners.**  The primary rows match the comparator's ``SL.glm`` and its prediction bound: a
+quasibinomial GLM on the outcome design at the last node, and least squares clipped to
+``[1e-5, 1 - 1e-5]`` at every earlier node (:data:`PRIMARY_PSEUDO_LEARNER`).  The property
+rows read the declared learners of :mod:`tests.studies.mtp_pricing_properties`.
 
 **The comparator.**  ``tests/canonical/mtp_pricing_runner.R`` calls ``lmtp_mtp_tmle``
 (``tests/canonical/lmtp_mtp_adapter.R``) for the ``LTMLE`` scenarios and
 ``lmtp_sdr_with_folds`` (``tests/canonical/lmtp_sdr_adapter.R``) for the ``SDR`` scenarios.
 Both read ``shift__<plan>__<node>__1`` and ``ratio__<plan>__<node>``; the adapters loop over
-``length(trt)``, so ``tau = 5`` needs no new adapter.  A pre-declaration R smoke of 3
-replications requires every paired estimate and standard error to differ by less than
-:data:`SMOKE_GATE`.  These rows are comparator evidence.
+``length(trt)``, so ``tau = 5`` needs no new adapter.  Every primary row is an exactness
+witness: ``exactness.csv`` (:func:`extra_artifacts`) records each estimand's largest paired gap
+in estimate and standard error, and a gap of :data:`SMOKE_GATE` or more is a red row.  A
+pre-declaration R smoke of 3 replications reads the same table.  These rows are comparator
+evidence.
 
 **Second declaration (2026-10-16).**  The first run (cleverly-tmle fb70e6ef, n = 2,000) read
 the four ``tau = 5`` ``price_down`` rows red: coverage 0.903 to 0.912, SE ratio 0.93, bias
@@ -40,6 +43,17 @@ under 0.04 SD, on the exact ratio.  A probe on fresh draws read SE ratio 0.887 a
 0.968 at n = 4,000, a finite-sample shortfall of the influence-curve variance.  The primary
 moves to n = 5,000 on Eric's decision (2026-10-16); the property cells keep their declared
 sizes and their committed rows.  The n = 2,000 reading stays in the method-evidence page.
+
+**Third declaration (2026-10-16, before any comparator run).**  The first R smoke stopped:
+``lmtp`` bounds every sequential prediction to ``[1e-5, 1 - 1e-5]``, and the least-squares
+fits of nodes 1 to 4 predicted at or above ``1 - 1e-5`` in 13 to 20 of 20 probe samples of
+every scenario.  The last node, a quasibinomial GLM, never did.  ``lmtp`` clipped those
+predictions and the package did not, so the pairs could not agree.  The primary learner before
+the last node becomes least squares clipped at ``lmtp``'s bound
+(:class:`~tests.studies.mtp_pricing_common.BoundedLeastSquares`), so both sides read one
+clipped regression.  The true regression at each node is a probability, so the clip projects
+onto the parameter space.  The primary rows refit.  The property cells keep their learners and
+their committed rows.
 
 **Red-cell reading, declared before any run.**  As ``mtp-boundaries``
 (:mod:`tests.studies.canonical_mtp_boundaries`), with the owner rows
@@ -62,12 +76,14 @@ from cleverly.interventions.policy import lazy_frame, policy_branches
 from cleverly.longitudinal import LTMLE, SDR
 from tests.parallel import STUDY_JOBS
 from tests.studies import mtp_pricing_common as common
+from tests.studies import mtp_study_tools as tools
 from tests.studies.canonical_categorical_ltmle import (
     LMTP_SOURCE_COMMIT,
     LMTP_TARBALL_SHA256,
     LMTP_VERSION,
     R_BASE_IMAGE,
 )
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -85,6 +101,12 @@ G_BOUNDS = (0.001, 1.0)
 REFERENCE = common.REFERENCE
 LABELS = common.LABELS
 FAILURE_BOUND = 0.01
+#: The primary rows' learner at every node before the last: the comparator's ``SL.glm`` with
+#: ``lmtp``'s prediction bound.  Plain least squares predicts at or above ``1 - 1e-5`` at
+#: nodes 1 to 4 in most samples of every scenario, where ``lmtp`` bounds and the package does
+#: not, so the two sides would read two regularisations of one regression.  The property cells
+#: keep their own learners.
+PRIMARY_PSEUDO_LEARNER = common.BoundedLeastSquares()
 
 #: Each scenario: ``(tau, estimator)``.
 SCENARIOS: dict[str, tuple[int, str]] = {
@@ -194,6 +216,7 @@ STUDY = StudyRecord(
     calibration_efficiency_ratio=False,
     publication_policy="reporting",
     failure_bound={"cleverly-mtp-pricing": FAILURE_BOUND, "lmtp": FAILURE_BOUND},
+    extra_artifacts=("exactness.csv",),
 )
 
 REFERENCE_METADATA = {
@@ -214,7 +237,10 @@ CONFIGURATION = {
     "construction": "ordinary, one fold",
     "g_bounds": list(G_BOUNDS),
     "support": "Support(4 + 2 L_t, 8 + 2 L_t) at every A_t",
-    "outcome_learner": "QuasiBinomialGLM at the last node; LinearRegression at earlier nodes",
+    "outcome_learner": (
+        "QuasiBinomialGLM at the last node; least squares clipped to [1e-5, 1 - 1e-5] at "
+        "earlier nodes (lmtp: SL.glm and its prediction bound)"
+    ),
     "treatment_learner": "OracleRatio (the exact ratio on the classifier route)",
     "plans": list(LABELS),
     "horizons": list(common.HORIZONS),
@@ -366,7 +392,7 @@ def _replicate(
     scenario, replicate, _ = key
     tau, estimator = SCENARIOS[scenario]
     frame, truth = drawn
-    result = fit(frame, tau, estimator=estimator)
+    result = fit(frame, tau, estimator=estimator, pseudo_learner=PRIMARY_PSEUDO_LEARNER)
     sample = frame.copy()
     for name, values in pairing_columns(result, frame, tau).items():
         sample[name] = values
@@ -400,6 +426,35 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
     estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
     return replication.result(
         outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
+    )
+
+
+# ---------------------------------------------------------------------------- exactness
+
+
+def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """``exactness.csv``: each primary estimand's largest paired gap against :data:`SMOKE_GATE`."""
+    return {
+        "exactness.csv": tools.exactness_table(
+            rows,
+            subject=STUDY.implementation,
+            reference=str(STUDY.reference),
+            scenarios=sorted(SCENARIOS),
+            gate=SMOKE_GATE,
+        )
+    }
+
+
+def scientific_failures(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """The exactness witnesses whose paired gap reached :data:`SMOKE_GATE`."""
+    return tools.exactness_failures(artifacts["exactness.csv"])
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """A replication that either side lost leaves its witness rows unpaired, so it counts."""
+    return evidence_failures.audits(
+        scientific_failures(artifacts),
+        missing={tools.EXACTNESS_AUDIT: evidence_failures.missing_fits(failures, STUDY)},
     )
 
 

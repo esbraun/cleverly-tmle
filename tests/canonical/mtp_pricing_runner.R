@@ -39,9 +39,12 @@ fit_plan <- function(frame, estimator, tau, label) {
   trt <- paste0("A", seq_len(tau))
   time_vary <- as.list(paste0("L", seq_len(tau)))
   if (estimator == "ltmle") {
+    # The study's exactness gate judges every pair (exactness.csv), so a prediction at lmtp's
+    # bound moves that pair rather than stopping the run.
     return(lmtp_mtp_tmle(
       frame, slug(label),
-      trt = trt, outcome = "Y", baseline = baseline, time_vary = time_vary
+      trt = trt, outcome = "Y", baseline = baseline, time_vary = time_vary,
+      refuse_bound = FALSE
     ))
   }
   lmtp_sdr_with_folds(

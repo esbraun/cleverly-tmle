@@ -258,8 +258,9 @@ def test_the_seeds_are_new() -> None:
 def test_the_records() -> None:
     from tests.canonical.mtp_pricing.regenerate import REFERENCE
 
-    assert study.STUDY.comparator_state == "pending"
-    assert study.STUDY.pending_reference == "lmtp"
+    assert study.STUDY.comparator_state == "compared"
+    assert study.STUDY.reference == "lmtp"
+    assert study.STUDY.extra_artifacts == ("exactness.csv",)
     assert tuning.STUDY.comparator_state == "none"
     assert tuning.STUDY.truth_varies_by_replicate
     runner = (ROOT / "tests" / "canonical" / REFERENCE.runner).read_text(encoding="utf-8")
@@ -511,3 +512,47 @@ def test_a_fold_average_truth_differs_from_the_population_truth() -> None:
         tuning_properties.replicate_truth(
             "fold_average_dose_quantile_tau2__population_truth_control", 0
         )
+
+
+# ---------------------------------------------------------------------------- the comparator
+
+
+def test_every_primary_scenario_is_an_exactness_witness() -> None:
+    rows = []
+    for scenario in study.SCENARIOS:
+        for implementation, shift in ((study.STUDY.implementation, 0.0), ("lmtp", 3e-6)):
+            rows.append(
+                {
+                    "implementation": implementation,
+                    "scenario": scenario,
+                    "replicate": 0,
+                    "estimand": "ey_regimen[price_down]",
+                    "estimate": 0.8 + shift,
+                    "std_error": 0.02,
+                }
+            )
+    table = study.extra_artifacts(pd.DataFrame.from_records(rows))["exactness.csv"]
+    assert set(table["scenario"]) == set(study.SCENARIOS)
+    # The reference moved by three times the gate: every witness is red.
+    assert not table["passed"].any()
+    assert len(study.scientific_failures({"exactness.csv": table})["exactness witness"]) == 6
+
+
+def test_the_primary_pseudo_learner_reads_lmtp_bound() -> None:
+    learner = study.PRIMARY_PSEUDO_LEARNER
+    assert isinstance(learner, common.BoundedLeastSquares)
+    x = np.linspace(0.0, 1.0, 50)[:, None]
+    y = 1.4 * x[:, 0] - 0.2
+    fitted = learner.fit(x, y)
+    prediction = fitted.predict(x)
+    # Least squares fits this line exactly, so every prediction outside the bound is clipped
+    # to it and every other one is the line.
+    assert prediction.min() == common.LMTP_BOUND
+    assert prediction.max() == 1.0 - common.LMTP_BOUND
+    inside = (y > common.LMTP_BOUND) & (y < 1.0 - common.LMTP_BOUND)
+    np.testing.assert_allclose(prediction[inside], y[inside], atol=1e-12)
+
+
+def test_the_runner_reads_lmtp_bound_through_the_gate() -> None:
+    runner = (ROOT / "tests" / "canonical" / "mtp_pricing_runner.R").read_text(encoding="utf-8")
+    assert "refuse_bound = FALSE" in runner

@@ -6,7 +6,7 @@ maps that bind at that support, change their Jacobian with the dose, have two in
 or send an interval to a declared atom (``dose_atoms={"A2": (3.0,)}``).  ``LTMLE`` and ``SDR``
 read it at one fold on the density route.  The laws, the plans, the truths and the oracle
 learners live in :mod:`tests.studies.mtp_boundaries_common`.  The comparator is R ``lmtp``
-1.5.4, pending.  Four primary scenarios, 1,000 replications at n = 5,000:
+1.5.4.  Four primary scenarios, 1,000 replications at n = 5,000:
 
 =====================  =================================================================
 scenario               subject and pairing
@@ -36,10 +36,19 @@ rows read the correctly specified final model
 (``tests/canonical/lmtp_mtp_adapter.R``) for the ``LTMLE`` scenarios and
 ``lmtp_sdr_with_folds`` (``tests/canonical/lmtp_sdr_adapter.R``) for the ``SDR`` scenarios.
 Both read the columns ``shift__<plan>__<node>__1`` and ``ratio__<plan>__<node>``, so neither
-side estimates a ratio the other does not see.  The shared adapters are sourced unchanged.  A
-pre-declaration R smoke of 3 replications requires every paired estimate and standard error of
-the exactness witnesses to differ by less than :data:`SMOKE_GATE`.  These rows are comparator
-evidence.
+side estimates a ratio the other does not see.  ``exactness.csv`` (:func:`extra_artifacts`)
+records the largest paired gap in estimate and standard error of each estimand of
+:data:`EXACT`, and a gap of :data:`SMOKE_GATE` or more is a red row.  The runner passes
+``refuse_bound = FALSE``, so a prediction at ``lmtp``'s bound moves a pair and that table reads
+it.  The pre-declaration R smoke of 3 replications (2026-10-16) read the witnesses at most
+2.3e-10 apart in estimate and 8.5e-12 in standard error.  The two atom scenarios are not
+witnesses.  Both sides target the same parameter, but the package's node-2 regression holds the
+regressor ``1{A2 = 3}``.  ``lmtp`` substitutes the shifted dose into its treatment column and
+carries every other column unchanged, so it cannot recompute that regressor at the shifted dose.
+Two different working models give two different initial fits and so two different targeted
+estimates, which agree only to the paired margins.  The smoke read the ``p5`` rows 6.3e-04
+apart in estimate and 8.7e-05 in standard error, and the ``natural`` rows, where no dose moves,
+1.4e-15 apart.  These rows are comparator evidence.
 
 **Properties.**  :mod:`tests.studies.mtp_boundaries_properties` declares every family, its
 sizes and the pilots behind them.
@@ -86,12 +95,14 @@ from cleverly.learners.density import bin_edges
 from cleverly.longitudinal import LTMLE, SDR
 from tests.parallel import STUDY_JOBS
 from tests.studies import mtp_boundaries_common as common
+from tests.studies import mtp_study_tools as tools
 from tests.studies.canonical_categorical_ltmle import (
     LMTP_SOURCE_COMMIT,
     LMTP_TARBALL_SHA256,
     LMTP_VERSION,
     R_BASE_IMAGE,
 )
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -216,6 +227,7 @@ STUDY = StudyRecord(
     calibration_efficiency_ratio=False,
     publication_policy="reporting",
     failure_bound={"cleverly-mtp-boundaries": FAILURE_BOUND, "lmtp": FAILURE_BOUND},
+    extra_artifacts=("exactness.csv",),
 )
 
 REFERENCE_METADATA = {
@@ -462,3 +474,36 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
 
 
 __all__ = ["STUDY", "draw_and_fit", "fit"]
+
+
+# ---------------------------------------------------------------------------- exactness
+
+
+def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """``exactness.csv``: each witness estimand's largest paired gap against :data:`SMOKE_GATE`."""
+    return {
+        "exactness.csv": tools.exactness_table(
+            rows,
+            subject=STUDY.implementation,
+            reference=str(STUDY.reference),
+            scenarios=sorted(EXACT),
+            gate=SMOKE_GATE,
+        )
+    }
+
+
+def scientific_failures(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """The exactness witnesses whose paired gap reached :data:`SMOKE_GATE`."""
+    return tools.exactness_failures(artifacts["exactness.csv"])
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """A replication that either side lost leaves its witness rows unpaired, so it counts."""
+    return evidence_failures.audits(
+        scientific_failures(artifacts),
+        missing={
+            tools.EXACTNESS_AUDIT: evidence_failures.missing_fits(
+                failures.loc[failures["scenario"].isin(EXACT)], STUDY
+            )
+        },
+    )
