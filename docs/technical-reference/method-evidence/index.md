@@ -55,6 +55,7 @@ outcome-adaptive-multi-arm-c-tmle
 outcome-adaptive-per-arm-c-tmle
 outcome-adaptive-per-arm-c-tmle-strata-missing
 outcome-adaptive-per-arm-c-tmle-parametric
+outcome-adaptive-per-arm-c-tmle-parametric-crossfit
 canonical-dr-tmle
 multi-arm-dr-tmle
 ordinary-missing-outcome-tmle

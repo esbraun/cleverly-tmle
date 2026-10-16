@@ -766,8 +766,9 @@ comparator. [Parametric per-arm intervals](technical-reference/collaborative-tml
 states the contract.
 
 **Part (c) is implemented.** A cross-fitted fit reads the exact V-fold stack, and `repeats` above 1
-reports the median of the draws. Its study `ctmle-oat-per-arm-parametric-crossfit` is registered,
-and its declared run is pending. Parts (b) and (d) stay open. The text below keeps the part (a)
+reports the median of the draws. Its study `ctmle-oat-per-arm-parametric-crossfit` is registered, and
+its [evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md)
+reports the declared run. Every gated cell passes. Parts (b) and (d) stay open. The text below keeps the part (a)
 scope for reference and states what each open part still needs.
 
 **What is known.** [The applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)

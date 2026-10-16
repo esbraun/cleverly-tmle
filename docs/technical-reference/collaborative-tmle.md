@@ -552,6 +552,7 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 | [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design, comparator-backed against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
 | [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit with a scikit-learn learner withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
 | [outcome-adaptive per-arm C-TMLE (parametric)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | the stacked interval of the in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism`. Python property evidence, no comparator. Calibration on six laws, two negative controls that read red, the sharp null and power |
+| [outcome-adaptive per-arm C-TMLE (parametric crossfit)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) | the stacked interval of the cross-fitted per-arm fit at five folds, at one draw and at the median of three draws. Python property evidence, no comparator. Calibration from $n = 500$ to $n = 8000$, two negative controls that read red, and the sharp null |
 | `tests/diagnostics/x17_generated_design/` | the generated-design term $c^\top \mathrm{IF}_\beta$ restores the standard-error ratio on the binary law |
 | `tests/unit/test_outcome_adaptive_per_arm.py` | an exact law on which the two designs differ, the curve of Theorem 1 row by row, in-sample and cross-fitted longhands to `1e-8`, the joint covariance, and fixed weights against duplicated rows. Its class `TestEachMutationFailsItsCheck` applies 13 mutations by `monkeypatch`, and each one fails its check |
 | `tests/unit/test_shared_oat_replay.py` | the shared design refits replication 0 of each registered `ctmle3` study to its committed rows |
@@ -791,8 +792,9 @@ make the median raise `ValueError`. The fit builds no simultaneous band, and
 X58 part (b) holds the band.
 
 **The support label of the V-fold stack.** The registered study `ctmle-oat-per-arm-parametric-crossfit`
-fits `binary_active` with `n_folds=5`, at `repeats=1` and `repeats=3`. Its declared run is pending.
-The support rows of the study cover the binary cells. Another admitted fit reports its interval
+fits `binary_active` with `n_folds=5`, at `repeats=1` and `repeats=3`. Its
+[evidence page](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) reports
+the declared run, and every gated cell passes. The support rows of the study cover the binary cells. Another admitted fit reports its interval
 with the `"experimental"` label.
 
 | fit | support row | label |
@@ -874,6 +876,7 @@ before the stack. That error is a refusal of the fit.
 | `tests/unit/test_parametric_learners.py` | the point estimate against the `ctmle-oat-per-arm` pipelines to `4e-14` | the uncertainty |
 | `tests/unit/test_oat_per_arm_support.py` | the predicate on each axis, the status of a failed stack, and the round trip through `save()` and `load()` | the sampling distribution |
 | the registered [parametric study](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | calibration of the SE ratio and coverage on six laws, two negative controls, the sharp null and power. Python property evidence, no comparator | cross-fitting, repeats, weights, strata, missing data, more than two arms, the band, a user `alpha` |
+| the registered [cross-fitted study](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) | calibration of the SE ratio and coverage of the V-fold stack at five folds from $n = 500$ to $n = 8000$, the median of three draws, the generated-design pair, two negative controls and the sharp null. Python property evidence, no comparator | a fold count other than 5, a repeat count other than 1 and 3, weights, strata, missing data, more than two arms, the band, a user `alpha` |
 
 ### Baseline strata and missing data in the per-arm design
 

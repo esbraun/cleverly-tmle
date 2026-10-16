@@ -110,7 +110,9 @@ point estimate only. Its fits with strata and missing data have a second record,
 [per-arm C-TMLE with strata and missing data](method-evidence/outcome-adaptive-per-arm-c-tmle-strata-missing.md).
 The per-arm design with `ParametricOutcome` and `ParametricMechanism` has a third record,
 [per-arm C-TMLE with a parametric outcome](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md),
-which measures its interval.
+which measures its interval in sample. The cross-fitted and repeated forms of that interval have a
+fourth record,
+[per-arm C-TMLE with a parametric outcome, cross-fitted](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md).
 
 The C-TMLE0 strategy has its own record,
 [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md), with R `ctmle` type 3 as its
