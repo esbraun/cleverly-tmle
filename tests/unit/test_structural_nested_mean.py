@@ -47,6 +47,7 @@ from cleverly.longitudinal import (
 from cleverly.longitudinal import structural as module
 
 from .. import discrete_law_structural as laws
+from ._inference_status_support import assert_shows_interval
 from ._source_mutation import mutate
 
 #: Saturated learners for the exact laws: every product of the binary and few-valued columns.
@@ -683,7 +684,10 @@ def test_status_follows_the_fold_count_the_learners_and_the_weights() -> None:
     )
     assert cross_adaptive.inference_status == "influence_curve"
     weighted = frame.assign(w=np.random.default_rng(1).uniform(0.5, 1.5, len(frame)))
-    with pytest.warns(UserWarning, match="estimated_weight_plugin"):
+    # The two shown statuses report the plug-in interval under the experimental label, so
+    # neither warns: the label and its reason are the report.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         estimated = snmm(
             weighted,
             regimens=REGIMENS,
@@ -693,10 +697,9 @@ def test_status_follows_the_fold_count_the_learners_and_the_weights() -> None:
             **GLMS,
             **SIM,
         )
-    assert estimated.inference_status == "estimated_weight_plugin"
-    with pytest.warns(UserWarning, match="few_cluster_plugin"):
         few = snmm(_simulated(clusters=8), regimens=REGIMENS, n_folds=2, id="id", **GLMS, **SIM)
-    assert few.inference_status == "few_cluster_plugin"
+    assert_shows_interval(estimated, "estimated_weight_plugin", None)
+    assert_shows_interval(few, "few_cluster_plugin", 6)
 
 
 @pytest.mark.filterwarnings("ignore:.*look.* like counts of identical units")

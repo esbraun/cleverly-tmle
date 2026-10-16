@@ -735,6 +735,9 @@ mean model with the declared blip features. Every row of the summary and of `to_
 that label. A blip that depends on an undeclared earlier treatment or covariate makes the
 coefficients answer a different question.
 
+No registered study covers `StructuralNestedMean` yet, so every estimate reads `experimental`. The
+summary prints a `support` column and the reason. The label makes no coverage claim.
+
 Check the model against `LTMLE`.
 
 ```python

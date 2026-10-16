@@ -26,7 +26,8 @@ every refusal.
 policy, censoring, survival and repeated outcomes. It refuses a static contrast when a feature
 reads a time-varying covariate.
 [Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
-every refusal.
+every refusal. Its estimates read `experimental` until a registered study covers the estimator
+([support label](../technical-reference/structural-dynamic-effects.md#support-label)).
 
 ## Why a request can be refused
 

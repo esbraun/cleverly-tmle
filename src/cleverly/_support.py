@@ -53,6 +53,7 @@ __all__ = [
     "classify_key",
     "classify_longitudinal_fit",
     "classify_point_fit",
+    "classify_structural_fit",
     "combine_support",
     "longitudinal_key",
     "point_key",
@@ -61,6 +62,7 @@ __all__ = [
     "recording_directory",
     "regimen_kinds",
     "registered_rows",
+    "structural_key",
     "support_for",
 ]
 
@@ -676,6 +678,74 @@ def longitudinal_key(
     return key, learners
 
 
+def structural_key(
+    estimator: Any,
+    data: Any,
+    *,
+    cross_fitted: bool,
+    has_regimens: bool,
+    covariate_features: bool,
+) -> tuple[SupportKey, dict[str, type | None]]:
+    """The key and the learner classes of a structural nested mean fit.
+
+    The key reads the axes of a longitudinal key. The engine is ``("snmm",)``, and the family
+    holds the outcome kind ``end_of_study``, the flag ``blips`` and, with a declared regimen,
+    the flags ``regimens`` and ``static``. The estimator refuses censoring, a held decision, a
+    declared mechanism and a working model before it classifies, so the missing and qualifier
+    axes are fixed.
+
+    Parameters
+    ----------
+    estimator : StructuralNestedMean
+        The estimator. It is read and never modified.
+    data : LongitudinalData
+        The prepared panel.
+    cross_fitted : bool
+        Whether the outer split holds more than one fold.
+    has_regimens : bool
+        Whether the fit declares static regimens.
+    covariate_features : bool
+        Whether a blip feature reads a time-varying covariate.
+
+    Returns
+    -------
+    tuple of SupportKey and dict
+        The key, and the learner class per nuisance role (``None`` for a default learner).
+    """
+    levels = tuple(
+        kind if kind != "categorical" else str(len(node))
+        for kind, node in (
+            (data.node_kind(time), node) for time, node in enumerate(data.treatment_levels, 1)
+        )
+    )
+    key = SupportKey(
+        kind="longitudinal",
+        engine=("snmm",),
+        family=frozenset(
+            ("end_of_study", "blips", *(("regimens", "static") if has_regimens else ()))
+        ),
+        outcome=_outcome(data, None),
+        missing=("complete",),
+        treatment=levels,
+        weighting=_weighting(data),
+        splitting=("cross_fitted",) if cross_fitted else ("in_sample",),
+        dependence=_dependence(
+            _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+        ),
+        qualifiers=frozenset(),
+        options=(
+            ("covariate_features", bool(covariate_features)),
+            ("multiplier_kind", _option(estimator.multiplier_kind)),
+        ),
+    )
+    learners = {
+        "outcome": _learner_type(estimator.outcome_learner),
+        "treatment": _learner_type(estimator.treatment_learner),
+        "regression": _learner_type(estimator.regression_learner),
+    }
+    return key, learners
+
+
 # ------------------------------------------------------------------ rows and classify
 
 
@@ -1268,6 +1338,57 @@ def classify_longitudinal_fit(
             known_factors=known_factors,
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
+        )
+        classification = classify_key(key, learners)
+    except Exception as error:
+        directory = recording_directory()
+        if directory is not None:
+            _record_error(directory, source, error)
+        return None
+    record_fit(classification, source=source)
+    return classification
+
+
+def classify_structural_fit(
+    estimator: Any,
+    data: Any,
+    *,
+    source: str,
+    cross_fitted: bool,
+    has_regimens: bool,
+    covariate_features: bool,
+) -> Classification | None:
+    """Classify a structural nested mean fit before any nuisance is fitted.
+
+    A classifier failure never reaches the caller, as in :func:`classify_point_fit`.
+
+    Parameters
+    ----------
+    estimator : StructuralNestedMean
+        The estimator.
+    data : LongitudinalData
+        The prepared panel.
+    source : str
+        The entry point.
+    cross_fitted : bool
+        Whether the outer split holds more than one fold.
+    has_regimens : bool
+        Whether the fit declares static regimens.
+    covariate_features : bool
+        Whether a blip feature reads a time-varying covariate.
+
+    Returns
+    -------
+    Classification or None
+        The classification, to pass to :func:`record_fit` with the finished result.
+    """
+    try:
+        key, learners = structural_key(
+            estimator,
+            data,
+            cross_fitted=cross_fitted,
+            has_regimens=has_regimens,
+            covariate_features=covariate_features,
         )
         classification = classify_key(key, learners)
     except Exception as error:

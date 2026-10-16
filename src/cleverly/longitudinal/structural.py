@@ -32,7 +32,7 @@ import copy
 import itertools
 import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, ClassVar
 
 import numpy as np
@@ -47,6 +47,17 @@ from .._inference_status import (
     precedent_status,
     status_record,
     supplies_inference,
+)
+from .._support import (
+    UNCLASSIFIED,
+    Classification,
+    Support,
+    SupportKey,
+    band_support,
+    classify_structural_fit,
+    combine_support,
+    record_fit,
+    support_for,
 )
 from .._typing import FloatArray, Learner
 from ..data.validate import arm_indicators
@@ -71,6 +82,8 @@ from ..inference.influence import (
     has_t_reference,
     make_estimate,
     reference_label,
+    support_column,
+    support_notes,
 )
 from ..inference.multiplier import SimultaneousBands, simultaneous_bands
 from ..inference.results import (
@@ -1008,6 +1021,8 @@ class StructuralConfig:
         The seed of the folds and of the default learners.
     reads_covariates : bool
         Whether a blip feature reads a time-varying covariate.
+    support_key : SupportKey or None, default None
+        The support key the fit was classified under, read before any nuisance was fitted.
     """
 
     n_times: int
@@ -1022,6 +1037,7 @@ class StructuralConfig:
     family: str
     random_state: int | None
     reads_covariates: bool
+    support_key: SupportKey | None = None
 
     def describe(self) -> list[str]:
         """The settings as summary lines."""
@@ -1455,6 +1471,16 @@ class StructuralNestedMean:
         self._refuse_reference_dose(prepared)
         folds = self._folds(prepared)
         check_integrity(folds, cluster=prepared.cluster)
+        # No refusal of this estimator is a composition that the code computes and no study
+        # covers, so the classification carries no condition: the label rests on the rows.
+        classification = classify_structural_fit(
+            self,
+            prepared,
+            source="StructuralNestedMean.fit",
+            cross_fitted=not folds.is_single,
+            has_regimens=bool(regimens),
+            covariate_features=reads_covariates,
+        )
         learners = _Learners(
             self.outcome_learner,
             self.treatment_learner,
@@ -1483,7 +1509,7 @@ class StructuralNestedMean:
             learner_diagnostics=tuple(nuisances.diagnostics),
         )
         estimates, kinds = self._estimates(
-            prepared, nodes, regimens, reference, stage, solution, status
+            prepared, nodes, regimens, reference, stage, solution, status, classification
         )
         _warn_statuses(estimates)
         config = StructuralConfig(
@@ -1499,8 +1525,9 @@ class StructuralNestedMean:
             family=prepared.family,
             random_state=self.random_state,
             reads_covariates=reads_covariates,
+            support_key=None if classification is None else classification.key,
         )
-        return StructuralNestedMeanResult(
+        result = StructuralNestedMeanResult(
             estimates=estimates,
             kinds=kinds,
             coefficients=tuple(
@@ -1511,12 +1538,14 @@ class StructuralNestedMean:
             config=config,
             folds=folds,
             provenance=self._provenance(prepared, folds),
-            simultaneous=self._bands(estimates, kinds, prepared),
+            simultaneous=self._bands(estimates, kinds, prepared, status, classification),
             diagnostics=diagnostics,
             static_regimens=regimens,
             estimator=copy.copy(self),
             label=SNMM_LABEL,
         )
+        record_fit(classification, result, source="StructuralNestedMean.fit")
+        return result
 
     # -------------------------------------------------------------- internals
 
@@ -1610,8 +1639,10 @@ class StructuralNestedMean:
         stage: _Stage,
         solution: _Solution,
         status: InferenceStatus,
+        classification: Classification | None = None,
     ) -> tuple[dict[str, ParameterEstimate], dict[str, str]]:
         df = _reference_df(data, status)
+        support = support_for(classification, status, df)
 
         def build(name: str, value: float, curve: FloatArray, scale: Scale) -> ParameterEstimate:
             return make_estimate(
@@ -1624,6 +1655,7 @@ class StructuralNestedMean:
                 alpha=self.alpha_sig,
                 inference=status,
                 reference_df=df,
+                support=support,
             )
 
         estimates: dict[str, ParameterEstimate] = {}
@@ -1667,21 +1699,33 @@ class StructuralNestedMean:
         estimates: Mapping[str, ParameterEstimate],
         kinds: Mapping[str, str],
         data: LongitudinalData,
+        status: InferenceStatus,
+        classification: Classification | None = None,
     ) -> SimultaneousBands | None:
-        """Joint bands over the regimen means and contrasts, or over the blips with none."""
+        """Joint bands over the regimen means and contrasts, or over the blips with none.
+
+        The band takes the support of :func:`~cleverly._support.band_support`: ``supported``
+        only when a row licenses a ``band`` and every estimate is supported on that row.
+        """
         family = [name for name, kind in kinds.items() if kind in ("level", "contrast")]
         if not family:
             family = [name for name, kind in kinds.items() if kind == "blip"]
         chosen = {name: estimates[name] for name in family if estimates[name].supplies_inference}
         if not self.simultaneous or len(chosen) < 2 or has_t_reference(chosen):
             return None
-        return simultaneous_bands(
+        bands = simultaneous_bands(
             chosen,
             alpha=self.alpha_sig,
             n_replicates=self.n_multiplier,
             kind=self.multiplier_kind,  # type: ignore[arg-type]
             random_state=self.random_state,
             cluster=data.cluster,
+        )
+        return replace(
+            bands,
+            support=band_support(
+                classification, status, (estimate.support for estimate in chosen.values())
+            ),
         )
 
     def _provenance(self, data: LongitudinalData, folds: Folds) -> Provenance:
@@ -1801,6 +1845,11 @@ class StructuralModelCheck:
         contrasts.  The p-value reads the Hotelling-type law
         ``F(df, reference_df - df + 1)`` of the scaled statistic, and ``inf`` reads
         chi-squared.  ``nan`` when no statistic is reported.
+    support : Support, default=UNCLASSIFIED
+        What the package states about the evidence behind the statistic: the combination of
+        the support of the structural contrasts and of the nonparametric contrasts that the
+        statistic compares.  The check is ``supported`` only when every one of them is
+        supported on one row.
     """
 
     names: tuple[str, ...]
@@ -1814,6 +1863,7 @@ class StructuralModelCheck:
     ltmle: Any
     n_splits: int
     reference_df: float = float("nan")
+    support: Support = UNCLASSIFIED
 
     @property
     def difference(self) -> FloatArray:
@@ -1858,6 +1908,11 @@ class StructuralModelCheck:
             tail = f"no test is reported: {self.reason}"
         if self.n_splits > 1:
             tail += f"\nestimates and covariance over {self.n_splits} fold splits"
+        marker = (
+            [f"experimental: {self.support.reason}"]
+            if (self.support.label == "experimental")
+            else []
+        )
         return "\n".join(
             [
                 "Structural model check (a necessary condition, not a test of the model)",
@@ -1865,6 +1920,7 @@ class StructuralModelCheck:
                 table,
                 "",
                 tail,
+                *marker,
             ]
         )
 
@@ -2296,6 +2352,12 @@ class StructuralNestedMeanResult:
             ltmle=first,
             n_splits=len(splits),
             reference_df=reference_df,
+            support=combine_support(
+                [
+                    *(self[name].support for name in names),
+                    *(first[name].support for name in names),
+                ]
+            ),
         )
 
     def _refit(self, folds: Folds) -> StructuralNestedMeanResult:
@@ -2386,6 +2448,7 @@ class StructuralNestedMeanResult:
         status = self.inference_status
         record = None if supplies_inference(status) else status_record(status)
         t_reference = has_t_reference(self.estimates)
+        support_cells = support_column(self.estimates)
         rows = []
         for name, estimate in self.estimates.items():
             if record is not None:
@@ -2403,19 +2466,20 @@ class StructuralNestedMeanResult:
                 ]
             )
         if record is not None:
-            table = format_table(["parameter", "estimate", record.summary_label], rows)
+            headers = ["parameter", "estimate", record.summary_label]
         else:
-            table = format_table(
-                [
-                    "parameter",
-                    "estimate",
-                    "std. error",
-                    f"{level} CI",
-                    "p-value",
-                    *(["df"] if t_reference else []),
-                ],
-                rows,
-            )
+            headers = [
+                "parameter",
+                "estimate",
+                "std. error",
+                f"{level} CI",
+                "p-value",
+                *(["df"] if t_reference else []),
+            ]
+        if support_cells is not None:
+            headers.append("support")
+            rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+        table = format_table(headers, rows)
         facts = list(self.config.describe())
         if self.data.cluster is not None:
             count = f"{self.data.n_clusters}" + positive_mass_clause(
@@ -2444,6 +2508,7 @@ class StructuralNestedMeanResult:
             f"The intervals are {self.label}.",
             "",
             table,
+            *(["", *support_notes(self.estimates)] if support_cells is not None else []),
             *(["", record.summary_note()] if record is not None else []),
             "",
             *(f"  {line}" for line in facts),
@@ -2453,12 +2518,15 @@ class StructuralNestedMeanResult:
         elif self.simultaneous is None and t_reference and len(self.estimates) > 1:
             lines.extend(["", f"  {NO_T_REFERENCE_BANDS}"])
         if self.simultaneous is not None:
+            band_marker = (
+                " [experimental]" if self.simultaneous.support.label == "experimental" else ""
+            )
             lines.extend(
                 [
                     "",
                     f"  simultaneous {level} bands (multiplier bootstrap, critical value "
                     f"{self.simultaneous.critical_value:.3f} vs "
-                    f"{self.simultaneous.pointwise_critical_value:.3f} pointwise):",
+                    f"{self.simultaneous.pointwise_critical_value:.3f} pointwise){band_marker}:",
                 ]
             )
             for name, (low, high) in self.simultaneous.bands.items():
