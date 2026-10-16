@@ -2,7 +2,7 @@
 
 This directory holds the R side of four comparisons for the targeting and fitting options.
 Each fixture is one R script, one registry entry and, after the R run, one JSON file.
-Every fixture is **pending**: the cloud session that wrote the scripts has no R.
+Every fixture is **present**. The local Study queue ran the four scripts on 2026-10-16, from `main` at `59481bd5`.
 The Python exact tests of each option gate the change. A pending comparator blocks nothing.
 
 Reader-facing rows that cite a pending fixture carry the label "exact tests, with comparator runs pending".
@@ -13,8 +13,8 @@ Reader-facing rows that cite a pending fixture carry the label "exact tests, wit
 | --- | --- | --- | --- |
 | `tmle3_updater.json` | a, b, c | tmle_TSM_all() with tmle3_Update: sample_size, scaled_var and constrain_step | step counts and best step equal; cumulative epsilon and final estimates 1e-6; thresholds 1e-9 relative; final ED 1e-8 |
 | `drtmle_stratify.json` | f | drtmle(stratify = TRUE) and drtmle(stratify = FALSE), guard = NULL | `Qn` and propensity 1e-8; TMLE estimate 1e-6 |
-| `ctmle_patience.json` | g | ctmleDiscrete(preOrder = TRUE, patience = 2) and patience = FALSE | selected index equal; cross-validated score 1e-6 relative; estimate 1e-6 |
-| `ctmle_wg.json` | h | ctmleDiscrete(Wg = W[, c(1, 3)], preOrder = TRUE) and Wg = W | selected index equal; cross-validated score 1e-6 relative; estimate 1e-6 |
+| `ctmle_patience.json` | g | ctmleDiscrete(preOrder = TRUE, patience = 2) and patience = FALSE | R against its transcription: selected index and terms equal, cross-validated score 1e-6 relative, estimate 1e-6. `CTMLE`: the stop of R's counter on its own scores |
+| `ctmle_wg.json` | h | ctmleDiscrete(Wg = W[, c(1, 3)], preOrder = TRUE) and Wg = W | R against its transcription, as above. `CTMLE`: the pool's candidates in R's order |
 
 ## Images
 
@@ -88,7 +88,7 @@ Every file holds `fixture`, `schema`, `provenance` (script, checksum, image id, 
 
 ## Declared differences and unchecked calls
 
-The scripts were written against the package sources, not run. The first run may find a wrong call.
+The scripts were written against the package sources. The first run, on 2026-10-16, found no wrong call.
 
 | item | note |
 | --- | --- |
@@ -96,6 +96,8 @@ The scripts were written against the package sources, not run. The first run may
 | unconstrained updater | `tmle3` takes one maximum-likelihood step. The comparison uses the Newton solution of `solve_fluctuation`, not a walk. |
 | pooled formula | `drtmle(stratify = FALSE)` runs with `glm_Q = "A + W1 + W2"`. The formula `"W1 + W2"` would drop the treatment from the pooled fit. |
 | `ctmle` ties | `ctmle` takes the last tied minimum (D7), and scores the rest of its batch after the counter fires (D7b). With `preOrder = TRUE` a batch is one covariate, so neither shows in these fixtures. |
-| initial outcome regression | The R scripts fit `glm` and pass the arm predictions as `Q`. `cleverly` fits a binomial `GLM` on the same columns (`q_covariates`) and the comparison checks the two agree to 1e-8. |
+| initial outcome regression | The R scripts fit `glm` and pass the arm predictions as `Q`. `ctmleDiscrete` holds that `Q` fixed in every fold. The comparison fits a binomial `GLM` on the same columns (`q_covariates`) once, holds it fixed in every selection fold (`parity.FrozenColumnGLM`), and checks it against R's `Q` to 1e-8. |
+| `ctmle` scores and estimates | R's discrete cross-validation fits each candidate mechanism on every row, the validation rows included (`R/functions_discrete.R`, lines 32, 81, 508 and 557). R fluctuates with the one ATE clever covariate `hAW` (lines 33 and 82). `CTMLE` fits the training rows and targets one column per arm, so its scores and estimates differ from R's. `r_ctmle_discrete.py` transcribes R, reproduces both fixtures (scores to 1e-7, estimates to 1e-9), and is the R side of the comparison. |
+| `tmle3` message | The script builds the initial parameters on the untargeted likelihood, so `Param_TSM` prints "Parameter was passed a non-Targeted Likelihood object" once for each arm. The updater runs use `Targeted_Likelihood`, and their scores fall to the rule. |
 | `tools::sha256sum` | Used for the script checksum. Believed to be new in R 4.5.0; the call was not run here. `CLEVERLY_SCRIPT_SHA256` is the fallback. |
 
