@@ -197,7 +197,8 @@ all_cached = result.diagnostics.run_all()
 
 `influence()` reports how few rows carry each estimate's influence curve. It gives the Kish
 count, the skewness, the kurtosis, the relative standard deviation of the variance estimate, and
-the coverage loss of the Wald interval that the Edgeworth term predicts.
+the coverage loss of the Wald interval that the Edgeworth term predicts. This operation is a direct
+call. `run_all()` and the assessment battery do not include it.
 
 The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
 correction term. Ordinary and collaborative TMLE report it as `not_applicable`.

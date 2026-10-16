@@ -424,8 +424,11 @@ studies.
 Use the refit bootstrap for `LTMLE` or `SDR` when few units follow a regimen, or when the
 influence curve has heavy tails. The Wald interval reads its variance from those few rows. The
 interval then under-covers, because the variance estimate is noisy and the sampling distribution is
-skewed. A fit without a bootstrap warns with `SparseInfluenceWarning` when this happens. The
-bootstrap is opt in. A fit never turns it on.
+skewed.
+
+A Wald fit warns with `SparseInfluenceWarning` when this happens. A fit with a percentile
+bootstrap warns too, because the percentile interval keeps the skew. A fit with BCa does not warn.
+The bootstrap is opt in. A fit never turns it on.
 
 | option | what it does | label today |
 | --- | --- | --- |
@@ -433,7 +436,7 @@ bootstrap is opt in. A fit never turns it on.
 | `bootstrap_interval="percentile"` | takes the quantiles of the `B` draws. This is the default | as above |
 | `bootstrap_interval="bca"` | reads bias-corrected and accelerated limits from the draws. It needs `n_bootstrap` | `experimental` on every fit |
 | `simultaneous=True` | adds a studentized bootstrap sup-t band to the fit, for two or more estimates | `experimental` on every fit |
-| `result.diagnostics.influence()` | reports how few rows carry each influence curve | a diagnostic, with no label |
+| `result.diagnostics.influence()` | reports how few rows carry each influence curve. Call it directly: `run_all()` does not include it | a diagnostic, with no label |
 
 Pass these options to `LTMLE` or `SDR`. The `CausalStudy.estimate` route does not accept
 `bootstrap_interval`.
@@ -488,13 +491,16 @@ The band is $\hat\psi_j \pm c^* \widehat{SE}_j$ for each estimate. The multiplie
 
 | column | meaning |
 | --- | --- |
-| `kish` | the effective number of rows that carry the curve, $n / \hat\kappa$ |
+| `kish` | the effective number of rows that carry the curve, $n / \hat\kappa$. With `id=` the unit is the cluster, and $n$ counts clusters |
 | `skewness`, `kurtosis` | the third and fourth standardized moments of the curve. A normal curve has kurtosis 3 |
 | `variance_rel_sd` | the relative standard deviation of the variance estimate |
-| `edgeworth_loss` | the Wald coverage shortfall that the second-order Edgeworth term predicts. A positive value is a loss |
+| `edgeworth_loss` | the Wald coverage shortfall that the second-order Edgeworth term predicts. A positive value is a loss and a negative value is a predicted excess. The flag does not read this column |
 | `bca_z0`, `bca_acceleration` | the BCa bias correction and acceleration. They are `nan` without a bootstrap |
 
 The warning fires when `variance_rel_sd` is above 0.125, which is close to a Kish count of 64. The
+warning lists the relative SD of each flagged row, with its Kish count and Edgeworth loss. A
+flagged row can show a negative loss, because the skew term can predict an excess while the noisy
+variance estimate still triggers the flag. The
 X39 work set that threshold after it read the pilot runs, so it is not a pre-registered rule.
 A cross-fitted fit, a hazard-model fit and an isotonic fit warn too, but the message does not
 advise the bootstrap. For the cross-fitted fit the bootstrap over-covers, and the roadmap owner
