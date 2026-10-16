@@ -1525,8 +1525,13 @@ class TestNegativeControls:
         rows = _property_rows(study.slug)
         published = _property_summary(study.slug).set_index(["property", "cell"])
         calibration = published.loc[published.index.get_level_values(0) == family]
+        # The passing positives only: a positive published red under reporting policy can read
+        # conservative, as the learned-density arms of ``mtp-pricing`` do (SE ratio 1.05 to
+        # 1.11), and a 10% cut moves it into the band, which shows nothing about the gate.
         positive_cells = set(
-            calibration.loc[calibration["role"] == "positive"].index.get_level_values(1)
+            calibration.loc[
+                (calibration["role"] == "positive") & calibration["passed"].astype(bool)
+            ].index.get_level_values(1)
         )
         mutated = rows.copy()
         mask = (mutated["property"] == family) & mutated["cell"].isin(positive_cells)
