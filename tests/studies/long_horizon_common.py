@@ -470,13 +470,17 @@ def fit(
     random_state: int = 0,
     regimens: Mapping[str, Any] | None = None,
     simultaneous: bool = False,
+    n_bootstrap: int = 0,
+    bootstrap_interval: str = "percentile",
     **extra: Any,
 ) -> Any:
     """One ``LTMLE`` or ``SDR`` call; the first plan is the reference.
 
     ``probabilities=True`` passes the law's columns for treatment and retention;
     ``"censoring"`` passes the retention columns only (the treatment then comes from
-    ``treatment_learner``); ``False`` passes none.
+    ``treatment_learner``); ``False`` passes none.  ``n_bootstrap`` and ``bootstrap_interval``
+    reach the estimator: the gated rows of plan rev 4.3 fit with ``n_bootstrap=399`` and
+    ``bootstrap_interval="bca"``.
     """
     cls = {"LTMLE": LTMLE, "SDR": SDR}[estimator]
     outcome = QuasiBinomialGLM() if outcome_learner is None else outcome_learner
@@ -497,6 +501,9 @@ def fit(
         if value is not None
     }
     specs = dict(regimens) if regimens is not None else plans_.regimens(plans, K, m)
+    if n_bootstrap:
+        extra["n_bootstrap"] = n_bootstrap
+        extra["bootstrap_interval"] = bootstrap_interval
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         # A working model reports coefficients, so it takes no reference.

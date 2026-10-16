@@ -10,6 +10,14 @@ paired contrast.  A paired contrast reads the joint curve of its two means throu
 :meth:`~cleverly.longitudinal.LongitudinalResult.contrast`.  The MSM scenario reports the two
 coefficients of its working model only.
 
+**Intervals** (plan rev 4.3).  A single-fold scenario that is not an MSM scenario fits with
+``n_bootstrap=B_GATE`` and ``bootstrap_interval="bca"``.  It writes two rows per estimand: the
+Wald row under the estimand's own name, and the BCa row under the name plus :data:`BCA_SUFFIX`.
+The BCa row carries the BCa limits as its interval and the bootstrap SD of the replicate
+estimates as its standard error.  The shared replicate schema has no interval column, so the
+suffix is the encoding.  A cross-fitted scenario and an MSM scenario write Wald rows only: a
+cross-fitted bootstrap interval is a diagnostic (X20), and the MSM fit runs no bootstrap.
+
 No comparator runs while the comparator is pending, so the primary phase returns no sample and no
 truth frame: :func:`run_primary` returns ``PhaseResult(samples=None, truths=None)``.
 """
@@ -35,6 +43,10 @@ from tests.studies.evidence.seeds import replicate_seed
 
 #: The two terms of the duration working model.
 MSM_TERMS = ("(intercept)", "duration")
+#: The bootstrap replicates of the gated BCa interval.
+B_GATE = 399
+#: The suffix of a BCa row's estimand.
+BCA_SUFFIX = "__bca"
 
 
 @dataclass(frozen=True)
@@ -89,8 +101,18 @@ def contrast_name(first: str, second: str) -> str:
     return f"ate_regimen[{first} vs {second}]"
 
 
-def estimands(scenario: Scenario) -> tuple[str, ...]:
-    """The estimands ``scenario`` reports, in a fixed order."""
+def bootstrapped(scenario: Scenario) -> bool:
+    """Whether ``scenario`` fits with the refit bootstrap: single fold, no working model."""
+    return scenario.n_folds == 1 and not scenario.msm
+
+
+def bca_name(estimand: str) -> str:
+    """The estimand of the BCa row that goes with the Wald row ``estimand``."""
+    return estimand + BCA_SUFFIX
+
+
+def wald_estimands(scenario: Scenario) -> tuple[str, ...]:
+    """The estimands whose Wald row ``scenario`` reports, in a fixed order."""
     if scenario.msm:
         return tuple(f"msm_regimen[{term}]" for term in MSM_TERMS)
     means = tuple(mean_name(plan) for plan in scenario.plans)
@@ -99,8 +121,19 @@ def estimands(scenario: Scenario) -> tuple[str, ...]:
     return means + against + paired
 
 
+def estimands(scenario: Scenario) -> tuple[str, ...]:
+    """The estimands ``scenario`` reports: the Wald rows, then the BCa row of each of them."""
+    wald = wald_estimands(scenario)
+    if not bootstrapped(scenario):
+        return wald
+    return wald + tuple(bca_name(name) for name in wald)
+
+
 def truths(scenario: Scenario) -> dict[str, float]:
-    """The exact value of every estimand of ``scenario``, from the oracle."""
+    """The exact value of every estimand of ``scenario``, from the oracle.
+
+    A BCa row has the truth of its Wald row.
+    """
     K, m, law = scenario.K, scenario.m, scenario.law
     if scenario.msm:
         coefficients = law_.msm_coefficients(K, law)
@@ -114,6 +147,8 @@ def truths(scenario: Scenario) -> dict[str, float]:
         out[contrast_name(plan, scenario.reference)] = level[plan] - level[scenario.reference]
     for first, second in scenario.paired:
         out[contrast_name(first, second)] = level[first] - level[second]
+    if bootstrapped(scenario):
+        out |= {bca_name(name): value for name, value in list(out.items())}
     return out
 
 
@@ -139,9 +174,25 @@ def duration_msm() -> MSM:
     )
 
 
-def fit(frame: pd.DataFrame, scenario: Scenario, estimator: str) -> Any:
-    """One primary fit of ``scenario`` with ``estimator`` (``"LTMLE"`` or ``"SDR"``)."""
-    extra: dict[str, Any] = {"msm": duration_msm()} if scenario.msm else {}
+def fit(
+    frame: pd.DataFrame,
+    scenario: Scenario,
+    estimator: str,
+    *,
+    bootstrap: bool = True,
+    **extra: Any,
+) -> Any:
+    """One primary fit of ``scenario`` with ``estimator`` (``"LTMLE"`` or ``"SDR"``).
+
+    A bootstrapped scenario (:func:`bootstrapped`) fits with ``n_bootstrap=B_GATE`` and
+    ``bootstrap_interval="bca"``; ``bootstrap=False`` fits the Wald rows alone (the rev 4.2
+    ``truth`` pilot).  ``extra`` reaches the fit.
+    """
+    if scenario.msm:
+        extra["msm"] = duration_msm()
+    elif bootstrap and bootstrapped(scenario):
+        extra.setdefault("n_bootstrap", B_GATE)
+        extra.setdefault("bootstrap_interval", "bca")
     return common.fit(
         frame,
         scenario.K,
@@ -182,9 +233,9 @@ def _initials(result: Any, scenario: Scenario) -> dict[str, float]:
 
 
 def _estimates(result: Any, scenario: Scenario) -> dict[str, Any]:
-    """Every reported estimate, the paired contrasts derived from the joint curve."""
+    """Every reported Wald-named estimate, the paired contrasts derived from the joint curve."""
     paired = {contrast_name(first, second) for first, second in scenario.paired}
-    out = {name: result[name] for name in estimands(scenario) if name not in paired}
+    out = {name: result[name] for name in wald_estimands(scenario) if name not in paired}
     for first, second in scenario.paired:
         out[contrast_name(first, second)] = result.contrast(
             lambda values: float(values[0] - values[1]),
@@ -195,17 +246,51 @@ def _estimates(result: Any, scenario: Scenario) -> dict[str, Any]:
     return out
 
 
+def sparse_warnings(estimates: Mapping[str, Any], alpha: float = 0.05) -> dict[str, bool]:
+    """Whether ``SparseInfluenceWarning`` fires for each estimate: its variance SD is above 0.125.
+
+    A bootstrap fit raises no such warning (it is a warning of the Wald fit), so the flag is the
+    decision the warning would take: :func:`cleverly.inference.sparse.influence_report` on the
+    estimates that supply a Wald interval.
+    """
+    from cleverly.inference.sparse import influence_report
+
+    report = influence_report(
+        {name: e for name, e in estimates.items() if e.supplies_inference}, alpha=alpha
+    )
+    return {row.name: bool(row.sparse) for row in report.rows}
+
+
 def rows(
     record: StudyRecord, result: Any, scenario: Scenario, replicate: int, n: int
 ) -> list[dict[str, Any]]:
-    """One replication's published rows of ``scenario``."""
+    """One replication's published rows of ``scenario``.
+
+    Each row also carries three keys that the shared schema does not publish: ``interval``
+    (``wald`` or ``bca``), ``n_failed`` (the failed refits of the fit's bootstrap, 0 without
+    one) and ``sparse_warning`` (whether ``SparseInfluenceWarning`` fires for the estimand).
+    The primary loop drops them; the ``truth_boot`` pilot keeps them.
+    """
     truth = truths(scenario)
     initials = _initials(result, scenario)
     estimates = _estimates(result, scenario)
+    sparse = sparse_warnings(estimates, result.config.alpha_sig)
+    failed = 0 if result.bootstrap is None else int(result.bootstrap.n_failed)
     out: list[dict[str, Any]] = []
-    for name in estimands(scenario):
-        estimate = estimates[name]
-        low, high = estimate.ci
+    wald_only = result.bootstrap is None
+    for name in wald_estimands(scenario) if wald_only else estimands(scenario):
+        base = name.removesuffix(BCA_SUFFIX)
+        estimate = estimates[base]
+        is_bca = name != base
+        if is_bca:
+            summary = estimate.bootstrap
+            if summary is None:
+                raise ValueError(f"{name}: the fit attached no bootstrap summary")
+            low, high = summary.ci
+            std_error = summary.std_error
+        else:
+            low, high = estimate.ci
+            std_error = estimate.std_error
         reference = float(truth[name])
         out.append(
             {
@@ -217,12 +302,15 @@ def rows(
                 "truth": reference,
                 "estimate": float(estimate.psi),
                 "inference_estimate": float(estimate.psi),
-                "std_error": float(estimate.std_error),
+                "std_error": float(std_error),
                 "ci_lower": float(low),
                 "ci_upper": float(high),
                 "inference_scale": "identity",
                 "covered": int(low <= reference <= high),
-                "initial_estimate": initials[name],
+                "initial_estimate": initials[base],
+                "interval": "bca" if is_bca else "wald",
+                "n_failed": failed if is_bca else 0,
+                "sparse_warning": int(sparse.get(base, False)),
             }
         )
     return out

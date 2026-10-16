@@ -28,6 +28,14 @@ against ``mixlast``.
 declares ``pending_reference="lmtp"`` and keeps ``reference=None``.  The primary phase writes no
 sample.  ``tests/canonical/long_horizon_sdr/run_study.R`` is a stub that names the owning item.
 
+**Intervals** (plan rev 4.3).  A single-fold, non-MSM scenario fits with ``n_bootstrap=399`` and
+``bootstrap_interval="bca"``.  It writes a Wald row and, under the estimand name plus ``__bca``,
+a BCa row whose standard error is the bootstrap SD.  A Wald row gates only where the scenario n
+is at least twice the row's :math:`n_\kappa` (decision C1, section 5.1).  A BCa row gates in every
+single-fold gating scenario.  The cross-fitted scenario reports Wald rows only, because a
+cross-fitted bootstrap is experimental (X20).  Each ``interval_calibration`` cell runs
+at ``n = round_n(2 n_kappa)`` on its law.
+
 **Declared red-cell reading** (plan section 5.6, before any run).  The study publishes under
 ``reporting``.  Its gated truth rows (``GATED_ROWS``) and gated property cells (``GATED_CELLS``)
 are listed in :mod:`tests.long_horizon_design`.  ``tests/unit/test_long_horizon_design.py`` fails
@@ -38,9 +46,12 @@ study that declares its family.
 red cell                               reading
 =====================================  =========================================================
 a primary truth row                    Only a gated row blocks: a row gates in its gating
-                                       scenario alone, and the same quantity in another
-                                       scenario reports.  Diagnose.  A defect is fixed and the
-                                       run repeats under a fresh declaration.
+(Wald or ``__bca``)                    scenario alone, and the same quantity in another
+                                       scenario reports.  A Wald row gates only at n >= 2
+                                       n_kappa.  Diagnose.  A defect is fixed and the run
+                                       repeats under a fresh declaration.  A Wald calibration
+                                       cell that fails at 2 n_kappa is a red cell: the factor 2
+                                       is not re-tuned.
 a calibration positive                 Finite-sample only when its 99 percent SE-ratio interval
 (``interval_calibration``)             contains 1, its coverage interval contains 0.95, and the
                                        diagnosis finds no defect; it then goes to an owner row.
@@ -59,11 +70,8 @@ a control that passes                  A design defect, because its exact displa
                                        design test first.  Fix the control or the law under a
                                        fresh declaration, never by buying replications or
                                        lowering its floor.
-the simultaneous band                  Its 99 percent joint-coverage interval leaves (0.92,
-(``simultaneous_coverage``)            0.98).  Defect suspect on either side: below, the critical
-                                       value or the tail regime is wrong; above, the band is
-                                       conservative and the diagnosis names why.  The pointwise
-                                       control must stay below nominal.
+the simultaneous band                  This study has no band cell.  Its bootstrap band stays
+(``simultaneous_coverage``)            experimental and gates no row.
 the overfitting positive               Its SE-ratio interval leaves [0.85, 1.20], or the coverage
 (``crossfit_overfitting``)             gain over the in-sample control falls short.  Defect
                                        suspect: own-row reuse across the K nodes.  The in-sample

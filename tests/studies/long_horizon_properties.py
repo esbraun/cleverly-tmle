@@ -26,6 +26,12 @@ computed between them.  ``support_loss``, ``learned_mechanism`` and the 4,000-un
 ``sequential_double_robustness`` rows are reporting rows (role ``diagnostic``): they publish the
 summary statistics and state no verdict.
 
+**The band** (plan rev 4.3).  The ``simultaneous_coverage`` fit runs the refit bootstrap
+(``n_bootstrap=B_GATE``) and writes three cells from one fit: ``k5__simultaneous_band`` (the
+gated studentized bootstrap sup-t band), ``k5__ic_band`` (today's Wald-curve Rademacher band, a
+reporting row with no verdict) and ``k5__pointwise_joint_control`` (must fail).  The SDR study
+has no band cell: its bootstrap band stays experimental.
+
 **Parts.**  :mod:`tests.long_horizon_property_parts` splits the property phase into parts of
 replicate blocks, so that two machines can share it; the regeneration then refits nothing that a
 part finished.
@@ -70,6 +76,15 @@ from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.seeds import stream_seed
 from tests.studies.evidence.simultaneous import FAMILY as JOINT
 from tests.studies.evidence.simultaneous import joint_cells, joint_coverage_rows
+
+#: The cell suffix of the reporting band: the IC-curve Rademacher band (plan rev 4.3).
+IC_BAND = "ic_band"
+
+
+def ic_band_cell(label: str) -> str:
+    """The reporting cell of the Wald-curve band of one joint label."""
+    return f"{label}__{IC_BAND}"
+
 
 #: The calibration positive's suffix (``property_verdicts.calibration_controls``).
 POSITIVE = "known_mechanism"
@@ -200,7 +215,9 @@ class FitSet:
         out = []
         for arm in self.arms:
             if arm.read == "band":
-                out += [f"{JOINT}/{cell}" for cell in joint_cells(arm.cell)]
+                out += [
+                    f"{JOINT}/{cell}" for cell in (*joint_cells(arm.cell), ic_band_cell(arm.cell))
+                ]
                 continue
             out.append(f"{self.family}/{arm.cell}")
             if arm.inflated:
@@ -212,7 +229,9 @@ class FitSet:
         total = 0.0
         for arm in self.arms:
             if arm.read == "band":
+                study = "S1" if self.m == 2 else "S2"
                 total += D.fit_cost(self.K, self.m, arm.plans, self.n)
+                total += D.B_GATE * D.resample_cost(f"band:{study}")
                 continue
             try:
                 total += D.config_cost(arm.config, self.n)
@@ -457,7 +476,11 @@ def declared_cells(tag: str, replicates: Mapping[str, int]) -> tuple[PropertyCel
         for arm in fit_set.arms:
             if arm.read == "band":
                 band, control = joint_cells(arm.cell)
-                pairs = [(JOINT, band, "positive"), (JOINT, control, "control")]
+                pairs = [
+                    (JOINT, band, "positive"),
+                    (JOINT, control, "control"),
+                    (JOINT, ic_band_cell(arm.cell), DIAGNOSTIC_ROLE),
+                ]
             else:
                 pairs = [(fit_set.family, arm.cell, arm.role)]
                 if arm.inflated:
@@ -647,6 +670,53 @@ def _row(
     }
 
 
+def band_rows(
+    result: Any,
+    config: D.Config,
+    names: Sequence[str],
+    *,
+    label: str,
+    replicate: int,
+    n: int,
+    requested: int,
+) -> list[dict[str, Any]]:
+    """The three joint rows of one fit: the bootstrap band, the IC band and the pointwise control.
+
+    ``joint_coverage_rows`` reads the fit's Wald-curve band (``result.simultaneous``) and its
+    pointwise intervals.  The gated cell replaces its critical value and its coverage by the
+    studentized bootstrap sup-t band's (``result.bootstrap_band``), and the Wald-curve band
+    becomes the reporting cell :func:`ic_band_cell`.  All three share the max-t statistic.
+    """
+    truth = _band_truths(config.K, config.m, config.law, names)
+    ic, control = joint_coverage_rows(
+        result,
+        truth,
+        names,
+        label=label,
+        replicate=replicate,
+        n=n,
+        requested=requested,
+        pointwise_critical=CRITICAL,
+    )
+    boot = result.bootstrap_band
+    if boot is None:
+        raise AssertionError(f"the {label} fit reported no bootstrap band")
+    if set(boot.bands) != set(names):
+        raise AssertionError(f"the {label} bootstrap band covers {sorted(boot.bands)}")
+    covered = all(boot.bands[name][0] <= truth[name] <= boot.bands[name][1] for name in names)
+    band_cell, _ = joint_cells(label)
+    gated = {
+        **ic,
+        "cell": band_cell,
+        "role": "positive",
+        "std_error": float(boot.critical_value),
+        "covered": int(covered),
+        "rejected": int(not covered),
+    }
+    reporting = {**ic, "cell": ic_band_cell(label), "role": DIAGNOSTIC_ROLE}
+    return [gated, reporting, control]
+
+
 def _band_truths(K: int, m: int, law: Law, names: Sequence[str]) -> dict[str, float]:
     out = {}
     for name in names:
@@ -667,17 +737,18 @@ def fit_key(key: Key, sample: pd.DataFrame) -> list[dict[str, Any]]:
     for arm in fit_set.arms:
         config = arm.config
         if arm.read == "band":
-            result = _call(arm, sample, arm.plans, simultaneous=True, reference=None)
+            result = _call(
+                arm, sample, arm.plans, simultaneous=True, reference=None, n_bootstrap=D.B_GATE
+            )
             names = sorted(result.simultaneous.bands)
-            rows += joint_coverage_rows(
+            rows += band_rows(
                 result,
-                _band_truths(config.K, config.m, config.law, names),
+                config,
                 names,
                 label=arm.cell,
                 replicate=key[2],
                 n=key[4],
                 requested=key[3],
-                pointwise_critical=CRITICAL,
             )
             continue
         truth = config.truth

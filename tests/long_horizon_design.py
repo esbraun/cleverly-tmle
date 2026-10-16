@@ -60,6 +60,20 @@ STEP = 4_000
 D_FLOOR = 3.0
 #: A followed path keeps at least this cumulative probability on every gated cell's law.
 SUPPORT_FLOOR = 1e-6
+#: The Wald regime factor of plan rev 4.3 (section 5.3, option C1): the Wald interval is gated on
+#: a row or a cell only where its n is at least this multiple of ``n_kappa`` for every member
+#: (``C_kappa = 0.25 / sqrt(2)``).  The factor is fixed once.  A Wald-gated failure in the final run
+#: is a red cell, and the factor is not re-tuned after the ``truth_boot`` or the ``f2_c1`` pilot.
+WALD_REGIME_FACTOR = 2
+#: The bootstrap replicates of every gated bootstrap interval (BCa and the sup-t band).
+B_GATE = primary.B_GATE
+#: The gated band construction: the studentized bootstrap sup-t band.  A band pilot stop means
+#: diagnosis, never a switch of construction (plan rev 4.3, section 5.2).
+BAND_INTERVAL = "supt_studentized"
+#: The estimand suffix of a BCa row.  The shared replicate schema has no interval column, so the
+#: BCa row of ``ey_regimen[high]`` is ``ey_regimen[high]__bca`` and it carries the BCa limits and
+#: the bootstrap SD as its standard error.
+BCA_SUFFIX = primary.BCA_SUFFIX
 #: The per-replicate scale of one arm's SE ratio at 400 replicates (rev-1 pilot readings).
 SE_RATIO_SCALE = 0.0354
 #: The seed of every pilot stream; a stream's seed spawns from it by cell and replicate.
@@ -176,10 +190,14 @@ class Tail:
     def n_kappa(self) -> int:
         return max(self.n_star, self.n_inf)
 
-    def meets(self, cap: int = NMAX) -> bool:
-        """Whether the quantity meets the criterion on this law at ``n <= cap``."""
+    def wald_n(self, factor: int = WALD_REGIME_FACTOR) -> int:
+        """The smallest n at which the Wald interval is gated: ``factor`` times ``n_kappa``."""
+        return factor * self.n_kappa
+
+    def meets(self, cap: int = NMAX, factor: int = 1) -> bool:
+        """Whether the quantity meets the criterion on this law at ``factor * n_kappa <= cap``."""
         return (
-            self.n_kappa <= cap
+            factor * self.n_kappa <= cap
             and self.support >= SUPPORT_FLOOR
             and all(0.15 <= value <= 0.85 for value in self.truths)
         )
@@ -251,17 +269,23 @@ def fallback_order(K: int, m: int) -> list[Law]:
     return sorted(law_.GRID, key=lambda law: ess_top(K, m, law))
 
 
-def fallback_scan(q: Quantity, cap: int = NMAX) -> tuple[Law | None, list[dict[str, Any]]]:
-    """The section 5.1 rule over the whole grid: the most depleted law on which ``q`` meets."""
+def fallback_scan(
+    q: Quantity, cap: int = NMAX, factor: int = 1
+) -> tuple[Law | None, list[dict[str, Any]]]:
+    """The section 5.1 rule over the whole grid: the most depleted law on which ``q`` meets.
+
+    With ``factor`` 2 the criterion is the rev 4.3 Wald regime ``2 n_kappa <= cap``, which is the
+    section 5.1 rule at ``C_kappa = 0.177``.
+    """
     rows = []
     pick = None
     for law in fallback_order(q.K, q.m):
         star = tail(q, law, star_only=True)
         row = {"law": law_name(law), "ess_K": ess_top(q.K, q.m, law), "n_star": star.n_star}
-        if star.n_star <= cap and pick is None:
+        if factor * star.n_star <= cap and pick is None:
             full = tail(q, law)
-            row.update(n_inf=full.n_inf, support=full.support, meets=full.meets(cap))
-            if full.meets(cap):
+            row.update(n_inf=full.n_inf, support=full.support, meets=full.meets(cap, factor))
+            if full.meets(cap, factor):
                 pick = law
         rows.append(row)
     return pick, rows
@@ -326,6 +350,48 @@ def gating(row: Row) -> primary.Scenario | None:
         and scenario.n >= need
     ]
     return min(candidates, key=lambda s: s.n) if candidates else None
+
+
+def wald_gated(row: Row) -> bool:
+    """Whether the Wald interval is gated on ``row``: its gating scenario's n is at least
+    :data:`WALD_REGIME_FACTOR` times the row's ``n_kappa`` on that scenario's law.
+
+    Below it the Wald row reports.  The rule is exact-law and outcome-blind.
+    """
+    scenario = gating(row)
+    if scenario is None:
+        return False
+    return scenario.n >= WALD_REGIME_FACTOR * tail(row.quantity, scenario.law).n_kappa
+
+
+def interval_of(row: Row) -> frozenset[str]:
+    """The intervals gated on ``row``, from ``{"wald", "bca"}``.
+
+    BCa is gated on every single-fold row (it is the only gated interval below the Wald
+    regime).  Wald is gated where :func:`wald_gated` holds.  A cross-fitted row has no bootstrap
+    interval, so it gates Wald alone, or nothing below the regime: its bootstrap is a
+    diagnostic (X20).
+    """
+    scenario = gating(row)
+    if scenario is None:
+        return frozenset()
+    out = set()
+    if primary.bootstrapped(scenario):
+        out.add("bca")
+    if wald_gated(row):
+        out.add("wald")
+    return frozenset(out)
+
+
+def msm_wald_gated(scenario: primary.Scenario, name: str) -> bool:
+    """Whether the Wald interval of a duration working-model coefficient is gated.
+
+    The MSM fit runs no bootstrap, so a coefficient below ``WALD_REGIME_FACTOR * n_kappa`` has
+    no gated interval.
+    """
+    term = "intercept" if "(intercept)" in name else "duration"
+    need = msm_tail(scenario.K, scenario.law, term).n_kappa
+    return scenario.n >= WALD_REGIME_FACTOR * need
 
 
 # ----------------------------------------------------------------------------- calibration cells
@@ -395,8 +461,11 @@ def _calibration_names(m: int) -> dict[str, tuple[str, str]]:
     }
 
 
-#: The calibration-cell n table of section 5.1: ``(m, K) -> {cell: n}``.
-CALIBRATION_N = {
+#: The rev 4.2 calibration-cell n table of section 5.1: ``(m, K) -> {cell: n}``, each the cell's
+#: ``n_kappa`` rounded up to :data:`STEP`.  Plan rev 4.3 moves every cell to ``2 n_kappa``
+#: (:func:`calibration_cells`).  The table stays because the rev 4.2 ``f2`` pilot parts ran at
+#: these n and keep their idents (``tests/unit/test_long_horizon_pilots.py``).
+CALIBRATION_N_REV42 = {
     (2, 3): dict.fromkeys(_calibration_names(2), 4_000),
     (2, 4): {
         "respond_vs_ref": 8_000,
@@ -435,47 +504,91 @@ CALIBRATION_N = {
     },
 }
 
+#: The quantities whose calibration cell needs ``2 n_kappa > N_max`` on the law of section 5.1,
+#: and the law the rev 4.3 rule picks for each: the section 5.1 fallback scan at
+#: ``C_kappa = 0.177``, ``fallback_scan(q, factor=2)`` (the ``lawscan`` parts of the
+#: ``f2_c1`` family recompute it).  A cell takes its quantity's law, cross-fitted or not.
+CALIBRATION_FALLBACKS: dict[Quantity, Law] = {
+    Quantity(4, 3, "high", "low"): Law(0.75, 0.05, 3.5),
+    Quantity(5, 3, "high", "low"): Law(0.25, 0.0, 3.5),
+    Quantity(5, 3, "mix"): Law(1.0, 0.0, 3.5),
+    Quantity(5, 3, "mix", "mixlast"): Law(1.0, 0.05, 3.5),
+}
 
-def calibration_cells() -> list[CalibrationCell]:
-    """Every gated calibration positive of the three studies, in study order."""
+
+def calibration_law(q: Quantity) -> Law:
+    """The law of the calibration cell of ``q``: the rev 4.3 fallback, else the law of ``q``."""
+    return CALIBRATION_FALLBACKS.get(q, law_of(q))
+
+
+def calibration_cells(rev: str = "4.3") -> list[CalibrationCell]:
+    """Every gated calibration positive of the three studies, in study order.
+
+    Parameters
+    ----------
+    rev : {"4.3", "4.2"}
+        ``"4.3"`` runs each cell at ``2 n_kappa`` on its law (plan section 5.3, option C1).
+        ``"4.2"`` is the rev 4.2 table, kept for the pilot parts that ran at it.
+    """
+    if rev not in ("4.3", "4.2"):
+        raise ValueError(f"unknown calibration revision {rev!r}")
+    moved = rev == "4.3"
     out = []
     arms = {"S1": (2,), "S2": (3,), "S3": (2, 3)}
+
+    def cell_n(q: Quantity, law: Law, table: int) -> int:
+        return round_n(WALD_REGIME_FACTOR * tail(q, law).n_kappa) if moved else table
+
+    def msm_n() -> int:
+        if not moved:
+            return 28_000
+        return round_n(WALD_REGIME_FACTOR * msm_tail(5, law_.L_R, "duration").n_kappa)
+
     for study, ms in arms.items():
         for m in ms:
             prefix = "" if study != "S3" else ("binary_" if m == 2 else "categorical_")
             for K in (3, 4, 5):
                 for cell, (first, second) in _calibration_names(m).items():
                     q = Quantity(K, m, first, second)
+                    law = calibration_law(q) if moved else law_of(q)
                     out.append(
                         CalibrationCell(
                             study,
                             f"{prefix}{cell}__k{K}",
                             q,
-                            law_of(q),
-                            CALIBRATION_N[(m, K)][cell],
+                            law,
+                            cell_n(q, law, CALIBRATION_N_REV42[(m, K)][cell]),
                         )
                     )
         if study == "S1":
             out.append(
                 CalibrationCell(
-                    study, "msm_duration__k5", Quantity(5, 2, "dur0"), law_.L_R, 28_000, msm=True
+                    study, "msm_duration__k5", Quantity(5, 2, "dur0"), law_.L_R, msm_n(), msm=True
                 )
             )
         else:
             names = _calibration_names(3)
-            for cell, n in (("policy_vs_ref", 16_000), ("policy_vs_policylast", 84_000)):
+            for cell, table in (("policy_vs_ref", 16_000), ("policy_vs_policylast", 84_000)):
                 prefix = "" if study == "S2" else "categorical_"
+                q = Quantity(5, 3, *names[cell])
+                law = calibration_law(q) if moved else law_.L_R
                 out.append(
                     CalibrationCell(
                         study,
                         f"{prefix}{cell}__k5_crossfit",
-                        Quantity(5, 3, *names[cell]),
-                        law_.L_R,
-                        n,
+                        q,
+                        law,
+                        cell_n(q, law, table),
                         folds=5,
                     )
                 )
     return out
+
+
+def moved_calibration_cells() -> list[CalibrationCell]:
+    """The rev 4.3 cells whose law or n differs from rev 4.2: the ``f2_c1`` re-pilot's cells."""
+    before = {(c.study, c.name): (c.law, c.n) for c in calibration_cells("4.2")}
+    return [c for c in calibration_cells() if before[(c.study, c.name)] != (c.law, c.n)]
 
 
 # ----------------------------------------------------------------------------- estimator configs
@@ -672,8 +785,14 @@ class Config:
         differ = law_.policy_nodes(self.first, self.K) != law_.policy_nodes(self.second, self.K)
         return uses_plan or (differ and set(self.node_learners().values()) != {"glm"})
 
-    def fit_sample(self, sample: pd.DataFrame) -> dict[str, float]:
-        """One fit of a drawn sample: estimate, standard error and interval."""
+    def fit_sample(self, sample: pd.DataFrame, *, sparse: bool = False) -> dict[str, float]:
+        """One fit of a drawn sample: estimate, standard error and interval.
+
+        With ``sparse`` the result also carries ``sparse_warning``: 1 when
+        ``SparseInfluenceWarning`` fires for the estimate (its variance SD is above 0.125), else
+        0.  The ``f2_c1`` pilot reads it; the earlier streams do not, so their parts keep their
+        columns.
+        """
         data = self.mechanism_frame(sample, population=True)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -696,8 +815,9 @@ class Config:
                     data,
                     (self.second, self.first),
                     f"ate_regimen[{self.first} vs {self.second}]",
+                    sparse=sparse,
                 )
-            return self._call(data, (self.first,), f"ey_regimen[{self.first}]")
+            return self._call(data, (self.first,), f"ey_regimen[{self.first}]", sparse=sparse)
 
     def _route(self) -> dict[str, Any]:
         """The two-arm shortcut goes through the learner route: its rows do not sum to one."""
@@ -708,7 +828,9 @@ class Config:
         learner = common.HorizonComplementMechanism(self.K, self.m, self.law, self.complement_nodes)
         return {"treatment_learner": learner, "probabilities": "censoring"}
 
-    def _call(self, data: pd.DataFrame, plans: tuple[str, ...], name: str) -> dict[str, float]:
+    def _call(
+        self, data: pd.DataFrame, plans: tuple[str, ...], name: str, *, sparse: bool = False
+    ) -> dict[str, float]:
         outcome, pseudo = self.learners_for(plans[-1])
         result = common.fit(
             data,
@@ -723,12 +845,17 @@ class Config:
         )
         estimate = result[name]
         low, high = estimate.ci
-        return {
+        out = {
             "estimate": float(estimate.psi),
             "std_error": float(estimate.std_error),
             "ci_lower": float(low),
             "ci_upper": float(high),
         }
+        if sparse:
+            out["sparse_warning"] = int(
+                primary.sparse_warnings({name: estimate}, result.config.alpha_sig)[name]
+            )
+        return out
 
     def _msm(self, data: pd.DataFrame) -> dict[str, float]:
         plans = tuple(f"dur{j}" for j in range(self.K + 1))
@@ -1232,7 +1359,10 @@ def gated_rows() -> tuple[tuple[str, str, str], ...]:
     """Every gated primary truth row: ``(study, gating scenario, estimand)``.
 
     A primary row is gated only in its gating scenario (:func:`gating`); the same quantity in
-    another scenario reports.  A duration MSM scenario gates both coefficients.
+    another scenario reports.  Plan rev 4.3 gates by interval (:func:`interval_of`): the Wald
+    row where the scenario n is at least ``2 n_kappa``, and the BCa row (the estimand plus
+    :data:`BCA_SUFFIX`) on every single-fold row.  A duration MSM scenario gates the Wald row of
+    each coefficient that meets the regime and has no bootstrap row.
     """
     out: dict[tuple[str, str, str], None] = {}
     for row in primary_rows():
@@ -1243,12 +1373,17 @@ def gated_rows() -> tuple[tuple[str, str, str], ...]:
         name = (
             primary.mean_name(q.first) if not q.second else primary.contrast_name(q.first, q.second)
         )
-        out[(row.study, scenario.name, name)] = None
+        intervals = interval_of(row)
+        if "wald" in intervals:
+            out[(row.study, scenario.name, name)] = None
+        if "bca" in intervals:
+            out[(row.study, scenario.name, primary.bca_name(name))] = None
     for study in STUDIES:
         for scenario in scenarios(study):
             if scenario.msm:
                 for name in primary.estimands(scenario):
-                    out[(study, scenario.name, name)] = None
+                    if msm_wald_gated(scenario, name):
+                        out[(study, scenario.name, name)] = None
     return tuple(out)
 
 
@@ -1662,6 +1797,46 @@ def config_cost(config: Config, n: int) -> float:
     return fit_cost(config.K, config.m, plans, n, folds=folds, calls=calls)
 
 
+#: Cloud CPU seconds over the CPU seconds of the machine of the timing runs (design section 2.6).
+CLOUD_FACTOR = 2.9
+#: CPU seconds of one bootstrap resample of the package fast path on the machine of the timing
+#: runs, by ``<study>:<scenario>`` and ``band:<study>`` (one draw each, ``OMP_NUM_THREADS=1``,
+#: the slope of the fit time between 10 and 30 resamples).  Filled by ``tests/unit`` from the
+#: runs of plan rev 4.3 (``X39-progress.md``).
+RESAMPLE_SECONDS: dict[str, float] = {
+    "S1:binary_k3": 0.0108,
+    "S1:binary_k4": 0.0176,
+    "S1:binary_k5": 0.0604,
+    "S2:categorical_k3": 0.0388,
+    "S2:categorical_k4": 0.0405,
+    "S2:categorical_k4_high": 0.0166,
+    "S2:categorical_k4_static": 0.0140,
+    "S2:categorical_k5": 0.1590,
+    "S2:categorical_k5_static": 0.0334,
+    "S2:categorical_k5_switch": 0.0208,
+    "S2:categorical_k5_high": 0.0410,
+    "S2:categorical_k5_mix": 0.1182,
+    "S3:sdr_binary_k3": 0.0194,
+    "S3:sdr_binary_k4": 0.0355,
+    "S3:sdr_binary_k5": 0.0489,
+    "S3:sdr_categorical_k5": 0.1428,
+    "S3:sdr_categorical_k5_static": 0.0458,
+    "S3:sdr_categorical_k5_switch": 0.0235,
+    "S3:sdr_categorical_k5_high": 0.0155,
+    "S3:sdr_categorical_k5_mix": 0.0702,
+    "S3:sdr_policy_k5": 0.0800,
+    "S3:sdr_policy_k5_mix": 0.1248,
+    "S3:sdr_policy_k5_taper": 0.0373,
+    "band:S1": 0.0850,
+    "band:S2": 0.2529,
+}
+
+
+def resample_cost(key: str) -> float:
+    """Cloud-model CPU seconds of one bootstrap resample of ``key`` (see :data:`RESAMPLE_SECONDS`)."""
+    return CLOUD_FACTOR * RESAMPLE_SECONDS[key]
+
+
 # ----------------------------------------------------------------------------- pilot seeds
 def stream_seed(stream: str, replicate: int) -> int:
     """The seed of replicate ``replicate`` of the pilot stream ``stream``."""
@@ -1677,7 +1852,8 @@ class Stream:
     Parameters
     ----------
     family : str
-        The pilot family: ``mc``, ``f2``, ``bias``, ``truth``, ``overfit``, ``band`` or ``rung``.
+        The pilot family: ``mc``, ``f2``, ``bias``, ``truth``, ``overfit``, ``band`` or ``rung``
+        (rev 4.1 and 4.2), and ``truth_boot``, ``band_boot`` or ``f2_c1`` (rev 4.3).
     name : str
         The study and cell.
     config : Config or None
@@ -1707,15 +1883,22 @@ class Stream:
         return f"{self.family}|{self.name}|n{self.n}|{what}"
 
     def cost(self) -> float:
-        """CPU seconds of one replicate."""
+        """CPU seconds of one replicate: the fit, plus :data:`B_GATE` resamples for a bootstrap."""
         if self.plans and self.config is not None:
-            return fit_cost(self.config.K, self.config.m, self.plans, self.n)
+            point = fit_cost(self.config.K, self.config.m, self.plans, self.n)
+            if self.family == "band_boot":
+                study = "S1" if self.config.m == 2 else "S2"
+                return point + B_GATE * resample_cost(f"band:{study}")
+            return point
         if self.config is not None:
             return config_cost(self.config, self.n)
         study, name = self.scenario
         scenario = next(s for s in scenarios(study) if s.name == name)
         folds = COST_FOLDS["LTMLE" if study != "S3" else "SDR"] if scenario.n_folds > 1 else 1.0
-        return fit_cost(scenario.K, scenario.m, scenario.plans, self.n, folds=folds)
+        point = fit_cost(scenario.K, scenario.m, scenario.plans, self.n, folds=folds)
+        if self.family == "truth_boot":
+            return point + B_GATE * resample_cost(f"{study}:{name}")
+        return point
 
 
 def streams() -> list[Stream]:
@@ -1730,7 +1913,8 @@ def streams() -> list[Stream]:
         if c.monte_carlo
     ]
     out += [
-        Stream("f2", f"{c.study}:{c.name}", c.config(), c.n, 3_200) for c in calibration_cells()
+        Stream("f2", f"{c.study}:{c.name}", c.config(), c.n, 3_200)
+        for c in calibration_cells("4.2")
     ]
     out += [
         Stream("bias", f"{p.study}:{p.family}:{p.cell}", p.config, p.n, 1_000) for p in positives()
@@ -1763,6 +1947,67 @@ def streams() -> list[Stream]:
             for n in ROOT_N_SIZES
         ]
     return out
+
+
+#: The replicates of one ``truth_boot`` stream, as the rev 4.2 ``truth`` pilot (design section 5).
+TRUTH_BOOT_REPLICATES = 400
+#: The replicates of one ``band_boot`` stream (the rev 4.2 band pilot's 3,200).
+BAND_BOOT_REPLICATES = BAND_REPLICATES
+#: The replicates of one ``f2_c1`` stream (the F2 pilot's 3,200).
+F2_C1_REPLICATES = 3_200
+#: The order of the studies in the ``truth_boot`` family: S3 first, so that a stop on the first
+#: ``SDR`` BCa evidence (plan rev 4.3, Q-E5) comes before the other studies' parts.
+TRUTH_BOOT_ORDER = ("S3", "S1", "S2")
+
+
+def bootstrapped_scenarios(study: str) -> tuple[primary.Scenario, ...]:
+    """The scenarios of ``study`` that fit with the refit bootstrap: single fold, no MSM."""
+    return tuple(s for s in scenarios(study) if primary.bootstrapped(s))
+
+
+def bootstrap_streams() -> list[Stream]:
+    """The rev 4.3 pilot streams, in the declared order.
+
+    ``truth_boot``: 400 replicates of each bootstrapped scenario at B = :data:`B_GATE`, the S3
+    scenarios first.  ``band_boot``: 3,200 replicates of each band at B = 399.  ``f2_c1``: 3,200
+    replicates of each calibration cell that C1 moved.  They follow every earlier stream, so that
+    no earlier stream moves.
+    """
+    out = [
+        Stream(
+            "truth_boot",
+            f"{study}:{scenario.name}",
+            None,
+            scenario.n,
+            TRUTH_BOOT_REPLICATES,
+            (study, scenario.name),
+        )
+        for study in TRUTH_BOOT_ORDER
+        for scenario in bootstrapped_scenarios(study)
+    ]
+    for study in BAND_STUDIES:
+        config, plans, n = band_config(study)
+        out.append(
+            Stream("band_boot", f"{study}:band_k5", config, n, BAND_BOOT_REPLICATES, plans=plans)
+        )
+    out += [
+        Stream("f2_c1", f"{c.study}:{c.name}", c.config(), c.n, F2_C1_REPLICATES)
+        for c in moved_calibration_cells()
+    ]
+    return out
+
+
+def unmoved_f2_idents() -> list[str]:
+    """The ``f2`` stream idents of the calibration cells that C1 left as they were.
+
+    The ``f2_c1`` reading takes these cells' rev 4.2 ``f2`` parts as their pilot.
+    """
+    moved = {(c.study, c.name) for c in moved_calibration_cells()}
+    return [
+        Stream("f2", f"{c.study}:{c.name}", c.config(), c.n, 3_200).ident
+        for c in calibration_cells("4.2")
+        if (c.study, c.name) not in moved
+    ]
 
 
 # ----------------------------------------------------------------------------- oracle curve

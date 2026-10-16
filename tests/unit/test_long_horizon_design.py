@@ -107,10 +107,12 @@ def test_every_calibration_cell_runs_at_its_quantitys_n_on_its_law() -> None:
     assert collections.Counter(cell.study for cell in cells) == {"S1": 16, "S2": 17, "S3": 32}
     for cell in cells:
         reading = cell.tail()
-        assert cell.n == D.round_n(reading.n_kappa), cell.name
+        # Decision C1: the Wald regime, n >= 2 n_kappa, is the cell n.
+        assert cell.n == D.round_n(2 * reading.n_kappa), cell.name
+        assert reading.meets(D.NMAX, factor=2) or cell.msm, cell.name
         assert reading.support >= D.SUPPORT_FLOOR, cell.name
         if not cell.msm:
-            assert cell.law == D.law_of(cell.quantity), cell.name
+            assert cell.law == D.calibration_law(cell.quantity), cell.name
     smallest = min(cell.tail().support for cell in cells)
     assert smallest == pytest.approx(4.1e-6, rel=0.03)
 
@@ -332,6 +334,7 @@ def test_every_pilot_stream_has_its_own_checkpoint_cell_and_seeds() -> None:
     assert len({s.ident for s in streams}) == len(streams)
     counts = collections.Counter(s.family for s in streams)
     assert counts["mc"] == 11
+    assert counts["f2"] == len(D.calibration_cells("4.2")) == 65
     assert counts["f2"] == len(D.calibration_cells()) == 65
     assert counts["overfit"] == 2
     first = streams[0]
@@ -401,28 +404,91 @@ def test_a_sample_fit_reads_the_exact_estimator_on_the_frame() -> None:
 # ----------------------------------------------------------------------------- rev 4.2: gates
 def test_the_gated_rows_are_the_rows_in_their_gating_scenario_only() -> None:
     rows = D.GATED_ROWS
-    assert len(rows) == len(set(rows)) == 120
-    by_study = collections.Counter(study for study, _, _ in rows)
-    assert by_study == {"S1": 28, "S2": 43, "S3": 49}
+    assert len(rows) == len(set(rows)) == 176
+    wald = [r for r in rows if not r[2].endswith("__bca")]
+    bca = [r for r in rows if r[2].endswith("__bca")]
+    assert collections.Counter(study for study, _, _ in wald) == {"S1": 18, "S2": 26, "S3": 28}
+    assert collections.Counter(study for study, _, _ in bca) == {"S1": 26, "S2": 36, "S3": 42}
     for row in D.primary_rows():
         scenario = D.gating(row)
         q = row.quantity
         name = f"ey_regimen[{q.first}]" if not q.second else f"ate_regimen[{q.first} vs {q.second}]"
-        if scenario is not None:
-            assert (row.study, scenario.name, name) in rows
+        if scenario is None:
+            continue
+        # BCa gates on every single-fold gating row, Wald only where n >= 2 n_kappa.
+        assert ((row.study, scenario.name, name + "__bca") in rows) == (scenario.n_folds == 1)
+        assert ((row.study, scenario.name, name) in rows) == D.wald_gated(row)
     # The `taper` mean reports in `sdr_policy_k5` (n_kappa 246,603 against 44,000) and gates in
     # its own scenario; the same holds for the `mix` mean at K = 5 in the other two arms.
     assert ("S3", "sdr_policy_k5", "ey_regimen[taper]") not in rows
-    assert ("S3", "sdr_policy_k5_taper", "ey_regimen[taper]") in rows
-    assert ("S3", "sdr_policy_k5", "ate_regimen[taper vs low]") in rows
-    assert ("S2", "categorical_k5", "ey_regimen[mix]") not in rows
-    assert ("S2", "categorical_k5_mix", "ey_regimen[mix]") in rows
+    assert ("S3", "sdr_policy_k5", "ey_regimen[taper]__bca") not in rows
+    assert ("S3", "sdr_policy_k5_taper", "ey_regimen[taper]__bca") in rows
+    # `taper vs low` has n_kappa 42,420 in a scenario of 44,000: BCa gates, Wald (2 n_kappa) does not.
+    assert ("S3", "sdr_policy_k5", "ate_regimen[taper vs low]__bca") in rows
+    assert ("S3", "sdr_policy_k5", "ate_regimen[taper vs low]") not in rows
+    assert ("S2", "categorical_k5", "ey_regimen[mix]__bca") not in rows
+    assert ("S2", "categorical_k5_mix", "ey_regimen[mix]__bca") in rows
     assert ("S2", "categorical_k5_crossfit", "ey_regimen[mix]") not in rows
-    # Both duration coefficients of the S1 MSM scenario are gated.
-    assert {name for _, scenario, name in rows if scenario == "binary_k5_msm"} == {
-        "msm_regimen[(intercept)]",
-        "msm_regimen[duration]",
+    # The MSM fit runs no bootstrap and n = 48,000 is below twice the intercept's n_kappa
+    # (47,113): no coefficient is gated.
+    assert not [r for r in rows if r[1].endswith("_msm")]
+    assert not D.msm_wald_gated(
+        next(s for s in D.scenarios("S1") if s.msm), "msm_regimen[(intercept)]"
+    )
+
+
+def test_a_gated_wald_row_is_in_its_regime_and_a_bca_row_is_single_fold() -> None:
+    """T5: the gate follows the exact-law size, whatever the pilot or the factor says."""
+    scenarios = {(s_.name, st): s_ for st in D.STUDIES for s_ in D.scenarios(st)}
+    for study, name, estimand in D.GATED_ROWS:
+        scenario = scenarios[(name, study)]
+        if estimand.endswith("__bca"):
+            assert scenario.n_folds == 1 and not scenario.msm, (study, name, estimand)
+            continue
+        row = next(
+            r
+            for r in D.primary_rows()
+            if r.study == study and D.gating(r) == scenario and estimand in _names(r)
+        )
+        need = D.tail(row.quantity, scenario.law).n_kappa
+        assert scenario.n >= 2 * need, (study, name, estimand)
+
+
+def _names(row: D.Row) -> set[str]:
+    q = row.quantity
+    return {f"ey_regimen[{q.first}]" if not q.second else f"ate_regimen[{q.first} vs {q.second}]"}
+
+
+def test_the_wald_factor_moves_the_gate_and_the_cell_n() -> None:
+    """A deliberate mutation: at factor 1 the gate admits more rows and the cells shrink."""
+    rows = [r for r in D.primary_rows() if D.gating(r) is not None]
+    at_two = sum(D.wald_gated(r) for r in rows)
+    at_one = sum(
+        (g := D.gating(r)) is not None and g.n >= D.tail(r.quantity, g.law).n_kappa for r in rows
+    )
+    assert at_one > at_two > 0
+    assert D.WALD_REGIME_FACTOR == 2
+    moved = D.moved_calibration_cells()
+    assert collections.Counter(c.study for c in moved) == {"S1": 8, "S2": 14, "S3": 21}
+    old = {(c.study, c.name): (c.n, c.law) for c in D.calibration_cells("4.2")}
+    assert all((c.n, c.law) != old[(c.study, c.name)] for c in moved)
+    assert all(
+        (c.n, c.law) == old[(c.study, c.name)]
+        for c in D.calibration_cells()
+        if (c.study, c.name) not in {(m.study, m.name) for m in moved}
+    )
+
+
+def test_the_four_fallback_laws_of_the_wald_regime_are_the_factor_two_scan() -> None:
+    assert set(D.CALIBRATION_FALLBACKS) == {
+        D.Quantity(4, 3, "high", "low"),
+        D.Quantity(5, 3, "high", "low"),
+        D.Quantity(5, 3, "mix"),
+        D.Quantity(5, 3, "mix", "mixlast"),
     }
+    for q, law in D.CALIBRATION_FALLBACKS.items():
+        assert D.tail(q, law).meets(D.NMAX, factor=2), q
+        assert not D.tail(q, D.law_of(q)).meets(D.NMAX, factor=2), q
 
 
 def test_the_gated_cells_are_every_positive_and_control_with_a_verdict() -> None:
