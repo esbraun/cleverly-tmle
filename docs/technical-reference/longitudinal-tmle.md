@@ -35,8 +35,9 @@ Collaborative TMLE and DR-TMLE have no longitudinal derivation, and `available_m
 before any model is fitted.
 
 A worked applied analysis is in the
-[longitudinal tutorial](../examples/longitudinal-tmle.ipynb). It runs a point-treatment analysis
-of the same data as a control, and that analysis fails in both available directions.
+[sequential pricing tutorial](../examples/sequential-pricing.ipynb). It runs two single
+regressions of the same data as controls. One omits the engagement and one holds it fixed, and both
+miss the policy effect.
 [Time-to-event outcomes](../examples/longitudinal-survival.ipynb) is the companion tutorial for
 the event-process extensions below.
 
@@ -526,6 +527,10 @@ use `ratio="classifier"` with a flexible classifier, or set `density_bins=` high
 
 `regimens=` takes the policy as a plan node, and the `policies=` keyword stays refused by name:
 `regimens={"+0.5": DynamicRegimen("+0.5", (Shift(0.5, cap=4.0),) * 2)}`.
+
+The [sequential pricing tutorial](../examples/sequential-pricing.ipynb) fits a price rise and a price
+cut at three nodes under a declared band. It reads the support of larger rises and compares the fit
+with two single regressions.
 
 Evidence: `tests/unit/test_influence_gateaux_longitudinal_mtp.py` checks the estimate and the
 curve against the g-formula of `tests/discrete_law_longitudinal_mtp.py` and its Gateaux
