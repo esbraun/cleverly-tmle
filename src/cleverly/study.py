@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import narwhals as nw
 
+from ._support import combine_support
 from ._typing import Family
 from .data import CausalData
 from .data.causal_data import _vector_components
@@ -2195,7 +2196,7 @@ def _narrow_bands(
         return bands
     if len(family) < 2:
         return None
-    return simultaneous_bands(
+    narrowed = simultaneous_bands(
         family,
         alpha=bands.alpha,
         n_replicates=bands.n_replicates,
@@ -2203,6 +2204,7 @@ def _narrow_bands(
         random_state=getattr(method, "runtime", Runtime()).random_state,
         cluster=result.data.cluster,
     )
+    return replace(narrowed, support=combine_support([bands.support, narrowed.support]))
 
 
 def _narrow_bootstrap(bootstrap: Any, retained: Mapping[str, Any]) -> Any:

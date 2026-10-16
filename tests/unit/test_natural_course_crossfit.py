@@ -18,6 +18,7 @@ from cleverly import (
     SplitPlan,
     TMLEMethod,
 )
+from cleverly.data import CausalData
 from cleverly.inference.cluster import (
     cross_validated_variance,
     influence_covariance,
@@ -105,14 +106,8 @@ def test_the_audited_engine_cell_records_generated_unstratified_folds() -> None:
         ({"n_folds": 1}, "Set n_folds to at least 2", ValueError),
         ({"stratify_folds": "treatment"}, "stratify_folds='none'", ValueError),
         ({"stratify_folds": "treatment+outcome"}, "stratify_folds='none'", ValueError),
-        ({"repeats": 2}, "repeats=1", CapabilityError),
         ({"targeting_scheme": "fold"}, "targeting_scheme='pooled'", CapabilityError),
         ({"cv_evaluation": True}, "cv_evaluation=False", CapabilityError),
-        (
-            {"split_plan": SplitPlan.from_folds([random_partition(law.N, 2, seed=0)])},
-            "package-generated folds",
-            CapabilityError,
-        ),
     ],
 )
 def test_cross_fitted_variants_outside_the_audited_cell_refuse_before_fitting(
@@ -135,6 +130,43 @@ def test_cross_fitted_variants_outside_the_audited_cell_refuse_before_fitting(
     with pytest.raises(raised, match=message):
         _fit(frame, fit_kwargs=fit_kwargs, **never_fit_learners(), **overrides)
     assert NeverFit.calls == 0
+
+
+@pytest.mark.parametrize("strata", [None, "S"], ids=("marginal", "baseline-strata"))
+@pytest.mark.parametrize(
+    ("overrides", "fragment", "roadmap"),
+    [
+        ({"repeats": 2}, "median over repeated splits", "X53"),
+        (
+            {"split_plan": SplitPlan.from_folds([random_partition(law.N, 2, seed=0)])},
+            "package-generated folds",
+            "X53",
+        ),
+    ],
+    ids=("repeats", "split-plan"),
+)
+def test_cross_fitted_variants_without_an_audit_are_experimental_conditions(
+    overrides: dict[str, Any], fragment: str, roadmap: str, strata: str | None
+) -> None:
+    """A repeat count or a supplied plan is a condition of the label, so the fit goes on."""
+    frame = law.frame()
+    fit_kwargs: dict[str, Any] = {}
+    if strata is not None:
+        frame = frame.assign(S=(np.arange(law.N) % 2).astype(float))
+        fit_kwargs = {"covariates": ("W", "S"), "strata": strata}
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        _fit(frame, fit_kwargs=fit_kwargs, **never_fit_learners(), **overrides)
+    assert NeverFit.calls > 0
+    data = CausalData.from_frame(
+        frame,
+        **{"outcome": "Y", "treatment": "A", "covariates": ("W",), "delta": "Delta", **fit_kwargs},
+    )
+    conditions = (
+        stacked_tmle(**never_fit_learners(), **overrides)
+        ._preflight_fit_configuration(data)
+        .conditions
+    )
+    assert any(fragment in c.condition and c.roadmap == roadmap for c in conditions)
 
 
 def test_one_fold_under_the_stacked_contract_is_refused_rather_than_fitted_in_sample() -> None:

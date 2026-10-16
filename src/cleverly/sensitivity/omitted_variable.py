@@ -92,8 +92,9 @@ from typing import TYPE_CHECKING, Any, ParamSpec
 import numpy as np
 from scipy import optimize
 
-from .._inference_status import InferenceStatus, supplies_inference
+from .._inference_status import InferenceStatus, is_labelled
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
+from .._support import record_refusal_site
 from .._typing import FloatArray
 from ..assessment import SENSITIVITY_ROUTES
 from ..estimators.ctmle import CTMLEDerivativeFit, CTMLESelection, declares_no_selection
@@ -1167,6 +1168,9 @@ class SensitivityBounds:
         reason = self._limit_reason()
         if reason is not None:
             if self.nu2_estimator in _ESTIMATOR_LIMIT_REFUSALS:
+                record_refusal_site(
+                    "omitted_variable.limit_estimator", RefusalReason.INFERENCE_GAP, "F26"
+                )
                 raise CapabilityError(
                     f"{operation} is not defined under {reason}",
                     reason=RefusalReason.INFERENCE_GAP,
@@ -1176,6 +1180,7 @@ class SensitivityBounds:
                     ),
                     roadmap="F26",
                 )
+            record_refusal_site("omitted_variable.limit_reason", RefusalReason.INFERENCE_GAP, None)
             raise CapabilityError(
                 f"{operation} is not defined under {reason}",
                 reason=RefusalReason.INFERENCE_GAP,
@@ -1248,7 +1253,7 @@ class SensitivityBounds:
         """
         status = self.inference
         row: dict[str, Any] = {"estimand": self.estimand}
-        if not supplies_inference(status):
+        if is_labelled(status):
             row["inference"] = status
         if not self._limits_derived:
             row["nu2_estimator"] = self.nu2_estimator
@@ -2087,7 +2092,7 @@ def robustness_value(
         result, elements, estimate.psi, rho, level, null_hypothesis, estimate.reference_df
     )
     status = estimate.inference
-    values: dict[str, Any] = {} if supplies_inference(status) else {"inference": status}
+    values: dict[str, Any] = {"inference": status} if is_labelled(status) else {}
     if elements.psi_max_bias is None:
         values |= {
             "nu2_estimator": elements.nu2_estimator,
