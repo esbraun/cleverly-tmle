@@ -46,6 +46,13 @@ tilt factor and the mechanism term are computed in Kennedy's form with
 it had before the factor form existed.  The general form runs at a node with three or more
 levels.
 
+**A repeated outcome.**  The recursion of horizon :math:`h` is the end-of-study recursion of the
+panel truncated after node :math:`h`.  The seed :math:`Z_{h+1}` is :math:`Y_h` on the rows
+uncensored through :math:`h`.  Each earlier :math:`Y_s` enters only through the history
+:math:`H_{s+1}`, as a covariate of the regressions and of both mechanisms.  Theorem 3.1 of Kim
+et al. (2021) at :math:`t = h` is then the functional of cell :math:`h`.  Only the seed reads the
+repeated outcome array.
+
 **The estimate** is :math:`\hat\psi = \sum_i w_i \varphi_i / \sum_i w_i`, and the curve is
 :math:`w_i (\varphi_i - \hat\psi)`.  Nothing is fluctuated.
 

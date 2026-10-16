@@ -225,6 +225,7 @@ def test_an_allowlist_that_accepts_every_kind_lets_a_foreign_kind_through(
 
 
 def test_the_refusal_names_the_kinds_of_the_allowlist(monkeypatch: Any) -> None:
+    monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle"}))
     refusal = sequential.repeated_outcome_refusal("SDR")
     assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
     assert refusal.message() == (
