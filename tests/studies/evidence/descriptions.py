@@ -585,6 +585,10 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-oat-per-arm-parametric": (
         "`cleverly` per-arm outcome-adaptive C-TMLE with a parametric outcome and mechanism"
     ),
+    "cleverly-ctmle-oat-per-arm-parametric-crossfit": (
+        "`cleverly` cross-fitted per-arm outcome-adaptive C-TMLE with a parametric outcome and "
+        "mechanism"
+    ),
     "drtmle-r-oat-per-arm": "R `drtmle` with `adapt_g`, by a binary recode per arm",
     "drtmle-r-oat-per-arm-strata-missing": (
         "R `drtmle` with `adapt_g`, by a binary recode per arm, with `DeltaY`, `DeltaA` and"
@@ -2729,6 +2733,57 @@ CELLS[
     "the ATE standard errors are built from the two arm variances without the cross-arm "
     "covariance, on a law whose arm estimates correlate",
     "the SE-ratio interval must fall above the calibration band",
+)
+
+#: The ``ctmle-oat-per-arm-parametric-crossfit`` cells (X58b1).  Each calibration label names a
+#: cross-fitted fit of the exact V-fold stack at five folds; a cell reads one estimand of it.
+_CROSSFIT_FITS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "crossfit_1500": (
+        "the cross-fitted stacked curve at n = 1,500, five folds",
+        ("ey0", "ey1", "ate", "log_rr", "log_or"),
+    ),
+    "crossfit_500": (
+        "the cross-fitted stacked curve at n = 500, five folds",
+        ("ey0", "ey1", "ate"),
+    ),
+    "crossfit_8000": (
+        "the cross-fitted stacked curve at n = 8,000, five folds",
+        ("ey0", "ey1", "ate"),
+    ),
+    "crossfit_pseudo_true": (
+        "the cross-fitted stacked curve with W1 dropped from the outcome features, so the "
+        "interval covers the limit psi*",
+        ("ey0", "ey1", "ate"),
+    ),
+    "repeats": (
+        "the median over three cross-fitting draws, with the split-adjusted variance of the "
+        "stacked curve",
+        ("ey0", "ey1", "ate"),
+    ),
+}
+for _label, (_fit, _estimands) in _CROSSFIT_FITS.items():
+    for _estimand in _estimands:
+        CELLS[("interval_calibration", f"{_label}__{_estimand}__corrected")] = (
+            f"{_fit}: {_PARAMETRIC_ESTIMANDS[_estimand]}",
+            *_PARAMETRIC_CALIBRATION,
+        )
+    CELLS[("interval_calibration", f"{_label}__ate__shrunken_se_control")] = (
+        "the ATE standard errors are multiplied by a declared factor below one",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+    CELLS[("interval_calibration", f"{_label}__ate__noise_control")] = (
+        "a declared scale of independent noise is added to each ATE estimate",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+CELLS[("interval_calibration", "crossfit_1500__ate__shipped_curve__shrunken_se_control")] = (
+    "the ATE standard errors come from the shipped adaptive-propensity curve of the same "
+    "cross-fitted fits, which omits the generated-design term",
+    "the SE-ratio interval must fall below the calibration band",
+)
+CELLS[("interval_calibration", "repeats__ate__shipped_curve__shrunken_se_control")] = (
+    "the ATE standard errors are the median over the three draws of the shipped "
+    "adaptive-propensity standard error, with the split-adjusted variance",
+    "the SE-ratio interval must fall below the calibration band",
 )
 
 
