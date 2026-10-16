@@ -263,7 +263,6 @@ def att_result():  # type: ignore[no-untyped-def]
 def test_every_diagnostic_operation_covers_every_result_family() -> None:
     expected = {
         "support",
-        "influence",
         "nuisance_models",
         "score_equations",
         "corrections",

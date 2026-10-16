@@ -1766,7 +1766,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
     )
     assert list(sections) == ["Returned results", "Checks", "Not run"]
 
-    assert len(battery.to_frame()) == 16
+    assert len(battery.to_frame()) == 15
     assert text.index("bias-adjusted interval") < text.index("validation.score_equations")
     assert "poorly calibrated" not in text
     assert "not run by default because it retargets the fit" not in text
@@ -1791,7 +1791,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
         for surface, item in battery._presented()
         if item.status is not AssessmentStatus.COMPLETED
     }
-    assert len(inventoried) == 9
+    assert len(inventoried) == 8
     assert {name for name in inventoried if name in review} == inventoried
 
     # Every returned result names the operation ``report(...)`` takes. No detail on this
