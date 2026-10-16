@@ -1,7 +1,7 @@
 """Seed sweep of the in-sample and cross-fitted fits that docs/examples/cross-fitting.ipynb shows.
 
 Each seed ``s`` draws ``navigation_data(n=3000, seed=s)`` and runs the notebook's Step 5 fit
-(cross-fitted) and its Step 6 fit (in-sample), its Step 11 assessment, and its Step 13
+(cross-fitted) and its Step 6 fit (in-sample), its Step 9 assessment, and its Step 10
 sensitivity calls, with every ``random_state`` set to ``s``.  The code of each fit is the
 notebook's, with ``34`` replaced by ``s``.
 
@@ -89,7 +89,7 @@ def one_seed(seed: int) -> dict:
             f"{label}_miss_in_se": abs(ate - point.psi) / point.std_error,
         }
 
-    # Step 11.
+    # Step 9.
     cross_fitted = fits["cf"]
     assessment = cross_fitted.assess()
     row["attention"] = "|".join(item.name for item in assessment.attention)
@@ -105,7 +105,7 @@ def one_seed(seed: int) -> dict:
     in_ess = fits["is"].diagnostics.support().effective_sample_size
     row["is_ess_min"] = min(arm["ratio"] for arm in in_ess.values())
 
-    # Step 13.
+    # Step 10.
     sensitivity = cross_fitted.sensitivity
     robustness = sensitivity.robustness_value()
     row["rv"] = robustness["rv"]

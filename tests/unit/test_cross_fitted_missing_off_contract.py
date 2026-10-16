@@ -4,13 +4,15 @@ Two stacked CV-TMLE contracts cover missing outcomes (``delta=``) under cross-fi
 natural-course mean and the arm-indexed means and contrasts. A shift, incremental, regime, or MSM
 axis, or a declared intermediate, puts a fit outside both. Such a fit used to run and report an
 interval that no audit read a source for. A ``Static`` regime or a saturated MSM also reproduced the
-arm-indexed fit, and so escaped that contract's refusals of ``repeats``, fold targeting,
-``cv_evaluation``, the linear fluctuation, and ``id=``. X53 in ``docs/roadmap.md`` holds the missing
-results.
+arm-indexed fit, and so escaped that contract's conditions on ``repeats``, ``cv_evaluation``,
+the linear fluctuation, and ``id=``, and its refusal of fold targeting. X53 in
+``docs/roadmap.md`` holds the missing results. The off-contract refusal stays a refusal, because
+the interval it would return is misleading. The arm-indexed settings that became experimental
+conditions are not refusals here.
 
 Every refusal here must run before any learner, which :class:`NeverFit` enforces. The
 controls show what the refusal leaves alone: the in-sample fit of each target, the
-arm-indexed contract, and the natural-course contract's own refusals of PAR and PAF. A
+arm-indexed contract, and the natural-course contract's own handling of PAR and PAF. A
 deliberate-mutation control removes the refusal and requires the witness to fail.
 """
 
@@ -25,6 +27,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LogisticRegression
 
+from cleverly.data import CausalData
 from cleverly.datasets import cde_dgp, make_missing_outcome_binary
 from cleverly.estimators import TMLE
 from cleverly.estimators.tmle import (
@@ -228,12 +231,18 @@ class TestTheNeighbouringRefusalsKeepTheirOwnSentences:
     """The refusal covers what is left, and each narrower surface keeps its own sentence."""
 
     def test_a_cross_fitted_ate_reaches_the_arm_indexed_contract(self) -> None:
+        """The contract reads ``repeats``: it labels the fit and does not refuse it.
+
+        The preflight fits no learner, so the condition appears with zero learner calls.
+        """
         estimator = ARM_INDEXED.estimator(True, never_fit_learners(), estimands=["ate"], repeats=2)
-        with pytest.raises(CapabilityError) as raised:
-            ARM_INDEXED.fit(estimator)
-        message = str(raised.value)
-        assert message.startswith(_ARM_INDEXED_CONTRACT), message
-        assert "Set repeats=1" in message
+        data = CausalData.from_frame(
+            ARM_INDEXED.frame(), outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta"
+        )
+        (condition,) = estimator._preflight_fit_configuration(data).conditions
+        assert condition.condition.startswith(_ARM_INDEXED_CONTRACT), condition.condition
+        assert "Set repeats=1" in condition.alternative
+        assert condition.roadmap == "X53"
         assert NeverFit.calls == 0
 
     def test_the_admitted_cross_fitted_ate_still_fits(self) -> None:

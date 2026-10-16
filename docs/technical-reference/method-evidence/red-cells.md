@@ -20,7 +20,7 @@ The ledger reads each verdict column as a boolean. It refuses a table whose verd
 a blank or any other value, because a blank would otherwise read as a pass. The paired
 `reference_valid` column repeats the comparator's truth row, so the truth kind covers it.
 
-The ledger reads verdict rows and accounting rows only. Five study modules also define a `scientific_failures` hook.
+The ledger reads verdict rows and accounting rows only. Six study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
@@ -31,6 +31,7 @@ fits and publish no verdict cell, so the ledger does not read them.
 | [ordinary missing-outcome natural-course TMLE](ordinary-missing-outcome-natural-course-tmle.md) | `gated` | the exact-equality probe of the scale workaround | `scale-probe.csv`. The test requires every row to pass |
 | [missing-outcome attributable-effect TMLE](missing-outcome-attributable-effects-tmle.md) | `gated` | the exact-equality probe of the scale workaround on both R paths | `scale-probe.csv`. The test requires every row to pass |
 | [stacked arm-indexed missing-outcome CV-TMLE](stacked-arm-indexed-missing-outcome-cvtmle.md) | `gated` | the same probe | `scale-probe.csv`. The test requires every row to pass |
+| [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | `reporting` | the replay gates that failed: R's selection replayed in `cleverly` on the same rows | the study page and `replay-summary.csv`. The test fails on a red gate until the roadmap's owner table lists `X16-sequence-reading` |
 
 `tests/unit/test_red_cell_ledger.py` fails when a study module defines a hook that this table
 does not list.
@@ -80,7 +81,7 @@ The test fails on four states.
 <!-- generated: red-cell-summary -->
 | owner | red rows | studies |
 | --- | --- | --- |
-| [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) | 9 | selector-based point-treatment C-TMLE, selector-based multi-arm C-TMLE |
+| [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) | 12 | selector-based point-treatment C-TMLE, selector-based multi-arm C-TMLE, C-TMLE candidate sequences |
 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) | 90 | outcome-adaptive multi-arm C-TMLE, outcome-adaptive per-arm C-TMLE, outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates) |
 | [`F27`](../../roadmap.md#f27-learned-policy-value-outside-the-published-conditions) | 2 | CV-TMLE of the fold-local learned-rule value at exceptional and weak-blip laws |
 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) | 2 | cross-fitted weighted end-of-study longitudinal TMLE |
@@ -97,14 +98,16 @@ The test fails on four states.
 | [`X8-identity-small-stratum`](../../roadmap.md#red-cell-owners) | 2 | identity-link MSM with baseline strata |
 | [`X8-drtmle-one-sided-bias`](../../roadmap.md#red-cell-owners) | 4 | DR-TMLE with baseline strata |
 | [`X8-drtmle-small-stratum`](../../roadmap.md#red-cell-owners) | 3 | DR-TMLE with baseline strata |
+| [`X16-plugin-variance`](../../roadmap.md#red-cell-owners) | 1 | C-TMLE candidate sequences |
 | [`F1-power-design`](../../roadmap.md#red-cell-owners) | 1 | ordinary known stochastic categorical longitudinal TMLE |
 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) | 1 | longitudinal modified treatment policies |
 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) | 1 | ordinary point modified treatment policies |
+| [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) | 1 | longitudinal incremental propensity-score interventions under dropout |
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 168 | 30 studies |
+| total | 173 | 32 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -151,6 +154,10 @@ same text as the "measured" column of its study page.
 | [selector-based multi-arm C-TMLE](selector-based-multi-arm-c-tmle.md) | property | `selector_necessity/greedy` | positive | its own rule | bias 0.0279 to 0.0443, margin 0.0158, RMSE ratio 0.4415 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based multi-arm C-TMLE](selector-based-multi-arm-c-tmle.md) | property | `selector_necessity/ordered` | positive | its own rule | bias 0.0154 to 0.0304, margin 0.0145, RMSE ratio 0.3781 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [selector-based multi-arm C-TMLE](selector-based-multi-arm-c-tmle.md) | property | `type_i_error/sharp_null` | positive | its own rule | rejection 0.0625, 0.0354 to 0.1004 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
+| [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | truth | `cleverly-ctmle-sequences/binary_lasso/ate` | cleverly-ctmle-sequences | its truth gate | bias -0.0032 to 0.0034, coverage 0.9237, SE ratio 0.9051 | [`X16-plugin-variance`](../../roadmap.md#red-cell-owners) |
+| [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | property | `selector_necessity/empty_control` | control | the family's joint clause | bias 0.0494 to 0.0511, margin 0.0023 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
+| [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | property | `selector_necessity/lasso_collaborative` | positive | the family's joint clause | bias -0.0025 to -0.000412, margin 0.0028, RMSE ratio 0.2205, 99% upper 0.2333 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
+| [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | property | `selector_necessity/learners_collaborative` | positive | its own rule | bias 0.0029 to 0.0051, margin 0.0031, RMSE ratio 0.2542, 99% upper 0.2721 | [`F18`](../../roadmap.md#f18-selector-path-c-tmle-inference) |
 | [outcome-adaptive multi-arm C-TMLE](outcome-adaptive-multi-arm-c-tmle.md) | property | `generated_design/estimated` | positive | its own rule | coverage 0.9267 to 0.9677, SE ratio 0.9694 to 1.1026 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive multi-arm C-TMLE](outcome-adaptive-multi-arm-c-tmle.md) | property | `generated_design/oracle_design` | positive | its own rule | coverage 0.9282 to 0.9688, SE ratio 0.9797 to 1.1151 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [DR-TMLE for binary complete data](canonical-dr-tmle.md) | property | `double_robust_contraction/treatment_correct_n1500` | positive | its own rule | coverage 0.8864 to 0.9385, bias 0.0115 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
@@ -178,6 +185,7 @@ same text as the "measured" column of its study page.
 | [longitudinal modified treatment policies](longitudinal-modified-treatment-policies.md) | property | `interval_calibration/categorical_mtp__correctly_specified` | positive | its own rule | coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to 1.1006 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) |
 | [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `sequential_double_robustness/both_correct__n_2000` | positive | its own rule | bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459 | [`X4-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `simultaneous_coverage/six_regimens__simultaneous_band` | positive | its own rule | joint coverage 0.9085 to 0.9394 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [longitudinal incremental propensity-score interventions under dropout](longitudinal-incremental-interventions-dropout.md) | property | `interval_calibration/competing_contrast_x2_h3__correctly_specified` | positive | its own rule | coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, empirical efficiency ratio 0.9239 to 0.9884, reported efficiency ratio 1.0005 to 1.0007 | [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[always]` | paired | underpowered: coverage leg, calibration leg, calibration resolution | difference -0.000150 to 0.000202 within 0.0031, RMSE ratio bound 1.0162 vs 1.1000, coverage difference bound -0.0475 vs -0.0250, calibration excess bound 0.1050 vs 0.0500, resolution 0.1121 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[never]` | paired | underpowered: coverage leg, calibration resolution | difference -0.000350 to 0.000263 within 0.0047, RMSE ratio bound 1.0245 vs 1.1000, coverage difference bound -0.0300 vs -0.0250, calibration excess bound 0.0465 vs 0.0500, resolution 0.0662 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[treat then continue if l2 positive]` | paired | underpowered: coverage leg, calibration resolution | difference -0.000118 to 0.000400 within 0.0032, RMSE ratio bound 1.0175 vs 1.1000, coverage difference bound -0.0425 vs -0.0250, calibration excess bound 0.0382 vs 0.0500, resolution 0.1119 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
@@ -296,8 +304,13 @@ row. A move to `gated` is a separate registry decision.
 | --- | --- | --- |
 | [cross-fitted clustered longitudinal TMLE on a t reference at few clusters](few-cluster-cross-fitted-longitudinal-tmle.md) | 13 | 0 |
 | [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 31 | 0 |
+| [C-TMLE0 derivative covariate](ctmle-derivative.md) | 24 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
+| [vector modified treatment policies](vector-modified-treatment-policies.md) | 56 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
+| [point-treatment survival, per-horizon hazard targeting](point-survival-hazard.md) | 39 | 0 |
+| [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 46 | 0 |
+| [cross-fitted point-treatment survival, hazard targeting](point-survival-curve-crossfit.md) | 24 | 0 |
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
 | [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |

@@ -2,36 +2,98 @@
 #
 # `npcausal::ipsi` draws its sample splits inside its body (R/ipsi.R line 114) and takes no
 # fold argument.  A paired study needs the exact realized Python assignment, so
-# `ipsi_with_folds` builds a copy of the pinned function whose one change is that statement:
-# `s <- sample(...)` becomes `s <- folds`.  Every other statement of the body is the pinned
-# one, which the adapter checks before a study starts.  Estimation stays in the pinned code.
-# Precedent: `lmtp_crossfit_adapter.R` replaces only `task$folds`.
+# `ipsi_with_folds` builds a copy of the pinned function whose first change is that statement:
+# `s <- sample(...)` becomes `s <- folds`.  Precedent: `lmtp_crossfit_adapter.R` replaces only
+# `task$folds`.
+#
+# The second change is memory only.  The pinned multiplier bootstrap (R/ipsi.R lines 228-231)
+# holds all 10,000 sign vectors as one n x 10,000 matrix: 7.7 GB at n = 96,000, about 19 GB
+# at its peak, which a 16 GB Docker VM kills.  The copy draws each column when it reads it.
+# `rbinom(n * nbs)` and `nbs` successive `rbinom(n)` calls consume one RNG stream in the same
+# order, and each column enters the same expression, so `maxvals` and `calpha` are identical.
+# `bootstrap_stream_check()` asserts that identity before a study starts.  Every other
+# statement of the body is the pinned one, which the adapter checks.  Estimation stays in the
+# pinned code.
 #
 # The adapter also holds the saturated learner both sides fit (`SL.cellmeans`), the long design
 # `ipsi` reads, and the inverse of the recycling defect of `return_ifvals = TRUE`.  Every check
 # here stays outside a `study_stage`, so a failed check is fatal rather than one group's
 # failure (RM39a2).
 
-# The statement the copy replaces, as the pinned source writes it.  Compared as a language
-# object, so the check does not depend on how a given R version deparses it.
+# The statements the copy replaces, as the pinned source writes them, and their replacements.
+# Compared as language objects, so the check does not depend on how a given R version deparses
+# them.
 IPSI_FOLD_DRAW <- quote(s <- sample(rep(seq_len(nsplits), ceiling(n / nsplits))[seq_len(n)]))
+IPSI_BOOTSTRAP_MATRIX <- quote(
+  mult <- matrix(2 * rbinom(n * nbs, 1, 0.5) - 1, nrow = n, ncol = nbs)
+)
+IPSI_BOOTSTRAP_MAX <- quote(
+  maxvals <- sapply(seq_len(nbs), function(col) {
+    max(abs(apply(mult[, col] * ifvals2, 2, sum) / sqrt(n)))
+  })
+)
+IPSI_REPLACEMENTS <- list(
+  list(pinned = IPSI_FOLD_DRAW, copy = quote(s <- folds)),
+  list(pinned = IPSI_BOOTSTRAP_MATRIX, copy = quote(mult <- NULL)),
+  list(
+    pinned = IPSI_BOOTSTRAP_MAX,
+    copy = quote(
+      maxvals <- sapply(seq_len(nbs), function(col) {
+        column <- 2 * rbinom(n, 1, 0.5) - 1
+        max(abs(apply(column * ifvals2, 2, sum) / sqrt(n)))
+      })
+    )
+  )
+)
+
+# The identity the streamed bootstrap rests on, on a small seeded problem: the pinned matrix
+# form and the streamed form give identical maxima.
+bootstrap_stream_check <- function(n = 997L, nbs = 50L, k = 3L, seed = 20261241L) {
+  set.seed(seed)
+  ifvals2 <- matrix(stats::rnorm(n * k), nrow = n)
+  set.seed(seed + 1L)
+  mult <- matrix(2 * rbinom(n * nbs, 1, 0.5) - 1, nrow = n, ncol = nbs)
+  pinned <- sapply(seq_len(nbs), function(col) {
+    max(abs(apply(mult[, col] * ifvals2, 2, sum) / sqrt(n)))
+  })
+  set.seed(seed + 1L)
+  streamed <- sapply(seq_len(nbs), function(col) {
+    column <- 2 * rbinom(n, 1, 0.5) - 1
+    max(abs(apply(column * ifvals2, 2, sum) / sqrt(n)))
+  })
+  if (!identical(pinned, streamed)) {
+    stop("the streamed multiplier bootstrap does not reproduce the pinned one on this R")
+  }
+  invisible(TRUE)
+}
 
 ipsi_with_folds <- function(original = npcausal::ipsi, namespace = asNamespace("npcausal")) {
+  bootstrap_stream_check()
   pinned <- body(original)
   statements <- as.list(pinned)
-  hits <- which(vapply(statements, function(statement) identical(statement, IPSI_FOLD_DRAW), logical(1)))
-  if (length(hits) != 1L) {
-    stop(sprintf("npcausal::ipsi holds the pinned fold draw %d times, not once", length(hits)))
-  }
   replaced <- statements
-  replaced[[hits]] <- quote(s <- folds)
+  positions <- integer(length(IPSI_REPLACEMENTS))
+  for (index in seq_along(IPSI_REPLACEMENTS)) {
+    target <- IPSI_REPLACEMENTS[[index]]$pinned
+    hits <- which(vapply(statements, function(statement) identical(statement, target), logical(1)))
+    if (length(hits) != 1L) {
+      stop(sprintf(
+        "npcausal::ipsi holds the pinned statement `%s` %d times, not once",
+        deparse(target)[1L], length(hits)
+      ))
+    }
+    positions[index] <- hits
+    replaced[[hits]] <- IPSI_REPLACEMENTS[[index]]$copy
+  }
   copy <- original
   formals(copy) <- c(formals(original), alist(folds = ))
   body(copy) <- as.call(replaced)
   environment(copy) <- namespace
-  # The whole body, with the one statement restored, is the pinned body.
+  # The whole body, with the pinned statements restored, is the pinned body.
   restored <- as.list(body(copy))
-  restored[[hits]] <- IPSI_FOLD_DRAW
+  for (index in seq_along(IPSI_REPLACEMENTS)) {
+    restored[[positions[index]]] <- IPSI_REPLACEMENTS[[index]]$pinned
+  }
   if (!identical(deparse(as.call(restored)), deparse(pinned))) {
     stop("the fold-injected copy of npcausal::ipsi differs from the pinned body elsewhere")
   }

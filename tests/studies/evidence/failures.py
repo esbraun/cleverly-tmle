@@ -1101,7 +1101,8 @@ def paired_accounting(
 ) -> pd.DataFrame:
     """The accounting rows of every paired cell where either side lost a replicate."""
     lost = expand(failures, record)
-    if lost.empty or record.reference is None:
+    # A descriptive paired row states no verdict, so a lost replicate has none to correct.
+    if lost.empty or record.reference is None or record.paired_role == "descriptive":
         return pd.DataFrame(columns=list(ACCOUNTING_COLUMNS))
     subject, reference = record.implementation, str(record.reference)
     own = _own(failures, record)

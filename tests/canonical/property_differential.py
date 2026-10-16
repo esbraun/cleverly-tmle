@@ -3,9 +3,9 @@
 Each declared rule restates a verdict that a study's own ``summarize_properties`` computes.
 The differential perturbs every committed study's property rows, summarizes them with the
 study's own code, and requires the declared rules to give the same ``passed`` and
-``property_passed`` on every verdict row.  Some modules have no committed rows, so they run on
-synthetic rows built from their declared cells.  ``longitudinal_sdr_properties`` runs on both
-its committed rows and synthetic rows: its committed rows make no perturbation decide the
+``property_passed`` on every verdict row.  ``sdr_repeated_properties`` has no committed rows, so
+it runs on synthetic rows built from its declared cells.  ``longitudinal_sdr_properties`` runs on
+both its committed rows and synthetic rows: its committed rows make no perturbation decide the
 ``P_D`` two-size clause alone, and its synthetic rows do.
 
 | subject | rows |
@@ -73,13 +73,11 @@ from tests.studies.evidence.registry import StudyRecord, registered
 #: ``CONTROL_BOOTSTRAP`` of 2,000.
 DIFFERENTIAL_BOOTSTRAP = 200
 
-#: The property modules that run on :func:`synthetic_rows`: each module with no committed rows,
-#: and ``longitudinal_sdr_properties``, whose committed rows leave the clause
-#: ``P_D large-size bias bound under the small`` without a binding witness.
+#: The property modules that run on :func:`synthetic_rows`: ``longitudinal_sdr_properties``,
+#: whose committed rows leave the clause ``P_D large-size bias bound under the small`` without a
+#: binding witness, and ``sdr_repeated_properties``, which has no committed rows.
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
-    "tests.studies.longitudinal_incremental_properties",
-    "tests.studies.longitudinal_incremental_dropout_properties",
     "tests.studies.sdr_repeated_properties",
 )
 

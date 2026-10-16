@@ -13,7 +13,7 @@ import sklearn.linear_model
 from sklearn.dummy import DummyClassifier
 
 from cleverly import SuperLearner
-from cleverly.exceptions import DataError, DataWarning, WeightingWarning
+from cleverly.exceptions import DataError, DataWarning, RefusalReason, WeightingWarning
 from cleverly.learners.crossfit import Folds
 from cleverly.longitudinal import (
     DynamicRegimen,
@@ -770,8 +770,10 @@ class TestTheContainerRefusesByName:
             build(panel(n=9))
 
     def test_refuses_an_empty_baseline(self) -> None:
-        with pytest.raises(DataError, match="baseline= is empty"):
+        with pytest.raises(DataError, match="baseline= is empty") as caught:
             build(panel(), baseline=[])
+        assert caught.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+        assert caught.value.refusal.roadmap == "X63"
 
     def test_refuses_a_time_varying_block_per_node_mismatch(self) -> None:
         with pytest.raises(DataError, match="one \\(possibly empty\\) list per time point"):

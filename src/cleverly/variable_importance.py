@@ -15,12 +15,12 @@ from typing import Any
 
 import numpy as np
 
-from ._inference_status import supplies_inference
+from ._inference_status import is_labelled, supplies_inference
 from .data.causal_data import CausalData
 from .estimators.base import TMLEResult
 from .estimators.tmle import TMLE
-from .exceptions import DataError, refuse_inference
-from .inference.influence import ParameterEstimate
+from .exceptions import CapabilityError, DataError, RefusalReason, refuse_inference
+from .inference.influence import ParameterEstimate, support_column
 from .inference.results import reported_status
 from .targets import parameter_stem
 from .utils.frames import as_frame, backend_of, emit_frame, has_nulls, is_dataframe
@@ -89,7 +89,8 @@ class VariableImportanceResult:
         """One row per candidate/parameter, in the order of the entries.
 
         A run sorts its entries by adjusted p-value. An ordinary result emits ``std_err``,
-        ``ci_lower``, ``ci_upper``, ``p_value`` and ``p_value_adjusted``. A result whose
+        ``ci_lower``, ``ci_upper``, ``p_value`` and ``p_value_adjusted``. A result at a
+        labelled status adds an ``inference`` column that names the status. A result whose
         entries supply no inference emits an ``inference`` column and the three spread
         columns under their
         diagnostic names, as ``TMLEResult.to_frame`` does. It emits neither p-value column.
@@ -116,8 +117,11 @@ class VariableImportanceResult:
             "parameter": [entry.parameter for entry in self.entries],
             "psi": [entry.estimate.psi for entry in self.entries],
         }
-        if not inferential:
+        if is_labelled(status):
             payload["inference"] = [status] * len(self.entries)
+        labels = support_column({str(i): entry.estimate for i, entry in enumerate(self.entries)})
+        if labels is not None:
+            payload["support"] = labels
         names = list(spreads[0]) if spreads else []
         payload.update({name: [spread[name] for spread in spreads] for name in names})
         if inferential:
@@ -169,13 +173,15 @@ def variable_importance(
 
     Refuses, before the first fit, when the estimator's inference status on any
     candidate's prepared data supplies no inference. A
-    :class:`~cleverly.estimators.CTMLE` whose ``strategy`` is ``"greedy"``, ``"ordered"``
-    or ``"discrete"`` is one such case, and the
+    :class:`~cleverly.estimators.CTMLE` whose ``strategy`` is ``"greedy"``, ``"ordered"``,
+    ``"discrete"``, ``"lasso"`` or ``"learners"`` is one such case, and the
     :doc:`inference reference </technical-reference/inference>` lists each status. The
     adjustment above needs one p-value per candidate, and such a fit supplies none, so
-    this procedure has no diagnostic form to fall back to. Before that check, an estimator
-    with a rule, a regime density or an MSM function that is not declared known meets the
-    refusal that its own fit gives.
+    this procedure has no diagnostic form to fall back to. A ``"derivative"`` fit
+    (C-TMLE0) supplies inference and is admitted, unless it declares propensity arrays,
+    which describe one treatment only. Before that check, an estimator with a rule, a
+    regime density or an MSM function that is not declared known meets the refusal that its
+    own fit gives.
 
     Parameters
     ----------
@@ -228,6 +234,15 @@ def variable_importance(
     # ``fit``, so a copied or modified estimator meets the refusal that names its remedy.
     template._refuse_fold_policy()
     template._refuse_undeclared_functions()
+    if getattr(template, "_has_derivative_arrays", lambda: False)():
+        # Each candidate becomes the treatment, and a declared propensity array describes
+        # the treatment it was fitted for.
+        raise CapabilityError(
+            "The refit changes the data (the covariates, the treatment or the rows), and a "
+            "propensity array entry was fitted without that change.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Pass learners to refit.",
+        )
     # Every candidate's data is prepared, and its status asked, before the first fit.
     # This procedure ends in a Benjamini--Hochberg adjustment of one p-value per
     # candidate, so an estimator that supplies no p-value leaves it with nothing to

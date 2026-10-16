@@ -147,7 +147,9 @@ def joint_coverage_rows(
     Parameters
     ----------
     result : object
-        A fit result with ``simultaneous`` and one estimate per name.
+        A fit result with ``simultaneous`` and one estimate per name. The row reads
+        ``plugin_std_error`` and ``plugin_interval``, which give the numbers ``std_error`` and
+        ``ci`` give on an inferential estimate and the retained diagnostic on any other.
     truth : mapping of str to float
         The true value of every name, on its natural scale.
     names : sequence of str
@@ -181,10 +183,13 @@ def joint_coverage_rows(
     deviations = []
     for name in names:
         target, point = inference_scale(result[name], truth[name])
-        deviations.append(abs(point - target) / float(result[name].std_error))
+        deviations.append(abs(point - target) / float(result[name].plugin_std_error))
     statistic = float(max(deviations))
     band = all(bands.bands[name][0] <= truth[name] <= bands.bands[name][1] for name in names)
-    pointwise = all(result[name].ci[0] <= truth[name] <= result[name].ci[1] for name in names)
+    pointwise = all(
+        result[name].plugin_interval[0] <= truth[name] <= result[name].plugin_interval[1]
+        for name in names
+    )
     band_cell, control_cell = joint_cells(label)
     return [
         _row(

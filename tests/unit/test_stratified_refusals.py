@@ -15,7 +15,7 @@ a working model singular inside a stratum              ``test_stratified_msm_exa
 the stratum alias in a sensitivity analysis            ``test_stratified_targets.py``
 =====================================================  =======================================
 
-The two below are the missing-outcome contracts' own strata refusals.  The in-sample
+The two below are the missing-outcome contracts' own strata rules: a label and a fit.  The in-sample
 natural-course mean fits strata.
 """
 
@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cleverly import CapabilityError
+from cleverly.data import CausalData
 from cleverly.estimators import TMLE
 from tests import discrete_law_mar as law
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
@@ -47,14 +47,26 @@ def _fit(**settings: object) -> None:
     )
 
 
-def test_the_cross_fitted_arm_indexed_contract_refuses_strata() -> None:
-    with pytest.raises(CapabilityError) as caught:
-        _fit(cross_fit=True, estimands=("ate",))
-    assert str(caught.value).endswith(
-        "No audited result covers baseline strata. X53 in docs/roadmap.md tracks this. "
-        "Drop strata= from fit (PointTreatment(strata=()))."
+def test_the_cross_fitted_arm_indexed_contract_labels_strata() -> None:
+    """Strata are an experimental condition, so the fit reaches the first learner (X53)."""
+    data = CausalData.from_frame(
+        _frame(), outcome="Y", treatment="A", covariates=("W", "S"), delta="Delta", strata="S"
+    )
+    estimator = TMLE(cross_fit=True, estimands=("ate",), **never_fit_learners(), random_state=0)
+    conditions = estimator._preflight_fit_configuration(data).conditions
+    assert [c.roadmap for c in conditions] == ["X53"]
+    assert (
+        conditions[0]
+        .message()
+        .endswith(
+            "No audited result covers baseline strata. X53 in docs/roadmap.md tracks this. "
+            "Drop strata= from fit (PointTreatment(strata=()))."
+        )
     )
     assert NeverFit.calls == 0
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
+        _fit(cross_fit=True, estimands=("ate",))
+    assert NeverFit.calls > 0
 
 
 def test_the_cross_fitted_natural_course_fits_strata() -> None:

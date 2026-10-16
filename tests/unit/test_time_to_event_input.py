@@ -362,7 +362,7 @@ def test_a_continuous_dose_on_the_long_path_equals_the_wide_held_fit() -> None:
     long: Any = LTMLE(regimens, n_folds=1, **learners).fit(data)
     columns = {**LAW.fit_columns(), "treatment": "D", "continuous_treatment": ["D"]}
     wide: Any = LTMLE(regimens, n_folds=1, **learners).fit(LAW.frame().assign(D=dose), **columns)
-    assert sorted(long.mechanism.densities) == [1]
+    assert sorted(long.mechanism.densities) == [(1, "D")]
     for name in wide.estimates:
         _same(long[name].psi, wide[name].psi)
 

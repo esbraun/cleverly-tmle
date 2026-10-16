@@ -170,16 +170,20 @@ original fold-evaluated estimator applies to equal-size folds. For fixed $V$ and
 estimates, the weighting difference is $O(1/n)$. It is first-order negligible, but it is not zero.
 
 The original pooled, fold-evaluated construction has published support. It remains a separate
-estimator because its fold plug-in and variance law differ. Bounded-continuous stacked outcomes also
-remain refused until their scale transform has an exact contract. The
+estimator because its fold plug-in and variance law differ. The fold-evaluated arm-indexed fit and
+the stacked natural-course fit of a continuous outcome run under the
+[experimental label](scope-and-refusals.md#experimental-compositions), because no study covers
+their scale transform or their fold law. The
 [X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e) tracks both follow-ups.
 
-The package refuses fold-specific targeting and repeated-split reporting on the stacked fits.
+The package refuses fold-specific targeting on the stacked fits. It reports the median over
+repeated splits under the experimental label.
+
 Montoya, van der Laan, Skeem and Petersen (2023), Section 3.2, Step 2(c), fit the fold-specific
 update on the validation rows. Zheng and van der Laan (2011), Working Paper 273, choose one pooled
 fluctuation instead. The median over splits keeps the asymptotic expansion of each draw. The
-package implements neither composition.
-[X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) parts (a) and (b) track them.
+package does not implement the fold-specific update with missing outcomes.
+[X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) parts (a) and (b) track both.
 
 The registered
 [stacked missing-outcome natural-course CV-TMLE study](method-evidence/stacked-missing-outcome-natural-course-cvtmle.md)
@@ -315,7 +319,7 @@ wrong in the same direction.
 | `q_bounds` itself | the caller's known support, declared in advance. The package checks only that the interval holds the observed outcomes. No package or study code derives it from a realized sample | `cleverly.utils.bounds` |
 | supplied outer plans | accepted only with a package generator record. The fit draws each repeat again and compares the labels | `SplitPlan.verify` |
 | one fold with cross-fitting | refused at construction, and again at fit time | `_cross_fit_policy_refusal` |
-| clusters | a grouped whole-cluster draw for point-treatment TMLE, DR-TMLE and longitudinal TMLE. `LTMLE.fit` checks the drawn split before any learner. C-TMLE refuses `id=` | `random_partition(cluster=...)`, `check_integrity` in `LTMLE.fit`, `CTMLE._resolve_estimands_for_data` |
+| clusters | a grouped whole-cluster draw for point-treatment TMLE, DR-TMLE and longitudinal TMLE. `LTMLE.fit` checks the drawn split before any learner. C-TMLE refuses `id=`, except `strategy="derivative"` | `random_partition(cluster=...)`, `check_integrity` in `LTMLE.fit`, `CTMLE._resolve_estimands_for_data` |
 | arm and class support | checked on the realized draw, before the first learner | `TMLE._preflight_training_support`, `CTMLE._preflight_selection_folds`, `preflight_mechanism_support` |
 
 Stratification used to buy arm support, and `resolve_n_folds` capped the fold count to keep it. A
@@ -486,8 +490,8 @@ The [validation grid](method-evidence/validation-grid.md) carries their verdicts
 
 Every point-treatment result exposes its realized outer assignments as `result.split_plan`. Pass
 them to `CrossFitting(split_plan=...)` to reuse them instead of generating new ones. A fit accepts
-a plan only when the plan records the draw that made it. This section states the reuse contract. The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split)
-and the [tutorial](../examples/cross-fitting.ipynb#step-9-reuse-the-same-outer-split) link here rather than
+a plan only when the plan records the draw that made it. This section states the reuse contract.
+The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split) links here rather than
 restating it.
 
 A `SplitPlan` stores one tuple of row-level fold labels per repeat. Its `n`, `n_folds`, and

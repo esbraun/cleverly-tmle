@@ -77,7 +77,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .._inference_status import InferenceStatus, status_record, supplies_inference
+from .._inference_status import InferenceStatus, is_labelled, status_record
 from ..inference.influence import spread_name
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
@@ -454,7 +454,7 @@ class ScoreCheck:
                             "With one wrong nuisance the interval holds only in the cases "
                             "cleverly.estimators.drtmle lists.",
                         ]
-                        if supplies_inference(self.inference)
+                        if not is_labelled(self.inference)
                         else [
                             f"The reported curve is {self._curve()}. This check verifies its "
                             "score equations, not an interval for this fit."
@@ -464,7 +464,7 @@ class ScoreCheck:
             )
         else:
             verdict = "PASS: the targeting step solved the estimated efficient score equation."
-        if self.passed and not supplies_inference(self.inference):
+        if self.passed and is_labelled(self.inference):
             verdict += "\n" + status_record(self.inference).reason
         return "\n".join(
             [

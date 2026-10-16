@@ -33,7 +33,7 @@ from tests.studies.evidence import (
     property_verdicts,
     replication,
 )
-from tests.studies.evidence.claims import load, quantities, thresholds, value
+from tests.studies.evidence.claims import citation, load, quantities, thresholds, value
 from tests.studies.evidence.comparison import equivalence
 from tests.studies.evidence.document import (
     _CLOSE,
@@ -276,8 +276,13 @@ def property_bound_consistent(
 
 
 def _cheap(study: StudyRecord) -> StudyRecord:
+    """The record at the control budget, with its paired verdict computed.
+
+    A descriptive record publishes no ``passed`` column.  The mutation controls ask whether
+    the comparison *could* see a regression, so they read the gated form of its legs.
+    """
     margins = dataclasses.replace(study.margins, bootstrap_replicates=CONTROL_BOOTSTRAP)
-    return dataclasses.replace(study, margins=margins)
+    return dataclasses.replace(study, margins=margins, paired_role="gated")
 
 
 class TestArtifacts:
@@ -338,7 +343,7 @@ class TestArtifacts:
             "performance-tests.csv",
             "property-replicates.csv.gz",
             "properties.csv",
-        } | set(study.extra_artifacts) | {
+        } | set(study.extra_artifacts) | set(study.property_artifacts) | {
             # The failure files exist only when a fit failed, and then each is hashed.
             name
             for name in (
@@ -575,6 +580,11 @@ class TestPublishedVerdicts:
             int(lost.get((str(s), str(e)), 0))
             for s, e in published[["scenario", "estimand"]].itertuples(index=False)
         ] == published["dropped_replications"].astype(int).tolist()
+        if study.paired_role == "descriptive":
+            # The endpoints stay; the verdict does not.  No accounting row corrects it.
+            assert "passed" not in published.columns
+            assert set(published["comparison_conclusion"]) == {"descriptive"}
+            return
         gates = failures.cell_gates(_accounting(study), "equivalence")
         equivalent = published["paired_similarity"] & published["subject_not_inferior"]
         own = np.select(
@@ -871,16 +881,12 @@ class TestPublishedVerdicts:
         single = published.loc[published["property"] == "single_robustness"]
         positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
-            # A study with no rows of the family may publish no ``n`` column at all (the
-            # learned-rule boundary study publishes no property rows), but the two-size rule
-            # reads ``n``, so a study that does publish the family has to carry it.
-            assert "n" in positive, f"{study.slug}: single_robustness rows carry no n column"
-            positive = positive.sort_values("n")
-            small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
-            tolerance = study.properties().ABSOLUTE_BIAS_TOLERANCE
-            expected = bool(large < tolerance and large < small)
-            assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
-                f"{study.slug}: a single_robustness row's verdict is not the two-size rule"
+            own = [bool(value) for value in positive["bias_equivalent"]]
+            assert [bool(value) for value in positive["passed"]] == own, (
+                f"{study.slug}: a single_robustness row's verdict is not its own bias rule"
+            )
+            assert set(single["property_passed"].map(bool)) == {all(own)}, (
+                f"{study.slug}: the single_robustness family verdict is not the joint rule"
             )
 
         # Unconditional over every study with calibration cells.  Guarding this block on the
@@ -1285,6 +1291,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "density_necessity",
         "learner_weight_necessity",
         "missingness_necessity",
+        # X16's three-arm pair: the positive cell's bias inside the margin, the control's
+        # outside it.
+        "multi_arm",
         "selector_necessity",
         "competing_risk_recursion_necessity",
         "survival_recursion_necessity",
@@ -1295,6 +1304,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "weight_necessity",
         "policy_necessity",
         "inverse_necessity",
+        "preimage_necessity",
+        "image_necessity",
+        "jacobian_necessity",
         "projection_necessity",
         "randomizer_projection",
         "ratio_necessity",
@@ -1401,8 +1413,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "sdr_tmle_agreement",
         "variance_direction",
         "censoring_complete_case",
-        "in_sample_fit",
         "one_wrong_reported",
+        # The isotonic cell's binding share: the projection moved a level or it did not.
+        "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
     }
@@ -2073,8 +2086,13 @@ class TestTheMethodEvidenceGrid:
             )
             return
         found = COUNT.findall(cell)
-        assert len(found) == 1, f"{column!r} should carry exactly one count, found {found}"
         passed_name, total_name = COUNTED[column]
+        if column == "`cleverly` vs canonical" and study.paired_role == "descriptive":
+            # A descriptive comparison counts no passes, so its cell carries no count.
+            assert found == [], f"{column!r} is descriptive and carries no count, found {found}"
+            assert "descriptive" in cell, f"{column!r} must say the comparison is descriptive"
+            return
+        assert len(found) == 1, f"{column!r} should carry exactly one count, found {found}"
         data = load(study)
         passed, total = (int(part) for part in found[0])
         assert total == int(value(study, total_name, data)), (
@@ -2260,7 +2278,7 @@ class TestTheQuotedMeasurements:
         for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
             name = row["quantity"].strip("`")
             quoted.add(name)
-            written = render(value(study, name, data), study.quoted_decimals.get(name))
+            written = citation(study, name, data, render)
             if row["value"] != written:
                 wrong.append(f"{name}: quoted {row['value']}, generator writes {written}")
         assert wrong == [], (
@@ -2379,7 +2397,7 @@ def _agreement_result(row: Any) -> str:
     by construction.
     """
     conclusion = str(row.comparison_conclusion)
-    if bool(row.passed):
+    if conclusion == "descriptive" or bool(row.passed):
         return conclusion
     return f"*{conclusion}*" if conclusion == "underpowered" else f"**{conclusion}**"
 
@@ -2660,8 +2678,11 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:projection_displacement": lambda s: s.properties().PROJECTION_DISPLACEMENT,
     "margin:policy_displacement": lambda s: s.properties().POLICY_DISPLACEMENT,
     "margin:inverse_displacement": lambda s: s.properties().INVERSE_DISPLACEMENT,
+    "margin:preimage_displacement": lambda s: s.properties().PREIMAGE_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
-    "margin:subject_failure_bound": lambda s: s.runner().FAILURE_BOUND,
+    # The record's declaration, not a runner constant: a study may declare the bound inline in
+    # ``failure_bound`` without naming it in its runner module.
+    "margin:subject_failure_bound": lambda s: float(s.failure_bound[s.implementation]),
     "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
 }
 
@@ -3126,11 +3147,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES = (
-    "tests.studies.longitudinal_incremental_properties",
-    "tests.studies.longitudinal_incremental_dropout_properties",
-    "tests.studies.sdr_repeated_properties",
-)
+UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.sdr_repeated_properties",)
 
 
 def _property_modules() -> list[Any]:

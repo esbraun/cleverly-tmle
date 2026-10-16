@@ -54,7 +54,7 @@ from ._inference_status_support import (
     ROUTES,
     assert_keeps_inference,
     assert_round_trips,
-    assert_withholds,
+    assert_shows_interval,
     cluster_labels,
     longitudinal_learners,
 )
@@ -360,10 +360,10 @@ def _clustered(k: int | None, n_folds: int) -> Any:
 
 
 @pytest.mark.parametrize("n_folds", [1, 5])
-def test_nineteen_clusters_withhold_the_interval(n_folds: int) -> None:
+def test_nineteen_clusters_show_a_labelled_t_interval(n_folds: int) -> None:
     result = _clustered(19, n_folds)
     assert result.config.estimator == "sdr"
-    assert_withholds(result, "few_cluster_plugin")
+    assert_shows_interval(result, "few_cluster_plugin", 17)
 
 
 @pytest.mark.parametrize("n_folds", [1, 5])
@@ -474,8 +474,9 @@ def test_the_bootstrap_runs_and_reports_no_percentile_inference(panel: Any) -> N
     assert fits["SDR"].bootstrap.n_requested == 2
     for name, estimate in fits["SDR"].estimates.items():
         assert estimate.bootstrap is not None
-        assert estimate.bootstrap.inferential is False
-        assert fits["LTMLE"].estimates[name].bootstrap.inferential is True
+        assert estimate.bootstrap.diagnostic is False
+        assert estimate.bootstrap.support.label == "experimental"
+        assert fits["LTMLE"].estimates[name].bootstrap.diagnostic is False
 
 
 def test_the_simultaneous_bands_cover_every_estimate(panel: Any) -> None:
