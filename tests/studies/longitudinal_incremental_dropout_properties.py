@@ -1,23 +1,23 @@
 r"""Property families of ``longitudinal-incremental-dropout`` (S2).
 
 Every fit is :class:`~cleverly.longitudinal.IPSI` with five folds and saturated cell means at
-every slot, at n = 8,000 with 1,000 replications, on a law of
-:mod:`tests.discrete_law_longitudinal_incremental`.  ``x2`` is the plan that doubles the odds
+every slot, with 3,000 replications, on a law of
+:mod:`tests.discrete_law_longitudinal_incremental`.  The size is n = 48,000, except 8,000 on
+law ``Ck`` and 96,000 on law ``Dc``.  ``x2`` is the plan that doubles the odds
 of treatment at every node, and ``contrast_x2`` is its contrast with the natural course.
 
 ============================  =================================================================
 family                        cells
 ============================  =================================================================
-``interval_calibration``      five labels (below), each with the two derived controls
+``interval_calibration``      seven labels (below), each with the two derived controls
 ``simultaneous_coverage``     the band over the risks of three plans at horizons 1 to 3 and
                               their six contrasts on law ``D``, and its pointwise control
-``clustered_inference``       ``ey_regimen[odds x2]`` on law ``Ck`` in 800 clusters of 10: the
-                              cluster-robust standard error, and the standard error that
-                              treats each unit as independent (control)
-``censoring_complete_case``   ``ey_regimen[odds x2]`` on law ``C`` fitted to the rows that never
-                              drop out, without a censoring model (reported, no verdict)
-``in_sample_fit``             ``dropout_contrast_x2`` and ``survival_contrast_x2_h3`` fitted with
-                              one fold on the same draws (reported, no verdict)
+``clustered_inference``       ``ey_regimen[odds x2]`` on law ``Ck`` in 800 clusters of 10,
+                              3,000 replications: the cluster-robust standard error, and the
+                              standard error that treats each unit as independent (control)
+``censoring_complete_case``   ``ey_regimen[odds x2]`` on its own draws of law ``C``, fitted to
+                              the rows that never drop out, without a censoring model
+                              (reported, no verdict)
 ============================  =================================================================
 
 The calibration labels:
@@ -28,8 +28,11 @@ label                           law and estimand
 ``dropout_contrast_x2``         ``C``, ``contrast_x2`` at the end of study
 ``survival_contrast_x2_h3``     ``D``, ``contrast_x2`` of the risk by horizon 3, read off
                                 the band fit
+``dropout_contrast_x2_in_sample``  ``C``, ``contrast_x2``, one fold (Kennedy Algorithm 2)
+``survival_contrast_x2_h3_in_sample``  ``D``, ``contrast_x2`` of the risk by horizon 3, one
+                                fold, on the band draws
 ``competing_contrast_x2_h3``    ``Dc``, ``contrast_x2`` of the cause-1 incidence by
-                                horizon 3
+                                horizon 3, at n = 96,000
 ``msm_log_delta``               ``C``, the slope of a working model linear in
                                 :math:`\log\delta` over the three plans (identity link)
 ``weighted_contrast_x0_5``      ``C`` with the informative weight :func:`weight`,
@@ -37,8 +40,8 @@ label                           law and estimand
                                 law's
 ==============================  ==========================================================
 
-``dropout_contrast_x2``, ``msm_log_delta``, ``weighted_contrast_x0_5`` and the complete-case
-fit read one draw of law ``C`` each replication.
+``dropout_contrast_x2``, its one-fold fit, ``msm_log_delta`` and ``weighted_contrast_x0_5``
+read one draw of law ``C`` each replication.
 
 **Rules.**  ``interval_calibration`` and ``simultaneous_coverage`` read the shared verdicts,
 with :data:`EFFICIENCY_RATIO_BAND` around the exact influence-function standard deviation.
@@ -46,8 +49,11 @@ with :data:`EFFICIENCY_RATIO_BAND` around the exact influence-function standard 
 the independent-unit arm's SE-ratio interval lies below 0.80, and the pair's coverage gain is
 at least 0.03.  The design test computes the independent-unit arm's exact SE ratio, 0.60.
 ``censoring_complete_case`` publishes its bias beside the exact complete-case limit of
-:func:`complete_case_limit` and states no verdict.  ``in_sample_fit`` publishes the one-fold
-bias, coverage and SE ratio and states no verdict (the primary module says why).
+:func:`complete_case_limit` and states no verdict.  The one-fold cells are gated like the
+cross-fitted ones.  Kennedy (2019), Algorithm 2 (Appendix 8.3), covers a one-fold fit when
+the nuisance class is Donsker, and saturated cell means on a finite history set are.  Kim et
+al. (2021), Theorem 5.1, states the dropout result with sample splitting; the same Donsker
+argument carries it to one fold.
 
 A replication that raises is not redrawn.  :func:`failure_probe` counts failed fits per fit
 set and records no estimate.  A raise in the declared run stops it; the failing cell then drops
@@ -102,13 +108,35 @@ from tests.studies.evidence.simultaneous import (
 )
 
 N_FOLDS = 5
-N = 8_000
-REPLICATES = 1_000
+#: The law ``C`` cells.  At n = 16,000 on 600 probe draws, ``weighted_contrast_x0_5`` reads an
+#: SE ratio of 0.974 and a standardized bias of 0.15, and passes the calibration rule with
+#: probability 0.79.  At 32,000 S2's calibration cells pass together with probability 0.91,
+#: and at 48,000 with 0.93 (``tests/unit/test_longitudinal_incremental_design.py``).
+N = 48_000
+#: A calibration cell whose SE ratio and coverage equal their targets passes with probability
+#: 0.935 at 2,000 replications and 0.996 at 3,000.  Eight cells read the rule, so 3,000.
+REPLICATES = 3_000
+#: The cluster-robust arm reads the calibration rule, which cannot pass at 1,000 replications
+#: (the 99% intervals are wider than the bands).  ``tests/diagnostics/x19_sizing`` reads the
+#: pair at this size.
+CLUSTER_N = 8_000
+CLUSTER_REPLICATES = 3_000
+#: The competing-risk cell needs a larger size.  At n = 8,000 a training fold can hold one
+#: or two treated units of a rare history, and the saturated censoring fit then reaches its
+#: lower bound.  That tail is gone at 32,000, where the SE ratio reads 0.948, and at 64,000 it
+#: reads 0.980: a deficit that falls as 1/n.  Projected to 96,000, the cell passes with
+#: probability 0.97 and S2's calibration cells pass jointly with at least 0.90
+#: (``tests/diagnostics/x19_sizing``, ``tests/unit/test_longitudinal_incremental_design.py``).
+COMPETING_N = 96_000
+#: The band draws of law ``D``.  They also carry the two survival calibration labels, which
+#: read an SE ratio of 0.98 at n = 16,000.  At 3,000 replications each passes the calibration
+#: rule with probability 0.94 at 16,000 and 0.99 here
+#: (``tests/unit/test_longitudinal_incremental_design.py``).
+BAND_N = 48_000
 CLUSTER_SIZE = 10
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
-IN_SAMPLE = "in_sample_fit"
 
 X2 = "odds x2"
 X0_5 = "odds x0.5"
@@ -133,7 +161,7 @@ def weight(values: Mapping[str, float]) -> float:
 
     Both are observed on every row.  The weight moves the first-node mechanism (the M18
     witness) and the outcome distribution, so the weighted truth differs from the unweighted
-    one by 3.9 standard errors at n = 8,000 (design test).
+    one by 9.5 standard errors at n = 48,000 (design test).
     """
     return 1.0 + values["A1"] + 0.5 * values["W"]
 
@@ -176,6 +204,8 @@ MSM_LOG_DELTA = MSM(
 CALIBRATION_LABELS = (
     "dropout_contrast_x2",
     "survival_contrast_x2_h3",
+    "dropout_contrast_x2_in_sample",
+    "survival_contrast_x2_h3_in_sample",
     "competing_contrast_x2_h3",
     "msm_log_delta",
     "weighted_contrast_x0_5",
@@ -184,6 +214,8 @@ CALIBRATION_LABELS = (
 CALIBRATION = {
     "dropout_contrast_x2": ("law_c", CONTRAST_X2),
     "survival_contrast_x2_h3": (BAND_LABEL, SURVIVAL_X2),
+    "dropout_contrast_x2_in_sample": ("law_c", CONTRAST_X2),
+    "survival_contrast_x2_h3_in_sample": (BAND_LABEL, SURVIVAL_X2),
     "competing_contrast_x2_h3": ("law_dc", COMPETING_X2),
     "msm_log_delta": ("law_c", SLOPE),
     "weighted_contrast_x0_5": ("law_c", CONTRAST_X0_5),
@@ -204,6 +236,9 @@ EFFICIENCY_SD = {
     "msm_log_delta": common.combined_sd(law.LAW_C, PLANS, SLOPE_WEIGHTS),
     "weighted_contrast_x0_5": common.eif_sd(law.LAW_C, PLANS, CONTRAST_X0_5, weights=WEIGHTS),
 }
+for _label in ("dropout_contrast_x2", "survival_contrast_x2_h3"):
+    TRUTH[f"{_label}_in_sample"] = TRUTH[_label]
+    EFFICIENCY_SD[f"{_label}_in_sample"] = EFFICIENCY_SD[_label]
 BAND_TRUTH = common.truths(law.LAW_D, PLANS, BAND_NAMES)
 CLUSTER_TRUTH = common.truth(law.LAW_CK.marginal, PLANS, MEAN_X2)
 COMPLETE_CASE_TRUTH = common.truth(law.LAW_C, PLANS, MEAN_X2)
@@ -237,6 +272,12 @@ def iid_standard_error(estimate: Any) -> float:
 # ---------------------------------------------------------------------------- the grid
 
 
+def _size(label: str) -> int:
+    """The declared size of a calibration label: :data:`N` unless its stream declares one."""
+    stream = CALIBRATION[label][0]
+    return {"law_dc": COMPETING_N, BAND_LABEL: BAND_N}.get(stream, N)
+
+
 @dataclass(frozen=True)
 class DeclaredLaw:
     """The law a declared cell reads, by its draw stream, with its exact truths.
@@ -262,8 +303,9 @@ class DeclaredLaw:
 #: Every fit set: ``(family, draw stream, n, replicates)``.
 FIT_SETS: tuple[tuple[str, str, int, int], ...] = (
     ("interval_calibration", "law_c", N, REPLICATES),
-    ("interval_calibration", "law_dc", N, REPLICATES),
-    ("clustered_inference", "law_ck", N, REPLICATES),
+    ("interval_calibration", "law_dc", COMPETING_N, REPLICATES),
+    ("clustered_inference", "law_ck", CLUSTER_N, CLUSTER_REPLICATES),
+    ("censoring_complete_case", "law_c", N, REPLICATES),
 )
 
 
@@ -279,7 +321,17 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     """
     cells: list[PropertyCell] = []
 
-    def add(family: str, cell: str, role: str, stream: str, estimand: str, seed: int) -> None:
+    def add(
+        family: str,
+        cell: str,
+        role: str,
+        stream: str,
+        estimand: str,
+        seed: int,
+        *,
+        n: int = N,
+        replicates: int = REPLICATES,
+    ) -> None:
         cells.append(
             PropertyCell(
                 property=family,
@@ -287,8 +339,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                 dgp=DeclaredLaw(stream),
                 outcome_learner=lambda: None,
                 treatment_learner=lambda: None,
-                n=N,
-                replicates=REPLICATES,
+                n=n,
+                replicates=replicates,
                 seed=seed,
                 role=role,
                 estimand=estimand,
@@ -305,7 +357,18 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             stream,
             estimand,
             _seed(family, stream, 0),
+            n=_size(label),
         )
+        for control in ("shrunken_se_control", "noise_control"):
+            add(
+                "interval_calibration",
+                f"{label}__{control}",
+                "control",
+                stream,
+                estimand,
+                _seed(family, stream, 0),
+                n=_size(label),
+            )
     for cell, role in (
         ("mean_x2__cluster_robust", "positive"),
         ("mean_x2__iid_control", "control"),
@@ -317,6 +380,8 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             "law_ck",
             MEAN_X2,
             _seed("clustered_inference", "law_ck", 0),
+            n=CLUSTER_N,
+            replicates=CLUSTER_REPLICATES,
         )
     add(
         "censoring_complete_case",
@@ -324,23 +389,11 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         DIAGNOSTIC_ROLE,
         "law_c",
         MEAN_X2,
-        _seed("interval_calibration", "law_c", 0),
+        _seed("censoring_complete_case", "law_c", 0),
     )
-    for label, stream, family in (
-        ("dropout_contrast_x2", "law_c", "interval_calibration"),
-        ("survival_contrast_x2_h3", BAND_LABEL, JOINT),
-    ):
-        add(
-            IN_SAMPLE,
-            f"{label}__one_fold",
-            DIAGNOSTIC_ROLE,
-            stream,
-            CALIBRATION[label][1],
-            _seed(family, stream, 0),
-        )
     cells.extend(
         joint_property_cells(
-            BAND_LABEL, n=N, replicates=REPLICATES, seed=_seed(JOINT, BAND_LABEL, 0)
+            BAND_LABEL, n=BAND_N, replicates=REPLICATES, seed=_seed(JOINT, BAND_LABEL, 0)
         )
     )
     return tuple(cells)
@@ -411,10 +464,20 @@ def _fit_set_drawn(
                 **common_row,
             ),
         ]
+    if family == "censoring_complete_case":
+        complete = _fit(complete_cases(frame), law.LAW_A)
+        return [
+            row(
+                "mean_x2__complete_case",
+                DIAGNOSTIC_ROLE,
+                COMPLETE_CASE_TRUTH,
+                complete[MEAN_X2],
+                family,
+            )
+        ]
     main = _fit(frame, law.LAW_C)
     slope = _fit(frame, law.LAW_C, reference=None, msm=MSM_LOG_DELTA)
     weighted = _fit(frame.assign(weight=weight(frame)), law.LAW_C, weights="weight")
-    complete = _fit(complete_cases(frame), law.LAW_A)
     one_fold = _fit(frame, law.LAW_C, n_folds=1)
     return [
         row(
@@ -439,24 +502,17 @@ def _fit_set_drawn(
             family,
         ),
         row(
-            "mean_x2__complete_case",
-            DIAGNOSTIC_ROLE,
-            COMPLETE_CASE_TRUTH,
-            complete[MEAN_X2],
-            "censoring_complete_case",
-        ),
-        row(
-            "dropout_contrast_x2__one_fold",
-            DIAGNOSTIC_ROLE,
-            TRUTH["dropout_contrast_x2"],
+            "dropout_contrast_x2_in_sample__correctly_specified",
+            "positive",
+            TRUTH["dropout_contrast_x2_in_sample"],
             one_fold[CONTRAST_X2],
-            IN_SAMPLE,
+            family,
         ),
     ]
 
 
 def _draw_band(payload: tuple[int, int]) -> pd.DataFrame:
-    return law.sample(law.LAW_D, N, _seed(JOINT, BAND_LABEL, payload[0]))
+    return law.sample(law.LAW_D, BAND_N, _seed(JOINT, BAND_LABEL, payload[0]))
 
 
 def _band_rows(payload: tuple[int, int]) -> list[dict[str, Any]]:
@@ -476,7 +532,7 @@ def _band_drawn(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str,
             BAND_NAMES,
             label=BAND_LABEL,
             replicate=replicate,
-            n=N,
+            n=BAND_N,
             requested=requested,
             pointwise_critical=CRITICAL,
         ),
@@ -488,18 +544,18 @@ def _band_drawn(payload: tuple[int, int], frame: pd.DataFrame) -> list[dict[str,
             estimate=result[SURVIVAL_X2],
             alpha=STUDY.margins.alpha,
             replicate=replicate,
-            n=N,
+            n=BAND_N,
             requested=requested,
         ),
         replicate_row(
-            property_name=IN_SAMPLE,
-            cell=f"{label}__one_fold",
-            role=DIAGNOSTIC_ROLE,
-            truth=TRUTH[label],
+            property_name="interval_calibration",
+            cell=f"{label}_in_sample__correctly_specified",
+            role="positive",
+            truth=TRUTH[f"{label}_in_sample"],
             estimate=one_fold[SURVIVAL_X2],
             alpha=STUDY.margins.alpha,
             replicate=replicate,
-            n=N,
+            n=BAND_N,
             requested=requested,
         ),
     ]
@@ -538,29 +594,32 @@ def _cells_of(key: _Key) -> list[str]:
     kind, payload = key
     calibration = "interval_calibration"
     if kind == "band":
-        name = f"{calibration}/survival_contrast_x2_h3__correctly_specified"
+        names = [
+            f"{calibration}/{label}__correctly_specified"
+            for label in ("survival_contrast_x2_h3", "survival_contrast_x2_h3_in_sample")
+        ]
         return [
             *(f"{JOINT}/{joint}" for joint in joint_cells(BAND_LABEL)),
-            name,
-            *DERIVED_CELLS[name],
-            f"{IN_SAMPLE}/survival_contrast_x2_h3__one_fold",
+            *names,
+            *(control for name in names for control in DERIVED_CELLS[name]),
         ]
     family, stream = payload[:2]
+    if family == "censoring_complete_case":
+        return [f"{family}/mean_x2__complete_case"]
     if stream == "law_ck":
         return [f"{family}/mean_x2__cluster_robust", f"{family}/mean_x2__iid_control"]
     labels = (
         ["competing_contrast_x2_h3"]
         if stream == "law_dc"
-        else ["dropout_contrast_x2", "msm_log_delta", "weighted_contrast_x0_5"]
+        else [
+            "dropout_contrast_x2",
+            "msm_log_delta",
+            "weighted_contrast_x0_5",
+            "dropout_contrast_x2_in_sample",
+        ]
     )
     names = [f"{calibration}/{label}__correctly_specified" for label in labels]
-    names += [control for name in names for control in DERIVED_CELLS[name]]
-    if stream == "law_c":
-        names += [
-            "censoring_complete_case/mean_x2__complete_case",
-            f"{IN_SAMPLE}/dropout_contrast_x2__one_fold",
-        ]
-    return names
+    return [*names, *(control for name in names for control in DERIVED_CELLS[name])]
 
 
 def _cell_of(key: _Key) -> str:
@@ -604,14 +663,18 @@ def generate_property_rows(*, n_jobs: int = STUDY_JOBS, budget: int | None = Non
     rows = pd.concat(
         [
             rows,
-            calibration_controls(
-                rows,
-                STUDY,
-                labels=CALIBRATION_LABELS,
-                efficiency_bounds=EFFICIENCY_SD,
-                calibration_n=N,
-                shrunken_se_factor=SHRUNKEN_SE_FACTOR,
-                critical=CRITICAL,
+            # One call per size: the noise control adds the efficient spread at its cell's n.
+            *(
+                calibration_controls(
+                    rows,
+                    STUDY,
+                    labels=[label for label in CALIBRATION_LABELS if _size(label) == size],
+                    efficiency_bounds=EFFICIENCY_SD,
+                    calibration_n=size,
+                    shrunken_se_factor=SHRUNKEN_SE_FACTOR,
+                    critical=CRITICAL,
+                )
+                for size in sorted({_size(label) for label in CALIBRATION_LABELS})
             ),
         ],
         ignore_index=True,
@@ -659,9 +722,8 @@ def reported_families(summary: pd.DataFrame) -> None:
     """The two reported families state no verdict; the complete case publishes its limit."""
     complete = summary["property"] == "censoring_complete_case"
     summary.loc[complete, LIMIT_COLUMN] = COMPLETE_CASE_LIMIT
-    reported = complete | (summary["property"] == IN_SAMPLE)
-    summary.loc[reported, "passed"] = True
-    summary.loc[reported, "property_passed"] = True
+    summary.loc[complete, "passed"] = True
+    summary.loc[complete, "property_passed"] = True
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:

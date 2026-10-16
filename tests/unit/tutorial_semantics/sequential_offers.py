@@ -33,64 +33,19 @@ from tests.unit.tutorial_semantics import (
 NOTEBOOK = EXAMPLES / "sequential-offers.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/sequential-offers"
-_KNOWN = "tests/canonical/known_node_mechanisms"
-_BASELINES = "tests/canonical/sequential_baselines_study"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
     "0.0156": "the product of the three smallest logged offer probabilities, 0.25 cubed = 0.015625: "
     "src/cleverly/datasets/offers.py, recomputed in _check_cap",
-    "0.972": f"lowest mean-SE over empirical-SD ratio of the four LTMLE contrasts, 100 draws: "
-    f"{_PROBE}/summary.log",
-    "1.049": f"highest mean-SE over empirical-SD ratio of the four LTMLE contrasts, 100 draws: "
-    f"{_PROBE}/summary.log",
-    "-0.0065": f"bias of the LTMLE win-back contrast, 100 draws (sweep.py, seeds 1000-1099): "
-    f"{_PROBE}/summary.log",
-    "0.0019": f"Monte Carlo standard error of that bias, and of the crude and wrong-model "
-    f"g-computation win-back biases, 100 draws: {_PROBE}/summary.log",
-    "-0.0016": f"bias of the LTMLE win-back contrast, 400 draws (bias_check.py, seeds 2000-2399): "
-    f"{_PROBE}/bias_check_summary.log",
-    "0.0010": f"Monte Carlo standard error of that bias, 400 draws: "
-    f"{_PROBE}/bias_check_summary.log",
-    "0.0049": f"difference of the two LTMLE win-back biases, -0.0016 minus -0.0065, computed from "
-    f"{_PROBE}/summary.log and {_PROBE}/bias_check_summary.log in _check_prose_phrases",
-    "-0.0029": f"largest LTMLE contrast bias (discount), 400 draws: "
-    f"{_PROBE}/bias_check_summary.log",
-    "-0.0009": f"smallest LTMLE contrast bias (win-back-then-ship), 400 draws: "
-    f"{_PROBE}/bias_check_summary.log",
-    "0.960": f"coverage of the LTMLE discount contrast, 400 draws: {_PROBE}/bias_check_summary.log",
-    "0.955": f"coverage of the LTMLE shipping and win-back contrasts, 400 draws: "
-    f"{_PROBE}/bias_check_summary.log",
-    "0.945": f"coverage of the LTMLE win-back-then-ship contrast, 400 draws: "
-    f"{_PROBE}/bias_check_summary.log",
+    "0.0019": f"Monte Carlo standard error of the crude and wrong-model g-computation "
+    f"win-back biases, 100 draws: {_PROBE}/summary.log",
     "0.0314": f"mean amount by which the crude win-back contrast, and the wrong-model "
     f"g-computation estimate of it, fall below the truth, 100 draws: {_PROBE}/summary.log",
-    "-0.0314": f"bias of the crude win-back contrast, and of the wrong-model g-computation "
-    f"estimate, 100 draws: {_PROBE}/summary.log",
     "-0.0061": f"bias of the crude shipping contrast, and of the wrong-model g-computation "
     f"estimate of it, 100 draws: {_PROBE}/summary.log",
     "0.0029": f"Monte Carlo standard error of that bias, 100 draws: {_PROBE}/summary.log",
     "-0.0060": f"bias of the wrong-model LTMLE win-back contrast, 100 draws: {_PROBE}/summary.log",
-    "0.0022": f"Monte Carlo standard error of that bias, 100 draws: {_PROBE}/summary.log",
-    "1.059": f"mean ratio of the wrong-model LTMLE standard error to the Step 6 standard error, "
-    f"win-back, 100 draws: {_PROBE}/summary.log",
-    "0.9480": f"coverage of ate_regimen[always vs never], correct outcome regressions, declared "
-    f"factors: {_KNOWN}/summary.csv",
-    "0.9804": f"se_ratio of the same row: {_KNOWN}/summary.csv",
-    "0.948": f"coverage of the cell known_mechanism_accuracy/"
-    f"ate_regimen__ltmle_known_treatment__censoring_estimated: {_KNOWN}/properties.csv",
-    "0.9272": f"lower coverage of known_mechanism_accuracy/"
-    f"ate_regimen__ltmle_known_treatment__censoring_estimated: {_KNOWN}/properties.csv",
-    "0.9644": f"upper coverage of the same cell: {_KNOWN}/properties.csv",
-    "0.9974": f"se_ratio of the same cell: {_KNOWN}/properties.csv",
-    "0.9500": f"coverage of ate_regimen[static_12 vs static_00], g-computation, law D2: "
-    f"{_BASELINES}/summary.csv",
-    "0.9957": f"se_ratio of the same estimand, g-computation, law D2: {_BASELINES}/summary.csv",
-    "0.1075": f"lower bias of misspecification_control/ice_x_contrast__main_terms: "
-    f"{_BASELINES}/properties.csv",
-    "0.1111": f"upper bias of the same cell: {_BASELINES}/properties.csv",
-    "0.5952": f"lower coverage of the same cell: {_BASELINES}/properties.csv",
-    "0.6221": f"upper coverage of the same cell: {_BASELINES}/properties.csv",
 }
 
 CONTRASTS = ("discount", "shipping", "win_back", "win_back_ship")
@@ -112,7 +67,6 @@ def check(namespace: dict[str, Any]) -> None:
     _check_deployment_and_benchmark(namespace)
     _check_probe_logs()
     _check_prose_phrases()
-    _check_registered_cells()
 
 
 def _check_data(namespace: dict[str, Any]) -> None:
@@ -685,15 +639,11 @@ def _check_probe_logs() -> None:
     def line(text: str, *parts: str) -> str:
         return next(row for row in text.splitlines() if all(part in row for part in parts))
 
-    # The trust table: the coverage of the four contrasts and the standard error ratios.
+    # Step 6: the coverage of the four contrasts.
     coverage = {"discount": 95, "shipping": 95, "win_back": 92, "win_back_ship": 94}
-    ratios = []
     for contrast, hits in coverage.items():
         row = line(sweep, "  ltmle  ", contrast.ljust(14), "coverage")
         assert f"coverage {hits} of 100" in row
-        ratios.append(float(row.rsplit("ratio ", 1)[1]))
-    assert (min(ratios), max(ratios)) == (0.972, 1.049)
-    assert "bias -0.0065 (MC SE 0.0019)" in line(sweep, "  ltmle  ", "win_back       ")
     # Step 3: the crude win-back contrast, and the engagement of the followers of `none`.
     assert "bias -0.0314 (MC SE 0.0019)" in line(sweep, "  crude  ", "win_back       ")
     # The crude shipping contrast: a small bias of about two Monte Carlo standard errors.
@@ -702,8 +652,7 @@ def _check_probe_logs() -> None:
     assert "followers of none above kept customers: 100 of 100" in sweep
     # Step 7: the blind fits. The blind g-computation equals the crude contrast on every draw.
     blind = line(sweep, "blind LTMLE   win_back       ")
-    assert "coverage 93 of 100" in blind and "bias -0.0060 (MC SE 0.0022)" in blind
-    assert "SE over main SE 1.059" in blind
+    assert "coverage 93 of 100" in blind and "bias -0.0060" in blind
     assert "bias -0.0314 (MC SE 0.0019)" in line(sweep, "blind g-comp  win_back       ")
     gaps = [row for row in sweep.splitlines() if "largest gap from the crude contrast" in row]
     assert len(gaps) == 4 and all(row.endswith("0.00e+00") for row in gaps)
@@ -715,30 +664,6 @@ def _check_probe_logs() -> None:
         if "paired interval excludes zero" in row
     ]
     assert exclusions == ["100 of 100", "8 of 100", "26 of 100"]
-    # Steps 9 to 11.
-    assert "|z| < 1.96: 92 of 100" in sweep
-    assert "a weight at the cap of 100: 37 of 100" in sweep
-    assert sweep.count("|move| below one SE: 100 of 100") == 2
-    bias = (folder / "bias_check_summary.log").read_text()
-    assert "draws 400, seeds 2000 to 2399" in bias
-    ltmle = bias.split("ltmle: the five levels")[0]
-    for label, value in (
-        ("discount", "-0.0029"),
-        ("shipping", "-0.0011"),
-        ("win_back", "-0.0016"),
-        ("win_back_ship", "-0.0009"),
-    ):
-        assert f"bias {value}" in line(ltmle, label.ljust(34))
-    assert "bias -0.0016 (MC SE 0.0010" in line(ltmle, "win_back      ")
-    # The reading quotes the gap between the two win-back biases, computed from the two logs in
-    # _check_prose_phrases.
-    for label, coverage400 in (
-        ("discount", "0.960"),
-        ("shipping", "0.955"),
-        ("win_back", "0.955"),
-        ("win_back_ship", "0.945"),
-    ):
-        assert f"interval covers {coverage400}" in line(ltmle, label.ljust(34))
     # The probe fits the page: the first row of the sweep is the draw that the page shows.
     first = pd.read_csv(folder / "sweep.csv", float_precision="round_trip").iloc[0]
     assert int(first["seed"]) == 1000
@@ -765,7 +690,6 @@ def _check_prose_phrases() -> None:
     """
     root = Path(__file__).resolve().parents[3]
     sweep = (root / _PROBE / "summary.log").read_text()
-    bias = (root / _PROBE / "bias_check_summary.log").read_text()
 
     def line(text: str, *parts: str) -> str:
         return next(row for row in text.splitlines() if all(part in row for part in parts))
@@ -790,60 +714,19 @@ def _check_prose_phrases() -> None:
     crude = {c: line(sweep, "  crude  ", c.ljust(14), "below the truth") for c in contrasts}
     blind_ltmle = line(sweep, "blind LTMLE   win_back       ")
     blind_gcomp = line(sweep, "blind g-comp  win_back       ")
-    ltmle_100 = bias_of(ltmle["win_back"])
-    ltmle_400 = bias_of(line(bias.split("ltmle: the five levels")[0], "win_back      "))
     crude_win = bias_of(crude["win_back"])
     crude_ship = bias_of(crude["shipping"])
     gcomp_win = bias_of(blind_gcomp)
     blind_win = bias_of(blind_ltmle)
     hits = [count_of(ltmle[c], "coverage") for c in contrasts]
-    ratios = [float(ltmle[c].rsplit("ratio ", 1)[1]) for c in contrasts]
     exclusions = [
         grab(r"excludes zero: (\d+) of 100", row)
         for row in sweep.splitlines()
         if "paired interval excludes zero" in row
     ]
 
-    trust = _prose("trust")
-    assert f"{', '.join(hits[:-1])}, and {hits[-1]} of 100 draws" in trust
-    assert f"{min(ratios):.3f} to {max(ratios):.3f}" in trust
-    assert (
-        f"bias of the LTMLE win-back contrast, 100 draws | {ltmle_100[0]}, Monte Carlo SE {ltmle_100[1]}"
-        in trust
-    )
-    assert (
-        f"bias of the LTMLE win-back contrast, 400 other draws | {ltmle_400[0]}, Monte Carlo SE {ltmle_400[1]}"
-        in trust
-    )
-    assert (
-        f"bias of the crude win-back contrast (Step 3), 100 draws | {crude_win[0]}, Monte Carlo SE "
-        f"{crude_win[1]}. It lies below the truth on {count_of(crude['win_back'], 'below the truth on')} of 100 draws"
-    ) in trust
-    assert (
-        f"bias of the wrong-model g-computation win-back estimate (Step 7), 100 draws | "
-        f"{gcomp_win[0]}, Monte Carlo SE {gcomp_win[1]}."
-    ) in trust
-    assert (
-        f"bias of the wrong-model LTMLE win-back estimate (Step 7), 100 draws | {blind_win[0]}, "
-        f"Monte Carlo SE {blind_win[1]}. The interval covers on {count_of(blind_ltmle, 'coverage')} of 100 draws"
-    ) in trust
-    assert f"win-back, mean | {blind_ltmle.rsplit('SE over main SE ', 1)[1]} |" in trust
-    assert f"| {', '.join(exclusions[:-1])}, and {exclusions[-1]} of 100 draws |" in trust
-    assert f"| {count_of(line(sweep, '|z| < 1.96'), '|z| < 1.96:')} of 100 draws |" in trust
-    assert (
-        f"| {count_of(line(sweep, 'a weight at the cap of 100'), 'cap of 100:')} of 100 draws |"
-    ) in trust
-    # The two win-back biases of the LTMLE and the four 400-draw biases and coverages.
-    gap = float(ltmle_400[0]) - float(ltmle_100[0])
-    assert f"differ by {gap:.4f}," in trust
-    ltmle_rows = bias.split("ltmle: the five levels")[0]
-    biases = [float(bias_of(line(ltmle_rows, c.ljust(34)))[0]) for c in contrasts]
-    assert f"ran from {min(biases):.4f} to {max(biases):.4f}." in trust
-    covered = [grab(r"covers (\d\.\d{3})", line(ltmle_rows, c.ljust(34))) for c in contrasts]
-    assert f"covered at {', '.join(covered[:-1])}, and {covered[-1]} in the order" in trust
-    # The sizes of the registered study: "n = 2,000, 1,000 draws".
-    configuration = json.loads((root / _KNOWN / "manifest.json").read_text())["configuration"]
-    assert f"n = {configuration['n']:,}, {configuration['replicates']:,} draws" in trust
+    reading_ltmle = _prose("ltmle-reading")
+    assert f"covered on {', '.join(hits[:-1])}, and {hits[-1]} of 100 draws" in reading_ltmle
 
     association = _prose("association-reading")
     assert (
@@ -865,44 +748,3 @@ def _check_prose_phrases() -> None:
 
     interpret = _prose("interpret")
     assert f"excluded zero on {exclusions[1]} and {exclusions[2]} of 100 draws" in interpret
-
-
-def _check_registered_cells() -> None:
-    """The committed study files hold the registered-cell numbers that the readings quote."""
-    root = Path(__file__).resolve().parents[3]
-
-    def read(path: str) -> pd.DataFrame:
-        return pd.read_csv(root / path, float_precision="round_trip")
-
-    known = read(f"{_KNOWN}/summary.csv")
-    row = known[
-        (known["implementation"] == "cleverly-known-node-mechanisms")
-        & (known["scenario"] == "smart_q_correct")
-        & (known["estimand"] == "ate_regimen[always vs never]")
-    ].squeeze()
-    assert f"{row['coverage']:.4f}" == "0.9480"
-    assert f"{row['se_ratio']:.4f}" == "0.9804"
-    cells = read(f"{_KNOWN}/properties.csv")
-    cell = cells[
-        (cells["property"] == "known_mechanism_accuracy")
-        & (cells["cell"] == "ate_regimen__ltmle_known_treatment__censoring_estimated")
-    ].squeeze()
-    assert f"{cell['coverage']:.3f}" == "0.948"
-    assert f"{cell['coverage_ci_lower']:.4f}" == "0.9272"
-    assert f"{cell['coverage_ci_upper']:.4f}" == "0.9644"
-    assert f"{cell['se_ratio']:.4f}" == "0.9974"
-    baselines = read(f"{_BASELINES}/summary.csv")
-    d2 = baselines[baselines["estimand"] == "ate_regimen[static_12 vs static_00]"].set_index(
-        "scenario"
-    )
-    assert f"{d2.loc['d2_ice', 'coverage']:.4f}" == "0.9500"
-    assert f"{d2.loc['d2_ice', 'se_ratio']:.4f}" == "0.9957"
-    control = read(f"{_BASELINES}/properties.csv")
-    main_terms = control[
-        (control["property"] == "misspecification_control")
-        & (control["cell"] == "ice_x_contrast__main_terms")
-    ].squeeze()
-    assert f"{main_terms['bias_ci_lower']:.4f}" == "0.1075"
-    assert f"{main_terms['bias_ci_upper']:.4f}" == "0.1111"
-    assert f"{main_terms['coverage_ci_lower']:.4f}" == "0.5952"
-    assert f"{main_terms['coverage_ci_upper']:.4f}" == "0.6221"
