@@ -1707,11 +1707,31 @@ def _truth_findings(study: StudyRecord, rows: pd.DataFrame) -> list[str]:
     if published != set(declared):
         return [f"{sorted(published ^ set(declared))} appear in one of the row file and the cells"]
     findings: list[str] = []
+    varying = frozenset(getattr(study.properties(), "REPLICATE_TRUTH_CELLS", ()))
     for key, cell in declared.items():
+        selected = rows.loc[(rows["property"] == key[0]) & (rows["cell"] == key[1])]
+        if key[1] in varying:
+            # The truth is a per-replication quantity: recompute it for the first, middle
+            # and last replication from the study's own hook, and compare row by row.
+            ids = sorted(selected["replicate"].unique())
+            for replicate in (ids[0], ids[len(ids) // 2], ids[-1]):
+                recomputed = float(study.properties().replicate_truth(key[1], int(replicate)))
+                published = selected.loc[selected["replicate"] == replicate, "truth"].to_numpy(
+                    dtype=float
+                )
+                if not np.allclose(
+                    published,
+                    recomputed,
+                    rtol=TRUTH_BINDING_TOLERANCE,
+                    atol=TRUTH_ABSOLUTE_FLOOR,
+                ):
+                    findings.append(
+                        f"{key[0]}/{key[1]} replicate {replicate} publishes truth "
+                        f"{published[0]!r}, and its sample's own truth is {recomputed!r}"
+                    )
+            continue
         expected = float(cell.dgp.truth()[cell.estimand])
-        observed = rows.loc[
-            (rows["property"] == key[0]) & (rows["cell"] == key[1]), "truth"
-        ].to_numpy(dtype=float)
+        observed = selected["truth"].to_numpy(dtype=float)
         if not np.allclose(
             observed, expected, rtol=TRUTH_BINDING_TOLERANCE, atol=TRUTH_ABSOLUTE_FLOOR
         ):

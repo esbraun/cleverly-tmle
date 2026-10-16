@@ -334,6 +334,44 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     return tuple(cells)
 
 
+#: The cells whose committed truth varies by replication: the positive and its two shared
+#: controls on a fold-average target, whose rows carry the mean of the fold maps' values.
+#: ``population_truth_control`` is scored on the constant :math:`\\Psi_0` and is not here.
+REPLICATE_TRUTH_CELLS = frozenset(
+    f"{label}__{cell}"
+    for label, (_, target, _, _) in CELLS.items()
+    if target == "fold_average"
+    for cell in ("correctly_specified", "shrunken_se_control", "noise_control")
+)
+
+
+def replicate_truth(cell: str, replicate: int) -> float:
+    """The exact truth one replication of a :data:`REPLICATE_TRUTH_CELLS` cell publishes.
+
+    Redraws the replication's sample from the cell's own stream and refits it, then reads
+    the truth through the code that writes the ``truth`` column of the rows.
+
+    Parameters
+    ----------
+    cell : str
+        A member of :data:`REPLICATE_TRUTH_CELLS`.
+    replicate : int
+        The replication index.
+    """
+    if cell not in REPLICATE_TRUTH_CELLS:
+        raise ValueError(f"{cell} has a truth that does not vary by replication")
+    label = cell.split("__", 1)[0]
+    kind, _, _, _ = CELLS[label]
+    frame = sample(CALIBRATION_N, _seed("interval_calibration", label, replicate))
+    return _replicate_truth(kind, "fold_average", calibration_fit(label, frame))
+
+
+def _replicate_truth(kind: str, target: str, result: Any) -> float:
+    """The truth a replication's positive row carries (the one definition both paths read)."""
+    population = study.population_truth(kind)
+    return population if target == "population" else study.fold_average_truth(result, kind)
+
+
 def _fit_rows(
     family: str, label: str, replicate: int, n: int, requested: int, frame: pd.DataFrame
 ) -> list[dict[str, Any]]:
@@ -342,7 +380,7 @@ def _fit_rows(
     result = calibration_fit(label, frame)
     estimate = result[estimand(target)]
     population = study.population_truth(kind)
-    truth = population if target == "population" else study.fold_average_truth(result, kind)
+    truth = _replicate_truth(kind, target, result)
     shared: dict[str, Any] = {"replicate": replicate, "n": n, "requested": requested}
     positive = replicate_row(
         property_name=family,

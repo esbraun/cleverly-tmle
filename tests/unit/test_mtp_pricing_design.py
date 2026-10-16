@@ -490,3 +490,24 @@ def test_the_registered_pairs_and_their_sizes() -> None:
     }
     assert sizes[("ratio_necessity", "up_tau5__learned_classifier")] == 4_000
     assert sizes[("ratio_necessity", "up_tau3__learned_classifier")] == 2_000
+
+
+def test_a_fold_average_truth_differs_from_the_population_truth() -> None:
+    """The witness that makes the per-replication truth check non-vacuous.
+
+    The fold-average target is the mean of the fold maps' values, so a replication's truth
+    is not Psi_0.  If the hook returned Psi_0 the check would pass while verifying nothing.
+    """
+    cells = tuning_properties.REPLICATE_TRUTH_CELLS
+    assert "fold_average_dose_quantile_tau2__correctly_specified" in cells
+    assert not any(cell.endswith("population_truth_control") for cell in cells)
+    assert not any(cell.startswith("population_") for cell in cells)
+    cell = "fold_average_dose_quantile_tau2__correctly_specified"
+    population = tuning.population_truth("dose_quantile")
+    first = tuning_properties.replicate_truth(cell, 0)
+    assert abs(first - population) > 1e-3
+    assert first == tuning_properties.replicate_truth(cell, 0)
+    with pytest.raises(ValueError, match="does not vary"):
+        tuning_properties.replicate_truth(
+            "fold_average_dose_quantile_tau2__population_truth_control", 0
+        )
