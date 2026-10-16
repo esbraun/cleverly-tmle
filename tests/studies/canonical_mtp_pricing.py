@@ -159,14 +159,8 @@ STUDY = StudyRecord(
     },
     margins=Margins(),
     implementation="cleverly-mtp-pricing",
-    pending_reference="lmtp",
+    reference="lmtp",
     comparison="matching implementation",
-    pending_reason=(
-        "the lmtp 1.5.4 runs have not run: they need R in the lmtp container, which this "
-        "container lacks. The X40 plan's step J owns them: the 3-replicate R smoke under "
-        "SMOKE_GATE, then the declared R run, in the beta plans' Study queue after S2's "
-        "Python phase"
-    ),
     modules=(
         "tests/studies/canonical_mtp_pricing.py",
         "tests/studies/mtp_pricing_properties.py",
