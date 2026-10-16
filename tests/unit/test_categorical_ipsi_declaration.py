@@ -168,11 +168,17 @@ class TestTheSupportLabel:
             assert estimate.support.label == "experimental"
             assert estimate.support.row is None
 
-    def test_no_registered_ipsi_row_covers_a_node_of_other_than_two_levels(self) -> None:
+    def test_only_the_categorical_incremental_rows_cover_a_node_of_other_than_two_levels(
+        self,
+    ) -> None:
+        """A three-level IPSI row exists only where the study ``categorical-incremental`` is."""
         rows = [row for row in registered_rows() if "ipsi" in row.key.engine]
-        assert rows, "the registry holds the binary IPSI rows"
-        for row in rows:
-            assert set(row.key.treatment) == {"2"}, row.id
+        assert any(set(row.key.treatment) == {"2"} for row in rows), "the binary IPSI rows"
+        wider = [row for row in rows if set(row.key.treatment) != {"2"}]
+        assert wider, "the categorical-incremental study registers three-level rows"
+        for row in wider:
+            assert row.id.startswith("G39."), row.id
+            assert set(row.key.treatment) == {"3"}, row.id
 
 
 # ------------------------------------------------------------------ C10
