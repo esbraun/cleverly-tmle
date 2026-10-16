@@ -16,7 +16,7 @@ import numpy as np
 
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
 from .._support import Classification, Kind, combine_support, support_for
-from .._typing import FloatArray
+from .._typing import FloatArray, IntArray
 from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapInterval, BootstrapResult, bca_acceleration
 from .cluster import influence_covariance, stacked_second_moment_covariance
@@ -410,6 +410,7 @@ def derived_bootstrap(
     *,
     alpha: float,
     derived: ParameterEstimate | None = None,
+    cluster: IntArray | None = None,
 ) -> BootstrapSummary | None:
     """The bootstrap summary of a derived estimate, from its inputs' replicate draws.
 
@@ -423,8 +424,9 @@ def derived_bootstrap(
     kind.
 
     The derived summary takes the interval of its inputs. A BCa interval reads its
-    acceleration from the derived estimate's own influence curve, the delta-method curve
-    of :func:`smooth_contrast`, and its bias correction from the derived point estimate.
+    acceleration from the derived estimate's influence curve on the scale of its draws
+    (the delta-method curve of :func:`smooth_contrast` with a ratio's log and a
+    ``transform=`` undone), and its bias correction from the derived point estimate.
 
     Parameters
     ----------
@@ -440,6 +442,9 @@ def derived_bootstrap(
         Significance level of the interval.
     derived : ParameterEstimate or None, default=None
         The derived estimate. Required when the inputs carry BCa summaries.
+    cluster : ndarray or None, default=None
+        ``(n,)`` cluster codes of the fit. A BCa acceleration sums the curve within clusters
+        when the bootstrap resampled clusters.
 
     Returns
     -------
@@ -479,7 +484,9 @@ def derived_bootstrap(
             alpha,
             interval="bca",
             estimate=derived.psi,
-            acceleration=bca_acceleration(derived.influence_curve),
+            acceleration=bca_acceleration(
+                _reported_curve(derived), cluster if bootstrap.resampling == "cluster" else None
+            ),
         )
     else:
         summary = replicates.summary("derived", alpha)
@@ -498,10 +505,18 @@ def with_derived_bootstrap(
     bootstrap: BootstrapResult | None,
     names: Sequence[str],
     function: Callable[[FloatArray], float],
+    *,
+    cluster: IntArray | None = None,
 ) -> ParameterEstimate:
     """``derived`` with the bootstrap summary :func:`derived_bootstrap` gives, if any."""
     summary = derived_bootstrap(
-        estimates, bootstrap, names, function, alpha=derived.alpha, derived=derived
+        estimates,
+        bootstrap,
+        names,
+        function,
+        alpha=derived.alpha,
+        derived=derived,
+        cluster=cluster,
     )
     return derived if summary is None else derived.with_bootstrap(summary)
 
@@ -667,7 +682,8 @@ def attach_bootstrap(
         leaves it unclassified.
     interval : {"percentile", "bca"}, default="percentile"
         The pointwise interval. A BCa interval reads each estimate's acceleration from its
-        own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`).
+        own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`), summed within
+        clusters when the bootstrap resamples clusters.
 
     Returns
     -------
@@ -677,6 +693,12 @@ def attach_bootstrap(
     alpha = result.config.alpha_sig
     below_floor = classification is not None and classification.key.dependence == "below_floor"
     kind: Kind = "bootstrap_bca" if interval == "bca" else "bootstrap"
+    # A cluster bootstrap resamples clusters, so its acceleration reads the cluster sums.
+    unit = (
+        getattr(getattr(result, "data", None), "cluster", None)
+        if bootstrap.resampling == "cluster"
+        else None
+    )
 
     def summary(name: str, estimate: ParameterEstimate) -> BootstrapSummary:
         if interval == "bca":
@@ -685,7 +707,7 @@ def attach_bootstrap(
                 alpha,
                 interval="bca",
                 estimate=estimate.psi,
-                acceleration=bca_acceleration(estimate.influence_curve),
+                acceleration=bca_acceleration(estimate.influence_curve, unit),
             )
         else:
             drawn = bootstrap.summary(name, alpha)

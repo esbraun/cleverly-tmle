@@ -45,12 +45,12 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol, TypeVar
 
 import numpy as np
-from scipy.stats import norm
 
 from .._support import UNCLASSIFIED, Support
 from .._typing import FloatArray, IntArray
 from ..utils.parallel import map_parallel
-from .influence import BootstrapSummary
+from .delta import normal_cdf, normal_quantile
+from .influence import BootstrapInterval, BootstrapSummary
 
 __all__ = [
     "BootstrapBand",
@@ -94,9 +94,6 @@ RefitFn = Callable[[Any], Mapping[str, tuple[float, float]]]
 #: materialized resample.  It returns what :data:`RefitFn` returns.
 IndexRefitFn = Callable[[IntArray], Mapping[str, tuple[float, float]]]
 Resampling = Literal["auto", "iid", "cluster"]
-#: The pointwise bootstrap interval: ``"percentile"`` (the ``np.quantile`` limits) or
-#: ``"bca"`` (bias-corrected and accelerated, read as order statistics).
-BootstrapInterval = Literal["percentile", "bca"]
 #: The text a refit that breaks the :data:`RefitFn` contract is refused with.
 REFIT_CONTRACT = (
     "a bootstrap refit must map each estimand to (estimate, standard error); the standard "
@@ -258,26 +255,55 @@ class BootstrapResult:
         )
 
 
-def bca_acceleration(influence_curve: FloatArray) -> float:
+def cluster_sums(curve: FloatArray, cluster: IntArray | None) -> FloatArray:
+    """The influence curve summed within each resampled unit.
+
+    A cluster bootstrap draws whole clusters, so the unit of its acceleration and of its
+    influence measures is the cluster sum of the row curve.
+
+    Parameters
+    ----------
+    curve : ndarray
+        ``(n,)`` row influence curve.
+    cluster : ndarray or None
+        ``(n,)`` cluster codes, or ``None`` for independent rows.
+
+    Returns
+    -------
+    ndarray
+        ``curve`` for ``None``, else one sum per cluster in sorted cluster order.
+    """
+    values = np.asarray(curve, dtype=float).reshape(-1)
+    if cluster is None:
+        return values
+    _, codes = np.unique(np.asarray(cluster).reshape(-1), return_inverse=True)
+    return np.bincount(codes, weights=values)
+
+
+def bca_acceleration(influence_curve: FloatArray, cluster: IntArray | None = None) -> float:
     r"""The BCa acceleration of an estimate, from its own influence curve.
 
     :math:`\hat a = \sum_i D_i^3 / (6 (\sum_i D_i^2)^{3/2})`, with :math:`D_i` the
-    centred curve. It equals the skewness of the curve over :math:`6\sqrt n`, which is the
-    infinitesimal-jackknife acceleration of Efron (1987) that Coyle's thesis (pp. 11-13)
-    applies to a targeted estimate. A positive multiple of the curve gives the same value,
-    so a ratio's curve on the log scale and on the ratio scale agree.
+    centred curve of the resampled unit. It equals the skewness of the curve over
+    :math:`6\sqrt n`, which is the infinitesimal-jackknife acceleration of Efron (1987) that
+    Coyle's thesis (pp. 11-13) applies to a targeted estimate. A positive multiple of the
+    curve gives the same value, so a ratio's curve on the log scale and on the ratio scale
+    agree. A cluster bootstrap resamples clusters, so with ``cluster`` the curve is first
+    summed within each cluster.
 
     Parameters
     ----------
     influence_curve : ndarray
         ``(n,)`` influence curve of the estimate.
+    cluster : ndarray or None, default=None
+        ``(n,)`` cluster codes when the bootstrap resamples clusters.
 
     Returns
     -------
     float
         The acceleration, ``0.0`` for a curve with no spread.
     """
-    curve = np.asarray(influence_curve, dtype=float).reshape(-1)
+    curve = cluster_sums(influence_curve, cluster)
     centred = curve - curve.mean()
     second = float(np.sum(centred**2))
     if second <= 0.0:
@@ -285,15 +311,52 @@ def bca_acceleration(influence_curve: FloatArray) -> float:
     return float(np.sum(centred**3) / (6.0 * second**1.5))
 
 
+def bca_bias_correction(draws: FloatArray, estimate: float) -> float:
+    r"""The BCa bias correction :math:`z_0 = \Phi^{-1}(\#\{\psi^*_b < \hat\psi\} / B)`.
+
+    A draw equal to the estimate counts for half, the usual convention for tied draws.
+
+    Parameters
+    ----------
+    draws : ndarray
+        The finite replicate estimates.
+    estimate : float
+        The full-sample estimate.
+
+    Returns
+    -------
+    float
+        :math:`z_0`, infinite when every draw lies on one side of the estimate.
+    """
+    values = np.asarray(draws, dtype=float)
+    below = np.count_nonzero(values < estimate) + 0.5 * np.count_nonzero(values == estimate)
+    return normal_quantile(float(below) / values.size)
+
+
+#: Rounding slack on ``level (B + 1)``. A level that is an integer rank in exact arithmetic,
+#: such as ``Phi(Phi^-1(0.025)) * 200 = 5``, can land a few ulp below it after the round trip.
+_RANK_SLACK = 1e-9
+
+
+def _lower_rank(position: float) -> int:
+    """``floor(position)``, treating a position within the slack of an integer as that integer."""
+    return math.floor(position + _RANK_SLACK)
+
+
+def _upper_rank(position: float) -> int:
+    """``ceil(position)``, treating a position within the slack of an integer as that integer."""
+    return math.ceil(position - _RANK_SLACK)
+
+
 def _lower_order_statistic(ordered: FloatArray, level: float) -> float:
     """The ``floor(level (B + 1))``-th order statistic, clamped to ``1 .. B``."""
-    rank = min(max(math.floor(level * (ordered.size + 1)), 1), ordered.size)
+    rank = min(max(_lower_rank(level * (ordered.size + 1)), 1), ordered.size)
     return float(ordered[rank - 1])
 
 
 def _upper_order_statistic(ordered: FloatArray, level: float) -> float:
     """The ``ceil(level (B + 1))``-th order statistic, clamped to ``1 .. B``."""
-    rank = min(max(math.ceil(level * (ordered.size + 1)), 1), ordered.size)
+    rank = min(max(_upper_rank(level * (ordered.size + 1)), 1), ordered.size)
     return float(ordered[rank - 1])
 
 
@@ -329,18 +392,17 @@ def bca_interval(
         :math:`1 - \hat a (z_0 + z_q)` is not positive.
     """
     ordered = np.sort(np.asarray(draws, dtype=float))
-    share = float(np.count_nonzero(ordered < estimate)) / ordered.size
     nan = float("nan")
-    if not 0.0 < share < 1.0:
-        return nan, nan, float(norm.ppf(share))
-    z0 = float(norm.ppf(share))
+    z0 = bca_bias_correction(ordered, estimate)
+    if not math.isfinite(z0):
+        return nan, nan, z0
     levels = []
     for quantile in (alpha / 2.0, 1.0 - alpha / 2.0):
-        shifted = z0 + float(norm.ppf(quantile))
+        shifted = z0 + normal_quantile(quantile)
         denominator = 1.0 - acceleration * shifted
         if denominator <= 0.0:
             return nan, nan, z0
-        levels.append(float(norm.cdf(z0 + shifted / denominator)))
+        levels.append(normal_cdf(z0 + shifted / denominator))
     return (
         _lower_order_statistic(ordered, levels[0]),
         _upper_order_statistic(ordered, levels[1]),
@@ -408,7 +470,7 @@ def studentized_critical_value(
     scale = np.asarray(std_errors, dtype=float)
     usable = np.all(np.isfinite(values) & np.isfinite(scale) & (scale > 0.0), axis=1)
     maxima = np.sort(np.max(np.abs(values[usable] - psi) / scale[usable], axis=1))
-    rank = math.ceil((1.0 - alpha) * (maxima.size + 1))
+    rank = _upper_rank((1.0 - alpha) * (maxima.size + 1))
     if maxima.size == 0 or rank > maxima.size:
         return float("nan"), int(maxima.size)
     return float(maxima[rank - 1]), int(maxima.size)

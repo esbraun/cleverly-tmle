@@ -57,10 +57,30 @@ class TestTheMeasures:
     def test_bootstrap_measures_need_draws(self) -> None:
         curve = np.random.default_rng(3).exponential(size=50)
         assert math.isnan(influence_row("x", curve).bca_z0)
-        draws = np.array([0.1, 0.2, 0.3, 0.4])
+        # Two of five draws lie below the estimate, so z0 = Phi^-1(0.4), which is not zero and
+        # changes sign with a sign slip.
+        draws = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
         row = influence_row("x", curve, estimate=0.25, draws=draws)
-        assert row.bca_z0 == pytest.approx(0.0, abs=1e-15)
+        assert row.bca_z0 == pytest.approx(norm.ppf(0.4), abs=1e-15)
+        assert row.bca_z0 < -0.2
         assert row.bca_acceleration > 0
+
+    def test_a_tied_draw_counts_for_half(self) -> None:
+        curve = np.random.default_rng(3).exponential(size=50)
+        row = influence_row("x", curve, estimate=0.2, draws=np.array([0.1, 0.2, 0.2, 0.3]))
+        assert row.bca_z0 == 0.0
+
+    def test_a_clustered_curve_is_read_at_the_cluster_level(self) -> None:
+        curve = np.random.default_rng(5).normal(size=40) ** 3
+        cluster = np.repeat(np.arange(8), 5)
+        row = influence_row("x", curve, cluster=cluster)
+        sums = curve.reshape(8, 5).sum(axis=1)
+        reference = influence_row("x", sums)
+        assert row.n == 8
+        for field in ("n", "kish", "skewness", "kurtosis", "variance_rel_sd", "edgeworth_loss"):
+            assert getattr(row, field) == getattr(reference, field), field
+        assert influence_row("x", curve).n == 40
+        assert influence_row("x", curve).kish != row.kish
 
     def test_a_flat_curve(self) -> None:
         row = influence_row("x", np.ones(10))
@@ -97,6 +117,47 @@ class TestTheWarning:
         text = str(record[0].message)
         assert "X20" in text and "n_bootstrap" not in text
 
+    def test_the_advice_says_199_and_experimental(self) -> None:
+        with pytest.warns(SparseInfluenceWarning) as record:
+            warn_sparse_influence(self._report(20), cross_fitted=False)
+        text = str(record[0].message)
+        assert "n_bootstrap=199" in text and "399" not in text
+        assert "BCa interval is experimental" in text
+
+    def test_a_percentile_bootstrap_is_told_to_use_bca(self) -> None:
+        with pytest.warns(SparseInfluenceWarning) as record:
+            warn_sparse_influence(self._report(20), cross_fitted=False, percentile_bootstrap=True)
+        text = str(record[0].message)
+        assert "percentile bootstrap interval keeps the skew" in text
+        assert "bootstrap_interval='bca'" in text and "n_bootstrap" not in text
+        assert "experimental" in text
+
+    def test_a_flagged_row_shows_why_it_is_flagged(self) -> None:
+        report = self._report(20)
+        (row,) = report.rows
+        assert row.sparse
+        with pytest.warns(SparseInfluenceWarning) as record:
+            warn_sparse_influence(report, cross_fitted=False)
+        text = str(record[0].message)
+        assert f"relative SD {row.variance_rel_sd:.3f}" in text
+        assert f"Edgeworth coverage loss {row.edgeworth_loss:.3f}" in text
+
+    def test_a_flagged_row_can_carry_a_negative_edgeworth_loss(self) -> None:
+        """The flag reads the relative SD only, so a negative loss does not clear it."""
+        # Six symmetric spikes in 300 rows: kurtosis 50 lifts q2 above zero, so the Edgeworth
+        # term predicts over-coverage while the variance estimate is noisy.
+        curve = np.zeros(300)
+        curve[:6] = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+        flagged_negative = influence_row("y", curve)
+        assert flagged_negative.sparse and flagged_negative.edgeworth_loss < 0
+        with pytest.warns(SparseInfluenceWarning, match="relative SD .* Edgeworth coverage loss -"):
+            warn_sparse_influence(InfluenceReport((flagged_negative,), 0.05), cross_fitted=False)
+
+    def test_the_warning_points_at_the_caller_outside_the_package(self) -> None:
+        with pytest.warns(SparseInfluenceWarning) as record:
+            warn_sparse_influence(self._report(20), cross_fitted=False)
+        assert record[0].filename == __file__
+
     def test_an_unmeasured_fit_is_not_told_to_bootstrap(self) -> None:
         with pytest.warns(SparseInfluenceWarning) as record:
             warn_sparse_influence(self._report(20), cross_fitted=False, bootstrap_measured=False)
@@ -122,11 +183,29 @@ def _fit(**settings: Any) -> Any:
 
 class TestTheFit:
     def test_a_sparse_wald_fit_warns(self) -> None:
-        with pytest.warns(SparseInfluenceWarning, match="n_bootstrap=399"):
+        with pytest.warns(SparseInfluenceWarning, match="n_bootstrap=199"):
             result = _fit(n_folds=1)
         report = result.diagnostics.influence()
         assert report.sparse
         assert set(report.sparse) <= set(result.estimates)
+
+    @pytest.mark.filterwarnings("ignore:.*constant_node_plugin")
+    @pytest.mark.parametrize(
+        "settings",
+        [{"isotonic": True}, {"survival_model": "hazard"}],
+        ids=["isotonic", "hazard"],
+    )
+    def test_a_hazard_or_isotonic_fit_is_not_told_to_bootstrap(
+        self, settings: dict[str, Any]
+    ) -> None:
+        from tests.unit.test_isotonic_projection import _fit as survival_fit
+
+        with pytest.warns(SparseInfluenceWarning) as record:
+            survival_fit(36, **settings)
+        sparse = [w for w in record if issubclass(w.category, SparseInfluenceWarning)]
+        text = str(sparse[0].message)
+        assert "No registered study measures a bootstrap" in text
+        assert "n_bootstrap" not in text and "bca" not in text
 
     def test_a_cross_fitted_fit_warns_without_the_bootstrap(self) -> None:
         with pytest.warns(SparseInfluenceWarning) as record:
@@ -134,14 +213,34 @@ class TestTheFit:
         sparse = [w for w in record if issubclass(w.category, SparseInfluenceWarning)]
         assert sparse and "n_bootstrap" not in str(sparse[0].message)
 
-    def test_a_bootstrap_fit_does_not_warn(self) -> None:
+    def test_a_percentile_bootstrap_fit_warns_with_the_bca_advice(self) -> None:
+        with pytest.warns(SparseInfluenceWarning, match="percentile bootstrap interval"):
+            _fit(n_folds=1, n_bootstrap=3)
+
+    def test_a_clustered_fit_does_not_warn(self) -> None:
+        from tests.unit.test_bootstrap_intervals import _clustered
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SparseInfluenceWarning)
+            _clustered(n_bootstrap=0, bootstrap_interval="percentile")
+
+    def test_a_bca_bootstrap_fit_does_not_warn(self) -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             warnings.simplefilter("error", SparseInfluenceWarning)
-            result = _fit(n_folds=1, n_bootstrap=3)
+            result = _fit(n_folds=1, n_bootstrap=3, bootstrap_interval="bca")
         report = result.diagnostics.influence()
         assert all(np.isfinite(row.bca_acceleration) for row in report.rows)
         assert report.rows[0].name == next(iter(result.estimates))
+
+    def test_influence_is_a_direct_call_and_not_in_run_all(self) -> None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = _fit(n_folds=1)
+        assert result.diagnostics.influence().rows
+        battery = result.diagnostics.run_all()
+        assert "influence" not in {item.name for item in battery.items}
+        assert "influence" not in {row.operation for row in result.diagnostics.capabilities}
 
     def test_the_report_reads_every_estimate(self) -> None:
         with warnings.catch_warnings():

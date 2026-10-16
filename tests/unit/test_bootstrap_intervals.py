@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import math
 import warnings
-from typing import Any
+from dataclasses import replace
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
@@ -25,6 +26,8 @@ from cleverly.inference.bootstrap import (
     run_bootstrap,
     studentized_critical_value,
 )
+from cleverly.inference.delta import Transform
+from cleverly.inference.results import derived_bootstrap
 from cleverly.learners import GLM
 from cleverly.longitudinal import LTMLE, SDR
 from tests import discrete_law_longitudinal_horizon as law_
@@ -46,6 +49,16 @@ def _skewed() -> tuple[np.ndarray, float, np.ndarray]:
     return sample, float(sample.mean()), draws
 
 
+def _floor(position: float) -> int:
+    """The rank of a lower limit, from the position rounded to six places (exact ties)."""
+    return math.floor(round(position, 6))
+
+
+def _ceil(position: float) -> int:
+    """The rank of an upper limit, from the position rounded to six places (exact ties)."""
+    return math.ceil(round(position, 6))
+
+
 def _hand_bca(
     draws: np.ndarray,
     estimate: float,
@@ -53,12 +66,13 @@ def _hand_bca(
     alpha: float,
     *,
     z0_sign: float = 1.0,
-    lower_rank: Any = math.floor,
-    upper_rank: Any = math.ceil,
+    lower_rank: Any = _floor,
+    upper_rank: Any = _ceil,
 ) -> tuple[float, float]:
     ordered = np.sort(draws)
     size = ordered.size
-    z0 = z0_sign * norm.ppf(np.mean(ordered < estimate))
+    below = np.sum(ordered < estimate) + 0.5 * np.sum(ordered == estimate)
+    z0 = z0_sign * norm.ppf(below / size)
     limits = []
     for q, rank in ((alpha / 2, lower_rank), (1 - alpha / 2, upper_rank)):
         shifted = z0 + norm.ppf(q)
@@ -104,7 +118,7 @@ class TestBCa:
         [
             {"acceleration_sign": -1.0},
             {"z0_sign": -1.0},
-            {"lower_rank": math.ceil, "upper_rank": math.floor},
+            {"lower_rank": _ceil, "upper_rank": _floor},
         ],
         ids=["acceleration sign", "z0 sign", "floor and ceil swapped"],
     )
@@ -115,6 +129,30 @@ class TestBCa:
         sign = slip.pop("acceleration_sign", 1.0)
         slipped = _hand_bca(draws, estimate, sign * acceleration, ALPHA, **slip)
         assert slipped != pytest.approx(correct, abs=1e-12)
+
+    def test_the_ranks_at_the_boundary_are_the_5th_and_195th_of_199(self) -> None:
+        """At z0 = 0 and a = 0 the level is exactly 0.025, whatever the float round trip.
+
+        ``norm.cdf(norm.ppf(0.025)) * 200`` is 4.999999999999996, so an unrounded floor gives
+        the 4th order statistic (plan rev 4.4, disclosure 2, names the 5th and the 195th).
+        """
+        draws = np.arange(199.0)
+        # One draw equals the estimate and counts for half: 99.5 / 199 = 1/2, so z0 = 0.
+        low, high, z0 = bca_interval(draws, 99.0, 0.0, ALPHA)
+        assert z0 == 0.0
+        ordered = np.sort(draws)
+        assert (low, high) == (ordered[4], ordered[194]) == (4.0, 194.0)
+        assert norm.cdf(norm.ppf(0.025)) * 200 < 5.0, "the float round trip no longer needs a slack"
+        assert _hand_bca(draws, 99.0, 0.0, ALPHA) == (4.0, 194.0)
+        # The sup-t critical value rounds the same way: 0.95 * 200 is the 190th statistic.
+        maxima = np.arange(1.0, 200.0)
+        errors = np.ones((199, 1))
+        critical, _ = studentized_critical_value(np.zeros(1), maxima.reshape(-1, 1), errors, 0.05)
+        assert critical == maxima[189]
+
+    def test_a_tied_draw_counts_for_half(self) -> None:
+        z0 = bca_interval(np.array([1.0, 2.0, 2.0, 3.0]), 2.0, 0.0, ALPHA)[2]
+        assert z0 == 0.0
 
     def test_a_draw_set_on_one_side_has_no_limits(self) -> None:
         low, high, z0 = bca_interval(np.array([1.0, 2.0, 3.0]), 0.0, 0.1, ALPHA)
@@ -153,7 +191,7 @@ class TestStudentizedBand:
         estimates, draws, errors = self._draws()
         critical, used = studentized_critical_value(estimates, draws, errors, ALPHA)
         maxima = np.sort(np.max(np.abs(draws - estimates) / errors, axis=1))
-        rank = math.ceil(0.95 * (99 + 1))
+        rank = 95
         assert used == 99
         assert critical == pytest.approx(maxima[rank - 1], abs=1e-14)
 
@@ -319,3 +357,249 @@ class TestTheBootstrapBand:
 
     def test_no_band_without_simultaneous(self) -> None:
         assert _fit(n_bootstrap=3, simultaneous=False).bootstrap_band is None
+
+
+# ------------------------------------------------------------------ the derived BCa path
+
+
+def _bca_fit(**settings: Any) -> Any:
+    settings.setdefault("simultaneous", False)
+    return _fit(n_bootstrap=59, bootstrap_interval="bca", **settings)
+
+
+def _finite_pair(result: Any, names: list[str]) -> np.ndarray:
+    return np.column_stack(
+        [np.asarray(result.bootstrap.draws[name], dtype=float) for name in names]
+    )
+
+
+class TestTheDerivedBCa:
+    NAMES: ClassVar[list[str]] = ["ey_regimen[high]", "ey_regimen[low]"]
+
+    @pytest.fixture(scope="class")
+    def result(self) -> Any:
+        return _bca_fit()
+
+    def _hand(self, draws: np.ndarray, estimate: float, curve: np.ndarray) -> Any:
+        finite = draws[np.isfinite(draws)]
+        acceleration = bca_acceleration(curve)
+        return bca_interval(finite, estimate, acceleration, ALPHA), acceleration
+
+    def test_a_difference_reads_its_own_curve(self, result: Any) -> None:
+        high, low = (result.estimates[name] for name in self.NAMES)
+        derived = result.contrast(lambda x: x[0] - x[1], self.NAMES, name="d")
+        draws = _finite_pair(result, self.NAMES)
+        values = draws[:, 0] - draws[:, 1]
+        (lo, hi, z0), acceleration = self._hand(
+            values, high.psi - low.psi, high.influence_curve - low.influence_curve
+        )
+        summary = derived.bootstrap
+        assert summary.interval == "bca"
+        assert summary.acceleration == pytest.approx(acceleration, rel=1e-6)
+        assert summary.z0 == pytest.approx(z0, abs=1e-12)
+        assert summary.ci == pytest.approx((lo, hi), abs=1e-9)
+
+    def test_a_ratio_reads_the_reported_scale_curve(self, result: Any) -> None:
+        high, low = (result.estimates[name] for name in self.NAMES)
+        derived = result.ratio(*self.NAMES)
+        draws = _finite_pair(result, self.NAMES)
+        values = draws[:, 0] / draws[:, 1]
+        # The stored curve is the log ratio's, a positive multiple of the ratio's.
+        curve = high.influence_curve / high.psi - low.influence_curve / low.psi
+        (lo, hi, _), acceleration = self._hand(values, high.psi / low.psi, curve)
+        assert derived.bootstrap.acceleration == pytest.approx(acceleration, rel=1e-6)
+        assert derived.bootstrap.ci == pytest.approx((lo, hi), abs=1e-9)
+
+    def test_a_decreasing_transform_leaves_the_limits_unchanged(self, result: Any) -> None:
+        name = self.NAMES[0]
+        negate = Transform("neg", lambda v: -v, lambda v: -v, lambda v: -1.0)
+        plain = result.contrast(lambda x: x[0], [name], name="plain")
+        flipped = result.contrast(lambda x: x[0], [name], name="neg", transform=negate)
+        # The stored curve of the transformed estimate is -1 times the plain one.
+        np.testing.assert_allclose(flipped.influence_curve, -plain.influence_curve, atol=1e-12)
+        assert flipped.bootstrap.acceleration == pytest.approx(
+            plain.bootstrap.acceleration, rel=1e-9
+        )
+        assert flipped.bootstrap.ci == plain.bootstrap.ci
+        # Mutation: the stored curve gives the opposite sign and other limits.
+        wrong = bca_acceleration(flipped.influence_curve)
+        assert wrong == pytest.approx(-plain.bootstrap.acceleration, rel=1e-9)
+        draws = np.asarray(result.bootstrap.draws[name], dtype=float)
+        slipped = bca_interval(draws[np.isfinite(draws)], plain.psi, wrong, ALPHA)[:2]
+        assert slipped != plain.bootstrap.ci
+
+    def test_an_increasing_transform_only_rescales_the_curve(self, result: Any) -> None:
+        name = self.NAMES[0]
+        plain = result.contrast(lambda x: x[0], [name], name="plain")
+        scaled = result.contrast(lambda x: x[0], [name], name="log", transform=Transform.log())
+        assert scaled.bootstrap.acceleration == pytest.approx(
+            plain.bootstrap.acceleration, rel=1e-6
+        )
+        assert scaled.bootstrap.ci == plain.bootstrap.ci
+
+    def test_mixed_intervals_are_refused(self, result: Any) -> None:
+        percentile = _fit(n_bootstrap=59, simultaneous=False)
+        mixed = {
+            self.NAMES[0]: result.estimates[self.NAMES[0]],
+            self.NAMES[1]: replace(
+                result.estimates[self.NAMES[1]],
+                bootstrap=percentile.estimates[self.NAMES[1]].bootstrap,
+            ),
+        }
+        with pytest.raises(ValueError, match="mix intervals"):
+            derived_bootstrap(
+                mixed, result.bootstrap, self.NAMES, lambda x: x[0] - x[1], alpha=ALPHA
+            )
+
+    def test_a_bca_summary_needs_the_derived_estimate(self, result: Any) -> None:
+        with pytest.raises(ValueError, match="needs the derived estimate"):
+            derived_bootstrap(
+                result.estimates, result.bootstrap, self.NAMES, lambda x: x[0] - x[1], alpha=ALPHA
+            )
+
+
+# ------------------------------------------------------------------ the attached BCa interval
+
+
+class TestTheAttachedBCa:
+    @pytest.fixture(scope="class")
+    def result(self) -> Any:
+        return _bca_fit()
+
+    def test_each_estimate_reads_its_own_estimate_and_curve(self, result: Any) -> None:
+        moved = 0
+        for name, estimate in result.estimates.items():
+            draws = np.asarray(result.bootstrap.draws[name], dtype=float)
+            finite = draws[np.isfinite(draws)]
+            acceleration = bca_acceleration(estimate.influence_curve)
+            expected = bca_interval(finite, estimate.psi, acceleration, ALPHA)[:2]
+            assert estimate.bootstrap.ci == pytest.approx(expected, abs=1e-12), name
+            assert estimate.bootstrap.acceleration == pytest.approx(acceleration, abs=1e-15)
+            # Mutation: the curve of the opposite sign (a contrast's `fit - base`).
+            slipped = bca_interval(finite, estimate.psi, -acceleration, ALPHA)[:2]
+            moved += slipped != expected
+        assert moved > 0, "no estimate's limits move with the sign of the acceleration"
+
+    def test_the_export_names_the_interval(self, result: Any) -> None:
+        name = "ey_regimen[high]"
+        row = result.estimates[name].to_dict()
+        assert row["bootstrap_interval"] == "bca"
+        assert row["bootstrap_z0"] == result.estimates[name].bootstrap.z0
+        assert row["bootstrap_acceleration"] == result.estimates[name].bootstrap.acceleration
+        percentile = _fit(n_bootstrap=5, simultaneous=False).estimates[name].to_dict()
+        assert percentile["bootstrap_interval"] == "percentile"
+        assert "bootstrap_z0" not in percentile and "bootstrap_acceleration" not in percentile
+
+    def test_the_band_is_the_estimate_plus_or_minus_the_critical_value_standard_error(
+        self,
+    ) -> None:
+        result = _fit(n_bootstrap=39, simultaneous=True)
+        band = result.bootstrap_band
+        assert band is not None
+        for name, (low, high) in band.bands.items():
+            estimate = result.estimates[name]
+            half = band.critical_value * estimate.plugin_std_error
+            assert low == pytest.approx(estimate.psi - half, abs=1e-14)
+            assert high == pytest.approx(estimate.psi + half, abs=1e-14)
+
+
+# ------------------------------------------------------------------ cluster resampling
+
+
+CLUSTERS = 60
+PER_CLUSTER = 15
+
+
+def _clustered(**settings: Any) -> Any:
+    """900 rows in 60 clusters of 15, fitted with a BCa bootstrap that resamples clusters."""
+    frame = law_.draw(K, 2, CLUSTERS * PER_CLUSTER, 6, law_.L_R)
+    frame["cid"] = np.arange(len(frame)) // PER_CLUSTER
+    settings.setdefault("n_bootstrap", 19)
+    settings.setdefault("bootstrap_interval", "bca")
+    settings.setdefault("simultaneous", False)
+    model = LTMLE(
+        plans_.regimens(("low", "high"), K, 2),
+        reference="low",
+        outcome_learner=GLM(),
+        pseudo_learner=GLM(),
+        g_bounds=(1e-8, 1.0),
+        random_state=3,
+        n_folds=1,
+        **settings,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return model.fit(frame, id="cid", **law_.roles(K, 2), **law_.probability_columns(K, 2))
+
+
+def _cluster_sums(result: Any, curve: np.ndarray) -> np.ndarray:
+    _, codes = np.unique(np.asarray(result.data.cluster), return_inverse=True)
+    return np.bincount(codes, weights=curve)
+
+
+class TestClusterResampling:
+    @pytest.fixture(scope="class")
+    def result(self) -> Any:
+        return _clustered()
+
+    def test_the_fixture_is_60_clusters_of_15(self, result: Any) -> None:
+        assert result.bootstrap.resampling == "cluster"
+        assert np.unique(np.asarray(result.data.cluster)).size == CLUSTERS
+        assert (
+            np.bincount(np.unique(np.asarray(result.data.cluster), return_inverse=True)[1]).tolist()
+            == [PER_CLUSTER] * CLUSTERS
+        )
+
+    def test_the_acceleration_reads_the_cluster_sums(self, result: Any) -> None:
+        differing = 0
+        for name, estimate in result.estimates.items():
+            sums = _cluster_sums(result, estimate.influence_curve)
+            centred = sums - sums.mean()
+            expected = np.sum(centred**3) / (6 * np.sum(centred**2) ** 1.5)
+            assert estimate.bootstrap.acceleration == pytest.approx(expected, abs=1e-14), name
+            row = bca_acceleration(estimate.influence_curve)
+            # Mutation: the row curve gives another value, off by well over rounding.
+            differing += abs(row - expected) > 5e-3
+        assert differing > 0, "the fixture does not separate the row and cluster accelerations"
+
+    def test_the_limits_read_the_cluster_acceleration(self, result: Any) -> None:
+        for name, estimate in result.estimates.items():
+            draws = np.asarray(result.bootstrap.draws[name], dtype=float)
+            finite = draws[np.isfinite(draws)]
+            acceleration = bca_acceleration(estimate.influence_curve, result.data.cluster)
+            expected = bca_interval(finite, estimate.psi, acceleration, ALPHA)[:2]
+            assert estimate.bootstrap.ci == pytest.approx(expected, abs=1e-12), name
+
+    def test_a_derived_estimate_reads_the_cluster_sums(self, result: Any) -> None:
+        names = ["ey_regimen[low]", "ey_regimen[high]"]
+        derived = result.contrast(lambda x: x[0] + 0.0 * x[1], names, name="d")
+        curve = result.estimates[names[0]].influence_curve
+        expected = bca_acceleration(curve, result.data.cluster)
+        assert derived.bootstrap.acceleration == pytest.approx(expected, rel=1e-6)
+        # Mutation: the row curve gives a different acceleration on this fixture.
+        assert abs(bca_acceleration(curve) - expected) > 5e-3
+
+    def test_a_row_bootstrap_of_a_clustered_fit_reads_the_rows(self) -> None:
+        result = _clustered(bootstrap_resampling="iid")
+        assert result.bootstrap.resampling == "iid"
+        for estimate in result.estimates.values():
+            assert estimate.bootstrap.acceleration == pytest.approx(
+                bca_acceleration(estimate.influence_curve), abs=1e-14
+            )
+
+    def test_the_influence_report_is_at_the_cluster_level(self, result: Any) -> None:
+        report = result.diagnostics.influence()
+        for row in report.rows:
+            curve = result.estimates[row.name].influence_curve
+            sums = _cluster_sums(result, curve)
+            centred = sums - sums.mean()
+            kappa = np.mean(centred**4) / np.mean(centred**2) ** 2
+            assert row.n == CLUSTERS
+            assert row.kurtosis == pytest.approx(kappa, rel=1e-12)
+            assert row.kish == pytest.approx(CLUSTERS / kappa, rel=1e-12)
+            assert row.skewness == pytest.approx(
+                np.mean(centred**3) / np.mean(centred**2) ** 1.5, rel=1e-12
+            )
+            assert row.bca_acceleration == pytest.approx(
+                result.estimates[row.name].bootstrap.acceleration, abs=1e-14
+            )

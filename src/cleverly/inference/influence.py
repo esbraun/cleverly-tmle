@@ -247,8 +247,12 @@ def bootstrap_column(name: str, status: InferenceStatus, diagnostic: bool) -> st
 #: supplies inference: the fit declares the bootstrap a diagnostic.
 DIAGNOSTIC_BOOTSTRAP_NOTE = (
     "a diagnostic: the collaborative fit selects its propensity model on each resample, and "
-    "no registered study measures the coverage of that percentile interval"
+    "no registered study measures the coverage of that interval"
 )
+
+#: The pointwise bootstrap interval: ``"percentile"`` (the ``np.quantile`` limits) or
+#: ``"bca"`` (bias-corrected and accelerated, read as order statistics).
+BootstrapInterval = Literal["percentile", "bca"]
 
 #: The printed name of each bootstrap interval.
 BOOTSTRAP_INTERVAL_LABELS: Mapping[str, str] = MappingProxyType(
@@ -285,13 +289,13 @@ def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
 
 
 def bootstrap_line(estimate: ParameterEstimate) -> str:
-    """The printed bootstrap spread and percentile interval of one estimate.
+    """The printed bootstrap spread and interval of one estimate.
 
     One body for both result summaries. The labels come from
     :func:`~cleverly.inference.influence.bootstrap_column` under
     :func:`bootstrap_is_diagnostic`, so a fit whose status supplies no inference, an
     estimate with a t reference, or a bootstrap not licensed as inference prints
-    ``bootstrap sd`` and a percentile range.
+    ``bootstrap sd`` and a range.
 
     Parameters
     ----------
@@ -1026,6 +1030,10 @@ class ParameterEstimate:
             ):
                 row[bootstrap_column(key, self.inference, diagnostic)] = value
             row["bootstrap_support"] = self.bootstrap.support.label
+            row["bootstrap_interval"] = self.bootstrap.interval
+            if self.bootstrap.interval == "bca":
+                row["bootstrap_z0"] = self.bootstrap.z0
+                row["bootstrap_acceleration"] = self.bootstrap.acceleration
         return row
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -1139,7 +1147,8 @@ class BootstrapSummary:
     z0 : float or None, default=None
         The BCa bias correction, on a BCa summary.
     acceleration : float or None, default=None
-        The BCa acceleration, from the estimate's own influence curve, on a BCa summary.
+        The BCa acceleration, from the estimate's own influence curve (summed within clusters
+        when clusters were resampled), on a BCa summary.
     """
 
     std_error: float
@@ -1152,7 +1161,7 @@ class BootstrapSummary:
     diagnostic: bool = False
     below_floor: bool = False
     support: Support = UNCLASSIFIED
-    interval: str = "percentile"
+    interval: BootstrapInterval = "percentile"
     z0: float | None = None
     acceleration: float | None = None
 

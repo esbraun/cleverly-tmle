@@ -1043,7 +1043,14 @@ class TMLEResult:
             gradient=gradient,
             transform=transform,
         )
-        return with_derived_bootstrap(derived, self.estimates, self.bootstrap, names, function)
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            names,
+            function,
+            cluster=self.data.cluster,
+        )
 
     def ratio(
         self,
@@ -1138,6 +1145,7 @@ class TMLEResult:
             self.bootstrap,
             (numerator, denominator),
             ratio_function(kind, complement=False),
+            cluster=self.data.cluster,
         )
 
     def _ratio_name(self, numerator: str, denominator: str, kind: str) -> str:

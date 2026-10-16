@@ -21,9 +21,10 @@ measure                     definition, on the centred curve :math:`D_1, \dots, 
                             with :math:`q_2(z) = \kappa_e (z^3 - 3z)/6 - \hat\gamma^2 (z^5 +
                             2z^3 - 3z)/9 - (z^3 + 3z)/2` and :math:`\kappa_e = \hat\kappa - 3`
                             (Hall 1992, through Rothe, IZA DP 8758, Proposition 1). A positive
-                            value is a predicted shortfall of the Wald coverage
+                            value is a predicted shortfall of the Wald coverage and a negative
+                            value a predicted excess. A flag reads ``variance_rel_sd`` only
 ``bca_z0``                  :math:`\Phi^{-1}(\#\{\psi^*_b < \hat\psi\} / B)` of the attached
-                            bootstrap draws, ``nan`` without a bootstrap
+                            bootstrap draws (a tie counts for half), ``nan`` without a bootstrap
 ``bca_acceleration``        :math:`\sum_i D_i^3 / (6 (\sum_i D_i^2)^{3/2})`
                             (:func:`~cleverly.inference.bootstrap.bca_acceleration`), ``nan``
                             without a bootstrap
@@ -33,11 +34,16 @@ measure                     definition, on the centred curve :math:`D_1, \dots, 
 without a bootstrap raises :class:`~cleverly.exceptions.SparseInfluenceWarning`. The value
 0.125 is close to a Kish count of 64. It was chosen after the X39 truth pilots were read, so
 it is a disclosed post-reading choice and not a pre-registered one.
+
+With clusters the unit is the cluster. Every measure reads the cluster sums of the curve, the
+same unit as the cluster variance and the cluster bootstrap.
 """
 
 from __future__ import annotations
 
 import math
+import os
+import sys
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -46,10 +52,11 @@ from typing import Any
 import numpy as np
 from scipy.stats import norm
 
-from .._typing import FloatArray
+from .._typing import FloatArray, IntArray
 from ..exceptions import SparseInfluenceWarning
 from ..utils.frames import emit_frame
-from .bootstrap import bca_acceleration
+from .bootstrap import bca_acceleration, bca_bias_correction, cluster_sums
+from .delta import reference_quantile
 
 __all__ = [
     "SPARSE_INFLUENCE_THRESHOLD",
@@ -73,7 +80,7 @@ class InfluenceRow:
     name : str
         The reported parameter name.
     n : int
-        The rows of the curve.
+        The units of the curve: rows, or clusters for a clustered fit.
     kish : float
         The Kish effective sample size :math:`n / \\hat\\kappa`.
     skewness : float
@@ -193,7 +200,7 @@ def edgeworth_loss(skewness: float, kurtosis: float, n: int, alpha: float) -> fl
     float
         :math:`-\phi(z) q_2(z) / n`, positive when the interval is predicted to under-cover.
     """
-    z = float(norm.ppf(1.0 - alpha / 2.0))
+    z = reference_quantile(alpha)
     excess = kurtosis - 3.0
     q2 = (
         excess * (z**3 - 3.0 * z) / 6.0
@@ -210,6 +217,7 @@ def influence_row(
     alpha: float = 0.05,
     estimate: float | None = None,
     draws: FloatArray | None = None,
+    cluster: IntArray | None = None,
 ) -> InfluenceRow:
     """The influence-curve measures of one estimate.
 
@@ -226,6 +234,9 @@ def influence_row(
     draws : ndarray or None, default=None
         The bootstrap replicate estimates. With ``estimate``, the row reports the BCa
         bias correction and acceleration.
+    cluster : ndarray or None, default=None
+        ``(n,)`` cluster codes. Every measure then reads the cluster sums of the curve, so
+        ``n`` is the number of clusters.
 
     Returns
     -------
@@ -241,7 +252,7 @@ def influence_row(
     >>> row.kish, row.skewness, row.kurtosis
     (4.0, 0.0, 1.0)
     """
-    values = np.asarray(curve, dtype=float).reshape(-1)
+    values = cluster_sums(curve, cluster)
     n = int(values.size)
     centred = values - values.mean()
     second = float(np.mean(centred**2))
@@ -256,7 +267,7 @@ def influence_row(
         finite = np.asarray(draws, dtype=float)
         finite = finite[np.isfinite(finite)]
         if finite.size:
-            z0 = float(norm.ppf(np.count_nonzero(finite < estimate) / finite.size))
+            z0 = bca_bias_correction(finite, estimate)
         acceleration = bca_acceleration(values)
     return InfluenceRow(
         name=name,
@@ -272,7 +283,11 @@ def influence_row(
 
 
 def influence_report(
-    estimates: Mapping[str, Any], *, alpha: float = 0.05, backend: str | None = None
+    estimates: Mapping[str, Any],
+    *,
+    alpha: float = 0.05,
+    backend: str | None = None,
+    cluster: IntArray | None = None,
 ) -> InfluenceReport:
     """The influence-curve measures of every estimate that carries a curve.
 
@@ -285,6 +300,9 @@ def influence_report(
         The two-sided level of the Edgeworth loss.
     backend : str or None, default=None
         Dataframe backend the report's :meth:`InfluenceReport.to_frame` emits.
+    cluster : ndarray or None, default=None
+        ``(n,)`` cluster codes of a clustered fit. Each row then reports the cluster-level
+        measures.
 
     Returns
     -------
@@ -304,6 +322,7 @@ def influence_report(
                 alpha=alpha,
                 estimate=None if bootstrap is None else float(estimate.psi),
                 draws=None if bootstrap is None else bootstrap.draws,
+                cluster=cluster,
             )
         )
     return InfluenceReport(tuple(rows), alpha, backend)
@@ -311,8 +330,16 @@ def influence_report(
 
 #: The advice of a fit whose full-refit bootstrap a study can license.
 _IN_SAMPLE_ADVICE = (
-    "Refit with n_bootstrap=399, bootstrap_interval='bca' for an interval that reads the "
-    "skew, and see result.diagnostics.influence()."
+    "Refit with n_bootstrap=199, bootstrap_interval='bca' for an interval that reads the "
+    "skew, and see result.diagnostics.influence(). The BCa interval is experimental until a "
+    "registered study measures it."
+)
+#: The advice of an in-sample fit whose percentile bootstrap already ran.
+_PERCENTILE_ADVICE = (
+    "The percentile bootstrap interval keeps the skew shortfall. Refit with "
+    "bootstrap_interval='bca' for an interval that reads the skew, and see "
+    "result.diagnostics.influence(). The BCa interval is experimental until a registered "
+    "study measures it."
 )
 #: The advice of a cross-fitted fit: its bootstrap is a diagnostic only (roadmap X20).
 _CROSS_FITTED_ADVICE = (
@@ -333,9 +360,14 @@ def warn_sparse_influence(
     *,
     cross_fitted: bool,
     bootstrap_measured: bool = True,
-    stacklevel: int = 3,
+    percentile_bootstrap: bool = False,
+    stacklevel: int | None = None,
 ) -> None:
     """Warn once for the estimates whose variance estimate is above the threshold.
+
+    The flag reads the relative SD of the variance estimate. The Edgeworth loss in the text
+    is information: a flagged row can show a negative loss, which predicts over-coverage
+    from the skew and is no reason to clear the flag.
 
     Parameters
     ----------
@@ -345,30 +377,54 @@ def warn_sparse_influence(
         Whether the fit is cross-fitted. Its bootstrap is a diagnostic only, so the text
         does not advise it.
     bootstrap_measured : bool, default=True
-        Whether a registered study measures the bootstrap of this kind of in-sample fit.
-        ``False`` (a hazard or projected fit) does not advise the bootstrap either.
-    stacklevel : int, default=3
-        Passed to :func:`warnings.warn`.
+        ``False`` for a hazard-model or isotonic-projected fit, whose bootstrap no study
+        measures. The text then does not advise the bootstrap. Any other in-sample fit gets
+        the BCa advice, which says the interval is experimental.
+    percentile_bootstrap : bool, default=False
+        Whether the fit already ran a percentile bootstrap. The advice then names the BCa
+        interval and not a new bootstrap.
+    stacklevel : int or None, default=None
+        Passed to :func:`warnings.warn`. ``None`` points at the first caller outside the
+        ``cleverly`` package, whichever route reached the fit.
+
+    Warns
+    -----
+    SparseInfluenceWarning
+        When any row's ``variance_rel_sd`` is above :data:`SPARSE_INFLUENCE_THRESHOLD`.
     """
     flagged = [row for row in report.rows if row.sparse]
     if not flagged:
         return
     listed = "; ".join(
-        f"{row.name} (Kish {row.kish:.0f}, predicted coverage loss {row.edgeworth_loss:.3f})"
+        f"{row.name} (Kish {row.kish:.0f}, relative SD {row.variance_rel_sd:.3f}, "
+        f"Edgeworth coverage loss {row.edgeworth_loss:.3f})"
         for row in flagged[:5]
     )
     more = f"; and {len(flagged) - 5} more" if len(flagged) > 5 else ""
     advice = (
         _CROSS_FITTED_ADVICE
         if cross_fitted
-        else _IN_SAMPLE_ADVICE
-        if bootstrap_measured
         else _UNMEASURED_ADVICE
+        if not bootstrap_measured
+        else _PERCENTILE_ADVICE
+        if percentile_bootstrap
+        else _IN_SAMPLE_ADVICE
     )
     warnings.warn(
         f"{len(flagged)} estimate(s) read their influence curve from few rows, so the "
         f"variance estimate's relative SD is above {SPARSE_INFLUENCE_THRESHOLD}: "
         f"{listed}{more}. The Wald interval may under-cover. {advice}",
         SparseInfluenceWarning,
-        stacklevel=stacklevel,
+        stacklevel=_caller_outside_package() if stacklevel is None else stacklevel,
     )
+
+
+def _caller_outside_package() -> int:
+    """The ``warnings.warn`` stacklevel of the first frame outside the ``cleverly`` package."""
+    package = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + os.sep
+    frame: Any = sys._getframe(1)
+    level = 1
+    while frame is not None and os.path.abspath(frame.f_code.co_filename).startswith(package):
+        frame = frame.f_back
+        level += 1
+    return level

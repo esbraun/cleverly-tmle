@@ -1826,7 +1826,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             gradient=gradient,
             transform=transform,
         )
-        return with_derived_bootstrap(derived, self.estimates, self.bootstrap, names, function)
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            names,
+            function,
+            cluster=self.data.cluster,
+        )
 
     def _levels(self) -> dict[tuple[str, str | None, int], str]:
         """``(regimen, cause, horizon) -> name`` of every reported level.
@@ -1990,6 +1997,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             self.bootstrap,
             (numerator, denominator),
             ratio_function(kind, complement=view == "survival"),
+            cluster=self.data.cluster,
         )
 
     def _ratio_name(self, numerator: str, denominator: str, kind: str, view: str) -> str:
@@ -2169,6 +2177,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             self.bootstrap,
             tuple(weights),
             linear_function(tuple(weights.values()), constant),
+            cluster=self.data.cluster,
         )
 
     def rmtl(
@@ -2287,6 +2296,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             self.bootstrap,
             tuple(weights),
             linear_function(tuple(weights.values())),
+            cluster=self.data.cluster,
         )
 
     def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
@@ -4114,7 +4124,7 @@ class _SequentialEstimator:
             raise ValueError(
                 f"bootstrap_interval={self.bootstrap_interval!r} names an interval of the "
                 "full-refit bootstrap, and n_bootstrap=0 runs none. Pass n_bootstrap= too, "
-                "such as n_bootstrap=399"
+                "such as n_bootstrap=199"
             )
         if self.ratio not in ("density", "classifier"):
             raise ValueError(
@@ -4846,12 +4856,14 @@ class _SequentialEstimator:
         )
         if (
             self._estimator in ("tmle", "sdr")
-            and not self.n_bootstrap
+            and not (self.n_bootstrap and self.bootstrap_interval == "bca")
             and prepared.cluster is None
             and model is None
         ):
             # A Wald fit of an estimate read from few rows: the variance estimate is noisy
-            # and the skew moves the coverage (``cleverly.inference.sparse``).
+            # and the skew moves the coverage (``cleverly.inference.sparse``). A percentile
+            # bootstrap keeps the skew shortfall and its first interval is still the Wald one,
+            # so it warns too, with advice for the BCa interval.
             warn_sparse_influence(
                 influence_report(
                     {name: e for name, e in estimates.items() if e.supplies_inference},
@@ -4859,6 +4871,7 @@ class _SequentialEstimator:
                 ),
                 cross_fitted=not folds.is_single,
                 bootstrap_measured=not hazard and not self.isotonic,
+                percentile_bootstrap=bool(self.n_bootstrap),
             )
         result = self._finish(result, reported, fits)
         if self.n_bootstrap:
@@ -5014,7 +5027,13 @@ class _SequentialEstimator:
             horizons.update(fit.horizon for fit in fits)
             reference = fits[1].regimen.label if len(fits) > 1 else None
             reported.append(ReportedName(name, fits[0].regimen.label, reference))
-        if tuple(item.name for item in reported) != names or len(horizons) != 1:
+        produced = tuple(item.name for item in reported)
+        # The same names in another order would drop the fast path without a trace, so fail
+        # loudly under ``python`` without ``-O``.
+        assert produced == names or sorted(produced) != sorted(names), (
+            "the contributors and the result list the same estimates in a different order"
+        )
+        if produced != names or len(horizons) != 1:
             return None
         regimens = tuple(plan.regimen for plan in plans)
 
@@ -5569,10 +5588,10 @@ class LTMLE(_SequentialEstimator):
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     bootstrap_interval : {"percentile", "bca"}, default="percentile"
         The pointwise bootstrap interval.  ``"bca"`` is the bias-corrected and accelerated
-        interval, with the acceleration from each estimate's own influence curve.  It needs
-        ``n_bootstrap``; 399 replicates is the X39 study setting.  It carries the label
-        ``experimental`` until a registered row lists the ``bootstrap_bca`` kind for the
-        fit.
+        interval, with the acceleration from each estimate's own influence curve (summed within
+        clusters when clusters are resampled).  It needs ``n_bootstrap``; 199 replicates is
+        the X39 study setting.  It carries the label ``experimental`` until a registered row
+        lists the ``bootstrap_bca`` kind for the fit.
     survival_model : {"iterated_mean", "hazard"}
         How a survival curve is modelled.  ``"iterated_mean"`` runs one backward
         recursion per horizon, and its curve can decrease.  ``"hazard"`` fits the
