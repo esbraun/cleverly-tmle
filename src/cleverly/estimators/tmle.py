@@ -230,7 +230,7 @@ from ..targets.population_intervention import (
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
-from ._nuisance import KnownPropensity, NuisanceEstimates, RepeatFit, fit_nuisances
+from ._nuisance import DrawInference, KnownPropensity, NuisanceEstimates, RepeatFit, fit_nuisances
 from ._strata import (
     absent_arm_error,
     check_stratified_targets,
@@ -1613,12 +1613,13 @@ class TMLE:
                 alternative="Use cv_evaluation=False.",
                 roadmap="X28",
             )
-        if self.simultaneous and len(estimands) > 1:
+        if self.simultaneous and len(estimands) > 1 and self._builds_default_band(data):
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
             # refusing on the flag would refuse every single-estimand repeated fit over a
-            # band the fit would never build.  One estimand can still expand into several
-            # estimates, so the construction site refuses again once the count is known.
+            # band the fit would never build.  The same holds for a fit whose
+            # ``_builds_default_band`` declines the band.  One estimand can still expand into
+            # several estimates, so the construction site refuses again once the count is known.
             refuse_after_repeats(
                 self.repeats,
                 operation="simultaneous=True",
@@ -1897,7 +1898,8 @@ class TMLE:
             # ``_retarget_detailed`` applies ``_inference_status`` to what it returns, and to
             # both fold-level reports, so ``per_repeat``, ``median_estimates``,
             # ``result.repeats`` and ``result.cv_targeting`` all carry it.
-            estimates, fluctuations, detail = self._retarget_detailed(
+            retarget = partial(
+                self._retarget_detailed,
                 data,
                 nuisance,
                 estimands=estimands,
@@ -1906,6 +1908,8 @@ class TMLE:
                 g_bounds_conditional=config.g_bounds_conditional,
                 classification=classification,
             )
+            # The record is read before the median, so each draw keeps its own status.
+            estimates, fluctuations, detail, draw_record = self._targeted_draw(data, retarget)
             per_repeat.append(estimates)
             repeats.append(
                 RepeatFit(
@@ -1913,6 +1917,7 @@ class TMLE:
                     fluctuations=fluctuations,
                     psi={name: value.psi for name, value in estimates.items()},
                     seed=seed,
+                    inference=draw_record,
                 )
             )
             details.append(detail)
@@ -2020,6 +2025,36 @@ class TMLE:
             )
         record_fit(classification, result, source="TMLE._fit_single")
         return result
+
+    def _targeted_draw(
+        self,
+        data: CausalData,
+        retarget: Callable[[], tuple[dict[str, ParameterEstimate], Any, Any]],
+    ) -> tuple[dict[str, ParameterEstimate], Any, Any, dict[str, DrawInference]]:
+        """Run one draw's targeting, and record its own status and standard error per estimand.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. This hook does not read it; the per-arm
+            :class:`~cleverly.CTMLE` reads it to decide whether the draw has a stack.
+        retarget : callable
+            Runs the draw's targeting once. It returns the estimates, the fluctuations and
+            the fold-level report.
+
+        Returns
+        -------
+        tuple
+            The three values of ``retarget``, then one :class:`DrawInference` per estimand,
+            without a curve or a shipped standard error.
+        """
+        del data
+        estimates, fluctuations, detail = retarget()
+        record = {
+            name: DrawInference(status=estimate.inference, se=float(np.sqrt(estimate.variance)))
+            for name, estimate in estimates.items()
+        }
+        return estimates, fluctuations, detail, record
 
     def _cv_detail(
         self, details: Sequence[CVTargeting | None], *, cluster: IntArray | None
@@ -4966,8 +5001,14 @@ class TMLE:
         fluctuation: Fluctuation,
         targeted: InitialFit,
         scaled: FloatArray,
+        submodel: Submodel,
     ) -> dict[float, FloatArray] | None:
-        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other."""
+        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other.
+
+        ``submodel`` is the mean submodel the estimates read. This hook does not read it; the
+        per-arm :class:`~cleverly.CTMLE` reads its clever covariate.
+        """
+        del submodel
         parts = correction_parts(data, nuisance, fluctuation, targeted, scaled)
         return None if parts is None else parts.total()
 
@@ -5013,7 +5054,7 @@ class TMLE:
         # alternation exited at: the refitted reductions and the *targeted* mechanism, both
         # of which live on the fluctuation rather than on the nuisances. `None` for every
         # other fit, and then `counterfactual_means` is untouched character for character.
-        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled)
+        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled, submodel)
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)
