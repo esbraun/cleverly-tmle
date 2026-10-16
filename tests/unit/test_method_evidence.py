@@ -1854,26 +1854,7 @@ class TestTheStudyStillMeasuresTheCode:
         if declared_cells is None:
             return
         by_stream: dict[tuple[str, int], set[str]] = {}
-        gated_draws = {
-            (cell.dgp.name, cell.seed, cell.n, cell.replicates)
-            for cell in declared_cells()
-            if cell.role != property_verdicts.DIAGNOSTIC_ROLE
-        }
         for cell in declared_cells():
-            # A reported cell states no claim.  It may read the draws of a gated cell of the
-            # same size and count, so its number is a paired reading beside that cell (X43's
-            # one-fold fit beside the five-fold fit of the same history).
-            if (
-                cell.role == property_verdicts.DIAGNOSTIC_ROLE
-                and (
-                    cell.dgp.name,
-                    cell.seed,
-                    cell.n,
-                    cell.replicates,
-                )
-                in gated_draws
-            ):
-                continue
             by_stream.setdefault((cell.dgp.name, cell.seed), set()).add(cell.property)
         collisions = {
             stream: sorted(properties)

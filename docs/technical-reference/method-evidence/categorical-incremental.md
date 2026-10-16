@@ -112,7 +112,7 @@ families below state what each cell tests.
 | `mechanism_targeting` | the `T_a` contrast on law P, with a mechanism tilted along its score by $2/\sqrt n$. The TMLE, unstratified and in stratum V = 1, and the outcome-only targeted plug-in | each TMLE cell has bias inside the margin and an SE-ratio interval inside the efficiency band. The outcome-only control lies above the truth and outside the margin |
 | `type_i_error` and `power` | the `T_a` contrast on law P0 and law Pw | the upper endpoint of the rejection interval on law P0 stays at or below the type-I ceiling. The lower endpoint on law Pw clears the minimum power |
 | `single_robustness` | the mechanism saturated and the outcome regression constant, at n = 8,000 and 16,000. The mechanism constant with a saturated outcome regression is a diagnostic | bias inside the margin at both sizes. The diagnostic prints its bias beside the exact limit and states no verdict |
-| `in_sample_fit` | the longitudinal contrast on law L with one fold, on the draws of the five-fold calibration cell | no verdict. The cell prints its bias and coverage beside the exact truth |
+| `in_sample_fit` | the longitudinal contrast on law L with one fold, on its own sample stream | no verdict. The cell prints its bias and coverage beside the exact truth |
 | `censoring_complete_case` | the mean under `T_a` on law L, fitted to the rows that never drop out, with no censoring model | no verdict. The cell prints its bias beside the exact complete-case limit |
 
 The `mechanism_targeting` family is the study-scale evidence for the softmax update. A saturated

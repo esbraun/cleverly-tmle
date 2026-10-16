@@ -229,6 +229,9 @@ FIT_SETS: tuple[tuple[str, str, str, int, int], ...] = (
     ("interval_calibration", "law_p", "calibration", POINT_CALIBRATION_N, CALIBRATION_REPLICATES),
     ("interval_calibration", "law_l", "calibration", LONGITUDINAL_N, CALIBRATION_REPLICATES),
     ("interval_calibration", "law_l0", "calibration", LONGITUDINAL_N, CALIBRATION_REPLICATES),
+    # The one-fold diagnostic reads its own sample stream: stream independence, because no
+    # verdict reads the cell (the X19 precedent; the declaration commit records the reason).
+    ("in_sample_fit", "law_l", "one_fold", LONGITUDINAL_N, CALIBRATION_REPLICATES),
     ("mechanism_targeting", "law_p", "tilted", POINT_CALIBRATION_N, TARGETING_REPLICATES),
     (
         "mechanism_term_necessity",
@@ -399,7 +402,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         DIAGNOSTIC_ROLE,
         "law_l",
         LONG_CONTRAST,
-        _seed("interval_calibration", "law_l", 0),
+        _seed("in_sample_fit", "law_l", 0),
         n=LONGITUDINAL_N,
         replicates=CALIBRATION_REPLICATES,
     )
@@ -492,21 +495,23 @@ def _fit_set_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any
         ]
     if family == "interval_calibration" and stream == "law_l":
         main = common.fit_longitudinal(frame, long_law.LAW_L, n_folds=common.N_FOLDS)
-        one_fold = common.fit_longitudinal(frame, long_law.LAW_L, n_folds=1)
         return [
             row(
                 "longitudinal_dropout_contrast_t_a__correctly_specified",
                 "positive",
                 TRUTH["longitudinal_dropout_contrast_t_a"],
                 main[LONG_CONTRAST],
-            ),
+            )
+        ]
+    if family == "in_sample_fit":
+        one_fold = common.fit_longitudinal(frame, long_law.LAW_L, n_folds=1)
+        return [
             row(
                 "longitudinal_dropout_contrast_t_a__one_fold",
                 DIAGNOSTIC_ROLE,
                 ONE_FOLD_TRUTH,
                 one_fold[LONG_CONTRAST],
-                "in_sample_fit",
-            ),
+            )
         ]
     if family == "interval_calibration":
         result = common.fit_longitudinal(frame, long_law.LAW_L0, n_folds=common.N_FOLDS)
@@ -644,9 +649,9 @@ def _cells_of(key: _Key) -> list[str]:
         labels = [label for label in CALIBRATION_LABELS if CALIBRATION[label][0] == stream]
         names = [f"{calibration}/{label}__correctly_specified" for label in labels]
         names += [control for name in names for control in DERIVED_CELLS[name]]
-        if stream == "law_l":
-            names.append("in_sample_fit/longitudinal_dropout_contrast_t_a__one_fold")
         return names
+    if family == "in_sample_fit":
+        return [f"{family}/longitudinal_dropout_contrast_t_a__one_fold"]
     if family == "mechanism_targeting":
         return [
             f"{family}/{cell}"
