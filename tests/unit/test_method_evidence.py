@@ -881,9 +881,12 @@ class TestPublishedVerdicts:
         single = published.loc[published["property"] == "single_robustness"]
         positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
-            expected = bool(positive["bias_equivalent"].all())
-            assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
-                f"{study.slug}: a single_robustness row's verdict is not its declared rule"
+            own = [bool(value) for value in positive["bias_equivalent"]]
+            assert [bool(value) for value in positive["passed"]] == own, (
+                f"{study.slug}: a single_robustness row's verdict is not its own bias rule"
+            )
+            assert set(single["property_passed"].map(bool)) == {all(own)}, (
+                f"{study.slug}: the single_robustness family verdict is not the joint rule"
             )
 
         # Unconditional over every study with calibration cells.  Guarding this block on the

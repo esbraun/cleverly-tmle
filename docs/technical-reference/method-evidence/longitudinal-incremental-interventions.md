@@ -135,7 +135,7 @@ names any other setting. `x2` is the plan that doubles the odds of treatment at 
 | `power` | `odds x1.5 vs natural course` on law `Aw`. 2,000 draws at n = 4,000 | the rejection lower bound clears the minimum power |
 | `simultaneous_coverage` | the band over nine tilts on `geomspace(0.25, 4, 9)`, with nine means and eight contrasts, and its pointwise control. 2,000 draws at n = 5,000 | the band's joint coverage interval lies inside the calibration coverage band. The pointwise control's joint coverage interval lies below the nominal rate |
 | `mechanism_term_necessity` | `contrast_x2` fits on their own draws of law `A`, with the full curve, and with the mechanism term dropped (the control). 3,000 draws at n = 48,000 | the full curve's SE-ratio interval lies inside the efficiency-ratio band. The control's interval lies wholly below the calibration band |
-| `single_robustness` | linear outcome regressions with a correct mechanism, at n = 48,000 and 96,000, and a constant mechanism at n = 48,000 (reported). 1,000 draws each | the two positive cells pass the bias-equivalence rule. The constant-mechanism cell states no verdict |
+| `single_robustness` | linear outcome regressions with a correct mechanism, at n = 48,000 and 96,000, and a constant mechanism at n = 48,000 (reported). 1,000 draws each | the two positive cells pass the bias-equivalence rule. The pair tests equivalence at two sizes, not a falling bias. The constant-mechanism cell states no verdict |
 | `targeting_necessity` | the `single_robustness` fit at n = 96,000 on its own draws: the one-step estimate, and the plug-in mean of the first-node regression (the control). 1,000 draws | the one-step bias lies inside the margin. The plug-in bias lies outside it, and the plug-in mean sits at least 0.25 one-step standard deviations from the one-step mean |
 
 The calibration labels:
@@ -171,13 +171,18 @@ measured the bias at n = 8,000, and each size below projects it.
 | pass probability at the projected bias | at least 0.95 for a primary row and a positive root-n rung. At least 0.90 for a calibration cell | `tests/unit/test_longitudinal_incremental_design.py` |
 | calibration replications | 3,000. At 2,000 an ideal cell passes with probability 0.935, and the seven labels pass jointly with 0.59. At 3,000 each passes with at least 0.99 and the seven jointly with 0.96 | `tests/studies/longitudinal_incremental_properties.py` |
 | calibration n | 48,000. The per-cell rule allows 24,000. The larger size cuts the projected bias by a factor of 1.4 | the same |
-| robustness sizes | 48,000 and 96,000. The probe reads biases of 0.20 at n = 6,000 and 0.11 at 24,000, so 24,000 fails | the same |
+| robustness sizes | 48,000 and 96,000. The probe reads biases of 0.20 at n = 6,000 and 0.11 at 24,000, so 24,000 passes with a probability below 0.95 | the same |
 | power cell | 2,000 draws. Its rejection rate reads 0.855 at n = 4,000 against an exact-law power of 0.882 | the same |
 | band control | the pointwise intervals cover jointly with exact probability 0.811. The control clears the control-power rule at that value plus 0.005 | `tests/unit/test_longitudinal_incremental_design.py` |
 | mechanism-term control | the exact SD ratio is 0.78, below the calibration band | `tests/unit/test_longitudinal_incremental_design.py` |
 
 The fallback-read bias bound holds far below these sizes. The study fixed every size, replication
-count, margin, law, learner, fold count and seed before any run.
+count, margin, law, learner, fold count and seed before any run. After the run, two families
+moved to their own sample streams, because they reused the fits of another family. The families
+are `mechanism_term_necessity` and `targeting_necessity`. Both were refitted at the declared size
+and spliced into the committed rows. `targeted-refit.json` in the study directory records the
+baseline, the selection, the replacement fits and the identical carried rows. Both families
+passed before and after the refit.
 
 ## Red-cell route
 

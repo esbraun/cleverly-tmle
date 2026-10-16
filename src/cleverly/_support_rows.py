@@ -1229,6 +1229,13 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         ),
         "band-finite-sample: joint coverage 0.9085 to 0.9394",
     ),
+    "G34.competing": (
+        (
+            "X19-competing-calibration: coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, "
+            "empirical efficiency ratio 0.9239 to 0.9884, reported efficiency ratio 1.0005 to"
+            " 1.0007"
+        ),
+    ),
     "T02.binary": (
         "band-finite-sample: joint coverage 0.9101 to 0.9382",
         "band-finite-sample: joint coverage 0.9173 to 0.9443",
@@ -1935,6 +1942,103 @@ def _long_rows() -> tuple[SupportRow, ...]:
             dependence="t",
             kinds=_LONG_T,
             cells=["clusters_20"],
+        ),
+    ]
+    # ``IPSI``: the incremental tilt of every node, without dropout (X19 S1) and with it (S2).
+    s1 = ["longitudinal-incremental"]
+    s2 = ["longitudinal-incremental-dropout"]
+    ipsi: dict[str, Any] = {
+        "engine": "ipsi",
+        "regimens": ("tilt",),
+        "outcome": ("gaussian", "bounded"),
+        "treatment": ("2", "2", "2"),
+    }
+    ipsi_survival = {**ipsi, "outcome": BINARY}
+    rows += [
+        long_row(
+            "G33.cross_fitted",
+            s1,
+            **ipsi,
+            missing=("complete",),
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["contrast_x2", "mean_x2", "per_node", "tilt_then_static", "nine_tilts"],
+        ),
+        long_row(
+            "G33.in_sample",
+            s1,
+            **ipsi,
+            missing=("complete",),
+            cells=["contrast_x2_in_sample"],
+        ),
+        long_row(
+            "G33.known",
+            s1,
+            **ipsi,
+            missing=("complete",),
+            splitting=xf,
+            qualifiers=("A1", "A2", "A3"),
+            cells=["known_x2"],
+        ),
+        long_row(
+            "G33.two_nodes",
+            s1,
+            **{**ipsi, "treatment": ("2", "2")},
+            missing=("complete",),
+            splitting=xf,
+            cells=["no_positivity"],
+        ),
+        long_row(
+            "G34.in_sample", s2, **ipsi, cells=["dropout_folds_1", "dropout_contrast_x2_in_sample"]
+        ),
+        long_row(
+            "G34.cross_fitted",
+            s2,
+            **ipsi,
+            splitting=xf,
+            cells=["dropout_folds_5", "dropout_contrast_x2"],
+        ),
+        long_row(
+            "G34.survival.in_sample",
+            s2,
+            **ipsi_survival,
+            outcome_kind="survival",
+            kinds=_LONG_BAND,
+            cells=["survival_folds_1", "survival_contrast_x2_h3_in_sample", "survival_grid"],
+        ),
+        long_row(
+            "G34.survival.cross_fitted",
+            s2,
+            **ipsi_survival,
+            outcome_kind="survival",
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["survival_folds_5", "survival_contrast_x2_h3", "survival_grid"],
+        ),
+        long_row(
+            "G34.competing",
+            s2,
+            **ipsi_survival,
+            outcome_kind="competing",
+            splitting=xf,
+            cells=["competing_contrast_x2_h3"],
+        ),
+        long_row("G34.msm", s2, **ipsi, msm=True, splitting=xf, cells=["msm_log_delta"]),
+        long_row(
+            "G34.weighted",
+            s2,
+            **ipsi,
+            weighting="fixed",
+            splitting=xf,
+            cells=["weighted_contrast_x0_5"],
+        ),
+        long_row(
+            "G34.clustered",
+            s2,
+            **ipsi,
+            dependence="clustered",
+            splitting=xf,
+            cells=["mean_x2__cluster_robust"],
         ),
     ]
     baselines = ["sequential-baselines"]
