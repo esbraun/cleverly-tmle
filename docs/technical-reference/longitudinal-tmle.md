@@ -487,8 +487,9 @@ above. So they test the targeting with a nearly exact ratio and not the default 
 
 ### Limits of the continuous-policy evidence
 
-The registered studies `mtp-boundaries` and `mtp-pricing` test the continuous policies of this
-section. Each row below states a limit that the studies publish.
+The registered studies [`mtp-boundaries`](method-evidence/mtp-boundaries.md),
+[`mtp-pricing`](method-evidence/mtp-pricing.md) and [`mtp-tuning`](method-evidence/mtp-tuning.md)
+test the continuous policies of this section. Each row below states a limit that the studies publish.
 
 | limit | what it means for use |
 | --- | --- |
