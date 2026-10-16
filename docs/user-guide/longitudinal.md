@@ -738,8 +738,11 @@ mean model with the declared blip features. Every row of the summary and of `to_
 that label. A blip that depends on an undeclared earlier treatment or covariate makes the
 coefficients answer a different question.
 
-No registered study covers `StructuralNestedMean` yet, so every estimate reads `experimental`. The
-summary prints a `support` column and the reason. The label makes no coverage claim.
+The evidence label is "Python property evidence, with comparator runs pending". The
+[structural nested mean study](../technical-reference/method-evidence/structural-nested-mean.md)
+covers cross-fitted fits with `GLM` nuisances on binary, three-level and dose nodes. It also
+covers known weights and 40 or more clusters. A fit inside those rows reads `supported`. Any other fit, such as an in-sample fit, reads `experimental`. The summary
+prints a `support` column and the reason.
 
 Check the model against `LTMLE`.
 
