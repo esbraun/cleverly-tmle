@@ -7,8 +7,9 @@ of node-specific main-terms models.  The laws and their exact truths are in
 
 This study is Python only, and its record declares no comparator.  ``pygformula`` 1.2.0 fits
 one pooled model per covariate over time, so on these laws it fits a different model.  It is
-compared on construction-matched fixtures instead (:mod:`tests.studies.parametric_gformula_fixtures`,
-run by ``tests/canonical/parametric_gformula_study/compare_pygformula.py`` in its own image).
+compared on construction-matched fixtures instead
+(:mod:`tests.canonical.parametric_gformula_study.fixtures`, run by
+``tests/canonical/parametric_gformula_study/compare_pygformula.py`` in its own image).
 
 **Laws.**  Every covariate law is exactly the main-terms model the estimator fits, in the
 estimator's full-history design.  Treatment and censoring are main-terms logistic in the

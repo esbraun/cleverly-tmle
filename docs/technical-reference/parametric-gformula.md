@@ -339,7 +339,7 @@ references are to `gfoRmula` 1.1.1 and `pygformula` 1.2.0.
 The packages differ from this estimator in the model class. A comparison of estimates is a
 comparison of two model classes, unless the data come from a law where both are correct.
 `pygformula` cannot express node-specific covariate models, so a matching comparison needs a
-two-node panel for the covariate laws. The fixtures in `tests/studies/parametric_gformula_fixtures.py`
+two-node panel for the covariate laws. The fixtures in `tests/canonical/parametric_gformula_study/fixtures.py`
 use such laws. Coefficients agree within a relative tolerance of `1e-6`. Estimates agree within
 four combined Monte Carlo SE over 24 seeds, and to `1e-10` where neither side draws a covariate.
 The study README gives the

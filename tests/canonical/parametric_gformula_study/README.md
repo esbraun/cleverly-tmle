@@ -79,7 +79,7 @@ verdicts from the committed rows. It also checks the digests in `pygformula-run.
 
 `pygformula` cannot express node-specific covariate models. It parses bare column names and
 pools the residual SD across time. So the fixtures use laws where pooled and node-specific
-models agree. The laws are in `tests/studies/parametric_gformula_fixtures.py`.
+models agree. The laws are in `tests/canonical/parametric_gformula_study/fixtures.py`.
 
 | fixture | law | what it tests |
 | --- | --- | --- |

@@ -6,7 +6,7 @@ From the repository root, with Docker running::
 
 The run has four steps.
 
-1. Draw the fixture panels (``tests/studies/parametric_gformula_fixtures.py``) and write them in
+1. Draw the fixture panels (``tests/canonical/parametric_gformula_study/fixtures.py``) and write them in
    the long form ``pygformula`` reads.
 2. Build the comparator image from ``Dockerfile`` and ``requirements.txt``, then run
    ``run_pygformula.py`` in it on the panels.  The container runs the declared seeds on each
@@ -36,8 +36,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from tests.canonical.parametric_gformula_study import fixtures
 from tests.canonical.regenerate import Reference
-from tests.studies import parametric_gformula_fixtures as fixtures
 from tests.studies.canonical_parametric_gformula import PYGFORMULA
 
 HERE = Path(__file__).resolve().parent

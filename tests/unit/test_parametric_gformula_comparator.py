@@ -19,8 +19,8 @@ import pytest
 from scipy.special import expit
 
 from tests.canonical.parametric_gformula_study import compare_pygformula as driver
+from tests.canonical.parametric_gformula_study import fixtures as fx
 from tests.canonical.parametric_gformula_study import run_pygformula as runner
-from tests.studies import parametric_gformula_fixtures as fx
 
 STUDY = Path(driver.__file__).resolve().parent
 
