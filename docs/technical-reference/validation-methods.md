@@ -1102,8 +1102,9 @@ cross-fitted variance, so its expansion was not trusted.
 The correction of the point assumes a smooth mechanism, a small remainder and a positive result.
 The three correction keys refuse the limits when one assumption fails. The point bounds remain.
 
-The property study of the corrected limits is pending. The
-[study page](method-evidence/omitted-variable-bound-plugin-standard-error.md) states the status.
+The property study of the corrected limits has run. The reported standard error is calibrated in 46
+of 48 positive cells, and the other two read conservative. The
+[study page](method-evidence/omitted-variable-bound-plugin-standard-error.md) states the result.
 
 **Conditions.** The limits inherit the conditions of Theorem 4, and add the conditions in the
 table. The first two conditions have no check.
@@ -1148,7 +1149,7 @@ omission for an ATE or an `ey`. The exact-law witnesses carry that term.
 | `TestTheWitnessHasTeeth` | thirteen mutations, M0 to M12, each fail the witnesses that name them. M0 changes nothing and passes |
 | `tests/unit/test_omitted_variable_plugin_second_order.py` | the closed forms against central differences, the Cox and Snell bias of a saturated model, and $n\hat B$ against an exact binomial enumeration, in sample and cross-fitted. `TestTheCorrectionRefuses` checks the three correction keys. Eight mutations, M13 to M20, each fail the witnesses that name them |
 | `tests/unit/test_omitted_variable_plugin_refusals.py` | each key has a full-string test with its reason, roadmap item and remedy, a qualifying twin of each learner key, and a test of the capture |
-| [omitted-variable bound plug-in standard error](method-evidence/omitted-variable-bound-plugin-standard-error.md) | the registered study `omitted-variable-bound-plugin-se`. It compares the reported standard error of each bound with its sampling spread in eight scenarios, in sample and cross-fitted. The corrected $\nu^2$ is measured and not judged. The page states the declaration and the status of the run |
+| [omitted-variable bound plug-in standard error](method-evidence/omitted-variable-bound-plugin-standard-error.md) | the registered study `omitted-variable-bound-plugin-se`. It compares the reported standard error of each bound with its sampling spread in eight scenarios, in sample and cross-fitted. The corrected $\nu^2$ is measured and not judged. The page states the declaration, the result and the two conservative cells |
 
 ### Simulated common-cause stress surface
 

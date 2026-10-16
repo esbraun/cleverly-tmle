@@ -54,6 +54,12 @@ The `X41-negative-control` owner holds the three `misspecification_control` cell
 [sequential baselines study](sequential-baselines.md). They are a declared negative control. The
 study lists them as red before the run, and no work is owed.
 
+The `X26-plugin-conservative` owner holds the lower bounds of the ATE and the ATT of arm 2 against
+arm 0 on the cross-fitted three-arm fit of the
+[plug-in bound study](omitted-variable-bound-plugin-standard-error.md). The study reads both as
+conservative. Their SE-ratio intervals end near 1.07, and the diagnosis found the package curve in
+agreement with a jackknife and a sandwich. The rerun at $n = 4000$ is pending.
+
 A red row stays red under the `reporting` policy. It is read again only under the condition its
 owner names. The ledger moves no margin and changes no verdict.
 
@@ -105,13 +111,14 @@ The test fails on four states.
 | [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) | 1 | longitudinal incremental propensity-score interventions under dropout |
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
 | [`X45-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | parametric g-formula |
+| [`X26-plugin-conservative`](../../roadmap.md#red-cell-owners) | 2 | omitted-variable bound plug-in standard error |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) | 4 | boundary-binding price plans over follow-up lengths |
 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) | 3 | boundary-binding price plans over follow-up lengths |
 | [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) | 1 | modified treatment policies at declared boundaries |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 182 | 35 studies |
+| total | 184 | 36 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -298,6 +305,8 @@ same text as the "measured" column of its study page.
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_2000` | positive | its own rule | bias 0.000923, coverage 0.8963 to 0.9460, SE ratio 0.9292 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_4000` | positive | its own rule | bias 0.000466, coverage 0.8992 to 0.9481, SE ratio 0.8955 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_8000` | positive | its own rule | bias 0.000447, coverage 0.8949 to 0.9449, SE ratio 0.8812 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+| [omitted-variable bound plug-in standard error](omitted-variable-bound-plugin-standard-error.md) | property | `interval_calibration/multinomial_logistic_crossfit_ate_2v0_lower__correctly_specified` | positive | its own rule | coverage 0.9556 to 0.9657, SE ratio 1.0332 to 1.0723, failures 32 of 10000 (complete case fails) | [`X26-plugin-conservative`](../../roadmap.md#red-cell-owners) |
+| [omitted-variable bound plug-in standard error](omitted-variable-bound-plugin-standard-error.md) | property | `interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified` | positive | failure accounting: worst case fails | coverage 0.9568 to 0.9667, SE ratio 1.0288 to 1.0683, failures 32 of 10000 (worst case fails) | [`X26-plugin-conservative`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9101 to 0.9382 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band` | positive | its own rule | joint coverage 0.9173 to 0.9443 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9015 to 0.9309 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
