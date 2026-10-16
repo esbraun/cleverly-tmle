@@ -852,7 +852,7 @@ def _solve(stage: _Stage, weights: FloatArray) -> _Solution:
     psi = _g_estimation(stage.y_res, stage.z_res, w)
     gram = _jacobian(stage.z_res, w, stage.offsets)
     scores = _scores(stage, psi, w)
-    psi_curve = np.linalg.solve(gram, scores.T).T
+    psi_curve = np.asarray(np.linalg.solve(gram, scores.T).T, dtype=np.float64)
     mu0, mu0_curve = _reference_curve(stage, psi, w, psi_curve)
     return _Solution(
         weights=w, psi=psi, gram=gram, psi_curve=psi_curve, mu0=mu0, mu0_curve=mu0_curve
