@@ -532,6 +532,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P7",),
             outcome=CONTINUOUS,
             treatment=("continuous",),
+            options={"ratio": "density"},
             cells=["continuous_modified_policy"],
             limits=["One paired calibration leg is red (RM18)."],
         )
@@ -542,6 +543,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ["policy-point-mtp"],
             families=("P7",),
             treatment=("continuous",),
+            options={"ratio": "density"},
             cells=["policy_point"],
             limits=["One calibration cell is red."],
         )
@@ -675,6 +677,32 @@ def _t_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             qualifiers=["known_mechanism"],
             cells=["known_g__cvtmle"],
+        )
+    )
+    # X31: joint policies at a vector treatment. A vector with a dose keys as ``vector``; an
+    # all-categorical vector is a categorical treatment over its observed tuples (four here).
+    for suffix, cells in (
+        ("density", ["point_vector_mixed", "point_vector_density__correctly_specified"]),
+        ("classifier", ["point_vector_classifier__correctly_specified"]),
+    ):
+        rows.append(
+            point_row(
+                f"T33.{suffix}",
+                ["vector-mtp"],
+                families=("P7",),
+                treatment=("vector",),
+                options={"ratio": suffix},
+                cells=cells,
+            )
+        )
+    rows.append(
+        point_row(
+            "T34",
+            ["vector-mtp"],
+            families=("P7",),
+            treatment=("arms4",),
+            options={"ratio": "density"},
+            cells=["point_vector_categorical"],
         )
     )
     return _merged(
@@ -1333,6 +1361,7 @@ def long_row(
     survival_model: str = "iterated_mean",
     targeting: str = "iterative",
     isotonic: bool = False,
+    ratio: str = "density",
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
@@ -1377,6 +1406,8 @@ def long_row(
         The hazard targeting algorithm of a ``hazard`` row.
     isotonic : bool, default False
         Whether the row projects the curve onto a monotone one.
+    ratio : {"density", "classifier"}, default "density"
+        The policy density ratio of a modified treatment policy row.
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
@@ -1409,7 +1440,7 @@ def long_row(
         options=(
             ("multiplier_kind", "rademacher"),
             ("normalization", normalization),
-            ("ratio", "density"),
+            ("ratio", ratio),
             ("survival_model", survival_model),
             ("targeting", targeting),
             ("isotonic", isotonic),
@@ -2079,6 +2110,48 @@ def _long_rows() -> tuple[SupportRow, ...]:
         )
         rows[-2] = replace(rows[-2], cells=(f"{law}_hajek",))
         rows[-1] = replace(rows[-1], cells=(f"{law}_ht",))
+    # X31: a mixed node of one categorical and one or two dose components. G35 has two such
+    # nodes; G36 has one node whose second dose reads the first (an ordered map).
+    for row_id, treatment, ratio, cells in (
+        (
+            "G35.density",
+            ("mixed", "mixed"),
+            "density",
+            ["longitudinal_vector_mixed", "longitudinal_vector_density__correctly_specified"],
+        ),
+        (
+            "G35.classifier",
+            ("mixed", "mixed"),
+            "classifier",
+            ["longitudinal_vector_classifier__correctly_specified"],
+        ),
+        (
+            "G36.density",
+            ("mixed",),
+            "density",
+            ["longitudinal_vector_ordered_density__correctly_specified"],
+        ),
+        (
+            "G36.classifier",
+            ("mixed",),
+            "classifier",
+            [
+                "longitudinal_vector_ordered_classifier",
+                "longitudinal_vector_ordered_classifier__correctly_specified",
+            ],
+        ),
+    ):
+        rows.append(
+            long_row(
+                row_id,
+                ["vector-mtp"],
+                regimens=("mtp",),
+                missing=("complete",),
+                treatment=treatment,
+                ratio=ratio,
+                cells=cells,
+            )
+        )
     return tuple(rows)
 
 

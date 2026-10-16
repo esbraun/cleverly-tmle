@@ -1906,5 +1906,59 @@ def _gap_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+def _vector_cases() -> tuple[RowCase, ...]:
+    """The ``vector-mtp`` cases: a primary scenario fit, or a calibration cell's fit (X31)."""
+    slug = "vector-mtp"
+    primary = "canonical_vector_mtp.py:639"
+    calibration = "vector_mtp_properties.py:317"
+    cases: list[RowCase] = []
+    for row, scenario in (
+        ("T33.density", "point_vector_mixed"),
+        ("T34", "point_vector_categorical"),
+        ("G35.density", "longitudinal_vector_mixed"),
+        ("G36.classifier", "longitudinal_vector_ordered_classifier"),
+    ):
+        cases.append(
+            _seeded(
+                row,
+                slug,
+                scenario,
+                primary,
+                "canonical_vector_mtp",
+                scenario,
+                400,
+                lambda study, frame, scenario=scenario: study.fit(frame, scenario),
+            )
+        )
+    for row, label, scenario in (
+        ("T33.classifier", "point_vector_classifier", "point_vector_mixed"),
+        ("G35.classifier", "longitudinal_vector_classifier", "longitudinal_vector_mixed"),
+        (
+            "G36.density",
+            "longitudinal_vector_ordered_density",
+            "longitudinal_vector_ordered_classifier",
+        ),
+    ):
+        cases.append(
+            _observed(
+                row,
+                slug,
+                f"{label}__correctly_specified",
+                calibration,
+                "vector_mtp_properties",
+                lambda module, scenario=scenario: module.study.draw_from_seed(scenario, 400, 0)[0],
+                lambda module, frame, label=label: module.calibration_fit(label, frame),
+            )
+        )
+    return tuple(cases)
+
+
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
-CASES: tuple[RowCase, ...] = (*_t_cases(), *_d_cases(), *_c_cases(), *_gap_cases(), *_long_cases())
+CASES: tuple[RowCase, ...] = (
+    *_t_cases(),
+    *_d_cases(),
+    *_c_cases(),
+    *_gap_cases(),
+    *_long_cases(),
+    *_vector_cases(),
+)
