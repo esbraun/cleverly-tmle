@@ -24,10 +24,10 @@ holds one `interval_calibration` family with 48 positive cells (a lower and an u
 each of 24 scenario and parameter pairs), 28 `inflated_se_control` cells and 4
 `shrunken_se_control` cells. Each parameter is its own primary scenario, so a refusal of one
 parameter fails the cells of that parameter alone. The corrected $\nu^2$ rows are published as
-`nu2-replicates.csv.gz` and `nu2-reading.csv`, with no verdict. The property phase publishes two
-further readings, also with no verdict. `correction-reading.csv` gives each positive cell with and
-without the package variance correction, and `refusal-reading.csv` gives the refusals of each
-parameter by key. No canonical implementation is compared, so `equivalence.csv` is empty and
+`nu2-replicates.csv.gz` and `nu2-reading.csv`, with no verdict. The property phase publishes
+`refusal-reading.csv`, which gives the refusals of each parameter by key, also with no verdict.
+The standard error of a bound is the influence variance of its curve, with no correction of the
+variance. No canonical implementation is compared, so `equivalence.csv` is empty and
 schema-valid.
 
 Regenerate from the repository root:

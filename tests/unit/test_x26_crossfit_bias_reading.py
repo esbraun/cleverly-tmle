@@ -13,14 +13,14 @@ The measured headline, for the cross-fitted ATE at ``n = 1000``:
 row            coverage  bias, SD   SE ratio  refused
 =============  ========  =========  ========  =======
 raw nu2        0.8845    +1.441     1.079     0
-corrected nu2  0.8119    -0.072     0.732     6
-lower bound    0.9564    -0.068     1.007     6
-upper bound    0.9554    +0.032     1.012     6
+corrected nu2  0.9655    -0.078     1.258     0
+lower bound    0.9590    -0.069     1.019     0
+upper bound    0.9585    +0.030     1.021     0
 =============  ========  =========  ========  =======
 
-The correction removes the bias of the raw :math:`\nu^2`.  It also exposes that the corrected
-:math:`\nu^2` standard error is too small at ``n = 1000``.  The bound rows, which the package
-reports, cover near nominal in every cell.
+The correction removes the bias of the raw :math:`\nu^2`.  Its standard error is the influence
+variance of the uncorrected curve, so the corrected :math:`\nu^2` interval is conservative at
+``n = 1000``.  The bound rows, which the package reports, cover near nominal in every cell.
 """
 
 from __future__ import annotations
@@ -136,82 +136,82 @@ def test_the_raw_bias_shrinks_but_remains_at_n_4000() -> None:
 def test_the_corrected_nu2_has_no_bias_in_every_cell() -> None:
     """The corrected nu^2 bias is within 0.1 SD in every n, fitting and parameter cell.
 
-    The largest absolute bias is 0.072 SD.  The raw rows carry 0.2 to 1.4 SD in the same cells.
+    The largest absolute bias is 0.078 SD.  The raw rows carry 0.2 to 1.4 SD in the same cells.
     """
     reading = _reading()
     corrected = reading.loc[reading["row"] == "nu2"]
     assert len(corrected) == 12
     assert corrected["bias_sd"].abs().max() < 0.1
-    assert corrected["bias_sd"].abs().max() == pytest.approx(0.0720772, abs=1e-5)
+    assert corrected["bias_sd"].abs().max() == pytest.approx(0.0779364, abs=1e-5)
     raw = reading.loc[reading["row"] == "nu2_raw"]
     assert (raw["bias_sd"].to_numpy() > 0.2).all()
 
 
 def test_the_corrected_nu2_se_ratio_at_each_n() -> None:
-    """The corrected nu^2 SE ratio is below one: 0.73 to 0.75 cross-fitted and 0.90 to 0.92 in sample.
+    """The corrected nu^2 SE ratio is above one at n = 1000 and contracts toward one at n = 4000.
 
-    This holds at n = 1000.  At n = 4000 the ratio is 0.95 to 0.96 cross-fitted and 0.96 to 0.98
-    in sample, so the corrected nu^2 interval undercovers at n = 1000 (0.81 to 0.90) and covers
-    0.926 to 0.934 at n = 4000.  The package reports the bound rows, not this interval.
+    The reported standard error is the influence variance of the uncorrected curve, which the
+    correction leaves unchanged.  At n = 1000 the ratio is 1.22 to 1.26 cross-fitted and 1.06 to
+    1.08 in sample.  At n = 4000 it is 1.03 to 1.05 cross-fitted and 0.998 to 1.011 in sample.
+    The corrected nu^2 interval then covers 0.953 to 0.966 cross-fitted and 0.930 to 0.943 in
+    sample at n = 1000, and 0.938 to 0.957 at n = 4000.
     """
     reading = _reading()
-    for fitting, low, high in (("crossfit", 0.7318, 0.7472), ("insample", 0.8970, 0.9197)):
-        ratios = [
-            _cell(reading, 1_000, fitting, t, "nu2")["se_ratio"] for t in ("ate", "att", "atc")
-        ]
-        assert min(ratios) == pytest.approx(low, abs=1e-4)
-        assert max(ratios) == pytest.approx(high, abs=1e-4)
-    for fitting, low, high in (("crossfit", 0.9473, 0.9608), ("insample", 0.9619, 0.9751)):
-        ratios = [
-            _cell(reading, 4_000, fitting, t, "nu2")["se_ratio"] for t in ("ate", "att", "atc")
-        ]
-        assert min(ratios) == pytest.approx(low, abs=1e-4)
-        assert max(ratios) == pytest.approx(high, abs=1e-4)
+    for n, fitting, low, high in (
+        (1_000, "crossfit", 1.22374, 1.25826),
+        (1_000, "insample", 1.05896, 1.07706),
+        (4_000, "crossfit", 1.03217, 1.05039),
+        (4_000, "insample", 0.997545, 1.01136),
+    ):
+        ratios = [_cell(reading, n, fitting, t, "nu2")["se_ratio"] for t in ("ate", "att", "atc")]
+        assert min(ratios) == pytest.approx(low, abs=1e-5)
+        assert max(ratios) == pytest.approx(high, abs=1e-5)
     covers = reading.loc[(reading["row"] == "nu2") & (reading["n"] == 4_000), "coverage"]
-    assert covers.min() == pytest.approx(0.926, abs=1e-12)
-    assert covers.max() == pytest.approx(0.934, abs=1e-12)
+    assert covers.min() == pytest.approx(0.938, abs=1e-12)
+    assert covers.max() == pytest.approx(0.957, abs=1e-12)
     assert _cell(reading, 1_000, "crossfit", "ate", "nu2")["coverage"] == pytest.approx(
-        0.811936, abs=1e-6
+        0.9655, abs=1e-12
     )
 
 
 def test_the_corrected_bound_rows_are_near_nominal_in_every_cell() -> None:
-    """The corrected lower and upper rows cover 0.947 to 0.959, with SE ratio 0.986 to 1.019.
+    """The corrected lower and upper rows cover 0.947 to 0.961, with SE ratio 1.004 to 1.039.
 
     This holds for all 12 cells of n, fitting and parameter.  The cross-fitted ATE at n = 1000
-    covers 0.9564 (lower) and 0.9554 (upper) with bias -0.068 and 0.032 SD.
+    covers 0.9590 (lower) and 0.9585 (upper) with bias -0.069 and 0.030 SD.
     """
     reading = _reading()
     bounds = reading.loc[reading["row"].isin(["lower", "upper"])]
     assert len(bounds) == 24
     assert bounds["coverage"].min() == pytest.approx(0.947, abs=1e-12)
-    assert bounds["coverage"].max() == pytest.approx(0.959, abs=1e-12)
-    assert bounds["se_ratio"].min() == pytest.approx(0.986493, abs=1e-5)
-    assert bounds["se_ratio"].max() == pytest.approx(1.01883, abs=1e-5)
+    assert bounds["coverage"].max() == pytest.approx(0.961, abs=1e-12)
+    assert bounds["se_ratio"].min() == pytest.approx(1.00356, abs=1e-5)
+    assert bounds["se_ratio"].max() == pytest.approx(1.0391, abs=1e-5)
     lower = _cell(reading, 1_000, "crossfit", "ate", "lower")
     upper = _cell(reading, 1_000, "crossfit", "ate", "upper")
-    assert lower["coverage"] == pytest.approx(0.956369, abs=1e-6)
-    assert upper["coverage"] == pytest.approx(0.955366, abs=1e-6)
-    assert lower["bias_sd"] == pytest.approx(-0.0682293, abs=1e-5)
-    assert upper["bias_sd"] == pytest.approx(0.0317387, abs=1e-5)
+    assert lower["coverage"] == pytest.approx(0.959, abs=1e-12)
+    assert upper["coverage"] == pytest.approx(0.9585, abs=1e-12)
+    assert lower["bias_sd"] == pytest.approx(-0.0685793, abs=1e-5)
+    assert upper["bias_sd"] == pytest.approx(0.0297833, abs=1e-5)
 
 
 def test_the_refusals_are_counted_per_cell() -> None:
-    """The package refuses 6, 14 and 11 of 2,000 cross-fitted draws, and 1 in-sample ATT and ATC.
+    """The package refuses 1 cross-fitted and 1 in-sample draw of each of the ATT and the ATC.
 
-    These are the ATE, ATT and ATC at n = 1000.  The in-sample ATE and every n = 4000 cell have
-    none.  A refused draw keeps its raw nu^2 and loses its corrected quantities.
+    These are cells at n = 1000, and each refusal has the key ``truncation_active``.  The ATE
+    and every n = 4000 cell have none.  A refused draw keeps its raw nu^2 and loses its
+    corrected quantities.
     """
     rows = _rows()
     refused = rows["refusal"].fillna("").astype(str).ne("")
     counts = rows.loc[refused].groupby(["n", "fitting", "parameter"]).size().to_dict()
     assert counts == {
-        (1_000, "crossfit", "ate"): 6,
-        (1_000, "crossfit", "att"): 14,
-        (1_000, "crossfit", "atc"): 11,
+        (1_000, "crossfit", "att"): 1,
+        (1_000, "crossfit", "atc"): 1,
         (1_000, "insample", "att"): 1,
         (1_000, "insample", "atc"): 1,
     }
+    assert set(rows.loc[refused, "refusal"]) == {"truncation_active"}
     assert rows.loc[refused, "nu2_raw"].notna().all()
     for name in ("nu2", "lower", "upper"):
         assert rows.loc[refused, name].isna().all()

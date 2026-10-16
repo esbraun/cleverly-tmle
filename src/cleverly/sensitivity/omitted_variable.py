@@ -52,8 +52,9 @@ The plug-in estimator of ``nu^2`` squares the fitted representer, so its curve n
 of the fitted treatment mechanism.  Its bounds publish limits when the mechanism is declared
 known, or is a scikit-learn ``LogisticRegression`` with no penalty or a fixed L2 penalty,
 in sample or cross-fitted (:mod:`cleverly.sensitivity._mechanism_stack`).  For such a
-mechanism the bound reports the second-order corrected :math:`\hat\nu^2 - \hat B` and a
-corrected variance (:mod:`cleverly.sensitivity._second_order`).  For any other learner it
+mechanism the bound reports the second-order corrected :math:`\hat\nu^2 - \hat B`
+(:mod:`cleverly.sensitivity._second_order`) with the influence variance of the uncorrected
+curve.  For any other learner it
 reports the uncorrected :math:`E_n[\hat\alpha^2]` and publishes no limits
 (docs/roadmap.md F26).
 
@@ -592,10 +593,6 @@ class SensitivityElements:
     nu2_correction : float or None
         :math:`\hat B`, the second-order bias the plug-in estimate subtracts.  ``None``
         under the doubly robust estimator and wherever the plug-in estimate is uncorrected.
-    nu2_variance_correction : float or None
-        The second-order bias subtracted from the variance of ``nu2``, in the units of
-        :func:`~cleverly.inference.cluster.influence_variance`.  ``None`` with
-        ``nu2_correction``.
     """
 
     estimand: str
@@ -610,26 +607,6 @@ class SensitivityElements:
     limit_refusal: MechanismRefusal | None = None
     plugin_mechanism: str | None = None
     nu2_correction: float | None = None
-    nu2_variance_correction: float | None = None
-
-    def bias_variance_correction(self, strength: float) -> float:
-        """The variance a bound end at ``strength`` subtracts for the corrected ``nu^2``.
-
-        Parameters
-        ----------
-        strength : float
-            The confounding strength of the bound end.
-
-        Returns
-        -------
-        float
-            ``(strength sigma^2 / (2 max_bias))^2`` times :attr:`nu2_variance_correction`,
-            or zero without a correction.
-        """
-        if self.nu2_variance_correction is None or self.max_bias <= 0.0:
-            return 0.0
-        coefficient = strength * self.sigma2 / (2.0 * self.max_bias)
-        return float(coefficient**2 * self.nu2_variance_correction)
 
 
 def sensitivity_elements(
@@ -873,21 +850,18 @@ def _elements_for(
                 nu2, conditioning_indicator, conditioning_share, weights
             )
     nu2_correction: float | None = None
-    nu2_variance_correction: float | None = None
     if mechanism_term is not None:
         # The curve is that of E_n[alpha_hat^2]; the bound reports it less its second-order
-        # bias, with the variance corrected at the same order (_second_order).
+        # bias and keeps the influence variance of that curve (_second_order).
         assert psi_nu2 is not None
         limit_refusal = stacked.refusal
         if limit_refusal is None:
             correction = float(stacked.correction)
-            variance_correction = float(stacked.variance_correction)
-            variance = influence_variance(psi_nu2, data.cluster) - variance_correction
+            variance = influence_variance(psi_nu2, data.cluster)
             limit_refusal = correction_refusal(nu2, correction, variance)
             if limit_refusal is None:
                 nu2 = nu2 - correction
                 nu2_correction = correction
-                nu2_variance_correction = variance_correction
                 plugin_mechanism = repeat.nuisance.treatment_mechanism
                 plugin_mechanism = "known" if plugin_mechanism == "known" else "logistic"
     max_bias = float(np.sqrt(sigma2 * nu2))
@@ -908,7 +882,6 @@ def _elements_for(
         limit_refusal=limit_refusal,
         plugin_mechanism=plugin_mechanism,
         nu2_correction=nu2_correction,
-        nu2_variance_correction=nu2_variance_correction,
     )
 
 
@@ -1124,9 +1097,6 @@ class SensitivityBounds:
     nu2_correction : float or None, default=None
         The second-order bias ``B`` that the plug-in ``nu^2`` subtracts. ``None`` under
         the doubly robust estimator and wherever the plug-in ``nu^2`` is uncorrected.
-    nu2_variance_correction : float or None, default=None
-        The second-order bias subtracted from the variance of ``nu^2``. ``None`` with
-        ``nu2_correction``.
     """
 
     estimand: str
@@ -1152,7 +1122,6 @@ class SensitivityBounds:
     limit_refusal: MechanismRefusal | None = None
     plugin_mechanism: str | None = None
     nu2_correction: float | None = None
-    nu2_variance_correction: float | None = None
 
     @_accepts_stored_limit_names
     def __init__(
@@ -1177,7 +1146,6 @@ class SensitivityBounds:
         limit_refusal: MechanismRefusal | None = None,
         plugin_mechanism: str | None = None,
         nu2_correction: float | None = None,
-        nu2_variance_correction: float | None = None,
     ) -> None:
         # Preserve the public constructor while guarding its inferential values.
         for name, value in (
@@ -1201,7 +1169,6 @@ class SensitivityBounds:
             ("limit_refusal", limit_refusal),
             ("plugin_mechanism", plugin_mechanism),
             ("nu2_correction", nu2_correction),
-            ("nu2_variance_correction", nu2_variance_correction),
         ):
             object.__setattr__(self, name, value)
 
@@ -1308,8 +1275,7 @@ class SensitivityBounds:
         ``robustness_value_plugin_interval``.  When the plug-in estimator has no curve for the
         fit's mechanism, the mapping carries ``nu2_estimator`` and ``limit_refusal`` and omits
         those three keys under every name.  Under ``"plugin"`` it always carries
-        ``nu2_correction`` and ``nu2_variance_correction``, which are ``None`` where the
-        plug-in ``nu^2`` is uncorrected.
+        ``nu2_correction``, which is ``None`` where the plug-in ``nu^2`` is uncorrected.
 
         Returns
         -------
@@ -1323,7 +1289,6 @@ class SensitivityBounds:
         if self.nu2_estimator != "doubly_robust":
             row["nu2_estimator"] = self.nu2_estimator
             row["nu2_correction"] = self.nu2_correction
-            row["nu2_variance_correction"] = self.nu2_variance_correction
         reason = self._limit_reason()
         if reason is not None:
             row["limit_refusal"] = reason
@@ -1593,13 +1558,8 @@ def omitted_variable_bounds(
     ci_upper: float | None = None
     if elements.psi_max_bias is not None:
         psi_bias = elements.psi_max_bias
-        correction = elements.bias_variance_correction(strength)
-        se_lower = _bound_std_error(
-            estimate.influence_curve, -strength * psi_bias, result, correction
-        )
-        se_upper = _bound_std_error(
-            estimate.influence_curve, strength * psi_bias, result, correction
-        )
+        se_lower = _bound_std_error(estimate.influence_curve, -strength * psi_bias, result)
+        se_upper = _bound_std_error(estimate.influence_curve, strength * psi_bias, result)
         ci_lower = lower - quantile * se_lower
         ci_upper = upper + quantile * se_upper
 
@@ -1627,24 +1587,13 @@ def omitted_variable_bounds(
         limit_refusal=elements.limit_refusal,
         plugin_mechanism=elements.plugin_mechanism,
         nu2_correction=elements.nu2_correction,
-        nu2_variance_correction=elements.nu2_variance_correction,
     )
 
 
-def _bound_std_error(
-    psi_estimate: FloatArray, psi_bias: FloatArray, result: TMLEResult, correction: float = 0.0
-) -> float:
-    """Standard error of a bias-adjusted bound, less a second-order variance correction."""
+def _bound_std_error(psi_estimate: FloatArray, psi_bias: FloatArray, result: TMLEResult) -> float:
+    """Standard error of a bias-adjusted bound."""
     combined = np.asarray(psi_estimate, dtype=float) + np.asarray(psi_bias, dtype=float)
-    variance = influence_variance(combined, result.data.cluster) - correction
-    if variance <= 0.0:
-        raise CapabilityError(
-            f"the second-order corrected variance of the bound is {variance:.6g}, and a "
-            "variance cannot be negative or zero (corrected_nonpositive).",
-            reason=RefusalReason.INFERENCE_GAP,
-            alternative="Fit the bound with nu2_estimator='doubly_robust'.",
-        )
-    return float(np.sqrt(variance))
+    return float(np.sqrt(influence_variance(combined, result.data.cluster)))
 
 
 def _robustness_values(
@@ -1693,7 +1642,6 @@ def _robustness_values(
             result[elements.estimand].influence_curve,
             side * strength * psi_bias,
             result,
-            elements.bias_variance_correction(strength),
         )
         return edge + side * quantile * se
 
@@ -2200,7 +2148,6 @@ def robustness_value(
     if elements.nu2_estimator != "doubly_robust":
         values["nu2_estimator"] = elements.nu2_estimator
         values["nu2_correction"] = elements.nu2_correction
-        values["nu2_variance_correction"] = elements.nu2_variance_correction
     if elements.psi_max_bias is None:
         refusal = elements.limit_refusal
         values |= {

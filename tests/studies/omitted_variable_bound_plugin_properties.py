@@ -17,19 +17,17 @@ reflects its second-moment term and keeps the variance (plan section 3.4), so an
 could not fail.
 
 * ``inflated_se_control`` (28 cells, the seven estimated-mechanism scenarios): the package
-  curve minus the mechanism term this study rebuilt, with the package's variance correction.
-  The predicted ratios are about 1.17 to 1.3 for the bounds, so the interval must rise above
+  curve minus the mechanism term this study rebuilt, with the plain influence variance of that
+  curve.  The predicted ratios are about 1.17 to 1.3 for the bounds, so the interval must rise above
   the band.
 * ``shrunken_se_control`` (4 cells, ``binary_known``): the package curve plus the mechanism
-  term of a study-side logistic fit.  That is the curve of the estimated mechanism, which is
-  narrower than the known mechanism's (predicted ratio 0.85), so the interval must fall below
+  term of a study-side logistic fit, with the plain influence variance of that curve.  That is
+  the curve of the estimated mechanism, which is narrower than the known mechanism's (predicted ratio 0.85), so the interval must fall below
   the band.
 
-The property phase also publishes two unjudged readings (``generate_property_artifacts``).
-``correction-reading.csv`` gives each positive cell's same-draw SE ratio and coverage without the
-package's variance correction, and the share of the variance that the correction removes.  The
-red-cell policy reads it (rules 2 and 9).  ``refusal-reading.csv`` gives the refusals of each
-parameter by key.  Neither one carries a verdict.
+The property phase also publishes one unjudged reading (``generate_property_artifacts``).
+``refusal-reading.csv`` gives the refusals of each parameter by key.  The red-cell policy reads
+it (rule 7).  It carries no verdict.
 
 The replicate count is 10,000 per cell.  The design test
 (``tests/unit/test_omitted_variable_plugin_design.py``) gives the family-wise pass probability
@@ -43,7 +41,7 @@ from typing import Any
 import pandas as pd
 
 from tests.parallel import STUDY_JOBS
-from tests.studies.evidence import property_failures, property_verdicts
+from tests.studies.evidence import property_verdicts
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 from tests.studies.evidence.property_verdicts import (
     apply_shared_verdicts,
@@ -60,9 +58,6 @@ from tests.studies.evidence.seeds import stream_seed
 from tests.studies.omitted_variable_bound_plugin import (
     CLAIM_ROWS,
     CONTROLLED,
-    CORRECTION_READING,
-    CROSSFIT_REFUSAL_OWNER,
-    EXPECTED_BOUND_EXCEEDED,
     PARAMETERS,
     PRIMARY_N,
     PROPERTY_CELLS,
@@ -123,18 +118,14 @@ def _replicate(scenario: str, token: str, replicate: int, drawn: Any) -> list[di
         reference = float(truth[estimand_key(token, row)])
         bound = values.bounds[row]
         rows.append(
-            {
-                **_row(
-                    f"{label}__correctly_specified",
-                    "positive",
-                    replicate,
-                    reference,
-                    bound.estimate,
-                    bound.std_error,
-                ),
-                "std_error_uncorrected": bound.std_error_uncorrected,
-                "correction_share": bound.correction_share,
-            }
+            _row(
+                f"{label}__correctly_specified",
+                "positive",
+                replicate,
+                reference,
+                bound.estimate,
+                bound.std_error,
+            )
         )
         if token in CONTROLLED:
             assert bound.control is not None
@@ -186,27 +177,6 @@ FAILURE_BOUND = 0.01
 PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
-#: The columns of :data:`CORRECTION_READING`, one row per positive cell.  The ``_uncorrected``
-#: columns read the same draws with the standard error before the package's variance
-#: correction.
-CORRECTION_READING_COLUMNS = (
-    "cell",
-    "replicates",
-    "se_ratio",
-    "se_ratio_lower99",
-    "se_ratio_upper99",
-    "coverage",
-    "coverage_lower99",
-    "coverage_upper99",
-    "se_ratio_uncorrected",
-    "se_ratio_uncorrected_lower99",
-    "se_ratio_uncorrected_upper99",
-    "coverage_uncorrected",
-    "uncorrected_in_band",
-    "mean_correction_share",
-    "max_correction_share",
-)
-
 #: The columns of :data:`REFUSAL_READING`, one row per scenario, parameter and key.  ``key`` is a
 #: refusal key of the package, ``other`` (a failed fit) or ``all``.
 REFUSAL_READING_COLUMNS = (
@@ -216,72 +186,7 @@ REFUSAL_READING_COLUMNS = (
     "requested",
     "lost",
     "rate",
-    "owner",
 )
-
-
-def _uncorrected(positives: pd.DataFrame) -> pd.DataFrame:
-    """The positive rows with the standard error before the package's variance correction."""
-    half = TWO_SIDED * positives["std_error_uncorrected"]
-    estimate, truth = positives["estimate"], positives["truth"]
-    return positives.assign(
-        std_error=positives["std_error_uncorrected"],
-        covered=((estimate - half <= truth) & (truth <= estimate + half)).astype(int),
-        rejected=(estimate.abs() / positives["std_error_uncorrected"] > TWO_SIDED).astype(int),
-    )
-
-
-def correction_reading(rows: pd.DataFrame, records: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Each positive cell read with and without the package's variance correction.
-
-    Both readings use the cell's draws and the verdict machinery's own intervals, so a column
-    here equals the column of ``properties.csv`` when the standard error is the same.
-    ``uncorrected_in_band`` is true when the 99% SE-ratio interval without the correction lies
-    inside the calibration band.  The red-cell policy reads it (rule 9).  Nothing here is a
-    verdict.  A cell with fewer than two survivors has no spread, so its statistics are empty.
-
-    Parameters
-    ----------
-    rows : pandas.DataFrame
-        The property rows with the ``std_error_uncorrected`` and ``correction_share`` columns
-        of the positive cells.
-    records : pandas.DataFrame or None
-        The property failure records, which stamp the cells that lost a replicate.
-
-    Returns
-    -------
-    pandas.DataFrame
-        One row per positive cell, in :data:`CORRECTION_READING_COLUMNS`.
-    """
-    positives = property_failures.stamp(rows.loc[rows["role"] == "positive"], records)
-    size = positives.groupby("cell").size()
-    cells = list(size.index)
-    usable = positives.loc[positives["cell"].isin(size.index[size >= 2])]
-    columns = list(REPLICATE_COLUMNS)
-    corrected = summarize_properties(usable.loc[:, columns]).set_index("cell")
-    plain = summarize_properties(_uncorrected(usable).loc[:, columns]).set_index("cell")
-    share = positives.groupby("cell")["correction_share"].agg(["mean", "max"])
-    low, high = STUDY.margins.calibration_se_ratio
-    out = pd.DataFrame({"cell": cells, "replicates": size.loc[cells].to_numpy()})
-    for name, source, column in (
-        ("se_ratio", corrected, "se_ratio"),
-        ("se_ratio_lower99", corrected, "se_ratio_ci_lower"),
-        ("se_ratio_upper99", corrected, "se_ratio_ci_upper"),
-        ("coverage", corrected, "coverage"),
-        ("coverage_lower99", corrected, "coverage_ci_lower"),
-        ("coverage_upper99", corrected, "coverage_ci_upper"),
-        ("se_ratio_uncorrected", plain, "se_ratio"),
-        ("se_ratio_uncorrected_lower99", plain, "se_ratio_ci_lower"),
-        ("se_ratio_uncorrected_upper99", plain, "se_ratio_ci_upper"),
-        ("coverage_uncorrected", plain, "coverage"),
-    ):
-        out[name] = source[column].reindex(cells).to_numpy(dtype=float)
-    out["mean_correction_share"] = share.loc[cells, "mean"].to_numpy()
-    out["max_correction_share"] = share.loc[cells, "max"].to_numpy()
-    out["uncorrected_in_band"] = (out["se_ratio_uncorrected_lower99"] >= low) & (
-        out["se_ratio_uncorrected_upper99"] <= high
-    )
-    return out.loc[:, list(CORRECTION_READING_COLUMNS)]
 
 
 def refusal_reading(failures: pd.DataFrame | None, replicates: int) -> pd.DataFrame:
@@ -289,9 +194,8 @@ def refusal_reading(failures: pd.DataFrame | None, replicates: int) -> pd.DataFr
 
     A failure record names the cells that its key writes, so one record is one lost replicate of
     one parameter.  ``key`` is the refusal key of the package, ``other`` for a failure that is
-    no refusal of the bound, and ``all`` for their sum.  ``owner`` is the red-cell owner of a
-    scenario that the policy declares to read ``bound exceeded``, and empty for every other.
-    The rate is a reading, not a verdict: the failure accounting judges the cells.
+    no refusal of the bound, and ``all`` for their sum.  The rate is a reading, not a verdict: the
+    failure accounting judges the cells.
 
     Parameters
     ----------
@@ -326,9 +230,6 @@ def refusal_reading(failures: pd.DataFrame | None, replicates: int) -> pd.DataFr
                         "requested": replicates,
                         "lost": count,
                         "rate": count / replicates,
-                        "owner": CROSSFIT_REFUSAL_OWNER
-                        if scenario in EXPECTED_BOUND_EXCEEDED
-                        else "",
                     }
                 )
     return pd.DataFrame(out, columns=list(REFUSAL_READING_COLUMNS))
@@ -337,7 +238,7 @@ def refusal_reading(failures: pd.DataFrame | None, replicates: int) -> pd.DataFr
 def generate_property_artifacts(
     *, n_jobs: int = STUDY_JOBS, replicates: int = PROPERTY_REPLICATES
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-    """Fit every property replication and return the rows and the two unjudged readings.
+    """Fit every property replication and return the rows and the unjudged refusal reading.
 
     Parameters
     ----------
@@ -350,7 +251,7 @@ def generate_property_artifacts(
     -------
     tuple
         The property rows, one per cell and replication, and the readings by file name
-        (:data:`CORRECTION_READING` and :data:`REFUSAL_READING`).
+        (:data:`REFUSAL_READING`).
     """
     outcomes = fit_properties(
         [
@@ -374,7 +275,6 @@ def generate_property_artifacts(
     if cells != declared:
         raise RuntimeError(f"cells {sorted(cells ^ declared)} differ from the declaration")
     readings = {
-        CORRECTION_READING: correction_reading(rows, recorded_failures()),
         REFUSAL_READING: refusal_reading(recorded_failures(), replicates),
     }
     return rows.loc[:, list(REPLICATE_COLUMNS)], readings

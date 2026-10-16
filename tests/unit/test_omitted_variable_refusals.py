@@ -1022,7 +1022,6 @@ class TestThePluginLimitsRefuse:
             "estimand",
             "nu2_estimator",
             "nu2_correction",
-            "nu2_variance_correction",
             "limit_refusal",
             "psi",
             "cf_y",
@@ -1066,7 +1065,6 @@ class TestThePluginLimitsRefuse:
         assert list(plugin) == [
             "nu2_estimator",
             "nu2_correction",
-            "nu2_variance_correction",
             "rv",
             "max_bias",
             "limit_refusal",
@@ -1178,7 +1176,6 @@ PUBLIC_PARAMETERS: tuple[str, ...] = (
     "limit_refusal",
     "plugin_mechanism",
     "nu2_correction",
-    "nu2_variance_correction",
 )
 
 
@@ -1251,7 +1248,7 @@ class TestReplaceKeepsTheStoredLimits:
         parameters = inspect.signature(SensitivityBounds).parameters
         assert tuple(parameters) == PUBLIC_PARAMETERS
         required = [name for name, p in parameters.items() if p.default is p.empty]
-        assert required == list(PUBLIC_PARAMETERS[:-6])
+        assert required == list(PUBLIC_PARAMETERS[:-5])
 
     @pytest.mark.parametrize(
         ("kind", "accessor"),

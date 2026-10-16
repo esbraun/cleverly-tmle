@@ -21,28 +21,29 @@ The checks, in the plan's letters:
   ``truncation_active`` check, which refuses a fit with a fitted logit within three standard
   errors of a truncation bound, acts on the default bounds of the three-arm law and of the
   unbalanced law and on no declared bound;
-* (c) every control leaves the band with power of at least 0.9 at the declared ``R``, also when
-  the package's variance correction is taken at the share the diagnostic measured.  The pilot
-  falsified this for the two ATC controls of ``binary_unbalanced`` (see the test);
+* (c) every control leaves the band with power of at least 0.9 at the declared ``R``, from the
+  population ratio of its standard error to the positive's.  The package reports the plain
+  influence variance, so the ratio is a population quantity of the law;
 * (d) every positive cell's 99% SE-ratio half-width is at most 0.035 at ``R``;
 * (f) the family-wise pass probability under perfect calibration reaches 0.95 at ``R``, and
   ``R`` is at least the smallest multiple of 400 that reaches it;
 * (g) on ``binary_known``, adding the logistic mechanism term puts the ATT and ATC ratios
   below 0.93 with power of at least 0.9, so the known-mechanism positives have teeth;
-* (h) the refusal rates the diagnostic measured on the balanced law sit below the failure bound.
+* (h) the refusal rates the diagnostic measured on the balanced law sit below the failure bound;
+* (i) no declared seed reads the pilot stream ``x26_pilot2_sample``.
 
 The SE-ratio noise of a cell follows ``calibration_pass_probability``: the empirical spread
 contributes ``1 / (2 (R - 1))`` and the reported standard errors ``se_noise**2 / R``.  A
 reported standard error is the root of an average of :math:`n` squared curve values, so its
 relative spread is :math:`\tfrac12 \sqrt{(\kappa_4 - 1)/n}` with :math:`\kappa_4` the curve's
-fourth standardized moment.  The package's variance correction adds noise to it, so the cell
-takes the larger of that value and the spread the diagnostic measured.
+fourth standardized moment.
 """
 
 from __future__ import annotations
 
-import dataclasses
+import inspect
 import itertools
+import json
 import math
 from dataclasses import dataclass
 from functools import cache
@@ -56,13 +57,15 @@ from scipy.stats import binom, norm
 
 from cleverly._refusal import RefusalReason
 from cleverly.exceptions import CapabilityError, DataError
+from cleverly.inference.cluster import influence_variance
+from cleverly.sensitivity import _mechanism_stack as ms
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from tests.diagnostics.x26_crossfit_bias import run as diagnostic
 from tests.studies import omitted_variable_bound_plugin as study
 from tests.studies import omitted_variable_bound_plugin_properties as properties
 from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
 from tests.studies.evidence import descriptions
-from tests.studies.evidence.seeds import stream_seed
+from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
 #: The family-wise pass probability ``R`` must reach, and the grain of ``R``.
 FAMILY_FLOOR = 0.95
@@ -83,16 +86,6 @@ CONDITIONAL_BOUND = 0.025
 #: Gauss-Hermite nodes per axis of the population curves, and of the outcome noise.
 LAW_NODES = {"balanced": 10, "unbalanced": 12, "multinomial": 12}
 NOISE_NODES = 12
-
-#: The share of a bound's variance that the package's variance correction removes, rounded up
-#: from the mean the diagnostic measured on the balanced law at n = 1000 (0.073 cross-fitted,
-#: 0.023 in sample).  A control's own sample variance carries a bias of unknown size, so a
-#: control's reported variance sits within this share of its population variance.
-CORRECTION_SHARE = {False: 0.04, True: 0.10}
-
-#: The relative spread of a reported bound standard error that the diagnostic measured, rounded
-#: up from 0.0443.  A cell never takes a smaller spread than this.
-NOISE_FLOOR = 0.05
 
 #: The failure bound of every cell, and the replicates it lets a cell lose at the declared R.
 FAILURE_BOUND = 0.01
@@ -251,26 +244,17 @@ def moments(scenario: str, curve: np.ndarray, pop: Population, row: str) -> tupl
 
 
 def se_noise(second: float, fourth: float) -> float:
-    """The relative spread of one reported standard error at ``n``.
-
-    The larger of the curve's fourth-moment value and :data:`NOISE_FLOOR`, which the package's
-    variance correction makes necessary.
-    """
-    return max(0.5 * math.sqrt((fourth / second**2 - 1.0) / study.PRIMARY_N), NOISE_FLOOR)
+    """The relative spread of one reported standard error at ``n``, from the curve's moments."""
+    return 0.5 * math.sqrt((fourth / second**2 - 1.0) / study.PRIMARY_N)
 
 
 @dataclass(frozen=True)
 class Cell:
-    """A property cell's predicted SE ratio and the relative noise of its standard error.
-
-    ``worst`` is the ratio at the edge of the variance-correction bracket that is least
-    favourable to the cell's claim (a control only).
-    """
+    """A property cell's predicted SE ratio and the relative noise of its standard error."""
 
     name: str
     ratio: float
     noise: float
-    worst: float
 
 
 def _curves(scenario: str, token: str) -> tuple[Population, np.ndarray, np.ndarray | None]:
@@ -294,21 +278,16 @@ def cells() -> tuple[tuple[Cell, ...], tuple[Cell, ...]]:
                 label = study.cell_label(scenario, token, row)
                 second, fourth = moments(scenario, positive, pop, row)
                 positives.append(
-                    Cell(f"{label}__correctly_specified", 1.0, se_noise(second, fourth), 1.0)
+                    Cell(f"{label}__correctly_specified", 1.0, se_noise(second, fourth))
                 )
                 if control is None:
                     continue
                 other, other_fourth = moments(scenario, control, pop, row)
-                variance_ratio = other / second
-                share = CORRECTION_SHARE[_crossfit(scenario)]
-                inflated = study.control_kind(scenario) == "inflated_se_control"
-                worst = variance_ratio - share if inflated else variance_ratio + share
                 controls.append(
                     Cell(
                         f"{label}__{study.control_kind(scenario)}",
-                        math.sqrt(variance_ratio),
+                        math.sqrt(other / second),
                         se_noise(other, other_fourth),
-                        math.sqrt(worst),
                     )
                 )
     return tuple(positives), tuple(controls)
@@ -318,12 +297,9 @@ def _spread(replicates: int, ratio: float, noise: float) -> float:
     return ratio * math.sqrt(1.0 / (2.0 * (replicates - 1)) + noise**2 / replicates)
 
 
-def control_power(replicates: int, cell: Cell, *, worst: bool = True) -> float:
-    """The chance that a control's 99% SE-ratio interval leaves the band on its side.
-
-    ``worst`` reads the ratio at the unfavourable edge of the variance-correction bracket.
-    """
-    ratio = cell.worst if worst else cell.ratio
+def control_power(replicates: int, cell: Cell) -> float:
+    """The chance that a control's 99% SE-ratio interval leaves the band on its side."""
+    ratio = cell.ratio
     z = float(norm.ppf(0.5 + LEVEL / 2.0))
     spread = _spread(replicates, ratio, cell.noise)
     if cell.name.endswith("__inflated_se_control"):
@@ -647,63 +623,19 @@ def test_the_wide_bounds_reach_the_fit() -> None:
 # -------------------------------------------------------------------- (c) and (g) controls
 
 
-#: The power floor of the two controls the design already predicts as weak, at the edge of the
-#: correction bracket, and the value the design computes there.
-WEAK_EDGE_POWER_FLOOR = 0.6
-WEAK_EDGE_POWER = 0.65
-
-#: The ratio the pilot read for the two ATC controls of ``binary_unbalanced`` (1,000 draws on the
-#: stream ``x26_pilot_sample``, 99% intervals of 0.99 to 1.12), against the design ratio of 1.11.
-PILOT_WEAK_RATIO = 1.052
-
-
 def test_the_controls_leave_the_band_with_power() -> None:
-    """(c) Every control leaves the band with power at the declared R, in a bracket of the ratio.
+    """(c) Every control leaves the band with power of at least 0.99 at the declared R.
 
-    At the nominal ratio every control has power of at least 0.99.  The package's correction
-    removes a share of a bound's variance, 0.073 on average cross-fitted and 0.023 in sample on
-    the balanced law (``test_the_correction_share_is_inside_its_bracket``), and a control
-    subtracts the same amount from a curve whose own sample variance carries an unknown bias.
-    At the unfavourable edge of that bracket every control has power of at least 0.9, except the
-    two ATC controls of the unbalanced law.  The control arm there is the majority, so the
-    mechanism term is small (ratio 1.11) and the curve's fourth moment is heavy (spread 0.08).
-    Those two keep a power of 0.65 at the edge (the test asserts at least 0.6).
-
-    **The pilot falsified the design for those two.**  They read 1.052 and 1.053, against the
-    design ratio of 1.11.  The in-sample ``CORRECTION_SHARE`` bracket of 0.04 does not hold on
-    this law.  The share of the bound's variance that the correction removes is about 0.16
-    (from ``1 - (0.951 / 1.039) ** 2``, the positive's ratio with and without the correction),
-    and the per-draw share of the variance of nu^2 is 0.38 on average and reaches 0.89.  At a
-    true ratio of 1.052 the power at R = 10,000 is below 1e-6 (the size at the band edge is
-    0.005).  The run is therefore expected to read "control underpowered" for them, and the
-    red-cell policy declares it before the run (``UNDERPOWERED_CONTROLS``, owner
-    ``X26-unbalanced-control``).  The assertions above stay as the design, and nothing is retuned
-    on the pilot.
+    The ratio of a control is the root of the ratio of two population variances of the changed
+    curve, the plain influence variance of each.  No sample quantity enters it.
     """
     _, controls = cells()
     assert len(controls) == 32
-    weak = set(study.UNDERPOWERED_CONTROLS)
-    assert weak == {
-        "binary_unbalanced_atc_lower__inflated_se_control",
-        "binary_unbalanced_atc_upper__inflated_se_control",
-    }
-    for cell in controls:
-        nominal = control_power(properties.PROPERTY_REPLICATES, cell, worst=False)
-        edge = control_power(properties.PROPERTY_REPLICATES, cell)
-        assert nominal >= 0.99, cell
-        assert edge >= (WEAK_EDGE_POWER_FLOOR if cell.name in weak else CONTROL_POWER_FLOOR), cell
-        assert nominal >= edge
-        if cell.name in weak:
-            assert edge == pytest.approx(WEAK_EDGE_POWER, abs=5e-3), cell
-            measured = dataclasses.replace(cell, worst=PILOT_WEAK_RATIO)
-            assert control_power(properties.PROPERTY_REPLICATES, measured) < 1e-6, cell
-    assert {c.name for c in controls if control_power(properties.PROPERTY_REPLICATES, c) < 0.9} == (
-        weak
-    )
     inflated = [c for c in controls if c.name.endswith("inflated_se_control")]
     assert len(inflated) == 28
+    for cell in controls:
+        assert control_power(properties.PROPERTY_REPLICATES, cell) >= 0.99, cell
     assert min(c.ratio for c in inflated) > BAND[1] + 0.04
-    assert min(c.worst for c in inflated if c.name not in weak) > BAND[1] + 0.05
 
 
 def test_the_known_mechanism_positives_have_teeth() -> None:
@@ -717,36 +649,8 @@ def test_the_known_mechanism_positives_have_teeth() -> None:
     assert len(shrunken) == 4
     for cell in shrunken:
         assert cell.ratio < BAND[0], cell
-        assert cell.worst < BAND[0], cell
         assert control_power(properties.PROPERTY_REPLICATES, cell) >= CONTROL_POWER_FLOOR, cell
     assert max(c.ratio for c in shrunken) == pytest.approx(0.8533, abs=1e-3)
-
-
-def test_the_correction_share_is_inside_its_bracket() -> None:
-    """The diagnostic's mean share of a bound's variance sits under the declared bracket.
-
-    The share is ``c^2 v / se^2``, with ``v`` the variance correction of ``nu^2``, ``c`` the
-    delta-method coefficient of the bound and ``se`` its reported standard error.  The mean is
-    0.073 cross-fitted and 0.023 in sample on the binary law at n = 1000, and the reported
-    standard error varies by at most 0.05 of its mean.
-    """
-    rows = pd.read_csv(diagnostic.HERE / "rows.csv.gz")
-    rows = rows.loc[(rows["n"] == study.PRIMARY_N) & rows["nu2"].notna()].copy()
-    rows["correction"] = rows["nu2_raw_se"] ** 2 - rows["nu2_se"] ** 2
-    coefficient = study.strength() / (2.0 * np.sqrt(rows["nu2"]))
-    rows["share"] = coefficient**2 * rows["correction"] / rows["lower_se"] ** 2
-    for fitting, declared in (
-        ("crossfit", CORRECTION_SHARE[True]),
-        ("insample", CORRECTION_SHARE[False]),
-    ):
-        means = rows.loc[rows["fitting"] == fitting].groupby("parameter")["share"].mean()
-        assert means.max() < declared, (fitting, means.to_dict())
-    assert rows.loc[rows["fitting"] == "crossfit"].groupby("parameter")["share"].mean().max() == (
-        pytest.approx(0.0732, abs=1e-3)
-    )
-    spread = rows.groupby(["fitting", "parameter"])["lower_se"].agg(lambda s: s.std() / s.mean())
-    assert spread.max() < NOISE_FLOOR
-    assert spread.max() == pytest.approx(0.0443, abs=1e-3)
 
 
 # ---------------------------------------------------------------------- (d) the positives
@@ -792,14 +696,13 @@ def test_the_pass_probability_off_target_is_recorded() -> None:
 
 
 def test_the_measured_refusal_rates_sit_below_the_failure_bound() -> None:
-    """(h) The diagnostic's refusal rate of every parameter is below 0.01, and the margin is thin.
+    """(h) The diagnostic's refusal rate of every parameter is below 0.01, with a wide margin.
 
-    On the balanced law at n = 1000 the package refused 6, 14 and 11 of 2,000 cross-fitted
-    draws for the ATE, ATT and ATC (0.3, 0.7 and 0.55 percent), and 1 of 2,000 in-sample draws
-    for the ATT and the ATC.  A cell may lose ``floor(0.01 R)`` replicates, 100 at R = 10,000.
-    At the measured ATT rate the chance of exceeding that is below 5e-4 (2.8e-4
-    cross-fitted).  The 99% upper endpoint of that rate, 1.4 percent, would exceed it with certainty, so the evidence for the
-    cross-fitted ATT is thin.  The pilot and the declared run read the rate again.
+    On the balanced law at n = 1000 the package refused 1 of 2,000 cross-fitted draws for each
+    of the ATT and the ATC, and 1 of 2,000 in-sample draws for each of them (0.05 percent), all
+    with the key ``truncation_active``. The ATE lost none. A cell may lose ``floor(0.01 R)``
+    replicates, 100 at R = 10,000. At the measured rate the chance of exceeding that is below
+    1e-12. The 99% upper endpoint of the rate, 0.2 percent, still sits below the bound.
     """
     rows = pd.read_csv(diagnostic.HERE / "rows.csv.gz")
     rows = rows.loc[rows["n"] == study.PRIMARY_N]
@@ -807,18 +710,21 @@ def test_the_measured_refusal_rates_sit_below_the_failure_bound() -> None:
     counts = rows.loc[refused].groupby(["fitting", "parameter"]).size()
     allowed = math.floor(FAILURE_BOUND * properties.PROPERTY_REPLICATES)
     assert allowed == 100
+    arms = diagnostic.ARMS[study.PRIMARY_N]
     for (fitting, token), count in counts.items():
-        rate = count / diagnostic.ARMS[study.PRIMARY_N]
+        rate = count / arms
         assert rate < FAILURE_BOUND, (fitting, token, rate)
         exceed = float(binom.sf(allowed, properties.PROPERTY_REPLICATES, rate))
-        assert exceed < 5e-4, (fitting, token, exceed)
-    assert counts[("crossfit", "att")] == 14
-    worst = counts[("crossfit", "att")] / diagnostic.ARMS[study.PRIMARY_N]
-    assert worst == pytest.approx(0.007)
-    upper = float(
-        binom.ppf(0.995, diagnostic.ARMS[study.PRIMARY_N], worst) / diagnostic.ARMS[study.PRIMARY_N]
-    )
-    assert upper > FAILURE_BOUND
+        assert exceed < 1e-12, (fitting, token, exceed)
+        upper = float(binom.ppf(0.995, arms, rate)) / arms
+        assert upper < FAILURE_BOUND, (fitting, token, upper)
+    assert counts.to_dict() == {
+        ("crossfit", "atc"): 1,
+        ("crossfit", "att"): 1,
+        ("insample", "atc"): 1,
+        ("insample", "att"): 1,
+    }
+    assert set(rows.loc[refused, "refusal"]) == {"truncation_active"}
 
 
 # ---------------------------------------------------------------- the unjudged nu^2 reading
@@ -843,9 +749,7 @@ def _nu2_rows(count: int = 40) -> pd.DataFrame:
                     "nu2_estimate": raw - correction,
                     "nu2_std_error": 0.4,
                     "nu2_raw_estimate": raw,
-                    "nu2_raw_std_error": 0.45,
                     "nu2_correction": correction,
-                    "nu2_variance_correction": 0.02,
                 }
             )
     return pd.DataFrame(rows)
@@ -869,7 +773,6 @@ def test_the_nu2_reading_is_unjudged_and_counts_the_refusals() -> None:
     spread = float(estimate.std(ddof=1))
     assert row.bias_sd == pytest.approx((float(estimate.mean()) - 4.0) / spread)
     assert row.se_ratio == pytest.approx(0.4 / spread)
-    assert row.raw_se_ratio == pytest.approx(0.45 / spread)
     assert row.raw_bias_sd == pytest.approx(row.bias_sd + 0.3 / spread)
     covered = int((np.abs(estimate.to_numpy() - 4.0) <= study.TWO_SIDED * 0.4).sum())
     assert row.coverage == pytest.approx(covered / 40)
@@ -903,154 +806,14 @@ def test_the_nu2_audit_passes_only_when_the_reading_counts_every_lost_fit() -> N
     assert audit["failed"].tolist() == [2]
 
 
-# ------------------------------------------- the pre-queue design review (C1 to C7)
+# ------------------------------------------- the pre-queue design review (C3, C6, C7)
 
-#: The pilot stream, which the declared run does not use.
-PILOT_STREAM = "x26_pilot_sample"
-
-
-def _pilot_fit(scenario: str, replicate: int) -> Any:
-    seed = stream_seed(study.STUDY, PILOT_STREAM, "interval_calibration", scenario, replicate)
-    frame, _ = study.draw_from_seed(scenario, study.PRIMARY_N, seed)
-    return study.fit(frame, scenario)
-
-
-def _variances(
-    result: Any, scenario: str, token: str
-) -> tuple[study.BoundVariances, study.BoundVariances]:
-    """The positive's and the control's variances of one draw, as ``parameter_rows`` builds them."""
-    ov = omitted_variable_module
-    name = study.PARAMETERS[scenario][token][0]
-    elements = ov.sensitivity_elements(result, name, nu2_estimator="plugin")
-    bounds = ov.omitted_variable_bounds(
-        result, name, cf_y=study.CF_Y, cf_d=study.CF_D, rho=study.RHO, nu2_estimator="plugin"
-    )
-    rebuilt = study.rebuild(result, scenario, token, elements)
-    psi = np.asarray(elements.psi_nu2, dtype=float)
-    positive = study._bound_variances(
-        result, name, elements, rebuilt.curve, bounds.confounding_strength
-    )
-    control = study._bound_variances(
-        result, name, elements, psi - rebuilt.mechanism_term, bounds.confounding_strength
-    )
-    return positive, control
-
-
-def test_a_control_keeps_the_relative_correction() -> None:
-    """C1: a control loses the positive's share of its variance, so it stays positive.
-
-    The absolute subtraction of the positive's correction from a smaller control variance is
-    zero here, and it is negative for a slightly smaller control.  The relative form is positive
-    whenever the positive's corrected variance is.
-    """
-    positive = study.BoundVariances(raw={"lower": 0.04, "upper": 0.05}, correction=0.03)
-    control = study.BoundVariances(raw={"lower": 0.03, "upper": 0.025}, correction=0.03)
-    assert control.raw["lower"] - positive.correction == pytest.approx(0.0)
-    assert control.raw["upper"] - positive.correction < 0.0
-    errors = study._control_standard_errors(positive, control)
-    assert errors["lower"] == pytest.approx(math.sqrt(0.03 * (1.0 - 0.03 / 0.04)))
-    assert errors["upper"] == pytest.approx(math.sqrt(0.025 * (1.0 - 0.03 / 0.05)))
-    zero = study.BoundVariances(raw={"lower": 0.04, "upper": 0.05}, correction=0.0)
-    assert study._control_standard_errors(zero, control) == {
-        "lower": pytest.approx(math.sqrt(0.03)),
-        "upper": pytest.approx(math.sqrt(0.025)),
-    }
-
-
-@pytest.mark.parametrize(("replicate", "row"), [(158, "lower"), (339, "upper")])
-def test_a_pilot_draw_that_lost_a_control_now_returns_one(replicate: int, row: str) -> None:
-    """C1: draws 158 and 339 of the unbalanced ATC lost a replicate to the control's variance.
-
-    The package returned limits on both.  The absolute subtraction left the control variance at
-    -0.00036 (draw 158, lower) and -0.0089 (draw 339, upper).  The study now returns the
-    control, and its value follows the relative form.
-    """
-    result = _pilot_fit("binary_unbalanced", replicate)
-    positive, control = _variances(result, "binary_unbalanced", "atc")
-    assert control.raw[row] - positive.correction < 0.0
-    values = study.parameter_rows(result, "binary_unbalanced", "atc")
-    expected = math.sqrt(control.raw[row] * (1.0 - positive.share(row)))
-    control_error = values.bounds[row].control
-    assert control_error is not None
-    assert control_error == pytest.approx(expected, rel=1e-9)
-    assert control_error > 0.0
-
-
-def test_the_uncorrected_standard_error_is_the_corrected_one_before_the_subtraction() -> None:
-    """C4: the same-draw standard error without the correction, and the share removed.
-
-    ``std_error ** 2 == std_error_uncorrected ** 2 * (1 - correction_share)`` on every bound
-    end.  A deliberate mutation control follows: the correction is nonzero, so a study that
-    recorded the corrected value twice would fail the strict inequality.
-    """
-    result = _pilot_fit("binary_logistic", 3)
-    for token in study.PARAMETERS["binary_logistic"]:
-        values = study.parameter_rows(result, "binary_logistic", token)
-        for bound in values.bounds.values():
-            assert bound.std_error_uncorrected > bound.std_error
-            assert 0.0 < bound.correction_share < 1.0
-            assert bound.std_error**2 == pytest.approx(
-                bound.std_error_uncorrected**2 * (1.0 - bound.correction_share), rel=1e-8
-            )
-
-
-def _reading_rows(ratio: float, shrink: float, count: int = 400) -> pd.DataFrame:
-    """Property rows of one positive cell whose reported standard error is ``shrink`` of the raw."""
-    rng = np.random.default_rng(11)
-    estimate = rng.normal(size=count)
-    raw = np.full(count, ratio)
-    reported = raw * shrink
-    return pd.DataFrame(
-        {
-            "property": "interval_calibration",
-            "cell": "binary_logistic_att_lower__correctly_specified",
-            "role": "positive",
-            "replicate": np.arange(count),
-            "n": study.PRIMARY_N,
-            "requested_replicates": count,
-            "failed_replicates": 0,
-            "truth": 0.0,
-            "estimate": estimate,
-            "std_error": reported,
-            "covered": (np.abs(estimate) <= study.TWO_SIDED * reported).astype(int),
-            "rejected": (np.abs(estimate) / reported > study.TWO_SIDED).astype(int),
-            "std_error_uncorrected": raw,
-            "correction_share": np.full(count, 1.0 - shrink**2),
-        }
-    )
-
-
-def test_the_correction_reading_separates_the_two_standard_errors() -> None:
-    """C4: the reading reports the ratio with and without the correction, and the share."""
-    spread = float(_reading_rows(1.0, 1.0)["estimate"].std(ddof=1))
-    shrink = 0.9
-    # The empirical spread is about 1, so a raw standard error of 1.0 reads near 1 and the
-    # corrected 0.9 reads near 0.9.
-    reading = properties.correction_reading(_reading_rows(1.0, shrink))
-    assert list(reading.columns) == list(properties.CORRECTION_READING_COLUMNS)
-    row = reading.iloc[0]
-    assert row["replicates"] == 400
-    assert row["se_ratio_uncorrected"] == pytest.approx(1.0 / spread, rel=1e-9)
-    assert row["se_ratio"] == pytest.approx(shrink / spread, rel=1e-9)
-    assert row["se_ratio"] < row["se_ratio_uncorrected"]
-    assert row["mean_correction_share"] == pytest.approx(1.0 - shrink**2)
-    assert row["max_correction_share"] == pytest.approx(1.0 - shrink**2)
-    assert row["coverage_uncorrected"] >= row["coverage"]
-    low, high = study.STUDY.margins.calibration_se_ratio
-    inside = bool(
-        row["se_ratio_uncorrected_lower99"] >= low and row["se_ratio_uncorrected_upper99"] <= high
-    )
-    assert bool(row["uncorrected_in_band"]) is inside
-    # At 400 draws the interval is wide, so it cannot sit inside the band.  Widening the
-    # replicate count in a deliberate mutation control would put it inside.
-    assert not inside
-    big = properties.correction_reading(_reading_rows(1.0, shrink, count=20_000)).iloc[0]
-    assert big["uncorrected_in_band"]
-    assert not (big["se_ratio_lower99"] >= low and big["se_ratio_upper99"] <= high)
+#: The pilot stream of the redesigned study, which the declared run does not use.
+PILOT_STREAM = "x26_pilot2_sample"
 
 
 def test_the_refusal_reading_counts_each_key_of_each_parameter() -> None:
-    """C2: the refusals by key, with the owner of a scenario the policy declares red."""
+    """The refusals by key, per scenario and parameter, with the rate against the request."""
     scenario = "multinomial_logistic_crossfit"
     cell = f"interval_calibration/{study.cell_label(scenario, 'att_2v0', 'lower')}__correctly_specified"
 
@@ -1080,72 +843,126 @@ def test_the_refusal_reading_counts_each_key_of_each_parameter() -> None:
         "all": 4,
     }
     assert set(lost["parameter"]) == {"att_2v0"}
-    assert set(lost["owner"]) == {study.CROSSFIT_REFUSAL_OWNER}
     assert lost.loc["all", "rate"] == pytest.approx(0.04)
     quiet = properties.refusal_reading(None, 100)
     assert quiet["lost"].sum() == 0
-    assert set(quiet.loc[quiet["scenario"] != scenario, "owner"]) == {""}
-
-
-def test_a_refusal_of_the_bound_is_recorded_and_any_other_stops_the_run(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """C7: only the package's variance refusal becomes a recorded ``DataError``.
-
-    Any other ``CapabilityError`` is a defect of the study and stops the run.
-    """
-    result = _pilot_fit("binary_logistic", 3)
-
-    def refuse(message: str) -> None:
-        def bounds(*args: object, **kwargs: object) -> object:
-            raise CapabilityError(message, reason=RefusalReason.INFERENCE_GAP, alternative="none")
-
-        monkeypatch.setattr(omitted_variable_module, "omitted_variable_bounds", bounds)
-
-    refuse("the second-order corrected variance of the bound is -1, (corrected_nonpositive).")
-    with pytest.raises(DataError, match=r"refused: corrected_nonpositive$") as recorded:
-        study.parameter_rows(result, "binary_logistic", "att")
-    assert study.refusal_key(str(recorded.value)) == "corrected_nonpositive"
-    refuse("a study bug that surfaces as a different refusal")
-    with pytest.raises(CapabilityError, match="a study bug"):
-        study.parameter_rows(result, "binary_logistic", "att")
 
 
 def test_the_refusal_keys_are_read_from_the_study_messages() -> None:
-    """C2: ``refusal_key`` reads the three package keys and calls anything else ``other``."""
+    """``refusal_key`` reads the three package keys and calls anything else ``other``."""
     for key in study.REFUSAL_KEYS:
         assert study.refusal_key(f"DataError: the plug-in bound of 'att' refused: {key}") == key
     assert study.refusal_key("DataError: GLM: the information matrix is singular") == "other"
 
 
-def test_the_red_cell_policy_declares_the_expected_reds_and_their_owners() -> None:
-    """C2, C3, C4: the expected reds, their owners and their readings are declared before the run."""
-    cells = study.expected_bound_exceeded_cells()
-    positives = [cell for cell in cells if cell.endswith("__correctly_specified")]
-    assert len(cells) == 10
-    assert len(positives) == 6
-    assert len(cells) - len(positives) == 4
-    assert {study.cell_parameter(cell)[0] for cell in cells} == {"multinomial_logistic_crossfit"}
-    assert set(study.expected_bound_exceeded_primary()) == {
-        "multinomial_logistic_crossfit_ate_2v0",
-        "multinomial_logistic_crossfit_att_2v0",
-        "multinomial_logistic_crossfit_atc_1v0",
-    }
+def _fit(scenario: str, replicate: int) -> Any:
+    seed = stream_seed(study.STUDY, "design_test_sample", scenario, replicate)
+    frame, _ = study.draw_from_seed(scenario, study.PRIMARY_N, seed)
+    return study.fit(frame, scenario)
+
+
+def test_the_reported_variance_is_the_plain_influence_variance() -> None:
+    """The package's limits equal the study's rebuild from the plain influence variance.
+
+    A nonzero witness: the second-order correction of the point is nonzero on this fit, so a
+    variance that carried a correction of its own would differ from the plain influence
+    variance of the rebuilt curve.  ``parameter_rows`` raises ``RuntimeError`` on a departure
+    beyond the rebuild tolerance, so a return is the witness.  The control is the deliberate
+    mutation: shrinking the package's variance by 1 percent breaks the rebuild.
+    """
+    result = _fit("binary_logistic", 3)
+    for token in study.PARAMETERS["binary_logistic"]:
+        values = study.parameter_rows(result, "binary_logistic", token)
+        assert values.nu2.correction > 0.0
+        assert values.nu2.std_error == pytest.approx(
+            math.sqrt(
+                float(
+                    influence_variance(
+                        omitted_variable_module.sensitivity_elements(
+                            result,
+                            study.PARAMETERS["binary_logistic"][token][0],
+                            nu2_estimator="plugin",
+                        ).psi_nu2,
+                        None,
+                    )
+                )
+            ),
+            rel=1e-12,
+        )
+    original = omitted_variable_module.influence_variance
+
+    def corrected(curve: Any, cluster: Any) -> float:
+        return 0.99 * float(original(curve, cluster))
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(omitted_variable_module, "influence_variance", corrected)
+        with pytest.raises(RuntimeError, match="standard error"):
+            study.parameter_rows(result, "binary_logistic", "att")
+
+
+def test_a_refusal_of_the_bound_is_recorded_and_a_capability_error_stops_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C7: a refusal in ``limit_refusal`` is a recorded ``DataError``; nothing else is.
+
+    The package no longer raises a refusal from the bound for a nonpositive variance, so
+    ``parameter_rows`` converts no ``CapabilityError``.  One from the bound is a defect of the
+    study and stops the run.
+    """
+    result = _fit("binary_logistic", 3)
+    monkeypatch.setattr(ms, "CORRECTION_STABILITY", 1e-9)
+    with pytest.raises(DataError, match=r"refused: correction_unstable$") as recorded:
+        study.parameter_rows(result, "binary_logistic", "att")
+    assert study.refusal_key(str(recorded.value)) == "correction_unstable"
+    monkeypatch.undo()
+
+    def bounds(*args: object, **kwargs: object) -> object:
+        raise CapabilityError("a study bug", reason=RefusalReason.INFERENCE_GAP, alternative="none")
+
+    monkeypatch.setattr(omitted_variable_module, "omitted_variable_bounds", bounds)
+    with pytest.raises(CapabilityError, match="a study bug"):
+        study.parameter_rows(result, "binary_logistic", "att")
+
+
+def test_the_red_cell_policy_declares_no_red_before_the_run() -> None:
+    """The policy names the finite-sample and refusal-limited readings, and no declared red.
+
+    The variance of the bound changed after the first pilot, so the new design is judged by a
+    new pilot.  No cell, scenario or control is declared red or underpowered here.
+    """
     assert properties.FAILURE_BOUND == 0.01
     assert study.STUDY.failure_bound == {study.STUDY.implementation: 0.01}
-    declared = study.CONFIGURATION["declared_red_cells"]
-    assert declared["bound_exceeded"]["owner"] == "X26-crossfit-refusals"
-    assert declared["control_underpowered"]["owner"] == "X26-unbalanced-control"
-    assert declared["correction_overshoot"]["owner"] == "X26-correction-overshoot"
     policy = " ".join(study.RED_CELL_POLICY)
-    for owner in (
-        study.RED_CELL_OWNER,
-        study.CROSSFIT_REFUSAL_OWNER,
-        study.UNDERPOWERED_CONTROL_OWNER,
-        study.CORRECTION_OVERSHOOT_OWNER,
-        study.REFUSAL_LIMITED_OWNER,
-    ):
+    for owner in (study.RED_CELL_OWNER, study.REFUSAL_LIMITED_OWNER):
         assert owner in policy
-    for reading in ("refusal-limited", "variance-correction overshoot", "bound exceeded"):
-        assert reading in policy
-    assert {study.CORRECTION_READING, study.REFUSAL_READING} == set(study.STUDY.property_artifacts)
+    assert "refusal-limited" in policy
+    for gone in ("bound exceeded", "variance-correction", "declared so before the run"):
+        assert gone not in policy
+    assert not hasattr(study, "EXPECTED_BOUND_EXCEEDED")
+    assert not hasattr(study, "UNDERPOWERED_CONTROLS")
+    assert "declared_red_cells" not in study.CONFIGURATION
+    assert set(study.STUDY.property_artifacts) == {study.REFUSAL_READING}
+
+
+def test_no_declared_seed_reads_the_pilot_stream() -> None:
+    """(i) The pilot stream lies outside the study: no seed or label of the study names it."""
+    primary = {
+        replicate_seed(study.STUDY, name, k) for name in study.STUDY.scenarios for k in range(40)
+    }
+    declared = {
+        stream_seed(study.STUDY, "property_sample", "interval_calibration", scenario, k)
+        for scenario in study.PARAMETERS
+        for k in range(40)
+    }
+    pilot = {
+        stream_seed(study.STUDY, PILOT_STREAM, "interval_calibration", scenario, k)
+        for scenario in study.PARAMETERS
+        for k in range(40)
+    }
+    assert len(pilot) == len(study.PARAMETERS) * 40
+    assert not pilot & (primary | declared)
+    for module in (study, properties):
+        source = inspect.getsource(module)
+        assert PILOT_STREAM not in source
+    assert PILOT_STREAM not in json.dumps(study.CONFIGURATION)
+    assert PILOT_STREAM not in " ".join(study.RED_CELL_POLICY)

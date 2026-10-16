@@ -641,13 +641,14 @@ outside the admitted set, such as a random forest, makes `ci_lower`, `ci_upper`,
 omits `rva`. The bounds and the rest of `robustness_value` stay available.
 
 The plug-in $\nu^2$ has a bias of order $1/n$, and its constant grows with $g^{-2}$. The bound
-subtracts a second-order estimate of that bias, and it corrects the variance. A fixed L2 penalty
-adds to the bias, and the same correction covers it. The correction needs a smooth mechanism.
+subtracts a second-order estimate of that bias. A fixed L2 penalty adds to the bias, and the same
+correction covers it. The correction needs a smooth mechanism. The standard error of the limits is
+the influence variance of the uncorrected curve, because the subtraction does not change the curve.
 
 The bound refuses its limits in three cases. A truncation bound clips a cell or lies within three
 standard errors of a fitted logit (`truncation_active`). The predicted remainder exceeds a quarter
-of the standard error of $\nu^2$ (`correction_unstable`). The corrected $\nu^2$ or its variance is
-not positive (`corrected_nonpositive`). More rows, or a `g_bounds` that the fitted mechanism does
+of the standard error of $\nu^2$ (`correction_unstable`). The corrected $\nu^2$ is not positive
+(`corrected_nonpositive`). More rows, or a `g_bounds` that the fitted mechanism does
 not approach, can clear the refusal. The
 [learner rule](../technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
 lists every key.

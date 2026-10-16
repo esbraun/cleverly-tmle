@@ -49,7 +49,7 @@ from cleverly.estimators._nuisance import ConstantFit, cross_fit_companion
 from cleverly.exceptions import CapabilityError, RefusalReason
 from cleverly.interventions import Incremental
 from cleverly.learners import SuperLearner, random_partition
-from cleverly.sensitivity import omitted_variable
+from cleverly.sensitivity import _second_order, omitted_variable
 from cleverly.sensitivity._mechanism_stack import MechanismRefusal, plugin_mechanism_term
 from cleverly.sensitivity.omitted_variable import (
     benchmark,
@@ -465,15 +465,27 @@ class TestEveryLearnerClauseHasAQualifyingTwin:
     def test_a_cross_fitted_fit_reaches_the_correction(self) -> None:
         """A cross-fitted fit has no refusal of its own: it meets the correction's checks.
 
-        On this two-fold, 1,000-row fit the ``ey[1.0]`` logit sits near a bound and the
-        ``ate[2.0 vs 0.0]`` correction exceeds its variance.
+        On this two-fold, 1,000-row fit the ``ey[1.0]`` logit sits near a bound, and the
+        ``ate[2.0 vs 0.0]`` limits carry the correction and the plain influence variance.
         """
         result = fit_three_arm()
-        keys = {
-            estimand: bound_of(result, estimand).limit_refusal.key
-            for estimand in ("ey[1.0]", "ate[2.0 vs 0.0]")
-        }
-        assert keys == {"ey[1.0]": "truncation_active", "ate[2.0 vs 0.0]": "corrected_nonpositive"}
+        assert bound_of(result, "ey[1.0]").limit_refusal.key == "truncation_active"
+        bound = bound_of(result, "ate[2.0 vs 0.0]")
+        assert bound.limit_refusal is None and bound.nu2_correction is not None
+        assert np.isfinite(bound.ci_lower) and bound.ci_lower < bound.lower
+
+    def test_a_correction_beyond_the_moment_is_nonpositive(self) -> None:
+        """A correction larger than the moment refuses with ``corrected_nonpositive`` only."""
+        original = _second_order.PluginStack.bias
+
+        def huge(self: Any) -> Any:
+            return dataclasses.replace(original(self), point=1.0e6)
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(_second_order.PluginStack, "bias", huge)
+            refusal = bound_of(fit_binary(LogisticRegression(max_iter=1000))).limit_refusal
+        assert refusal is not None and refusal.key == "corrected_nonpositive"
+        assert "corrected variance" not in refusal.text
 
     def test_the_summary_names_the_stacked_mechanism(self) -> None:
         summary = bound_of(fit_binary(LogisticRegression(max_iter=1000))).summary()
@@ -488,12 +500,11 @@ class TestEveryLearnerClauseHasAQualifyingTwin:
         assert row["nu2_estimator"] == "plugin"
         assert "limit_refusal" not in row
         assert {"ci_lower", "ci_upper", "robustness_value_ci"} <= set(row)
-        assert row["nu2_correction"] > 0.0 and row["nu2_variance_correction"] > 0.0
+        assert row["nu2_correction"] > 0.0
         report = robustness_value(result, "ate", nu2_estimator="plugin")
         assert list(report) == [
             "nu2_estimator",
             "nu2_correction",
-            "nu2_variance_correction",
             "rv",
             "rva",
             "max_bias",

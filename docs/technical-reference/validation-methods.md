@@ -1081,7 +1081,7 @@ does not track a declared model that failed a check. The three correction keys f
 | `mismatch` | the softmax of the recomputed linear predictor differs from the stored mechanism by more than `MISMATCH_TOLERANCE`, $10^{-8}$, or the fit holds a different number of records than folds | `nu2_estimator="doubly_robust"` |
 | `truncation_active` | a bound clips a cell that the representer reads, or a fitted logit lies within `TRUNCATION_MARGIN`, 3, standard errors of a bound | pass `g_bounds` that the fitted mechanism does not approach, or use `nu2_estimator="doubly_robust"` |
 | `correction_unstable` | the predicted remainder $\hat B^2/\hat\nu^2$ exceeds `CORRECTION_STABILITY`, 0.25, of the standard error of $\nu^2$ | collect more rows, or use `nu2_estimator="doubly_robust"` |
-| `corrected_nonpositive` | the corrected $\nu^2$ or its corrected variance is not positive | `nu2_estimator="doubly_robust"` |
+| `corrected_nonpositive` | the corrected $\nu^2$ is not positive | `nu2_estimator="doubly_robust"` |
 
 **The second-order correction.** The plug-in $E_n[\hat\alpha^2]$ has a bias of order $1/n$. Its
 constant is large, because $\alpha^2$ grows like $g^{-2}$. Out of fold the bias reached 1.44
@@ -1093,11 +1093,14 @@ The root of the stacked estimating equation has the bias
 $\beta = Q\{\sum_c \nabla Z_c\, Q Z_c + \tfrac12 \sum_c \nabla^2 Z_c[V] + \mathrm{pen}(\eta)\}$,
 with $Q = -(\sum_c \nabla Z_c)^{-1}$ and $V = Q S Q^\top$ (Rilstone, Srivastava and Ullah 1996,
 Proposition 3.2; Newey and Smith 2004, Theorem 4.1). The $\nu$ coordinate of $\beta$ is $\hat B$.
-The variance estimate is the root of two more blocks, so the same formula gives its bias.
 
-The bound reports $\hat\nu^2 - \hat B$ and the corrected variance. The curve is unchanged. The
-correction assumes a smooth mechanism, a small remainder and a positive result. The three
-correction keys refuse the limits when one assumption fails. The point bounds remain.
+The bound reports $\hat\nu^2 - \hat B$. The curve is unchanged, and the variance is the influence
+variance of that curve. The package makes no correction of the variance. In a design pilot at
+$n = 1000$, a second-order correction of the variance estimate took a large share of the
+cross-fitted variance, so its expansion was not trusted.
+
+The correction of the point assumes a smooth mechanism, a small remainder and a positive result.
+The three correction keys refuse the limits when one assumption fails. The point bounds remain.
 
 The property study of the corrected limits is pending. The
 [study page](method-evidence/omitted-variable-bound-plugin-standard-error.md) states the status.
@@ -1114,7 +1117,7 @@ table. The first two conditions have no check.
 | a well-conditioned information matrix | checked on each fold, key `singular` |
 | the TMLE conditions of the bounded estimate | unchanged |
 | a smooth mechanism and a small remainder | checked, keys `truncation_active` and `correction_unstable` |
-| a positive corrected $\nu^2$ and variance | checked, key `corrected_nonpositive` |
+| a positive corrected $\nu^2$ | checked, key `corrected_nonpositive` |
 
 **The ATE and `ey` identity.** For $\alpha = \sum_a c_a 1\{A = a\}/g_a$, the derivative of the
 square is $\partial_\theta \alpha^2 = -2\alpha^2 \partial_\theta \log g_A$. Here
@@ -1127,7 +1130,7 @@ The standard error of a limit of an ATE or of an `ey` then equals the standard e
 the mechanism term. This is projection geometry and not Neyman orthogonality, because
 $D \neq 0$.
 
-The identity concerns the curve. The bound subtracts the variance correction from the variance of that curve.
+The identity concerns the curve. The bound reports the influence variance of that curve.
 
 The identity holds under four conditions: a correct model, constant weights, independent and
 identically distributed rows, and no active clip. The ATT and the ATC lack the form. The identity

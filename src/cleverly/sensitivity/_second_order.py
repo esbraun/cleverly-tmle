@@ -1,4 +1,4 @@
-r"""The second-order bias of the plug-in :math:`\nu^2` and of its variance estimate.
+r"""The second-order bias of the plug-in :math:`\nu^2`.
 
 The plug-in estimate :math:`\hat\nu^2 = E_n[w\,\hat\alpha^2]` is one coordinate of the root
 :math:`\hat\eta` of a stacked estimating equation :math:`\sum_c Z_c(\eta) = 0`, summed over
@@ -38,25 +38,15 @@ three terms of the plan's hand derivation, :math:`D^\top\beta_\theta`,
 share and Hajek terms too.  A cross-fitted :math:`\nu` row of a test row carries no
 :math:`\theta_{k(i)}` score row, so the held-out form has no covariance term.
 
-**The variance.**  The curve of :math:`\hat\nu^2` is :math:`\psi_i = \gamma^\top \tilde u_i`,
+**The curve.**  The curve of :math:`\hat\nu^2` is :math:`\psi_i = \gamma^\top \tilde u_i`,
 where :math:`\gamma = -n A^{-\top} e_\nu` is the :math:`\nu` row of the inverse Jacobian
-and :math:`\tilde u_i` carries the penalty's row allocation.  The variance estimate
-:math:`\hat v = n^{-1}\sum_c \Psi_c^2` is itself the root of two more blocks,
+and :math:`\tilde u_i` carries the penalty's row allocation.  The engine returns the curve
+and no bias of its variance: the bound reports the plain influence variance of the curve.
 
-.. math::
-
-    \sum_i [\nabla u_i(\eta)^\top \gamma + w_i e_\nu] = 0,\qquad
-    \sum_c [(\gamma^\top \tilde U_c(\eta))^2 - n_c v] = 0,
-
-so the same :math:`\beta`, on the augmented root :math:`(\eta, \gamma, v)`, gives the bias of
-:math:`\hat v`, the noise of :math:`\hat\gamma` included.
-
-**Derivatives.**  The base rows, their Jacobian-vector products, their vector-Jacobian
-products and their second directional derivatives are closed forms
+**Derivatives.**  The base rows, their Jacobian-vector products and their second
+directional derivatives are closed forms
 (:func:`~cleverly.sensitivity._mechanism_stack.representer_g_derivative` holds the
-representer's).  The two augmented blocks are differentiated by a complex step, and their
-curvature by a central difference of that complex step.  Each is complex-analytic in its
-parameters.
+representer's).  Each is complex-analytic in its parameters.
 
 :class:`PluginStack` is the engine.  ``mass`` and ``strata`` let a test evaluate the
 expected sums of a fixed design: each row then stands for ``mass`` independent units, and
@@ -73,13 +63,6 @@ import numpy as np
 from .._typing import BoolArray, FloatArray
 
 __all__ = ["PluginStack", "SecondOrderBias", "StackFold", "representer_derivatives"]
-
-#: The imaginary step of the complex-step derivatives.
-_COMPLEX_STEP = 1e-30
-
-#: The real step of the central difference that turns a complex-step derivative into a
-#: second derivative, along a unit eigenvector of the sandwich.
-_CURVATURE_STEP = 1e-5
 
 #: Eigenvalues of a sandwich below this fraction of the largest carry no curvature.
 _EIGEN_CUTOFF = 1e-13
@@ -122,22 +105,15 @@ class SecondOrderBias:
     ----------
     point : float
         :math:`\hat B`, the second-order bias of :math:`\hat\nu^2`.
-    variance : float
-        The second-order bias of :math:`\hat v = n^{-1} \sum_c \Psi_c^2`, the variance
-        estimate of :math:`\sqrt n\,\hat\nu^2`.
     curve : ndarray
         ``(n,)`` curve :math:`\psi_i = \gamma^\top \tilde u_i` of the stack.
-    second_moment : float
-        :math:`\hat v`.
     root : ndarray
         ``(P,)`` second-order bias of every coordinate of the base root
         :math:`(\theta_1, \dots, \theta_F, p, \nu)`.
     """
 
     point: float
-    variance: float
     curve: FloatArray
-    second_moment: float
     root: FloatArray
 
 
@@ -335,8 +311,6 @@ class PluginStack:
             self.units = int(self.codes.max()) + 1
         # A row of a fixed design stands for ``mass`` units; a cluster is one unit.
         self.unit_mass = self.mass if cluster is None else np.ones(self.units)
-        self.unit_rows = np.zeros(self.units)
-        np.add.at(self.unit_rows, self.codes, 1.0)
         self.strata = None if strata is None else np.asarray(strata)
         self.onehot = np.eye(self.k)[self.index]
         self.indicator = (
@@ -356,7 +330,6 @@ class PluginStack:
         self.d = d
         self.train = [np.asarray(_training_mask(f), dtype=float) for f in self.folds]
         self.test = [np.asarray(f.test, dtype=bool) for f in self.folds]
-        self.total_mass = float(self.mass.sum())
         self.weight_mass = float(self.mass @ self.weights)
         # The fixed share when it is not stacked.
         self.fixed_share = (
@@ -505,32 +478,6 @@ class PluginStack:
         out[:, layout.nu] = w * (2.0 * d_alpha**2 + 2.0 * state.alpha * d2_alpha)
         return out
 
-    def vjp(self, eta: Any, gamma: Any) -> Any:
-        """``(n, P)`` products ``grad u_i' gamma``; complex-analytic."""
-        layout = self.layout
-        state = self._state(eta)
-        w = self.weights
-        dtype = np.result_type(eta.dtype, gamma.dtype)
-        out = np.zeros((self.n, layout.size), dtype=dtype)
-        g_nu = gamma[layout.nu]
-        coefficient = g_nu * w * 2.0 * state.alpha
-        inner = (state.b * state.own).sum(axis=1, keepdims=True)
-        for k, (fold, g) in enumerate(zip(self.folds, state.fold_g, strict=True)):
-            # The information is symmetric, so the score block is its own product.
-            tf = self._directions(gamma, k)
-            dg = g * (tf - (g * tf).sum(axis=1, keepdims=True))
-            block = (dg[:, 1:, None] * fold.design[:, None, :]).reshape(self.n, -1)
-            out[:, layout.theta(k)] = -(w * self.train[k])[:, None] * block
-            test = self.test[k]
-            gradient = state.own[:, 1:] * (state.b[:, 1:] - inner)
-            nu_block = (gradient[:, :, None] * fold.design[:, None, :]).reshape(self.n, -1)
-            out[test, layout.theta(k)] += coefficient[test, None] * nu_block[test]
-        if layout.share is not None:
-            alpha_p, _, _ = self._share_parts(state)
-            out[:, layout.share] = -w * gamma[layout.share] + coefficient * alpha_p
-        out[:, layout.nu] = -g_nu * w
-        return out
-
     def penalty(self, eta: Any) -> Any:
         """``(P,)`` deterministic penalty term ``-P theta_k`` of the summed equation."""
         out = np.zeros(self.layout.size, dtype=eta.dtype)
@@ -576,28 +523,24 @@ class PluginStack:
             out[:, j] = self._summed(self.jvp(eta, np.eye(size)[j])).real
         return out + self.penalty_jacobian()
 
-    def _null_projector(self, copies: int) -> FloatArray:
-        """The projector onto the unidentified directions of ``copies`` stacked blocks."""
+    def _null_projector(self) -> FloatArray:
+        """The projector onto the unidentified directions of the stacked blocks."""
         size = self.layout.size
-        out = np.zeros((copies * size, copies * size))
-        for copy in range(copies):
-            for k, fold in enumerate(self.folds):
-                if fold.null is None or fold.null.size == 0:
-                    continue
-                block = self.layout.theta(k)
-                index = np.arange(block.start, block.stop) + copy * size
-                out[np.ix_(index, index)] = fold.null @ fold.null.T
+        out = np.zeros((size, size))
+        for k, fold in enumerate(self.folds):
+            if fold.null is None or fold.null.size == 0:
+                continue
+            block = self.layout.theta(k)
+            out[block, block] = fold.null @ fold.null.T
         return out
 
-    def _q(self, information: FloatArray, copies: int) -> FloatArray:
+    def _q(self, information: FloatArray) -> FloatArray:
         """``-A^+``: the inverse on the identified directions, zero on the others.
 
         The rows do not move along an unidentified direction, so that direction is a right
         and a left null space of ``A``, and ``(A - Pi)^{-1} + Pi`` is its pseudo-inverse.
         """
-        projector = np.zeros_like(information)
-        blocks = self._null_projector(copies)
-        projector[: blocks.shape[0], : blocks.shape[0]] = blocks
+        projector = self._null_projector()
         return np.asarray(-(np.linalg.inv(information - projector) + projector), dtype=float)
 
     def _eigen(self, variance: FloatArray) -> list[tuple[float, FloatArray]]:
@@ -609,62 +552,26 @@ class PluginStack:
             if value > _EIGEN_CUTOFF * max(top, 0.0)
         ]
 
-    # --------------------------------------------------------------- the augmented stack
-
     def _allocation(self, eta: Any) -> Any:
         """``(n, P)`` row allocation of the penalty, ``(w_i / sum w) P theta``."""
         return np.outer(self.weights / self.weight_mass, self.penalty(eta))
 
-    def _augmented(self, full: Any) -> Any:
-        """``(units, P + 1)`` augmented blocks ``(gamma, v)`` at ``(eta, gamma, v)``."""
-        size = self.layout.size
-        eta, gamma, v = full[:size], full[size : 2 * size], full[2 * size]
-        rows = self.vjp(eta, gamma)
-        rows[:, self.layout.nu] += self.weights
-        tilde = self._units(self.rows(eta) + self._allocation(eta))
-        psi = tilde @ gamma
-        return np.concatenate([self._units(rows), (psi**2 - self.unit_rows * v)[:, None]], axis=1)
-
-    def _augmented_columns(self, full: FloatArray) -> list[FloatArray]:
-        """The complex-step Jacobian of the augmented blocks, one column per coordinate."""
-        columns = []
-        for j in range(full.size):
-            step = np.zeros(full.size, dtype=complex)
-            step[j] = 1j * _COMPLEX_STEP
-            columns.append(np.asarray(self._augmented(full + step).imag / _COMPLEX_STEP))
-        return columns
-
-    def _augmented_curvature(self, full: FloatArray, direction: FloatArray) -> FloatArray:
-        """``sum_c mass_c d^2/ds^2 Z_c(full + s direction)`` for the augmented blocks."""
-        derivative = []
-        for sign in (1.0, -1.0):
-            point = full + sign * _CURVATURE_STEP * direction + 1j * _COMPLEX_STEP * direction
-            derivative.append(self._augmented(point).imag / _COMPLEX_STEP)
-        return np.asarray(
-            self.unit_mass @ ((derivative[0] - derivative[1]) / (2.0 * _CURVATURE_STEP))
-        )
-
     # ------------------------------------------------------------------------ the bias
 
-    def bias(self, *, variance: bool = True) -> SecondOrderBias:
-        """The second-order bias of the point and of the variance estimate.
-
-        Parameters
-        ----------
-        variance : bool
-            Whether to build the augmented stack for the variance estimate.
+    def bias(self) -> SecondOrderBias:
+        """The second-order bias of the point estimate.
 
         Returns
         -------
         SecondOrderBias
-            The two biases, the stack's curve and the variance estimate.
+            The bias, the stack's curve and the bias of every root coordinate.
         """
         layout = self.layout
         size = layout.size
         eta = self.root
         base_units = self._units(self.rows(eta))
         information = self.information(eta)
-        q = self._q(information, 1)
+        q = self._q(information)
         centred = self._centred(base_units)
         meat = (centred * self.unit_mass[:, None]).T @ centred
         sandwich = _sandwich(q, meat, layout)
@@ -674,58 +581,14 @@ class PluginStack:
         for value, vector in self._eigen(sandwich):
             curvature += value * self._summed(self.second_directional(eta, vector)).real
         beta = _assemble(q, first, curvature, self.penalty(eta), layout)
-        point = float(beta[layout.nu])
-
-        # The curve gamma' u~ and the variance estimate.
         gamma = self.weight_mass * (q.T @ np.eye(size)[layout.nu])
-        tilde = self._units(self.rows(eta) + self._allocation(eta))
-        psi_units = tilde @ gamma
-        second_moment = float(self.unit_mass @ psi_units**2) / self.total_mass
         curve = (self.rows(eta) + self._allocation(eta)) @ gamma
-        if not variance:
-            return SecondOrderBias(point, float("nan"), np.asarray(curve), second_moment, beta)
-
-        full = np.concatenate([eta, gamma, [second_moment]])
-        total = full.size
-        columns = self._augmented_columns(full)
-        lower = np.column_stack([self.unit_mass @ column for column in columns])
-        full_information = np.zeros((total, total))
-        full_information[:size, :size] = information
-        full_information[size:, :] = lower
-        full_information[size : 2 * size, size : 2 * size] += self.penalty_jacobian()
-        full_q = self._q(full_information, 2)
-        augmented = self._augmented(full.astype(complex)).real
-        units = np.concatenate([base_units, augmented], axis=1)
-        units_centred = self._centred(units)
-        full_meat = (units_centred * self.unit_mass[:, None]).T @ units_centred
-        full_sandwich = _sandwich(full_q, full_meat, layout)
-        unit_directions = units_centred @ full_q.T
-        full_first = np.zeros(total)
-        full_first[:size] = self._summed(self.jvp(eta, unit_directions[:, :size][self.codes])).real
-        for j, column in enumerate(columns):
-            full_first[size:] += (self.unit_mass * unit_directions[:, j]) @ column
-        full_curvature = np.zeros(total)
-        for value, vector in self._eigen(full_sandwich):
-            full_curvature[:size] += (
-                value * self._summed(self.second_directional(eta, vector[:size])).real
-            )
-            full_curvature[size:] += value * self._augmented_curvature(full, vector)
-        full_penalty = np.zeros(total)
-        full_penalty[:size] = self.penalty(eta)
-        full_penalty[size : 2 * size] = self.penalty(gamma)
-        full_beta = _assemble(full_q, full_first, full_curvature, full_penalty, layout)
-        return SecondOrderBias(
-            point=point,
-            variance=float(full_beta[-1]),
-            curve=np.asarray(curve),
-            second_moment=second_moment,
-            root=beta,
-        )
+        return SecondOrderBias(float(beta[layout.nu]), np.asarray(curve), beta)
 
     def root_variance(self) -> FloatArray:
         """``(P, P)`` sandwich variance of the base root, in sum units."""
         eta = self.root
-        q = self._q(self.information(eta), 1)
+        q = self._q(self.information(eta))
         centred = self._centred(self._units(self.rows(eta)))
         meat = (centred * self.unit_mass[:, None]).T @ centred
         return _sandwich(q, meat, self.layout)

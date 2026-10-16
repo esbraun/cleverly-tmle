@@ -189,7 +189,7 @@ Under `nu2_estimator="plugin"` an omitted-variable bound follows the rules above
 The first case is a declared known treatment mechanism. The second case is a scikit-learn
 `LogisticRegression`, binary or multinomial, with no penalty or a fixed L2 penalty, fitted bare or
 after `StandardScaler` steps, fitted in sample or cross-fitted. The limits subtract a second-order bias of
-$\nu^2$ and correct its variance.
+$\nu^2$ and keep the influence variance of its curve.
 
 Every other fit refuses its limits at every status, for a different
 reason. No source this package cites gives their standard error for another learner. A qualifying fit also refuses

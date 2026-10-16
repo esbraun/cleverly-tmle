@@ -4,8 +4,8 @@ A design-review pilot found the uncorrected cross-fitted ATE :math:`\nu^2` limit
 against a band of 0.92 to 0.98: the plug-in :math:`E_n[\hat\alpha^2]` carries a bias of order
 :math:`1/n`, larger out of fold.  The package now subtracts the second-order bias
 :math:`\hat B` of the stacked estimating equation (``cleverly.sensitivity._second_order``) and
-corrects the variance estimate of :math:`\hat\nu^2` in the same way.  This diagnostic reads both
-estimates, in sample and cross-fitted, on the same draws.
+keeps the influence variance of the curve, which the subtraction does not change.  This
+diagnostic reads both estimates, in sample and cross-fitted, on the same draws.
 
 On the binary law of ``tests.studies.omitted_variable_bound_plugin`` (``make_linear_ate``) at
 strength ``cf_y = cf_d = 0.5`` and ``rho = 1``, each draw is fitted twice.
@@ -22,7 +22,8 @@ Each row records four quantities, each with its reported standard error.
 ``nu2_raw``
     :math:`E_n[\hat\alpha^2]`, with ``sqrt(influence_variance(psi_nu2))``.
 ``nu2``
-    The corrected :math:`E_n[\hat\alpha^2] - \hat B`, with the root of the corrected variance.
+    The corrected :math:`E_n[\hat\alpha^2] - \hat B`, with the same standard error as
+    ``nu2_raw``, because the correction leaves the curve unchanged.
 ``lower``, ``upper``
     The bound ends, with the standard error read back off the reported limit.
 
@@ -34,9 +35,10 @@ quantities are missing, and the reading counts the refusals.
 ratio of the mean reported standard error to that deviation, and ``refused``.  The corrected rows
 read the replicates the package did not refuse.  The raw row reads all of them.  The
 measurement: the raw cross-fitted ATE ``nu2`` covers 0.8845 with bias 1.44 SD at n = 1000.  The
-corrected ``nu2`` has bias within 0.1 SD in every cell, and its SE ratio is 0.73 to 0.75
-cross-fitted and 0.90 to 0.92 in sample at n = 1000.  The corrected bound rows cover 0.947 to
-0.959 with SE ratio 0.986 to 1.019 in every cell.
+corrected ``nu2`` has bias within 0.1 SD in every cell, and its SE ratio is 1.22 to 1.26
+cross-fitted and 1.06 to 1.08 in sample at n = 1000.  The corrected bound rows cover 0.947 to
+0.961 with SE ratio 1.004 to 1.039 in every cell.  The package refused 4 of 12,000 fits, each
+with the key ``truncation_active``.
 
 **Seeds.**  The draw of replicate ``k`` at sample size ``n`` uses
 ``stream_seed(STUDY, "x26-crossfit-bias", n, k)``.  That stream hashes a label into the
@@ -127,7 +129,6 @@ def parameter_values(result: object, token: str) -> dict[str, float | str]:
         out[row] = out[f"{row}_se"] = math.nan
     if elements.limit_refusal is not None:
         return out
-    assert elements.nu2_variance_correction is not None
     bounds = ov.omitted_variable_bounds(
         result,  # type: ignore[arg-type]
         name,
@@ -136,9 +137,8 @@ def parameter_values(result: object, token: str) -> dict[str, float | str]:
         rho=study.RHO,
         nu2_estimator="plugin",
     )
-    variance = influence_variance(elements.psi_nu2, cluster) - elements.nu2_variance_correction
     out["nu2"] = float(elements.nu2)
-    out["nu2_se"] = float(np.sqrt(variance))
+    out["nu2_se"] = out["nu2_raw_se"]
     out["lower"] = float(bounds.lower)
     out["lower_se"] = float((bounds.lower - bounds.ci_lower) / study.ONE_SIDED)
     out["upper"] = float(bounds.upper)

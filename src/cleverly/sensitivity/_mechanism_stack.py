@@ -36,9 +36,11 @@ A declared known mechanism (:class:`~cleverly.data.KnownMechanism`) is the degen
 constant is large, because :math:`\alpha^2` grows like :math:`g^{-2}`.  Out of fold it reached
 1.44 standard deviations at :math:`n = 1000` (``tests/diagnostics/x26_crossfit_bias``).
 :class:`~cleverly.sensitivity._second_order.PluginStack` estimates that bias,
-:math:`\hat B`, and the bias of the variance estimate, from the stacked equation of this
-module (the ridge shift, the conditioning share and the weight ratio included).  The bound
-reports :math:`\hat\nu^2 - \hat B` and the corrected variance.  The curve is unchanged.
+:math:`\hat B`, from the stacked equation of this module (the ridge shift, the conditioning
+share and the weight ratio included).  The bound reports :math:`\hat\nu^2 - \hat B`.  The
+curve is unchanged, and the variance is the plain influence variance of that curve: no
+correction of the variance estimate is made, because in a design pilot its expansion took a
+large share of the cross-fitted variance at :math:`n = 1000`.
 
 The correction assumes a smooth mechanism, a small remainder, and a positive result, so the
 limits refuse, with no roadmap item, in three cases:
@@ -49,9 +51,8 @@ key                        condition
 ``truncation_active``      a bound clips a cell the representer reads, or a fitted logit lies
                            within :data:`TRUNCATION_MARGIN` standard errors of a bound
 ``correction_unstable``    :math:`\hat B^2 / \hat\nu^2` exceeds :data:`CORRECTION_STABILITY`
-                           standard errors of :math:`\nu^2`
-``corrected_nonpositive``  the corrected :math:`\nu^2` or its corrected variance is not
-                           positive
+                           standard errors of :math:`\hat\nu^2`
+``corrected_nonpositive``  the corrected :math:`\nu^2` is not positive
 =========================  ================================================================
 
 :func:`plugin_mechanism_term` returns the term and the corrections, or the reason the fit does
@@ -180,7 +181,7 @@ def _refusal(
 
 @dataclass(frozen=True)
 class MechanismTerm:
-    r"""The mechanism term of the plug-in curve, with the second-order corrections.
+    r"""The mechanism term of the plug-in curve, with the second-order correction.
 
     Parameters
     ----------
@@ -189,10 +190,6 @@ class MechanismTerm:
     correction : float or None
         :math:`\hat B`, the second-order bias of :math:`E_n[\hat\alpha^2]`, which the bound
         subtracts. ``None`` when ``refusal`` is set.
-    variance_correction : float or None
-        The second-order bias of the variance estimate of :math:`\hat\nu^2`, in the units of
-        :func:`~cleverly.inference.cluster.influence_variance`. ``None`` when ``refusal`` is
-        set.
     refusal : MechanismRefusal or None
         Why the correction, and so the limits, do not hold on this fit, although the curve
         does.
@@ -200,7 +197,6 @@ class MechanismTerm:
 
     values: FloatArray
     correction: float | None = None
-    variance_correction: float | None = None
     refusal: MechanismRefusal | None = None
 
 
@@ -214,7 +210,7 @@ def correction_refusal(nu2: float, correction: float, variance: float) -> Mechan
     correction : float
         :math:`\hat B`.
     variance : float
-        The corrected variance of :math:`\hat\nu^2`.
+        The influence variance of :math:`\hat\nu^2`, which the correction leaves unchanged.
 
     Returns
     -------
@@ -222,12 +218,11 @@ def correction_refusal(nu2: float, correction: float, variance: float) -> Mechan
         The ``corrected_nonpositive`` or ``correction_unstable`` record.
     """
     corrected = nu2 - correction
-    if corrected <= 0.0 or variance <= 0.0:
+    if corrected <= 0.0:
         return _refusal(
             "corrected_nonpositive",
-            f"the second-order corrected nu^2 is {corrected:.6g} with corrected variance "
-            f"{variance:.6g}, and neither a second moment nor a variance can be negative or "
-            "zero. The correction is too large for its expansion",
+            f"the second-order corrected nu^2 is {corrected:.6g}, and a second moment cannot "
+            "be negative or zero. The correction is too large for its expansion",
         )
     remainder = correction**2 / nu2
     if remainder > CORRECTION_STABILITY * float(np.sqrt(variance)):
@@ -699,8 +694,8 @@ def plugin_mechanism_term(
     Returns
     -------
     MechanismTerm or MechanismRefusal
-        The ``(n,)`` term with the second-order corrections of ``nu^2`` and of its variance,
-        or the reason the fit does not qualify.
+        The ``(n,)`` term with the second-order correction of ``nu^2``, or the reason the
+        fit does not qualify.
     """
     nuisance = repeat.nuisance
     data = result.data
@@ -824,5 +819,4 @@ def _engine(
 
 
 def _corrected(term: FloatArray, engine: PluginStack) -> MechanismTerm:
-    bias = engine.bias()
-    return MechanismTerm(term, correction=bias.point, variance_correction=bias.variance / engine.n)
+    return MechanismTerm(term, correction=engine.bias().point)

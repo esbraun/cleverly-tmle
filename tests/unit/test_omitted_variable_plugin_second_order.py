@@ -1,8 +1,8 @@
 r"""The second-order correction of the plug-in :math:`\nu^2` (X26 plan, section 9).
 
 :class:`~cleverly.sensitivity._second_order.PluginStack` estimates the :math:`O(1/n)` bias of
-:math:`\hat\nu^2 = E_n[w\hat\alpha^2]` and of its variance estimate.  The witnesses here are
-deterministic.
+:math:`\hat\nu^2 = E_n[w\hat\alpha^2]`.  The engine has no correction of the variance
+estimate.  The witnesses here are deterministic.
 
 * W10 compares each closed form of the engine with a central difference of the rows.
 * W11 compares the root bias of a saturated logistic model with the Cox and Snell value per
@@ -10,8 +10,8 @@ deterministic.
   exact multinomial enumeration.
 * W12 compares :math:`n\hat B` with the Richardson limit of :math:`n(E\hat\nu^2 - \nu^2)` from
   an exact binomial enumeration of a fixed design, in sample and cross-fitted, with weight
-  levels, the ATT share, a known mechanism, three arms and a ridge.  It does the same for the
-  variance estimate in sample.  A cell at a truncation bound has a bias of order
+  levels, the ATT share, a known mechanism, three arms and a ridge.  A cell at a truncation
+  bound has a bias of order
   :math:`n^{-1/2}`, which no smooth correction covers, and the package refuses it.
 
 The engine reads each fixed design through ``mass`` (the expected count of each row) and
@@ -44,7 +44,6 @@ import cleverly.sensitivity._second_order as so
 import cleverly.sensitivity.omitted_variable as ov
 from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning
-from cleverly.inference.cluster import influence_variance
 from cleverly.sensitivity._second_order import PluginStack, StackFold, representer_derivatives
 
 #: The tolerance of a Richardson limit against :math:`n\hat B`, relative to :math:`n\hat B`.
@@ -306,39 +305,6 @@ def exact_ridge_bias(design: Design, m: int) -> float:
     return float(np.sum(prob * value / design.n(m)) / prob.sum()) - design.truth()
 
 
-def exact_variance_bias(design: Design, m: int) -> tuple[float, float]:
-    """``E v_hat - v`` in sample for the saturated ATE, and ``v``.
-
-    With a saturated model in sample the plug-in curve is the doubly robust one
-    (``TestTheExactLawCurve`` W2): ``psi = 2 (1/g_hat + 1/(1 - g_hat)) - alpha_hat^2 - nu_hat``.
-    """
-    assert design.group == "mean" and design.versus == 0 and design.folds == 1
-    k1, k2, prob = _joint(design, m)
-    n = design.n(m)
-
-    def second_moment(counts: tuple[Any, Any], g_hats: list[Any]) -> tuple[Any, Any]:
-        nu = (
-            sum(
-                k * _alpha2(design, np.array(1), g) + (m - k) * _alpha2(design, np.array(0), g)
-                for k, g in zip(counts, g_hats, strict=True)
-            )
-            / n
-        )
-        total = 0.0
-        for k, g in zip(counts, g_hats, strict=True):
-            centre = 2.0 * (1.0 / g[..., 1] + 1.0 / g[..., 0])
-            for a, rows in ((1, k), (0, m - k)):
-                total = total + rows * (centre - _alpha2(design, np.array(a), g) - nu) ** 2
-        return total / n, nu
-
-    g_hats = [np.stack([1.0 - k / m, k / m], axis=-1) for k in (k1, k2)]
-    v_hat, _ = second_moment((k1, k2), g_hats)
-    law = [np.asarray(row) for row in design.g]
-    expected = (np.array(m * law[0][1]), np.array(m * law[1][1]))
-    v, _ = second_moment(expected, law)
-    return float(np.sum(prob * v_hat) / prob.sum()) - float(v), float(v)
-
-
 def richardson(bias: Callable[[Design, int], float], design: Design, m: int) -> float:
     """The limit of ``n e(n)`` from ``n``, ``2n`` and ``4n``, its two leading remainders removed.
 
@@ -357,7 +323,7 @@ LAW_ROWS = 10**7
 
 def scaled_point(design: Design, m: int = LAW_ROWS) -> float:
     """``n B`` at the law: the engine's point bias, scaled by the rows it stands for."""
-    return design.n(m) * design.stack(m).bias(variance=False).point
+    return design.n(m) * design.stack(m).bias().point
 
 
 def exact_random_design(n: int) -> tuple[float, float]:
@@ -527,31 +493,14 @@ class TestTheClosedForms:
         )
 
     @pytest.mark.parametrize("case", W10_CASES, ids=_w10_id)
-    def test_the_vector_jacobian_product(self, case: tuple[int, str, int]) -> None:
-        stack = _random_stack(*case)
-        eta = self.point(stack)
-        gamma = np.random.default_rng(5).normal(size=eta.size)
-        columns = [self.central(stack.rows, eta, unit) for unit in np.eye(eta.size)]
-        numeric = np.einsum("jit,t->ij", np.array(columns), gamma)
-        np.testing.assert_allclose(
-            stack.vjp(eta, gamma), numeric, rtol=0, atol=CLOSED_RTOL * np.abs(numeric).max()
-        )
-
-    @pytest.mark.parametrize("case", W10_CASES, ids=_w10_id)
     def test_the_rows_are_complex_analytic(self, case: tuple[int, str, int]) -> None:
-        """The augmented blocks are differentiated by a complex step of the closed forms."""
+        """The rows are complex-analytic, so a complex step gives their Jacobian."""
         stack = _random_stack(*case)
         eta = self.point(stack)
         a = np.random.default_rng(6).normal(size=eta.size)
         step = 1e-30
         np.testing.assert_allclose(
             stack.rows(eta + 1j * step * a).imag / step, stack.jvp(eta, a), rtol=1e-12, atol=1e-12
-        )
-        gamma = np.random.default_rng(8).normal(size=eta.size)
-        numeric = stack.vjp(eta + 1j * step * a, gamma.astype(complex)).imag / step
-        expected = self.central(lambda e: stack.vjp(e, gamma), eta, a)
-        np.testing.assert_allclose(
-            numeric, expected, rtol=0, atol=CLOSED_RTOL * np.abs(expected).max()
         )
 
     @pytest.mark.parametrize("case", W10_CASES, ids=_w10_id)
@@ -630,22 +579,10 @@ def w12_deviation(name: str) -> float:
     return abs(scaled_point(design) - limit) / abs(limit)
 
 
-@functools.cache
-def exact_variance_limit() -> tuple[float, float]:
-    limit = richardson(lambda design, m: exact_variance_bias(design, m)[0], BASE, 200)
-    return limit, exact_variance_bias(BASE, 200)[1]
-
-
-def variance_deviation() -> float:
-    limit, _ = exact_variance_limit()
-    m = LAW_ROWS
-    return abs(BASE.n(m) * BASE.stack(m).bias().variance - limit) / abs(limit)
-
-
 def cox_snell_deviation() -> float:
     """The root bias of the saturated model against ``(2g - 1) / (2 m g (1 - g))`` per cell."""
     m = 400
-    root = BASE.stack(m).bias(variance=False).root
+    root = BASE.stack(m).bias().root
     g = np.array([row[1] for row in BASE.g])
     cell = (2.0 * g - 1.0) / (2.0 * m * g * (1.0 - g))
     expected = np.array([cell[0], cell[1] - cell[0]])
@@ -663,7 +600,7 @@ def random_design_limits() -> tuple[float, float]:
 
 def random_design_deviation() -> float:
     n = 10**7
-    root = random_design_stack(n).bias(variance=False).root
+    root = random_design_stack(n).bias().root
     predicted = (n * root[0], n * root[-1])
     return float(
         max(abs(p - e) / abs(e) for p, e in zip(predicted, random_design_limits(), strict=True))
@@ -693,13 +630,6 @@ class TestTheExactLawBias:
     def test_the_correction_is_the_exact_bias(self, name: str) -> None:
         assert w12_deviation(name) < LIMIT_RTOL
 
-    def test_the_variance_correction_is_the_exact_bias(self) -> None:
-        """The augmented stack, with the noise of gamma, against an exact enumeration."""
-        _, v = exact_variance_limit()
-        stack = BASE.stack(200)
-        assert stack.bias().second_moment == pytest.approx(v, rel=1e-12)
-        assert variance_deviation() < LIMIT_RTOL
-
     def test_every_in_sample_term_is_of_order_one(self) -> None:
         """``D beta``, ``tr(G V) / 2`` and ``c`` each move ``n B`` by more than 4."""
         parts = _parts(BASE)
@@ -728,7 +658,7 @@ def _parts(design: Design) -> dict[str, float]:
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(so, "_assemble", spy)
         m = LAW_ROWS
-        design.stack(m).bias(variance=False)
+        design.stack(m).bias()
     return {key: design.n(m) * value for key, value in captured.items()}
 
 
@@ -853,15 +783,13 @@ WIRING_CASES = [(cf, estimand) for cf in (False, True) for estimand in ("ate", "
 
 
 class TestThePackageReadsTheStack:
-    """The bound's point, curve and variance are the stack's, on fitted results."""
+    """The bound's point and curve are the stack's, on fitted results."""
 
     @pytest.mark.parametrize("case", WIRING_CASES, ids=lambda c: f"{c[1]}-cf{int(c[0])}")
     def test_the_stack_curve_is_the_shipped_curve(self, case: tuple[bool, str]) -> None:
         elements, engine = elements_and_engine(wiring_fit(case[0]), case[1])
         assert engine is not None and elements.limit_refusal is None
-        np.testing.assert_allclose(
-            engine.bias(variance=False).curve, elements.psi_nu2, rtol=1e-8, atol=1e-10
-        )
+        np.testing.assert_allclose(engine.bias().curve, elements.psi_nu2, rtol=1e-8, atol=1e-10)
 
     @pytest.mark.parametrize("case", WIRING_CASES, ids=lambda c: f"{c[1]}-cf{int(c[0])}")
     def test_the_point_is_the_moment_less_the_correction(self, case: tuple[bool, str]) -> None:
@@ -872,11 +800,6 @@ class TestThePackageReadsTheStack:
         assert elements.nu2 + elements.nu2_correction == pytest.approx(
             engine.root[engine.layout.nu], rel=1e-12
         )
-        assert elements.nu2_variance_correction == pytest.approx(
-            bias.variance / engine.n, rel=1e-12
-        )
-        corrected = influence_variance(elements.psi_nu2, None) - elements.nu2_variance_correction
-        assert corrected > 0.0
 
     def test_an_unadmitted_learner_reports_no_correction(self) -> None:
         result = (
@@ -915,7 +838,6 @@ class TestTheCorrectionRefuses:
 
     def test_corrected_nonpositive(self) -> None:
         assert ms.correction_refusal(1.0, 1.5, 0.01).key == "corrected_nonpositive"  # type: ignore[union-attr]
-        assert ms.correction_refusal(1.0, 0.1, -1e-6).key == "corrected_nonpositive"  # type: ignore[union-attr]
 
     def test_correction_unstable_at_its_threshold(self) -> None:
         """``B^2 / nu^2 = 0.01`` against ``0.25 SE``: refused at SE 0.0399, kept at 0.0401."""

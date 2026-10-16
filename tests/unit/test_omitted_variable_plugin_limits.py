@@ -754,10 +754,33 @@ class TestTheClusteredLimit:
             result, name, cf_y=CF_Y, cf_d=CF_D, rho=1.0, nu2_estimator="plugin"
         )
         reported = (bounds.lower - bounds.ci_lower) / stats.norm.ppf(0.95)
-        corrected = float(np.sqrt(clustered**2 - elements.bias_variance_correction(STRENGTH)))
-        assert reported == pytest.approx(corrected, rel=1e-10)
+        assert reported == pytest.approx(clustered, rel=1e-10)
         row_level = float(np.sqrt(influence_variance(rows, None)))
         assert abs(clustered - row_level) > 1e-3 * row_level
+
+    def test_a_variance_correction_fails_the_witness(self) -> None:
+        """Deliberate mutation: shrinking the variance by 1% moves the reported error 0.5%."""
+        spec = ExactFit("binary", clustered=True)
+        result = exact_fit(spec)
+        elements = _elements(result, "ate")
+        exact_nu2 = exact_curve(ExactCase("W1c", ExactFit("binary"), "ate"))[law.cell_of_row()]
+        psi_bias = (
+            elements.sigma2 * exact_nu2 + elements.nu2 * np.asarray(elements.psi_sigma2)
+        ) / (2.0 * elements.max_bias)
+        rows = np.asarray(result["ate"].influence_curve) - STRENGTH * psi_bias
+        clustered = float(np.sqrt(influence_variance(rows, CLUSTER)))
+        original = ov.influence_variance
+
+        def corrected(curve: Any, cluster: Any) -> float:
+            return 0.99 * float(original(curve, cluster))
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(ov, "influence_variance", corrected)
+            bounds = ov.omitted_variable_bounds(
+                result, "ate", cf_y=CF_Y, cf_d=CF_D, rho=1.0, nu2_estimator="plugin"
+            )
+        reported = (bounds.lower - bounds.ci_lower) / stats.norm.ppf(0.95)
+        assert abs(reported / clustered - 1.0) > 4e-3
 
 
 class TestTheInfinitesimalJackknife:
