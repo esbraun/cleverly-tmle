@@ -101,12 +101,7 @@ def _softmax(scores: np.ndarray) -> np.ndarray:
 THREE_ARM_ACTIVE = from_oat_law(laws.THREE_ARM_ACTIVE)
 """The three-arm law of ``ctmle-oat-per-arm``."""
 
-THREE_ARM_SHARED = ArmLaw(
-    "three_arm_shared",
-    3,
-    THREE_ARM_ACTIVE.mechanism,
-    lambda a, w: np.asarray(expit((-0.4, 0.0, 0.4)[a] + 3.5 * w[:, 0] + 0.8 * w[:, 1])),
-)
+THREE_ARM_SHARED = from_oat_law(laws.THREE_ARM_SHARED)
 """``three_arm_active``'s mechanism with a strong shared prognosis (X58 plan, 13.2): the arm
 curves correlate at about 0.25."""
 

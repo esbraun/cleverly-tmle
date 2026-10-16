@@ -143,9 +143,9 @@ class TestTheArms:
             "influence_curve"
         }
 
-    def test_a_three_arm_fit_is_experimental(self, three_arm: Any) -> None:
+    def test_a_three_arm_fit_is_supported(self, three_arm: Any) -> None:
         for estimate in three_arm.estimates.values():
-            assert estimate.support.label == "experimental"
+            assert estimate.support.label == "supported"
             assert np.isfinite(estimate.std_error)
 
     def test_four_arms_are_admitted_and_experimental(self) -> None:
@@ -332,11 +332,11 @@ class TestThePopulationTargets:
 
 
 class TestTheBand:
-    def test_the_band_is_built_and_experimental(self) -> None:
+    def test_the_band_is_built_and_supported(self) -> None:
         result = _fit(_three_arm(), simultaneous=True)
         assert result.simultaneous is not None
         assert set(result.simultaneous.bands) == set(result.estimates)
-        assert result.simultaneous.support.label == "experimental"
+        assert result.simultaneous.support.label == "supported"
 
     def test_one_held_estimate_builds_no_band_and_says_so(
         self, monkeypatch: pytest.MonkeyPatch
