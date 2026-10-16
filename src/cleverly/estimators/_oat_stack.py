@@ -698,7 +698,7 @@ class FoldCoefficients:
             entry = outcome.get(k)
             if entry is None:
                 raise ValueError(
-                    f"fold {k} of {folds} has no outcome coefficients; the stack reads one "
+                    f"fold {k} of {folds} lacks an outcome fit; the stack reads one "
                     "ParametricOutcome fit per fold"
                 )
             betas.append(tuple(float(value) for value in entry.coef))

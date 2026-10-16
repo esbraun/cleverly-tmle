@@ -523,7 +523,7 @@ class TestCW5FoldRecord:
             return model
 
         monkeypatch.setattr(ctmle_module, "fit_on_rows", dropping)
-        with pytest.raises(ValueError, match="fold 2 of 5 has no outcome coefficients"):
+        with pytest.raises(ValueError, match="fold 2 of 5 lacks an outcome fit"):
             _fit(laws.BINARY_ACTIVE.sample(1503, 61)[0])
 
     def test_mutation_positional_record(self, unequal: Any) -> None:
