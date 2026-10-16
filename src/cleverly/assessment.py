@@ -60,6 +60,7 @@ from .validation.longitudinal import (
     LONGITUDINAL_NO_CENSORING,
     LONGITUDINAL_NO_CENSORING_IN_FOLD,
     LONGITUDINAL_NO_OUTCOME_REGRESSION,
+    LONGITUDINAL_SIMULATED_MODELS,
     LongitudinalDiagnostics,
     LongitudinalNuisanceDiagnostics,
     LongitudinalNuisanceOmission,
@@ -83,6 +84,7 @@ __all__ = [
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LONGITUDINAL_NO_OUTCOME_REGRESSION",
+    "LONGITUDINAL_SIMULATED_MODELS",
     "SENSITIVITY_ROUTES",
     "VALIDATION_OPERATIONS",
     "AssessmentCapability",
@@ -334,7 +336,7 @@ def _capability(
             else (
                 ("tmle", "collaborative_tmle", "drtmle")
                 if family == "point"
-                else ("tmle", "sdr", "ipsi", "gcomp", "ipw")
+                else ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula")
             )
         ),
         available=available,
@@ -555,8 +557,8 @@ SDR_SCORE_EQUATIONS_REFUSAL = Refusal(
 #: Why a sequential baseline fit has no score-equation report.
 BASELINE_SCORE_EQUATIONS_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
-    "the sequential g-computation and IPW estimators fit no fluctuation, so no node solves a "
-    "score equation.",
+    "the sequential g-computation, IPW and parametric g-formula estimators fit no fluctuation, "
+    "so no node solves a score equation.",
     alternative="diagnostics.support() reports each node's weights and bound share.",
 )
 
@@ -604,7 +606,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     estimator = getattr(result.config, "estimator", "tmle") if family == "longitudinal" else None
-    if estimator in ("sdr", "ipsi", "gcomp", "ipw"):
+    if estimator in ("sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"):
         # An SDR, IPSI or baseline fit has no fluctuation, so no node solves a score
         # equation.  The support report carries its weights and bound shares instead.
         refusal = {
@@ -612,6 +614,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             "ipsi": IPSI_SCORE_EQUATIONS_REFUSAL,
             "gcomp": BASELINE_SCORE_EQUATIONS_REFUSAL,
             "ipw": BASELINE_SCORE_EQUATIONS_REFUSAL,
+            "parametric_gformula": BASELINE_SCORE_EQUATIONS_REFUSAL,
         }[estimator]
         rows = tuple(
             replace(
@@ -624,16 +627,20 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
-    if estimator == "gcomp":
-        # A g-computation estimate reads no treatment mechanism, so no bound moves it.
-        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL
+    if estimator in ("gcomp", "parametric_gformula"):
+        # A g-computation or g-formula estimate reads no treatment mechanism, so no bound
+        # moves it.
+        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL, GFORMULA_TRUNCATION_REFUSAL
 
+        truncation = (
+            GCOMP_TRUNCATION_REFUSAL if estimator == "gcomp" else GFORMULA_TRUNCATION_REFUSAL
+        )
         rows = tuple(
             replace(
                 row,
                 available=False,
                 status=AssessmentStatus.UNAVAILABLE,
-                refusal=GCOMP_TRUNCATION_REFUSAL,
+                refusal=truncation,
             )
             if row.operation == "truncation_curve"
             else row

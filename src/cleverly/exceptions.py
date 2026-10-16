@@ -26,6 +26,7 @@ __all__ = [
     "DataWarning",
     "LongitudinalError",
     "MethodConfigurationError",
+    "MonteCarloWarning",
     "NotFittedError",
     "ParameterSpaceWarning",
     "PositivityWarning",
@@ -199,6 +200,16 @@ class WeightingWarning(UserWarning):
     Weights are read as *probability* weights: a tilt of the population, under which
     the sample size is still the number of rows.  Counts of identical units are a
     different experiment.  See :mod:`cleverly.data.weighting`.
+    """
+
+
+class MonteCarloWarning(UserWarning):
+    """The simulation error is a large share of a parametric g-formula interval.
+
+    The parametric g-formula evaluates its estimand by simulating ``n_draws`` histories per unit.
+    The interval already includes that error.  A share above the warning threshold says that
+    more draws narrow the interval at no cost in bias.  ``result.simulation.monte_carlo_share``
+    holds the share of each parameter.
     """
 
 

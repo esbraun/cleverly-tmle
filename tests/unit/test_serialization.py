@@ -613,6 +613,7 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
         "replay_recipe",
         "scaler",
         "simultaneous",
+        "simulation",
     }
     for field in result_fields - {"assessment_cache"}:
         _assert_same_graph(getattr(original, field), getattr(restored, field), path=field)
