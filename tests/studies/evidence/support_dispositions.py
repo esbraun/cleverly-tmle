@@ -70,6 +70,7 @@ LIMIT_OWNERS = frozenset(
         "RM18-comparator-density",
         "X19-competing-calibration",
         "X45-finite-sample",
+        "mtp-pricing-learned-density",
     }
 )
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
@@ -79,6 +80,15 @@ FLAGGED_EXPERIMENTAL = {
     "RM18-one-sided-bias": "the one-sided bias of the DR-TMLE cell",
     "F28": "the informative-size t cells read a bias of 0.11 to 0.13 and an SE ratio of 0.83",
     "F27": "the boundary truth rows read a coverage of 0.894 and an SE ratio of 0.82",
+    "mtp-pricing-calibration": (
+        "X40: the five-node price_down rows read a coverage of 0.916 to 0.923 and an SE ratio of "
+        "0.93 to 0.95"
+    ),
+    "mtp-boundaries-calibration": (
+        "X40: the two-branch plan p4 reads a coverage of 0.916 to 0.922 and an SE ratio of 0.925 "
+        "at n = 2,000"
+    ),
+    "F37": "X40: SDR under the two-branch plan p4 reads an SE ratio of 0.906 to 0.978",
 }
 #: The studies whose interval calibration cells use a t reference, so a Wald row there is ``wald_t``.
 T_REFERENCE_SLUGS = frozenset({"clustered-few-cluster-tmle", "few-cluster-cross-fitted-ltmle"})
@@ -1390,10 +1400,108 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
     ),
 )
 
+#: X40 (continuous-policy validation). The owner's recommended default for the four red
+#: price_down cells of the five-node price study is ``experimental`` with the measured number
+#: (the RM42b measured-shortfall standard), pending his confirmation. To flip it to a stated
+#: limit, set this to ``LIMIT``. Then move each sentence of
+#: ``SHORTFALLS`` for ``G37.ltmle.tau5`` and ``G37.sdr.tau5`` in ``src/cleverly/_support_rows.py``
+#: to ``MEASURED_LIMITS`` under the same row id, with the text of ``_PRICE_DOWN_LIMIT``.
+_X40_PRICE_DOWN: Choice = EXPERIMENTAL
+_PRICE_DOWN_LIMIT = {
+    "G37.ltmle.tau5": "mtp-pricing-calibration: coverage 0.9160 to 0.9170, SE ratio 0.9310 to 0.9479",
+    "G37.sdr.tau5": "mtp-pricing-calibration: coverage 0.9190 to 0.9230, SE ratio 0.9339 to 0.9518",
+}
+_X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
+    *(
+        (
+            "mtp-pricing",
+            "truth",
+            f"cleverly-mtp-pricing/{scenario}/{estimand}",
+            row,
+            ("wald",),
+            _X40_PRICE_DOWN,
+            _PRICE_DOWN_LIMIT[row] if _X40_PRICE_DOWN == LIMIT else "",
+            "X40",
+        )
+        for scenario, row in (
+            ("pricing_ltmle_tau5", "G37.ltmle.tau5"),
+            ("pricing_sdr_tau5", "G37.sdr.tau5"),
+        )
+        for estimand in ("ate_regimen[price_down vs natural_prices]", "ey_regimen[price_down]")
+    ),
+    # The learned-density arms read conservative intervals and a coverage above nominal, so the
+    # decision is a stated limit.
+    (
+        "mtp-pricing",
+        "property",
+        "interval_calibration/up_learned_density_tau2__correctly_specified",
+        "G10.continuous",
+        ("wald",),
+        LIMIT,
+        "mtp-pricing-learned-density: coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162",
+        "",
+    ),
+    (
+        "mtp-pricing",
+        "property",
+        "interval_calibration/up_learned_density_tau3__correctly_specified",
+        "G38.tau3",
+        ("wald",),
+        LIMIT,
+        "mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",
+        "",
+    ),
+    (
+        "mtp-pricing",
+        "property",
+        "interval_calibration/up_learned_density_tau5__correctly_specified",
+        "G38.tau5",
+        ("wald",),
+        LIMIT,
+        "mtp-pricing-learned-density: coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323",
+        "",
+    ),
+)
+
+#: X40 S1 (``mtp-boundaries``). These three lines read the committed S1 primary and property
+#: tables. The two ``boundaries_ltmle`` p4 truth rows were red at n = 2,000 and the primary is
+#: re-run at n = 5,000, so refresh this block from the new artefacts: drop a truth line whose row
+#: turns green, and keep a line that stays red. The ``p4_sdr`` calibration cell is a declared
+#: ``reporting`` arm at n = 4,000 and does not move with the primary.
+_X40_BOUNDARIES: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
+    *(
+        (
+            "mtp-boundaries",
+            "truth",
+            f"cleverly-mtp-boundaries/boundaries_ltmle/{estimand}",
+            "G10.continuous",
+            ("wald",),
+            EXPERIMENTAL,
+            "",
+            "X40",
+        )
+        for estimand in ("ate_regimen[p4 vs natural]", "ey_regimen[p4]")
+    ),
+    (
+        "mtp-boundaries",
+        "property",
+        "interval_calibration/p4_sdr__correctly_specified",
+        "G24.mtp.in_sample",
+        ("wald",),
+        EXPERIMENTAL,
+        "",
+        "X40",
+    ),
+)
+
 #: The committed decisions, one per positive red row.
 DISPOSITIONS: Mapping[RedKey, Disposition] = {
     RedKey(slug, kind, key): Disposition(row, kinds, disposition, limit, flag)
-    for slug, kind, key, row, kinds, disposition, limit, flag in _TABLE
+    for slug, kind, key, row, kinds, disposition, limit, flag in (
+        *_TABLE,
+        *_X40_PRICING,
+        *_X40_BOUNDARIES,
+    )
 }
 
 #: The owner's answer for each flagged key (RM42b-progress.md, "Eric's answers", 2026-10-15).
@@ -1401,8 +1509,13 @@ DECISIONS: Mapping[RedKey, str] = {
     key: (
         "Q1: keep the withheld status; the row prints its reason and a point estimate only"
         if entry.flag == "Q1"
-        else "Q6: experimental, with the measured number in the reason"
-        + (" (F27: supported inside C3, refused outside)" if "learned-rule" in key.slug else "")
+        else (
+            "X40: experimental, with the measured number in the reason (the owner's recommended "
+            "default, pending his confirmation)"
+            if entry.flag == "X40"
+            else "Q6: experimental, with the measured number in the reason"
+            + (" (F27: supported inside C3, refused outside)" if "learned-rule" in key.slug else "")
+        )
     )
     for key, entry in DISPOSITIONS.items()
     if entry.flag
@@ -1426,6 +1539,18 @@ NO_SHORTFALL: Mapping[RedKey, str] = {
         key: "the cell is a cross-fitted or clustered bootstrap, outside the configuration of the row"
         for key, entry in DISPOSITIONS.items()
         if entry.row == "T01.binary" and entry.disposition == EXPERIMENTAL
+    },
+    **{
+        key: "the cell is the two-branch plan p4, which the key of the fit cannot read; the "
+        "study page states the reading"
+        for key, entry in DISPOSITIONS.items()
+        if key.slug == "mtp-boundaries" and key.kind == "truth"
+    },
+    **{
+        key: "the cell is the two-branch plan p4 under SDR with heavy cumulative ratios, which "
+        "the key of the fit cannot read; the SDR caveat of longitudinal-tmle.md states the reading"
+        for key, entry in DISPOSITIONS.items()
+        if key.slug == "mtp-boundaries" and key.kind == "property"
     },
     **{
         key: "the cell measures a hypothesis test, and the label has no test kind; the row's "
