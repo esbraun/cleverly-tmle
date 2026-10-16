@@ -90,7 +90,8 @@ def test_every_primary_row_has_one_gating_scenario_and_each_scenario_its_n() -> 
                 need = max(
                     D.msm_tail(5, scenario.law, t).n_kappa for t in ("intercept", "duration")
                 )
-                assert scenario.n == D.round_n(need) == 48_000
+                # Plan rev 4.4: the MSM scenario runs at 2 n_kappa (94,226), rounded to 96,000.
+                assert scenario.n == D.round_n(D.WALD_REGIME_FACTOR * need) == 96_000
                 continue
             assert scenario.n == D.round_n(max(gated[(study, scenario.name)])), scenario.name
 
@@ -404,19 +405,21 @@ def test_a_sample_fit_reads_the_exact_estimator_on_the_frame() -> None:
 # ----------------------------------------------------------------------------- rev 4.2: gates
 def test_the_gated_rows_are_the_rows_in_their_gating_scenario_only() -> None:
     rows = D.GATED_ROWS
-    assert len(rows) == len(set(rows)) == 176
+    assert len(rows) == len(set(rows)) == 114
     wald = [r for r in rows if not r[2].endswith("__bca")]
     bca = [r for r in rows if r[2].endswith("__bca")]
-    assert collections.Counter(study for study, _, _ in wald) == {"S1": 18, "S2": 26, "S3": 28}
-    assert collections.Counter(study for study, _, _ in bca) == {"S1": 26, "S2": 36, "S3": 42}
+    assert collections.Counter(study for study, _, _ in wald) == {"S1": 20, "S2": 26, "S3": 28}
+    assert collections.Counter(study for study, _, _ in bca) == {"S1": 8, "S2": 14, "S3": 18}
     for row in D.primary_rows():
         scenario = D.gating(row)
         q = row.quantity
         name = f"ey_regimen[{q.first}]" if not q.second else f"ate_regimen[{q.first} vs {q.second}]"
         if scenario is None:
             continue
-        # BCa gates on every single-fold gating row, Wald only where n >= 2 n_kappa.
-        assert ((row.study, scenario.name, name + "__bca") in rows) == (scenario.n_folds == 1)
+        # Wald gates where n >= 2 n_kappa; BCa gates on a single-fold row where Wald does not.
+        assert ((row.study, scenario.name, name + "__bca") in rows) == (
+            scenario.n_folds == 1 and not D.wald_gated(row)
+        )
         assert ((row.study, scenario.name, name) in rows) == D.wald_gated(row)
     # The `taper` mean reports in `sdr_policy_k5` (n_kappa 246,603 against 44,000) and gates in
     # its own scenario; the same holds for the `mix` mean at K = 5 in the other two arms.
@@ -429,12 +432,38 @@ def test_the_gated_rows_are_the_rows_in_their_gating_scenario_only() -> None:
     assert ("S2", "categorical_k5", "ey_regimen[mix]__bca") not in rows
     assert ("S2", "categorical_k5_mix", "ey_regimen[mix]__bca") in rows
     assert ("S2", "categorical_k5_crossfit", "ey_regimen[mix]") not in rows
-    # The MSM fit runs no bootstrap and n = 48,000 is below twice the intercept's n_kappa
-    # (47,113): no coefficient is gated.
-    assert not [r for r in rows if r[1].endswith("_msm")]
-    assert not D.msm_wald_gated(
-        next(s for s in D.scenarios("S1") if s.msm), "msm_regimen[(intercept)]"
-    )
+    # The MSM fit runs no bootstrap; n = 96,000 is at least twice the n_kappa of both
+    # coefficients, so both Wald rows gate and no BCa row exists.
+    msm = next(s_ for s_ in D.scenarios("S1") if s_.msm)
+    assert D.msm_wald_gated(msm, "msm_regimen[(intercept)]")
+    assert D.msm_wald_gated(msm, "msm_regimen[duration]")
+    assert {r[2] for r in rows if r[1].endswith("_msm")} == {
+        "msm_regimen[(intercept)]",
+        "msm_regimen[duration]",
+    }
+    # Mutation control: at the old n = 48,000 the intercept is below the regime.
+    assert not D.WALD_REGIME_FACTOR * D.msm_tail(5, msm.law, "intercept").n_kappa <= 48_000
+
+
+def test_bca_gates_exactly_where_the_wald_row_does_not() -> None:
+    """Plan rev 4.4: the bootstrap is gated where the Wald fails, and every bootstrapped scenario
+    holds such a row."""
+    rows = set(D.GATED_ROWS)
+    for row in D.primary_rows():
+        scenario = D.gating(row)
+        if scenario is None:
+            continue
+        q = row.quantity
+        name = f"ey_regimen[{q.first}]" if not q.second else f"ate_regimen[{q.first} vs {q.second}]"
+        wald = (row.study, scenario.name, name) in rows
+        bca = (row.study, scenario.name, name + "__bca") in rows
+        assert wald == D.wald_gated(row)
+        assert bca == (not wald and scenario.n_folds == 1), (row, wald, bca)
+    for study in D.STUDIES:
+        for scenario in D.bootstrapped_scenarios(study):
+            assert any(
+                r[0] == study and r[1] == scenario.name and r[2].endswith("__bca") for r in rows
+            ), scenario.name
 
 
 def test_a_gated_wald_row_is_in_its_regime_and_a_bca_row_is_single_fold() -> None:
@@ -444,6 +473,11 @@ def test_a_gated_wald_row_is_in_its_regime_and_a_bca_row_is_single_fold() -> Non
         scenario = scenarios[(name, study)]
         if estimand.endswith("__bca"):
             assert scenario.n_folds == 1 and not scenario.msm, (study, name, estimand)
+            continue
+        if scenario.msm:
+            term = "intercept" if "(intercept)" in estimand else "duration"
+            need = D.msm_tail(scenario.K, scenario.law, term).n_kappa
+            assert scenario.n >= 2 * need, (study, name, estimand)
             continue
         row = next(
             r
@@ -506,10 +540,10 @@ def test_the_gated_cells_are_every_positive_and_control_with_a_verdict() -> None
                     continue
                 names = (
                     list(joint_cells(arm.cell))
-                    if arm.read == "band"
+                    if arm.joint
                     else [arm.cell, *([arm.inflated] if arm.inflated else [])]
                 )
-                family = "simultaneous_coverage" if arm.read == "band" else fit_set.family
+                family = "simultaneous_coverage" if arm.joint else fit_set.family
                 declared.update((study, family, name) for name in names)
                 if fit_set.family == "interval_calibration":
                     label = arm.cell.removesuffix("__known_mechanism")

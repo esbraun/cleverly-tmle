@@ -479,7 +479,7 @@ def fit(
     ``probabilities=True`` passes the law's columns for treatment and retention;
     ``"censoring"`` passes the retention columns only (the treatment then comes from
     ``treatment_learner``); ``False`` passes none.  ``n_bootstrap`` and ``bootstrap_interval``
-    reach the estimator: the gated rows of plan rev 4.3 fit with ``n_bootstrap=399`` and
+    reach the estimator: the gated rows of plan rev 4.3 fit with ``n_bootstrap=199`` and
     ``bootstrap_interval="bca"``.
     """
     cls = {"LTMLE": LTMLE, "SDR": SDR}[estimator]

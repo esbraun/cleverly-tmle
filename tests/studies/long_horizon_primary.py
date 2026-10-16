@@ -44,7 +44,7 @@ from tests.studies.evidence.seeds import replicate_seed
 #: The two terms of the duration working model.
 MSM_TERMS = ("(intercept)", "duration")
 #: The bootstrap replicates of the gated BCa interval.
-B_GATE = 399
+B_GATE = 199
 #: The suffix of a BCa row's estimand.
 BCA_SUFFIX = "__bca"
 

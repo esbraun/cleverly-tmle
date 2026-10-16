@@ -65,7 +65,8 @@ SUPPORT_FLOOR = 1e-6
 #: (``C_kappa = 0.25 / sqrt(2)``).  The factor is fixed once.  A Wald-gated failure in the final run
 #: is a red cell, and the factor is not re-tuned after the ``truth_boot`` or the ``f2_c1`` pilot.
 WALD_REGIME_FACTOR = 2
-#: The bootstrap replicates of every gated bootstrap interval (BCa and the sup-t band).
+#: The bootstrap replicates of every gated bootstrap interval (BCa and the sup-t band), fixed at
+#: 199 by the owner's decision of 2026-10-16 (plan rev 4.4).
 B_GATE = primary.B_GATE
 #: The gated band construction: the studentized bootstrap sup-t band.  A band pilot stop means
 #: diagnosis, never a switch of construction (plan rev 4.3, section 5.2).
@@ -367,20 +368,18 @@ def wald_gated(row: Row) -> bool:
 def interval_of(row: Row) -> frozenset[str]:
     """The intervals gated on ``row``, from ``{"wald", "bca"}``.
 
-    BCa is gated on every single-fold row (it is the only gated interval below the Wald
-    regime).  Wald is gated where :func:`wald_gated` holds.  A cross-fitted row has no bootstrap
-    interval, so it gates Wald alone, or nothing below the regime: its bootstrap is a
-    diagnostic (X20).
+    Plan rev 4.4 gates the bootstrap "where the Wald fails": the Wald interval is gated where
+    :func:`wald_gated` holds (``n >= 2 n_kappa``), and the BCa interval is gated on a single-fold
+    row only where it does not (``n < 2 n_kappa``).  Where the Wald row gates, the BCa row
+    reports.  A cross-fitted row has no bootstrap interval, so it gates Wald alone, or nothing
+    below the regime: its bootstrap is a diagnostic (X20).
     """
     scenario = gating(row)
     if scenario is None:
         return frozenset()
-    out = set()
-    if primary.bootstrapped(scenario):
-        out.add("bca")
     if wald_gated(row):
-        out.add("wald")
-    return frozenset(out)
+        return frozenset({"wald"})
+    return frozenset({"bca"}) if primary.bootstrapped(scenario) else frozenset()
 
 
 def msm_wald_gated(scenario: primary.Scenario, name: str) -> bool:
@@ -1302,6 +1301,10 @@ BAND = {
 }
 #: The studies that declare the band.
 BAND_STUDIES = ("S1", "S2")
+#: The studies whose gated band is the studentized bootstrap sup-t band at B = 199 (plan rev 4.4).
+#: S1 gates the Rademacher band of the influence curves: its rev 4.2 pilot passed (joint coverage
+#: 0.9425, R = 4,000), so it has no bootstrap band, no ``band_boot`` stream and no bootstrap fit set.
+BOOT_BAND_STUDIES = ("S2",)
 #: Pilot replicates per band, the ladder its property R is picked from, and the pass probability
 #: the pick must reach under the shipped two-sided rule.
 BAND_REPLICATES = 3_200
@@ -1359,9 +1362,9 @@ def gated_rows() -> tuple[tuple[str, str, str], ...]:
     """Every gated primary truth row: ``(study, gating scenario, estimand)``.
 
     A primary row is gated only in its gating scenario (:func:`gating`); the same quantity in
-    another scenario reports.  Plan rev 4.3 gates by interval (:func:`interval_of`): the Wald
+    another scenario reports.  Plan rev 4.4 gates by interval (:func:`interval_of`): the Wald
     row where the scenario n is at least ``2 n_kappa``, and the BCa row (the estimand plus
-    :data:`BCA_SUFFIX`) on every single-fold row.  A duration MSM scenario gates the Wald row of
+    :data:`BCA_SUFFIX`) on a single-fold row where it is not.  A duration MSM scenario gates the Wald row of
     each coefficient that meets the regime and has no bootstrap row.
     """
     out: dict[tuple[str, str, str], None] = {}
@@ -1853,7 +1856,8 @@ class Stream:
     ----------
     family : str
         The pilot family: ``mc``, ``f2``, ``bias``, ``truth``, ``overfit``, ``band`` or ``rung``
-        (rev 4.1 and 4.2), and ``truth_boot``, ``band_boot`` or ``f2_c1`` (rev 4.3).
+        (rev 4.1 and 4.2), ``truth_boot``, ``band_boot`` or ``f2_c1`` (rev 4.3), and ``truth_msm``
+        (rev 4.4).
     name : str
         The study and cell.
     config : Config or None
@@ -1901,6 +1905,13 @@ class Stream:
         return point
 
 
+#: The ``truth`` pilot n of a scenario whose declared n moved after the rev 4.2 parts were pinned.
+#: Plan rev 4.4 raises ``binary_k5_msm`` from 48,000 to 96,000 (``2 n_kappa`` of its intercept is
+#: 94,226).  The pinned ``truth`` stream stays at 48,000, and the ``truth_msm`` stream below
+#: reads the scenario at its declared n.
+LEGACY_TRUTH_N = {("S1", "binary_k5_msm"): 48_000}
+
+
 def streams() -> list[Stream]:
     """Every pilot stream, in the declared order.
 
@@ -1926,7 +1937,7 @@ def streams() -> list[Stream]:
                     "truth",
                     f"{study}:{scenario.name}",
                     None,
-                    scenario.n,
+                    LEGACY_TRUTH_N.get((study, scenario.name), scenario.n),
                     400,
                     (study, scenario.name),
                 )
@@ -1966,12 +1977,13 @@ def bootstrapped_scenarios(study: str) -> tuple[primary.Scenario, ...]:
 
 
 def bootstrap_streams() -> list[Stream]:
-    """The rev 4.3 pilot streams, in the declared order.
+    """The rev 4.3 and 4.4 pilot streams, in the declared order.
 
     ``truth_boot``: 400 replicates of each bootstrapped scenario at B = :data:`B_GATE`, the S3
-    scenarios first.  ``band_boot``: 3,200 replicates of each band at B = 399.  ``f2_c1``: 3,200
-    replicates of each calibration cell that C1 moved.  They follow every earlier stream, so that
-    no earlier stream moves.
+    scenarios first.  ``band_boot``: 3,200 replicates of the S2 bootstrap band at B = 199
+    (:data:`BOOT_BAND_STUDIES`).  ``f2_c1``: 3,200 replicates of each calibration cell that C1
+    moved.  ``truth_msm`` (rev 4.4): 400 replicates of each MSM scenario at its declared n.  They
+    follow every earlier stream, so that no earlier stream moves.
     """
     out = [
         Stream(
@@ -1985,7 +1997,7 @@ def bootstrap_streams() -> list[Stream]:
         for study in TRUTH_BOOT_ORDER
         for scenario in bootstrapped_scenarios(study)
     ]
-    for study in BAND_STUDIES:
+    for study in BOOT_BAND_STUDIES:
         config, plans, n = band_config(study)
         out.append(
             Stream("band_boot", f"{study}:band_k5", config, n, BAND_BOOT_REPLICATES, plans=plans)
@@ -1993,6 +2005,19 @@ def bootstrap_streams() -> list[Stream]:
     out += [
         Stream("f2_c1", f"{c.study}:{c.name}", c.config(), c.n, F2_C1_REPLICATES)
         for c in moved_calibration_cells()
+    ]
+    out += [
+        Stream(
+            "truth_msm",
+            f"{study}:{scenario.name}",
+            None,
+            scenario.n,
+            TRUTH_BOOT_REPLICATES,
+            (study, scenario.name),
+        )
+        for study in STUDIES
+        for scenario in scenarios(study)
+        if scenario.msm
     ]
     return out
 

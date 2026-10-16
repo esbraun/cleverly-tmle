@@ -30,12 +30,12 @@ declares ``pending_reference="lmtp"`` and keeps ``reference=None``.  The primary
 sample.  ``tests/canonical/long_horizon_categorical_ltmle/run_study.R`` is a stub that names the
 owning item.
 
-**Intervals** (plan rev 4.3).  A single-fold, non-MSM scenario fits with ``n_bootstrap=399`` and
+**Intervals** (plan rev 4.4).  A single-fold, non-MSM scenario fits with ``n_bootstrap=199`` and
 ``bootstrap_interval="bca"``.  It writes a Wald row and, under the estimand name plus ``__bca``,
 a BCa row whose standard error is the bootstrap SD.  A Wald row gates only where the scenario n
-is at least twice the row's :math:`n_\kappa` (decision C1, section 5.1).  A BCa row gates in every
-single-fold gating scenario.  The cross-fitted scenario reports Wald rows only, because a
-cross-fitted bootstrap is experimental (X20).  Each ``interval_calibration`` cell runs
+is at least twice the row's :math:`n_\kappa` (decision C1, section 5.1).  A BCa row gates only
+where the Wald row does not (n below twice the row's :math:`n_\kappa`), and reports where it does.
+The cross-fitted scenario reports Wald rows only, because a cross-fitted bootstrap is experimental (X20).  Each ``interval_calibration`` cell runs
 at ``n = round_n(2 n_kappa)`` on its law.
 
 **Declared red-cell reading** (plan section 5.6, before any run).  The study publishes under
@@ -72,7 +72,7 @@ a control that passes                  A design defect, because its exact displa
                                        design test first.  Fix the control or the law under a
                                        fresh declaration, never by buying replications or
                                        lowering its floor.
-the simultaneous band                  The studentized bootstrap sup-t band at B = 399 (cell
+the simultaneous band                  The studentized bootstrap sup-t band at B = 199 (cell
 (``simultaneous_coverage``)            ``k5__simultaneous_band``).  Its 99 percent joint-
                                        coverage interval leaves (0.92, 0.98).  Defect suspect
                                        on either side: below, the critical value or the tail

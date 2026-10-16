@@ -10,25 +10,28 @@ scenario             subject
 ``binary_k4``        L_R, n = 16,000: the same plans
 ``binary_k5``        L_R, n = 76,000: the same plans, ``coin`` and ``coinlast``, and the paired
                      contrast ``coin`` against ``coinlast``
-``binary_k5_msm``    L_R, n = 48,000: ``dur0`` to ``dur5``, the working model intercept +
+``binary_k5_msm``    L_R, n = 96,000: ``dur0`` to ``dur5``, the working model intercept +
                      duration (identity link, unit weights); its two coefficients only
 ===================  ===========================================================================
 
 Each scenario runs at the largest exact-law tail size :math:`n_\kappa` of the rows it gates,
-rounded up to 4,000 (``tests/unit/test_long_horizon_design.py``).  The mechanism is the law's,
+rounded up to 4,000 (``tests/unit/test_long_horizon_design.py``).  The MSM scenario runs at twice
+its largest :math:`n_\kappa` (94,226 for the intercept), rounded up to 96,000, so that both
+coefficients are in the Wald regime.  The mechanism is the law's,
 passed as probability columns; the outcome regressions are the declared quasibinomial GLM.
 
 **Comparator.**  R ``ltmle`` 1.3-0 is the declared comparator, and its runs are pending: the record
 declares ``pending_reference="ltmle"`` and keeps ``reference=None``.  The primary phase writes no
 sample.  ``tests/canonical/long_horizon_ltmle/run_study.R`` is a stub that names the owning item.
 
-**Intervals** (plan rev 4.3).  A single-fold, non-MSM scenario fits with ``n_bootstrap=399`` and
+**Intervals** (plan rev 4.4).  A single-fold, non-MSM scenario fits with ``n_bootstrap=199`` and
 ``bootstrap_interval="bca"``.  It writes a Wald row and, under the estimand name plus ``__bca``,
 a BCa row whose standard error is the bootstrap SD.  A Wald row gates only where the scenario n
-is at least twice the row's :math:`n_\kappa` (decision C1, section 5.1).  A BCa row gates in every
-single-fold gating scenario.  The cross-fitted scenario reports Wald rows only, because a
-cross-fitted bootstrap is experimental (X20).  The MSM scenario reports Wald coefficients only and
-gates none, because its n is below twice its tail size.  Each ``interval_calibration`` cell runs
+is at least twice the row's :math:`n_\kappa` (decision C1, section 5.1).  A BCa row gates only
+where the Wald row does not (n below twice the row's :math:`n_\kappa`, where the Wald interval
+fails), and reports where it does.  The cross-fitted scenario reports Wald rows only, because a
+cross-fitted bootstrap is experimental (X20).  The MSM scenario reports Wald coefficients only
+and gates both, because its n is at least twice their tail sizes.  Each ``interval_calibration`` cell runs
 at ``n = round_n(2 n_kappa)`` on its law.
 
 **Declared red-cell reading** (plan section 5.6, before any run).  The study publishes under
@@ -65,17 +68,13 @@ a control that passes                  A design defect, because its exact displa
                                        design test first.  Fix the control or the law under a
                                        fresh declaration, never by buying replications or
                                        lowering its floor.
-the simultaneous band                  The studentized bootstrap sup-t band at B = 399 (cell
-(``simultaneous_coverage``)            ``k5__simultaneous_band``).  Its 99 percent joint-
-                                       coverage interval leaves (0.92, 0.98).  Defect suspect
-                                       on either side: below, the critical value or the tail
-                                       regime is wrong; above, the band is conservative and
-                                       the diagnosis names why.  A stop means diagnose the
-                                       band, not switch its construction.  The pointwise
-                                       control must stay below nominal.
-the Wald-curve band                    Reporting; no verdict.  Cell ``k5__ic_band`` publishes
-(``k5__ic_band``)                      the Rademacher band of the influence curves beside the
-                                       gated band.
+the simultaneous band                  The Wald-curve (Rademacher multiplier) band of the
+(``simultaneous_coverage``)            influence curves (cell ``k5__simultaneous_band``).  Its
+                                       rev 4.2 pilot passed (joint coverage 0.9425, R = 4,000).
+                                       Its 99 percent joint-coverage interval leaves (0.92,
+                                       0.98).  Defect suspect on either side.  The pointwise
+                                       control must stay below nominal.  The study fits no
+                                       bootstrap band.
 the overfitting positive               Its SE-ratio interval leaves [0.85, 1.20], or the coverage
 (``crossfit_overfitting``)             gain over the in-sample control falls short.  Defect
                                        suspect: own-row reuse across the K nodes.  The in-sample
@@ -143,7 +142,7 @@ SCENARIOS = (
         5,
         2,
         law_.L_R,
-        48_000,
+        96_000,
         tuple(f"dur{j}" for j in range(6)),
         msm=True,
     ),
