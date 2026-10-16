@@ -7,7 +7,8 @@ The [point estimator](../point-treatment-tmle.md#incremental-propensity-score-in
 construction, its remainder and its exact-law evidence.
 
 No maintained package ships this construction with its influence curve. `npcausal::ipsi` fits two
-arms only, and `imtp` 0.1.0 omits the derivative term. So no canonical implementation is compared.
+arms only. `imtp` 0.1.0 omits the derivative of the tilted propensity with respect to the mechanism.
+So no canonical implementation is compared.
 The study rests on exact truths and on repeated-sampling properties. It is Python property
 evidence.
 
@@ -21,8 +22,7 @@ evidence.
 | `longitudinal_folds_5` | law L0: law L without dropout, the same estimands | five |
 
 Plan `T_a` multiplies the odds of the second level by 2 and of the third by 0.5, against the
-first. Plan `T_b` multiplies them by 0.5 and 2. The natural course keeps the first level at factor
-1. Family L applies each plan at both treatment nodes. Every nuisance is a saturated cell
+first. Plan `T_b` multiplies them by 0.5 and 2. The natural course uses factor 1 at every level. Family L applies each plan at both treatment nodes. Every nuisance is a saturated cell
 frequency or a cell mean. The laws are exact finite sums in `tests/discrete_law_categorical_ipsi_point.py`
 and `tests/discrete_law_categorical_ipsi_longitudinal.py`.
 
@@ -102,8 +102,10 @@ loops from the conditional tables.
 | `type_i_error` | `point_contrast_t_a__sharp_null` | positive | three-level law P, T_a against the natural course: a confounded law whose true contrast is exactly zero | one-sided rejection bound stays under the declared type-I ceiling | rejection 0.0515, 0.0396 to 0.0656 | pass |
 <!-- /generated -->
 
-Every property fit uses saturated learners. The tables above print one row for each cell. The
-families below state what each cell tests.
+The calibration, necessity, type I, power, one-fold and complete-case fits use saturated learners.
+The `mechanism_targeting` fits use a mechanism tilted along its score. The `single_robustness`
+fits use a constant outcome regression or a constant mechanism. The tables above print one row for
+each cell. The families below state what each cell tests.
 
 | family | cells and fits | what must hold |
 | --- | --- | --- |
@@ -118,10 +120,10 @@ families below state what each cell tests.
 The `mechanism_targeting` family is the study-scale evidence for the softmax update. A saturated
 cross-fitted mechanism moves by $O(1/n)$ only. The other cells therefore cannot see a defective
 update. The tilted mechanism has a first-order error, and only the mechanism fluctuation removes
-it. The outcome-only plug-in sits 1.18 SD above the truth, which is its exact first-order limit.
+it. The outcome-only plug-in sits 1.18 standard errors (at n = 4,000) above the truth, which is its exact first-order limit.
 
 `tests/unit/test_categorical_incremental_design.py` shows on the exact law that an uncentred
-mechanism covariate moves the TMLE by 0.37 SD. A one-versus-rest update is a deliberate mutation.
+mechanism covariate moves the TMLE by 0.37 standard errors at n = 4,000. A one-versus-rest update is a deliberate mutation.
 The fast-tier test `tests/unit/test_categorical_incremental_mutations.py` catches it.
 
 The `mechanism_term_necessity` controls carry a verdict that asserts only the failure each control
@@ -132,18 +134,28 @@ an interval claim.
 ## Sizing
 
 The sizes follow the pilots in `tests/unit/test_categorical_incremental_design.py`. The study
-fixed every size, replication count, margin, law, learner, fold count and seed before any run.
+fixed every size, replication count, margin, law, learner and fold count before the first run.
+It fixed every seed before that run except one. After the first run, the `in_sample_fit` cell
+moved to its own seed stream (commit `2b5077d3`), so that it shares no sample with another
+family. No verdict reads that cell. Every other committed row equals the first run.
+
+| run | commit | wall time | content |
+| --- | --- | --- | --- |
+| first | `7cb43c92` | 2.7 hours on four cores (9,785 s) | every cell |
+| resumed | `2b5077d3` | 1.1 hours on four cores (3,870 s) | carried the primary and other property checkpoints. Fitted the law-L calibration cells and the `in_sample_fit` stream |
+
+The committed `run.log` and `manifest.json` record the resumed run.
 
 | sizing input | value | source |
 | --- | --- | --- |
-| primary n | 8,000 for all four scenarios. The plan's rung rule gives 1,000 for family P and 2,000 for family L, where the twenty primary rows pass the bias gate with joint probability about 0.3. At 8,000 the joint probability is 0.99 under a bias that falls as $1/\sqrt n$ | `tests/studies/canonical_categorical_incremental.py` |
+| primary n | 8,000 for all four scenarios. The plan's rung rule gives 1,000 for family P and 2,000 for family L, where the twenty primary rows pass the bias gate with joint probability 0.25. At 8,000 the joint probability is 0.99 under a bias that falls as $1/\sqrt n$ | `tests/studies/canonical_categorical_incremental.py` |
 | rung pilots | 400 draws per rung from n = 1,000 to 16,000. The largest standardized bias of a primary row is 0.164 at n = 1,000 and 0.054 at n = 16,000 for family P | the same |
 | calibration n | 4,000 for the point labels. 16,000 for the longitudinal labels, where the pilot of 1,600 draws read SE ratios 1.009 and 1.016 | `tests/studies/categorical_incremental_properties.py` |
-| calibration replications | 3,600. The family-wise pass probability under perfect calibration is 0.966 | the same |
+| calibration replications | 3,600. The pilot predicts a family-wise pass probability of 0.966 | the same |
 | `mechanism_targeting` replications | 2,000. The family pass probability is 0.995 | the same |
 | type I error and power | 2,000 replications at n = 4,000, with exact power 0.8724 | the same |
 | single robustness | 2,000 replications at n = 8,000 and 16,000 | the same |
-| complete-case cell | 2,000 replications at n = 16,000. The exact limit sits 5.9 standard errors from the truth | the same |
+| complete-case cell | 2,000 replications at n = 16,000. The exact limit sits 5.8 standard errors from the truth | the same |
 
 ## Red-cell route
 
@@ -233,5 +245,6 @@ from the committed results and checked at the precision printed.
 ## Reproduction
 
 `tests/canonical/categorical_incremental/regenerate.py` regenerates the study under the declared
-run form. It runs no reference process, because the study has no comparator. The run took 2.7 hours
-on four cores.
+run form. It runs no reference process, because the study has no comparator. The first run took 2.7 hours
+on four cores, which is the time to reproduce the study from scratch. The resumed run described in
+[Sizing](#sizing) took 1.1 hours.

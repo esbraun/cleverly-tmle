@@ -1657,8 +1657,7 @@ surface rule in [the architecture invariants](../architecture-invariants.md).
 
 **Evidence class.** The estimator is validated by Python property evidence: exact-law checks of
 the estimate, the curve and the remainder, deliberate-mutation controls, and the registered study
-[categorical incremental policies](method-evidence/categorical-incremental.md). The study covers
-the rows `T35` with saturated learners, in sample and at five folds. A categorical fit outside
+[categorical incremental policies](method-evidence/categorical-incremental.md). The rows `T35` match a three-level treatment, in sample or cross-fitted. The study fitted saturated learners, in sample and at five folds, and the rows match any learner and fold count. A categorical fit outside
 those rows has the support label `experimental`. No external comparator exists for the categorical
 tilt.
 

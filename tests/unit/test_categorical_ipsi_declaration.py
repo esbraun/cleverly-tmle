@@ -15,8 +15,8 @@ C12    a declared mechanism at a three-level tilt node: ``LTMLE`` equals the han
        ``Stochastic`` regimen, and the fit has no mechanism term there
 C13    an all-categorical vector node is one categorical node over its observed tuples
 -----  ------------------------------------------------------------------------------------------
-label  a three-level tilt fit is experimental, and no registered ``ipsi`` row covers a node of
-       other than two levels
+label  a three-level tilt fit is experimental unless a ``G42`` row of the categorical-incremental
+       study matches it
 =====  ==========================================================================================
 """
 
