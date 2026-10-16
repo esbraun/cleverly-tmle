@@ -449,7 +449,9 @@ def _mechanism_factors(data: LongitudinalData, mechanism: Mechanism) -> list[_Fa
         model = models[time - 1] if models else None
         if isinstance(model, GLM):
             design = data.history_design(time)
-            arm = as_target(np.nan_to_num(data.treatment[:, time - 1], nan=0.0), "classification")
+            # A GLM treatment model is fitted at a categorical node only, and ``node_codes``
+            # refuses a mixed node rather than read its ``0.0`` slot.
+            arm = as_target(np.nan_to_num(data.node_codes(time), nan=0.0), "classification")
             factors.append(
                 _factor(time, model, design, arm, fit_weights, ones, n),
             )

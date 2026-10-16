@@ -490,8 +490,8 @@ The [validation grid](method-evidence/validation-grid.md) carries their verdicts
 
 Every point-treatment result exposes its realized outer assignments as `result.split_plan`. Pass
 them to `CrossFitting(split_plan=...)` to reuse them instead of generating new ones. A fit accepts
-a plan only when the plan records the draw that made it. This section states the reuse contract. The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split)
-and the [tutorial](../examples/cross-fitting.ipynb#step-9-reuse-the-same-outer-split) link here rather than
+a plan only when the plan records the draw that made it. This section states the reuse contract.
+The [user guide](../user-guide/methods-learners.md#reuse-an-outer-split) links here rather than
 restating it.
 
 A `SplitPlan` stores one tuple of row-level fold labels per repeat. Its `n`, `n_folds`, and

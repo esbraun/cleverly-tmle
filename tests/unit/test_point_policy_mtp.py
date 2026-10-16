@@ -223,8 +223,8 @@ def test_a_continuous_shift_at_node_one_equals_identity_shifts_on_copied_columns
     copied = LTMLE({"up": DynamicRegimen("up", (up, NATURAL, NATURAL))}, **settings).fit(
         frame, treatment=["D1", "D2", "D3"], continuous_treatment=["D1", "D2", "D3"], **columns
     )
-    assert sorted(held.mechanism.densities) == [1]
-    assert sorted(copied.mechanism.densities) == [1, 2, 3]
+    assert sorted(held.mechanism.densities) == [(1, "D")]
+    assert sorted(copied.mechanism.densities) == [(1, "D1"), (2, "D2"), (3, "D3")]
     for name in held.estimates:
         assert held[name].psi == pytest.approx(copied[name].psi, rel=1e-12, abs=1e-12)
         np.testing.assert_allclose(

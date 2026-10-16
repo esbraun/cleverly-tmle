@@ -842,6 +842,29 @@ _DISCRETE_TREATMENT_REFUSAL = Refusal(
     roadmap="F5",
 )
 
+
+def vector_discrete_treatment_refusal(treatment: str) -> Refusal:
+    """Why CTMLE refuses a vector treatment with a continuous component.
+
+    Parameters
+    ----------
+    treatment : str
+        The treatment name.
+
+    Returns
+    -------
+    Refusal
+        The continuous-dose record with the vector's name in front.
+    """
+    return replace(
+        _DISCRETE_TREATMENT_REFUSAL,
+        condition=(
+            f"treatment {treatment!r} is a vector with a continuous component. "
+            + _DISCRETE_TREATMENT_REFUSAL.condition
+        ),
+    )
+
+
 #: Why CTMLE refuses ``policies=``.  Checked before the continuous-dose refusal, because a
 #: shift declares its treatment a dose even when the column holds two arms, and the dose
 #: refusal would then give the wrong reason on a binary treatment.
@@ -3175,7 +3198,7 @@ default="greedy"
         """
         if self.policies:
             raise CapabilityError.from_refusal(_POLICIES_REFUSAL)
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
         if self.interventions:
             raise CapabilityError.from_refusal(_REGIME_REFUSAL)
@@ -3184,7 +3207,7 @@ default="greedy"
         super()._check_policies(data)
 
     def _check_estimands(self, data: CausalData) -> None:
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
         if data.has_intermediate:
             raise CapabilityError(

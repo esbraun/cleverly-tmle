@@ -93,13 +93,20 @@ class TestConfoundingStrength:
         assert near_one / half == pytest.approx(np.sqrt(99.0), rel=1e-9)
         assert _confounding_strength(0.03, 0.9999, 1.0) > 30.0 * half
 
+    def test_is_finite_at_a_full_outcome_share(self) -> None:
+        # cf_y is the share eta^2 in [0, 1], and Theorem 2 stays finite at eta^2 = 1. A
+        # clipped benchmark gain of 1 is therefore a valid worst case for cf_y.
+        assert _confounding_strength(1.0, 0.2, 1.0) == pytest.approx(np.sqrt(0.2 / 0.8))
+        assert _confounding_strength(1.0, 0.2, 1.0) > _confounding_strength(0.99, 0.2, 1.0)
+
     def test_rho_sign_does_not_matter(self) -> None:
         assert _confounding_strength(0.03, 0.03, -1.0) == pytest.approx(
             _confounding_strength(0.03, 0.03, 1.0)
         )
 
     @pytest.mark.parametrize(
-        "cf_y,cf_d,rho", [(-0.1, 0.03, 1.0), (0.03, 1.0, 1.0), (0.03, 0.03, 1.5)]
+        "cf_y,cf_d,rho",
+        [(-0.1, 0.03, 1.0), (1.01, 0.03, 1.0), (0.03, 1.0, 1.0), (0.03, 0.03, 1.5)],
     )
     def test_out_of_range_parameters_are_refused(
         self, cf_y: float, cf_d: float, rho: float

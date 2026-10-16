@@ -694,8 +694,14 @@ def _evalue_refusal() -> CleverlyError:
     )
 
 
+def _forbidden_read() -> CleverlyError:
+    from cleverly.interventions.policy import ForbiddenRead
+
+    return ForbiddenRead("D2")
+
+
 #: How to build a class whose constructor takes more than the record's parts.
-_ERROR_BUILDERS = {"_EValueRefusal": _evalue_refusal}
+_ERROR_BUILDERS = {"_EValueRefusal": _evalue_refusal, "ForbiddenRead": _forbidden_read}
 
 
 class TestTheErrors:
