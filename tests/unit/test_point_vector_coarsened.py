@@ -35,7 +35,12 @@ from .. import longitudinal_mtp as mtp
 from ._source_mutation import mutate
 from .test_point_vector_treatment import joint
 
-pytestmark = pytest.mark.xdist_group("point_vector_coarsened")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("point_vector_coarsened"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 EXACT = 1e-10
 CAUGHT = 1e-4

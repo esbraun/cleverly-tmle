@@ -205,8 +205,11 @@ def validate_replicates(
             f"{record.slug}: cells with a replication count other than {record.replicates}:\n"
             f"{wrong.to_string()}"
         )
-    if not (rows["n"] == record.n).all():
-        raise ValueError(f"{record.slug}: rows with a sample size other than {record.n}")
+    expected_n = rows["scenario"].map(record.sizes(record.n))
+    if not (rows["n"] == expected_n).all():
+        sizes = record.sizes(record.n)
+        declared = record.n if len(set(sizes.values())) <= 1 else sizes
+        raise ValueError(f"{record.slug}: rows with a sample size other than {declared}")
     coverage = rows.groupby(["implementation", "scenario", "estimand"], sort=True)["covered"].mean()
     implausible = coverage[coverage < PLAUSIBLE_COVERAGE]
     if not implausible.empty:

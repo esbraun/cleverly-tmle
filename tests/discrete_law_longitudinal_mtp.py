@@ -188,6 +188,18 @@ RANDOM2: Branches = ((0.25, UP2[0][1]), (0.75, IDENTITY2[0][1]))
 VECTOR2: Branches = ((1.0, _node2(lambda w, a1, l2, a: 2 if a == 3 else a)),)
 VECTOR1: Branches = ((1.0, _node1(lambda w, a: 2 if a == 3 else a)),)
 
+#: The atom plans of X40 part (b), on the unit grid with the dose 3 at node 2 declared an
+#: atom.  "to atom" moves 0 and 1 up one and sends 2 to the atom; the atom stays.  On the
+#: support it is :data:`UP2`, so the discrete formula and the mixed ratio must agree.  "hold
+#: atom" moves 0 and 1 up one and leaves 2 and the atom in place.  "atom random" takes
+#: "to atom" with probability 0.4 and "hold atom" otherwise.
+TO_ATOM2: Branches = ((1.0, _node2(lambda w, a1, l2, a: min(a + 1, 3))),)
+HOLD_ATOM2: Branches = ((1.0, _node2(lambda w, a1, l2, a: a + 1 if a < 2 else a)),)
+ATOM_RANDOM2: Branches = ((0.4, TO_ATOM2[0][1]), (0.6, HOLD_ATOM2[0][1]))
+#: The declared atom of node 2 in the atom plans, as a support index and a dose.
+ATOM_INDEX = 3
+ATOM_DOSE = 3.0
+
 #: Every plan, as its two node policies.
 PLANS: dict[str, tuple[Branches, Branches]] = {
     "natural": (IDENTITY1, IDENTITY2),
@@ -198,7 +210,31 @@ PLANS: dict[str, tuple[Branches, Branches]] = {
     "up at 2": (IDENTITY1, UP2),
     "up then history": (UP1, HISTORY2),
     "vector": (VECTOR1, VECTOR2),
+    "to atom": (IDENTITY1, TO_ATOM2),
+    "hold atom": (IDENTITY1, HOLD_ATOM2),
+    "atom random": (IDENTITY1, ATOM_RANDOM2),
 }
+
+
+def atom_ratio_cells() -> np.ndarray:
+    """The mixed ratio of "to atom" at the atom, in every node-2 stratum ``(w, a1, l2)``.
+
+    The atom's preimage is the interval ``[1.5, 2.5)``, which holds the dose 2, and the atom
+    itself, so the ratio is ``(g_2(2) + g_2(3)) / g_2(3)`` (``X40-plan.md`` section 2.3).
+    """
+    return np.array(
+        [
+            (G2[w, a1, l2, 2] + G2[w, a1, l2, ATOM_INDEX]) / G2[w, a1, l2, ATOM_INDEX]
+            for w in range(2)
+            for a1 in range(4)
+            for l2 in range(2)
+        ]
+    )
+
+
+def preimage_mass() -> float:
+    """``P(A_2 = 2)``: the mass of the interval the "to atom" plan sends to the atom."""
+    return float(_mass(PROBS, a2=2))
 
 
 def _mass(probs: Any, **pattern: int) -> Any:

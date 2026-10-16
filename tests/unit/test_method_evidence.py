@@ -912,7 +912,13 @@ class TestPublishedVerdicts:
                 # studies use two-part prefixes such as ``dynamic__correctly_specified``.
                 # ``rsplit`` reads all three.
                 suffix = row.cell.rsplit("__", 1)[-1]
-                if suffix == "shrunken_se_control":
+                # ``mtp-tuning`` declares two more below-band controls: the curve without the
+                # tuning term, and the fold-average rows scored on the population target.
+                if suffix in (
+                    "shrunken_se_control",
+                    "term_dropped_control",
+                    "population_truth_control",
+                ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
@@ -1307,6 +1313,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "preimage_necessity",
         "image_necessity",
         "jacobian_necessity",
+        "branch_necessity",
+        "atom_necessity",
+        "classifier_split",
         # X45's paired NICE and ICE fits: the parametric fit's bias inside the margin, the
         # ICE control's outside it.
         "ice_necessity",
@@ -1524,8 +1533,14 @@ class TestNegativeControls:
         rows = _property_rows(study.slug)
         published = _property_summary(study.slug).set_index(["property", "cell"])
         calibration = published.loc[published.index.get_level_values(0) == family]
+        # A positive published red because it reads conservative is left out, as the
+        # learned-density arms of ``mtp-pricing`` are (SE ratio 1.05 to 1.11): a 10% cut moves
+        # it into the band, which shows nothing about the gate.  A red positive that already
+        # understates its error stays in, and the cut keeps it red.
+        positive = calibration["role"] == "positive"
+        conservative_red = ~calibration["passed"].astype(bool) & (calibration["se_ratio"] > 1.0)
         positive_cells = set(
-            calibration.loc[calibration["role"] == "positive"].index.get_level_values(1)
+            calibration.loc[positive & ~conservative_red].index.get_level_values(1)
         )
         mutated = rows.copy()
         mask = (mutated["property"] == family) & mutated["cell"].isin(positive_cells)
@@ -1701,11 +1716,31 @@ def _truth_findings(study: StudyRecord, rows: pd.DataFrame) -> list[str]:
     if published != set(declared):
         return [f"{sorted(published ^ set(declared))} appear in one of the row file and the cells"]
     findings: list[str] = []
+    varying = frozenset(getattr(study.properties(), "REPLICATE_TRUTH_CELLS", ()))
     for key, cell in declared.items():
+        selected = rows.loc[(rows["property"] == key[0]) & (rows["cell"] == key[1])]
+        if key[1] in varying:
+            # The truth is a per-replication quantity: recompute it for the first, middle
+            # and last replication from the study's own hook, and compare row by row.
+            ids = sorted(selected["replicate"].unique())
+            for replicate in (ids[0], ids[len(ids) // 2], ids[-1]):
+                recomputed = float(study.properties().replicate_truth(key[1], int(replicate)))
+                published = selected.loc[selected["replicate"] == replicate, "truth"].to_numpy(
+                    dtype=float
+                )
+                if not np.allclose(
+                    published,
+                    recomputed,
+                    rtol=TRUTH_BINDING_TOLERANCE,
+                    atol=TRUTH_ABSOLUTE_FLOOR,
+                ):
+                    findings.append(
+                        f"{key[0]}/{key[1]} replicate {replicate} publishes truth "
+                        f"{published[0]!r}, and its sample's own truth is {recomputed!r}"
+                    )
+            continue
         expected = float(cell.dgp.truth()[cell.estimand])
-        observed = rows.loc[
-            (rows["property"] == key[0]) & (rows["cell"] == key[1]), "truth"
-        ].to_numpy(dtype=float)
+        observed = selected["truth"].to_numpy(dtype=float)
         if not np.allclose(
             observed, expected, rtol=TRUTH_BINDING_TOLERANCE, atol=TRUTH_ABSOLUTE_FLOOR
         ):
@@ -3161,7 +3196,11 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ()
+UNCOMMITTED_MODULES = (
+    "tests.studies.long_horizon_ltmle_properties",
+    "tests.studies.long_horizon_categorical_ltmle_properties",
+    "tests.studies.long_horizon_sdr_properties",
+)
 
 
 def _property_modules() -> list[Any]:
@@ -3314,6 +3353,14 @@ class TestPropertyDifferential:
             assert path in job, path
         assert "timeout-minutes:" in job
         assert '="$(git diff' in job and "|| git diff" not in job
+
+    def test_the_ci_job_runs_these_checks_on_one_interpreter(self) -> None:
+        """The ``tests`` matrix may skip this file on 3.11 and 3.13, never on all three."""
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        job = workflow.split("\n  tests:", 1)[1].split("\n  # ", 1)[0]
+        assert "matrix.python-version != '3.12'" in job
+        assert "--ignore=tests/unit/test_method_evidence.py" in job
+        assert '"3.12"' in job.split("python-version:", 1)[1].split("\n", 1)[0]
 
     def test_each_binding_witness_names_what_exists(self) -> None:
         job = self._job()

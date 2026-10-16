@@ -747,8 +747,9 @@ def test_the_declared_cells_are_the_cells_a_run_publishes(study: Any, properties
     declared = {(cell.property, cell.cell): cell for cell in properties.declared_cells()}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        rows = properties.generate_property_rows(n_jobs=1, budget=2)
-        summary = properties.summarize_properties(rows)
+        # One replicate per fit set suffices: the cells a run publishes are fixed by the fit set,
+        # and test_method_evidence.py checks the summary, which needs two, on the committed rows.
+        rows = properties.generate_property_rows(n_jobs=1, budget=1)
     derived = {
         (family, cell)
         for family, cell in zip(rows["property"], rows["cell"], strict=True)
@@ -763,9 +764,6 @@ def test_the_declared_cells_are_the_cells_a_run_publishes(study: Any, properties
                 selected["truth"], cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0
             )
         assert set(selected["n"]) == {cell.n}
-    assert {(row.property, row.cell) for row in summary.itertuples()} == {
-        (family, cell) for family, cells in study.STUDY.property_cells.items() for cell in cells
-    }
 
 
 def test_the_runner_reads_the_python_plan_grid() -> None:

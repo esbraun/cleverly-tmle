@@ -1,0 +1,197 @@
+{
+  "schema_version": 2,
+  "study": "modified treatment policies at declared boundaries",
+  "slug": "mtp-boundaries",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-mtp-boundaries",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "ddefc4e89c26f566186454d24e2c9c2190dedee3",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 5000,
+    "seed": 20264011,
+    "resampling_seed": 2026401101,
+    "scenario_seed_owners": {
+      "boundaries_sdr": "boundaries_ltmle",
+      "atom_sdr": "atom_ltmle"
+    },
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-mtp-boundaries": 0.01,
+      "lmtp": 0.01
+    },
+    "scenarios": {
+      "boundaries_ltmle": [
+        "ey_regimen[natural]",
+        "ey_regimen[p1]",
+        "ey_regimen[p2]",
+        "ey_regimen[p3]",
+        "ey_regimen[p4]",
+        "ate_regimen[p1 vs natural]",
+        "ate_regimen[p2 vs natural]",
+        "ate_regimen[p3 vs natural]",
+        "ate_regimen[p4 vs natural]"
+      ],
+      "boundaries_sdr": [
+        "ey_regimen[natural]",
+        "ey_regimen[p1]",
+        "ey_regimen[p2]",
+        "ey_regimen[p3]",
+        "ey_regimen[p4]",
+        "ate_regimen[p1 vs natural]",
+        "ate_regimen[p2 vs natural]",
+        "ate_regimen[p3 vs natural]",
+        "ate_regimen[p4 vs natural]"
+      ],
+      "atom_ltmle": [
+        "ey_regimen[natural]",
+        "ey_regimen[p5]",
+        "ate_regimen[p5 vs natural]"
+      ],
+      "atom_sdr": [
+        "ey_regimen[natural]",
+        "ey_regimen[p5]",
+        "ate_regimen[p5 vs natural]"
+      ]
+    },
+    "construction": "ordinary, one fold",
+    "density_bins": "ceil(320 (n / 2000)^(2/3)): 320 at n = 2,000, index-only oracle design",
+    "g_bounds": [
+      0.001,
+      1.0
+    ],
+    "support": "Support(0, 6 + 2 W2) at A1 and A2",
+    "dose_atoms": {
+      "B_atom": {
+        "A2": [
+          3.0
+        ]
+      }
+    },
+    "outcome_learner": "QuasiBinomialGLM at node 2; LinearRegression at node 1",
+    "treatment_learner": "OracleHazard (exact pooled-hazard bins; exact atom probability)",
+    "plans": {
+      "boundaries_ltmle": [
+        "natural",
+        "p1",
+        "p2",
+        "p3",
+        "p4"
+      ],
+      "boundaries_sdr": [
+        "natural",
+        "p1",
+        "p2",
+        "p3",
+        "p4"
+      ],
+      "atom_ltmle": [
+        "natural",
+        "p5"
+      ],
+      "atom_sdr": [
+        "natural",
+        "p5"
+      ]
+    },
+    "reference": "natural",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mtp_boundaries.py": "c38edd165d72bfc5c35bf3a0cc9fb602e07f793474e626bab6364d214153cb0a",
+    "tests/studies/mtp_boundaries_properties.py": "fe95e86a192de3373f05131adc1a54b8d1f1c3fe2e365330b7e63c9b1becbfe2",
+    "tests/studies/mtp_boundaries_common.py": "fa521b70a2aeb03bde1d975bd8e0902fab4504c1c451f2577a63aa64b038ca18",
+    "tests/studies/mtp_study_tools.py": "1ae81eda30faf49fdcd13973e9a5e5d69a4ec6bb93c6d9d86b73e71ee7f11b40",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
+    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
+    "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
+    "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
+    "tests/studies/canonical_categorical_ltmle.py": "2dc1081ad4c1d871415a41444122a7fe90dd526748710f98c4fb133bc9428311",
+    "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
+    "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
+    "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
+    "tests/canonical/lmtp_sdr_adapter.R": "f9b5678dba1bf35b2c76a461a2bec2cf63b706e542b2ef86b3518d2a91bc9816",
+    "tests/canonical/mtp_boundaries_runner.R": "f53c690892551fd419586ee431576273947495e520a943fe2e688be88f391cfc"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "3c9c0d2969f5feb4b3a102252f309fc0687a6be4a5c7fedd77d6ceb15276b7d7",
+    "summary.csv": "ab1ccbe083ef18a0fb57b416ebf4e81da3d43b85a46434a88bffeeb6008ea6e6",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "79b5c5345876d8d2d5215990f586a402b96ddfa8c4d1658a6965b8d7dfcd6f1b",
+    "property-replicates.csv.gz": "1bbf5c0ca03a39673dd7630efaabc9ded9043d23c0c3d6d1ad2fbbba98ce3860",
+    "properties.csv": "f0597de36d996e4950be1dd3676fe06995ab0d5f75bbdaf5f327a392a168a90f"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "lmtp",
+    "reason": "the lmtp 1.5.4 runs have not run: they need R in the lmtp container, which this container lacks. The X40 plan's step J owns them: the 3-replicate R smoke under SMOKE_GATE, then the declared R run, in the beta plans' Study queue after S1's Python phase",
+    "metadata": {
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "lmtp cf_tmle and theta_dr (LTMLE scenarios) and cf_sdr and theta_dr (SDR scenarios) on an LmtpTask with the shifted values and the per-node ratios this package computed written beside the replicate data; no lmtp density ratio is fitted",
+      "reference_adapter": "tests/canonical/lmtp_mtp_adapter.R, tests/canonical/lmtp_sdr_adapter.R",
+      "pairing": {
+        "boundaries_ltmle": "exact under SMOKE_GATE",
+        "boundaries_sdr": "exact under SMOKE_GATE",
+        "atom_ltmle": "default margins: the package's outcome design holds the atom indicator",
+        "atom_sdr": "default margins: the package's outcome design holds the atom indicator"
+      }
+    },
+    "declared_sources_sha256": {
+      "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+      "tests/canonical/mtp_boundaries_runner.R": "f53c690892551fd419586ee431576273947495e520a943fe2e688be88f391cfc",
+      "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
+      "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
+      "tests/canonical/lmtp_sdr_adapter.R": "f9b5678dba1bf35b2c76a461a2bec2cf63b706e542b2ef86b3518d2a91bc9816",
+      "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+    }
+  }
+}

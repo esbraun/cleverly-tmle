@@ -31,7 +31,12 @@ from cleverly.learners import density as density_module
 from . import test_vector_density_route as route
 from ._source_mutation import mutate
 
-pytestmark = pytest.mark.xdist_group("vector_density_mutations")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("vector_density_mutations"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 CAUGHT = 1e-4
 _ENUMERATE = (joint_density, joint_density, "_enumerate")
@@ -81,9 +86,9 @@ def test_m10_a_jacobian_dropped_from_one_dose_is_caught(
 ) -> None:
     """``|d beta_k / d b_k|`` is replaced by one for dose ``k``.  Measured: dose 1 7.9, dose 2 3.9."""
     edit = (
-        "jacobian * np.abs(np.where(inside, slope, 0.0)),",
-        f"jacobian * (np.abs(np.where(inside, slope, 0.0)) if index != layout.doses[{dose}] "
-        "else inside.astype(float)),",
+        "jacobian * np.abs(np.where(kept, slope, 0.0)),",
+        f"jacobian * (np.abs(np.where(kept, slope, 0.0)) if index != layout.doses[{dose}] "
+        "else kept.astype(float)),",
     )
     mutate(monkeypatch, *_ENUMERATE, [edit])
     assert _geo_ordered() > CAUGHT
@@ -161,8 +166,8 @@ def test_m14_the_identity_piece_shortcut_is_caught(monkeypatch: pytest.MonkeyPat
     """
     edits = [
         (
-            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray]] = []\n",
-            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray]] = []\n"
+            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = []\n",
+            "            grown: list[tuple[dict[int, FloatArray], BoolArray, FloatArray, str | None]] = []\n"
             "            flags: list[bool] = []\n",
         ),
         (
@@ -170,8 +175,8 @@ def test_m14_the_identity_piece_shortcut_is_caught(monkeypatch: pytest.MonkeyPat
             "                    flags.append(piece.identity)\n                    grown.append(\n",
         ),
         (
-            "        for betas, valid, jacobian in paths:\n            dose_values",
-            "        for path_index, (betas, valid, jacobian) in enumerate(paths):\n"
+            "        for betas, valid, jacobian, collapsed in paths:\n            dose_values",
+            "        for path_index, (betas, valid, jacobian, collapsed) in enumerate(paths):\n"
             "            dose_values",
         ),
         (

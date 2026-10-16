@@ -190,6 +190,7 @@ from ..interventions import (
     PolicySet,
     RegimeSet,
     RiskRatioTilt,
+    Support,
     as_interventions,
 )
 from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
@@ -205,6 +206,8 @@ from ..interventions.learned import (
 )
 from ..interventions.policy import (
     JointPolicy,
+    preflight_point_policies,
+    preflight_vector_policies,
     refuse_policy_declarations,
     vector_msm_refusal,
     vector_route_refusal,
@@ -258,6 +261,12 @@ from ._strata import (
     stratum_probabilities,
     stratum_source,
     unscale_block,
+)
+from ._tuned_policies import (
+    declares_tuned,
+    in_sample_policies,
+    refuse_tuned_compositions,
+    resolve_point_policies,
 )
 from .base import (
     CVTargeting,
@@ -1307,6 +1316,8 @@ class TMLE:
         treatment_probabilities: Any = None,
         treatment_covariates: Sequence[str] | None = None,
         continuous_treatment: Sequence[str] = (),
+        treatment_support: Support | Mapping[str, Support] | None = None,
+        dose_atoms: Sequence[float] = (),
     ) -> TMLEResultSet:
         """Fit the estimator.
 
@@ -1364,6 +1375,22 @@ class TMLE:
             The dose columns of a vector ``treatment=[...]``.  A vector with a dose column
             is fitted with ``policies=`` of :class:`~cleverly.interventions.JointPolicy`
             only, on either ``ratio`` route.  See :meth:`~cleverly.data.CausalData.from_frame`.
+        treatment_support : Support, mapping of str to Support, or None
+            The declared conditional support of a continuous dose,
+            :class:`~cleverly.interventions.Support`.  The fit refuses, before any learner, an
+            observed dose outside it and a policy that assigns a row a dose outside it
+            (Díaz et al. 2023, Assumption 1).  A vector treatment maps each continuous
+            component to its support, given the covariates, the categorical components and
+            the doses before it in column order.  Each branch of a joint policy is checked
+            on the components it assigns.
+        dose_atoms : sequence of float, or mapping of str to sequence of float
+            The doses with a recorded point mass, such as a list price.  The policy ratio
+            is then taken against Lebesgue plus counting measure on these doses, on both
+            ``ratio`` routes, and a piece may send an interval to one of them with
+            ``Piece(lower, upper, to_atom=value)``.  A dose with an undeclared point mass is
+            refused before any learner.  A vector treatment maps each continuous component
+            to its atoms, and that component's factor of the joint density is then mixed;
+            the density route takes a ``to_atom`` piece at the last dose alone.
         treatment_probabilities : Any
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
@@ -1414,7 +1441,7 @@ class TMLE:
             treatment_probabilities=treatment_probabilities,
             treatment_covariates=treatment_covariates,
             continuous_treatment=continuous_treatment,
-        )
+        ).with_dose_declarations(treatment_support, dose_atoms)
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
 
@@ -3490,9 +3517,27 @@ class TMLE:
         treatment coded 0 and 1.  A ``Rule`` is :math:`d(W)`, a different policy.  A
         continuous treatment with no ``policies=`` has no estimand at all, since every
         registered arm-indexed target names a level it has none of.
+
+        A policy with a data-tuned cap meets
+        :func:`~cleverly.estimators._tuned_policies.refuse_tuned_compositions` first, and
+        the declaration checks read it at the tuner fitted on every row.  Each fold map of
+        a fold-average target is checked over every row when the fit evaluates it.
         """
+        tuned = declares_tuned(self.policies)
+        if tuned:
+            refuse_tuned_compositions(self, data)
         if data.treatment_kind == "vector":
-            # :meth:`_refuse_vector_compositions` admits joint policies only.
+            # :meth:`_refuse_vector_compositions` admits joint policies only.  The
+            # undeclared atoms (R-b4) and a declared component support are checked here,
+            # before any learner (X40 parts (a) and (b)).
+            # A tuned component is read at the tuner fitted on every row.
+            if self.policies:
+                preflight_vector_policies(
+                    in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
+                    data,
+                    ratio=self.ratio,
+                    density_bins=self.density_bins,
+                )
             return
         if self.policies and any(isinstance(item, RiskRatioTilt) for item in self.policies):
             levels = [] if data.is_continuous_treatment else list(data.treatment_levels)
@@ -3507,6 +3552,20 @@ class TMLE:
                     + ". It is lmtp's ipsi(), which keeps a treated unit treated with "
                     "probability delta and otherwise sets it to 0"
                 )
+        if data.is_continuous_treatment and self.policies:
+            # The declared support, the declared atoms and the undeclared-atom check, all
+            # before any learner (X40 parts (a) and (b)).
+            preflight_point_policies(
+                in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
+                data,
+                ratio=self.ratio,
+                density_bins=self.density_bins,
+            )
+        elif data.treatment_support is not None or data.dose_atoms:
+            raise DataError(
+                "treatment_support= and dose_atoms= declare the dose a modified treatment "
+                "policy moves, so they need policies=[...]"
+            )
         if data.is_continuous_treatment and not self.policies and self.msm is None:
             # The suggested policy meets the X53 refusal of a cross-fitted fit with missing
             # outcomes, so that fit is told which fit estimates the natural course.  The
@@ -3741,6 +3800,20 @@ class TMLE:
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         msm = self._msm(data)
+        # A data-tuned cap is fitted here, on the realised split and before any learner
+        # (X40 part (e)), and the expanded policies are what the nuisances evaluate.
+        tuned = resolve_point_policies(self.policies, data, folds) if self.policies else None
+        if tuned is not None:
+            # Each fold's map, and each fold-average component, meets R-a1, R-b1 and R-b3
+            # before any learner, as the map at theta_n did in ``fit``.
+            preflight = (
+                preflight_vector_policies
+                if data.treatment_kind == "vector"
+                else preflight_point_policies
+            )
+            for fold_policies in (tuned.expanded, *(tuned.by_fold or ())):
+                preflight(fold_policies, data, ratio=self.ratio, density_bins=self.density_bins)
+        reference = None if self.reference is None else str(self.reference)
         estimates = fit_nuisances(
             data,
             outcome_learner=self._resolve_learner(
@@ -3776,8 +3849,10 @@ class TMLE:
             screen_treatment=self.screen_treatment,
             screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
-            policies=self.policies,
-            policy_reference=None if self.reference is None else str(self.reference),
+            policies=self.policies if tuned is None else tuned.expanded,  # type: ignore[arg-type]
+            policy_reference=reference if tuned is None else None,
+            policy_by_fold=None if tuned is None else tuned.by_fold,  # type: ignore[arg-type]
+            probe_doses=None if tuned is None else tuned.probe_doses,
             incremental=self.incremental,
             incremental_reference=None if self.reference is None else str(self.reference),
             density_bins=self.density_bins,
@@ -3789,6 +3864,14 @@ class TMLE:
             fit_treatment_observation=fit_treatment_observation,
             outcome_by_arm=self.outcome_by_arm,
         )
+        if tuned is not None:
+            assert estimates.policies is not None
+            estimates = replace(
+                estimates,
+                policies=tuned.finish(
+                    estimates.policies, estimates.outcome_probes, data, reference
+                ),
+            )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
         # the regimes and the working model this fit declared, without re-running the
@@ -5316,6 +5399,8 @@ class TMLE:
             corrections=corrections,
             policies=None if policies is None else policies.design,
             policy_mixing=None if policies is None else policies.mixing,
+            policy_rows=None if policies is None else policies.component_rows,
+            policy_terms=None if policies is None else policies.curve_terms,
             incremental=incremental,
             msm_design=None if msm is None else msm.design,
             msm_weights=None if msm is None else msm.weights,
@@ -5484,8 +5569,8 @@ class TMLE:
         data: CausalData,
         intermediate_value: float | None,
         estimands: tuple[str, ...],
-    ) -> Mapping[str, float]:
-        """One bootstrap replicate: a full refit, point estimates only.
+    ) -> Mapping[str, tuple[float, float]]:
+        """One bootstrap replicate: a full refit, its estimates and standard errors.
 
         Goes through :meth:`_nuisances` rather than :meth:`_fit_nuisances` so that a
         variant which *selects* a nuisance model repeats that selection in every
@@ -5524,7 +5609,11 @@ class TMLE:
             )
             per_repeat.append(estimates)
         combined = median_estimates(per_repeat)
-        return {name: estimate.psi for name, estimate in combined.items()}
+        # The plug-in standard error is the replicate's own curve at every status, which is
+        # what a studentized interval divides by (``RefitFn``).
+        return {
+            name: (estimate.psi, estimate.plugin_std_error) for name, estimate in combined.items()
+        }
 
 
 def reported_mechanism(

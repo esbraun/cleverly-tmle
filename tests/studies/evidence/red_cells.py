@@ -566,6 +566,36 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "cleverly-ctmle-sequences/binary_lasso/ate",
         ),
     ),
+    # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.
+    "mtp-pricing-calibration": (
+        *_keys(
+            "mtp-pricing",
+            "truth",
+            *(
+                f"cleverly-mtp-pricing/pricing_{engine}_tau5/{estimand}"
+                for engine in ("ltmle", "sdr")
+                for estimand in (
+                    "ey_regimen[price_down]",
+                    "ate_regimen[price_down vs natural_prices]",
+                )
+            ),
+        ),
+    ),
+    # The learned-density arms of the price study, declared ``reporting`` before the run.
+    "mtp-pricing-learned-density": (
+        *_keys(
+            "mtp-pricing",
+            "property",
+            *(
+                f"interval_calibration/up_learned_density_tau{tau}__correctly_specified"
+                for tau in (2, 3, 5)
+            ),
+        ),
+    ),
+    # The ``reporting`` SDR arm of plan p4. X40 owns it: the interval is labelled experimental.
+    "X40-sdr-heavy-ratios": (
+        *_keys("mtp-boundaries", "property", "interval_calibration/p4_sdr__correctly_specified"),
+    ),
 }
 
 

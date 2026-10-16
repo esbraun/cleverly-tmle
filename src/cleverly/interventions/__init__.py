@@ -39,9 +39,11 @@ from .policy import (
     RiskRatioTilt,
     Scale,
     Shift,
+    Support,
     check_policy_support,
 )
 from .support import RegimeSupport, SupportReport, check_support
+from .tuning import DoseQuantile, LinearQuantileRegression, SupportBoundary
 
 __all__ = [
     "POLICY_TYPES",
@@ -67,6 +69,7 @@ __all__ = [
     "Shift",
     "Static",
     "Stochastic",
+    "Support",
     "SupportReport",
     "as_interventions",
     "check_incremental_support",
@@ -74,3 +77,5 @@ __all__ = [
     "check_support",
     "refuse_mixed_interventions",
 ]
+__all__ += ["DoseQuantile", "LinearQuantileRegression", "SupportBoundary"]
+__all__.sort()
