@@ -18,16 +18,22 @@ C5     two levels: every declaration of one odds multiplier gives identical arra
        general formulas, called on a two-level input, equal the two-level ones
 C10    ``IPSINodeRow`` recovers the mechanism and the node factor, and the factor lies inside
        the bound the declaration guarantees
+C14    integer weights are row duplication, ``id=`` changes the variance only, five exact
+       copies as five folds give the exact cross-fitted fit, and a bootstrap replicate is the
+       fit on the resampled rows
 =====  ==========================================================================================
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import pytest
 
+from cleverly.inference.bootstrap import _bootstrap_design, _bootstrap_draw
 from cleverly.longitudinal.ipsi import (
     mechanism_term_binary,
     mechanism_term_general,
@@ -200,3 +206,85 @@ def test_c5_the_general_formulas_equal_the_binary_ones_on_two_levels(
     binary = mechanism_term_binary(arm, pi, by_arm, delta)
     assert np.max(np.abs(binary)) > 0.01, "a zero term would hide a wrong sign"
     np.testing.assert_allclose(general, binary, atol=1e-12, rtol=0)
+
+
+# ------------------------------------------------------------------------------------ C14
+
+#: A weight or a cluster must move the estimate by more than this, or the identity is vacuous.
+WITNESS = 1e-3
+
+
+def _gap(left: Any, right: Any) -> float:
+    return max(abs(left.psi(name) - right.psi(name)) for name in NAMES)
+
+
+class TestC14Compositions:
+    """The compositions the binary fit supports, on the censored three-level law."""
+
+    @staticmethod
+    def _weights(n: int) -> np.ndarray:
+        return np.random.default_rng(1).integers(1, 4, size=n).astype(float)
+
+    def test_integer_weights_equal_row_duplication(self) -> None:
+        frame = law.end_frame()
+        weights = self._weights(len(frame))
+        weighted = sup.fit_ipsi(frame.assign(wt=weights), law.PLANS, declared={"weights": "wt"})
+        duplicated = sup.fit_ipsi(
+            frame.loc[frame.index.repeat(weights.astype(int))].reset_index(drop=True), law.PLANS
+        )
+        assert _gap(weighted, duplicated) < 1e-12
+        assert _gap(weighted, sup.fit_ipsi(frame, law.PLANS)) > WITNESS
+
+    def test_singleton_clusters_are_the_iid_fit(self) -> None:
+        frame = law.end_frame()
+        iid = sup.fit_ipsi(frame, law.PLANS)
+        singleton = sup.fit_ipsi(
+            frame.assign(cid=np.arange(len(frame))), law.PLANS, declared={"id": "cid"}
+        )
+        for name in NAMES:
+            assert singleton.psi(name) == pytest.approx(iid.psi(name), abs=1e-12)
+            assert singleton.estimates[name].std_error == pytest.approx(
+                iid.estimates[name].std_error, abs=1e-12
+            )
+            np.testing.assert_allclose(
+                singleton.influence_curves[name], iid.influence_curves[name], atol=1e-12, rtol=0
+            )
+
+    def test_the_cluster_standard_error_is_the_longhand_formula(self) -> None:
+        frame = law.end_frame()
+        ids = np.arange(len(frame)) // 4
+        clustered = sup.fit_ipsi(frame.assign(cid=ids), law.PLANS, declared={"id": "cid"})
+        iid = sup.fit_ipsi(frame, law.PLANS)
+        n, n_clusters = len(frame), int(ids.max()) + 1
+        name = NAMES[0]
+        sums = pd.Series(np.asarray(clustered.influence_curves[name])).groupby(ids).sum()
+        longhand = np.sqrt(np.sum(sums.to_numpy() ** 2) * n_clusters / (n_clusters - 1)) / n
+        assert clustered.estimates[name].std_error == pytest.approx(longhand, abs=1e-12)
+        assert clustered.estimates[name].std_error > 1.5 * iid.estimates[name].std_error
+
+    def test_five_exact_copies_as_five_folds_give_the_exact_cross_fitted_fit(self) -> None:
+        copies = pd.concat(
+            [law.end_frame().assign(cid=copy) for copy in range(5)], ignore_index=True
+        )
+        fit = sup.fit_ipsi(copies, law.PLANS, declared={"id": "cid"}, n_folds=5)
+        for name, truth, _, _ in sup.expected(NAMES, law.end_function, law.PROBS, law.COUNTS):
+            assert fit.psi(name) == pytest.approx(truth, abs=1e-12), name
+
+    def test_a_bootstrap_replicate_is_the_fit_on_the_resampled_rows(self) -> None:
+        frame = law.end_frame()
+        plain = sup.fit_ipsi(frame, law.PLANS, random_state=0)
+        fit = sup.fit_ipsi(frame, law.PLANS, random_state=0, n_bootstrap=3)
+        name = NAMES[1]
+        assert fit.psi(name) == plain.psi(name)
+        summary = fit.estimates[name].bootstrap
+        assert summary.n_failed == 0
+        design = _bootstrap_design(fit.data, n_replicates=3, resampling="auto", random_state=0)
+        for draw, value in zip(design.draws, summary.draws, strict=True):
+            index, _ = _bootstrap_draw(
+                fit.data.n, design.cluster, np.random.default_rng(draw.sequence)
+            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                resampled = sup.fit_ipsi(frame.iloc[index].reset_index(drop=True), law.PLANS)
+            assert value == pytest.approx(resampled.psi(name), abs=1e-10)
+        assert np.ptp(summary.draws) > WITNESS

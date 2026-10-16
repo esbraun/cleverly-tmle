@@ -168,9 +168,9 @@ class MechanismFluctuation:
     subclass: it reports the same kind of thing about a different equation, and the two
     are carried together on a fit that solves both.
 
-    Attributes
+    Parameters
     ----------
-    propensity:
+    propensity : FloatArray
         ``(n,)`` for two levels, the targeted :math:`g^*(1 \\mid W)`; ``(n, K)`` for more,
         the targeted :math:`g^*(a \\mid W)` with rows on the simplex.  This is what
         :math:`\\Psi(\\delta)` is evaluated at, and what the influence curve's
@@ -179,13 +179,20 @@ class MechanismFluctuation:
         initial cross-fitted mechanism exactly as it keeps the initial
         :math:`\\bar Q` -- so ``retarget`` stays idempotent and the nuisance diagnostics
         keep describing the model that was actually fitted.
-    epsilon:
+    epsilon : FloatArray
         One coefficient per tilt.
-    score, score_scale, score_initial:
-        :math:`P_n[H_g (A - g^*)]` after targeting, the largest magnitude it could have
-        had, and its value before.  Reported on the same footing as the outcome
-        fluctuation's so that :func:`~cleverly.validation.score_check` can put the two
-        equations in one table.
+    score : FloatArray
+        :math:`P_n[H_g (A - g^*)]` after targeting.
+    score_scale : FloatArray
+        The largest magnitude the score could have had.
+    score_initial : FloatArray
+        The score before targeting.  The three are reported on the same footing as the
+        outcome fluctuation's so that :func:`~cleverly.validation.score_check` can put the
+        two equations in one table.
+
+    Attributes
+    ----------
+    relative_score : float
     """
 
     propensity: FloatArray
@@ -503,7 +510,10 @@ def solve_multinomial_mechanism(
     with backtracking on the log-likelihood solves it, on the terms
     :func:`~cleverly.fluctuation.iterative._newton_logistic` does for two levels.  Rows stay
     on the simplex.  An all-zero covariate is not a failure: :math:`\epsilon` is zero and the
-    mechanism comes back untouched.
+    mechanism comes back untouched.  A level with :math:`\hat g(a \mid W_i) = 0` keeps zero
+    mass in that row at every :math:`\epsilon`.  The two-level :func:`solve_mechanism` clips
+    :math:`\hat g` at ``1e-12`` instead, so that its binary arrays are those of the binary
+    path before this solver existed.
 
     Not :func:`solve_armwise_bounded_mechanism`, which fits one unnormalised one-versus-rest
     mechanism per arm for DR-TMLE and does not keep rows on the simplex.
@@ -538,7 +548,12 @@ def solve_multinomial_mechanism(
             f"got {g.shape} and {h.shape}"
         )
     rows = np.arange(a.size)
-    log_g = np.log(np.clip(g, _LOGIT_GUARD, 1.0))
+    # A level the mechanism excludes (g = 0 exactly) stays excluded: the submodel multiplies g
+    # by a positive factor, so its mass is zero at every epsilon.  The guard that keeps the
+    # logarithm finite applies to a positive g only.  A row with no positive entry is not a
+    # distribution, and keeps the guard so that the softmax stays defined.
+    support = (g > 0.0) | ~(g > 0.0).any(axis=1, keepdims=True)
+    log_g = np.where(support, np.log(np.clip(g, _LOGIT_GUARD, 1.0)), -np.inf)
 
     def tilted(epsilon: FloatArray) -> FloatArray:
         eta = log_g + h @ epsilon

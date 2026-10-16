@@ -214,12 +214,13 @@ class TestC8TheSoftmaxSolver:
         np.testing.assert_array_equal(fit.propensity, g)
         assert not np.any(fit.epsilon)
 
-    def test_a_level_that_never_occurs_drives_epsilon_off(self) -> None:
-        """Separation: nobody received level 0, and its coefficient keeps one sign.
+    def test_a_level_that_never_occurs_can_drive_epsilon_off(self) -> None:
+        """Separation: nobody received level 0, and every observed level is the arg-min of H.
 
         The solver reports what the logistic one does: the score falls below the tolerance
-        only as ``epsilon`` runs to minus infinity.  The stratum guard exists so that a fit
-        never gets here with a stratum that lacks a level; see
+        only as ``epsilon`` runs to minus infinity.  The stratum guard refuses a stratum
+        that lacks a level before any learner, because whether this case occurs depends on
+        the fitted outcome regression; see
         ``test_an_absent_level_in_a_stratum_refuses_before_any_learner``.
         """
         a, g, h, w = _problem(4, k=3, r=1)
@@ -230,3 +231,69 @@ class TestC8TheSoftmaxSolver:
         fit = solve_multinomial_mechanism(a, g, h, w, max_iter=50)
         assert float(np.min(fit.epsilon)) < -10.0
         np.testing.assert_allclose(fit.propensity.sum(axis=1), 1.0, atol=1e-12, rtol=0)
+
+    def test_an_absent_level_does_not_by_itself_remove_the_root(self) -> None:
+        """Nobody received level 0, and the equation still has a finite root.
+
+        The covariate puts the largest value on level 0 in half of the rows and on level 1 in
+        the other half, so the observed levels are the arg-max in some rows and not in
+        others and no direction separates.  The refusal of an absent level is therefore a
+        guard and not a necessary condition.
+        """
+        a, g, h, w = _problem(4, k=3, r=1)
+        a = np.where(a == 0.0, 1.0, a)
+        half = np.arange(a.size) % 2 == 0
+        h = np.zeros_like(h)
+        h[:, 0, 0] = np.where(half, 1.0, -1.0)
+        h[:, 1, 0] = np.where(half, -0.5, 0.5)
+        h[:, 2, 0] = -0.5
+        fit = solve_multinomial_mechanism(a, g, h, w, tol=1e-12)
+        assert fit.converged and fit.failure is None
+        assert 1e-3 < float(np.max(np.abs(fit.epsilon))) < 10.0
+        score, scale = multinomial_mechanism_score(a, fit.propensity, h, w)
+        assert np.max(np.abs(score) / scale) < 1e-10
+
+
+class TestC8TheFailureVocabulary:
+    def test_a_separated_problem_with_too_few_iterations_reports_max_iter_reached(self) -> None:
+        a, g, h, w = _problem(4, k=3, r=1)
+        a = np.where(a == 0.0, 1.0, a)
+        h = np.zeros_like(h)
+        h[:, 0, 0] = 1.0
+        h[:, 1:, 0] = -0.5
+        fit = solve_multinomial_mechanism(a, g, h, w, max_iter=5)
+        assert fit.converged is False
+        assert fit.failure == "max_iter_reached"
+        np.testing.assert_allclose(fit.propensity.sum(axis=1), 1.0, atol=1e-12, rtol=0)
+
+    def test_a_nonfinite_covariate_reports_nonfinite_step(self) -> None:
+        a, g, h, w = _problem(5)
+        h = h.copy()
+        h[0, 0, 0] = np.nan
+        fit = solve_multinomial_mechanism(a, g, h, w)
+        assert fit.converged is False
+        assert fit.failure == "nonfinite_step"
+
+    def test_a_solved_problem_reports_no_failure(self) -> None:
+        a, g, h, w = _problem(5)
+        fit = solve_multinomial_mechanism(a, g, h, w)
+        assert fit.converged is True
+        assert fit.failure is None
+
+
+class TestC8AnExcludedLevelStaysExcluded:
+    @pytest.mark.parametrize("seed", [0, 1])
+    def test_a_zero_in_the_mechanism_stays_zero_after_the_fluctuation(self, seed: int) -> None:
+        a, g, h, w = _problem(seed, k=4)
+        excluded = np.arange(a.size) % 5 == 0
+        g = g.copy()
+        g[excluded, 3] = 0.0
+        g = g / g.sum(axis=1, keepdims=True)
+        a = np.where(excluded & (a == 3.0), 0.0, a)
+        h = h - np.einsum("ij,ijr->ir", g, h)[:, None, :]
+        fit = solve_multinomial_mechanism(a, g, h, w, tol=1e-12)
+        assert fit.converged and fit.failure is None
+        assert np.max(np.abs(fit.epsilon)) > 1e-3, "an untouched mechanism hides the guard"
+        assert np.all(fit.propensity[excluded, 3] == 0.0)
+        np.testing.assert_allclose(fit.propensity.sum(axis=1), 1.0, atol=1e-12, rtol=0)
+        assert fit.propensity[~excluded, 3].min() > 0.0

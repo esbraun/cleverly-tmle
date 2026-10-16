@@ -225,11 +225,17 @@ class TestC1sBaselineStrata:
             np.testing.assert_allclose(curve[~inside], 0.0, atol=1e-14)
 
     def test_an_absent_level_in_a_stratum_refuses_before_any_learner(self) -> None:
-        """Stratum 1 holds no ``low`` or ``mid`` row: its softmax equation has no root."""
+        """Stratum 1 holds no ``low`` or ``mid`` row: its softmax equation may have no root.
+
+        The refusal is the data-only guard.  Whether a root exists depends on the fitted outcome
+        regression, see :func:`~cleverly.estimators._strata.refuse_absent_tilt_arms`.
+        """
         data = sup.frame(strata=True)
         data["A"] = np.where(data["V"] == 1, "high", data["A"])
         Counting.calls = 0
-        with pytest.raises(DataError, match="treatment-mechanism score equation has no finite"):
+        with pytest.raises(
+            DataError, match="treatment-mechanism score equation may have no finite root"
+        ):
             TMLE(
                 incremental=sup.declared(),
                 outcome_learner=CountingLogistic(max_iter=1000),

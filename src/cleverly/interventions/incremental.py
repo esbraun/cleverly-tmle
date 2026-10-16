@@ -183,7 +183,9 @@ class Incremental:
     name : str
         What this intervention is called in reported parameter names.  Defaults to
         ``"odds x2.5"`` style for a scalar, ``"odds high x2, low x0.5"`` for a mapping, and
-        ``"natural course"`` when every declared factor is ``1``.
+        ``"natural course"`` when every declared factor is ``1``.  The default echoes each
+        key as written: ``{1: 2.0}`` and ``{1.0: 2.0}`` resolve to the same factors and
+        carry the names ``"odds 1 x2"`` and ``"odds 1.0 x2"``.
 
     Examples
     --------
@@ -201,41 +203,57 @@ class Incremental:
 
     def __post_init__(self) -> None:
         delta = self.delta
-        if isinstance(delta, (Mapping, tuple)):
-            pairs = tuple(delta.items()) if isinstance(delta, Mapping) else delta
-            if not pairs or any(len(pair) != 2 for pair in pairs):
+        if isinstance(delta, (Mapping, tuple, list)):
+            raw = tuple(delta.items()) if isinstance(delta, Mapping) else tuple(delta)
+            if not raw or any(
+                not isinstance(pair, (tuple, list)) or len(pair) != 2 for pair in raw
+            ):
                 raise DataError(
                     "an incremental intervention given a mapping needs at least one "
                     "(label, factor) pair"
                 )
+            pairs = tuple((pair[0], pair[1]) for pair in raw)
             if len({key for key, _ in pairs}) != len(pairs):
                 raise DataError(
                     f"an incremental intervention names a level twice: {[k for k, _ in pairs]}"
                 )
-            for key, value in pairs:
-                self._check_factor(value, f"the factor of {key!r}")
-            object.__setattr__(self, "delta", tuple((key, float(value)) for key, value in pairs))
-            declared = [float(value) for _, value in pairs]
+            declared = [self._check_factor(value, f"the factor of {key!r}") for key, value in pairs]
+            object.__setattr__(
+                self,
+                "delta",
+                tuple((key, value) for (key, _), value in zip(pairs, declared, strict=True)),
+            )
             natural = all(value == 1.0 for value in declared)
-            label = ", ".join(f"{key} x{float(value):g}" for key, value in pairs)
+            label = ", ".join(
+                f"{key} x{value:g}" for (key, _), value in zip(pairs, declared, strict=True)
+            )
             default = "natural course" if natural else f"odds {label}"
         else:
-            self._check_factor(delta, "delta")
-            default = "natural course" if delta == 1.0 else f"odds x{delta:g}"
+            number = self._check_factor(delta, "delta")
+            default = "natural course" if number == 1.0 else f"odds x{number:g}"
         if not self.name:
             object.__setattr__(self, "name", default)
 
     @staticmethod
-    def _check_factor(value: Any, what: str) -> None:
-        if not np.isfinite(value):
+    def _check_factor(value: Any, what: str) -> float:
+        try:
+            if isinstance(value, (str, bytes)):
+                raise TypeError("a string is not a factor")
+            number = float(value)
+        except (TypeError, ValueError):
+            raise DataError(
+                f"an incremental intervention's {what} must be a number; got {value!r}"
+            ) from None
+        if not np.isfinite(number):
             raise DataError(f"an incremental intervention's {what} must be finite; got {value!r}")
-        if value <= 0.0:
+        if number <= 0.0:
             raise DataError(
                 f"an incremental intervention's {what} must be strictly positive; got "
                 f"{value!r}. A factor multiplies the odds of treatment, so a factor of 0 "
                 "would assign nobody to the level, which is a regime, not a tilt of the "
                 "mechanism."
             )
+        return number
 
     def factors(self, levels: Sequence[Any], *, subject: str = "the treatment") -> FloatArray:
         """The factor of every level, in the order of ``levels``.

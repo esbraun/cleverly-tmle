@@ -182,6 +182,17 @@ def tilted_plans(
     )
 
 
+def tilt_product_binary(
+    tilt: FloatArray, arm: FloatArray, pi: FloatArray, delta: float
+) -> FloatArray:
+    r"""The running product times Kennedy's two-level node factor.
+
+    The factor is :math:`(\delta A + 1 - A)/(\delta \pi + 1 - \pi)`.  The operations run in the
+    order of the binary code, ``(tilt * numerator) / denominator``.
+    """
+    return np.asarray(tilt * (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi))
+
+
 def tilt_factor_binary(arm: FloatArray, pi: FloatArray, delta: float) -> FloatArray:
     r"""Kennedy's node factor :math:`(\delta A + 1 - A)/(\delta \pi + 1 - \pi)` on two levels."""
     return np.asarray((delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi))
@@ -243,20 +254,22 @@ def mechanism_term_general(
     return np.asarray(factors[code] / (g @ factors) * (observed - marginal))
 
 
-def _tilt_factor(
-    data: LongitudinalData, plan: Plan, propensity: FloatArray, time: int
+def _extend_tilt(
+    tilt: FloatArray, data: LongitudinalData, plan: Plan, propensity: FloatArray, time: int
 ) -> FloatArray:
-    r""":math:`\delta_{t,A_t}/D_t` at tilt node ``time``, the cancelled tilt factor.
+    r"""The running tilt product times :math:`\delta_{t,A_t}/D_t`, the cancelled tilt factor.
 
-    Two levels keep Kennedy's form, with :math:`\delta = \delta_{t,1}/\delta_{t,0}`, which is
-    the general factor divided by :math:`\delta_{t,0}` in both numerator and denominator.
+    Two levels keep Kennedy's form, with :math:`\delta = \delta_{t,1}/\delta_{t,0}`, and the
+    order of the operations of the binary code: ``(tilt * numerator) / denominator``.  A
+    product ``tilt * (numerator / denominator)`` differs from it by one unit in the last
+    place, which would move the binary estimates.
     """
     g = np.clip(np.asarray(propensity, dtype=float), 0.0, 1.0)
     factors = plan.tilt_factors(time)
     arm = np.nan_to_num(data.node_codes(time), nan=0.0)
     if g.shape[1] == 2:
-        return tilt_factor_binary(arm, g[:, 1], factors[1] / factors[0])
-    return tilt_factor_general(arm, g, factors)
+        return tilt_product_binary(tilt, arm, g[:, 1], factors[1] / factors[0])
+    return np.asarray(tilt * tilt_factor_general(arm, g, factors))
 
 
 def _mechanism_term(
@@ -305,7 +318,7 @@ def _weights(
     binding = []
     for time in range(1, horizon + 1):
         if plan.is_tilt_node(time):
-            tilt = tilt * _tilt_factor(data, plan, propensity[time], time)
+            tilt = _extend_tilt(tilt, data, plan, propensity[time], time)
         else:
             numerator = numerator * _node_numerator(plan, data, time)
         following = masks.following(time)

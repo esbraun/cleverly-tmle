@@ -538,8 +538,10 @@ It does not read `.delta`.
 The binary surface rule holds at every consumer: with two levels, the
 code runs the arithmetic of Kennedy (2019) with $\delta=\delta_1/\delta_0$, and with more levels it
 runs the general formulas. The two branches meet in the mechanism fluctuation too, which is
-logistic for two levels and a softmax for more. A two-level result is bit-identical to the result
-before the categorical change.
+logistic for two levels and a softmax for more. A two-level estimate, influence curve, standard
+error and fluctuation are bit-identical to the ones before the categorical change. Two diagnostics
+changed: `IncrementalSupport.min_propensity` is the minimum over both columns of the mechanism, and
+`IncrementalSupport.delta` holds label and factor pairs instead of one float.
 
 `tests/unit/test_incremental_binary_surface.py` and
 `tests/unit/test_ipsi_binary_surface.py` replay the committed studies to check it. A three-level

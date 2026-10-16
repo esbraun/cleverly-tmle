@@ -1891,7 +1891,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
   arXiv:2511.11353v3. The preprint constructs scalar-parameter categorical propensity policies
   from a reference policy and treatment-specific costs and derives their influence functions.
   It shows that a multi-arm extension is possible after its extra policy inputs are declared.
-  It does not validate a multi-arm `TMLE(incremental=...)` in this package.
+  This package ships a categorical `TMLE(incremental=...)` that tilts the odds of each level by a
+  declared factor. That tilt is a different construction from the paper's interpolated policy, so
+  the paper is background and not a validation of the categorical fit.
 
 ## Riesz representation and nested targeted learning
 

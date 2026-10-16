@@ -90,6 +90,28 @@ class TestTheDeclaration:
         with pytest.raises(DataError, match=r"strictly positive|finite"):
             Incremental({"low": bad})
 
+    @pytest.mark.parametrize("bad", ["2", b"2", None, object()])
+    def test_a_factor_that_is_not_a_number_is_a_data_error(self, bad: Any) -> None:
+        with pytest.raises(DataError, match="must be a number"):
+            Incremental(bad)
+        with pytest.raises(DataError, match="must be a number"):
+            Incremental({"low": bad})
+        with pytest.raises(DataError, match="must be a number"):
+            Incremental([("low", bad)])
+
+    def test_a_list_of_pairs_is_the_mapping(self) -> None:
+        listed = Incremental([("mid", 2), ("low", 0.5)])
+        assert listed == Incremental({"mid": 2.0, "low": 0.5})
+        assert listed.delta == (("mid", 2.0), ("low", 0.5))
+
+    def test_the_default_name_echoes_the_key_as_written(self) -> None:
+        """``{1: 2}`` and ``{1.0: 2}`` resolve to the same factors under two names."""
+        assert Incremental({1: 2.0}).name == "odds 1 x2"
+        assert Incremental({1.0: 2.0}).name == "odds 1.0 x2"
+        np.testing.assert_array_equal(
+            Incremental({1: 2.0}).factors((0.0, 1.0)), Incremental({1.0: 2.0}).factors((0.0, 1.0))
+        )
+
     def test_an_empty_mapping_is_refused(self) -> None:
         with pytest.raises(DataError, match="at least one"):
             Incremental({})
