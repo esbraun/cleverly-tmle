@@ -72,6 +72,11 @@ which keeps the variance. The exact-law tests carry the ATE term.
 | predicted control ratios | 2.24 to 2.62 for $\nu^2$ and 1.17 to 1.24 for a bound (inflated), 0.38 for $\nu^2$ and 0.85 for a bound (shrunken) |
 | primary replicates per scenario | 10,000 |
 
+A pilot read every cell before the declaration. It used 4,000 replicates per scenario on the
+seed stream `x26_pilot_sample`, which the declared run does not use. All 60 cells passed. The
+widest $\nu^2$ coverage was 0.973 (multinomial ATC), against the upper margin of 0.98. In 3,000
+separate ridge draws, the `penalty_bias` gate fired once, on the ATE.
+
 <!-- generated: accuracy -->
 <!-- /generated -->
 
