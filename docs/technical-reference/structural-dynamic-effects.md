@@ -224,7 +224,7 @@ The rows `G42` name this engine. Each row covers one key that the
 cross-fitted, with a Gaussian outcome and no declared bounds. Each row licenses the point estimate
 and the Wald interval. The study fits no simultaneous band, so a band reads `experimental`.
 
-| row | key | learners |
+| row | key | learners (`outcome` and `treatment`) |
 | --- | --- | --- |
 | `G42.two_nodes` | two binary nodes, with static regimens. Laws `S2`, `H`, `P` and `M` | `GLM` |
 | `G42.three_nodes` | three binary nodes. Law `S3` | `GLM` |
@@ -234,8 +234,9 @@ and the Wald interval. The study fits no simultaneous band, so a band reads `exp
 | `G42.weighted` | two binary nodes with known weights. Law `S2W` | `GLM` |
 | `G42.clustered` | two binary nodes with 40 or more clusters. Law `S2C` | `GLM` |
 
-A fit outside these rows reads `experimental`. Examples are an in-sample fit, a learner other
-than `GLM`, estimated weights and fewer than 40 clusters. Law `N` of the study has no row. A row
+Each row also requires that the fit sets no `regression_learner`. A fit outside these rows reads
+`experimental`. Examples are an in-sample fit, a learner other than `GLM`, any
+`regression_learner`, estimated weights and fewer than 40 clusters. Law `N` of the study has no row. A row
 names a learner class and not its settings. The study measures one early-stopped booster. A
 booster of fixed size kept a bias of 1.8 standard errors at $n$ = 512,000, so a row for the class
 would cover a configuration that the study refutes.

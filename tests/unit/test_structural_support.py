@@ -24,10 +24,12 @@ witness that fails when it does.
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
 import pytest
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 import cleverly
@@ -91,6 +93,34 @@ class TestTheStudyRowsCoverTheFit:
         estimate = fit()["ey_regimen[always]"]
         assert estimate.support.label == "experimental"
         assert estimate.support.reason.startswith(NO_STUDY)
+
+    def test_a_booster_regression_learner_leaves_the_fit_experimental(self) -> None:
+        """The rows name ``regression`` as ``None``, so any ``regression_learner`` leaves a row."""
+        booster = HistGradientBoostingRegressor(max_iter=10)
+        estimate = fit(regression_learner=booster)["ey_regimen[always]"]
+        assert estimate.support.label == "experimental"
+        assert estimate.support.row is None
+        assert "Nearest row: G42.two_nodes" in estimate.support.reason
+        assert "differing on learners" in estimate.support.reason
+
+    def test_dropping_the_regression_role_from_the_rows_fails_the_witness(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A row that omits the role licenses a booster, so the test above fails on it."""
+        rows = tuple(
+            replace(
+                row,
+                learners={k: v for k, v in (row.learners or {}).items() if k != "regression"},
+            )
+            if row.id.startswith("G42")
+            else row
+            for row in _support.registered_rows()
+        )
+        monkeypatch.setattr(_support, "registered_rows", lambda: rows)
+        estimate = fit(regression_learner=HistGradientBoostingRegressor(max_iter=10))[
+            "ey_regimen[always]"
+        ]
+        assert estimate.support.label == "supported"
 
 
 class TestAnUncoveredFitReadsExperimental:

@@ -2598,7 +2598,7 @@ def _structural_rows() -> list[SupportRow]:
     n = 512,000, so a row for the class would license a configuration the study refutes.
     """
     study = ("structural-nested-mean",)
-    glm = {"outcome": GLM, "treatment": GLM}
+    glm: dict[str, type | None] = {"outcome": GLM, "treatment": GLM, "regression": None}
     limits = (
         "The intervals are valid under the linear structural nested mean model with the "
         "declared blip features. The study laws satisfy that model.",

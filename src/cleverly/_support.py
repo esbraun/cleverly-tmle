@@ -769,7 +769,8 @@ class SupportRow:
     cells : tuple of str
         The licensing cells or truth rows.
     learners : mapping of str to type or None, default None
-        The exact learner class per nuisance role, where the row needs one.
+        The exact learner class per nuisance role, where the row needs one. A ``None`` class
+        requires that the fit sets no learner for the role.
     limits : tuple of str, default ()
         The stated limits of the row.
     shortfalls : tuple of tuple of str, default ()
@@ -787,7 +788,7 @@ class SupportRow:
     kinds: frozenset[str]
     evidence: tuple[str, ...]
     cells: tuple[str, ...] = ()
-    learners: Mapping[str, type] | None = None
+    learners: Mapping[str, type | None] | None = None
     limits: tuple[str, ...] = ()
     shortfalls: tuple[tuple[str, str], ...] = ()
     kind_families: tuple[tuple[str, frozenset[str]], ...] = ()
