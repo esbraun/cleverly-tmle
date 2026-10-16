@@ -26,7 +26,8 @@ setup    structure
 ``S2C``  ``S2`` in clusters of ten that share the baseline and an outcome intercept
 ``LU``   law ``L`` with the node-2 blip declared as :math:`\phi_2 = 1`: the negative control
 ``VB``   law ``P`` with a baseline-only :math:`\phi_2`: the second negative control
-``SP``   the model-check law with the treatment logits multiplied by three: sparse cells
+``SP``   the model-check law with the treatment logits multiplied by three: weak positivity;
+         blips :math:`A_1 (1.15 + 0.47 W)` and :math:`A_2 (0.5 + 0.4 W + 0.6 A_1)`
 ======== ===========================================================================================
 
 **Correct models.**  On each positive setup the structural model holds: a blip is
@@ -354,7 +355,9 @@ def _build() -> dict[str, Setup]:
             "ey_reference",
             _level("r11"),
             _pair("r11", "r00"),
-            _pair("r10", "r00"),
+            # With ``phi = 1`` the contrast of ``r10`` is the first blip and that of ``r01`` is
+            # the second, so the level of ``r10`` is the distinct third regimen quantity.
+            _level("r10"),
         ),
     )
 
@@ -470,7 +473,8 @@ def _build() -> dict[str, Setup]:
             _blip("A2", "1.0", "A1"),
             "ey_reference",
             _pair("r11", "r00"),
-            _pair("r01", "r00"),
+            # The contrast of ``r01`` is the second blip at ``A1 = 0``, so the level is read.
+            _level("r01"),
         ),
         features={2: ["A1"]},
     )
@@ -579,14 +583,37 @@ def _build() -> dict[str, Setup]:
         features={2: ["W"]},
     )
 
+    # The node-1 blip carries the effect of ``A1`` on the covariate ``L2``, which is a logistic
+    # step in ``W``.  With a binary baseline it is still linear in ``(1, W)``.
+    step0 = float(expit(-0.2 + 0.9) - expit(-0.2))
+    step1 = float(expit(-0.2 + 0.7 + 0.9) - expit(-0.2 + 0.7))
+    sp_1 = 1.0 + 0.7 * step0
+    sp_1_w = 0.5 + 0.7 * (step1 - step0)
     out["SP"] = _setup(
         "SP",
         law_sparse(),
         BINARY_REGIMENS,
         "r00",
-        {},
-        {},
-        (),
+        {
+            _blip("A1", "1.0", "intercept"): sp_1,
+            _blip("A1", "1.0", "W"): sp_1_w,
+            _blip("A2", "1.0", "intercept"): 0.5,
+            _blip("A2", "1.0", "W"): 0.4,
+            _blip("A2", "1.0", "A1"): 0.6,
+        },
+        {1: [[sp_1], [sp_1_w]], 2: [[0.5], [0.4], [0.6]]},
+        (
+            _blip("A1", "1.0", "intercept"),
+            _blip("A1", "1.0", "W"),
+            _blip("A2", "1.0", "intercept"),
+            _blip("A2", "1.0", "W"),
+            _blip("A2", "1.0", "A1"),
+            "ey_reference",
+            _level("r11"),
+            _pair("r11", "r00"),
+            _pair("r10", "r00"),
+            _pair("r01", "r00"),
+        ),
         features={1: ["W"], 2: ["W", "A1"]},
     )
     return out

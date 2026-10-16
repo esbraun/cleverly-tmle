@@ -1320,6 +1320,10 @@ BIAS_GATED_PROPERTIES = frozenset(
         "repeated_outcome_necessity",
         "outcome_history_necessity",
         "full_history_necessity",
+        # X44's negative controls: a blip feature left out moves the regimen estimates off the
+        # g-formula truth.  A control passes when its bias interval lies beyond the margin on
+        # the side of the computed gap, which is the discrimination endpoint read on one side.
+        "blip_feature_control",
     }
 )
 
@@ -1396,10 +1400,8 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # outside the calibration band on a predicted side; the other cells report.
         "first_node_se",
         "fixed_mechanism_se",
-        # A declared-red control (a blip feature set that omits a covariate) that answers to
-        # the calibration SE-ratio and coverage bands of a positive cell, and the SE of a
-        # clustered fit made without its cluster column, which must leave the band from below.
-        "blip_feature_control",
+        # The SE of a clustered fit made without its cluster column, which must leave the band
+        # from below.
         "unclustered_se",
     }
 )
@@ -1428,6 +1430,8 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
+        # X44's weak-positivity fit of the structural estimator, reported with no verdict.
+        "positivity_reporting",
     }
 )
 

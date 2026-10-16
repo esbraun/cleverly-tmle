@@ -1205,8 +1205,7 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
-tests.studies.structural_nested_mean_properties,blip_feature_control,coverage in calibration band,none
-tests.studies.structural_nested_mean_properties,blip_feature_control,se ratio in calibration band,se_role/control/0.5+coverage/0.94
+tests.studies.structural_nested_mean_properties,blip_feature_control,bias beyond margin on the side of the gap,none
 tests.studies.structural_nested_mean_properties,interval_calibration,bias equivalent,bias
 tests.studies.structural_nested_mean_properties,interval_calibration,coverage in calibration band,coverage/0.5
 tests.studies.structural_nested_mean_properties,interval_calibration,noise se ratio below band,none

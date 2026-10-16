@@ -11,13 +11,18 @@ family                         cells, replications and size
 ``interval_calibration``       every estimand of the eleven positive setups at n = 2,000, with
                                :data:`CALIBRATION_REPLICATES` per setup, and the two derived
                                controls of each label (a shrunken standard error and added noise)
-``root_n_and_efficiency``      one contrast on each of ``S2``, ``H``, ``K`` and ``C`` at n = 500,
-                               2,000 and 8,000, :data:`LADDER_REPLICATES` each
+``root_n_and_efficiency``      one contrast on each of ``S2``, ``H``, ``K`` and ``C``, and a
+                               contrast and a blip on the adaptive cell ``N``, at the three sizes
+                               of :func:`~tests.studies.canonical_structural_nested_mean.ladder_sizes`,
+                               :data:`LADDER_REPLICATES` each
 ``root_n_rate``                the rate rows of each ladder label
-``warning_rate``               the model check's size: a correct model on ``S2`` and ``H`` at two
-                               and at ten folds, and on the sparse-cell law ``SP`` at n = 500
+``warning_rate``               the model check's size: a correct model on ``S2`` and ``H`` at
+                               n = 1,000 and 2,000 and at two and ten folds, and on the
+                               sparse-positivity law ``SP`` at n = 2,000
 ``power``                      the model check's power on ``LU``, the law whose node-2 blip reads
                                a covariate the structural model omits
+``blip_feature_control``       ``LU`` and ``VB`` fitted with too few blip features; a detection
+                               rule, so a cell passes when the instrument sees the gap
 ``unclustered_se``             the SE of ``S2C`` fitted without its cluster column, on the
                                clustered calibration draws; the two level estimands must leave
                                the calibration band from below, the others report
@@ -27,7 +32,8 @@ family                         cells, replications and size
 interval of the SE ratio inside (0.93, 1.07) and the 99% coverage interval inside (0.92, 0.98).
 A positive cell also needs its 99% standardized-bias interval inside 0.25 SD
 (``bias_equivalent``).  The shared rule reads no bias, and a 0.3 SD bias keeps coverage inside
-its band at this R.  There is no efficiency band: the structural estimator is not the efficient
+its band at this R.  A negative control passes when its 99% standardized-bias interval lies beyond
+0.25 SD on the side of the computed gap (``bias beyond margin``).  There is no efficiency band: the structural estimator is not the efficient
 estimator of the nonparametric model, so :attr:`StudyRecord.calibration_efficiency_ratio` is
 ``False``, and the noise control's scale is :data:`NOISE_SD`, one pilot sampling SD at the
 cell's size.  ``root_n_and_efficiency`` reads the shared ladder rule.  ``warning_rate`` reads the
@@ -87,6 +93,7 @@ STUDY = study.STUDY
 FAILURE_BOUND = study.FAILURE_BOUND
 CALIBRATION_N = study.CALIBRATION_N
 LADDER = study.LADDER
+LADDER_TARGETS = study.LADDER_TARGETS
 CALIBRATED = study.CALIBRATED
 CALIBRATION_LABELS = study.CALIBRATION_LABELS
 LADDER_ESTIMANDS = study.LADDER_ESTIMANDS
@@ -99,40 +106,43 @@ POWER_REPLICATES = study.POWER_REPLICATES
 SHRUNKEN_SE_FACTOR = 0.70
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
-#: The replicates of every calibration cell, sized by the pass-probability rule of
-#: ``tests/unit/test_structural_nested_mean_design.py``.
-CALIBRATION_REPLICATES = 3_600
+#: The replicates of every calibration cell.  The arm-pooled predictive rule asks for the smallest
+#: multiple of 400 whose chance that all 61 cells pass is at least 0.95.  No count reaches it: the
+#: chance tends to 0.67 as R grows, because the pilots resolve each arm's true SE ratio to about
+#: 0.01.  So this is the largest multiple of 400 whose full run fits the 12 CPU-hour ceiling of
+#: ``tests/unit/test_structural_nested_mean_design.py``, and the chance it gives is 0.44.
+CALIBRATION_REPLICATES = 21_200
 LADDER_REPLICATES = 1_000
 #: The empirical SD of each calibration label in the design pilot times :math:`\sqrt{2000}`
 #: (``CALIBRATION_N``), so the noise control adds one sampling SD at the cell's size.  It scales
 #: the noise control only.  The design test pins these values.
 NOISE_SD: dict[str, float] = {
-    "s2_blip_a1_l1": 1.3199,
-    "s2_blip_a2_l1": 1.1701,
-    "s2_ey0": 0.9765,
-    "s2_ey_r11": 1.1131,
-    "s2_ate_r11": 1.5781,
-    "s2_ate_r10": 1.3199,
-    "s3_blip_a1_l1": 1.3817,
-    "s3_blip_a2_l1": 1.3092,
-    "s3_blip_a3_l1": 1.2225,
-    "s3_ey0": 0.9877,
-    "s3_ate_r111": 1.6575,
-    "s3_ate_r101": 1.6339,
-    "k_blip_a1_l1": 1.4218,
-    "k_blip_a1_l2": 1.4611,
-    "k_blip_a2_l1": 1.2911,
-    "k_blip_a2_l2": 1.2177,
-    "k_ey0": 1.1042,
-    "k_ey_r12": 1.4157,
-    "k_ate_r12": 1.8507,
-    "k_ate_r21": 1.9042,
-    "c_blip_a1": 0.8127,
-    "c_blip_a2": 0.6809,
-    "c_ey0": 0.7045,
-    "c_ey_dose_mid": 0.7546,
-    "c_ate_dose_mid": 0.4297,
-    "c_ate_dose_high": 0.9024,
+    "s2_blip_a1_l1": 1.3158,
+    "s2_blip_a2_l1": 1.1574,
+    "s2_ey0": 0.9717,
+    "s2_ey_r11": 1.0918,
+    "s2_ate_r11": 1.5459,
+    "s2_ey_r10": 1.2473,
+    "s3_blip_a1_l1": 1.3945,
+    "s3_blip_a2_l1": 1.3242,
+    "s3_blip_a3_l1": 1.2032,
+    "s3_ey0": 0.9960,
+    "s3_ate_r111": 1.6515,
+    "s3_ate_r101": 1.6592,
+    "k_blip_a1_l1": 1.4786,
+    "k_blip_a1_l2": 1.5364,
+    "k_blip_a2_l1": 1.3067,
+    "k_blip_a2_l2": 1.2683,
+    "k_ey0": 1.1339,
+    "k_ey_r12": 1.4463,
+    "k_ate_r12": 1.9280,
+    "k_ate_r21": 1.9646,
+    "c_blip_a1": 0.8128,
+    "c_blip_a2": 0.6931,
+    "c_ey0": 0.6959,
+    "c_ey_dose_mid": 0.7274,
+    "c_ate_dose_mid": 0.4259,
+    "c_ate_dose_high": 0.9143,
     "h_blip_a1_l1": 2.0530,
     "h_blip_a1_l1_w": 2.6718,
     "h_blip_a2_l1": 1.6787,
@@ -142,32 +152,32 @@ NOISE_SD: dict[str, float] = {
     "h_ey_r11": 1.4078,
     "h_ate_r11": 1.6654,
     "h_ate_r10": 1.7748,
-    "p_blip_a1_l1": 1.7912,
-    "p_blip_a2_l1": 1.4840,
-    "p_blip_a2_l1_a1": 2.2818,
-    "p_ey0": 1.0348,
-    "p_ate_r11": 1.5868,
-    "p_ate_r01": 1.4840,
-    "m_blip_a1_l1": 1.2849,
-    "m_blip_a2_l1": 1.3579,
-    "m_ey0": 1.3551,
-    "m_ate_r11": 1.7689,
-    "l_blip_a1_l1": 1.3929,
-    "l_blip_a2_l1": 1.5897,
-    "l_blip_a2_l1_s2": 2.2261,
-    "l_ey0": 0.9762,
-    "n_blip_a1_l1": 1.4333,
-    "n_blip_a2_l1": 1.1867,
-    "n_ey0": 1.3139,
-    "n_ate_r11": 1.7207,
-    "s2w_blip_a1_l1": 1.5234,
-    "s2w_ey0": 1.2397,
-    "s2w_ey_r11": 1.2420,
-    "s2w_ate_r11": 1.8638,
-    "s2c_blip_a1_l1": 2.5818,
-    "s2c_ey0": 3.5864,
-    "s2c_ey_r11": 3.7319,
-    "s2c_ate_r11": 3.2088,
+    "p_blip_a1_l1": 1.7918,
+    "p_blip_a2_l1": 1.4875,
+    "p_blip_a2_l1_a1": 2.2981,
+    "p_ey0": 1.0318,
+    "p_ate_r11": 1.5542,
+    "p_ey_r01": 1.2680,
+    "m_blip_a1_l1": 1.3032,
+    "m_blip_a2_l1": 1.3563,
+    "m_ey0": 1.3374,
+    "m_ate_r11": 1.7255,
+    "l_blip_a1_l1": 1.4007,
+    "l_blip_a2_l1": 1.5949,
+    "l_blip_a2_l1_s2": 2.2809,
+    "l_ey0": 0.9706,
+    "n_blip_a1_l1": 1.4031,
+    "n_blip_a2_l1": 1.2001,
+    "n_ey0": 1.3383,
+    "n_ate_r11": 1.7325,
+    "s2w_blip_a1_l1": 1.5830,
+    "s2w_ey0": 1.1960,
+    "s2w_ey_r11": 1.2541,
+    "s2w_ate_r11": 1.8567,
+    "s2c_blip_a1_l1": 2.5890,
+    "s2c_ey0": 3.5550,
+    "s2c_ey_r11": 3.6877,
+    "s2c_ate_r11": 3.1175,
 }
 
 # ------------------------------------------------------------------------- model check
@@ -192,7 +202,7 @@ class FitSet:
         The outer folds of a model-check fit; ``None`` for the setup's own.
     """
 
-    kind: Literal["calibration", "ladder", "size", "power", "control"]
+    kind: Literal["calibration", "ladder", "size", "power", "control", "positivity"]
     setup: str
     n: int
     replicates: int
@@ -207,6 +217,7 @@ class FitSet:
             "size": "warning_rate",
             "power": "power",
             "control": "blip_feature_control",
+            "positivity": "positivity_reporting",
         }[self.kind]
 
 
@@ -217,7 +228,7 @@ def _fit_sets() -> dict[str, FitSet]:
             "calibration", setup, CALIBRATION_N, CALIBRATION_REPLICATES
         )
     for setup in LADDER_ESTIMANDS:
-        for size in LADDER:
+        for size in study.ladder_sizes(setup):
             out[f"ladder_{setup.lower()}_n_{size}"] = FitSet(
                 "ladder", setup, size, LADDER_REPLICATES
             )
@@ -225,8 +236,11 @@ def _fit_sets() -> dict[str, FitSet]:
         out[f"control_{setup.lower()}"] = FitSet(
             "control", setup, CALIBRATION_N, study.CONTROL_REPLICATES
         )
+    out["positivity_sp"] = FitSet(
+        "positivity", "SP", study.POSITIVITY_N, study.POSITIVITY_REPLICATES
+    )
     for name, (kind, setup, n, folds) in CHECK_CELLS.items():
-        replicates = SIZE_REPLICATES if kind == "size" else POWER_REPLICATES
+        replicates = study.check_replicates(name)
         out[f"check_{name}"] = FitSet(kind, setup, n, replicates, folds)  # type: ignore[arg-type]
     return out
 
@@ -378,23 +392,22 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
     spec = FIT_SETS[fit_set]
     rows: list[dict[str, Any]] = []
     if spec.kind == "ladder":
-        estimand = LADDER_ESTIMANDS[spec.setup]
-        label = label_of(spec.setup, estimand)
+        estimands = LADDER_ESTIMANDS[spec.setup]
         result = study.fit(spec.setup, frame)
-        study.require_status(result, [estimand])
-        truth = laws.truth(spec.setup, estimand)
-        rows.append(
-            _row(
-                "root_n_and_efficiency",
-                f"{label}__n_{spec.n}",
-                "positive",
-                replicate,
-                spec.n,
-                spec.replicates,
-                truth,
-                result[estimand],
+        study.require_status(result, estimands)
+        for estimand in estimands:
+            rows.append(
+                _row(
+                    "root_n_and_efficiency",
+                    f"{label_of(spec.setup, estimand)}__n_{spec.n}",
+                    "positive",
+                    replicate,
+                    spec.n,
+                    spec.replicates,
+                    laws.truth(spec.setup, estimand),
+                    result[estimand],
+                )
             )
-        )
         return rows
     if spec.kind in ("size", "power"):
         name = fit_set.removeprefix("check_")
@@ -405,6 +418,20 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
     result = study.fit(spec.setup, frame)
     names = list(laws.setup(spec.setup).estimands)
     study.require_status(result, names)
+    if spec.kind == "positivity":
+        return [
+            _row(
+                "positivity_reporting",
+                f"{label_of(spec.setup, estimand)}__weak_positivity",
+                DIAGNOSTIC_ROLE,
+                replicate,
+                spec.n,
+                spec.replicates,
+                laws.truth(spec.setup, estimand),
+                result[estimand],
+            )
+            for estimand in names
+        ]
     if spec.kind == "control":
         for estimand in names:
             rows.append(
@@ -528,9 +555,8 @@ def _cells_and_fit_sets() -> list[tuple[PropertyCell, str]]:
                 f"calibration_{setup.lower()}",
                 estimand,
             )
-    for setup, estimand in LADDER_ESTIMANDS.items():
-        label = label_of(setup, estimand)
-        for size in LADDER:
+    for label, (setup, estimand) in LADDER_TARGETS.items():
+        for size in study.ladder_sizes(setup):
             add(
                 "root_n_and_efficiency",
                 f"{label}__n_{size}",
@@ -547,6 +573,14 @@ def _cells_and_fit_sets() -> list[tuple[PropertyCell, str]]:
             f"{label}__too_few_features",
             "control",
             f"control_{setup.lower()}",
+            estimand,
+        )
+    for label, (_, estimand) in study.POSITIVITY_TARGETS.items():
+        add(
+            "positivity_reporting",
+            f"{label}__weak_positivity",
+            DIAGNOSTIC_ROLE,
+            "positivity_sp",
             estimand,
         )
     for estimand in laws.setup("S2C").estimands:
@@ -678,23 +712,33 @@ def _calibration_rule() -> pf.FamilyRule:
     )
 
 
+@functools.cache
+def control_gap(label: str) -> float:
+    """The population limit of a negative control's fit minus its g-formula truth."""
+    setup, estimand = study.CONTROL_TARGETS[label]
+    return population_limit(setup)[estimand] - laws.truth(setup, estimand)
+
+
+def _control_side(ctx: pf.Context, row: pd.Series) -> int:
+    """The side of the truth on which a control's limit lies: the sign of its computed gap."""
+    return 1 if control_gap(cell_label(str(row["cell"]))) > 0 else -1
+
+
 def _control_rule() -> pf.FamilyRule:
-    """The negative controls: the positive calibration rule, read on a cell declared red."""
+    """The negative controls: a detection rule.
+
+    A control passes when its 99% standardized-bias interval lies beyond the margin on the side
+    of the computed gap, as every other control of the instrument passes by leaving its band.
+    The SE ratio and the coverage are published and gate nothing.
+    """
     return pf.FamilyRule(
         families=frozenset({"blip_feature_control"}),
         shared="summarize_properties",
         clauses=(
-            pf.se_interval_clause(
-                "se ratio in calibration band",
-                which="se_ratio",
-                judge=pf.band_judge(lambda ctx: ctx.margins.calibration_se_ratio),
-                seed=_own_seed,
-                applies=pf.every,
-            ),
-            pf.proportion_clause(
-                "coverage in calibration band",
-                statistic="S2",
-                judge=pf.band_judge(lambda ctx: ctx.margins.calibration_coverage),
+            pf.bias_clause(
+                "bias beyond margin on the side of the gap",
+                kind="beyond",
+                side=_control_side,
                 applies=pf.every,
             ),
         ),
@@ -750,15 +794,11 @@ def _own_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
             summary.loc[index, "se_ratio_ci_lower"] = ratio.low
             summary.loc[index, "se_ratio_ci_upper"] = ratio.high
             if family == "blip_feature_control":
-                coverage = (
-                    float(summary.loc[index, "coverage_ci_lower"]),
-                    float(summary.loc[index, "coverage_ci_upper"]),
-                )
-                summary.loc[index, "passed"] = bool(
-                    ratio.within(*margins.calibration_se_ratio)
-                    and margins.calibration_coverage[0] <= coverage[0]
-                    and coverage[1] <= margins.calibration_coverage[1]
-                )
+                margin = float(summary.loc[index, "bias_margin"])
+                low = float(summary.loc[index, "bias_ci_lower"])
+                high = float(summary.loc[index, "bias_ci_upper"])
+                beyond = low > margin if control_gap(cell_label(cell)) > 0 else high < -margin
+                summary.loc[index, "passed"] = bool(beyond)
                 continue
             side = GATED_DIRECTIONS.get(cell)
             # A gated cell must leave the calibration band on its predicted side, so it shows
@@ -773,7 +813,9 @@ def _own_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     """The shared verdicts and the study's own declared rules."""
     labels = tuple(
-        label for label in LADDER_LABELS if (rows["cell"] == f"{label}__n_{LADDER[0]}").any()
+        label
+        for label, (setup, _) in LADDER_TARGETS.items()
+        if (rows["cell"] == f"{label}__n_{study.ladder_sizes(setup)[0]}").any()
     )
     summary, rates = apply_shared_verdicts(rows, STUDY, rate_labels=labels)
     calibration_verdicts(summary, margins=STUDY.margins)
@@ -786,6 +828,8 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     summary.loc[positive, "passed"] = summary.loc[positive, "passed"].astype(bool) & summary.loc[
         positive, "bias_equivalent"
     ].astype(bool)
+    # A reported family states no verdict.
+    summary.loc[summary["property"] == "positivity_reporting", "passed"] = True
     _own_verdicts(summary, rows)
     return finish(summary, rates)
 

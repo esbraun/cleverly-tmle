@@ -19,8 +19,18 @@ No run artifact exists yet. The design is complete and the study is not in `regi
 because a registered study needs its committed artifacts. The property module is listed in
 `SYNTHETIC_MODULES` of `tests/canonical/property_differential.py` and in `UNCOMMITTED_MODULES`
 of `tests/unit/test_method_evidence.py`, as the incremental studies were before their runs.
-The change that commits the run artifacts also adds the registry line and the red-cell owners
-(`X44-negative-control`, `X44-sparse-model-check`).
+The change that commits the run artifacts also adds the registry line.
+
+The design declares no red row. The two negative controls (`LU` and `VB`) read as a detection
+rule: a cell passes when its bias interval lies beyond the margin on the side of the computed
+gap. The size cells of the model check on the sparse-positivity law `SP` run at n = 2,000. The
+check has about 8 degrees of freedom there, so it has low power on `SP`. The cell `SP` of the
+family `positivity_reporting` reports the structural fit under weak positivity and gates nothing.
+
+The calibration cells run 21,200 replicates each. The arm-pooled predictive rule needs a chance
+of 0.95 that all 61 cells pass, and no replicate count gives it: the chance tends to 0.67 as the
+count grows. The count is the largest multiple of 400 whose full run fits 12 CPU-hours (about three
+hours on four workers), and it gives a chance of 0.44.
 
 ## Run
 

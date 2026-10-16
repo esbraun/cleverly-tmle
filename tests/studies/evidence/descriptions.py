@@ -486,11 +486,12 @@ _STRUCTURAL_SETUPS = {
     "n": "law N, nonlinear nuisances fitted by a shallow booster",
     "s2w": "law S2 with the known weight 0.5 + 1.5 W",
     "s2c": "law S2 in clusters of ten that share the baseline and an outcome intercept",
+    "sp": "law SP, treatment logits multiplied by three, weak positivity",
     "lu": "law L fitted without its second-covariate feature",
     "vb": "law P fitted with a baseline-only second feature",
 }
 _STRUCTURAL_KEYS = {
-    "s2": ("blip_a1_l1", "blip_a2_l1", "ey0", "ey_r11", "ate_r11", "ate_r10"),
+    "s2": ("blip_a1_l1", "blip_a2_l1", "ey0", "ey_r11", "ate_r11", "ey_r10"),
     "s3": ("blip_a1_l1", "blip_a2_l1", "blip_a3_l1", "ey0", "ate_r111", "ate_r101"),
     "k": (
         "blip_a1_l1",
@@ -514,12 +515,24 @@ _STRUCTURAL_KEYS = {
         "ate_r11",
         "ate_r10",
     ),
-    "p": ("blip_a1_l1", "blip_a2_l1", "blip_a2_l1_a1", "ey0", "ate_r11", "ate_r01"),
+    "p": ("blip_a1_l1", "blip_a2_l1", "blip_a2_l1_a1", "ey0", "ate_r11", "ey_r01"),
     "m": ("blip_a1_l1", "blip_a2_l1", "ey0", "ate_r11"),
     "l": ("blip_a1_l1", "blip_a2_l1", "blip_a2_l1_s2", "ey0"),
     "n": ("blip_a1_l1", "blip_a2_l1", "ey0", "ate_r11"),
     "s2w": ("blip_a1_l1", "ey0", "ey_r11", "ate_r11"),
     "s2c": ("blip_a1_l1", "ey0", "ey_r11", "ate_r11"),
+    "sp": (
+        "blip_a1_l1",
+        "blip_a1_l1_w",
+        "blip_a2_l1",
+        "blip_a2_l1_w",
+        "blip_a2_l1_a1",
+        "ey0",
+        "ey_r11",
+        "ate_r11",
+        "ate_r10",
+        "ate_r01",
+    ),
     "lu": ("ey_r11", "ate_r10", "ate_r01"),
     "vb": ("ey_r11", "ate_r11", "ate_r10", "ate_r01"),
 }
@@ -561,7 +574,12 @@ ARMS.update(
         "s2_f10": "law S2, structural model correct, ten outer folds, n = 1,000",
         "h_f2": "law H, structural model correct, two outer folds, n = 1,000",
         "h_f10": "law H, structural model correct, ten outer folds, n = 1,000",
-        "sp_f2": "law SP, treatment logits multiplied by three, two outer folds, n = 500",
+        "s2_n2000_f2": "law S2, structural model correct, two outer folds, n = 2,000",
+        "s2_n2000_f10": "law S2, structural model correct, ten outer folds, n = 2,000",
+        "h_n2000_f2": "law H, structural model correct, two outer folds, n = 2,000",
+        "h_n2000_f10": "law H, structural model correct, ten outer folds, n = 2,000",
+        "sp_f2": "law SP, treatment logits multiplied by three, two outer folds, n = 2,000",
+        "sp_f10": "law SP, treatment logits multiplied by three, ten outer folds, n = 2,000",
         "lu_f2": "law L fitted without its second-covariate feature, two outer folds, n = 2,000",
         "lu_f10": "law L fitted without its second-covariate feature, ten outer folds, n = 2,000",
     }
@@ -3262,8 +3280,12 @@ REGIMENS.update(
     }
 )
 PROPERTIES["blip_feature_control"] = (
-    "with a blip feature missing, the interval covers the misspecified limit, so the "
-    "calibration rule fails"
+    "with a blip feature missing, the regimen estimates move off the g-formula truth, and the "
+    "bias interval shows it"
+)
+PROPERTIES["positivity_reporting"] = (
+    "the bias, coverage and SE ratio of the structural estimator when some treatment "
+    "probabilities reach 0.05 and 0.94, reported rather than gated"
 )
 PROPERTIES["unclustered_se"] = (
     "the standard error that ignores the cluster column, against the empirical spread"
@@ -3272,17 +3294,23 @@ CELLS.update(
     {
         ("blip_feature_control", "too_few_features"): (
             "the structural fit with the second-node blip feature the law needs left out",
-            "declared red: the calibration rule must fail",
+            "the bias interval must lie beyond the margin on the side of the computed gap",
         ),
         ("warning_rate", "model_check"): (
             "the structural model check against the nonparametric contrasts, with the "
-            "structural model correct",
+            "structural model correct; the rejection rate is published beside the verdict, and on "
+            "the sparse-positivity law the covariance has few degrees of freedom, so the check "
+            "has low power there",
             "rejection upper bound at or below the type-I ceiling",
         ),
         ("power", "model_check"): (
             "the same check on a law whose second blip reads a covariate the structural "
             "model omits",
             "rejection lower bound clears the minimum power",
+        ),
+        ("positivity_reporting", "weak_positivity"): (
+            "the structural fit on a law with weak positivity, correct blip features",
+            "reported with no verdict",
         ),
         ("unclustered_se", "unclustered"): (
             "the fit without the cluster column, on the clustered draws",

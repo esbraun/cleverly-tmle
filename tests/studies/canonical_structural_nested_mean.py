@@ -33,24 +33,31 @@ scenario  what it shows
 **Negative controls.**  ``LU`` is law ``L`` fitted with :math:`\phi_2 = 1`, and ``VB`` is law
 ``P`` fitted with a baseline-only :math:`\phi_2`.  Their regimen contrasts miss the regimen
 truth.  They are property cells (family ``blip_feature_control``), not primary scenarios: the
-replication check refuses a primary cell with coverage below 50% as a broken join.  The
-roadmap's "truth row owned by the structural label" therefore reads as a red property row with
-the owner ``X44-negative-control``.
+replication check refuses a primary cell with coverage below 50% as a broken join.  A control
+reads as a detection rule, as every other control of the instrument does.  A cell passes when
+its 99% standardized-bias interval lies beyond 0.25 SD on the side of the computed gap, so a
+green row shows that the instrument sees the misspecified blip.  A control that stays inside the
+margin is a red row: the instrument is blind to the misspecification.  The roadmap's "truth row
+owned by the structural label" therefore reads as a green detection row.
 
-**Red-cell reading** (declared before any run).  The study publishes under ``reporting``.  The
-declared red set is :data:`EXPECTED_RED`:
+**The model check.**  ``check_model`` reads the joint Wald statistic against a Hotelling law
+whose degrees of freedom are the Welch-Satterthwaite value of the difference covariance.  On the
+sparse-positivity law ``SP`` the median covariance has about 8 degrees of freedom, so the check
+rejects a misspecified model with low power there, and the size cells at n = 2,000 measure the
+size only.  The page says so beside the cells.  On ``S2`` and ``H`` the check rejects less often
+than the nominal rate, so it is conservative.  The rejection rate is published beside every
+verdict.
 
-* every cell of the family ``blip_feature_control`` (``EXPECTED_RED_PROPERTIES``): the
-  limit of the undeclared fit misses the regimen truth, so the calibration rule must fail.  The
-  design test computes each limit by the g-formula and the chance that the cell fails;
-* the model-check size cell of the sparse-cell law ``SP`` (``EXPECTED_RED_PROPERTIES``): at
-  n = 500 with treatment logits tripled, the pilot recorded a singular-information ``DataError``
-  in 19% of the draws (above the failure bound) and rejected 14.5% of the others (above the 0.10
-  ceiling).  Both are finite-sample limits of the unpenalized ``GLM`` nuisances and not defects
-  of the statistic.  The cell is declared red, owner ``X44-sparse-model-check``, and the page
-  says so beside the cell.
+**Red-cell reading** (declared before any run).  The study publishes under ``reporting``.  No
+row is declared red: :data:`EXPECTED_RED` is empty.  The sparse-positivity law ``SP`` was
+declared red in an earlier draft on the reading that the unpenalized ``GLM`` nuisances fail in
+finite samples.  A probe showed no fit failure at n = 2,000, so the draft was wrong, and
+``check_model`` now uses the Satterthwaite reference.  The size cells of ``SP`` are positive
+cells at n = 2,000.  The limited power of the check on ``SP`` is a statement about the cell, not
+a red row.  The under-coverage of ``LTMLE`` for a low-probability regimen under weak positivity
+is a property of ``LTMLE``, and this study measures ``StructuralNestedMean``.
 
-A red row outside :data:`EXPECTED_RED` is a defect suspect.  It is a finite-sample red only when
+A red row is a defect suspect.  It is a finite-sample red only when
 the 99% interval of its SE ratio contains 1, its coverage is consistent with 0.95 and the
 diagnosis finds no defect; it then goes to ``reporting`` with an owner, declared before any repeat
 run.  A defect is fixed and the study re-runs under a fresh declaration.  A replicate that raises a
@@ -85,9 +92,20 @@ RESAMPLING_SEED = 2026144401
 PRIMARY_N = 2_000
 CALIBRATION_N = PRIMARY_N
 PRIMARY_REPLICATES = 1_000
-#: The three sizes of the ladder.  Every rung is a positive cell (pilot: ``root_n_pilot`` in
+#: The three sizes of the ladder.  Every rung is a positive cell (pilot: ``PILOT_LADDER`` in
 #: ``tests/unit/test_structural_nested_mean_design.py``).
 LADDER = (500, 2_000, 8_000)
+#: The ladder of a setup that does not use :data:`LADDER`.  ``K`` loses 1.3% of its draws to a
+#: separated cell at n = 500 (the three-level product indicators of the second treatment), above
+#: the failure bound, so its ladder keeps the factor-4 spacing from n = 1,000.
+LADDER_SIZES: dict[str, tuple[int, ...]] = {"K": (1_000, 4_000, 16_000)}
+
+
+def ladder_sizes(setup: str) -> tuple[int, ...]:
+    """The sizes of a setup's ladder."""
+    return LADDER_SIZES.get(setup, LADDER)
+
+
 #: The declared share of replicates one cell may lose to recordable fitting failures.
 FAILURE_BOUND = 0.01
 
@@ -106,7 +124,11 @@ PENDING_REASON = (
 #: The ``GLM`` interaction order of each setup's nuisances: the lowest order that returns every
 #: truth at population weights (the design test checks it, and that one order less fails except
 #: at main terms).  ``3`` unless listed.  ``N`` has no entry: it fits a booster.  An order of
-#: three on ``S2`` fails on a separated cell in 9.7% of the draws at n = 500.
+#: three on ``S2`` fails on a separated cell in 9.7% of the draws at n = 500.  ``SP`` is the one
+#: exception to the exactness rule: its node-2 outcome regression needs a three-way cell, but an
+#: order of three fails on a separated cell in 17% of the draws at n = 2,000 (101 of 600), above
+#: the failure bound.  Its treatment regressions are exact at order two, so the estimator stays
+#: unbiased by double robustness, and the design test pins the outcome gap as a witness.
 INTERACTIONS: dict[str, int] = {
     "S2": 2,
     "H": 2,
@@ -116,6 +138,9 @@ INTERACTIONS: dict[str, int] = {
     "S2W": 2,
     "S2C": 2,
     "C": 1,
+    "LU": 2,
+    "VB": 2,
+    "SP": 2,
 }
 DEFAULT_INTERACTIONS = 3
 #: The outer folds of each setup; ``10`` (the shipped default) unless listed.
@@ -263,12 +288,14 @@ CONTROL_REPLICATES = 2_000
 
 #: The positive setups whose estimands are calibrated.
 CALIBRATED = ("S2", "S3", "K", "C", "H", "P", "M", "L", "N", "S2W", "S2C")
-#: The ladder contrast of each laddered setup.
-LADDER_ESTIMANDS: dict[str, str] = {
-    "S2": "ate_regimen[r11 vs r00]",
-    "H": "ate_regimen[r11 vs r00]",
-    "K": "ate_regimen[r12 vs r00]",
-    "C": "ate_regimen[dose_high vs dose0]",
+#: The ladder estimands of each laddered setup.  ``N`` is the adaptive cell: a contrast and a
+#: blip, so a remainder that does not vanish shows in two estimands.
+LADDER_ESTIMANDS: dict[str, tuple[str, ...]] = {
+    "S2": ("ate_regimen[r11 vs r00]",),
+    "H": ("ate_regimen[r11 vs r00]",),
+    "K": ("ate_regimen[r12 vs r00]",),
+    "C": ("ate_regimen[dose_high vs dose0]",),
+    "N": ("ate_regimen[r11 vs r00]", "blip[A1:1.0:intercept]"),
 }
 
 
@@ -313,9 +340,22 @@ CONTROL_TARGETS: dict[str, tuple[str, str]] = {
     for estimand in laws.setup(setup).estimands
 }
 CONTROL_LABELS: tuple[str, ...] = tuple(CONTROL_TARGETS)
-LADDER_LABELS: tuple[str, ...] = tuple(
-    label_of(setup, estimand) for setup, estimand in LADDER_ESTIMANDS.items()
-)
+#: ``label -> (setup, estimand)`` for every ladder label.
+LADDER_TARGETS: dict[str, tuple[str, str]] = {
+    label_of(setup, estimand): (setup, estimand)
+    for setup, estimands in LADDER_ESTIMANDS.items()
+    for estimand in estimands
+}
+LADDER_LABELS: tuple[str, ...] = tuple(LADDER_TARGETS)
+#: The weak-positivity reporting cell: every estimand of ``SP`` at n = 2,000.  It states the
+#: regime in which the structural estimator is fitted under treatment probabilities of 0.05 to
+#: 0.94, and gates nothing.
+POSITIVITY_N = 2_000
+POSITIVITY_REPLICATES = 1_000
+POSITIVITY_TARGETS: dict[str, tuple[str, str]] = {
+    label_of("SP", estimand): ("SP", estimand) for estimand in laws.setup("SP").estimands
+}
+POSITIVITY_LABELS: tuple[str, ...] = tuple(POSITIVITY_TARGETS)
 
 
 def truth_of(label: str) -> float:
@@ -326,9 +366,13 @@ def truth_of(label: str) -> float:
 
 #: The sizes of the model-check cells and their declared replicates, sized by the design test.
 SIZE_N = 1_000
-SPARSE_N = 500
-SIZE_REPLICATES = 600
+#: The size cells at the power cell's n, so a high ``LU`` rejection rate reads against a size
+#: measured at the same n and folds.
 POWER_N = 2_000
+#: The sparse-positivity size cells.  At n = 500 the declared ``GLM`` fails the failure rule: the
+#: pilot lost 19% of the draws to a separated cell.  At n = 2,000 no fit fails.
+SPARSE_N = 2_000
+SIZE_REPLICATES = 600
 POWER_REPLICATES = 200
 #: The check cells: ``name -> (kind, setup, n, folds)``.
 CHECK_CELLS: dict[str, tuple[str, str, int, int]] = {
@@ -336,10 +380,29 @@ CHECK_CELLS: dict[str, tuple[str, str, int, int]] = {
     "s2_f10": ("size", "S2", SIZE_N, 10),
     "h_f2": ("size", "H", SIZE_N, 2),
     "h_f10": ("size", "H", SIZE_N, 10),
+    "s2_n2000_f2": ("size", "S2", POWER_N, 2),
+    "s2_n2000_f10": ("size", "S2", POWER_N, 10),
+    "h_n2000_f2": ("size", "H", POWER_N, 2),
+    "h_n2000_f10": ("size", "H", POWER_N, 10),
     "sp_f2": ("size", "SP", SPARSE_N, 2),
+    "sp_f10": ("size", "SP", SPARSE_N, 10),
     "lu_f2": ("power", "LU", POWER_N, 2),
     "lu_f10": ("power", "LU", POWER_N, 10),
 }
+
+#: The replicates of a check cell that differ from :data:`SIZE_REPLICATES` and
+#: :data:`POWER_REPLICATES`.  The sparse-positivity cell at ten folds rejects 6.0% in the pilot (2.8% at
+#: two folds), so the size rule needs 1,200 replicates there for a chance of 0.90 or more
+#: (``tests/unit/test_structural_nested_mean_design.py``).
+CHECK_REPLICATES: dict[str, int] = {"sp_f10": 1_200}
+
+
+def check_replicates(name: str) -> int:
+    """The declared replicates of one model-check cell."""
+    kind = CHECK_CELLS[name][0]
+    default = SIZE_REPLICATES if kind == "size" else POWER_REPLICATES
+    return CHECK_REPLICATES.get(name, default)
+
 
 #: Every published property cell, by family.  :mod:`tests.studies.structural_nested_mean_properties`
 #: declares how each is drawn and read.
@@ -350,7 +413,9 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for kind in ("correctly_specified", "shrunken_se_control", "noise_control")
     ),
     "root_n_and_efficiency": tuple(
-        f"{label}__n_{size}" for label in LADDER_LABELS for size in LADDER
+        f"{label}__n_{size}"
+        for label, (setup, _) in LADDER_TARGETS.items()
+        for size in ladder_sizes(setup)
     ),
     "root_n_rate": tuple(
         f"{label}__{suffix}"
@@ -363,19 +428,17 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     "power": tuple(
         f"{name}__model_check" for name, (kind, *_) in CHECK_CELLS.items() if kind == "power"
     ),
+    "positivity_reporting": tuple(f"{label}__weak_positivity" for label in POSITIVITY_LABELS),
     "unclustered_se": tuple(
         f"{label_of('S2C', estimand)}__unclustered" for estimand in laws.setup("S2C").estimands
     ),
     "blip_feature_control": tuple(f"{label}__too_few_features" for label in CONTROL_LABELS),
 }
 
-#: The property rows declared red: every negative-control cell (the calibration rule must fail
-#: there, and the design test shows that it does with chance at least 0.95) and the sparse-cell
-#: size cell of the model check.
-EXPECTED_RED_PROPERTIES: tuple[str, ...] = (
-    *(f"blip_feature_control/{cell}" for cell in PROPERTY_CELLS["blip_feature_control"]),
-    "warning_rate/sp_f2__model_check",
-)
+#: The property rows declared red: none.  The negative controls read as a detection rule and
+#: pass when the instrument sees the misspecification, and the sparse-cell size cells are
+#: positive cells at n = 2,000.
+EXPECTED_RED_PROPERTIES: tuple[str, ...] = ()
 EXPECTED_RED: tuple[str, ...] = EXPECTED_RED_PROPERTIES
 
 STUDY = StudyRecord(
@@ -428,7 +491,7 @@ CONFIGURATION = {
         "N": "HistGradientBoostingClassifier(max_depth=2, max_iter=50, l2=1)",
     },
     "n_folds": {"default": DEFAULT_FOLDS, **FOLDS},
-    "ladder": list(LADDER),
+    "ladder": {setup: list(ladder_sizes(setup)) for setup in LADDER_ESTIMANDS},
     "calibration_n": CALIBRATION_N,
     "expected_red": list(EXPECTED_RED),
     "reference": "none yet; the EconML 0.17.0 DynamicDML comparator is pending",
