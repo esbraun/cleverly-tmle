@@ -1,21 +1,23 @@
-"""The option fixtures: the pending state, the parity comparison and the pending label.
+"""The option fixtures: their state, the parity comparison and the pending label.
 
 Four R scripts in ``tests/canonical/option_fixtures`` produce the R side of the comparisons for
 the targeting options: the ``tmle3`` updater, ``drtmle(stratify=)``, ``ctmleDiscrete(patience=)`` and
-``ctmleDiscrete(Wg=)``.  R is not in the cloud session, so every fixture is ``pending``: it has
-no JSON file, a reason, and the checksum of its script.  The local Study queue runs the script
-(``tests/canonical/option_fixtures/README.md``) and a follow-up change adds the JSON and sets the
-status to ``present``.
+``ctmleDiscrete(Wg=)``.  The local Study queue ran each script
+(``tests/canonical/option_fixtures/README.md``), so every fixture is ``present``: it has its JSON
+file, which records the checksum of the script that wrote it.  A fixture whose run waits is
+``pending``: it has no JSON file, a reason, and the checksum of its script.  The state controls
+below build pending copies of the entries.
 
 * The state test asserts the registry, the script bytes and the README, and the mutation controls
   break each part in a temporary copy.
 * A pending fixture never reads as a pass.  Its parity test reports XFAIL with the reason, so the
   summary line (``-ra``) lists it.  A present fixture is compared at the plan's tolerance.
 * The parity comparison is proven on stand-in payloads that Python writes in the R schema.  The
-  stand-in of the ``tmle3`` updater is a transcription of ``tmle3_Update``, and the comparison
-  must pass on it and fail on a copy with one value changed.
+  stand-in of the ``tmle3`` updater is a transcription of ``tmle3_Update``, the ``ctmle`` stand-ins
+  come from the transcription of ``ctmleDiscrete``, and the comparison must pass on each stand-in
+  and fail on a copy with one value changed.
 * The pending label of the reader-facing rows is tied to the registry, and a control that sets one
-  entry to ``present`` makes its labelled row fail.
+  pending entry to ``present`` makes its labelled row fail.
 """
 
 from __future__ import annotations
@@ -49,6 +51,17 @@ from tests.canonical.option_fixtures.registry import (
 )
 
 BY_NAME = {entry.name: entry for entry in REGISTRY}
+#: The reason a pending copy of an entry carries in the state and label controls.
+PENDING_REASON = "the run waits in the local Study queue"
+
+
+def pending(entry: FixtureEntry) -> FixtureEntry:
+    """The entry as it reads before its R run: no JSON, a reason."""
+    return dataclasses.replace(entry, status="pending", reason=PENDING_REASON)
+
+
+#: The registry before the R runs, for the controls of the pending state and label.
+ALL_PENDING = tuple(pending(entry) for entry in REGISTRY)
 README = (HERE / "README.md").read_text(encoding="utf-8")
 SHARED_BLOCK = re.compile(
     r"^# ---- option fixtures shared: begin ----\n.*?^# ---- option fixtures shared: end ----\n",
@@ -150,17 +163,17 @@ class TestTheStateIsAsserted:
         return dataclasses.replace(entry, status="present", reason="")
 
     def test_a_copy_of_each_pending_entry_is_coherent(self, tmp_path: Path) -> None:
-        for entry in REGISTRY:
+        for entry in ALL_PENDING:
             assert check_entry(entry, self.copy_of(tmp_path, entry)) == []
 
     def test_a_pending_fixture_with_its_json_is_caught(self, tmp_path: Path) -> None:
-        entry = REGISTRY[0]
+        entry = ALL_PENDING[0]
         root = self.copy_of(tmp_path, entry)
         self.write_json(root, entry)
         assert any("pending, but" in text for text in check_entry(entry, root))
 
     def test_a_pending_fixture_without_a_reason_is_caught(self, tmp_path: Path) -> None:
-        entry = dataclasses.replace(REGISTRY[0], reason="  ")
+        entry = dataclasses.replace(ALL_PENDING[0], reason="  ")
         found = check_entry(entry, self.copy_of(tmp_path, entry))
         assert any("needs a reason" in text for text in found)
 
@@ -190,7 +203,7 @@ class TestTheStateIsAsserted:
     def test_a_present_fixture_that_keeps_its_pending_reason_is_caught(
         self, tmp_path: Path
     ) -> None:
-        entry = dataclasses.replace(REGISTRY[1], status="present")
+        entry = dataclasses.replace(REGISTRY[1], reason=PENDING_REASON)
         root = self.copy_of(tmp_path, entry)
         self.write_json(root, entry)
         assert any("carries no pending reason" in text for text in check_entry(entry, root))
@@ -255,12 +268,17 @@ def test_the_parity_of_a_fixture(entry: FixtureEntry) -> None:
     assert parity.COMPARATORS[entry.name](payload) == []
 
 
-def test_a_pending_fixture_has_no_payload_to_compare() -> None:
+def test_a_pending_fixture_has_no_payload_to_compare(tmp_path: Path) -> None:
     """Pending means no file, so the parity test above cannot pass by reading nothing."""
-    pending = [entry for entry in REGISTRY if entry.pending]
-    assert pending, "no fixture is pending; set the follow-up's status flips in the registry"
-    for entry in pending:
-        assert load(entry) is None
+    for entry in ALL_PENDING:
+        (tmp_path / entry.script).write_bytes((HERE / entry.script).read_bytes())
+        assert check_entry(entry, tmp_path) == []
+        assert load(entry, tmp_path) is None
+
+
+def test_every_registered_fixture_is_present() -> None:
+    """The four R runs are in: no comparison reports XFAIL."""
+    assert [entry.name for entry in REGISTRY if entry.pending] == []
 
 
 # --------------------------------------------------------------- the parity comparison itself
@@ -733,6 +751,27 @@ class TestTheCtmleComparisons:
         assert any(expected in text for text in findings), findings
 
 
+def test_an_off_by_one_patience_counter_fails_the_r_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control of the counter: a ``CTMLE`` that stops one candidate late fails R's fixture."""
+    from cleverly.estimators import ctmle as ctmle_module
+    from tests.unit._source_mutation import mutate
+
+    payload = load(BY_NAME["ctmle_patience"])
+    assert payload is not None
+    assert parity.compare_ctmle_patience(payload) == []
+    mutate(
+        monkeypatch,
+        ctmle_module,
+        ctmle_module._PatienceCounter,
+        "offer",
+        [("return self.count >= self.patience", "return self.count > self.patience")],
+    )
+    findings = parity.compare_ctmle_patience(payload)
+    assert any("R's counter on cleverly's scores stops at 6" in text for text in findings), findings
+
+
 # ------------------------------------------------------------------------ the pending label
 
 
@@ -752,16 +791,16 @@ class TestThePendingLabel:
         assert label_findings(REGISTRY, texts) == []
 
     def test_labelled_rows_for_pending_fixtures_pass(self) -> None:
-        assert label_findings(REGISTRY, {"page": self.rows(PENDING_LABEL)}) == []
+        assert label_findings(ALL_PENDING, {"page": self.rows(PENDING_LABEL)}) == []
 
     def test_an_unlabelled_row_for_a_pending_fixture_fails(self) -> None:
-        found = label_findings(REGISTRY, {"page": self.rows(None)})
-        assert len(found) == len(REGISTRY)
+        found = label_findings(ALL_PENDING, {"page": self.rows(None)})
+        assert len(found) == len(ALL_PENDING)
         assert all("lacks the label" in text for text in found)
 
     def test_a_present_fixture_with_its_labelled_row_fails(self) -> None:
         """The control of the plan: one entry set to present in a copy fails its row."""
-        copied = list(REGISTRY)
+        copied = list(ALL_PENDING)
         copied[1] = dataclasses.replace(copied[1], status="present", reason="")
         found = label_findings(copied, {"page": self.rows(PENDING_LABEL)})
         assert found == [
@@ -769,7 +808,7 @@ class TestThePendingLabel:
         ]
 
     def test_a_present_fixture_without_the_label_passes(self) -> None:
-        copied = list(REGISTRY)
+        copied = list(ALL_PENDING)
         copied[1] = dataclasses.replace(copied[1], status="present", reason="")
         lines = self.rows(PENDING_LABEL).splitlines()
         lines = [
@@ -779,7 +818,7 @@ class TestThePendingLabel:
         assert label_findings(copied, {"page": "\n".join(lines) + "\n"}) == []
 
     def test_a_page_that_names_only_some_fixtures_fails(self) -> None:
-        found = label_findings(REGISTRY, {"page": self.rows(PENDING_LABEL, skip="ctmle_wg")})
+        found = label_findings(ALL_PENDING, {"page": self.rows(PENDING_LABEL, skip="ctmle_wg")})
         assert found == ["page: no row names ctmle_wg.json"]
 
     def test_a_page_that_names_no_fixture_is_not_read(self) -> None:
