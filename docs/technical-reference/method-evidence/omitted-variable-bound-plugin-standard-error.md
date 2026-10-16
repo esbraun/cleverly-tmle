@@ -113,11 +113,22 @@ standard error comes from.
 | cell kind | cells | what the standard error reads | what must hold |
 | --- | --- | --- | --- |
 | `correctly_specified` | 48 | the package curve less the package variance correction | the SE-ratio interval and the coverage interval lie inside their calibration bands |
-| `inflated_se_control` | 28 | the package curve minus the mechanism term that the study rebuilt, for the ATT and the ATC of the seven estimated-mechanism scenarios, with the package variance correction | the SE-ratio interval lies above the band |
-| `shrunken_se_control` | 4 | the known-mechanism curve plus the mechanism term of a study-side `LogisticRegression(C=numpy.inf)` fit, for the ATT and the ATC of `binary_known`, with the package variance correction | the SE-ratio interval lies below the band |
+| `inflated_se_control` | 28 | the package curve minus the mechanism term that the study rebuilt, for the ATT and the ATC of the seven estimated-mechanism scenarios, with the positive's relative variance correction | the SE-ratio interval lies above the band |
+| `shrunken_se_control` | 4 | the known-mechanism curve plus the mechanism term of a study-side `LogisticRegression(C=numpy.inf)` fit, for the ATT and the ATC of `binary_known`, with the positive's relative variance correction | the SE-ratio interval lies below the band |
 
 The ATE has no control. At a correct model its mechanism term reflects the second-moment term,
 which keeps the variance. The exact-law tests carry the ATE term.
+
+**The relative variance correction.** The package subtracts a correction $c^2 v$ from the variance
+of the positive curve. A control curve has a smaller variance. The same absolute subtraction can
+leave a control variance below zero while the package returns limits. The pilot lost two replicates
+of the unbalanced ATC this way: draw 158 (lower, $-0.00036$) and draw 339 (upper, $-0.0089$).
+Each control therefore keeps the share of its variance that the positive keeps:
+$v_c (v_+ - c^2 v) / v_+$.
+
+That value is positive whenever the positive's corrected variance is positive.
+`test_a_pilot_draw_that_lost_a_control_now_returns_one` runs both draws. A control never fails a
+replicate that the package returned.
 
 `tests/unit/test_omitted_variable_plugin_design.py` sized the study before the run.
 
@@ -130,7 +141,7 @@ which keeps the variance. The exact-law tests carry the ATE term.
 | predicted inflated control ratios | 1.17 (binary), 1.23 to 1.24 (three-arm), 1.16 (unbalanced ATT), 1.11 (unbalanced ATC) |
 | predicted shrunken control ratio | 0.85 |
 | control power at the nominal ratio | at least 0.99 for all 32 controls |
-| control power at the unfavourable edge of the correction bracket | at least 0.9 for 30 controls. 0.65 for the two ATC controls of the unbalanced law |
+| control power at the unfavourable edge of the correction bracket | at least 0.9 for 30 controls. 0.65 for the two ATC controls of the unbalanced law. The design test pins 0.65 and asserts a floor of 0.6 |
 | failure bound | 0.01 per cell, so a cell may lose 100 of 10,000 replicates |
 | primary replicates per scenario | 10,000 |
 
@@ -138,7 +149,17 @@ The correction bracket allows for the share of a bound's variance that the packa
 diagnostic measured a mean share of 0.073 cross-fitted and 0.023 in sample. The bracket takes 0.10
 and 0.04. A control subtracts or adds a curve whose own sample variance carries an unknown bias,
 so the bracket is a proxy. The unbalanced ATC control is weak because the control arm is the
-majority, and its mechanism term is small. The pilot reads its ratio.
+majority, and its mechanism term is small.
+
+**The pilot falsified this bracket for the unbalanced ATC.** The two controls read 1.052 and 1.053
+against the design ratio of 1.11. The in-sample bracket of 0.04 does not hold on that law. The
+share of the bound's variance that the correction removes is about 0.16, from
+$1 - (0.951 / 1.039)^2$. The per-draw share of the variance of $\hat\nu^2$ is 0.38 on average and
+reaches 0.89.
+
+At a true ratio of 1.052 the power at 10,000 replicates is below $10^{-6}$. The size at the band
+edge of 1.07 is 0.005. The run is therefore expected to read "control underpowered" for these two
+controls. The assertions stay as the design, and the study retunes nothing on the pilot.
 
 ## Failure accounting
 
@@ -146,8 +167,12 @@ A replicate is one parameter of one draw.
 
 The package may refuse the limits of a parameter
 (`truncation_active`, `correction_unstable` or `corrected_nonpositive`). The study raises
-`DataError` for that refusal. The driver then records one failed replicate for the cells of that
-parameter and for no other parameter. A cell may lose up to 1 percent of its replicates. The
+`DataError` for that refusal and for no other reason. A `CapabilityError` of the bound that does not
+name `corrected_nonpositive` stops the run. So does a rebuilt variance that is not positive. Both
+are defects of the study and not refusals of the package.
+
+The driver records one failed replicate for the cells of a refused parameter and for no other
+parameter. A cell may lose up to 1 percent of its replicates. The
 failure accounting then judges the cell against the worst case of each clause. One more lost
 replicate gives the verdict `bound exceeded`.
 
@@ -158,6 +183,11 @@ $n = 1000$.
 | --- | --- | --- | --- |
 | cross-fitted, 2,000 draws | 6 (0.30%) | 14 (0.70%) | 11 (0.55%) |
 | in sample, 2,000 draws | 0 | 1 (0.05%) | 1 (0.05%) |
+
+The study publishes the refusals of each parameter by key in `refusal-reading.csv`. The columns are
+`scenario`, `parameter`, `key`, `requested`, `lost`, `rate` and `owner`. The key is one of the three
+package keys, `other` for a failed fit, or `all`. The file has no verdict column. The failure
+accounting judges the cells.
 
 The cross-fitted ATT rate leaves a thin margin. At that rate the chance of more than 100 losses
 in 10,000 replicates is below 0.0005. The 99% upper endpoint of the rate is 1.4 percent, which
@@ -193,6 +223,32 @@ At $n = 4000$ the diagnostic
 shows SE ratios of 0.95 to 0.98 for the corrected $\nu^2$. Its coverage is 0.926 to 0.934. No
 draw was refused in 1,000 draws of each fit. The shortfall contracts with $n$. The study covers $n = 1000$ only.
 
+## The variance correction reading
+
+The package subtracts a second-order correction from the variance of $\hat\nu^2$. The correction
+lowers the standard error of every bound. A cell can therefore read below the band because of the
+correction and not because of the curve. The infinitesimal jackknife and the numerical sandwich
+compare the curve and cannot see the correction.
+
+The property phase publishes `correction-reading.csv`, with one row for each of the 48 positive
+cells. The reading uses the draws of the cell and the intervals of `properties.csv`.
+
+| column | what it reads |
+| --- | --- |
+| `se_ratio`, `coverage` and their 99% endpoints | the cell with the package variance correction |
+| `se_ratio_uncorrected`, `coverage_uncorrected` and the endpoints | the same draws with the standard error before the correction |
+| `uncorrected_in_band` | the 99% SE-ratio interval without the correction lies inside the calibration band |
+| `mean_correction_share`, `max_correction_share` | the share of the bound's variance that the correction removes on a draw |
+
+The reading has no verdict. Rule 9 of the [red-cell policy](#red-cell-policy) reads
+`uncorrected_in_band`.
+
+A pilot probe set the variance correction to zero on the same draws. The correction moved the SE
+ratio of the unbalanced ATC from 1.039 to 0.951 (-8.5 percent). It moved the unbalanced ATE by
+-6.1 percent and the three-arm cross-fitted cells by -5.4 to -7.0 percent. A cell near 0.95 has a
+99% interval that excludes 1 at 10,000 replicates, because the half-width is about 0.018. The
+reading separates that outcome from a defect of the curve.
+
 ## Pilot
 
 A pilot read every cell before the declaration. It used 1,000 replicates per scenario and
@@ -219,20 +275,22 @@ All 48 positive SE ratios lie inside the band of 0.93 to 1.07, and all 48 covera
 * **The cross-fitted three-arm scenario exceeds the failure bound.** The bound is 1 percent.
   The package refused 4.2, 2.7 and 1.7 percent of the draws for the ATE, ATT and ATC. The
   keys were `corrected_nonpositive` (35, 24 and 15 draws), `correction_unstable` (5, 1 and 0)
-  and `truncation_active` (2 each). The declared run allows 100 losses in 10,000 replicates. These rates exceed that, so the
-  cells of this scenario would end with the verdict `bound exceeded`. The study does not change
-  the scenario after seeing this.
+  and `truncation_active` (2 each). The declared run allows 100 losses in 10,000 replicates.
+  These rates exceed that, so the cells of this scenario would end with the verdict
+  `bound exceeded`. The study does not change the scenario after seeing this, and the
+  [red-cell policy](#red-cell-policy) declares the outcome before the run.
 * **The unbalanced ATC control does not leave the band.** The two controls read 1.052 and 1.053,
   with 99% intervals of 0.99 to 1.12. The design test predicted a ratio of 1.11 and a power of
   0.65 at the unfavourable edge of the correction bracket. The positive cells of the same
-  parameter read 0.951 and 0.953. A control that does not leave the band is reported as
-  "control underpowered".
+  parameter read 0.951 and 0.953. The run is expected to read these two controls "control
+  underpowered", with owner `X26-unbalanced-control`.
 
 The binary cross-fitted scenarios refused 0.3 to 0.6 percent of the draws. The other scenarios
 refused 0.1 percent or fewer, except the unbalanced scenario at 0.3 to 0.6 percent.
 
-Of the 6 unbalanced ATC losses, 2 came from a negative corrected variance of a bound. Three draws of each
-unbalanced parameter lost a replicate to `truncation_active`. The declared `(0.005, 0.995)`
+Of the 6 unbalanced ATC losses, 2 came from the variance of a control and not from a refusal of the
+package. The study now gives a control the positive's relative correction, so it loses no such
+replicate. Three draws of each unbalanced parameter lost a replicate to `truncation_active`. The declared `(0.005, 0.995)`
 bounds did not remove that key. The 300-fit probe refused no draw, and the 1,000 pilot draws
 refused 0.3 percent. The cross-fitted three-arm scenario lost 0.2 percent to the same key.
 
@@ -262,11 +320,32 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 | rule | when it applies | what happens |
 | --- | --- | --- |
 | 1 | always | the study publishes under `reporting`. No replicate count, margin, law, learner or strength changes after a verdict is seen |
-| 2 | a red positive cell | the infinitesimal jackknife (unit witness W5) and the numerical sandwich are compared with the package curve on 20 replicates of the scenario. A mismatch is a defect. The defect is fixed, and the study is regenerated under a fresh declaration commit |
+| 2 | a red positive cell | the infinitesimal jackknife (unit witness W5) and the numerical sandwich are compared with the package curve on 20 replicates of the scenario. The diagnosis also reads `correction-reading.csv`. A mismatch of the curve is a defect. The defect is fixed, and the study is regenerated under a fresh declaration commit |
 | 3 | rule 2 finds agreement | the cell is rerun at $n = 4000$ with 5,000 replicates. It is published red with owner `X26-plugin-finite-sample` and the reading "finite-sample, contracting" or "finite-sample, not contracting at n=4000" |
-| 4 | the reading of a red positive cell | the cell is finite-sample only when its 99% SE-ratio interval contains 1, its coverage is consistent with 0.95, and the diagnosis finds no defect. Any other red positive cell is a defect suspect |
-| 5 | a control that does not leave the band | the control is reported as "control underpowered", with its ratio |
+| 4 | the reading of a red positive cell | the cell is finite-sample only when its 99% SE-ratio interval contains 1, its coverage is consistent with 0.95, and the diagnosis finds no defect. Any other red positive cell is a defect suspect, except a cell that rule 7, 8 or 9 reads |
+| 5 | a control that does not leave the band | the control is reported as "control underpowered", with its ratio. The two ATC controls of `binary_unbalanced` are declared so before the run, with owner `X26-unbalanced-control` |
 | 6 | the corrected $\nu^2$ rows | the rows are measured and not claimed. A shortfall in them opens no red cell |
+| 7 | a cell of `multinomial_logistic_crossfit` | the 10 property cells and the 3 primary scenarios are declared to read `bound exceeded`. They are published red with owner `X26-crossfit-refusals`, the refusal rate of each key in `refusal-reading.csv`, and the complete-case SE ratio and coverage labelled "not a verdict". Rules 2 to 4 do not apply to a cell that only the bound turns red |
+| 8 | a cell that is green on the complete case and red only through `worst case fails` | the cell reads "refusal-limited" with owner `X26-refusal-limited`. It publishes the number of lost replicates, the complete-case value and the worst-case value. It is not a defect suspect under rule 4 |
+| 9 | a red positive cell whose 99% SE-ratio interval without the variance correction lies inside the band | if rule 2 finds no mismatch of the curve, the cell reads "variance-correction overshoot" with owner `X26-correction-overshoot`. It is rerun under rule 3 and published as "contracting" or "not contracting at n=4000". It is not a defect suspect under rule 4 |
+
+### Reds declared before the run
+
+The pilot and the failure accounting predict these reds. The failure bound stays at 0.01 and the margins stay as declared.
+
+| cells | expected reading | owner | evidence |
+| --- | --- | --- | --- |
+| 6 positive and 4 control cells of `multinomial_logistic_crossfit`, and its 3 primary scenarios | `bound exceeded` | `X26-crossfit-refusals` | the package refused 4.2, 2.7 and 1.7 percent of the draws for the ATE, ATT and ATC |
+| the two `inflated_se_control` cells of the unbalanced ATC | control underpowered | `X26-unbalanced-control` | the ratios read 1.052 and 1.053 against a design ratio of 1.11 |
+| a positive cell whose uncorrected ratio is inside the band | variance-correction overshoot | `X26-correction-overshoot` | the correction moves the SE ratio of the unbalanced ATC by -8.5 percent |
+| a positive cell green on the complete case and red by a worst case | refusal-limited | `X26-refusal-limited` | the worst-case clauses of the accounting act inside the failure bound |
+
+The complete-case values of a `bound exceeded` cell are not a verdict. The accounting assigns the
+verdict. Raising the bound would relax all 80 cells to cover 10, so the study declares the red
+instead.
+
+The owner rows of the roadmap name these ids before the documentation pull request. The study
+keeps the package variance correction. The owner of the study confirms that decision before the run.
 
 ## Limitations
 
@@ -275,13 +354,14 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 | The row publishes under the reporting policy, not gated | The fast tier recomputes each verdict and does not fail on a red one |
 | The corrected $\nu^2$ is not judged | At $n = 1000$ its interval under-covers. The [reading](#the-corrected-nu2-reading) states the size. The bound intervals do not show the shortfall |
 | $\hat B$ and the variance correction are package values | The study rebuilds the curve and the delta-method coefficient. The exact-law witnesses in `tests/unit/test_omitted_variable_plugin_second_order.py` check $\hat B$ and the variance correction |
-| Refusals are failed replicates | A refusal fails the cells of one parameter. A cell that loses more than 1 percent of its replicates ends with the verdict `bound exceeded`. The [pilot](#pilot) shows that the cross-fitted three-arm scenario does |
+| Refusals are failed replicates | A refusal fails the cells of one parameter. A cell that loses more than 1 percent of its replicates ends with the verdict `bound exceeded`. The [pilot](#pilot) shows that the cross-fitted three-arm scenario does. The policy declares that red |
+| The variance correction shifts some cells | The package correction lowers the SE ratio by 5 to 9 percent in the unbalanced and the cross-fitted cells. `correction-reading.csv` records the ratio without it. A cell can read red because of the correction and not because of the curve |
 | Three scenarios declare wide truncation bounds | `multinomial_logistic`, `multinomial_logistic_crossfit` and `binary_unbalanced` declare `g_bounds=(0.005, 0.995)`. The automatic bounds refuse 27 to 52 percent of draws on those laws. The study does not test an active clip. The exact-law witness covers it |
 | There is no cross-implementation evidence | No maintained implementation reports limits for the plug-in $\nu^2$ |
 | Correctly specified mechanisms only | Each logistic model is correct for its law. A misspecified model covers $\nu^2$ of its own limit, which the study does not test |
 | No weights, clusters, pipelines or grouped folds | The exact-law witnesses cover these compositions. This row does not |
 | One sample size and one strength | The row covers $n = 1000$ and $c_Y = c_D = 0.5$, $\rho = 1$. The registered property loop has one sample size. The diagnostic `tests/diagnostics/x26_crossfit_bias` covers $n = 4000$ for the balanced law, in sample and cross-fitted. This study has no $n = 4000$ arm |
-| The correction bracket of the controls is a proxy | The bracket rests on the diagnostic's mean share on the balanced law. The unbalanced and three-arm laws may differ. The pilot gives their control ratios |
+| The correction bracket of the controls is a proxy | The bracket rests on the diagnostic's mean share on the balanced law. The pilot shows that the unbalanced law differs: the share of the bound's variance there is about 0.16, and the ATC controls read 1.052 and 1.053 |
 | The ridge scenarios use $C = 1$ only | The predicted first-order shrinkage of $\nu^2$ is at most 0.05 of its standard error on the binary law |
 | Point treatment only | The bound refuses longitudinal fits, so the row covers none |
 | Run cost | The declared run costs about 68 CPU hours at 10,000 replicates. The fit of a parameter takes 0.1 s in sample and 1 s cross-fitted, and the bound engine dominates |
