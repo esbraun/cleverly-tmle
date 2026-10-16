@@ -303,6 +303,9 @@ def declaration_hash(record: StudyRecord) -> str:
     """
     declared = canonical(record)
     declared.pop("artifacts", None)
+    if not declared.get("scenario_n"):
+        # A single-size study keeps the key it had before per-scenario sizes existed.
+        declared.pop("scenario_n", None)
     return digest(declared)
 
 
@@ -360,12 +363,22 @@ def python_versions() -> dict[str, str]:
     }
 
 
+def _declared_sizes(record: StudyRecord, n: int) -> dict[str, int]:
+    """The per-scenario sizes a run at ``n`` records: the declared ones, or none on an override.
+
+    ``--n`` other than the declared size runs every scenario at that size
+    (:meth:`StudyRecord.sizes`), so the run records no per-scenario sizes.
+    """
+    return dict(record.scenario_n) if n == record.n else {}
+
+
 def run_key(record: StudyRecord) -> dict[str, Any]:
     """The resume-key fields known before the Python phase draws anything."""
     return {
         "declaration": declaration_hash(record),
         "git": git_state(),
         "n": record.n,
+        **({"scenario_n": dict(sorted(record.scenario_n.items()))} if record.scenario_n else {}),
         "replicates": record.replicates,
         "versions": python_versions(),
     }
@@ -964,6 +977,11 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
             f"--reuse-subject: the committed rows are {configured['replicates']} x "
             f"n={configured['n']}, not {arguments.replicates} x n={arguments.n}"
         )
+    if configured.get("scenario_n", {}) != dict(_declared_sizes(record, arguments.n)):
+        raise RuntimeError(
+            f"--reuse-subject: the committed rows have scenario sizes "
+            f"{configured.get('scenario_n', {})}, not {_declared_sizes(record, arguments.n)}"
+        )
     for name in ("replicates.csv.gz", failures.FAILURES):
         path = here / name
         recorded = manifest["sha256"].get(name)
@@ -1017,10 +1035,11 @@ def _reference_rows(
     # ``getattr`` here stands in for a flag an unpaired study never carries.
     if getattr(arguments, "skip_reference", False):
         committed = pd.read_csv(here / "replicates.csv.gz")
+        sizes = study.STUDY.sizes(arguments.n)
         rows = committed.loc[
             (committed["implementation"] == study.STUDY.reference)
             & (committed["replicate"] < arguments.replicates)
-            & (committed["n"] == arguments.n)
+            & (committed["n"] == committed["scenario"].map(sizes).fillna(arguments.n))
         ]
         if rows.empty:
             raise RuntimeError("no compatible committed reference rows for --skip-reference")
@@ -1276,7 +1295,12 @@ def main(
         )
     arguments = _arguments(study, here, reference)
     RUN_NOTES.clear()
-    declared = dataclasses.replace(study.STUDY, replicates=arguments.replicates, n=arguments.n)
+    declared = dataclasses.replace(
+        study.STUDY,
+        replicates=arguments.replicates,
+        n=arguments.n,
+        scenario_n=_declared_sizes(study.STUDY, arguments.n),
+    )
     key = run_key(declared)
     cache = getattr(arguments, "cache", None)
     scratch = Path(cache) if cache else runs_root() / declared.slug / digest(key)[:12]
@@ -1325,7 +1349,11 @@ def _regenerate(
     out = arguments.output
     out.mkdir(parents=True, exist_ok=True)
     record = dataclasses.replace(
-        study.STUDY, replicates=arguments.replicates, n=arguments.n, artifacts=out
+        study.STUDY,
+        replicates=arguments.replicates,
+        n=arguments.n,
+        scenario_n=_declared_sizes(study.STUDY, arguments.n),
+        artifacts=out,
     )
     skip_reference = getattr(arguments, "skip_reference", False)
     if skip_reference and record.extra_artifacts:
@@ -1359,6 +1387,8 @@ def _regenerate(
             "run has shown failures"
         )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
+    if record.scenario_n:
+        print(f"scenario sizes: {dict(record.scenario_n)}", flush=True)
     scratch = context.scratch
     phase = (
         _committed_subject(study, arguments, here)

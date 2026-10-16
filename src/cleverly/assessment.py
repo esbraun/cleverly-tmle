@@ -2648,6 +2648,59 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         return _cached(self._result, "diagnostics.nuisance_models", (), {}, compute)
 
+    def influence(self) -> Any:
+        """How few rows carry each estimate's influence curve.
+
+        A direct call only. The operation is not part of :meth:`run_all` or the assessment
+        battery, so adding it moves no combined report. The fit already warns with
+        :class:`~cleverly.exceptions.SparseInfluenceWarning` when a Wald fit needs it.
+        With clusters every measure reads the cluster sums of the curve.
+
+        Returns
+        -------
+        InfluenceReport
+            One row per estimate (:mod:`cleverly.inference.sparse`): the Kish count, the
+            skewness, the raw kurtosis, the relative SD of the variance estimate, the
+            Edgeworth-predicted Wald coverage loss, and, with an attached bootstrap, the BCa
+            bias correction and acceleration.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_longitudinal
+        >>> from cleverly.longitudinal import LTMLE
+        >>> frame, _ = make_longitudinal(n=200, seed=0)
+        >>> result = LTMLE(
+        ...     {"always": 1, "never": 0},
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     censoring_learner=LogisticRegression(max_iter=1000),
+        ... ).fit(
+        ...     frame,
+        ...     outcome="Y",
+        ...     treatment=["A1", "A2"],
+        ...     baseline=["W1", "W2"],
+        ...     time_varying=[[], ["L2"]],
+        ...     censoring=["C1", "C2"],
+        ... )
+        >>> report = result.diagnostics.influence()
+        >>> report.sparse
+        ('ey_regimen[always]', 'ey_regimen[never]', 'ate_regimen[never vs always]')
+        """
+
+        def compute() -> Any:
+            from .inference.sparse import influence_report
+
+            alpha = float(getattr(self._result.config, "alpha_sig", 0.05))
+            return influence_report(
+                self._result.estimates,
+                alpha=alpha,
+                backend=self._result.data.backend,
+                cluster=getattr(self._result.data, "cluster", None),
+            )
+
+        return _cached(self._result, "diagnostics.influence", (), {}, compute)
+
     def score_equations(self, *, tolerance: float = DEFAULT_TOLERANCE) -> Any:
         """Whether targeting solved the score equations this fit relies on.
 

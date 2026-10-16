@@ -3195,7 +3195,11 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ()
+UNCOMMITTED_MODULES = (
+    "tests.studies.long_horizon_ltmle_properties",
+    "tests.studies.long_horizon_categorical_ltmle_properties",
+    "tests.studies.long_horizon_sdr_properties",
+)
 
 
 def _property_modules() -> list[Any]:
@@ -3348,6 +3352,14 @@ class TestPropertyDifferential:
             assert path in job, path
         assert "timeout-minutes:" in job
         assert '="$(git diff' in job and "|| git diff" not in job
+
+    def test_the_ci_job_runs_these_checks_on_one_interpreter(self) -> None:
+        """The ``tests`` matrix may skip this file on 3.11 and 3.13, never on all three."""
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        job = workflow.split("\n  tests:", 1)[1].split("\n  # ", 1)[0]
+        assert "matrix.python-version != '3.12'" in job
+        assert "--ignore=tests/unit/test_method_evidence.py" in job
+        assert '"3.12"' in job.split("python-version:", 1)[1].split("\n", 1)[0]
 
     def test_each_binding_witness_names_what_exists(self) -> None:
         job = self._job()

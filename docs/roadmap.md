@@ -122,7 +122,7 @@ not change the package version.
 | milestone | item | readiness | dependency | details |
 | --- | --- | --- | --- | --- |
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
-| B1 | Longitudinal evidence over three to five decisions | published support | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
+| B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Longitudinal fitting options | no new theory; each option keeps its default bit-identical | none | [X33](#x33-longitudinal-fitting-options) |
 | B3 | Applied tutorials for offers and pricing | no new theory | the shipped longitudinal modified treatment policies, `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
@@ -155,6 +155,7 @@ not change the package version.
 | after beta | Bootstrap extensions | [published support](technical-reference/hard-stop-review.md); the book chapter of part (c) is not read | the shipped full-refit bootstrap; a HAL learner for part (b) | [X55](#x55-bootstrap-extensions) |
 | after beta | Competing-event intervention targets | [published support](technical-reference/hard-stop-review.md) for part (a); source audit for parts (b) and (c) | the shipped censored `LTMLE` | [X56](#x56-competing-event-intervention-targets) |
 | after beta | Joint intervention axes and tilt compositions | [natural extension](technical-reference/hard-stop-review.md) | the shipped single-axis fits and the MNAR tilt | [X57](#x57-joint-intervention-axes-and-tilt-compositions) |
+| after beta | Long-horizon comparator parity for `LTMLE` and `SDR` | no new theory; comparator setup | the X39 studies | [X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr) |
 | after beta | Settings of the stacked and natural-course contracts | no new theory for part (a); natural extension for parts (b) to (d) | the shipped stacked and natural-course contracts; the shipped controlled direct effect for part (d) | [X60](#x60-settings-of-the-stacked-and-natural-course-contracts) |
 | after beta | Fold targeting and fold evaluation | natural extension for parts (a) to (c) | the shipped fold-specific update and fold-evaluated report | [X61](#x61-fold-targeting-and-fold-evaluation) |
 | after beta | Other DR-TMLE and C-TMLE compositions | natural extension for parts (a), (c) and (d); no new theory for part (b) | the shipped `DRTMLE` and `CTMLE`; X50 part (c) and X51 part (a) for part (d) | [X62](#x62-other-dr-tmle-and-c-tmle-compositions) |
@@ -580,6 +581,19 @@ second comparator option.
 
 Acceptance: a registered study for each estimator, with the controls above and a pre-queue design
 review.
+
+Status. The code ships as experimental. It adds the opt-in refit bootstrap for `LTMLE` and `SDR`
+(`n_bootstrap`, `bootstrap_interval="bca"`, and the studentized bootstrap sup-t band with
+`simultaneous=True`), `result.diagnostics.influence()` and `SparseInfluenceWarning`. Every new
+support kind (`bootstrap_bca`, `bootstrap_band`) has no support row, so each prints
+`experimental`.
+
+The long-horizon Python studies over three to five decisions are pending, as a
+follow-up pull request. That request is to run the declared studies, move the support rows into
+the package, and close this row. No coverage result for the new options exists in this repository.
+The R comparators named above are deferred to
+[X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr), so the studies carry Python property
+evidence only. Do not remove this row until the studies land.
 
 ### X42. Applied tutorials for offers and pricing
 
@@ -1393,6 +1407,26 @@ conditions. Acceptance: oracle and evidence gates for each target in both direct
 
 Acceptance: each composition reduces exactly to each standalone fit; nonzero controls for every
 cross-axis block; a registered study for each interval claim.
+
+### X59. Long-horizon comparator parity for `LTMLE` and `SDR`
+
+The X39 studies over three to five decisions carry property evidence only. No comparator ran. This
+row adds the comparator readings that X39 deferred.
+
+Use R `ltmle` 1.3-0 for the ordinary regimen and MSM scenarios of `long-horizon-ltmle`. Use R
+`lmtp` for `long-horizon-categorical-ltmle` and `long-horizon-sdr`. The shipped cross-fit studies
+pin `lmtp` at `f04a2b4`, which fits the fluctuation on training rows. Upstream `9996b04` fits it on
+validation rows. Neither runs the pooled update, so label the cross-fitted `LTMLE` comparison as a
+different estimator of a shared target. Complete the `9996b04` audit and choose the pin.
+
+The design needs a K-node `ltmle` runner, two `9996b04` adapters and an image, parity gates, a
+chunked sample hand-off, and an R budget. Three points stay open: the source of the parity
+tolerance, the memory gate, and the order of the two phases.
+
+Acceptance: each X39 study record moves its `pending_reference` to `reference` and clears
+`pending_reason`, the stub runners give way to the real runners, and each study is regenerated
+with its reference. The parity gates and the margins rows are declared before the run, after a
+pre-queue design review.
 
 ### X60. Settings of the stacked and natural-course contracts
 
