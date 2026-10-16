@@ -3721,7 +3721,7 @@ CELLS.update(
             "the structural model check against the nonparametric contrasts, with the "
             "structural model correct; the rejection rate is published beside the verdict, and on "
             "the sparse-positivity law the covariance has few degrees of freedom, so the check "
-            "has low power there",
+            "can reject above its nominal level there",
             "rejection upper bound at or below the type-I ceiling",
         ),
         ("power", "model_check"): (
@@ -3735,7 +3735,9 @@ CELLS.update(
         ),
         ("unclustered_se", "unclustered"): (
             "the fit without the cluster column, on the clustered draws",
-            "where gated, the SE-ratio interval must fall below the calibration band",
+            "the gated cells `s2c_ey0` and `s2c_ey_r11` need the SE-ratio interval below the "
+            "calibration band, and the result column reads reported; the other cells state no "
+            "verdict",
         ),
     }
 )

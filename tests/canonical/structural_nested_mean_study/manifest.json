@@ -513,7 +513,7 @@
   "comparator": {
     "status": "pending",
     "implementation": "econml",
-    "reason": "the EconML 0.17.0 DynamicDML runs are a local container phase (tests/canonical/econml_dynamic_dml); a method merges once its Python studies pass and a later change registers the comparator runs",
+    "reason": "the EconML 0.17.0 DynamicDML runs are queued as Study queue row 43 in TRACKER.md, a local container phase (tests/canonical/econml_dynamic_dml); a method merges once its Python studies pass and a later change registers the comparator runs",
     "metadata": {},
     "declared_sources_sha256": {
       "tests/canonical/econml_dynamic_dml/Dockerfile": "6a03b883deaa142f62a75c8f9469304fb3021981c30cb80d3061dec81b26325a",

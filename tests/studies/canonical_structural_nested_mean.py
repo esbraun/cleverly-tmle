@@ -115,9 +115,9 @@ IMPLEMENTATION = "cleverly-structural-nested-mean"
 #: The pending comparator, and the roadmap item that owns its runs.
 PENDING_REFERENCE = "econml"
 PENDING_REASON = (
-    "the EconML 0.17.0 DynamicDML runs are a local container phase (tests/canonical/"
-    "econml_dynamic_dml); a method merges once its Python studies pass and a later change "
-    "registers the comparator runs"
+    "the EconML 0.17.0 DynamicDML runs are queued as Study queue row 43 in TRACKER.md, a local "
+    "container phase (tests/canonical/econml_dynamic_dml); a method merges once its Python "
+    "studies pass and a later change registers the comparator runs"
 )
 
 # ------------------------------------------------------------------------------- the fits
