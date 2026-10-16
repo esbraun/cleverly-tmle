@@ -13,6 +13,14 @@ their seeds are those of rev 4.1 (``tests/unit/test_long_horizon_pilots.py`` pin
 new parts are the band pilots, the root-n rung pilots and the per-node witness on each fallback
 law.
 
+Rev 4.3 appends again after the :data:`REV_42_PARTS` parts of rev 4.2 and moves none of them.
+The new parts are four factor-2 fallback scans (the Wald regime ``n >= 2 n_kappa``, decision C1),
+the ``truth_boot`` pilots (the refit bootstrap at B = 399 with the BCa interval, the S3 scenarios
+first), the ``band_boot`` pilots (the studentized sup-t band at B = 399) and the ``f2_c1`` pilots
+(the calibration cells that C1 moved).  ``run`` refuses a ``truth_boot`` part of S1 or S2 until
+the S3 ``truth_boot`` parts exist and their reading passes, because the S3 parts are the first
+evidence that BCa holds for the SDR estimator (plan rev 4.3, Q-E5).
+
 The root is ``<scratch>/x39-pilots/<key>``.  The key is a digest of the declared parts, the bytes
 of the code that runs them and the Python package versions, so a changed declaration, estimator
 or package never reuses a stale part.  A root stamped with another key is refused, unless the
@@ -28,7 +36,8 @@ Commands (run from the repository root with ``PYTHONPATH=.``)::
     python -m tests.long_horizon_pilots merge [--root R] [--source R2 ...] [--accept-key K ...]
     python -m tests.long_horizon_pilots scans
 
-``list`` prints each part's index, family, name and estimated CPU hours, with the running total.
+``list`` prints each part's index, family, name and estimated CPU hours, with the running total,
+then the part count and CPU hours of each family.
 ``split --share S`` prints the first index at which the running total passes ``S`` of the whole.
 ``run`` computes the parts ``[I, J)`` in ascending order, or with ``--down-to I`` from the last
 part down to ``I``; a part whose file exists is skipped, and a sample part resumes from the
@@ -100,6 +109,7 @@ CODE = (
     "tests/longitudinal_horizon_plans.py",
     "tests/studies/long_horizon_common.py",
     "tests/studies/long_horizon_primary.py",
+    "tests/studies/long_horizon_properties.py",
     "tests/studies/fractional_glm.py",
     "tests/studies/canonical_long_horizon_ltmle.py",
     "tests/studies/canonical_long_horizon_categorical_ltmle.py",
@@ -107,9 +117,22 @@ CODE = (
     "tests/studies/evidence/replication.py",
 )
 ROOT = Path(__file__).resolve().parents[1]
-SAMPLE_FAMILIES = ("mc", "f2", "bias", "truth", "overfit", "band", "rung")
+SAMPLE_FAMILIES = (
+    "mc",
+    "f2",
+    "bias",
+    "truth",
+    "overfit",
+    "band",
+    "rung",
+    "truth_boot",
+    "band_boot",
+    "f2_c1",
+)
 #: The parts of rev 4.1.  Rev 4.2 appends after them; none of their idents, order or seeds moves.
 REV_41_PARTS = 3_288
+#: The parts of rev 4.2.  Rev 4.3 appends after them; none of their idents, order or seeds moves.
+REV_42_PARTS = 3_449
 #: The configuration kinds of a part.  An equivalence record covers the kind of the part it
 #: checks, and ``merge`` needs a record for every kind a foreign root contributes.
 KINDS = (
@@ -122,13 +145,16 @@ KINDS = (
     "plugin",
     "complement",
     "band",
+    "ltmle_boot",
+    "sdr_boot",
+    "band_boot",
     "exact_scan",
     "law_scan",
 )
 #: The default relative tolerance of ``check`` and ``merge``.
 RTOL = 1e-9
 #: The columns of a sample part that are text.
-TEXT_COLUMNS = ("stream", "estimand", "failure")
+TEXT_COLUMNS = ("stream", "estimand", "failure", "interval")
 #: The bias-family replicate ladder and the truth-row ladder of section 5.3.
 BIAS_LADDER = (1_000, 1_200, 2_000, 3_000, 4_000)
 TRUTH_LADDER = (1_200, 2_000, 3_000)
@@ -669,6 +695,23 @@ def parts() -> tuple[Part, ...]:
                 _witness_hours(settings),
             )
         )
+    # Rev 4.3: the factor-2 fallback scans, then the bootstrap pilots, S3 first.
+    for q in D.CALIBRATION_FALLBACKS:
+        out.append(
+            Part(
+                "lawscan",
+                str(q),
+                (q.K, q.m, q.first, q.second, D.WALD_REGIME_FACTOR),
+                36 * 2 * 0.5 / 3600,
+            )
+        )
+    for stream in D.bootstrap_streams():
+        per = stream.cost()
+        for start in range(0, stream.replicates, BLOCK):
+            stop = min(start + BLOCK, stream.replicates)
+            out.append(
+                Part(stream.family, stream.ident, (start, stop), per * (stop - start) / 3600)
+            )
     return tuple(out)
 
 
@@ -695,14 +738,16 @@ def kind_of(part: Part) -> str:
     if part.family in ("scan", "patterns", "witness"):
         return "exact_scan"
     stream = _stream(part.name)
-    if stream.family == "band":
-        return "band"
+    if stream.family in ("band", "band_boot"):
+        return stream.family
     if stream.config is None:
         study, name = stream.scenario
         scenario = next(s for s in D.scenarios(study) if s.name == name)
         if scenario.msm:
             return "msm"
         estimator, folds = ("SDR" if study == "S3" else "LTMLE"), scenario.n_folds
+        if stream.family == "truth_boot":
+            return f"{estimator.lower()}_boot"
     else:
         config = stream.config
         if config.msm:
@@ -717,8 +762,13 @@ def kind_of(part: Part) -> str:
     return f"{estimator.lower()}{'_fivefold' if folds > 1 else ''}"
 
 
+@functools.cache
+def _streams_by_ident() -> dict[str, D.Stream]:
+    return {s.ident: s for s in (*D.streams(), *D.bootstrap_streams())}
+
+
 def _stream(ident: str) -> D.Stream:
-    return next(s for s in D.streams() if s.ident == ident)
+    return _streams_by_ident()[ident]
 
 
 def _scan(name: str) -> Scan:
@@ -785,29 +835,20 @@ def _sample_fit(
         study, name = stream.scenario
         module = D.STUDIES[study]
         scenario = next(s for s in module.SCENARIOS if s.name == name)
-        result = primary.fit(drawn, scenario, module.ESTIMATOR)
+        boot = stream.family == "truth_boot"
+        result = primary.fit(drawn, scenario, module.ESTIMATOR, bootstrap=boot)
         rows = primary.rows(module.STUDY, result, scenario, replicate, stream.n)
-        return [
-            {
-                **base,
-                **{
-                    k: row[k]
-                    for k in (
-                        "estimand",
-                        "truth",
-                        "estimate",
-                        "std_error",
-                        "ci_lower",
-                        "ci_upper",
-                        "covered",
-                    )
-                },
-            }
-            for row in rows
-        ]
+        columns = ("estimand", "truth", "estimate", "std_error", "ci_lower", "ci_upper", "covered")
+        if boot:
+            columns += ("interval", "n_failed", "sparse_warning")
+        return [{**base, **{k: row[k] for k in columns}} for row in rows]
     if stream.family == "band":
         return [{**base, **_band_fit(stream, drawn)}]
-    fitted = stream.config.fit_sample(drawn)
+    if stream.family == "band_boot":
+        return [{**base, **_band_boot_fit(stream, drawn)}]
+    fitted = stream.config.fit_sample(drawn, sparse=stream.family == "f2_c1")
+    if stream.family == "f2_c1":
+        fitted = {"sparse_warning": -1, **fitted}
     truth = stream.config.truth
     covered = (
         int(fitted["ci_lower"] <= truth <= fitted["ci_upper"])
@@ -851,6 +892,46 @@ def _band_fit(stream: D.Stream, drawn: pd.DataFrame) -> dict[str, Any]:
         "ci_upper": math.nan,
         "covered": int(band["covered"]),
         "pointwise_covered": int(pointwise["covered"]),
+    }
+
+
+def _band_boot_fit(stream: D.Stream, drawn: pd.DataFrame) -> dict[str, Any]:
+    """One replicate of the studentized bootstrap band, with the IC band and pointwise controls.
+
+    ``covered`` is the sup-t band's joint coverage, ``estimate`` the max-t statistic and
+    ``std_error`` the band's critical value.  ``ic_covered`` and ``ic_critical`` are the reporting
+    Wald-curve band's, ``pointwise_covered`` the control's, and ``n_failed`` the failed refits of
+    the fit's bootstrap.
+    """
+    from tests.studies import long_horizon_properties as properties
+
+    config = stream.config
+    assert config is not None
+    arm = properties.Arm("k5", "positive", config, read="band", plans=stream.plans)
+    result = properties._call(
+        arm,
+        drawn,
+        stream.plans,
+        simultaneous=True,
+        reference=None,
+        n_bootstrap=D.B_GATE,
+    )
+    names = sorted(result.simultaneous.bands)
+    band, ic, pointwise = properties.band_rows(
+        result, config, names, label="k5", replicate=0, n=stream.n, requested=0
+    )
+    return {
+        "estimand": "",
+        "truth": 0.0,
+        "estimate": band["estimate"],
+        "std_error": band["std_error"],
+        "ci_lower": math.nan,
+        "ci_upper": math.nan,
+        "covered": int(band["covered"]),
+        "ic_covered": int(ic["covered"]),
+        "ic_critical": ic["std_error"],
+        "pointwise_covered": int(pointwise["covered"]),
+        "n_failed": int(result.bootstrap.n_failed),
     }
 
 
@@ -908,8 +989,10 @@ def compute(part: Part, root: Path, jobs: int) -> bytes:
         frame = _run_sample(part, root, jobs)
         return frame.to_csv(index=False, lineterminator="\n", float_format="%.17g").encode()
     if part.family == "lawscan":
-        K, m, first, second = part.detail
-        pick_, rows = D.fallback_scan(D.Quantity(K, m, first, second))
+        K, m, first, second, *factor = part.detail
+        pick_, rows = D.fallback_scan(
+            D.Quantity(K, m, first, second), factor=factor[0] if factor else 1
+        )
         payload: dict[str, Any] = {
             "quantity": part.name,
             "pick": None if pick_ is None else list(pick_.key),
@@ -942,6 +1025,32 @@ def _write(path: Path, data: bytes) -> None:
     os.replace(temporary, path)
 
 
+def _is_s3_truth_boot(part: Part) -> bool:
+    return part.family == "truth_boot" and part.name.split("|")[1].startswith("S3:")
+
+
+def s3_gate(root: Path, part: Part) -> None:
+    """Refuse a ``truth_boot`` part of S1 or S2 until the S3 ``truth_boot`` reading passes.
+
+    The S3 parts are the first evidence that BCa holds for the SDR estimator (plan rev 4.3,
+    Q-E5).  A missing S3 part or a reading that prints ``-> stop`` ends the run.
+    """
+    if part.family != "truth_boot" or _is_s3_truth_boot(part):
+        return
+    s3 = [p for p in parts() if _is_s3_truth_boot(p)]
+    absent = [p.detail for p in s3 if not (root / "parts" / p.filename).exists()]
+    if absent:
+        raise SystemExit(
+            f"{len(absent)} S3 truth_boot parts are missing: run them first "
+            "(`run --family truth_boot --to <first S1 index>`); S1 and S2 follow the S3 reading"
+        )
+    lines = read_truth_boot(_read_sample(root, "truth_boot", _is_s3_truth_boot))
+    stops = [line for line in lines if "-> stop" in line]
+    if stops:
+        print("\n".join(lines), flush=True)
+        raise SystemExit("the S3 truth_boot reading stopped (-> stop): diagnose before S1 and S2")
+
+
 def run(root: Path, indices: Sequence[int], jobs: int) -> None:
     claim(root)
     every = parts()
@@ -950,6 +1059,7 @@ def run(root: Path, indices: Sequence[int], jobs: int) -> None:
         path = root / "parts" / part.filename
         if path.exists():
             continue
+        s3_gate(root, part)
         print(
             f"[{index}] {part.family} {part.name} {part.detail} ~{part.hours:.2f} CPU-h", flush=True
         )
@@ -1166,17 +1276,20 @@ def _load_json(root: Roots, part: Part) -> dict[str, Any]:
     return dict(json.loads(path.read_text(encoding="utf-8")))
 
 
-def _read_sample(root: Roots, family: str) -> pd.DataFrame:
+def _read_sample(
+    root: Roots, family: str, only: Callable[[Part], bool] | None = None
+) -> pd.DataFrame:
+    """The parts of ``family`` (those with ``only`` true, when given) read as one frame."""
     frames = []
     for part in parts():
-        if part.family != family:
+        if part.family != family or (only is not None and not only(part)):
             continue
         path = part_path(root, part)
         assert path is not None, part.ident
         frame = pd.read_csv(
             path,
             float_precision="round_trip",
-            dtype={"estimand": str, "failure": str},
+            dtype={"estimand": str, "failure": str, "interval": str},
             keep_default_na=False,
         )
         for column in ("estimate", "std_error", "ci_lower", "ci_upper", "truth"):
@@ -1434,6 +1547,105 @@ def read_rung(frame: pd.DataFrame) -> list[str]:
     return lines
 
 
+def _failure_line(label: str, kept: pd.DataFrame, rows: pd.DataFrame) -> str:
+    """Replicate failures, dropped resamples and the sparse flag of one bootstrap stream."""
+    per = kept.drop_duplicates("replicate")
+    failed = int((rows["failure"] != "").groupby(rows["replicate"]).any().sum())
+    text = (
+        f"{label}: {len(per)} fitted replicates, {failed} failed outright; dropped refits "
+        f"per replicate mean {float(np.mean(per['n_failed'])):.2f}, "
+        f"{float(np.mean(per['n_failed'] > 0)):.3f} of replicates lose at least one"
+    )
+    if "sparse_warning" in kept:
+        flag = kept.groupby("estimand")["sparse_warning"].mean()
+        text += f"; SparseInfluenceWarning fires on {float(flag.max()):.3f} of replicates at most"
+    return text
+
+
+def read_truth_boot(frame: pd.DataFrame) -> list[str]:
+    """The bootstrapped truth rows: the gated Wald and BCa rows set R, and failures are counted.
+
+    A row is gated as in :func:`read_truth` (``D.gated_rows`` names the Wald rows and the ``__bca``
+    rows).  The reading adds, for each scenario, the replicate failures and the dropped refits of
+    the bootstrap, the separation record, and the BCa coverage of every gated BCa row.  A ladder
+    with no rung reaching 0.95 prints ``none -> stop``.
+    """
+    lines = []
+    gated = set(D.gated_rows())
+    kept = frame[frame["failure"] == ""]
+    rows_by_study: dict[str, list[tuple[float, float]]] = {}
+    for stream, rows in frame.groupby("stream", sort=False):
+        label = str(stream).split("|")[1]
+        study, scenario = label.split(":", 1)
+        fitted = kept[kept["stream"] == stream]
+        lines.append(_failure_line(label, fitted, rows))
+        for estimand, each in fitted.groupby("estimand", sort=False):
+            if (study, scenario, str(estimand)) not in gated:
+                continue
+            errors = each["estimate"].to_numpy(float) - each["truth"].to_numpy(float)
+            coverage = float(np.mean(each["covered"]))
+            bias = float(np.mean(errors) / np.std(errors, ddof=1))
+            rows_by_study.setdefault(study, []).append((coverage, bias))
+            lines.append(
+                f"  {estimand}: coverage {coverage:.4f}, standardized bias {bias:+.4f}"
+                f", mean SE {float(np.mean(each['std_error'])):.5f}"
+            )
+    for study, values in rows_by_study.items():
+        chosen = _ladder_pick(
+            lambda R, values=values: float(
+                np.prod([D.truth_row_pass(min(c, 0.9999), abs(b), R) for c, b in values])
+            ),
+            TRUTH_LADDER,
+        )
+        lines.append(
+            f"{study}: {len(values)} gated bootstrapped truth rows, R "
+            f"{chosen if chosen else 'none -> stop'}"
+        )
+    return lines
+
+
+def read_band_boot(frame: pd.DataFrame) -> list[str]:
+    """The sup-t band's reading (:func:`read_band`) with the IC band and the refit failures.
+
+    A stop here means diagnose the band, not switch its construction (plan rev 4.3).
+    """
+    lines = read_band(frame)
+    kept = frame[frame["failure"] == ""]
+    for stream, rows in kept.groupby("stream", sort=False):
+        study = str(stream).split("|")[1].split(":")[0]
+        lines.append(
+            f"{study} band: reporting IC band coverage {float(np.mean(rows['ic_covered'])):.4f}; "
+            f"dropped refits per replicate mean {float(np.mean(rows['n_failed'])):.2f}, "
+            f"{float(np.mean(rows['n_failed'] > 0)):.3f} of replicates lose at least one"
+        )
+    return lines
+
+
+def read_f2_c1(frame: pd.DataFrame) -> list[str]:
+    """The moved calibration cells alone: the F2 reading plus the sparse flag of each cell.
+
+    :func:`merge` also prints the family reading over the moved cells and the unmoved ``f2``
+    cells together (:func:`read_f2_combined`).
+    """
+    lines = read_f2(frame)
+    kept = frame[frame["failure"] == ""]
+    for stream, rows in kept.groupby("stream", sort=False):
+        flagged = rows["sparse_warning"]
+        known = flagged[flagged >= 0]
+        if len(known):
+            lines.append(
+                f"{str(stream).split('|')[1]}: SparseInfluenceWarning fires on "
+                f"{float(known.mean()):.3f} of replicates"
+            )
+    return lines
+
+
+def read_f2_combined(f2: pd.DataFrame, c1: pd.DataFrame) -> list[str]:
+    """The F2 reading of every calibration cell: the moved ones from ``c1``, the rest from ``f2``."""
+    unmoved = set(D.unmoved_f2_idents())
+    return read_f2(pd.concat([f2[f2["stream"].isin(unmoved)], c1], ignore_index=True))
+
+
 READERS: dict[str, Callable[[pd.DataFrame], list[str]]] = {
     "mc": read_mc,
     "f2": read_f2,
@@ -1442,6 +1654,9 @@ READERS: dict[str, Callable[[pd.DataFrame], list[str]]] = {
     "overfit": read_overfit,
     "band": read_band,
     "rung": read_rung,
+    "truth_boot": read_truth_boot,
+    "band_boot": read_band_boot,
+    "f2_c1": read_f2_c1,
 }
 
 
@@ -1498,6 +1713,13 @@ def read_scans(root: Roots) -> list[str]:
     for part in parts():
         if part.family == "lawscan" and _exists(root, part):
             found = _load_json(root, part)
+            if len(part.detail) == 5:
+                q = next(q for q in D.CALIBRATION_FALLBACKS if str(q) == part.name)
+                lines.append(
+                    f"{part.name} (n >= {part.detail[4]} n_kappa): rule picks {found['pick']}, "
+                    f"declared {list(D.CALIBRATION_FALLBACKS[q].key)}"
+                )
+                continue
             q = next(q for q in D.FALLBACKS if str(q) == part.name)
             lines.append(
                 f"{part.name}: rule picks {found['pick']}, declared {list(D.FALLBACKS[q].key)}"
@@ -1603,8 +1825,10 @@ def merge(
     out = root / "merged"
     out.mkdir(exist_ok=True)
     report = read_scans(roots)
+    frames: dict[str, pd.DataFrame] = {}
     for family in SAMPLE_FAMILIES:
         frame = _read_sample(roots, family)
+        frames[family] = frame
         if frame.empty:
             report.append(f"== {family}: no parts")
             continue
@@ -1618,6 +1842,9 @@ def merge(
         failures = int((frame["failure"] != "").sum())
         report.append(f"== {family}: {len(frame)} rows, {failures} recorded failures")
         report += READERS[family](frame)
+    if not frames.get("f2_c1", pd.DataFrame()).empty and not frames.get("f2", pd.DataFrame()).empty:
+        report.append("== f2 with f2_c1: every calibration cell of rev 4.3")
+        report += read_f2_combined(frames["f2"], frames["f2_c1"])
     stopped = [line for line in report if "-> stop" in line.lower()]
     text = "\n".join(report) + "\n"
     (out / "report.txt").write_text(text, encoding="utf-8")
@@ -1679,6 +1906,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                 f"{part.detail}"
             )
         print(f"{len(every)} parts, {sum(p.hours for p in every):.1f} CPU-h")
+        totals: dict[str, tuple[int, float]] = {}
+        for part in every:
+            count, hours = totals.get(part.family, (0, 0.0))
+            totals[part.family] = (count + 1, hours + part.hours)
+        for family, (count, hours) in totals.items():
+            print(f"  {family:11s} {count:5d} parts {hours:8.1f} CPU-h")
         return
     if arguments.command == "split":
         whole = sum(p.hours for p in every)

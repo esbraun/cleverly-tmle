@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import collections
 import itertools
 import json
 from pathlib import Path
@@ -159,10 +160,88 @@ def test_the_rev_41_parts_keep_their_idents_order_and_seeds() -> None:
                     f"{part.name}|{replicate}|{D.stream_seed(part.name, replicate)}\n".encode()
                 )
     assert seeds.hexdigest() == REV_41_SEEDS
-    assert {part.family for part in every[P.REV_41_PARTS :]} == {"band", "rung", "witness"}
+    rev_42 = every[P.REV_41_PARTS : P.REV_42_PARTS]
+    assert {part.family for part in rev_42} == {"band", "rung", "witness"}
     # Exact parts of the new family come last, after every sample part.
-    appended = [part.family for part in every[P.REV_41_PARTS :]]
+    appended = [part.family for part in rev_42]
     assert appended.index("witness") > max(i for i, f in enumerate(appended) if f != "witness")
+
+
+#: The digests of the first ``REV_42_PARTS`` idents with their file names, and of the seeds of the
+#: first and last replicate of each of their sample parts, at rev 4.2 (head ``956f962d``).
+REV_42_IDENTS = "035433152856f0f163a08a6ecab17ed7a80631dcb9081b6b77f0104d4f5eac79"
+REV_42_SEEDS = "71ed2419bf0fc980ac50325185646cce76b8d71790c803defe47cfe3831b34a4"
+
+
+def test_the_rev_43_parts_append_after_every_rev_42_part() -> None:
+    """Rev 4.3 moves none of the first 3,449 parts; the new families follow in the declared order."""
+    import hashlib
+
+    every = P.parts()
+    assert P.REV_42_PARTS == 3_449
+    idents, seeds = hashlib.sha256(), hashlib.sha256()
+    for part in every[: P.REV_42_PARTS]:
+        idents.update(f"{part.ident}\n{part.filename}\n".encode())
+        if part.family in P.SAMPLE_FAMILIES:
+            start, stop = part.detail
+            for replicate in (start, stop - 1):
+                seeds.update(
+                    f"{part.name}|{replicate}|{D.stream_seed(part.name, replicate)}\n".encode()
+                )
+    assert idents.hexdigest() == REV_42_IDENTS
+    assert seeds.hexdigest() == REV_42_SEEDS
+    new = every[P.REV_42_PARTS :]
+    order = [part.family for part in new]
+    # Four factor-2 scans, then truth_boot, band_boot and f2_c1, each family contiguous.
+    assert order == (
+        ["lawscan"] * 4
+        + ["truth_boot"] * order.count("truth_boot")
+        + ["band_boot"] * order.count("band_boot")
+        + ["f2_c1"] * order.count("f2_c1")
+    )
+    assert [order.count(f) for f in ("lawscan", "truth_boot", "band_boot", "f2_c1")] == [
+        4,
+        92,
+        64,
+        1_376,
+    ]
+    assert len(every) == 4_985
+    scans = [p for p in new if p.family == "lawscan"]
+    assert all(len(p.detail) == 5 and p.detail[4] == D.WALD_REGIME_FACTOR for p in scans)
+    # The S3 truth_boot parts come before S1 and S2.
+    boots = [p.name.split("|")[1].split(":")[0] for p in new if p.family == "truth_boot"]
+    assert boots == sorted(boots, key=lambda study: ("S3", "S1", "S2").index(study))
+    assert len({part.ident for part in every}) == len(every)
+
+
+def test_the_bootstrap_streams_are_the_declared_pilots() -> None:
+    streams = D.bootstrap_streams()
+    by_family = collections.Counter(s.family for s in streams)
+    assert by_family == {"truth_boot": 23, "band_boot": 2, "f2_c1": 43}
+    assert {s.replicates for s in streams if s.family == "truth_boot"} == {400}
+    assert {s.replicates for s in streams if s.family != "truth_boot"} == {3_200}
+    # Only a single-fold, non-MSM scenario bootstraps.
+    for stream in streams:
+        if stream.family == "truth_boot":
+            study, name = stream.scenario
+            scenario = next(s for s in D.scenarios(study) if s.name == name)
+            assert scenario.n_folds == 1 and not scenario.msm
+    assert {s.name for s in streams if s.family == "band_boot"} == {"S1:band_k5", "S2:band_k5"}
+    # The earlier streams are the rev 4.2 ones: f2 keeps the 65 rev 4.2 cells.
+    assert sum(s.family == "f2" for s in D.streams()) == 65
+    # The unmoved cells' rev 4.2 f2 parts are the other half of the F2 reading.
+    assert len(D.unmoved_f2_idents()) == 65 - by_family["f2_c1"]
+    assert all(s.cost() > 0 for s in streams)
+
+
+def test_list_prints_the_cpu_hours_of_each_family(capsys: pytest.CaptureFixture[str]) -> None:
+    P.main(["list", "--family", "lawscan"])
+    out = capsys.readouterr().out
+    assert "lawscan" in out and "CPU-h" in out
+    P.main(["list"])
+    out = capsys.readouterr().out
+    for family in ("truth_boot", "band_boot", "f2_c1"):
+        assert any(line.split()[:1] == [family] for line in out.splitlines()), family
 
 
 def test_the_new_families_are_the_declared_pilots() -> None:
@@ -275,7 +354,7 @@ def test_every_kind_has_a_part_and_the_picker_takes_the_cheapest() -> None:
         same = [p.hours for p in P.parts() if P.kind_of(p) == kind]
         assert P.parts()[index].hours == min(same), kind
     inside = P.pick_kinds(0, P.REV_41_PARTS)
-    assert set(inside) == set(P.KINDS) - {"band"}
+    assert set(inside) == set(P.KINDS) - {"band", "ltmle_boot", "sdr_boot", "band_boot"}
     assert all(index < P.REV_41_PARTS for index in inside.values())
     assert P.pick_kinds(3_300, 3_310).keys() <= {"band", "ltmle"}
 
@@ -432,37 +511,55 @@ def test_merge_reports_a_stopped_reading(
 
 
 # ----------------------------------------------------------------------------- rev 4.2: readings
-def test_the_band_pilot_is_the_property_phases_fit() -> None:
-    """A band pilot replicate equals the property phase's band row on the same sample."""
+def test_the_band_pilots_are_the_property_phases_fits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The rev 4.2 band pilot is the property phase's ``ic_band`` row; ``band_boot`` its band row.
+
+    Both pilots draw one sample.  The sup-t band reads B = 399 resamples; the test cuts that to
+    30 so that the check stays in the fast tier.
+    """
     import dataclasses
     import warnings
 
     from tests.studies import long_horizon_properties as properties
     from tests.studies.evidence.simultaneous import joint_cells
 
+    monkeypatch.setattr(D, "B_GATE", 30)
     stream = next(s for s in D.streams() if s.family == "band" and s.name.startswith("S1"))
+    boot = next(s for s in D.bootstrap_streams() if s.family == "band_boot" and "S1" in s.name)
     small = dataclasses.replace(stream, n=2_000)
+    small_boot = dataclasses.replace(boot, n=2_000)
     drawn = P._draw(small, (0, 11))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        pilot = P._sample_fit(small, (0, 11), drawn)
+        old = P._sample_fit(small, (0, 11), drawn)
+        new = P._sample_fit(small_boot, (0, 11), drawn)
         fit_set = properties.fit_sets("S1")[
             [f.family for f in properties.fit_sets("S1")].index("simultaneous_coverage")
         ]
         rows = properties.fit_key(("S1", fit_set.name, 0, 1, 2_000), drawn)
     band_cell, control_cell = joint_cells("k5")
     by_cell = {row["cell"]: row for row in rows}
+    ic = by_cell[properties.ic_band_cell("k5")]
     assert stream.config is not None
     assert (stream.config.law, stream.n, stream.plans) == (
         fit_set.law,
         fit_set.n,
         fit_set.arms[0].plans,
     )
-    (row,) = pilot
-    assert row["covered"] == by_cell[band_cell]["covered"]
+    assert (boot.config, boot.n, boot.plans) == (stream.config, stream.n, stream.plans)
+    (row,) = old
+    assert row["covered"] == ic["covered"]
     assert row["pointwise_covered"] == by_cell[control_cell]["covered"]
-    assert row["estimate"] == pytest.approx(by_cell[band_cell]["estimate"])
+    assert row["estimate"] == pytest.approx(ic["estimate"])
+    assert row["std_error"] == pytest.approx(ic["std_error"])
+    (row,) = new
+    assert row["covered"] == by_cell[band_cell]["covered"]
+    assert row["ic_covered"] == ic["covered"]
+    assert row["ic_critical"] == pytest.approx(ic["std_error"])
     assert row["std_error"] == pytest.approx(by_cell[band_cell]["std_error"])
+    assert row["pointwise_covered"] == by_cell[control_cell]["covered"]
+    # The bootstrap critical value is the band's own: it is not the IC band's.
+    assert row["std_error"] != pytest.approx(row["ic_critical"])
 
 
 def _band_frame(study: str, coverage: float, replicates: int = 3_200) -> pd.DataFrame:
@@ -572,31 +669,37 @@ def test_the_slope_pass_probability_fails_a_flat_ladder() -> None:
     assert D.slope_pass(rungs, "spread", 1_000, draws=10, bootstrap=500) == 0.0
 
 
-def _truth_frame(estimands: dict[str, float]) -> pd.DataFrame:
-    """Truth-row pilots of S3 ``sdr_policy_k5``: each estimand with its coverage."""
-    stream = next(s for s in D.streams() if s.family == "truth" and s.name == "S3:sdr_policy_k5")
+def _truth_frame(
+    estimands: dict[str, float], family: str = "truth", name: str = "S3:sdr_policy_k5"
+) -> pd.DataFrame:
+    """Truth-row pilots of one scenario: each estimand with its coverage."""
+    streams = D.streams() if family == "truth" else D.bootstrap_streams()
+    stream = next(s for s in streams if s.family == family and s.name == name)
     rng = np.random.default_rng(2)
     frames = []
     for estimand, coverage in estimands.items():
         covered = (rng.random(400) < coverage).astype(int)
-        frames.append(
-            pd.DataFrame(
-                {
-                    "stream": stream.ident,
-                    "replicate": range(400),
-                    "seed": 0,
-                    "n": stream.n,
-                    "estimand": estimand,
-                    "truth": 0.3,
-                    "estimate": 0.3 + rng.normal(0, 0.01, 400),
-                    "std_error": 0.01,
-                    "ci_lower": 0.0,
-                    "ci_upper": 1.0,
-                    "covered": covered,
-                    "failure": "",
-                }
-            )
+        frame = pd.DataFrame(
+            {
+                "stream": stream.ident,
+                "replicate": range(400),
+                "seed": 0,
+                "n": stream.n,
+                "estimand": estimand,
+                "truth": 0.3,
+                "estimate": 0.3 + rng.normal(0, 0.01, 400),
+                "std_error": 0.01,
+                "ci_lower": 0.0,
+                "ci_upper": 1.0,
+                "covered": covered,
+                "failure": "",
+            }
         )
+        if family == "truth_boot":
+            frame["interval"] = "bca" if estimand.endswith("__bca") else "wald"
+            frame["n_failed"] = (np.arange(400) % 40 == 0).astype(int)
+            frame["sparse_warning"] = (np.arange(400) % 10 == 0).astype(int)
+        frames.append(frame)
     return pd.concat(frames, ignore_index=True)
 
 
@@ -605,16 +708,60 @@ def test_the_truth_reading_uses_only_the_gated_rows() -> None:
 
     ``ey_regimen[taper]`` runs at 44,000 in ``sdr_policy_k5`` against an n_kappa of 246,603.  It
     under-covers by design.  With it counted, the truth rows stop; without it they reach 1,200.
+    A Wald row of the scenario is gated only at twice its n_kappa, so ``taper vs low`` (42,420)
+    reports its Wald row and gates its BCa row.
     """
     assert ("S3", "sdr_policy_k5", "ey_regimen[taper]") not in D.GATED_ROWS
-    assert ("S3", "sdr_policy_k5", "ate_regimen[taper vs low]") in D.GATED_ROWS
-    frame = _truth_frame({"ate_regimen[taper vs low]": 0.95, "ey_regimen[taper]": 0.60})
-    lines = P.read_truth(frame)
+    assert ("S3", "sdr_policy_k5", "ate_regimen[taper vs low]") not in D.GATED_ROWS
+    assert ("S3", "sdr_policy_k5", "ate_regimen[taper vs low]__bca") in D.GATED_ROWS
+    gated_wald = next(r for r in D.GATED_ROWS if r[0] == "S3" and not r[2].endswith("__bca"))
+    name = f"S3:{gated_wald[1]}"
+    lines = P.read_truth(
+        _truth_frame({gated_wald[2]: 0.95, "ey_regimen[unlisted]": 0.60}, name=name)
+    )
     assert "S3: 1 gated truth rows, R 1200" in lines
     assert "1 non-gating (stream, estimand) pairs report and set no R" in lines
     # A gated row at the same low coverage does stop the study.
-    stopped = P.read_truth(_truth_frame({"ate_regimen[taper vs low]": 0.60}))
+    stopped = P.read_truth(_truth_frame({gated_wald[2]: 0.60}, name=name))
     assert "S3: 1 gated truth rows, R none -> stop" in stopped
+
+
+def test_the_bootstrapped_truth_reading_gates_the_bca_row_and_counts_failures() -> None:
+    bca = "ate_regimen[taper vs low]__bca"
+    frame = _truth_frame(
+        {bca: 0.95, "ate_regimen[taper vs low]": 0.60, "ey_regimen[taper]__bca": 0.60},
+        family="truth_boot",
+    )
+    lines = P.read_truth_boot(frame)
+    assert "S3: 1 gated bootstrapped truth rows, R 1200" in lines
+    assert any("dropped refits per replicate mean 0.03" in line for line in lines)
+    assert any("SparseInfluenceWarning fires on 0.100" in line for line in lines)
+    # The Wald row below the regime and the ungated mean do not set R: a gated BCa row at low
+    # coverage is the only thing that stops the study.
+    stopped = P.read_truth_boot(_truth_frame({bca: 0.60}, family="truth_boot"))
+    assert "S3: 1 gated bootstrapped truth rows, R none -> stop" in stopped
+
+
+def test_run_refuses_s1_and_s2_truth_boot_until_the_s3_reading_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    every = P.parts()
+    s3 = [p for p in every if p.family == "truth_boot" and p.name.split("|")[1].startswith("S3:")]
+    other = next(p for p in every if p.family == "truth_boot" and p not in s3)
+    assert every.index(s3[-1]) < every.index(other)
+    P.s3_gate(tmp_path, s3[0])
+    with pytest.raises(SystemExit, match="S3 truth_boot parts are missing"):
+        P.s3_gate(tmp_path, other)
+    # With every S3 part present, a stopped S3 reading ends the run and a passing one lets it go.
+    (tmp_path / "parts").mkdir()
+    for part in s3:
+        (tmp_path / "parts" / part.filename).write_text("")
+    monkeypatch.setattr(P, "_read_sample", lambda *args, **kwargs: pd.DataFrame())
+    monkeypatch.setattr(P, "read_truth_boot", lambda frame: ["S3: R none -> stop"])
+    with pytest.raises(SystemExit, match="S3 truth_boot reading stopped"):
+        P.s3_gate(tmp_path, other)
+    monkeypatch.setattr(P, "read_truth_boot", lambda frame: ["S3: R 1200"])
+    P.s3_gate(tmp_path, other)
 
 
 def test_the_f2_reading_prints_each_arms_coverage_and_its_error() -> None:
@@ -641,6 +788,45 @@ def test_the_f2_reading_prints_each_arms_coverage_and_its_error() -> None:
     lines = P.read_f2(frame)
     assert "binomial error" in lines[0]
     assert lines[-1].startswith("S1: k 1 F2 R")
+
+
+def _f2_frame(stream: D.Stream, sparse: int, replicates: int = 800) -> pd.DataFrame:
+    rng = np.random.default_rng(4)
+    return pd.DataFrame(
+        {
+            "stream": stream.ident,
+            "replicate": range(replicates),
+            "seed": 0,
+            "n": stream.n,
+            "estimand": "",
+            "truth": 0.3,
+            "estimate": rng.normal(0.3, 0.01, replicates),
+            "std_error": 0.0101,
+            "ci_lower": 0.0,
+            "ci_upper": 1.0,
+            "covered": (rng.random(replicates) < 0.94).astype(int),
+            "failure": "",
+            "sparse_warning": sparse,
+        }
+    )
+
+
+def test_the_f2_c1_reading_reports_the_sparse_flag_and_joins_the_unmoved_cells() -> None:
+    moved = next(s for s in D.bootstrap_streams() if s.family == "f2_c1" and "S1:" in s.name)
+    unmoved_ident = next(i for i in D.unmoved_f2_idents() if "|S1:" in i)
+    unmoved = next(s for s in D.streams() if s.ident == unmoved_ident)
+    c1 = _f2_frame(moved, sparse=1)
+    lines = P.read_f2_c1(c1)
+    assert any("SparseInfluenceWarning fires on 1.000" in line for line in lines)
+    # A cell whose fit does not carry the flag records -1 and prints no sparse line.
+    assert not any(
+        "SparseInfluenceWarning" in line for line in P.read_f2_c1(c1.assign(sparse_warning=-1))
+    )
+    combined = P.read_f2_combined(_f2_frame(unmoved, sparse=-1), c1)
+    assert combined[-1].startswith("S1: k 2 F2 R")
+    # The moved cell's rev 4.2 f2 stream is not in the joint reading.
+    old = next(s for s in D.streams() if s.family == "f2" and s.name == moved.name)
+    assert P.read_f2_combined(_f2_frame(old, sparse=-1), c1)[-1].startswith("S1: k 1 F2 R")
 
 
 def test_a_per_node_witness_part_reports_the_floors_and_the_fallback() -> None:
