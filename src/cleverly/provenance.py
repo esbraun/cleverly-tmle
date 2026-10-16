@@ -108,9 +108,23 @@ def data_fingerprint(data: CausalData) -> str:
     Returns
     -------
     str
-        The hex digest of the outcome, the treatment and the covariates.
+        The hex digest of the outcome, the treatment and the covariates.  A vector
+        treatment adds its component names and labels, a ``()`` label tuple marking a
+        continuous component, and, with a continuous component, the component values,
+        because :attr:`~cleverly.data.CausalData.treatment` then holds ``NaN`` alone.  A
+        treatment of one column digests exactly what it did before vectors existed.
     """
-    return fingerprint_array(data.outcome, data.treatment, data.covariates)
+    if not data.is_vector_treatment:
+        return fingerprint_array(data.outcome, data.treatment, data.covariates)
+    declared = np.asarray(
+        [
+            repr((name, tuple(levels)))
+            for name, levels in zip(data.component_names, data.component_levels, strict=True)
+        ],
+        dtype=str,
+    )
+    values = () if data.treatment_components is None else (data.treatment_components,)
+    return fingerprint_array(data.outcome, data.treatment, data.covariates, declared, *values)
 
 
 def _version(name: str) -> str:

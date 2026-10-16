@@ -371,9 +371,7 @@ BUILTIN_ALLOWED: dict[tuple[str, str], str] = {
     ("src/cleverly/fluctuation/iterative.py", "the fluctuation has nothing to fit"): "a "
     "statement about the sample: no outcome is observed",
     ("src/cleverly/fluctuation/mechanism.py", "has no mechanism covariate"): _MALFORMED,
-    ("src/cleverly/inference/cluster.py", "Only a fit whose status supplies inference"): (
-        _INTERNAL
-    ),
+    ("src/cleverly/inference/cluster.py", "Only a fit whose status shows an interval"): (_INTERNAL),
     ("src/cleverly/inference/influence.py", "ratio estimands are only defined"): _INTERNAL,
     ("src/cleverly/inference/influence.py", "pass a null inside the transform"): _MALFORMED,
     ("src/cleverly/inference/influence.py", "Call wald_test(null=...)"): _MALFORMED,
@@ -696,8 +694,14 @@ def _evalue_refusal() -> CleverlyError:
     )
 
 
+def _forbidden_read() -> CleverlyError:
+    from cleverly.interventions.policy import ForbiddenRead
+
+    return ForbiddenRead("D2")
+
+
 #: How to build a class whose constructor takes more than the record's parts.
-_ERROR_BUILDERS = {"_EValueRefusal": _evalue_refusal}
+_ERROR_BUILDERS = {"_EValueRefusal": _evalue_refusal, "ForbiddenRead": _forbidden_read}
 
 
 class TestTheErrors:

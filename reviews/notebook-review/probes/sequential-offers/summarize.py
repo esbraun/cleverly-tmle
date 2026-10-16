@@ -13,7 +13,7 @@ from cleverly.datasets import offers_truth
 HERE = Path(__file__).resolve().parent
 TRUTH = offers_truth()
 CONTRASTS = ("discount", "shipping", "win_back", "win_back_ship")
-METHODS = ("ltmle", "sdr", "gcomp", "ipw")
+METHODS = ("ltmle",)
 PAIRS = (("win_back", "discount"), ("win_back", "shipping"), ("win_back_ship", "win_back"))
 frame = pd.read_csv(HERE / "sweep.csv", float_precision="round_trip")
 n = len(frame)
@@ -52,23 +52,41 @@ for method in METHODS:
             f"SD {psi.std(ddof=1):.4f}; mean SE {se.mean():.4f}; ratio {se.mean() / psi.std(ddof=1):.3f}"
         )
 print()
-print("Largest distance from the LTMLE estimate over the four contrasts")
-for method in METHODS[1:]:
-    gap = pd.concat(
-        [
-            (frame[f"{method}_{c}_psi"] - frame[f"ltmle_{c}_psi"]).abs().rename(c)
-            for c in CONTRASTS
-        ],
-        axis=1,
-    ).max(axis=1)
-    print(f"  {method:6s}", spread(gap))
-print()
-print("Distance from the truth, mean absolute error over draws and contrasts")
-for method in METHODS:
-    error = np.mean(
-        [(frame[f"{method}_{c}_psi"] - truth_of(c)).abs().mean() for c in CONTRASTS]
+print("Crude follower contrasts of the association step, against the truth")
+for contrast in CONTRASTS:
+    crude = frame[f"crude_{contrast}_psi"]
+    truth = truth_of(contrast)
+    print(
+        f"  crude  {contrast:14s} bias {crude.mean() - truth:+.4f} "
+        f"(MC SE {crude.std(ddof=1) / np.sqrt(n):.4f}); SD {crude.std(ddof=1):.4f}; "
+        f"below the truth on {count(crude < truth)}"
     )
-    print(f"  {method:6s} {error:.4f}")
+print("Share engaged in week 1 among the followers of each plan, and among all kept customers")
+print("  kept customers:", spread(frame["kept_engaged_week1_share"]))
+for name in ("none", "discount", "shipping", "win_back", "win_back_ship"):
+    print(f"  followers of {name}:", spread(frame[f"crude_{name}_engaged_week1_share"]))
+print(
+    "  followers of none above kept customers:",
+    count(frame["crude_none_engaged_week1_share"] > frame["kept_engaged_week1_share"]),
+)
+print()
+print("Blind outcome regressions: LTMLE and g-computation, same estimands as the main fit")
+for contrast in CONTRASTS:
+    truth = truth_of(contrast)
+    psi, se = frame[f"blind_{contrast}_psi"], frame[f"blind_{contrast}_se"]
+    low, high = frame[f"blind_{contrast}_lo"], frame[f"blind_{contrast}_hi"]
+    blindg = frame[f"blindg_{contrast}_psi"]
+    print(
+        f"  blind LTMLE   {contrast:14s} coverage {count((low <= truth) & (truth <= high))}; "
+        f"bias {psi.mean() - truth:+.4f} (MC SE {psi.std(ddof=1) / np.sqrt(n):.4f}); "
+        f"SD {psi.std(ddof=1):.4f}; mean SE {se.mean():.4f}; ratio {se.mean() / psi.std(ddof=1):.3f}; "
+        f"SE over main SE {(se / frame[f'ltmle_{contrast}_se']).mean():.3f}"
+    )
+    print(
+        f"  blind g-comp  {contrast:14s} bias {blindg.mean() - truth:+.4f} "
+        f"(MC SE {blindg.std(ddof=1) / np.sqrt(n):.4f}); SD {blindg.std(ddof=1):.4f}; "
+        f"largest gap from the crude contrast {np.abs(blindg - frame[f'crude_{contrast}_psi']).max():.2e}"
+    )
 print()
 print("Paired comparisons")
 for better, other in PAIRS:
@@ -96,24 +114,9 @@ print("  minimum Kish ratio:", spread(frame["min_kish_ratio"]))
 print("  minimum followers at any node:", spread(frame["min_followed"]))
 print("  maximum weight:", spread(frame["max_weight"]))
 print("  no weight truncated:", count(frame["max_truncated"] == 0))
+print("  a weight at the cap of 100:", count(frame["max_weight"] >= 100.0 - 1e-9))
 for name in ("none", "discount", "shipping", "win_back", "win_back_ship"):
     print(f"  followers of {name} at week 3:", spread(frame[f"followed_{name}"]))
-print()
-print("Logs unavailable: estimated offer mechanism")
-for contrast in CONTRASTS:
-    truth = truth_of(contrast)
-    low, high = frame[f"nologs_{contrast}_lo"], frame[f"nologs_{contrast}_hi"]
-    shift = frame[f"nologs_{contrast}_psi"] - frame[f"ltmle_{contrast}_psi"]
-    print(
-        f"  {contrast:14s} coverage {count((low <= truth) & (truth <= high))}; "
-        f"estimate minus declared fit: {spread(shift)}"
-    )
-print("  truncation-curve moves, in SEs of the fit:")
-for contrast in CONTRASTS:
-    for bound in (0.02, 0.05, 0.1):
-        move = frame[f"trunc_{contrast}_{bound}"] / frame[f"nologs_{contrast}_se"]
-        print(f"    {contrast:14s} bound {bound}: max |move| {move.abs().max():.3f}; mean {move.mean():+.3f}")
-print("  truncated score cells at 0.1:", spread(sum(frame[f"cells_{c}_0.1"] for c in CONTRASTS)))
 print()
 print("Benchmark: drop engagement from the history of the static plans")
 for contrast in ("discount", "shipping"):

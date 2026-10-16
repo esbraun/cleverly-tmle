@@ -41,6 +41,7 @@ def _derived_risk_ratio(
                 g_bounds_conditional=result.config.g_bounds_conditional,
                 nuisance_bound=result.config.missingness_bound,
                 alpha_sig=result.config.alpha_sig,
+                conditions=result.config.support_conditions,
             )
             reports.append(estimates)
         combined = median_estimates(reports)
@@ -107,8 +108,10 @@ def _risk_ratio_refusal(
             ),
             roadmap="X65",
         )
-    if result.data.is_continuous_treatment:
-        return _invalid("derived risk ratios are unavailable for a continuous treatment.")
+    if not result.data.has_arms:
+        return _invalid(
+            "derived risk ratios are unavailable for a treatment with a continuous dose."
+        )
     if result.config.family != "binomial":
         return _invalid("derived risk ratios require a binomial outcome.")
     method = result.fitted_method

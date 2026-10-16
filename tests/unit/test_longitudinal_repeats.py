@@ -32,10 +32,9 @@ import pytest
 
 import cleverly.longitudinal.estimator as estimator_module
 from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
-from cleverly._refusal import RefusalReason
 from cleverly.assessment import ASSESSMENT_CAPABILITIES, SENSITIVITY_ROUTES
 from cleverly.estimators.serialize import dumps, loads
-from cleverly.exceptions import CapabilityError, MethodConfigurationError
+from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import influence_variance
 from cleverly.inference.delta import Transform
 from cleverly.inference.influence import _median_adjusted_variance, make_estimate
@@ -856,21 +855,82 @@ def test_repeats_need_more_than_one_fold(cls: Any) -> None:
     )
 
 
+def _held_treatment_data() -> LongitudinalData:
+    """A small time-to-event panel with one baseline treatment, which a hazard fit needs."""
+    rng = np.random.default_rng(1)
+    n = 500
+    a = rng.binomial(1, 0.5, n)
+    time = np.full(n, 3)
+    event = np.zeros(n, dtype=int)
+    for i in range(n):
+        for k in (1, 2, 3):
+            if rng.uniform() < 0.15 + 0.1 * a[i]:
+                time[i], event[i] = k, 1
+                break
+    frame = pd.DataFrame({"W1": rng.binomial(1, 0.5, n), "A": a, "time": time, "event": event})
+    return LongitudinalData.from_time_to_event(
+        frame, time="time", event="event", treatment="A", baseline=["W1"], grid=[1, 2, 3]
+    )
+
+
+def _curve_fit(setting: dict[str, Any]) -> Any:
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    hazard = setting.get("survival_model") == "hazard"
+    return _quiet(
+        lambda data, **kwargs: LTMLE({"a1": 1, "a0": 0}, **kwargs).fit(data),
+        _held_treatment_data(),
+        n_folds=2,
+        repeats=3,
+        random_state=1,
+        horizons=[1, 2, 3],
+        outcome_learner=LogisticRegression(max_iter=500) if hazard else LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=500),
+        censoring_learner=LogisticRegression(max_iter=500),
+        **setting,
+    )
+
+
 @pytest.mark.parametrize(
     "setting",
     [
         {"survival_model": "hazard"},
         {"survival_model": "hazard", "targeting": "one_step"},
-        {"survival_model": "hazard", "step_size": 0.01},
         {"isotonic": True},
     ],
-    ids=["hazard", "targeting", "step_size", "isotonic"],
+    ids=["hazard", "one_step", "isotonic"],
 )
-def test_repeats_refuse_the_hazard_and_isotonic_curve_options(setting: dict[str, Any]) -> None:
-    with pytest.raises(MethodConfigurationError) as raised:
-        LTMLE({"always": 1}, repeats=2, n_folds=2, **setting)
-    assert raised.value.refusal.reason is RefusalReason.INFERENCE_GAP
-    assert "repeats=1" in (raised.value.refusal.alternative or "")
+def test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental(
+    setting: dict[str, Any],
+) -> None:
+    """Implemented and unstudied: the fit returns, every estimate says experimental."""
+    result = _curve_fit(setting)
+    assert result.n_repeats == 3
+    assert result.config.support_key.splitting == ("cross_fitted", "repeated")
+    assert {estimate.support.label for estimate in result.estimates.values()} == {"experimental"}
+    for name, estimate in result.estimates.items():
+        values = np.array([draw.estimates[name].inference_value for draw in result.repeats])
+        _close(estimate.inference_value, _central(values))
+    if setting.get("isotonic"):
+        # The limits of a median band have no projection rule, so no band is built, and
+        # the summary says so.
+        assert result.simultaneous is None
+        assert estimator_module.NO_ISOTONIC_REPEAT_BANDS in result.summary()
+        risks = [e.psi for n, e in result.estimates.items() if n.startswith("risk_regimen[a1")]
+        assert risks == sorted(risks)
+    else:
+        assert result.simultaneous is not None
+        assert result.simultaneous.support.label == "experimental"
+
+
+def test_repeats_enter_the_support_key_so_a_single_draw_row_never_covers_them() -> None:
+    """``repeated`` is a splitting flag, as on a point fit, so no single-draw row matches."""
+    single = _fit("ltmle", repeats=1)
+    repeated = _fit("ltmle", repeats=3)
+    assert single.config.support_key.splitting == ("cross_fitted",)
+    assert repeated.config.support_key.splitting == ("cross_fitted", "repeated")
+    assert repeated.config.support_key.differing_axes(single.config.support_key) == ("splitting",)
+    assert {e.support.label for e in repeated.estimates.values()} == {"experimental"}
 
 
 @pytest.mark.parametrize("cls", [LTMLE, SDR, IPSI])
@@ -1227,10 +1287,18 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "treatment_probabilities": _witness(EACH_DRAW, "known"),
     "censoring_probabilities": _witness(EACH_DRAW, "known"),
     "kwargs": _witness(EACH_DRAW, "ipsi"),
-    "survival_model": _witness("test_repeats_refuse_the_hazard_and_isotonic_curve_options"),
-    "targeting": _witness("test_repeats_refuse_the_hazard_and_isotonic_curve_options"),
-    "step_size": _witness("test_repeats_refuse_the_hazard_and_isotonic_curve_options"),
-    "isotonic": _witness("test_repeats_refuse_the_hazard_and_isotonic_curve_options"),
+    "survival_model": _witness(
+        "test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental"
+    ),
+    "targeting": _witness(
+        "test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental"
+    ),
+    "step_size": _witness(
+        "test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental"
+    ),
+    "isotonic": _witness(
+        "test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental"
+    ),
 }
 
 _READERS = _witness("test_readers_report_the_combined_estimates")

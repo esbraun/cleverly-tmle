@@ -1,0 +1,43 @@
+name: cancel-closed-pr-runs
+
+# `ci.yml` already cancels an older run of the same pull request when a new commit arrives
+# (its concurrency group is the ref). That does not stop the runs of the last commit once the
+# pull request merges or closes, so they keep a runner busy for the whole job. This workflow
+# cancels them. It never touches a run on `main`: it selects only `pull_request` runs on the
+# head branch of the pull request that just closed.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  actions: write
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel queued and in-progress runs of the closed pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          CURRENT_RUN: ${{ github.run_id }}
+        run: |
+          # A fork's branch name can collide with a branch here, so act on same-repo pull requests only.
+          if [ "$HEAD_REPO" != "$REPO" ] || [ "$HEAD_REF" = "main" ]; then
+            echo "Nothing to cancel."
+            exit 0
+          fi
+          for status in queued in_progress waiting; do
+            gh api --paginate \
+              "repos/$REPO/actions/runs?event=pull_request&status=$status&branch=$HEAD_REF&per_page=100" \
+              --jq '.workflow_runs[] | select(.head_branch == env.HEAD_REF) | .id' |
+            while read -r run_id; do
+              [ "$run_id" = "$CURRENT_RUN" ] && continue
+              echo "Cancelling run $run_id"
+              gh api -X POST "repos/$REPO/actions/runs/$run_id/cancel" || true
+            done
+          done

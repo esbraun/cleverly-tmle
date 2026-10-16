@@ -20,10 +20,12 @@ from .._inference_status import (
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
     InferenceStatus,
+    is_labelled,
     status_record,
     supplies_inference,
 )
-from .._refusal import NO_ALTERNATIVE
+from .._refusal import NO_ALTERNATIVE, Refusal
+from .._support import Classification, SupportKey
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
 from ..exceptions import (
@@ -51,6 +53,8 @@ from ..inference.influence import (
     reference_label,
     spread_name,
     stamp_inference,
+    support_column,
+    support_notes,
 )
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
@@ -189,6 +193,14 @@ class TMLEConfig:
     #: Defaulted so that every existing construction and ``dataclasses.replace`` keeps
     #: working untouched.
     crossfit: CrossFitPlan = field(default_factory=CrossFitPlan)
+    #: The support key the fit was classified under, read before any learner ran. Saved
+    #: with the result, so a result read back from disk says what its label rested on.
+    #: ``None`` on a config built outside a classified fit.
+    support_key: SupportKey | None = None
+    #: The group-A conditions the fit met when it was preflighted. Saved with the result, so a
+    #: retarget of the fit's nuisances labels its estimates with the conditions of the fit
+    #: instead of preflighting again on data that may have changed.
+    support_conditions: tuple[Refusal, ...] = ()
 
     # Read-through to the spec, so the settings appear once and cannot drift.
     @property
@@ -422,7 +434,10 @@ class CVTargeting:
         return {name: float(np.sqrt(value)) for name, value in self.variance.items()}
 
     def stamped(
-        self, status: InferenceStatus, reference: ClusterReference | None = None
+        self,
+        status: InferenceStatus,
+        reference: ClusterReference | None = None,
+        classification: Classification | None = None,
     ) -> CVTargeting:
         """This report with both fold-level reports declaring ``status``.
 
@@ -437,6 +452,8 @@ class CVTargeting:
             The rows each estimate reads on a clustered fit, which set the Student t
             reference of an inferential estimate. The fold-evaluated report reads it with
             :meth:`~cleverly.inference.influence.ClusterReference.with_fold_evaluated`.
+        classification : Classification or None, default=None
+            The classification of the fit, which gives each estimate its support.
 
         Returns
         -------
@@ -452,23 +469,25 @@ class CVTargeting:
         )
         return replace(
             self,
-            pooled=stamp_inference(self.pooled, status, reference),
-            fold_evaluated=stamp_inference(self.fold_evaluated, status, fold_reference),
+            pooled=stamp_inference(self.pooled, status, reference, classification),
+            fold_evaluated=stamp_inference(
+                self.fold_evaluated, status, fold_reference, classification
+            ),
         )
 
     def to_frame(self, data: CausalData | None = None) -> Any:
         """One row per estimand: both reports, the CV standard error and the spread.
 
         The two standard-error columns take their names from
-        :func:`~cleverly.inference.influence.spread_name`. At a non-inferential status
-        the frame also carries an ``inference`` column naming it, and the columns read
-        ``cv_plugin_std_err`` and ``pooled_plugin_std_err``.
+        :func:`~cleverly.inference.influence.spread_name`. At a labelled status the frame
+        also carries an ``inference`` column naming it. At a status that withholds its
+        interval the columns read ``cv_plugin_std_err`` and ``pooled_plugin_std_err``.
         """
         names = list(self.variance)
         errors = self.plugin_std_error
         status = self.inference
         payload: dict[str, Any] = {"estimand": names}
-        if not supplies_inference(status):
+        if is_labelled(status):
             payload["inference"] = [status for _ in names]
         payload |= {
             "fold_evaluated_psi": [self.fold_evaluated[name].psi for name in names],
@@ -531,6 +550,8 @@ class CVTargeting:
         if not supplies_inference(status):
             # The fit's own sentence, as ``TMLEResult.summary`` prints it under its table.
             header.append(status_record(status).reason)
+        elif is_labelled(status):
+            header.append(f"experimental: {status_record(status).shown_reason}")
         header.append("")
         epsilon_lines = ["", "common fluctuation coefficients:"]
         for group, eps in self.epsilon.items():
@@ -1544,10 +1565,15 @@ class TMLEResult:
         t_reference = has_t_reference(self.estimates)
         rows = []
         record = status_record(status) if diagnostic else None
+        support_cells = support_column(self.estimates)
         if record is not None:
             for name, estimate in self.estimates.items():
                 rows.append([name, f"{estimate.psi:.5g}", f"{estimate.plugin_std_error:.4g}"])
-            table = format_table(["estimand", "psi", record.summary_label], rows)
+            headers = ["estimand", "psi", record.summary_label]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
         else:
             for name, estimate in self.estimates.items():
                 if not estimate.supplies_inference:
@@ -1575,19 +1601,24 @@ class TMLEResult:
                         *([reference_label(estimate)] if t_reference else []),
                     ]
                 )
-            table = format_table(
-                [
-                    "estimand",
-                    "psi",
-                    "std_err",
-                    f"{level} CI",
-                    "p_value",
-                    *(["df"] if t_reference else []),
-                ],
-                rows,
-            )
+            headers = [
+                "estimand",
+                "psi",
+                "std_err",
+                f"{level} CI",
+                "p_value",
+                *(["df"] if t_reference else []),
+            ]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
 
         parts = [*header, *facts, "", table]
+        notes = support_notes(self.estimates)
+        if notes:
+            parts.append("")
+            parts.extend(notes)
         if t_reference:
             parts.append("")
             assert data.cluster is not None
@@ -1648,7 +1679,8 @@ class TMLEResult:
             parts.append(
                 f"simultaneous {level} bands (multiplier bootstrap, "
                 f"critical value {self.simultaneous.critical_value:.3f} vs "
-                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise):"
+                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise)"
+                f"{' [experimental]' if self.simultaneous.support.label == 'experimental' else ''}:"
             )
             for name, (low, high) in self.simultaneous.bands.items():
                 parts.append(f"  {name:<5s} [{low:.5g}, {high:.5g}]")
@@ -1895,6 +1927,21 @@ def _arm_shares(data: CausalData) -> str:
     it reports the dose's range: an empty ``arm shares:`` reads as a broken table rather
     than as an inapplicable question.
     """
+    if data.treatment_kind == "vector":
+        columns = data._component_columns()
+        parts: list[str] = []
+        for name, levels in zip(data.component_names, data.component_levels, strict=True):
+            values = columns[name]
+            if levels:
+                listed = ", ".join(
+                    f"{level}={float(np.average(values == level, weights=data.weights)):.3g}"
+                    for level in levels
+                )
+                parts.append(f"{name}: {listed}")
+            else:
+                dose = np.asarray(values, dtype=float)
+                parts.append(f"{name}: range [{dose.min():.3g}, {dose.max():.3g}]")
+        return "vector treatment -- " + "; ".join(parts)
     if data.is_continuous_treatment:
         dose = np.asarray(data.treatment, dtype=float)
         mean = float(np.average(dose, weights=data.weights))

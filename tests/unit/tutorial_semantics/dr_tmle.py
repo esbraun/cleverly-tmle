@@ -26,25 +26,13 @@ NOTEBOOK = EXAMPLES / "dr-tmle.ipynb"
 
 COVARIATES = ("discharge_risk", "prior_utilization", "medication_burden", "age")
 
-_PROBE = "reviews/notebook-review/probes/dr-tmle-known/summary.log"
-
-#: Decimals the readings write that no stored output prints, each with its source.
-UNPRINTED_DECIMALS = {
-    "-0.0008": f"ordinary TMLE mean estimate minus the truth, 200 draws: {_PROBE}",
-    "-0.0003": f"DR-TMLE mean estimate minus the truth, 200 draws: {_PROBE}",
-    "0.0087": f"empirical SD of both estimators, 200 draws: {_PROBE}",
-    "0.0093": f"ordinary TMLE mean SE, 200 draws: {_PROBE}",
-    "0.0092": f"DR-TMLE mean SE, 200 draws: {_PROBE}",
-    "1.06": f"mean SE over empirical SD for both estimators, 200 draws: {_PROBE}",
-}
-
 
 def check(namespace: dict[str, Any]) -> None:
     """The DR-TMLE tutorial's seeded claims hold at the documented size.
 
     The page declares the law's true propensity as a known mechanism and fits a wrong outcome
-    regression in sample.  It claims an exact reduction to the ordinary estimator, a guard table
-    in which every extra equation moves the estimate, passing score and correction reports with
+    regression in sample.  It claims an exact reduction of the empty guard to the ordinary
+    estimator, a default guard that changes the fit, passing score and correction reports with
     no active truncation, score checks that also pass for constant reductions, a support report
     that reads the declared mechanism, and an approximate E-value on the DR-TMLE fit.
     """
@@ -62,7 +50,7 @@ def check(namespace: dict[str, Any]) -> None:
     g0 = nonlinear_bounded_dgp().propensity(frame.loc[:, list(COVARIATES)].to_numpy(dtype=float))
     np.testing.assert_array_equal(frame["offer_probability"].to_numpy(), g0)
     np.testing.assert_array_equal(frame["usual_probability"].to_numpy(), 1.0 - g0)
-    # "the true propensity lies between 5% and 95%"
+    # "The logged offer probability lies between 0.050 and 0.876."
     assert g0.min() >= 0.05 and g0.max() <= 0.95
 
     # Step 3: the unadjusted arm difference exceeds the ATE, and the arms differ on risk.
@@ -96,17 +84,15 @@ def check(namespace: dict[str, Any]) -> None:
     truth = namespace["truth"]["ate"]
     assert covers(guarded, truth)
 
-    # Step 7: "each guard moves the estimate", and "Every interval contains the true ATE".
-    # The nonzero witness for each extra equation: no guard reproduces another's estimate.
-    by_guard = namespace["by_guard"]
-    estimates = [by_guard[guard]["ate"].psi for guard in [(), ("g",), ("Q",), ("Q", "g")]]
-    assert len(set(estimates)) == 4
-    assert all(covers(by_guard[guard]["ate"], truth) for guard in by_guard)
-    # "the default guard moves it by -0.30 ordinary standard errors, and the standard-error
-    # ratio is 0.91."
-    shift = (guarded.psi - ordinary.psi) / ordinary.std_error
-    assert -0.35 < shift < -0.25
-    assert 0.89 < guarded.std_error / ordinary.std_error < 0.93
+    # Step 7: "Both intervals contain the true ATE", and DR-TMLE's interval is narrower on this draw.
+    assert covers(ordinary, truth)
+    assert guarded.std_error < ordinary.std_error
+
+    # Step 8: the exact reduction, and the nonzero witness that the default guard changes the fit.
+    identity = stored_output(NOTEBOOK, "identity")
+    assert re.search(r"guard \(\) equals the ordinary TMLE:\s+True", identity)
+    assert re.search(r"guard \('Q', 'g'\) equals the ordinary TMLE:\s+False", identity)
+    assert guarded.psi != ordinary.psi
 
     # The failure mode: constant reductions pass every score check, as the fitted ones do.
     crude_fit = namespace["crude_fit"]
@@ -131,7 +117,8 @@ def check(namespace: dict[str, Any]) -> None:
     for operation in OMITTED_VARIABLE_OPERATIONS:
         assert str(ledger.loc[("sensitivity", operation)]) == "unavailable"
         assert not re.search(rf"sensitivity\s+{operation}\b", stored)
-    assert "unavailable" not in stored and "not_applicable" not in stored
+    status_table = stored.split("Correction check")[0]
+    assert "unavailable" not in status_table and "not_applicable" not in status_table
     assert str(ledger.loc[("sensitivity", "evalue")]) == "completed"
     assert re.search(r"sensitivity\s+evalue\s+completed", stored)
     assert re.search(r"refute\s+deferred", stored)
@@ -143,8 +130,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert "treatment mechanism known (declared)" in stored
     assert f"most extreme untruncated g(W) = {g0.min():.6f}" in stored
 
-    nuisance = assessment.report("nuisance_models")
-    assert "look reasonable" in nuisance.summary()
+    # "the verdict reads `nuisance fits look reasonable`" for an outcome model wrong by construction.
+    assert "nuisance fits look reasonable" in stored
 
     # Step 10: the approximate E-value of the DR-TMLE fit, and the printed conversion chain.
     evalue = namespace["evalue"]

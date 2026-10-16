@@ -344,6 +344,7 @@ from .._inference_status import (
     precedent_status,
     status_record,
 )
+from .._support import Preflight, record_refusal_site
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError, DataWarning, Refusal, RefusalReason
@@ -675,10 +676,7 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
     "alpha_sig": (_anything, "any value"),
     "n_bootstrap": (_anything, "any value; the bootstrap range is a diagnostic"),
     "bootstrap_resampling": (_anything, "any value"),
-    "simultaneous": (
-        lambda v: v is False,
-        "simultaneous=False; X58 part (b) holds the band",
-    ),
+    "simultaneous": (_anything, "any value; no band is built, and X58 part (b) holds it"),
     "n_multiplier": (_anything, "any value; no band"),
     "multiplier_kind": (_anything, "any value; no band"),
     "step_size": (_anything, "any value; the logistic fluctuation ignores it"),
@@ -777,6 +775,18 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
     for name, admits_data, text in _PER_ARM_PARAMETRIC_DATA:
         if not admits_data(data):
             return SupportVerdict(False, name, f"the stacked interval needs {text}")
+    arm_columns = data.n_arms - 1
+    outcome = estimator.outcome_learner
+    # The option allow-list above admits exactly ParametricOutcome; the type check keeps this
+    # data check independent of that list.
+    if isinstance(outcome, ParametricOutcome) and outcome.arm_columns != arm_columns:
+        return SupportVerdict(
+            False,
+            "outcome_learner",
+            f"the stacked interval needs ParametricOutcome(arm_columns={arm_columns}), the "
+            f"{arm_columns} arm indicator column(s) of the design; got arm_columns="
+            f"{outcome.arm_columns!r}",
+        )
     if data.family != "binomial" and estimator.q_bounds is None:
         return SupportVerdict(
             False,
@@ -831,6 +841,29 @@ _DISCRETE_TREATMENT_REFUSAL = Refusal(
     alternative="Fit TMLE on the continuous dose.",
     roadmap="F5",
 )
+
+
+def vector_discrete_treatment_refusal(treatment: str) -> Refusal:
+    """Why CTMLE refuses a vector treatment with a continuous component.
+
+    Parameters
+    ----------
+    treatment : str
+        The treatment name.
+
+    Returns
+    -------
+    Refusal
+        The continuous-dose record with the vector's name in front.
+    """
+    return replace(
+        _DISCRETE_TREATMENT_REFUSAL,
+        condition=(
+            f"treatment {treatment!r} is a vector with a continuous component. "
+            + _DISCRETE_TREATMENT_REFUSAL.condition
+        ),
+    )
+
 
 #: Why CTMLE refuses ``policies=``.  Checked before the continuous-dose refusal, because a
 #: shift declares its treatment a dose even when the column holds two arms, and the dose
@@ -1726,7 +1759,14 @@ default="greedy"
             _REQUESTED.reset(token)
         if report is None or not report.failures:
             return estimates
-        held = {f"ey{arm:g}" for arm in data.arm_codes if float(arm) not in report.failures}
+        # An arm mean has two reported forms: ``ey1`` from the arm-code targets and
+        # ``ey[<label>]`` from the ``ey`` target. Both name the arm they read.
+        held = {
+            name
+            for arm in data.arm_codes
+            if float(arm) not in report.failures
+            for name in (f"ey{arm:g}", parameter_name("ey", arm=data.arm_label(arm)))
+        }
         warnings.warn(
             "the stacked per-arm interval failed on this sample: "
             + "; ".join(
@@ -1747,16 +1787,14 @@ default="greedy"
             for name, estimate in estimates.items()
         }
 
-    def _bootstrap_inferential(self, data: CausalData) -> bool:
-        """Whether the full-refit bootstrap interval is published as inference.
+    def _bootstrap_diagnostic(self, data: CausalData) -> bool:
+        """Whether the full-refit bootstrap interval is a diagnostic.
 
-        ``False`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
+        ``True`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
         Cai and van der Laan (2020) gives the influence curve of a superefficient estimator,
         and it does not cover the bootstrap of that estimator. On a selector strategy, no
-        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The registered
-        study ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary
-        point-treatment :class:`~cleverly.TMLE` only. The percentile range prints as a
-        diagnostic.
+        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The percentile
+        range prints as a diagnostic.
 
         Parameters
         ----------
@@ -1766,10 +1804,32 @@ default="greedy"
         Returns
         -------
         bool
-            ``False``.
+            ``True``.
         """
         del data
-        return False
+        return True
+
+    def _builds_default_band(self, data: CausalData) -> bool:
+        """Whether ``simultaneous=True`` builds a band; ``False`` on an admitted per-arm fit.
+
+        X58 part (b) holds the band over the stacked curves, and no registered study measures
+        it yet. The fit reports its pointwise intervals, and its summary says that no band is
+        built.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data the estimates are fitted on.
+
+        Returns
+        -------
+        bool
+            ``False`` when :func:`per_arm_parametric_support` admits the fit, else the
+            inherited answer.
+        """
+        if self.strategy == "oat" and per_arm_parametric_support(self, data).admitted:
+            return False
+        return super()._builds_default_band(data)
 
     def _admits_natural_course_with_missing(self) -> bool:
         """Whether this fit may target the natural course with missing outcomes.
@@ -3066,7 +3126,7 @@ default="greedy"
         configured.ordering = (*declared, *added)
         return configured
 
-    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+    def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
         """Resolve targets, and refuse the designs a collaborative search has no result for.
 
         Runs before any split is drawn, so a refused design pays for no fold generation
@@ -3110,6 +3170,9 @@ default="greedy"
                     "cluster-robust variance of the candidate the search then stops at"
                 )
             )
+            record_refusal_site(
+                "ctmle.clustered", RefusalReason.IMPLEMENTATION_GAP, "F22", flagged=True
+            )
             raise CapabilityError(
                 f"C-TMLE has no clustered result. {reason}. docs/roadmap.md X51 tracks the "
                 "point estimate with a cluster as the unit, and docs/roadmap.md F22 the "
@@ -3135,7 +3198,7 @@ default="greedy"
         """
         if self.policies:
             raise CapabilityError.from_refusal(_POLICIES_REFUSAL)
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
         if self.interventions:
             raise CapabilityError.from_refusal(_REGIME_REFUSAL)
@@ -3144,7 +3207,7 @@ default="greedy"
         super()._check_policies(data)
 
     def _check_estimands(self, data: CausalData) -> None:
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
         if data.has_intermediate:
             raise CapabilityError(

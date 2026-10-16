@@ -102,11 +102,12 @@ The test fails on four states.
 | [`F1-power-design`](../../roadmap.md#red-cell-owners) | 1 | ordinary known stochastic categorical longitudinal TMLE |
 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) | 1 | longitudinal modified treatment policies |
 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) | 1 | ordinary point modified treatment policies |
+| [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) | 1 | longitudinal incremental propensity-score interventions under dropout |
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 172 | 31 studies |
+| total | 173 | 32 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -184,6 +185,7 @@ same text as the "measured" column of its study page.
 | [longitudinal modified treatment policies](longitudinal-modified-treatment-policies.md) | property | `interval_calibration/categorical_mtp__correctly_specified` | positive | its own rule | coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to 1.1006 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) |
 | [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `sequential_double_robustness/both_correct__n_2000` | positive | its own rule | bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459 | [`X4-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `simultaneous_coverage/six_regimens__simultaneous_band` | positive | its own rule | joint coverage 0.9085 to 0.9394 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
+| [longitudinal incremental propensity-score interventions under dropout](longitudinal-incremental-interventions-dropout.md) | property | `interval_calibration/competing_contrast_x2_h3__correctly_specified` | positive | its own rule | coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, empirical efficiency ratio 0.9239 to 0.9884, reported efficiency ratio 1.0005 to 1.0007 | [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[always]` | paired | underpowered: coverage leg, calibration leg, calibration resolution | difference -0.000150 to 0.000202 within 0.0031, RMSE ratio bound 1.0162 vs 1.1000, coverage difference bound -0.0475 vs -0.0250, calibration excess bound 0.1050 vs 0.0500, resolution 0.1121 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[never]` | paired | underpowered: coverage leg, calibration resolution | difference -0.000350 to 0.000263 within 0.0047, RMSE ratio bound 1.0245 vs 1.1000, coverage difference bound -0.0300 vs -0.0250, calibration excess bound 0.0465 vs 0.0500, resolution 0.0662 | [`RM18-fixed-weights`](../../roadmap.md#red-cell-owners) |
 | [cross-fitted weighted end-of-study longitudinal TMLE](cross-fitted-weighted-end-of-study-longitudinal-tmle.md) | paired | `selected_censored_end_of_study/ey_regimen[treat then continue if l2 positive]` | paired | underpowered: coverage leg, calibration resolution | difference -0.000118 to 0.000400 within 0.0032, RMSE ratio bound 1.0175 vs 1.1000, coverage difference bound -0.0425 vs -0.0250, calibration excess bound 0.0382 vs 0.0500, resolution 0.1119 | [`RM18-boundary`](../../roadmap.md#red-cell-owners) |
@@ -304,6 +306,7 @@ row. A move to `gated` is a separate registry decision.
 | [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 31 | 0 |
 | [C-TMLE0 derivative covariate](ctmle-derivative.md) | 24 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
+| [vector modified treatment policies](vector-modified-treatment-policies.md) | 56 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
 | [point-treatment survival, per-horizon hazard targeting](point-survival-hazard.md) | 39 | 0 |
 | [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 46 | 0 |

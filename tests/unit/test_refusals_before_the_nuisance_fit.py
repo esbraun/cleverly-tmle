@@ -553,21 +553,11 @@ MOVED: dict[str, tuple[Callable[[], Any], str]] = {
         ),
         "the composite-indicator DR-TMLE for an observational missing outcome or treatment",
     ),
-    "DRTMLE missing outcomes, weighted": (
-        lambda: _missing_drtmle(_trial(120).assign(wt=np.linspace(0.5, 1.5, 120)), weights="wt")(),
-        "missing-outcome DRTMLE is not certified for a weight-tilted target law",
-    ),
     "DRTMLE missing outcomes, evaluation=": (
         lambda: DRTMLE(
             randomized=True, estimands=("ate",), evaluation=_trial(40), **drtmle_spies()
         ).fit(_trial(120), outcome="Y", treatment="A", covariates=["W1", "W2"], delta="Delta"),
         "missing-outcome DRTMLE supports the published pooled construction only",
-    ),
-    "DRTMLE missing outcomes, three arms, weighted": (
-        lambda: _missing_drtmle(
-            _three_arms().assign(wt=np.linspace(0.5, 1.5, 120)), weights="wt"
-        )(),
-        "missing-outcome DRTMLE is not certified for a weight-tilted target law",
     ),
     "DRTMLE missing outcomes, three arms, evaluation=": (
         lambda: DRTMLE(

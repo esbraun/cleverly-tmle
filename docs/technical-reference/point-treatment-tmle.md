@@ -30,7 +30,7 @@ Reach for a different entry in four cases.
 Three worked applied analyses cover this entry. The
 [point-treatment tutorial](../examples/point-treatment-tmle.ipynb) is the main one, and it also
 demonstrates the conditional-population effects below. The intervention axes have their own
-tutorial in [intervention axes](../examples/interventions.ipynb). Missing outcomes have theirs in
+tutorial, [choosing a navigation policy](../examples/interventions.ipynb). Missing outcomes have theirs in
 [survey non-response](../examples/survey-nonresponse.ipynb).
 
 ## The algorithm as implemented
@@ -341,9 +341,9 @@ fluctuation, so it is a named request. The refusals keep their reasons:
 | composition | reason |
 | --- | --- |
 | `DRTMLE`, `CTMLE` other than the per-arm `oat` design | no DR-TMLE natural-course mean ships, and no selector-based or shared-design collaborative one. The per-arm `oat` design reports a point estimate. Its observation factor is `P(Delta = 1 \| A, Qbar(A, W))`, read at the realised arm ([collaborative TMLE](collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design)). `DRTMLE(guard=())` is the ordinary TMLE, and the message says to use `TMLE`. [X50](../roadmap.md#x50-further-dr-tmle-compositions) part (c) tracks the DR-TMLE natural-course mean, and [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) part (a) the C-TMLE point estimates |
-| stacked PAR, PAF, or `ey_obs` beside arm targets, with baseline strata | the arm-indexed stacked contract refuses strata. The finite-partition step qualifies, and it needs a witness and a registered cell ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)). The scalar stacked `ey_obs` and every in-sample fit admit strata |
-| `n_bootstrap > 0` | the package does not implement a bootstrap for this fit. [X55](../roadmap.md#x55-bootstrap-extensions) part (a) holds the in-sample fit, and [F2](../roadmap.md#f2-targeted-bootstrap-inference) the stacked fit |
-| stacked `weights=` or `id=`, stacked continuous outcome, fold targeting, fold evaluation, repeats | the stacked contracts cover unweighted iid rows and a binary outcome ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) parts (a), (b) and (e)) |
+| stacked PAR, PAF, or `ey_obs` beside arm targets, with baseline strata | the arm-indexed stacked contract runs baseline strata under the experimental label. The finite-partition step qualifies, and it needs a witness and a registered cell ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)) |
+| `n_bootstrap > 0` | the fit runs and carries the experimental label. [X55](../roadmap.md#x55-bootstrap-extensions) part (a) holds the in-sample fit, and [F2](../roadmap.md#f2-targeted-bootstrap-inference) the stacked fit |
+| stacked `weights=` or `id=`, stacked continuous outcome, fold evaluation, repeats | the fit runs and carries the experimental label. The stacked contracts cover unweighted iid rows and a binary outcome ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) parts (a), (b) and (e)). Fold targeting stays refused |
 
 The registered
 [missing-outcome attributable-effect TMLE study](method-evidence/missing-outcome-attributable-effects-tmle.md)
@@ -1010,6 +1010,126 @@ Hoffman and Schenck (2023). Implementation:
 [`learners/density.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/learners/density.py),
 and
 [`fluctuation/submodel.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/fluctuation/submodel.py).
+
+### Vector treatments
+
+A vector treatment holds several treatment columns. Díaz, Williams, Hoffman and Schenck (2023),
+Section 2, let the treatment be a vector $A = (C, D)$. The components $C$ are categorical and the
+components $D$ are continuous. Theorem 1 identifies the policy mean for such a vector.
+
+Hoffman et al. (2024), Introduction, name interventions on several exposures at once. This
+section covers the point treatment. The
+[longitudinal section](longitudinal-tmle.md#vector-nodes-with-a-continuous-component) covers a
+node of `LTMLE` and `SDR`.
+
+| declaration | what `CausalData` stores | what the fit reports |
+| --- | --- | --- |
+| `treatment=["A1", "A2"]`, all columns categorical | one categorical treatment over the observed tuples. Each tuple is a level, and there are at most 20 | every estimand of a categorical treatment, with tuple levels. `policies=` takes a `JointPolicy` or a `ModifiedPolicy` that maps tuples |
+| `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, and nothing else |
+
+`from_arrays` and `PointTreatment` take the same two keywords. A vector names two or more
+distinct columns. `treatment_kind=` describes a treatment of one column, so a vector refuses it.
+The treatment name joins the columns with `+`.
+
+A vector with a dose has no arms. Every reader of an arm raises `CapabilityError`, and the
+message names `TMLE(policies=[JointPolicy(...)])`. An all-categorical vector is one categorical
+treatment, so it has arms and every arm-indexed estimand runs. A level is a tuple, and
+`ey[(1, 2.0)]` is the mean when the intervention sets every component. The fit of every default
+estimand equals the fit of the same data with the tuples pre-combined into one column
+(`tests/unit/test_point_vector_treatment.py`, W12).
+
+**The policy.** `JointPolicy(name, components={column: policy}, policy_kind="known")` declares
+one policy for each component. A component that `components` leaves out keeps its natural value.
+The table gives the policy classes and what each map reads. A read of any other component raises
+`DataError`, and `h.get(...)` counts as a read.
+
+| component | policy | what the map reads |
+| --- | --- | --- |
+| dose | `Shift`, `Scale`, `Piecewise`, or a `ModifiedPolicy` with `pieces` | the covariates, the natural values of the categorical components, and the natural values of the doses before it in `order` |
+| categorical | a `ModifiedPolicy` with `apply`, an arithmetic map on numeric labels, or a `RiskRatioTilt` on a component coded 0 and 1 | the covariates and the natural values of every other component, doses included |
+
+`order=` lists the doses, and it defaults to the column order. A dose map reads only the doses
+before it in `order`. A map that reads a later dose raises `DataError`, and the message names an
+`order` that resolves the read. Maps that read each other in a cycle are refused.
+
+A dose map reads the natural flag, as the vector shift of `lmtp` does. It does not read the flag
+that the policy assigns. `tests/unit/test_point_vector_treatment.py` (W4) sets the flag and gates
+the dose on the natural flag. The law makes that estimand differ by more than $10^{-2}$ from the
+estimand of a map that reads the assigned flag. A mutation that reads the assigned flag fails the
+witness (M3, `tests/unit/test_point_vector_mutations.py`).
+
+A `Randomizer` may sit on the `JointPolicy` or on one component. The component randomizers are
+independent. The fit reads them as one joint randomizer over the product of their values, with the
+product of their probabilities. A `RiskRatioTilt` of a binary component desugars to the two-point
+randomizer that `lmtp::ipsi` draws, and it joins that product
+(`tests/unit/test_vector_component_randomizer.py`).
+
+**The ratio.** `ratio=` selects the route, and the default is `"density"`. The ratio is the joint
+ratio $g^d(a \mid w) / g(a \mid w)$ at the observed vector.
+
+| route | how the fit finds the ratio | what it needs |
+| --- | --- | --- |
+| `ratio="density"` | the chain rule. The fit estimates the law of the categorical components, then a pooled-hazard density for each dose in `order`. The induced density sums over the categorical preimages and applies Equation (3) of Díaz et al. (2023) to each dose in turn | the dose maps are strictly monotone piecewise maps with a declared inverse and derivative. Each map reads the doses before it in `order` and never a later one |
+| `ratio="classifier"` | the stacked classification of Section 5.4 of Díaz et al. (2023). The design holds the covariates, an indicator for each categorical component, and the raw doses | the ratio exists and is bounded. The fit never evaluates a map's inverse |
+
+The density of the induced law at $(c', b)$ is
+$g^d(c', b \mid w) = \sum_c \sum_j 1\{d^C(c, \beta, w) = c'\}\, 1\{\beta_k \in I_{j_k}\}\,
+g(c, \beta \mid w) \prod_k |\partial \beta_k / \partial b_k|$. Here $\beta = \beta(c, b)$ is the
+preimage of $b$ along the pieces $j$, computed one dose at a time in `order`. The sum counts every
+categorical cell $c$ that the policy sends to $c'$. The module docstring of
+`cleverly/interventions/joint_density.py` gives the derivation. The identity piece of a capped or
+uncovered dose is an explicit piece with inverse and derivative one. A shortcut that gives it the
+ratio one is wrong when the cell or an earlier dose moved (W17, M14).
+
+The fit checks the declarations before any learner. The checks run on each frame that the ratio
+evaluates, which includes each candidate cell and each preimage of an earlier dose. A check
+covers the partition of the pieces, strict monotonicity, the inverse, the derivative, and the
+level of each categorical map. A `PositivityWarning` reports a dose that a policy assigns outside
+the doses observed in the cell it sends a unit to. Positivity needs this: when the categorical
+map moves a unit from cell $c$ to $c'$, the assigned dose must lie in the support of the dose in
+$c'$.
+
+**Bounds, cells and memory.** The density route bounds the mechanism of the categorical
+components with `g_bounds`. The classifier route cannot split the ratio, so `g_bounds` does not
+reach it. With a dose independent of the flag, a flag-only policy at the vector equals the
+categorical fit of the flag with the bound binding
+(`test_m1_a_flag_only_policy_equals_the_categorical_fit_with_the_bound_binding` in
+`tests/unit/test_vector_density_route.py`).
+The density route refuses a categorical cell that a training fold lacks, before any learner, and
+its message names `ratio='classifier'`. The route also counts the counterfactual designs before it
+allocates them. It raises `MethodConfigurationError` when they do not fit in the memory.
+
+**What composes.** The table lists each composition and its evidence. The fit equals the fit of
+the same data read as a scalar dose, where that reading exists
+(`test_h1_every_reader_of_a_vector_result_equals_its_scalar_reading`).
+
+| composition | status | evidence |
+| --- | --- | --- |
+| weights, clusters with `id=`, cross-fitting | supported. Integer weights equal the expanded sample, a cluster stays whole, and the classifier folds split units, not stacked rows | `tests/unit/test_point_vector_treatment.py`, on the classifier route |
+| `delta=`, `strata=`, `intermediate=` | supported. The component columns enter the missingness, intermediate and outcome designs | `tests/unit/test_point_vector_coarsened.py`, on both routes |
+| `dumps`, `loads`, `subset`, `retarget` | supported | `tests/unit/test_point_vector_treatment.py` |
+| assessment and sensitivity rows | the capability table of a vector fit equals that of a scalar dose fit. A truncation row equals the refit at its bound. The simulated common-cause surface takes one strength axis for each component. The placebo permutes whole component rows | `tests/unit/test_point_vector_assessment.py`, `tests/unit/test_vector_simulated_confounding.py` |
+| `CausalStudy` | `PointTreatment(treatment=[...], continuous_treatment=[...])` with `ModifiedTreatmentPolicy`. `ModelSpec(ratio=...)` selects the route, and `density_bins` reaches the density route | `tests/unit/test_vector_study_spine.py` |
+
+`ModelSpec(ratio="classifier")` and the shortcut `ratio="classifier"` on a method reach both the
+point and the longitudinal engine. A study refuses `ratio="classifier"` where it estimates no
+policy ratio, such as an `ATE`, a declared mechanism, `DRTMLEMethod`, `CollaborativeTMLEMethod`
+and `IPSIMethod`. Each refusal runs before any learner.
+
+[Scope and refusals](scope-and-refusals.md#vector-treatments) lists what a vector refuses and the
+theoretical reason for each refusal.
+
+**Evidence.** `tests/unit/test_point_vector_treatment.py` checks five plans on the mixed law of
+`tests/discrete_law_policy_point.py` (W1). It also checks the all-categorical reading (W2).
+`tests/unit/test_vector_density_route.py` checks every plan on the density route. It adds a
+many-to-one flag map (W16) and an ordered plan on a law with two doses (W15). Each check compares
+the estimate and the influence curve with the g-formula and its complex-step Gateaux derivative.
+The agreement is within $10^{-10}$.
+
+The mutation controls are in `tests/unit/test_point_vector_mutations.py` and
+`tests/unit/test_vector_density_mutations.py`. Each control moves a witness by more than
+$10^{-4}$. The registered study is
+[`vector-mtp`](method-evidence/vector-modified-treatment-policies.md).
 
 ### Incremental propensity-score interventions
 

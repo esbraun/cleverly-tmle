@@ -33,7 +33,7 @@ def line(label: str, psi: pd.Series, se: pd.Series, truth: float) -> str:
     )
 
 
-for method in ("ltmle", "ipw"):
+for method in ("ltmle",):
     print()
     print(f"{method}: the four contrasts against none")
     for contrast in CONTRASTS:

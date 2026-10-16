@@ -42,6 +42,29 @@ def test_correction_summary_stabilizes_only_residue_far_below_the_identity_bar()
     assert "5.000e-10" in summary
 
 
+def test_correction_summary_bounds_an_identity_residual_inside_the_bar() -> None:
+    # 1.634e-11 against a 1e-10 bar is residue that differs between machines: the summary
+    # states the bar.  The 5e-10 row is above the bar, so its residual prints in full.
+    rows = (
+        CorrectionRow(0, 0.0, "0", "D*_Q", 1.634e-11, 0.0, 0, True),
+        CorrectionRow(0, 1.0, "1", "D*_Q", 5e-10, 0.0, 0, True),
+    )
+    check = CorrectionCheck(
+        rows,
+        tolerance=1e-3,
+        identity_tolerance=1e-10,
+        n=100,
+        std_error=0.1,
+        cross_fitted=False,
+    )
+
+    summary = check.summary()
+
+    assert "< 1.000e-10" in summary
+    assert "1.634e-11" not in summary
+    assert summary.count("5.000e-10") == 2
+
+
 def test_correction_check_requires_a_cross_fitting_declaration() -> None:
     row = CorrectionRow(0, 0.0, "0", "D*_g", 0.0, 0.0, 0, True, margin=0.2, gr1_margin=0.2)
     with pytest.raises(TypeError, match="required keyword-only argument: 'cross_fitted'"):

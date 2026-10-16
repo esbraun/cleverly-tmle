@@ -228,6 +228,33 @@ ARMS: dict[str, str] = {
     "survival_mtp_h2": "the cumulative risk at t = 2 of a policy plan on the survival law",
     "msm_mtp": "the dose coefficient of a working model over three continuous plans",
     "history": "the contrast of the history-reading plan against the natural course",
+    "point_vector_density": (
+        "the flag-and-dose point contrast, its ratio the oracle joint induced density"
+    ),
+    "point_vector_classifier": (
+        "the flag-and-dose point contrast, its ratio a classifier on the true log ratio"
+    ),
+    "point_vector_ordered_density": (
+        "the ordered two-dose contrast read as a point treatment, its ratio the oracle joint "
+        "induced density"
+    ),
+    "longitudinal_vector_density": (
+        "the two-node flag-and-dose contrast, its ratios the oracle joint induced density"
+    ),
+    "longitudinal_vector_classifier": (
+        "the two-node flag-and-dose contrast, its ratios a classifier on the true log ratio"
+    ),
+    "longitudinal_vector_ordered_density": (
+        "the ordered two-dose node contrast, its ratio the oracle joint induced density"
+    ),
+    "longitudinal_vector_ordered_classifier": (
+        "the ordered two-dose node contrast, its ratio a classifier on the true log ratio"
+    ),
+    "flag_scaled": "the two-node contrast of the flag-scaled plan against the natural course",
+    "ordered_full": "the ordered-law node contrast of the full plan against the natural course",
+    "ordered_crossed": (
+        "the ordered-law node contrast of the crossed plan against the natural course"
+    ),
     "policy_risk_h2": "the cumulative risk at t = 2 of a known policy on the survival law",
     "msm_policy": "the dose coefficient of a working model over low, mix and taper",
     "primary": "every primary estimand of the study",
@@ -394,6 +421,8 @@ ARMS: dict[str, str] = {
     "mean_x2": "odds-x2 mean at every node, three-node law",
     "contrast_x2": "odds-x2 against the natural course, three-node law",
     "contrast_x2_in_sample": "odds-x2 against the natural course, one fold",
+    "dropout_contrast_x2_in_sample": "odds-x2 contrast at the end of study, with dropout, one fold",
+    "survival_contrast_x2_h3_in_sample": "odds-x2 contrast in the risk by t = 3, with dropout, one fold",
     "known_x2": "odds-x2 mean with the true treatment probabilities declared",
     "no_positivity": "odds-x2 contrast on a law with propensities of exactly 0 and 1",
     "per_node": "odds multipliers 2, 0.5 and 1.5 at the three nodes",
@@ -514,6 +543,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-cross-fitted-ltmle-msm": "`cleverly` cross-fitted longitudinal MSM projection",
     "cleverly-mtp-ltmle": "`cleverly` LTMLE under modified treatment policies",
     "cleverly-policy-tmle": "`cleverly` point-treatment TMLE under modified treatment policies",
+    "cleverly-vector-mtp": (
+        "`cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment"
+    ),
     "cleverly-stochastic-categorical-ltmle": (
         "`cleverly` ordinary LTMLE under known stochastic categorical policies"
     ),
@@ -617,7 +649,9 @@ SCENARIOS: dict[str, str] = {
     ),
     "ipsi_folds_2": "three-node law with a continuous outcome, two folds",
     "ipsi_folds_5": "three-node law with a continuous outcome, five folds",
+    "dropout_folds_1": "three-node law with dropout after each arm, one fold",
     "dropout_folds_5": "three-node law with dropout after each arm, five folds",
+    "survival_folds_1": "three-node survival law with dropout, horizons 1 to 3, one fold",
     "survival_folds_5": "three-node survival law with dropout, horizons 1 to 3, five folds",
     "binary_active": (
         "two arms, an arm-specific outcome index, an instrument, correct outcome regression"
@@ -703,6 +737,12 @@ SCENARIOS: dict[str, str] = {
     "categorical_end_of_study": "two-time-point law with three treatment levels at both nodes",
     "mtp_continuous": "two-node law with a truncated-normal dose at both nodes",
     "policy_point": "one truncated-normal dose on [0, 6] with an outcome quadratic in the dose",
+    "point_vector_mixed": "a point treatment of one binary flag and one truncated-normal dose",
+    "point_vector_categorical": "a point treatment of two binary components",
+    "longitudinal_vector_mixed": "two nodes, each a binary flag and a truncated-normal dose",
+    "longitudinal_vector_ordered_classifier": (
+        "one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier"
+    ),
     "mtp_continuous_crossfit": ("the two-node continuous-dose law, cross-fitted over five folds"),
     "mtp_categorical": "two-node law with six integer treatment levels at both nodes",
     "rr_tilt": "two-node law with a binary treatment at both nodes",
@@ -891,6 +931,23 @@ REGIMENS: dict[str, str] = {
     "rule": "follow the covariate-dependent rule",
     "learned rule": "learned on each fold's training rows from its outcome regression",
     "tilt": "draw from the known stochastic tilt",
+    "dose up": "add 0.5 to each dose, capped at 5.5",
+    "flag scaled": (
+        "set each flag to one, and multiply the dose by 1.25 where the natural flag is one"
+    ),
+    "ordered": (
+        "multiply the first dose by 1.25, then add 0.5 to the second where the first is at most 3"
+    ),
+    "full": (
+        "set the flag to one where the first dose is at least 3, scale the first dose where the "
+        "flag is one, and move the second dose as in ordered"
+    ),
+    "crossed": (
+        "set the flag to one where the first dose is at least 3, and multiply the first dose by "
+        "1.25, capped at 5.5, where the flag is zero"
+    ),
+    "a2 off": "set the second component to zero where the first is one",
+    "a1 on": "set the first component to one",
 }
 
 #: How a point-treatment study reads a plan label whose ordinary reading counts treatment
@@ -1017,6 +1074,16 @@ PROPERTIES: dict[str, str] = {
     "inverse_necessity": (
         "the declared inverse of a policy piece enters the density ratio of Equation (3)"
     ),
+    "preimage_necessity": (
+        "every categorical preimage of a vector value enters the joint induced density"
+    ),
+    "jacobian_necessity": (
+        "the inverse derivative of every non-unit dose map, the D1 scale, enters the joint "
+        "induced density"
+    ),
+    "image_necessity": (
+        "a categorical map in the joint induced density reads the natural doses of each preimage"
+    ),
     "randomizer_projection": (
         "the integrated policy estimator is the projection of the estimator that records the "
         "randomizer, so its spread is no larger"
@@ -1115,13 +1182,12 @@ PROPERTIES: dict[str, str] = {
     ),
     "single_robustness": (
         "the estimate stays consistent when the treatment mechanism is correct and the "
-        "outcome regressions are constant"
+        "outcome regressions are misspecified linear fits"
     ),
     "censoring_complete_case": (
         "how far a fit to the rows that never drop out sits from the target, reported rather "
         "than gated"
     ),
-    "in_sample_fit": ("how a one-fold fit behaves on the same draws, reported rather than gated"),
     "sequential_double_robustness": (
         "the estimate stays consistent when at each node either the outcome regression or "
         "the treatment and censoring mechanisms are correct"
@@ -1556,6 +1622,38 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "bias interval must fall entirely outside the margin, with the reported standard "
         "error still on the scale of the empirical spread",
     ),
+    ("double_robustness", "outcome_wrong"): (
+        "the outcome regression is misspecified and the joint density is the oracle, read from "
+        "320 oracle bins per dose",
+        "bias interval inside the equivalence margin, with the reported standard error "
+        "on the scale of the empirical spread",
+    ),
+    ("preimage_necessity", "declared_preimage"): (
+        "the joint density sums over every categorical preimage, with the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("preimage_necessity", "preimage_cut_control"): (
+        "the same fit keeps only the preimages in the value's own categorical cell",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("jacobian_necessity", "declared_jacobian"): (
+        "the joint density multiplies each preimage by the inverse derivative of the D1 scale, "
+        "the only non-unit Jacobian, with the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("jacobian_necessity", "jacobian_drop_control"): (
+        "the same fit drops the inverse derivative of the D1 scale",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("image_necessity", "declared_image"): (
+        "the joint density evaluates the flag map at each preimage's natural first dose, with "
+        "the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("image_necessity", "shifted_read_control"): (
+        "the same fit evaluates the flag map at the value's own first dose",
+        "bias interval must fall entirely outside the margin",
+    ),
     ("double_robustness", "multi_arm_treatment_correct"): (
         "three arms with a multinomial lasso and a constant outcome regression, on the "
         "contrast of arm 1.0 against arm 0.0",
@@ -1985,10 +2083,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("root_n_and_efficiency", "n_24000"): (
         "bias, coverage and SE calibration at n = 24,000",
+        "",  # the smallest rung's rule depends on its role; :func:`cell` sets it
+    ),
+    ("root_n_and_efficiency", "n_64000"): (
+        "bias, coverage and SE calibration at n = 64,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
-    ("root_n_and_efficiency", "n_48000"): (
-        "bias, coverage and SE calibration at n = 48,000",
+    ("root_n_and_efficiency", "n_96000"): (
+        "bias, coverage and SE calibration at n = 96,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("root_n_and_efficiency", "n_500"): (
@@ -2519,8 +2621,9 @@ def estimand(key: str, *, outcome_kind: str = "absorbing") -> str:
     if name not in PARAMETERISED:
         raise Undescribed(f"no description for parameterised estimand {name!r}")
     parameter = PARAMETERISED[name]
-    # ``ey_regime`` is the point-treatment parameter and ``ey_regimen`` the longitudinal one.
-    point = name in {"ey_regime", "ate_regime"}
+    # ``ey_regime`` and ``ey_policy`` are point-treatment parameters, ``ey_regimen`` the
+    # longitudinal one.
+    point = name in {"ey_regime", "ate_regime", "ey_policy", "ate_policy"}
     if _HORIZON not in argument:
         return f"{parameter} {regimen(argument, point=point)}"
     # Two constructions index a regimen mean by horizon, and the bracket is what tells them
@@ -2682,7 +2785,7 @@ def cell(
                 if base == "targeted"
                 else "the identical targeted mechanism is evaluated with the initial outcome regression"
             )
-    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000", "n_6000"}:
+    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000", "n_24000"}:
         # The smallest rung is a positive cell in some studies and a retained small-sample
         # control in others, and the two are held to opposite rules.  Publishing one rule
         # beside the other role's verdict is the failure this branch exists to prevent, so an
@@ -2817,19 +2920,20 @@ CELLS.update(
     {
         ("mechanism_term_necessity", "full_eif"): (
             "the reported standard error from the full influence curve",
-            "both efficiency-ratio intervals inside their band",
+            "the SE-ratio interval inside the efficiency-ratio band",
         ),
         ("mechanism_term_necessity", "mechanism_term_dropped"): (
-            "the same estimates with the treatment-mechanism term removed from the curve",
+            "the same estimates with the treatment-mechanism term, on the outcome's own scale, "
+            "removed from the curve",
             "the SE-ratio interval must fall below the calibration band",
         ),
-        ("single_robustness", "mechanism_correct__n_6000"): (
-            "cell-mean treatment mechanism and constant outcome regressions, at n = 6,000",
-            "absolute bias + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+        ("single_robustness", "mechanism_correct__n_48000"): (
+            "cell-mean treatment mechanism and linear outcome regressions, at n = 48,000",
+            "bias inside the margin at n = 48,000 and at n = 96,000",
         ),
-        ("single_robustness", "mechanism_correct__n_24000"): (
-            "cell-mean treatment mechanism and constant outcome regressions, at n = 24,000",
-            "absolute bias + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+        ("single_robustness", "mechanism_correct__n_96000"): (
+            "cell-mean treatment mechanism and linear outcome regressions, at n = 96,000",
+            "bias inside the margin at n = 48,000 and at n = 96,000",
         ),
         ("single_robustness", "mechanism_constant"): (
             "constant treatment mechanism and cell-mean outcome regressions, beside the "
@@ -2837,7 +2941,7 @@ CELLS.update(
             "reported only",
         ),
         ("targeting_necessity", "one_step"): (
-            "the one-step estimate with constant outcome regressions",
+            "the one-step estimate with linear outcome regressions",
             "bias inside the margin",
         ),
         ("targeting_necessity", "plug_in"): (
@@ -2847,10 +2951,6 @@ CELLS.update(
         ("censoring_complete_case", "complete_case"): (
             "a fit to the rows that never drop out, without a censoring model, beside the "
             "exact-law limit",
-            "reported only",
-        ),
-        ("in_sample_fit", "one_fold"): (
-            "the same estimand fitted with one fold on the same draws",
             "reported only",
         ),
     }

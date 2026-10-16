@@ -330,7 +330,8 @@ def test_the_logged_probabilities_are_the_laws_and_the_offers_follow_them(logged
                 observed = float((cell["offer"] == level).mean())
                 error = np.sqrt(share * (1 - share) / len(cell))
                 assert abs(observed - share) < 4 * error, (engaged, week, level)
-    # The smallest cumulative product over the weeks is above the default g_bounds lower bound.
+    # The product of the offer probabilities over the weeks is above the default g_bounds lower
+    # bound.  The product with the consent probabilities has no such bound; see _LOGGED.
     assert probabilities.min() ** OFFER_WEEKS > 0.01
 
 

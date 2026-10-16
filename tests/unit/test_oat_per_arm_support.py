@@ -129,7 +129,6 @@ class TestTheAllowList:
             ("fluctuation", "linear"),
             ("cross_fit", True),
             ("repeats", 2),
-            ("simultaneous", True),
             ("target_weights", True),
             ("screen_treatment", True),
         ],
@@ -149,6 +148,22 @@ class TestTheAllowList:
 
     def test_the_refused_option_keeps_the_generated_design_status(self) -> None:
         result = _fit(outcome_learner=LogisticRegression())
+        assert {estimate.inference for estimate in result.estimates.values()} == {
+            "generated_design_plugin"
+        }
+
+
+class TestTheArmColumns:
+    def test_a_mismatched_arm_column_count_is_refused(self) -> None:
+        estimator = CTMLE(**_options(outcome_learner=ParametricOutcome(arm_columns=2)))
+        verdict = per_arm_parametric_support(estimator, _prepared(estimator))
+        assert not verdict.admitted
+        assert verdict.axis == "outcome_learner"
+        assert "arm_columns=1" in verdict.detail
+        assert "got arm_columns=2" in verdict.detail
+
+    def test_the_mismatched_fit_keeps_the_generated_design_status(self) -> None:
+        result = _fit(outcome_learner=ParametricOutcome(arm_columns=2))
         assert {estimate.inference for estimate in result.estimates.values()} == {
             "generated_design_plugin"
         }
@@ -307,6 +322,20 @@ class TestTheFailureStatus:
         with pytest.raises(CapabilityError):
             _ = result.contrast(lambda p: p[1] - p[0], ["ey0", "ey1"]).ci
 
+    def test_the_ey_target_holds_the_sound_arm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _failing(monkeypatch, {1})
+        with pytest.warns(DataWarning, match="forced"):
+            result = (
+                CTMLE(**_options(estimands=("ey", "ate")))
+                .fit(_frame(), outcome="Y", treatment="A", covariates=["W1", "W2", "W3"])
+                .single()
+            )
+        assert {name: e.inference for name, e in result.estimates.items()} == {
+            "ey[0]": "influence_curve",
+            "ey[1]": "stack_failure_plugin",
+            "ate": "stack_failure_plugin",
+        }
+
     def test_a_failed_arm_reports_the_shipped_curve(self, monkeypatch: pytest.MonkeyPatch) -> None:
         stack = _oat_stack.fitted_stack(_fit())
         shipped = _oat_stack.stack_report(stack, (0.0, 1.0)).shipped_std_error
@@ -380,9 +409,30 @@ class TestTheSummary:
         assert "No simultaneous band" in text
 
     def test_a_refused_per_arm_fit_names_the_unmet_requirement(self) -> None:
-        text = _fit(simultaneous=True).summary()
+        text = _fit(screen_treatment=True).summary()
         assert "stacked parametric curve" not in text
-        assert "No stacked interval (X58): the stacked interval needs simultaneous=False" in text
+        assert "No stacked interval (X58): the stacked interval needs screen_treatment" in text
+
+
+class TestTheDefaultBand:
+    """``simultaneous=True``, the default, keeps the pointwise intervals and builds no band."""
+
+    def test_the_default_keeps_the_intervals_and_builds_no_band(self) -> None:
+        result = _fit(simultaneous=True)
+        assert {estimate.inference for estimate in result.estimates.values()} == {"influence_curve"}
+        assert result.simultaneous is None
+        assert "No simultaneous band" in result.summary()
+
+    def test_a_single_ate_takes_the_default_inference(self) -> None:
+        result = _fit(estimands=("ate",), simultaneous=True)
+        assert result["ate"].inference == "influence_curve"
+
+    def test_a_hook_that_builds_the_band_fails_the_check(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The control: without the hook, the default builds a band over the stacked curves."""
+        monkeypatch.setattr(CTMLE, "_builds_default_band", lambda self, data: True)
+        assert _fit(simultaneous=True).simultaneous is not None
 
     def test_the_refusal_names_the_parametric_route(self, admitted_fit: Any) -> None:
         result = _fit(outcome_learner=LogisticRegression())

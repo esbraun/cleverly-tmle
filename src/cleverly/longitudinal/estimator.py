@@ -80,9 +80,22 @@ from .._inference_status import (
     PARAMETER_STATUSES,
     T_REFERENCE_NOTE,
     InferenceStatus,
+    is_labelled,
     precedent_status,
     status_record,
     supplies_inference,
+)
+from .._support import (
+    UNCLASSIFIED,
+    Classification,
+    Support,
+    SupportKey,
+    band_support,
+    classify_longitudinal_fit,
+    combine_support,
+    record_fit,
+    regimen_kinds,
+    support_for,
 )
 from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
 from ..data.weighting import REPORTED_DRAW
@@ -116,6 +129,8 @@ from ..inference.influence import (
     median_estimates,
     reference_label,
     spread_name,
+    support_column,
+    support_notes,
     with_precedent_status,
 )
 from ..inference.multiplier import SimultaneousBands, median_bands, simultaneous_bands
@@ -206,7 +221,6 @@ from .msm import (
 from .regimen import (
     DynamicRegimen,
     Plan,
-    Regimen,
     RegimenSpec,
     attach_policy_numerators,
     describe_plan,
@@ -255,6 +269,13 @@ LONGITUDINAL_REPLAY_RANDOM_STATE_NON_INTEGER = "longitudinal_replay_random_state
 LONGITUDINAL_REPLAY_FITTED_BOUND_MISMATCH = "longitudinal_replay_fitted_bound_mismatch"
 LONGITUDINAL_REPLAY_REGIMEN_DECLARATION = "longitudinal_replay_regimen_declaration"
 LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
+
+#: The line a summary prints when a repeated fit with ``isotonic=True`` builds no band.
+NO_ISOTONIC_REPEAT_BANDS = (
+    "no simultaneous bands: each draw projects its levels onto a non-decreasing curve, and no "
+    "source gives the projection of the limits of a median band, so the fit reports pointwise "
+    "intervals only."
+)
 
 #: The :class:`LTMLE` settings that :class:`SDR` refuses, through
 #: :func:`~cleverly.methods.sdr_no_fluctuation_refusal`.
@@ -724,20 +745,6 @@ def _index(label: str, cause: str | None, horizon: int, curve: bool) -> str:
     return f"{stem}{HORIZON_INFIX}{horizon}"
 
 
-#: The design kinds whose full-refit bootstrap percentile interval a registered study
-#: licenses as inference.  :func:`bootstrap_design_kind` names a fit's kind, and
-#: :meth:`LTMLE.fit` stamps ``inferential`` on every bootstrap summary from this set.  A
-#: kind enters only after its cells in ``full-refit-bootstrap-and-derived-contrasts`` are
-#: green, and a red cell removes only its own kind.  Until then every longitudinal bootstrap
-#: is a diagnostic: ``bootstrap sd`` and ``percentile range``.
-#:
-#: The registered run licensed the in-sample end-of-study and single-cause survival kinds.
-#: The cross-fitted end-of-study cells over-cover (SE ratio about 1.25) and one cluster
-#: cell under-covers, so those kinds stay diagnostic (roadmap owner ``X20-bootstrap``).
-LICENSED_BOOTSTRAP_DESIGNS: frozenset[str] = frozenset(
-    {"end_of_study/in_sample", "survival/in_sample"}
-)
-
 #: Why a fit with two or more causes has no survival view.  One text for
 #: :meth:`LongitudinalResult.curve` and :meth:`LongitudinalResult.ratio`.
 SURVIVAL_VIEW_COMPETING_REFUSAL = Refusal(
@@ -977,6 +984,19 @@ def _frozen_plans(plans: Sequence[Plan]) -> tuple[Plan, ...]:
         )
         retained.append(replace(plan, values=values, policy=policy, mtp_numerators=numerators))
     return tuple(retained)
+
+
+def _component_fingerprint(data: LongitudinalData) -> tuple[FloatArray, ...]:
+    """The arrays a mixed node adds to the data fingerprint, and none without one.
+
+    A mixed node's slot in :attr:`~cleverly.longitudinal.LongitudinalData.treatment` holds its
+    presence only, so its component values and labels are digested here.
+    """
+    if not data.has_mixed_node:
+        return ()
+    values = tuple(block for block in data.component_values if block is not None)
+    labels = np.asarray([repr(levels) for levels in data.component_levels], dtype=str)
+    return (*values, labels)
 
 
 def _frozen(array: FloatArray) -> FloatArray:
@@ -1310,6 +1330,9 @@ class LongitudinalConfig:
     #: :attr:`outcome_names`, because a survival and a repeated outcome both name a column
     #: per node.
     outcome_kind: OutcomeKind = "end_of_study"
+
+    #: The support key the fit was classified under, read before any learner ran.
+    support_key: SupportKey | None = None
 
     def describe(self, *, contrast: bool) -> list[str]:
         """Return the settings lines of :meth:`LongitudinalResult.summary`.
@@ -2593,7 +2616,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Returns
         -------
         dataframe
-            One row per regimen and horizon, with the incidences summed over causes.
+            One row per regimen and horizon, with the incidences summed over causes. The
+            ``support`` column holds the label of the combined incidences, and a fit with a
+            labelled status adds the ``inference`` column.
         """
         if not self.data.is_competing:
             if self.data.is_repeated:
@@ -2617,7 +2642,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # that reads a constant-node incidence is a diagnostic, as ``rmst()`` of one is.
         status = self.inference_status
         column = spread_name("std_err", status)
-        totals: list[tuple[str, float, float, float, InferenceStatus]] = []
+        totals: list[tuple[str, float, float, float, InferenceStatus, str]] = []
         for regimen in self.config.regimens:
             for horizon in self.config.horizons:
                 names = [
@@ -2637,6 +2662,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                             combined.psi,
                             combined.plugin_std_error,
                             combined.inference,
+                            combined.support.label,
                         )
                     )
                     continue
@@ -2652,6 +2678,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                         total,
                         float(np.sqrt(variance[0, 0])),
                         inference_status(self.estimates, names),
+                        combine_support(
+                            [self[name].support for name in names], kind="derived"
+                        ).label,
                     )
                 )
         flagged = [row[4] for row in totals if not supplies_inference(row[4])]
@@ -2661,7 +2690,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             "regimen": [row[0] for row in totals],
             "time": [row[1] for row in totals],
             "total": [row[2] for row in totals],
-            **({"inference": [row[4] for row in totals]} if mixed else {}),
+            "support": [row[5] for row in totals],
+            **(
+                {"inference": [row[4] for row in totals]}
+                if mixed or any(is_labelled(row[4]) for row in totals)
+                else {}
+            ),
             column: [np.nan if mixed and row[4] != status else row[3] for row in totals],
             **(
                 {plugin: [row[3] if row[4] != status else np.nan for row in totals]}
@@ -2771,9 +2805,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             ``time``
                 The horizon, as an integer node index, or as the grid time :math:`g_k` on a
                 fit with a time grid.
+            ``support``
+                ``"supported"`` or ``"experimental"``, the label of the estimate the row
+                reads. :attr:`~cleverly.inference.ParameterEstimate.support` gives its reason.
             ``inference``
-                The inference status of each row, on a fit whose status supplies no
-                inference, or on a fit with a parameter that carries its own status.
+                The inference status of each row, on a fit with a labelled status, shown or
+                withheld, or with a parameter that carries one.
             ``psi``, ``std_err``, ``ci_lower``, ``ci_upper``
                 The estimate, its standard error, and its confidence interval, under
                 the requested view.  On a fit whose status supplies no inference the
@@ -2843,7 +2880,11 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # row's inferential columns hold NaN and its plug-in columns hold the diagnostic.
         flagged = [e.inference for e in self.estimates.values() if not e.supplies_inference]
         mixed = supplies_inference(status) and bool(flagged)
-        diagnostic = not supplies_inference(status) or mixed
+        diagnostic = (
+            not supplies_inference(status)
+            or mixed
+            or any(is_labelled(e.inference) for e in self.estimates.values())
+        )
         std_name, low_name, high_name = (
             spread_name(name, status) for name in ("std_err", "ci_lower", "ci_upper")
         )
@@ -2859,6 +2900,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             **({"cause": []} if competing else {}),
             "time": [],
             "psi": [],
+            "support": [],
             **({"inference": []} if diagnostic else {}),
             std_name: [],
             low_name: [],
@@ -2902,6 +2944,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 rows["cause"].append(cause)
             rows["time"].append(self._time_of(int(horizon)))
             rows["psi"].append(float(psi))
+            rows["support"].append(estimate.support.label)
             if diagnostic:
                 rows["inference"].append(estimate.inference)
             withheld = mixed and not estimate.supplies_inference
@@ -3045,12 +3088,17 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         t_reference = has_t_reference(self.estimates)
         rows = []
         marked: dict[str, Any] = {}
+        support_cells = support_column(self.estimates)
         if record is not None:
             # The whole interval column is refused, so it is not printed with a dash under
             # it: a heading would still tell a reader an interval belongs there.
             for name, estimate in self.estimates.items():
                 rows.append([name, f"{estimate.psi:.4f}", f"{estimate.plugin_std_error:.4f}"])
-            table = format_table(["parameter", "estimate", record.summary_label], rows)
+            headers = ["parameter", "estimate", record.summary_label]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
         else:
             for name, estimate in self.estimates.items():
                 if not estimate.supplies_inference:
@@ -3079,17 +3127,18 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                         *([reference_label(estimate)] if t_reference else []),
                     ]
                 )
-            table = format_table(
-                [
-                    "parameter",
-                    "estimate",
-                    "std. error",
-                    f"{level} CI",
-                    "p-value",
-                    *(["df"] if t_reference else []),
-                ],
-                rows,
-            )
+            headers = [
+                "parameter",
+                "estimate",
+                "std. error",
+                f"{level} CI",
+                "p-value",
+                *(["df"] if t_reference else []),
+            ]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
         # ``"level"`` is the scale of every mean, the rule ``to_frame`` reads as well.
         contrast = any(estimate.scale != "level" for estimate in self.estimates.values())
         facts = list(self.config.describe(contrast=contrast))
@@ -3122,6 +3171,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             f"({self.data.n_times} time points, n = {self.n})",
             "",
             table,
+            *(["", *support_notes(self.estimates)] if support_cells is not None else []),
             # The refusal's own reason, as ``TMLEResult.summary`` prints it.
             *(["", record.summary_note()] if record is not None else []),
             *(
@@ -3186,7 +3236,15 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 f"{truncated:.1%} at t={truncated_time}"
             )
         lines.extend(f"  {line}" for line in self._targeting_lines())
-        if self.simultaneous is None and record is not None and len(self.estimates) > 1:
+        if (
+            self.simultaneous is None
+            and self.n_repeats > 1
+            and self.config.isotonic
+            and len(self.estimates) > 1
+        ):
+            lines.append("")
+            lines.append(f"  {NO_ISOTONIC_REPEAT_BANDS}")
+        elif self.simultaneous is None and record is not None and len(self.estimates) > 1:
             # Stated rather than left blank, as on a point-treatment fit: the bands are on
             # by default, so a reader would otherwise have to guess why none are here.
             lines.append("")
@@ -3199,7 +3257,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             lines.append(
                 f"  simultaneous {level} bands (multiplier bootstrap, critical value "
                 f"{self.simultaneous.critical_value:.3f} vs "
-                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise):"
+                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise)"
+                f"{' [experimental]' if self.simultaneous.support.label == 'experimental' else ''}:"
             )
             for name, (low, high) in self.simultaneous.bands.items():
                 lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
@@ -3905,6 +3964,7 @@ def _estimates(
     *,
     alpha_sig: float,
     inference: InferenceStatus,
+    classification: Classification | None = None,
 ) -> _Reported:
     """Compose every reported name, its estimate, its index and its fits, in one pass.
 
@@ -3954,6 +4014,7 @@ def _estimates(
         name = parameter_name(head, arm=_index(fit.regimen.label, fit.cause, fit.horizon, curve))
         index[name] = (fit.regimen.label, fit.cause, fit.horizon)
         contributors[name] = (fit,)
+        status = _parameter_status(inference, fit)
         estimates[name] = make_estimate(
             name,
             scaler.unscale_level(fit.psi_scaled),
@@ -3962,8 +4023,9 @@ def _estimates(
             cluster=data.cluster,
             scale="level",
             alpha=alpha_sig,
-            inference=_parameter_status(inference, fit),
+            inference=status,
             reference_df=reference_df,
+            support=_support_of(classification, status, reference_df),
         )
     for fit in fits.values():
         if fit.regimen.label == reference.label:
@@ -3976,6 +4038,7 @@ def _estimates(
         name = parameter_name(CONTRAST_HEAD, arm=_index(contrast, fit.cause, fit.horizon, curve))
         index[name] = (contrast, fit.cause, fit.horizon)
         contributors[name] = (fit, base)
+        status = _parameter_status(inference, fit, base)
         estimates[name] = make_estimate(
             name,
             scaler.unscale_difference(fit.psi_scaled - base.psi_scaled),
@@ -3984,10 +4047,20 @@ def _estimates(
             cluster=data.cluster,
             scale="difference",
             alpha=alpha_sig,
-            inference=_parameter_status(inference, fit, base),
+            inference=status,
             reference_df=reference_df,
+            support=_support_of(classification, status, reference_df),
         )
     return _Reported(estimates=estimates, index=index, contributors=contributors)
+
+
+def _support_of(
+    classification: Classification | None, status: InferenceStatus, reference_df: int | None
+) -> Support:
+    """The support of one estimate: the default without a classification, else the computed one."""
+    if classification is None:
+        return UNCLASSIFIED
+    return support_for(classification, status, reference_df)
 
 
 def _parameter_status(inference: InferenceStatus, *read: RegimenFit) -> InferenceStatus:
@@ -4061,6 +4134,7 @@ def _msm_estimates(
     *,
     alpha_sig: float,
     inference: InferenceStatus,
+    classification: Classification | None = None,
 ) -> _Reported:
     """One estimate per working-model term per cause, and no contrasts.
 
@@ -4086,6 +4160,8 @@ def _msm_estimates(
     inference : str
         The inference status every coefficient declares, for the reason
         :func:`_estimates` gives.
+    classification : Classification or None, default None
+        The fit's classification, as in :func:`_estimates`.
 
     Returns
     -------
@@ -4115,6 +4191,7 @@ def _msm_estimates(
                 alpha=alpha_sig,
                 inference=inference,
                 reference_df=reference_df,
+                support=_support_of(classification, inference, reference_df),
             )
     return _Reported(estimates=estimates, index=None, contributors=contributors)
 
@@ -4137,6 +4214,9 @@ class _SequentialEstimator:
     targeting: str = "iterative"
     step_size: float = 1e-3
     isotonic: bool = False
+
+    #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
+    _record_support: bool = True
 
     def __init__(
         self,
@@ -4246,19 +4326,6 @@ class _SequentialEstimator:
                 alternative=(
                     "Fit with repeats=1 for the bootstrap, or with n_bootstrap=0 for the "
                     "split-adjusted median interval."
-                ),
-            )
-        if self.repeats > 1 and (self.survival_model == "hazard" or self.isotonic):
-            raise MethodConfigurationError(
-                "repeats above 1 is not combined with survival_model='hazard' or "
-                "isotonic=True. The split-adjusted median of Chernozhukov et al. (2018, "
-                "Definition 3.3) is defined for the reported levels of an iterated-mean fit. "
-                "No source gives the median of hazard-targeted draws, or of draws that each "
-                "moved under an isotonic projection, and its simultaneous band.",
-                reason=RefusalReason.INFERENCE_GAP,
-                alternative=(
-                    "Fit with repeats=1 for a hazard or projected curve, or with "
-                    "survival_model='iterated_mean' and isotonic=False for repeats."
                 ),
             )
         if self.bootstrap_resampling not in ("auto", "iid", "cluster"):
@@ -4641,12 +4708,28 @@ class _SequentialEstimator:
         masks = prepared.regimen_masks(prepared.treatment)
         for index, (folds, _) in enumerate(draws, start=1):
             try:
-                preflight_mechanism_support(prepared, masks, folds)
+                preflight_mechanism_support(prepared, masks, folds, ratio=self.ratio)
                 preflight_terminal_outcomes(prepared, plans, horizons, folds)
             except Exception as error:
                 if len(draws) == 1:
                     raise
                 raise _named_draw(error, index, len(draws)) from error
+        # A bootstrap replicate carries its fit's label and never classifies.  The key reads
+        # ``repeats``, so a repeated fit matches no row of a single-draw study.
+        classification = (
+            classify_longitudinal_fit(
+                self,
+                prepared,
+                source=f"{type(self).__name__}.fit",
+                outcome_kind=outcome_kind(prepared),
+                cross_fitted=not draws[0][0].is_single,
+                known_factors=_known_factors(prepared),
+                has_msm=self.msm is not None,
+                regimen_kinds=regimen_kinds(plans),
+            )
+            if self._record_support
+            else None
+        )
         # One projection per cause -- a cause is a different estimand, not a further column
         # of the design -- over a grid whose cells cross the regimens with the horizons.
         # Evaluated here because the design is a closure and the driver takes arrays.  It
@@ -4670,6 +4753,7 @@ class _SequentialEstimator:
                 horizons=horizons,
                 model=model,
                 reference=reference,
+                classification=classification,
             )
             for folds, seed in draws
         ]
@@ -4717,6 +4801,7 @@ class _SequentialEstimator:
             panel=None if prepared.panel is None else prepared.panel.describe(),
             time_grid=prepared.time_grid,
             known_factors=_known_factors(prepared),
+            support_key=None if classification is None else classification.key,
             estimator=self._estimator,
             normalization=self._normalization(),
             msm_terms=None if model is None else model.terms,
@@ -4752,13 +4837,24 @@ class _SequentialEstimator:
             }
             _warn_parameter_space(estimates, ranges, estimator=self._estimator)
         with phase("inference"):
-            if moves and unprojected is not None:
+            if repeated and self.isotonic:
+                # Each draw projects its levels, and the median of non-decreasing curves is
+                # non-decreasing.  The limits of a median band have no projection rule: the
+                # rule of Westling et al. (2020, Theorem 1 (iv)) is for one estimator, and
+                # no source combines it with the median of Chernozhukov et al. (2018).
+                bands = None
+            elif moves and unprojected is not None:
                 # The band is built at the unprojected levels, and each curve's limits are
                 # then projected (Westling et al. 2020, Theorem 1 (iv)).  The critical value
                 # reads the influence curves only, so it is the same either way.
-                bands = _project_bands(self._bands(unprojected, prepared, status), parameter_index)
+                bands = _project_bands(
+                    self._bands(unprojected, prepared, status, classification=classification),
+                    parameter_index,
+                )
             else:
-                bands = self._bands(estimates, prepared, status, repeats, multiplier_seed)
+                bands = self._bands(
+                    estimates, prepared, status, repeats, multiplier_seed, classification
+                )
         result = LongitudinalResult(
             estimates=estimates,
             data=prepared,
@@ -4782,19 +4878,11 @@ class _SequentialEstimator:
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
             )
-            # The registered bootstrap studies measure the unprojected iterated-mean TMLE.
-            # No registered study measures the SDR, IPSI, hazard or projected bootstrap,
-            # so their draws report a bootstrap sd and no percentile inference.
-            kind = (
-                bootstrap_design_kind(prepared, repeats[0].folds, regimens, model)
-                if self._estimator == "tmle"
-                and self.survival_model != "hazard"
-                and not self.isotonic
-                else None
-            )
-            result = attach_bootstrap(
-                result, bootstrap, inferential=kind in LICENSED_BOOTSTRAP_DESIGNS
-            )
+            # The support row of the fit decides whether the percentile interval is supported:
+            # only the rows that list ``bootstrap`` license it, and every other fit that
+            # publishes it is experimental.
+            result = attach_bootstrap(result, bootstrap, classification=classification)
+        record_fit(classification, result, source=f"{type(self).__name__}.fit")
         return result
 
     def _fit_draw(
@@ -4810,6 +4898,7 @@ class _SequentialEstimator:
         horizons: tuple[int, ...],
         model: RegimenMSM | None,
         reference: RegimenSpec,
+        classification: Classification | None = None,
     ) -> _DrawOutcome:
         """One complete single-draw fit at one fold assignment.
 
@@ -4960,10 +5049,22 @@ class _SequentialEstimator:
         with phase("influence_curve"):
             reported = (
                 _estimates(
-                    prepared, fits, scaler, reference, alpha_sig=self.alpha_sig, inference=status
+                    prepared,
+                    fits,
+                    scaler,
+                    reference,
+                    alpha_sig=self.alpha_sig,
+                    inference=status,
+                    classification=classification,
                 )
                 if model is None
-                else _msm_estimates(prepared, msm_fits, alpha_sig=self.alpha_sig, inference=status)
+                else _msm_estimates(
+                    prepared,
+                    msm_fits,
+                    alpha_sig=self.alpha_sig,
+                    inference=status,
+                    classification=classification,
+                )
             )
             # The band is built at the unprojected levels, and each curve's limits are then
             # projected (Westling et al. 2020, Theorem 1 (iv)).
@@ -4975,6 +5076,7 @@ class _SequentialEstimator:
                     reference,
                     alpha_sig=self.alpha_sig,
                     inference=status,
+                    classification=classification,
                 ).estimates
                 if moves
                 else None
@@ -5002,6 +5104,7 @@ class _SequentialEstimator:
         everything.
         """
         replicate = copy.copy(self)
+        replicate._record_support = False
         replicate.n_bootstrap = 0
         replicate.simultaneous = False
         replicate.n_jobs = 1
@@ -5228,6 +5331,7 @@ class _SequentialEstimator:
         status: InferenceStatus,
         repeats: Sequence[LongitudinalRepeat] = (),
         multiplier_seed: int | None = None,
+        classification: Classification | None = None,
     ) -> SimultaneousBands | None:
         """Joint bands over the reported parameters, when there is more than one.
 
@@ -5241,7 +5345,8 @@ class _SequentialEstimator:
         none, as :meth:`cleverly.TMLE.fit` builds none.  It is skipped rather than raised,
         because ``simultaneous`` defaults to ``True``: a raise would stop every default fit
         with few clusters.  :meth:`LongitudinalResult.summary` states the omission.
-        ``status`` is the one the fit stamped on ``estimates``.
+        ``status`` is the one the fit stamped on ``estimates``. ``classification`` gives the band
+        its support: the row must license a ``band`` kind, and every estimate must be supported.
 
         On a repeated fit the band is :func:`~cleverly.inference.multiplier.median_bands`:
         the median of the draws' critical values around the split-adjusted estimates, with
@@ -5249,8 +5354,9 @@ class _SequentialEstimator:
         """
         if not supplies_inference(status):
             return None
-        # A parameter with its own non-inferential status, such as a constant-node risk,
-        # stays out of the band, which is then a joint statement over the others.
+        # A parameter whose status withholds its interval, such as a constant-node risk, stays
+        # out of the band, which is then a joint statement over the others. A parameter that
+        # shows a labelled interval stays in, and its experimental label reaches the band.
         estimates = {
             name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
         }
@@ -5261,7 +5367,7 @@ class _SequentialEstimator:
         if has_t_reference(estimates):
             return None
         if len(repeats) > 1:
-            return median_bands(
+            bands = median_bands(
                 [repeat.estimates for repeat in repeats],
                 estimates,
                 alpha=self.alpha_sig,
@@ -5270,13 +5376,20 @@ class _SequentialEstimator:
                 random_state=multiplier_seed,
                 cluster=data.cluster,
             )
-        return simultaneous_bands(
-            estimates,
-            alpha=self.alpha_sig,
-            n_replicates=self.n_multiplier,
-            kind=self.multiplier_kind,  # type: ignore[arg-type]
-            random_state=self.random_state,
-            cluster=data.cluster,
+        else:
+            bands = simultaneous_bands(
+                estimates,
+                alpha=self.alpha_sig,
+                n_replicates=self.n_multiplier,
+                kind=self.multiplier_kind,  # type: ignore[arg-type]
+                random_state=self.random_state,
+                cluster=data.cluster,
+            )
+        return replace(
+            bands,
+            support=band_support(
+                classification, status, (estimate.support for estimate in estimates.values())
+            ),
         )
 
     def _scaler(self, data: LongitudinalData) -> OutcomeScaler:
@@ -5324,9 +5437,17 @@ class _SequentialEstimator:
                 data.weights,
                 *data.time_varying,
                 np.asarray(
-                    [repr(level) for levels in data.treatment_levels for level in levels],
+                    [
+                        repr(level)
+                        for time, levels in enumerate(data.treatment_levels, start=1)
+                        # A mixed node has no levels; _component_fingerprint digests its
+                        # components' labels.
+                        if data.node_kind(time) != "mixed"
+                        for level in levels
+                    ],
                     dtype=str,
                 ),
+                *_component_fingerprint(data),
                 # Which cause fired is in no other array: ``outcome`` and the ``nan``
                 # pattern of the later nodes are all-cause.  A repeated outcome's last
                 # node is ``outcome``, and its earlier nodes may be screened out of the
@@ -5560,10 +5681,12 @@ class LTMLE(_SequentialEstimator):
         replicate is dropped and counted, never redrawn.  The bootstrap stream is spawned
         from ``random_state`` and draws nothing the fit itself uses, so the fit's own
         numbers do not move.  A truncation-curve replay does not rerun it.  The percentile
-        interval is published as inference only for a design kind in
-        :data:`LICENSED_BOOTSTRAP_DESIGNS`, and as ``bootstrap sd`` and a percentile range
-        otherwise.  The registered study measures it with correctly specified cell-mean
-        nuisances on finite binary laws, at ``n = 1000``.
+        interval is published as inference with the support label of the fit: ``supported``
+        when a registered row lists ``bootstrap`` for the fit, and ``experimental``
+        otherwise.  A fit that withholds its interval, or that has fewer clusters than the
+        floor, prints ``bootstrap sd`` and a percentile range.  The registered study measures
+        it with correctly specified cell-mean nuisances on finite binary laws, at
+        ``n = 1000``.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     repeats : int
@@ -6807,59 +6930,6 @@ class _BoundReplay:
     contributors: dict[str, tuple[RegimenFit, ...]]
 
 
-def bootstrap_design_kind(
-    data: LongitudinalData,
-    folds: Folds,
-    regimens: Sequence[RegimenSpec],
-    msm: Any,
-) -> str | None:
-    """The design kind a registered bootstrap study could license, or ``None``.
-
-    A kind is ``"<outcome>/<fit>"``: the outcome ``end_of_study`` or ``survival``, and the fit
-    ``in_sample``, ``cross_fit``, ``cluster`` (clustered, in sample) or ``cluster_cross_fit``
-    (clustered, cross-fitted, whose replicates redraw a grouped split).  Only a binary outcome,
-    static regimens, one event and no weights or working model have a kind; every other fit
-    returns ``None``, which no study licenses.
-
-    Parameters
-    ----------
-    data : LongitudinalData
-        The prepared data of the fit.
-    folds : Folds
-        The outer fold assignment of the fit.
-    regimens : sequence of RegimenSpec
-        The resolved regimens.
-    msm : object or None
-        The evaluated working model, or ``None``.
-
-    Returns
-    -------
-    str or None
-        The kind, or ``None`` for a design no study measures.
-    """
-    if (
-        msm is not None
-        # A repeated outcome's horizon is, by the truncation identity, a licensed
-        # end-of-study replicate, but no registered cell measures the joint curve, so its
-        # bootstrap stays a diagnostic.
-        or data.is_repeated
-        or data.treatment_held
-        or data.is_competing
-        or data.is_weighted
-        or data.family != "binomial"
-        or not all(isinstance(regimen, Regimen) for regimen in regimens)
-    ):
-        return None
-    outcome = "survival" if data.is_survival else "end_of_study"
-    if data.cluster is not None:
-        fit = "cluster_cross_fit" if folds.n_folds > 1 else "cluster"
-    elif folds.n_folds > 1:
-        fit = "cross_fit"
-    else:
-        fit = "in_sample"
-    return f"{outcome}/{fit}"
-
-
 def _refit_bound(
     result: LongitudinalResult,
     draw: LongitudinalRepeat,
@@ -6970,7 +7040,10 @@ def _refit_bound(
             f"longitudinal replay at bounds {bounds} omitted reported parameters {missing}"
         )
     return _BoundReplay(
-        estimates={name: reported.estimates[name] for name in result.estimates},
+        estimates={
+            name: replace(reported.estimates[name], support=result.estimates[name].support)
+            for name in result.estimates
+        },
         fits=fits,
         msm_fits=msm_fits,
         contributors={name: reported.contributors[name] for name in result.estimates},

@@ -52,6 +52,7 @@ import numpy as np
 
 from .._inference_status import status_record
 from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
+from .._support import UNCLASSIFIED, Support, combine_support, record_refusal_site
 from ..assessment import AssessmentStatus
 from ..estimators.direct_effect import declares_intermediate
 from ..exceptions import CapabilityError
@@ -122,6 +123,7 @@ _DIRECT_EFFECT_REFUSAL = Refusal(
 def _evalue_inference_refusal(status: str) -> Refusal:
     """The E-value refusal at a non-inferential status, built on that status's reason."""
     record = status_record(status)
+    record_refusal_site("evalue.inference_status", RefusalReason.INFERENCE_GAP, record.reopened_by)
     return Refusal(
         RefusalReason.INFERENCE_GAP,
         _EVALUE_NEEDS_INFERENCE + record.reason,
@@ -214,6 +216,9 @@ class EValue:
     truncated_bound : float or None
         The converted lower bound before truncation, when the report truncated one.
         ``None`` when :attr:`risk_ratio_ci` reports the conversion unchanged.
+    support : Support
+        The support of the source estimate, combined with the derived ratio's when the
+        row derives one. An E-value built outside a classified fit is experimental.
     """
 
     estimand: str
@@ -226,6 +231,7 @@ class EValue:
     note: str = ""
     source_estimand: str | None = None
     truncated_bound: float | None = None
+    support: Support = UNCLASSIFIED
 
     def summary(self) -> str:
         """Return a printable summary.
@@ -235,8 +241,9 @@ class EValue:
         str
             A printable report, one line per reported quantity.
         """
+        marker = " [experimental]" if self.support.label == "experimental" else ""
         lines = [
-            f"E-value for {self.estimand!r} ({self.scale} scale)",
+            f"E-value for {self.estimand!r} ({self.scale} scale){marker}",
             "-" * 40,
             f"risk ratio {self.risk_ratio:.4g} "
             f"[{self.risk_ratio_ci[0]:.4g}, {self.risk_ratio_ci[1]:.4g}]"
@@ -257,6 +264,8 @@ class EValue:
         ]
         if self.note:
             lines.extend(["", self.note])
+        if self.support.label == "experimental":
+            lines.extend(["", f"experimental: {self.support.reason}"])
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, float | str | bool | None]:
@@ -283,6 +292,7 @@ class EValue:
             "note": self.note,
             "source_estimand": self.source_estimand,
             "truncated_bound": self.truncated_bound,
+            "support": self.support.label,
         }
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -408,7 +418,7 @@ def _select_evalue(result: TMLEResult, estimand: str | None) -> _EValueSelection
             alternative=NO_ALTERNATIVE,
             roadmap="F16",
         )
-    if result.data.is_continuous_treatment:
+    if not result.data.has_arms:
         raise _EValueRefusal(
             AssessmentStatus.NOT_APPLICABLE,
             "an E-value requires a discrete arm contrast",
@@ -677,6 +687,7 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
     low, high = estimate.ci
     reported_estimand = source
     truncated_bound: float | None = None
+    support = estimate.support
 
     if selection.branch == "reported_rr":
         rr, ci, approximate, note, scale = (
@@ -699,6 +710,7 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         derived = _derived_risk_ratio(result, source)
         rr, ci, approximate, scale = derived.psi, derived.ci, False, "risk ratio"
         reported_estimand = derived.name
+        support = combine_support([estimate.support, derived.support], kind="derived")
         note = (
             f"Derived {derived.name!r} from cached nuisances by retargeting the reported "
             f"source contrast {source!r}; no nuisance model was refit."
@@ -759,6 +771,9 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         )
     else:
         raise AssertionError(selection.branch)
+    if selection.branch in ("reported_or", "fixed_baseline_ate", "gaussian_difference"):
+        # A converted effect is a derived estimate, so the row must list the derived kind.
+        support = combine_support([support], kind="derived")
 
     above_null = rr >= 1.0
     limit = ci[0] if above_null else ci[1]
@@ -773,4 +788,5 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         note=note,
         source_estimand=source,
         truncated_bound=truncated_bound,
+        support=support,
     )

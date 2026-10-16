@@ -132,6 +132,7 @@ from typing import Literal
 import numpy as np
 
 from .._inference_status import FEW_CLUSTER_THRESHOLD
+from .._support import UNCLASSIFIED, Support, combine_support
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
 from .cluster import cluster_sums
@@ -196,6 +197,9 @@ class SimultaneousBands:
     draw_critical_values : tuple of float
         On a repeated longitudinal fit, the critical value of each draw of the
         cross-fitting split, whose median is :attr:`critical_value`. Empty otherwise.
+    support : Support, default=UNCLASSIFIED
+        The combination of the support of the estimates the band covers. A fit narrows it
+        further when its row licenses no ``band`` kind for the fit.
     """
 
     critical_value: float
@@ -204,6 +208,7 @@ class SimultaneousBands:
     n_replicates: int
     kind: str
     draw_critical_values: tuple[float, ...] = ()
+    support: Support = UNCLASSIFIED
 
     @property
     def pointwise_critical_value(self) -> float:
@@ -634,4 +639,5 @@ def median_bands(
         n_replicates=n_replicates,
         kind=kind,
         draw_critical_values=tuple(critical_values),
+        support=combine_support([estimate.support for _, estimate in items]),
     )
