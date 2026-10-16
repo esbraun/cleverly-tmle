@@ -5,6 +5,11 @@ line of the shipped source, through :func:`tests.unit._source_mutation.mutate`, 
 witness to fail.  The unmutated source passes every witness first, so a failure is the
 mutation's and not the witness's.
 
+A witness is a **gap**: the largest distance between what the fit reports and what the oracle
+says it must report.  The shipped source has a gap below ``ESTIMATE_TOLERANCE`` and ``CURVE_TOLERANCE``.  A mutated source must
+run to the end and leave a gap above ``MARGIN``, so a mutant that crashes, or that moves a value
+by less than a rounding error, fails the control and does not pass it.
+
 =====  ==========================================================  ===========================
 Id     The broken line                                             The witness that fails
 =====  ==========================================================  ===========================
@@ -25,7 +30,7 @@ from __future__ import annotations
 import importlib
 import warnings
 from collections.abc import Callable
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pytest
@@ -46,24 +51,46 @@ def _fit_end() -> Any:
     return sup.fit_ipsi(law.end_frame(), law.PLANS)
 
 
-def c2_curve() -> None:
-    """C2: every estimate and curve of the censored three-level fit equals the oracle."""
-    fit = _fit_end()
-    for name, truth, eif, rows in sup.expected(NAMES, law.end_function, law.PROBS, law.COUNTS):
-        assert fit.psi(name) == pytest.approx(truth, abs=1e-10), name
-        np.testing.assert_allclose(
-            fit.influence_curves[name][rows], eif, atol=1e-8, rtol=0, err_msg=name
+#: The shipped fit agrees with the oracle to this distance in an estimate and in a curve.
+ESTIMATE_TOLERANCE = 1e-10
+CURVE_TOLERANCE = 1e-8
+#: A mutated fit must leave a gap of at least this size: a wrong value and not a rounding error.
+MARGIN = 1e-4
+
+
+class Gap(NamedTuple):
+    """The largest distance of a fit from the oracle, in estimates and in curves."""
+
+    estimate: float
+    curve: float
+
+    def widen(self, estimate: float, curve: np.ndarray | float) -> Gap:
+        """This gap, or the one a further estimate and curve reach if it is wider."""
+        return Gap(
+            max(self.estimate, estimate),
+            max(self.curve, float(np.max(np.abs(curve)))),
         )
 
 
-def c2_estimate() -> None:
+def c2_curve() -> Gap:
+    """C2: the distance of the censored three-level fit from the oracle."""
+    fit = _fit_end()
+    gap = Gap(0.0, 0.0)
+    for name, truth, eif, rows in sup.expected(NAMES, law.end_function, law.PROBS, law.COUNTS):
+        gap = gap.widen(abs(fit.psi(name) - truth), fit.influence_curves[name][rows] - eif)
+    return gap
+
+
+def c2_estimate() -> Gap:
     """C2, the estimates alone."""
     fit = _fit_end()
+    gap = Gap(0.0, 0.0)
     for name, truth, _, _ in sup.expected(NAMES, law.end_function, law.PROBS, law.COUNTS):
-        assert fit.psi(name) == pytest.approx(truth, abs=1e-10), name
+        gap = gap.widen(abs(fit.psi(name) - truth), 0.0)
+    return gap
 
 
-def known_curve() -> None:
+def known_curve() -> Gap:
     """A declared mechanism at both nodes: the curve has no mechanism term."""
     fit = sup.fit_ipsi(
         sup.known_frame(), law.PLANS, sup.UNCENSORED_COLUMNS, declared=sup.KNOWN_DECLARED
@@ -71,37 +98,34 @@ def known_curve() -> None:
     probs, counts = law.UNCENSORED_PROBS, law.UNCENSORED_COUNTS
     rows = law.first_rows(counts)
     keep = probs > 0
+    gap = Gap(0.0, 0.0)
     for name in NAMES:
 
         def at(p: Any, name: str = name) -> Any:
             return law.end_function(name, base=probs, known=(1, 2))(p)
 
-        assert fit.psi(name) == pytest.approx(float(at(probs)), abs=1e-10), name
-        np.testing.assert_allclose(
-            fit.influence_curves[name][rows[keep]],
-            law.eif(at, probs)[keep],
-            atol=1e-8,
-            rtol=0,
-            err_msg=name,
+        gap = gap.widen(
+            abs(fit.psi(name) - float(at(probs))),
+            fit.influence_curves[name][rows[keep]] - law.eif(at, probs)[keep],
         )
+    return gap
 
 
-def c5_equality() -> None:
+def c5_equality() -> Gap:
     """C5: ``{0: 2, 1: 4}`` and ``{0: 0.5}`` on two levels are the odds multiplier ``2``."""
     reference = sup.binary_fit(2.0)
+    gap = Gap(0.0, 0.0)
     for declaration in ({0.0: 2.0, 1.0: 4.0}, {0.0: 0.5}):
         other = sup.binary_fit(declaration)
         for name in ("ey_regimen[tilted]", "ate_regimen[tilted vs natural]"):
-            assert other.psi(name) == pytest.approx(reference.psi(name), abs=1e-12)
-            np.testing.assert_allclose(
-                other.influence_curves[name],
-                reference.influence_curves[name],
-                atol=1e-12,
-                rtol=0,
+            gap = gap.widen(
+                abs(other.psi(name) - reference.psi(name)),
+                other.influence_curves[name] - reference.influence_curves[name],
             )
+    return gap
 
 
-WITNESSES: dict[str, Callable[[], None]] = {
+WITNESSES: dict[str, Callable[[], Gap]] = {
     "c2_curve": c2_curve,
     "c2_estimate": c2_estimate,
     "known_curve": known_curve,
@@ -109,19 +133,29 @@ WITNESSES: dict[str, Callable[[], None]] = {
 }
 
 
-@pytest.mark.parametrize("witness", WITNESSES)
-def test_every_witness_passes_on_the_shipped_source(witness: str) -> None:
+def _run(name: str) -> Gap:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        WITNESSES[witness]()
+        return WITNESSES[name]()
+
+
+@pytest.mark.parametrize("witness", WITNESSES)
+def test_every_witness_passes_on_the_shipped_source(witness: str) -> None:
+    gap = _run(witness)
+    assert gap.estimate <= ESTIMATE_TOLERANCE
+    assert gap.curve <= CURVE_TOLERANCE
 
 
 def _fails(*names: str) -> None:
-    """Each named witness fails: an assertion or a refusal raised by the broken source."""
+    """Each named witness runs on the broken source and leaves a gap above ``MARGIN``.
+
+    An exception from the broken source is not a failure of the witness: it propagates, and
+    the control fails with it.  A mutant that crashes shows nothing about the value it moves.
+    ``c2_estimate`` measures estimates alone, so its gap is the estimate gap.
+    """
     for name in names:
-        with pytest.raises(Exception), warnings.catch_warnings():  # noqa: B017
-            warnings.simplefilter("ignore")
-            WITNESSES[name]()
+        gap = _run(name)
+        assert max(gap) > MARGIN, f"{name}: estimate gap {gap.estimate:.3e}, curve {gap.curve:.3e}"
 
 
 class TestTheMutationsAreSeen:
@@ -155,7 +189,7 @@ class TestTheMutationsAreSeen:
             monkeypatch,
             ipsi_module,
             ipsi_module,
-            "_tilt_factor",
+            "_extend_tilt",
             [("if g.shape[1] == 2:", "if True:")],
         )
         _fails("c2_curve")
@@ -216,7 +250,13 @@ class TestTheMutationsAreSeen:
             regimen_module,
             regimen_module.Plan,
             "tilt_factors",
-            [("self.node_factors[time - 1]", "self.node_factors[0]")],
+            [
+                (
+                    "factors = self.node_factors[time - 1] if self.node_factors else None",
+                    "factors = (self.node_factors[0] or self.node_factors[time - 1]) "
+                    "if self.node_factors else None",
+                )
+            ],
         )
         _fails("c2_curve", "c2_estimate")
 
@@ -266,9 +306,9 @@ class TestTheMutationsAreSeen:
         [
             (
                 ipsi_module,
-                "_tilt_factor",
-                "tilt_factor_binary(arm, g[:, 1], factors[1] / factors[0])",
-                "tilt_factor_binary(arm, g[:, 1], factors[1])",
+                "_extend_tilt",
+                "tilt_product_binary(tilt, arm, g[:, 1], factors[1] / factors[0])",
+                "tilt_product_binary(tilt, arm, g[:, 1], factors[1])",
             ),
             (
                 ipsi_module,
@@ -300,7 +340,7 @@ class TestTheMutationsAreSeen:
 
 def test_the_mutated_modules_are_restored() -> None:
     """``monkeypatch`` put the shipped functions back after each control."""
-    for witness in WITNESSES.values():
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            witness()
+    for name in WITNESSES:
+        gap = _run(name)
+        assert gap.estimate <= ESTIMATE_TOLERANCE
+        assert gap.curve <= CURVE_TOLERANCE

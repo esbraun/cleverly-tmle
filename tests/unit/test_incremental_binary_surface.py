@@ -7,6 +7,9 @@ more levels.  These tests pin what must not move.
 * T16: the first five replicates of the two committed incremental comparator studies
   (``npcausal-incremental`` and ``npcausal-stratified-incremental``), refitted here, equal the
   committed ``cleverly`` rows.  The rows were written by the code before this change.
+  The comparison is ``rtol=1e-12``: the rows come from another platform, and the refit differs
+  from them in the last bit on this one, as the refit of ``origin/main`` does.  The bits of
+  the arithmetic are pinned by ``TestTheBinaryBranchRunsTheOperationsOfTheBinaryCode``.
 * C5: every two-level declaration of one odds multiplier gives one tilt, and the general
   (three or more levels) formulas, called on a two-level input, equal the two-level ones.
 
@@ -33,6 +36,8 @@ from tests.studies import canonical_stratified_incremental_msm as stratified
 from tests.unit import _categorical_incremental_support as sup
 
 REPLICATES = 5
+#: An absolute floor for a value that may be zero.
+FLOOR = 1e-12
 COMMITTED = {
     primary.STUDY.implementation: "tests/canonical/npcausal_incremental/replicates.csv.gz",
     stratified.STUDY.implementation: (
@@ -51,8 +56,8 @@ def _committed(implementation: str, replicate: int) -> pd.DataFrame:
 def _agree(result: Any, committed: pd.DataFrame) -> None:
     for name, row in committed.iterrows():
         estimate = result[str(name)]
-        assert estimate.psi == pytest.approx(row["estimate"], rel=1e-8, abs=1e-10), name
-        assert estimate.std_error == pytest.approx(row["std_error"], rel=1e-6, abs=1e-10), name
+        assert estimate.psi == pytest.approx(row["estimate"], rel=1e-12, abs=FLOOR), name
+        assert estimate.std_error == pytest.approx(row["std_error"], rel=1e-12, abs=FLOOR), name
 
 
 class TestT16TheCommittedBinaryStudiesReplay:
@@ -67,6 +72,44 @@ class TestT16TheCommittedBinaryStudiesReplay:
         frame, _ = stratified.draw_scenario(stratified.SCENARIO, 2000, replicate)
         result = stratified.fit_cleverly(frame)
         _agree(result, _committed(stratified.STUDY.implementation, replicate))
+
+
+# ------------------------------------------------------------------------- bitwise witness
+
+
+class TestTheBinaryBranchRunsTheOperationsOfTheBinaryCode:
+    """``np.array_equal`` with the expressions of ``origin/main``'s two-level ``_tilt``.
+
+    Elementwise IEEE operations give the same bits on every platform, so this holds in CI.
+    """
+
+    @pytest.mark.parametrize("delta", [1.7, 0.43, 6.0, 1.0])
+    def test_the_arrays_of_a_two_level_tilt_are_those_of_the_binary_code(
+        self, delta: float
+    ) -> None:
+        rng = np.random.default_rng(20261016)
+        g1 = rng.uniform(0.02, 0.98, 3000)
+        g = np.column_stack([1.0 - g1, g1])
+        g0 = 1.0 - g1
+        d = delta * g1 + g0
+        values = np.column_stack([g0 / d, delta * g1 / d])
+        weights = np.column_stack([1.0 / d, np.full_like(d, delta) / d])
+        tilts = IPSISet.evaluate((Incremental(delta, name="t"),), _two_levels()[0], g)
+        assert np.array_equal(tilts.values[:, :, 0], values)
+        assert np.array_equal(tilts.weights[:, :, 0], weights)
+        assert np.array_equal(tilts.binary_derivative[:, 0], delta / d**2)
+        assert np.array_equal(tilts.normaliser[:, 0], d)
+
+    def test_a_mapping_naming_the_first_level_gives_the_same_bits_as_its_multiplier(self) -> None:
+        rng = np.random.default_rng(7)
+        g1 = rng.uniform(0.02, 0.98, 3000)
+        g = np.column_stack([1.0 - g1, g1])
+        data = _two_levels()[0]
+        scalar = IPSISet.evaluate((Incremental(6.0, name="t"),), data, g)
+        mapped = IPSISet.evaluate((Incremental({0.0: 0.5, 1.0: 3.0}, name="t"),), data, g)
+        assert np.array_equal(mapped.values, scalar.values)
+        assert np.array_equal(mapped.weights, scalar.weights)
+        assert np.array_equal(mapped.binary_derivative, scalar.binary_derivative)
 
 
 # ----------------------------------------------------------------------------------- C5
