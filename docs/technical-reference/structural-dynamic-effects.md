@@ -236,10 +236,11 @@ and the Wald interval. The study fits no simultaneous band, so a band reads `exp
 
 Each row also requires that the fit sets no `regression_learner`. A fit outside these rows reads
 `experimental`. Examples are an in-sample fit, a learner other than `GLM`, any
-`regression_learner`, estimated weights and fewer than 40 clusters. Law `N` of the study has no row. A row
-names a learner class and not its settings. The study measures one early-stopped booster. A
-booster of fixed size kept a bias of 1.8 standard errors at $n$ = 512,000, so a row for the class
-would cover a configuration that the study refutes.
+`regression_learner`, estimated weights and fewer than 40 clusters.
+
+Law `N` of the study has no row. A row names a learner class and not its settings. The study
+measures one early-stopped booster. A booster of fixed size kept a bias of 1.8 standard errors at
+$n$ = 512,000. A row for the class would cover a configuration that the study refutes.
 
 The reason of the label names the nearest row and the axes that differ. The summary prints a
 `support` column, one `experimental:` note for each distinct reason, and the marker
