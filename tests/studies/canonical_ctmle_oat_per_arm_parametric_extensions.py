@@ -69,10 +69,10 @@ units: eight calibration groups (the generated-design pair among them), one type
 primary phase and nine negative controls.  Each unit is sized so that its pass probability is at
 least ``0.95 ** (1 / 19) = 0.99730``, so the study passes with probability at least 0.95 when
 nothing is wrong.  Pilot step 2 reads every group on pilot-only seeds, and the budgets of
-:data:`BUDGETS` are set from it by the rule in ``CONFIGURATION["budget_rule"]``.  Pilot step 4
-re-reads each group at its declared budget on fresh pilot-only seeds and reports the study-wise
-pass probability before any declared run.  A budget moves only by a later commit that cites a
-pilot.
+:data:`BUDGETS` are set from it and from step 4 by the rule in ``CONFIGURATION["budget_rule"]``.
+Pilot step 4 re-reads each group at its declared budget on fresh pilot-only seeds and reports the
+study-wise pass probability before any declared run.  A budget moves only by a later commit that
+cites a pilot.
 """
 
 from __future__ import annotations
@@ -144,8 +144,14 @@ SCENARIOS: Mapping[str, tuple[str, ...]] = {
 
 # ---------------------------------------------------------------------------------- the sizes
 
-#: The replicates of each fit group: the rev 3.1 expected budgets of plan 13.6, each a multiple
-#: of 400.  The eight calibration groups are sized to the per-unit target ``0.95 ** (1 / 19)``.
+#: The replicates of each fit group, each a multiple of 400.  The plan 13.6 (rev 3.1) expected
+#: budgets stand for the groups the pilot did not raise.  Three are raised from the pilot (step 2
+#: at 5,000 draws and step 4 at the declared size, on independent seeds, pooled):
+#: ``binary_population`` 9,600 to 11,200 and ``three_arm_crossfit`` 17,600 to 18,800 are the
+#: smallest multiples of 400 whose predicted pass
+#: probability reaches the per-unit target.  ``three_arm_generated_design`` reaches 0.9932 at
+#: 80,000 and no budget up to 80,000 reaches the target (see ``budget_rule``).  The eight
+#: calibration groups are sized to the per-unit target ``0.95 ** (1 / 19)``.
 #: ``three_arm_null`` is sized at 1,600 (design review m1): at most 129 rejections pass the type I
 #: verdict.  With every allowed lost replicate (16) counted as a rejection, the two rows pass with
 #: probability 0.99982 at a true rate of 0.05 and 0.99490 at 0.055.  At 1,200 the same worst case
@@ -153,9 +159,9 @@ SCENARIOS: Mapping[str, tuple[str, ...]] = {
 BUDGETS: Mapping[str, int] = {
     "three_arm": 29_200,
     "three_arm_shared": 14_000,
-    "binary_population": 9_600,
-    "three_arm_crossfit": 17_600,
-    "three_arm_generated_design": 11_600,
+    "binary_population": 11_200,
+    "three_arm_crossfit": 18_800,
+    "three_arm_generated_design": 80_000,
     "weighted": 17_600,
     "weighted_crossfit": 11_600,
     "composition": 17_600,
@@ -726,7 +732,11 @@ CONFIGURATION: dict[str, Any] = {
     "budget_rule": (
         "plan 13.6 (rev 3.1) expected budgets, each a multiple of 400; the study-wise rule of "
         "plan section 12 with G = 19 gated units, each sized to pass with probability >= "
-        "0.95 ** (1 / 19) = 0.99730; three_arm_null is sized at 1,600 (at most 129 rejections "
+        "0.95 ** (1 / 19) = 0.99730; binary_population (11,200) and three_arm_crossfit (18,800) are "
+        "raised to the smallest multiple of 400 that reaches the target on the pooled pilot of steps "
+        "2 and 4; three_arm_generated_design is set to 80,000, the largest size searched, where the "
+        "predicted pass probability is 0.9932 and still below the target (the pooled tau_80 of 0.0106 "
+        "applied to oracle-design ratios near 1.03 caps it); three_arm_null is sized at 1,600 (at most 129 rejections "
         "pass, and the target holds at every allowed loss count at a true rate of 0.05); the "
         "primary phase runs 1,600 replicates per law, which holds the target down to a true "
         "coverage of 0.945 on every row and gives 0.99592 at 0.94, where the smallest size at "

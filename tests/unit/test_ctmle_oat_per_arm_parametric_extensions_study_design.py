@@ -29,13 +29,14 @@ from tests.studies.evidence.property_verdicts import SE_CONTROL_SIDES
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.seeds import replicate_seed, stream_seed
 
-#: Plan 13.6 group -> (replicates, n).  The replicates are the rev 3.1 expected budgets.
+#: Plan 13.6 group -> (replicates, n).  The replicates are the rev 3.1 expected budgets, with
+#: three groups raised from the pooled pilot (see ``BUDGETS``).
 PLAN = {
     "three_arm": (29_200, 1_500),
     "three_arm_shared": (14_000, 1_500),
-    "binary_population": (9_600, 1_500),
-    "three_arm_crossfit": (17_600, 1_500),
-    "three_arm_generated_design": (11_600, 1_500),
+    "binary_population": (11_200, 1_500),
+    "three_arm_crossfit": (18_800, 1_500),
+    "three_arm_generated_design": (80_000, 1_500),
     "weighted": (17_600, 1_500),
     "weighted_crossfit": (11_600, 1_500),
     "composition": (17_600, 1_500),
@@ -147,10 +148,11 @@ def test_every_group_exists_with_its_budget_size_law_and_reference() -> None:
             assert fit.cross_fit is cross_fit, (name, fit.name)
             assert fit.reference == reference, (name, fit.name)
     assert {cell.plan for cell in runner.CELLS} == set(PLAN)
-    # Plan 13.6 with the type I group at 1,600 (design review m1): the nine groups sum to
-    # 130,400 replicates and the primary phase adds 3,200.
-    assert sum(runner.BUDGETS.values()) == 130_400
-    assert sum(runner.BUDGETS.values()) + 2 * runner.PRIMARY_REPLICATES == 133_600
+    # Plan 13.6 with the type I group at 1,600 (design review m1) and the three groups raised from
+    # the pooled pilot (binary_population, three_arm_crossfit, three_arm_generated_design): the
+    # nine groups sum to 201,600 replicates and the primary phase adds 3,200.
+    assert sum(runner.BUDGETS.values()) == 201_600
+    assert sum(runner.BUDGETS.values()) + 2 * runner.PRIMARY_REPLICATES == 204_800
 
 
 def test_every_cross_fitted_group_uses_five_folds_and_one_draw() -> None:
@@ -1064,22 +1066,27 @@ PILOT_CONTROLS = {
 #: figure: all 11 rows pass at 1,600 per law, and 200 bootstrap resamples all pass.
 PILOT_TYPE_I_REJECTIONS = (0.0450, 0.0525)
 PILOT_PRIMARY = 1.0000
-#: The predictive model's unit probability at the declared budgets, step 4 (study-wise 0.7926 with
-#: all 19 units).  Step 2 gave 0.7675 over 18 units.  The model carries the pilot's own sampling
-#: error, so it cannot reach the target for the cross-fitted groups at any budget (step 2), and
-#: three units sit below it at step 4.  The budgets stay at the plan values on the X58b1 precedent;
-#: the declared reading passes every row at both steps.
-PILOT_STEP4_UNITS = {
-    "three_arm": 0.99993,
-    "three_arm_shared": 0.99846,
-    "binary_population": 0.98897,
-    "three_arm_crossfit": 0.99736,
-    "three_arm_generated_design": 0.80937,
-    "weighted": 0.99949,
-    "weighted_crossfit": 0.99842,
-    "composition": 0.99653,
+#: The predictive model's unit probability at the declared budgets, from the steps 2 and 4 rows
+#: pooled (independent seeds, 1,367,400 rows), with ``tau_80`` = 0.0106 pooled over the 45 positive
+#: rows.  Step 4 alone, at the budgets of the first pilot (binary_population 9,600,
+#: three_arm_crossfit 17,600, three_arm_generated_design 11,600), gave 0.7926 over 19 units with
+#: three groups under the target.  The pooled input then raised binary_population to 11,200 and
+#: three_arm_crossfit to 18,800 (the smallest multiples of 400 at the target).  The generated-design
+#: pair reaches 0.9932 at 80,000, the largest size searched, and no size up to 80,000 reaches the
+#: target: the pooled ``tau_80`` is applied to oracle-design ratios of 1.026 to 1.036.
+PILOT_UNITS = {
+    "three_arm": 0.99996,
+    "three_arm_shared": 0.99911,
+    "binary_population": 0.99738,
+    "three_arm_crossfit": 0.99735,
+    "three_arm_generated_design": 0.99321,
+    "weighted": 0.99948,
+    "weighted_crossfit": 0.99961,
+    "composition": 0.99825,
 }
-PILOT_STUDY_WISE = 0.7926
+#: The type I group (0.99994) and the primary phase (1.0000) enter the product; the nine negative
+#: controls are red with probability 1.000.
+PILOT_STUDY_WISE = 0.9844
 
 
 def test_the_pilot_reads_every_gated_row_inside_the_calibration_band_at_the_declared_size() -> None:
@@ -1141,11 +1148,25 @@ def test_the_pilot_controls_are_red_on_their_declared_side() -> None:
 
 
 def test_the_pilot_study_wise_figure_is_recorded_with_its_shortfall() -> None:
-    """The predictive model gives 0.7926 over 19 units: three groups sit under the target."""
-    below = {g for g, v in PILOT_STEP4_UNITS.items() if v < TARGET}
-    assert below == {"binary_population", "three_arm_generated_design", "composition"}
-    assert (
-        pytest.approx(float(np.prod(list(PILOT_STEP4_UNITS.values()))), abs=1e-3)
-        == PILOT_STUDY_WISE
-    )
-    assert len(PILOT_STEP4_UNITS) + runner.UNITS["negative_controls"] + 2 == UNITS
+    """The predictive model gives 0.9844 over 19 units; the generated-design pair is under target."""
+    below = {g for g, v in PILOT_UNITS.items() if v < TARGET}
+    assert below == {"three_arm_generated_design"}
+    assert PILOT_UNITS["binary_population"] > TARGET and PILOT_UNITS["three_arm_crossfit"] > TARGET
+    product = float(np.prod(list(PILOT_UNITS.values()))) * 0.99994 * PILOT_PRIMARY
+    assert pytest.approx(product, abs=1e-3) == PILOT_STUDY_WISE
+    assert len(PILOT_UNITS) + runner.UNITS["negative_controls"] + 2 == UNITS
+    assert PILOT_STUDY_WISE >= 0.95
+    # CPU-h of the declared run at the measured seconds per replicate (step 4, 3 jobs): 6.6.
+    seconds = {
+        "three_arm": 0.101,
+        "three_arm_shared": 0.035,
+        "binary_population": 0.055,
+        "three_arm_crossfit": 0.131,
+        "three_arm_generated_design": 0.168,
+        "weighted": 0.026,
+        "weighted_crossfit": 0.082,
+        "composition": 0.123,
+        "three_arm_null": 0.029,
+    }
+    hours = sum(seconds[g] * runner.BUDGETS[g] for g in seconds) / 3600.0
+    assert hours == pytest.approx(6.5, abs=0.3)
