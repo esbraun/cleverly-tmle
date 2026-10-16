@@ -251,11 +251,11 @@ without the option.
 
 | option | runs as experimental | keeps the label of the fit | roadmap |
 | --- | --- | --- | --- |
-| `stopping=` | `"scaled_var"` and `"sample_size"`, on a point fit and on `LTMLE` | `"relative"` | X72 |
+| `stopping=` | `"scaled_var"` and `"sample_size"`, on a point fit and on `LTMLE` | `"relative"` | X76 |
 | `iterate=`, `step_bound=` | never on their own | under `stopping="relative"` the walk stops only at the solution of the score equation, to `tol` | none |
-| `outcome_by_arm=` | `True` | `False` | X72 |
-| `patience=` | any value | `None` | X72 |
-| `treatment_adjustment=` | a declared subset | the whole adjustment set | X72 |
+| `outcome_by_arm=` | `True` | `False` | X76 |
+| `patience=` | any value | `None` | X76 |
+| `treatment_adjustment=` | a declared subset | the whole adjustment set | X76 |
 
 These requests stay refused, because the code returns a misleading number or has no path:
 

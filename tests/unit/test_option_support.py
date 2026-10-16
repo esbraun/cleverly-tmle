@@ -1,7 +1,7 @@
 """The support label of a fit that declares a targeting or fitting option.
 
 A declared stopping rule, ``outcome_by_arm=True``, ``patience=`` and ``treatment_adjustment=``
-run, and their estimates carry the experimental label with roadmap X72 as the evidence
+run, and their estimates carry the experimental label with roadmap X76 as the evidence
 (``cleverly.estimators._option_support``).  ``iterate="best"`` and ``step_bound=`` under
 ``stopping="relative"`` keep the label of the fit without them.  The witness for each
 experimental case is the same fit without the option, which a registered row covers, and a

@@ -22,7 +22,7 @@ Newton path reaches, to ``tol``.  A walk that stops short fails ``score_check()`
 solve that stops short does.
 
 Each function returns :class:`~cleverly._refusal.Refusal` conditions for a
-:class:`~cleverly._support.Preflight`.  X72 in ``docs/roadmap.md`` tracks the studies.
+:class:`~cleverly._support.Preflight`.  X76 in ``docs/roadmap.md`` tracks the studies.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from .._refusal import Refusal, RefusalReason
 __all__ = ["OPTION_STUDIES_ROADMAP", "point_option_conditions", "stopping_conditions"]
 
 #: The roadmap item that tracks the registered studies of these options.
-OPTION_STUDIES_ROADMAP = "X72"
+OPTION_STUDIES_ROADMAP = "X76"
 
 
 def stopping_conditions(stopping: str) -> list[Refusal]:
