@@ -34,7 +34,7 @@ Seven names serve the pricing tutorial of the same program.
 | `make_sequential_pricing` | a wide frame of three monthly renewal prices with engagement, the renewal, and the revenue, with the exact truth |
 | `pricing_truth` | the exact mean renewal and revenue under each plan, each effect against the engine's own prices, and the decomposition of the effect by path |
 | `pricing_protocol` | the `StudyProtocol` of the pricing question |
-| `price_rise` | a plan that raises each price by a factor and keeps the engine's price at the band edge |
+| `price_rise` | a plan that raises each price by a factor and keeps the engine's price where the raised price would leave the band |
 | `PRICE_PLANS`, `PRICE_BANDS`, `PRICE_NODES` | the three plans by name, the price band of each month, and the number of monthly prices |
 
 `make_sequential_pricing` is not in `GENERATORS` either. Its columns are `usage`, `engaged_1`,

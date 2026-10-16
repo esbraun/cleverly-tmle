@@ -16,17 +16,21 @@ ordinary Markdown that is readable on GitHub.
 ## The examples contract
 
 [Examples](examples/index.md) carries nine tutorials and the TWINS notebook. Five mirror five of the
-six method entries in the technical reference. The parametric g-formula entry has no tutorial yet.
-Three cover sections inside an entry: the intervention axes and survey non-response inside the
-point-treatment entry, and longitudinal event outcomes inside the longitudinal entry. The ninth
-applies the longitudinal entry and the sequential baselines to a commercial campaign. A new method
-entry needs a new tutorial, and the two link to each other in both directions.
+six method entries in the technical reference. The sequential pricing tutorial is the one for the
+longitudinal entry. The parametric g-formula entry has no tutorial yet.
+
+Three more tutorials cover sections inside an entry: the intervention axes and survey non-response
+inside the point-treatment entry, and longitudinal event outcomes inside the longitudinal entry. The
+ninth, sequential offers, applies the longitudinal entry and the sequential baselines to a
+commercial campaign. A new method entry needs a new tutorial, and the two link to each other in both
+directions.
 
 The tutorials share two narratives. Seven follow one health program: a health plan's hospital
-network evaluates care-transition navigation. A new tutorial for a method joins that program
-rather than inventing a scenario. The applied commercial pair follows a second program: a
-subscription retailer sends weekly offers and sets monthly renewal prices. The offers tutorial and
-the pricing tutorial form the pair.
+network evaluates care-transition navigation. A new tutorial for a method joins that program rather
+than inventing a scenario, unless the method needs a law that the program lacks. The pricing
+tutorial is that case, because the health program has no continuous price. The applied commercial
+pair follows a second program: a subscription retailer sends weekly offers and sets monthly renewal
+prices. The offers tutorial and the pricing tutorial form the pair.
 
 ## The record documents
 

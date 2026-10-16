@@ -20,6 +20,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 import sys
 import warnings
 from concurrent.futures import ProcessPoolExecutor
+from typing import Any
 
 SEEDS = range(1000, 1060)
 PLANS = ("price_up", "price_down")
@@ -69,7 +70,7 @@ def one_seed(seed: int) -> dict:
     quadratic = make_pipeline(
         PolynomialFeatures(2, include_bias=False), StandardScaler(), LinearRegression()
     )
-    row = {"seed": seed}
+    row: dict[str, Any] = {"seed": seed}
     for name, learner in (("linear", LinearRegression()), ("quadratic", quadratic)):
         method = TMLEMethod(
             models=ModelSpec(
@@ -111,7 +112,8 @@ if __name__ == "__main__":
             )
     for plan in PLANS:
         difference = frame[f"linear_{plan}_psi"] - frame[f"quadratic_{plan}_psi"]
+        paired_error = difference.std(ddof=1) / np.sqrt(n)
         print(
             f"  revenue {plan:11s} linear minus quadratic: "
-            f"mean {difference.mean():+.4f} (paired MC SE {difference.std(ddof=1) / np.sqrt(n):.4f})"
+            f"mean {difference.mean():+.4f} (paired MC SE {paired_error:.4f})"
         )

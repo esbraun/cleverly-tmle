@@ -2,7 +2,7 @@ r"""A monthly renewal-price program with a known truth, and the protocol that st
 
 A subscription retailer sets a renewal price for each customer in each of three months.  The
 pricing engine reads the customer's usage, this month's engagement, and the gap between its last
-price and that month's centre.  It draws a price inside a band that moves with engagement.
+price and the last month's centre.  It draws a price inside a band that moves with engagement.
 Engagement responds to the last price gap, and it drives both the next price and the month-3
 renewal.  So engagement is a time-varying confounder affected by earlier prices, and the price
 engine carries part of each price into the next one.
@@ -213,7 +213,7 @@ def _regimen(kind: str, factor: float, label: str) -> DynamicRegimen:
 
 
 def price_rise(factor: float, label: str | None = None) -> DynamicRegimen:
-    r"""Return the plan that raises each price by ``factor`` and holds the price at the band edge.
+    r"""Return the plan that raises each price by ``factor`` and keeps the price in the band.
 
     At each month the plan multiplies the engine's price :math:`a` by ``factor`` where the raised
     price stays below that month's band ceiling :math:`u_t`, that is, where
@@ -274,7 +274,8 @@ PRICE_BANDS: dict[str, Support] = {
 }
 
 #: The three plans of the tutorial, by the name a fit reports: the engine's own prices, a 12% rise
-#: that holds the price at the band edge, and a 15% cut that holds it at the lower band edge.
+#: that keeps the engine's price where the rise would leave the band, and a 15% cut that does the
+#: same where the cut would leave it.
 PRICE_PLANS: dict[str, DynamicRegimen] = {
     _REFERENCE: _regimen("natural", 1.0, _REFERENCE),
     "price_up": price_rise(_RISE),
@@ -624,13 +625,12 @@ def pricing_protocol() -> StudyProtocol:
     'Month 3, at the renewal after the third monthly price'
     """
     return StudyProtocol(
-        target_population="Active monthly subscribers at the start of the pricing window",
+        target_population="Active monthly subscribers at the start of a three-month term",
         eligibility=(
             "Active subscription at the first monthly renewal price",
             "A renewal price set by the pricing engine in each of months 1 to 3",
             "One account per customer, so shared-household accounts are excluded",
-            "A subscription that stays open through the month-3 renewal, so a cancellation-free "
-            "window is a condition of the target population",
+            "A three-month term that starts at time zero, with no exit before the month-3 renewal",
         ),
         time_zero=(
             "The first monthly renewal price, after the usage score and the month-1 engagement "
@@ -654,7 +654,7 @@ def pricing_protocol() -> StudyProtocol:
         ),
         horizon="Month 3, at the renewal after the third monthly price",
         intercurrent_event_handling=(
-            "Cancellation before the month-3 renewal is outside the target population",
+            "None: the three-month term has no exit before the month-3 renewal",
             "Every customer in the data has all three prices and the renewal, so the data have "
             "no censoring",
         ),
