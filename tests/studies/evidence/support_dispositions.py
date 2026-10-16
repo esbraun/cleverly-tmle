@@ -1405,6 +1405,12 @@ NO_SHORTFALL: Mapping[RedKey, str] = {
         for key, entry in DISPOSITIONS.items()
         if entry.row == "T01.binary" and entry.disposition == EXPERIMENTAL
     },
+    **{
+        key: "the cell measures a hypothesis test, and the label has no test kind; the row's "
+        "coverage cells carry its interval limit"
+        for key, entry in DISPOSITIONS.items()
+        if entry.disposition == EXPERIMENTAL and key.key.startswith(("type_i_error/", "power/"))
+    },
 }
 
 #: The study that names the row where the red row's own study is exempt from the support rows.
