@@ -1962,3 +1962,79 @@ CASES: tuple[RowCase, ...] = (
     *_long_cases(),
     *_vector_cases(),
 )
+
+
+def _categorical_incremental_cases() -> tuple[RowCase, ...]:
+    """The cases of ``categorical-incremental`` (X43), pending its registration.
+
+    Each runs the study's own fit on a small draw of its stream up to the classifier.  The
+    registration commit moves them into :data:`CASES` with the rows of
+    :data:`cleverly._support_rows.PENDING_ROWS`.
+    """
+    runner, slug = "canonical_categorical_incremental", "categorical-incremental"
+    properties = "categorical_incremental_properties"
+
+    def primary(row: str, scenario: str, line: int) -> RowCase:
+        return _seeded(
+            row,
+            slug,
+            scenario,
+            f"{runner}.py:{line}",
+            runner,
+            scenario,
+            400,
+            lambda study, frame, scenario=scenario: study.fit(frame, scenario),
+        )
+
+    def point_draw(module: Any) -> Any:
+        return module._draw_fit_set(("interval_calibration", "law_p", "calibration", 0, 400, 1))
+
+    def long_draw(stream: str) -> Callable[[Any], Any]:
+        return lambda module: module._draw_fit_set(
+            ("interval_calibration", stream, "calibration", 0, 2000, 1)
+        )
+
+    return (
+        primary("T35.in_sample", "point_in_sample", 218),
+        primary("T35.cross_fitted", "point_crossfit", 218),
+        _observed(
+            "T35.known",
+            slug,
+            "point_known_t_a",
+            f"{properties}.py:425",
+            properties,
+            point_draw,
+            lambda m, f: m.common.fit_point(f.drop(columns="V"), cross_fit=True, known=True),
+        ),
+        _observed(
+            "T35.strata",
+            slug,
+            "point_stratified_t_a_v1",
+            f"{properties}.py:426",
+            properties,
+            point_draw,
+            lambda m, f: m.common.fit_point(f, cross_fit=True, strata=True),
+        ),
+        _observed(
+            "G37.cross_fitted",
+            slug,
+            "longitudinal_dropout_contrast_t_a",
+            f"{properties}.py:439",
+            properties,
+            long_draw("law_l"),
+            lambda m, f: m.common.fit_longitudinal(f, m.long_law.LAW_L, n_folds=m.common.N_FOLDS),
+        ),
+        _observed(
+            "G37.complete",
+            slug,
+            "longitudinal_contrast_t_a",
+            f"{properties}.py:457",
+            properties,
+            long_draw("law_l0"),
+            lambda m, f: m.common.fit_longitudinal(f, m.long_law.LAW_L0, n_folds=m.common.N_FOLDS),
+        ),
+    )
+
+
+#: The cases of ``categorical-incremental``, joined to :data:`CASES` when it registers.
+PENDING_CASES: tuple[RowCase, ...] = _categorical_incremental_cases()

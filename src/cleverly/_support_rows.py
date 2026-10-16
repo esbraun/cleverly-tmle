@@ -26,6 +26,7 @@ __all__ = [
     "LONGITUDINAL_ROWS",
     "MEASURED_LIMITS",
     "OPTION_ALLOWLIST",
+    "PENDING_ROWS",
     "POINT_ROWS",
     "SHORTFALLS",
     "TheoryAnchor",
@@ -2169,6 +2170,83 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``) and
 #: the sequential baselines (``G28``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
+
+
+# ------------------------------------------------------- pending: categorical incremental
+
+
+def _categorical_incremental_rows() -> tuple[SupportRow, ...]:
+    """The rows of the study ``categorical-incremental`` (X43), pending its registration.
+
+    A categorical tilt fit is labelled ``experimental`` until the study's artifacts land
+    (X43 plan rev 2.2). The registration commit joins these rows to :data:`POINT_ROWS` and
+    :data:`LONGITUDINAL_ROWS` and their cases to ``tests/studies/support_cases.py``'s
+    ``CASES``. Until then no fit matches them: ``tests/unit/test_support_rows.py`` requires
+    every evidence slug to name a registered study.
+    """
+    slug = ["categorical-incremental"]
+    point: dict[str, Any] = {
+        "families": ("P9",),
+        "outcome": ("gaussian", "bounded"),
+        "treatment": ("arms3",),
+    }
+    ipsi: dict[str, Any] = {
+        "engine": "ipsi",
+        "regimens": ("tilt",),
+        "outcome": ("gaussian", "bounded"),
+        "treatment": ("3", "3"),
+        "splitting": ("cross_fitted",),
+    }
+    return (
+        point_row("T35.in_sample", slug, **point, cells=["point_in_sample"]),
+        point_row(
+            "T35.cross_fitted",
+            slug,
+            **point,
+            splitting=("stacked",),
+            cells=[
+                "point_crossfit",
+                "point_contrast_t_a",
+                "point_contrast_t_b",
+                "point_contrast_t_a__full_eif",
+                "point_contrast_t_a__sharp_null",
+                "point_contrast_t_a__alternative",
+            ],
+        ),
+        point_row(
+            "T35.known",
+            slug,
+            **point,
+            splitting=("stacked",),
+            qualifiers=("known_mechanism",),
+            cells=["point_known_t_a"],
+        ),
+        point_row(
+            "T35.strata",
+            slug,
+            **point,
+            splitting=("stacked",),
+            qualifiers=("strata",),
+            cells=["point_stratified_t_a_v1"],
+        ),
+        long_row(
+            "G37.cross_fitted",
+            slug,
+            **ipsi,
+            cells=["longitudinal_dropout_folds_5", "longitudinal_dropout_contrast_t_a"],
+        ),
+        long_row(
+            "G37.complete",
+            slug,
+            **ipsi,
+            missing=("complete",),
+            cells=["longitudinal_folds_5", "longitudinal_contrast_t_a"],
+        ),
+    )
+
+
+#: The rows of ``categorical-incremental``, joined to the registered rows when it registers.
+PENDING_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_categorical_incremental_rows())
 
 
 # ------------------------------------------------------------------ exemptions and anchors
