@@ -703,10 +703,10 @@ def test_a_subset_and_a_bootstrap_replicate_carry_their_own_rows() -> None:
     np.testing.assert_array_equal(sub.known_treatment.values, data.known_treatment.values[index])
     seen: list[np.ndarray] = []
 
-    def record(replicate: CausalData) -> dict[str, float]:
+    def record(replicate: CausalData) -> dict[str, tuple[float, float]]:
         assert replicate.known_treatment is not None
         seen.append(np.asarray(replicate.known_treatment.values))
-        return {"x": 0.0}
+        return {"x": (0.0, 1.0)}
 
     run_bootstrap(data, record, n_replicates=2, resampling="iid", random_state=4)
     rng_index = [np.asarray(values) for values in seen]

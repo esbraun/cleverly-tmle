@@ -17,7 +17,7 @@ import numpy as np
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
 from .._typing import FloatArray
 from ..exceptions import CapabilityError, RefusalReason
-from .bootstrap import BootstrapResult
+from .bootstrap import BootstrapInterval, BootstrapResult, bca_acceleration
 from .cluster import influence_covariance, stacked_second_moment_covariance
 from .delta import Transform, delta_method, log_odds_ratio_influence, log_ratio_influence
 from .influence import (
@@ -406,16 +406,21 @@ def derived_bootstrap(
     function: Callable[[FloatArray], float],
     *,
     alpha: float,
+    derived: ParameterEstimate | None = None,
 ) -> BootstrapSummary | None:
     """The bootstrap summary of a derived estimate, from its inputs' replicate draws.
 
     Each bootstrap replicate already holds a point estimate of every reported parameter, in
     aligned rows of :attr:`BootstrapResult.draws`.  Applying ``function`` to each row gives
-    the replicate value of the derived estimate, so its percentile interval is the one the
-    full refit implies. A replicate with a missing input gives a missing value. Domain-invalid
-    ratios also give missing values. The failure count includes every requested replicate
-    without a finite derived value. User callable exceptions propagate. The summary is
-    licensed as inference only when every input's summary is.
+    the replicate value of the derived estimate, so its interval is the one the full refit
+    implies. A replicate with a missing input gives a missing value. Domain-invalid ratios
+    also give missing values. The failure count includes every requested replicate without
+    a finite derived value. User callable exceptions propagate. The summary is licensed as
+    inference only when every input's summary is.
+
+    The derived summary takes the interval of its inputs. A BCa interval reads its
+    acceleration from the derived estimate's own influence curve, the delta-method curve
+    of :func:`smooth_contrast`, and its bias correction from the derived point estimate.
 
     Parameters
     ----------
@@ -428,30 +433,54 @@ def derived_bootstrap(
     function : callable
         The derived value as a function of the inputs.
     alpha : float
-        Significance level of the percentile interval.
+        Significance level of the interval.
+    derived : ParameterEstimate or None, default=None
+        The derived estimate. Required when the inputs carry BCa summaries.
 
     Returns
     -------
     BootstrapSummary or None
         ``None`` when the fit carries no bootstrap, or an input has no draws.
+
+    Raises
+    ------
+    ValueError
+        When the inputs carry BCa summaries and ``derived`` is ``None``, or the inputs mix
+        two intervals.
     """
     if bootstrap is None or any(name not in bootstrap.draws for name in names):
         return None
     summaries = [estimates[name].bootstrap for name in names]
     if any(summary is None for summary in summaries):
         return None
+    intervals = {summary.interval for summary in summaries if summary is not None}
+    if len(intervals) != 1:
+        raise ValueError(f"the inputs of a derived bootstrap mix intervals {sorted(intervals)}")
+    interval = intervals.pop()
     matrix = np.column_stack([np.asarray(bootstrap.draws[name], dtype=float) for name in names])
     values = np.array(
         [float(function(row)) if np.all(np.isfinite(row)) else np.nan for row in matrix]
     )
-    derived = BootstrapResult(
+    replicates = BootstrapResult(
         draws={"derived": values},
         n_requested=bootstrap.n_requested,
         n_failed=bootstrap.n_requested - int(np.count_nonzero(np.isfinite(values))),
         resampling=bootstrap.resampling,
-    ).summary("derived", alpha)
-    licensed = all(summary.inferential for summary in summaries if summary is not None)
-    return replace(derived, inferential=licensed)
+    )
+    if interval == "bca":
+        if derived is None:
+            raise ValueError("a BCa summary of a derived estimate needs the derived estimate")
+        summary = replicates.summary(
+            "derived",
+            alpha,
+            interval="bca",
+            estimate=derived.psi,
+            acceleration=bca_acceleration(derived.influence_curve),
+        )
+    else:
+        summary = replicates.summary("derived", alpha)
+    licensed = all(item.inferential for item in summaries if item is not None)
+    return replace(summary, inferential=licensed)
 
 
 def with_derived_bootstrap(
@@ -462,7 +491,9 @@ def with_derived_bootstrap(
     function: Callable[[FloatArray], float],
 ) -> ParameterEstimate:
     """``derived`` with the bootstrap summary :func:`derived_bootstrap` gives, if any."""
-    summary = derived_bootstrap(estimates, bootstrap, names, function, alpha=derived.alpha)
+    summary = derived_bootstrap(
+        estimates, bootstrap, names, function, alpha=derived.alpha, derived=derived
+    )
     return derived if summary is None else derived.with_bootstrap(summary)
 
 
@@ -599,7 +630,11 @@ _ResultT = TypeVar("_ResultT", bound=_BootstrappableResult)
 
 
 def attach_bootstrap(
-    result: _ResultT, bootstrap: BootstrapResult, *, inferential: bool = True
+    result: _ResultT,
+    bootstrap: BootstrapResult,
+    *,
+    inferential: bool = True,
+    interval: BootstrapInterval = "percentile",
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
 
@@ -613,8 +648,11 @@ def attach_bootstrap(
     bootstrap : BootstrapResult
         The replicate draws.
     inferential : bool, default=True
-        Whether a registered study licenses the percentile interval as inference for
-        this fit. Stored on each :class:`~cleverly.inference.BootstrapSummary`.
+        Whether a registered study licenses the interval as inference for this fit. Stored
+        on each :class:`~cleverly.inference.BootstrapSummary`.
+    interval : {"percentile", "bca"}, default="percentile"
+        The pointwise interval. A BCa interval reads each estimate's acceleration from its
+        own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`).
 
     Returns
     -------
@@ -622,11 +660,21 @@ def attach_bootstrap(
         A copy whose estimates carry their bootstrap summaries.
     """
     alpha = result.config.alpha_sig
+
+    def summary(name: str, estimate: ParameterEstimate) -> BootstrapSummary:
+        if interval == "bca":
+            return bootstrap.summary(
+                name,
+                alpha,
+                interval="bca",
+                estimate=estimate.psi,
+                acceleration=bca_acceleration(estimate.influence_curve),
+            )
+        return bootstrap.summary(name, alpha)
+
     estimates = {
         name: (
-            estimate.with_bootstrap(
-                replace(bootstrap.summary(name, alpha), inferential=inferential)
-            )
+            estimate.with_bootstrap(replace(summary(name, estimate), inferential=inferential))
             if name in bootstrap.draws
             else estimate
         )

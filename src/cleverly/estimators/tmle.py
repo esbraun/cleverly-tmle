@@ -5133,8 +5133,8 @@ class TMLE:
         data: CausalData,
         intermediate_value: float | None,
         estimands: tuple[str, ...],
-    ) -> Mapping[str, float]:
-        """One bootstrap replicate: a full refit, point estimates only.
+    ) -> Mapping[str, tuple[float, float]]:
+        """One bootstrap replicate: a full refit, its estimates and standard errors.
 
         Goes through :meth:`_nuisances` rather than :meth:`_fit_nuisances` so that a
         variant which *selects* a nuisance model repeats that selection in every
@@ -5172,7 +5172,11 @@ class TMLE:
             )
             per_repeat.append(estimates)
         combined = median_estimates(per_repeat)
-        return {name: estimate.psi for name, estimate in combined.items()}
+        # The plug-in standard error is the replicate's own curve at every status, which is
+        # what a studentized interval divides by (``RefitFn``).
+        return {
+            name: (estimate.psi, estimate.plugin_std_error) for name, estimate in combined.items()
+        }
 
 
 def reported_mechanism(

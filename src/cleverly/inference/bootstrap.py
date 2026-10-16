@@ -38,18 +38,32 @@ the model that produced them, which the package never sees.
 
 from __future__ import annotations
 
+import math
 import warnings
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol, TypeVar
 
 import numpy as np
+from scipy.stats import norm
 
 from .._typing import FloatArray, IntArray
 from ..utils.parallel import map_parallel
 from .influence import BootstrapSummary
 
-__all__ = ["BootstrapResult", "bootstrap_indices", "cluster_members", "run_bootstrap"]
+__all__ = [
+    "BootstrapBand",
+    "BootstrapInterval",
+    "BootstrapResult",
+    "bca_acceleration",
+    "bca_interval",
+    "bootstrap_band",
+    "bootstrap_indices",
+    "cluster_members",
+    "run_bootstrap",
+    "run_index_bootstrap",
+    "studentized_critical_value",
+]
 
 
 class Resamplable(Protocol):
@@ -70,8 +84,23 @@ class Resamplable(Protocol):
 
 _DataT = TypeVar("_DataT", bound=Resamplable)
 
-RefitFn = Callable[[Any], Mapping[str, float]]
+#: One replicate's refit: each estimand's alias mapped to ``(estimate, standard error)``.
+#: The standard error is the replicate fit's own influence-curve standard error on the
+#: inference scale.  A studentized band divides by it, so a refit that returns a bare
+#: estimate is refused with a :class:`TypeError`.
+RefitFn = Callable[[Any], Mapping[str, tuple[float, float]]]
+#: A refit that reads the replicate's row index of the original data instead of a
+#: materialized resample.  It returns what :data:`RefitFn` returns.
+IndexRefitFn = Callable[[IntArray], Mapping[str, tuple[float, float]]]
 Resampling = Literal["auto", "iid", "cluster"]
+#: The pointwise bootstrap interval: ``"percentile"`` (the ``np.quantile`` limits) or
+#: ``"bca"`` (bias-corrected and accelerated, read as order statistics).
+BootstrapInterval = Literal["percentile", "bca"]
+#: The text a refit that breaks the :data:`RefitFn` contract is refused with.
+REFIT_CONTRACT = (
+    "a bootstrap refit must map each estimand to (estimate, standard error); the standard "
+    "error is the replicate fit's own influence-curve standard error"
+)
 
 
 @dataclass(frozen=True)
@@ -125,47 +154,100 @@ class BootstrapResult:
         the one that was asked for.
     resampling : str
         Whether rows or clusters were resampled.
+    std_errors : dict of str to ndarray, default={}
+        One array of replicate standard errors per estimand alias, aligned with
+        ``draws``. Each entry is the replicate fit's own influence-curve standard error.
+        Empty for draws derived after the fit, whose replicates carry no curve.
     """
 
     draws: dict[str, FloatArray]
     n_requested: int
     n_failed: int
     resampling: str
+    std_errors: dict[str, FloatArray] = field(default_factory=dict)
 
-    def summary(self, name: str, alpha: float = 0.05) -> BootstrapSummary:
-        """Percentile intervals and bootstrap standard error for one estimand.
+    def summary(
+        self,
+        name: str,
+        alpha: float = 0.05,
+        *,
+        interval: BootstrapInterval = "percentile",
+        estimate: float | None = None,
+        acceleration: float | None = None,
+    ) -> BootstrapSummary:
+        """The bootstrap interval and standard error for one estimand.
 
-        Percentile rather than normal-approximation intervals: the point of running
-        a bootstrap here is usually that the sampling distribution is skewed, and a
-        symmetric interval would throw that information away.
+        The percentile interval takes ``np.quantile`` of the finite draws. It is the
+        default: the point of running a bootstrap here is usually that the sampling
+        distribution is skewed, and a symmetric interval would throw that information
+        away. The BCa interval (:func:`bca_interval`) also corrects the median bias and
+        the skew of the draws.
 
         Parameters
         ----------
         name : str
             Estimand alias to summarise.
         alpha : float
-            Significance level of the percentile interval.
+            Significance level of the interval.
+        interval : {"percentile", "bca"}, default="percentile"
+            Which interval to compute.
+        estimate : float or None, default=None
+            The full-sample estimate, which the BCa bias correction compares the draws
+            with. Required with ``interval="bca"``.
+        acceleration : float or None, default=None
+            The BCa acceleration, from :func:`bca_acceleration`. Required with
+            ``interval="bca"``.
 
         Returns
         -------
         BootstrapSummary
-            Percentile interval and bootstrap standard error for that estimand.
+            The interval and the bootstrap standard error for that estimand.
+
+        Raises
+        ------
+        ValueError
+            When ``interval`` is not one of the two, or ``"bca"`` lacks ``estimate`` or
+            ``acceleration``.
         """
+        if interval not in ("percentile", "bca"):
+            raise ValueError(f"interval must be 'percentile' or 'bca'; got {interval!r}")
+        if interval == "bca" and (estimate is None or acceleration is None):
+            raise ValueError("a BCa interval needs the full-sample estimate and acceleration")
         draws = self.draws[name]
         finite = draws[np.isfinite(draws)]
+        nan = float("nan")
         if finite.size < 2:
             return BootstrapSummary(
-                std_error=float("nan"),
-                ci=(float("nan"), float("nan")),
-                ci_one_sided_lower=float("nan"),
-                ci_one_sided_upper=float("nan"),
+                std_error=nan,
+                ci=(nan, nan),
+                ci_one_sided_lower=nan,
+                ci_one_sided_upper=nan,
                 n_replicates=int(finite.size),
                 n_failed=self.n_failed,
                 draws=finite,
+                interval=interval,
+            )
+        spread = float(np.std(finite, ddof=1))
+        if interval == "bca":
+            assert estimate is not None and acceleration is not None
+            low, high, z0 = bca_interval(finite, estimate, acceleration, alpha)
+            one_lower, _, _ = bca_interval(finite, estimate, acceleration, 2.0 * alpha)
+            _, one_upper, _ = bca_interval(finite, estimate, acceleration, 2.0 * alpha)
+            return BootstrapSummary(
+                std_error=spread,
+                ci=(low, high),
+                ci_one_sided_lower=one_lower,
+                ci_one_sided_upper=one_upper,
+                n_replicates=int(finite.size),
+                n_failed=self.n_failed,
+                draws=finite,
+                interval="bca",
+                z0=z0,
+                acceleration=float(acceleration),
             )
         low, high = np.quantile(finite, [alpha / 2.0, 1.0 - alpha / 2.0])
         return BootstrapSummary(
-            std_error=float(np.std(finite, ddof=1)),
+            std_error=spread,
             ci=(float(low), float(high)),
             ci_one_sided_lower=float(np.quantile(finite, alpha)),
             ci_one_sided_upper=float(np.quantile(finite, 1.0 - alpha)),
@@ -173,6 +255,211 @@ class BootstrapResult:
             n_failed=self.n_failed,
             draws=finite,
         )
+
+
+def bca_acceleration(influence_curve: FloatArray) -> float:
+    r"""The BCa acceleration of an estimate, from its own influence curve.
+
+    :math:`\hat a = \sum_i D_i^3 / (6 (\sum_i D_i^2)^{3/2})`, with :math:`D_i` the
+    centred curve. It equals the skewness of the curve over :math:`6\sqrt n`, which is the
+    infinitesimal-jackknife acceleration of Efron (1987) that Coyle's thesis (pp. 11-13)
+    applies to a targeted estimate. A positive multiple of the curve gives the same value,
+    so a ratio's curve on the log scale and on the ratio scale agree.
+
+    Parameters
+    ----------
+    influence_curve : ndarray
+        ``(n,)`` influence curve of the estimate.
+
+    Returns
+    -------
+    float
+        The acceleration, ``0.0`` for a curve with no spread.
+    """
+    curve = np.asarray(influence_curve, dtype=float).reshape(-1)
+    centred = curve - curve.mean()
+    second = float(np.sum(centred**2))
+    if second <= 0.0:
+        return 0.0
+    return float(np.sum(centred**3) / (6.0 * second**1.5))
+
+
+def _lower_order_statistic(ordered: FloatArray, level: float) -> float:
+    """The ``floor(level (B + 1))``-th order statistic, clamped to ``1 .. B``."""
+    rank = min(max(math.floor(level * (ordered.size + 1)), 1), ordered.size)
+    return float(ordered[rank - 1])
+
+
+def _upper_order_statistic(ordered: FloatArray, level: float) -> float:
+    """The ``ceil(level (B + 1))``-th order statistic, clamped to ``1 .. B``."""
+    rank = min(max(math.ceil(level * (ordered.size + 1)), 1), ordered.size)
+    return float(ordered[rank - 1])
+
+
+def bca_interval(
+    draws: FloatArray, estimate: float, acceleration: float, alpha: float
+) -> tuple[float, float, float]:
+    r"""The two-sided BCa interval of finite bootstrap draws.
+
+    The bias correction is :math:`z_0 = \Phi^{-1}(\#\{\psi^*_b < \hat\psi\} / B)`. Each
+    limit is read at the level
+    :math:`\Phi\bigl(z_0 + (z_0 + z_q) / (1 - \hat a (z_0 + z_q))\bigr)` for
+    :math:`q = \alpha/2` and :math:`1 - \alpha/2`. The lower limit is the
+    :math:`\lfloor \text{level}\,(B + 1) \rfloor`-th order statistic and the upper limit the
+    :math:`\lceil \text{level}\,(B + 1) \rceil`-th, so each limit is a replicate value and
+    the interval does not narrow by interpolation.
+
+    Parameters
+    ----------
+    draws : ndarray
+        The finite replicate estimates.
+    estimate : float
+        The full-sample estimate.
+    acceleration : float
+        The acceleration :math:`\hat a` (:func:`bca_acceleration`).
+    alpha : float
+        Significance level of the two-sided interval.
+
+    Returns
+    -------
+    tuple of float
+        The lower limit, the upper limit and :math:`z_0`. The limits are ``nan`` when no
+        draw lies on one side of the estimate (so :math:`z_0` is infinite) or when
+        :math:`1 - \hat a (z_0 + z_q)` is not positive.
+    """
+    ordered = np.sort(np.asarray(draws, dtype=float))
+    share = float(np.count_nonzero(ordered < estimate)) / ordered.size
+    nan = float("nan")
+    if not 0.0 < share < 1.0:
+        return nan, nan, float(norm.ppf(share))
+    z0 = float(norm.ppf(share))
+    levels = []
+    for quantile in (alpha / 2.0, 1.0 - alpha / 2.0):
+        shifted = z0 + float(norm.ppf(quantile))
+        denominator = 1.0 - acceleration * shifted
+        if denominator <= 0.0:
+            return nan, nan, z0
+        levels.append(float(norm.cdf(z0 + shifted / denominator)))
+    return (
+        _lower_order_statistic(ordered, levels[0]),
+        _upper_order_statistic(ordered, levels[1]),
+        z0,
+    )
+
+
+@dataclass(frozen=True)
+class BootstrapBand:
+    r"""A studentized bootstrap sup-t band over several estimands.
+
+    Parameters
+    ----------
+    critical_value : float
+        The :math:`\lceil (1 - \alpha)(B + 1) \rceil`-th order statistic of the replicate
+        maxima :math:`\max_j |\psi^*_{bj} - \hat\psi_j| / SE^*_{bj}`.
+    bands : dict of str to tuple of float
+        One joint interval per estimand alias, :math:`\hat\psi_j \pm c^* \widehat{SE}_j`.
+    alpha : float
+        Joint significance level.
+    n_replicates : int
+        Replicates whose every estimate and standard error was finite and positive.
+    inferential : bool
+        Whether a registered study licenses the band as inference for the fit. ``False``
+        prints it as a diagnostic range.
+    """
+
+    critical_value: float
+    bands: dict[str, tuple[float, float]]
+    alpha: float
+    n_replicates: int
+    inferential: bool = True
+
+
+def studentized_critical_value(
+    estimates: FloatArray, draws: FloatArray, std_errors: FloatArray, alpha: float
+) -> tuple[float, int]:
+    r"""The studentized sup-t critical value of bootstrap draws.
+
+    Each replicate gives :math:`T_b = \max_j |\psi^*_{bj} - \hat\psi_j| / SE^*_{bj}`, with
+    :math:`SE^*_{bj}` the replicate fit's own standard error. The critical value is the
+    :math:`\lceil (1 - \alpha)(B + 1) \rceil`-th order statistic of the :math:`T_b`.
+
+    Parameters
+    ----------
+    estimates : ndarray
+        ``(J,)`` full-sample estimates.
+    draws : ndarray
+        ``(B, J)`` replicate estimates.
+    std_errors : ndarray
+        ``(B, J)`` replicate standard errors.
+    alpha : float
+        Joint significance level.
+
+    Returns
+    -------
+    tuple
+        The critical value, and the number of replicates it read. A replicate with a
+        missing estimate or a standard error that is not positive is not read. The value
+        is ``nan`` when the order statistic lies beyond the replicates read.
+    """
+    psi = np.asarray(estimates, dtype=float).reshape(1, -1)
+    values = np.asarray(draws, dtype=float)
+    scale = np.asarray(std_errors, dtype=float)
+    usable = np.all(np.isfinite(values) & np.isfinite(scale) & (scale > 0.0), axis=1)
+    maxima = np.sort(np.max(np.abs(values[usable] - psi) / scale[usable], axis=1))
+    rank = math.ceil((1.0 - alpha) * (maxima.size + 1))
+    if maxima.size == 0 or rank > maxima.size:
+        return float("nan"), int(maxima.size)
+    return float(maxima[rank - 1]), int(maxima.size)
+
+
+def bootstrap_band(
+    bootstrap: BootstrapResult,
+    estimates: Mapping[str, float],
+    std_errors: Mapping[str, float],
+    *,
+    alpha: float,
+    inferential: bool,
+) -> BootstrapBand:
+    """The studentized bootstrap sup-t band over ``estimates``.
+
+    Parameters
+    ----------
+    bootstrap : BootstrapResult
+        The replicate draws, with their standard errors.
+    estimates : mapping of str to float
+        The full-sample estimates to band, by alias. Every alias must have draws and
+        replicate standard errors.
+    std_errors : mapping of str to float
+        The full-sample standard error of each alias.
+    alpha : float
+        Joint significance level.
+    inferential : bool
+        Whether a registered study licenses the band for the fit.
+
+    Returns
+    -------
+    BootstrapBand
+        One joint interval per alias.
+    """
+    names = list(estimates)
+    draws = np.column_stack([bootstrap.draws[name] for name in names])
+    scale = np.column_stack([bootstrap.std_errors[name] for name in names])
+    centre = np.array([estimates[name] for name in names], dtype=float)
+    critical, used = studentized_critical_value(centre, draws, scale, alpha)
+    bands = {
+        name: (
+            float(estimates[name] - critical * std_errors[name]),
+            float(estimates[name] + critical * std_errors[name]),
+        )
+        for name in names
+    }
+    return BootstrapBand(
+        critical_value=critical,
+        bands=bands,
+        alpha=alpha,
+        n_replicates=used,
+        inferential=inferential,
+    )
 
 
 def cluster_members(cluster: IntArray) -> list[IntArray]:
@@ -286,9 +573,9 @@ def run_bootstrap(
         Validated study data to resample.
     refit : callable
         Maps a resampled container of the same type to a mapping of estimand name to
-        point estimate.  Replicates that raise are dropped and counted
-        rather than aborting the run: with weak overlap a resample can easily end
-        up with an empty treatment arm in some stratum.
+        ``(estimate, standard error)`` (:data:`RefitFn`).  Replicates that raise are
+        dropped and counted rather than aborting the run: with weak overlap a resample
+        can easily end up with an empty treatment arm in some stratum.
     n_replicates : int
         How many replicates to draw.
     resampling : {"auto", "iid", "cluster"}
@@ -303,7 +590,12 @@ def run_bootstrap(
     Returns
     -------
     BootstrapResult
-        The replicate estimates, and how many replicates failed.
+        The replicate estimates and standard errors, and how many replicates failed.
+
+    Raises
+    ------
+    TypeError
+        When a replicate's refit returns anything but ``(estimate, standard error)`` pairs.
     """
     if n_replicates < 2:
         raise ValueError(f"n_replicates must be at least 2; got {n_replicates}")
@@ -313,10 +605,84 @@ def run_bootstrap(
         resampling=resampling,
         random_state=random_state,
     )
+    return _run_draws(design, lambda draw: refit(design.sample(data, draw)), n_replicates, n_jobs)
 
-    def replicate(draw: _BootstrapDraw) -> Mapping[str, float] | None:
+
+def run_index_bootstrap(
+    data: Resamplable,
+    refit: IndexRefitFn,
+    *,
+    n_replicates: int,
+    random_state: int | None = None,
+    n_jobs: int = 1,
+) -> BootstrapResult:
+    """Run row-resampling replicates whose refit reads the row index, not a resample.
+
+    The draws are the ones :func:`run_bootstrap` takes for the same ``random_state`` with
+    ``resampling="iid"``: replicate ``b`` reads the row index that :func:`run_bootstrap`
+    would subset ``data`` with.  A refit that computes the resample's fit from the index,
+    such as a frequency-weighted replicate on the distinct rows, therefore reports the
+    replicates a materialized refit reports.
+
+    Parameters
+    ----------
+    data : CausalData or LongitudinalData
+        Validated study data. Its clusters, if any, are refused: this draw is by row.
+    refit : callable
+        Maps a ``(n,)`` row index, repeats kept, to a mapping of estimand name to
+        ``(estimate, standard error)``. Replicates that raise are dropped and counted.
+    n_replicates : int
+        How many replicates to draw.
+    random_state : int or None
+        Seed for the replicate draws.
+    n_jobs : int
+        Number of joblib workers.
+
+    Returns
+    -------
+    BootstrapResult
+        The replicate estimates and standard errors, and how many replicates failed.
+
+    Raises
+    ------
+    ValueError
+        When ``data`` carries cluster ids.
+    TypeError
+        When a replicate's refit returns anything but ``(estimate, standard error)`` pairs.
+    """
+    if n_replicates < 2:
+        raise ValueError(f"n_replicates must be at least 2; got {n_replicates}")
+    if data.cluster is not None:
+        raise ValueError("an index bootstrap resamples rows; clustered data resamples clusters")
+    design = _bootstrap_design(
+        data, n_replicates=n_replicates, resampling="iid", random_state=random_state
+    )
+
+    def call(draw: _BootstrapDraw) -> Mapping[str, tuple[float, float]]:
+        index, _ = _bootstrap_draw(data.n, None, np.random.default_rng(draw.sequence))
+        return refit(index)
+
+    return _run_draws(design, call, n_replicates, n_jobs)
+
+
+def _pair(value: Any) -> tuple[float, float]:
+    """One refit entry as ``(estimate, standard error)``, or the contract's ``TypeError``."""
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence) or len(value) != 2:
+        raise TypeError(f"{REFIT_CONTRACT}; got {value!r}")
+    return float(value[0]), float(value[1])
+
+
+def _run_draws(
+    design: _BootstrapDesign,
+    call: Callable[[_BootstrapDraw], Mapping[str, Any]],
+    n_replicates: int,
+    n_jobs: int,
+) -> BootstrapResult:
+    """Run one refit per draw, drop the replicates that raise, and collect the rest."""
+
+    def replicate(draw: _BootstrapDraw) -> Mapping[str, Any] | None:
         try:
-            return refit(design.sample(data, draw))
+            return call(draw)
         except Exception:
             return None
 
@@ -326,7 +692,11 @@ def run_bootstrap(
         warnings.simplefilter("ignore")
         outcomes = map_parallel(replicate, design.draws, n_jobs=n_jobs)
 
-    successes = [row for row in outcomes if row is not None]
+    # Outside the guard above: a refit that breaks the contract is a programming error, and
+    # counting it as a failed replicate would report an interval from no replicates.
+    successes = [
+        {name: _pair(value) for name, value in row.items()} for row in outcomes if row is not None
+    ]
     n_failed = len(outcomes) - len(successes)
     if not successes:
         raise RuntimeError(
@@ -337,12 +707,17 @@ def run_bootstrap(
         warnings.warn(
             f"{n_failed} of {n_replicates} bootstrap replicates failed and were dropped",
             UserWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
 
     names = list(successes[0].keys())
+    missing = (np.nan, np.nan)
     draws = {
-        name: np.array([float(row.get(name, np.nan)) for row in successes], dtype=float)
+        name: np.array([row.get(name, missing)[0] for row in successes], dtype=float)
+        for name in names
+    }
+    std_errors = {
+        name: np.array([row.get(name, missing)[1] for row in successes], dtype=float)
         for name in names
     }
     return BootstrapResult(
@@ -350,4 +725,5 @@ def run_bootstrap(
         n_requested=n_replicates,
         n_failed=n_failed,
         resampling=design.resampling,
+        std_errors=std_errors,
     )

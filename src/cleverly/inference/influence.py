@@ -239,11 +239,16 @@ def bootstrap_column(name: str, status: InferenceStatus, inferential: bool) -> s
     return _DIAGNOSTIC_NAMES[name]
 
 
-#: Why a bootstrap percentile interval is printed as a range on a fit whose status
-#: supplies inference: no registered study licenses it for this kind of fit.
+#: Why a bootstrap interval is printed as a range on a fit whose status supplies
+#: inference: no registered study licenses it for this kind of fit.
 UNLICENSED_BOOTSTRAP_NOTE = (
-    "a diagnostic: no registered study measures the coverage of this percentile interval "
+    "a diagnostic: no registered study measures the coverage of this {interval} interval "
     "for this kind of fit"
+)
+
+#: The printed name of each bootstrap interval.
+BOOTSTRAP_INTERVAL_LABELS: Mapping[str, str] = MappingProxyType(
+    {"percentile": "percentile", "bca": "BCa"}
 )
 
 
@@ -298,9 +303,10 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
         "bootstrap se", estimate.inference, not bootstrap_is_diagnostic(estimate)
     )
     spread = f"{label} {summary.std_error:.4g}  "
+    interval = BOOTSTRAP_INTERVAL_LABELS[summary.interval]
     if label == "bootstrap se":
-        return f"{spread}percentile CI [{low:.5g}, {high:.5g}]"
-    # A percentile interval is a confidence interval, and this estimate reports none. The
+        return f"{spread}{interval} CI [{low:.5g}, {high:.5g}]"
+    # A bootstrap interval is a confidence interval, and this estimate reports none. The
     # same two numbers are printed as a range under the diagnostic framing, rather than
     # the bootstrap being refused outright.
     if not estimate.supplies_inference:
@@ -308,8 +314,8 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
     elif estimate.reference_df is not None:
         note = T_REFERENCE_BOOTSTRAP_NOTE
     else:
-        note = UNLICENSED_BOOTSTRAP_NOTE
-    return f"{spread}percentile range [{low:.5g}, {high:.5g}] ({note})"
+        note = UNLICENSED_BOOTSTRAP_NOTE.format(interval=interval)
+    return f"{spread}{interval} range [{low:.5g}, {high:.5g}] ({note})"
 
 
 @dataclass(frozen=True)
@@ -998,7 +1004,7 @@ class BootstrapSummary:
     The fields describe the construction. The inference status of the estimate decides
     the names that :meth:`ParameterEstimate.to_dict` and the result summary publish them
     under: at a status that supplies no inference, ``std_error`` is published as
-    ``bootstrap_sd`` and ``ci`` as a percentile range.
+    ``bootstrap_sd`` and ``ci`` as a range.
 
     Parameters
     ----------
@@ -1006,11 +1012,11 @@ class BootstrapSummary:
         Sample standard deviation of the finite replicate estimates, ``ddof=1``. ``nan``
         with fewer than two finite estimates, as every limit below.
     ci : tuple of float
-        Two-sided percentile limits of the replicate estimates.
+        Two-sided limits of the interval named by ``interval``.
     ci_one_sided_lower : float
-        Lower one-sided percentile limit.
+        Lower one-sided limit.
     ci_one_sided_upper : float
-        Upper one-sided percentile limit.
+        Upper one-sided limit.
     n_replicates : int
         Replicates with a finite estimate.
     n_failed : int
@@ -1019,9 +1025,17 @@ class BootstrapSummary:
     draws : ndarray
         The finite replicate estimates.
     inferential : bool, default=True
-        Whether a registered study licenses the percentile interval as inference for the
-        fit that produced it. ``False`` publishes the columns under their diagnostic
-        names, through :func:`bootstrap_column`, at every status.
+        Whether a registered study licenses the interval as inference for the fit that
+        produced it. ``False`` publishes the columns under their diagnostic names, through
+        :func:`bootstrap_column`, at every status.
+    interval : {"percentile", "bca"}, default="percentile"
+        Which interval ``ci`` and the one-sided limits are: the ``np.quantile`` percentile
+        limits, or the bias-corrected and accelerated limits of
+        :func:`~cleverly.inference.bootstrap.bca_interval`.
+    z0 : float or None, default=None
+        The BCa bias correction, on a BCa summary.
+    acceleration : float or None, default=None
+        The BCa acceleration, from the estimate's own influence curve, on a BCa summary.
     """
 
     std_error: float
@@ -1032,6 +1046,9 @@ class BootstrapSummary:
     n_failed: int
     draws: FloatArray
     inferential: bool = True
+    interval: str = "percentile"
+    z0: float | None = None
+    acceleration: float | None = None
 
     @property
     def variance(self) -> float:

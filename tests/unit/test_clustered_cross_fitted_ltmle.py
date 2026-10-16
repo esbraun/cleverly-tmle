@@ -775,8 +775,8 @@ class TestTheClusteredCrossFitBootstrapIsADiagnostic:
         """Mutation: the in-sample clustered kind, licensed, read by the cross-fitted fit."""
         original = longitudinal_estimator.bootstrap_design_kind
 
-        def one_kind(*args: Any) -> Any:
-            kind = original(*args)
+        def one_kind(*args: Any, **kwargs: Any) -> Any:
+            kind = original(*args, **kwargs)
             return None if kind is None else kind.replace("/cluster_cross_fit", "/cluster")
 
         monkeypatch.setattr(longitudinal_estimator, "bootstrap_design_kind", one_kind)

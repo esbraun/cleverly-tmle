@@ -1055,7 +1055,7 @@ class TestBootstrapResampling:
         samples: list[CausalData] = []
         result = run_bootstrap(
             data,
-            lambda sample: samples.append(sample) or {"ate": 0.0},
+            lambda sample: samples.append(sample) or {"ate": (0.0, 1.0)},
             n_replicates=4,
             resampling="cluster",
             random_state=17,
@@ -1098,7 +1098,7 @@ class TestBootstrapResampling:
         samples: list[CausalData] = []
         run_bootstrap(
             data,
-            lambda sample: samples.append(sample) or {"ate": 0.0},
+            lambda sample: samples.append(sample) or {"ate": (0.0, 1.0)},
             n_replicates=2,
             resampling="iid",
             random_state=23,
