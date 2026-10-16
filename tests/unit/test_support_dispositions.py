@@ -58,8 +58,8 @@ class TestKinds:
             ("targeting_necessity/ate", ("point",)),
             ("selector_necessity/greedy", ("point",)),
             ("generated_design/ate", ("point",)),
-            ("type_i_error/sharp_null", ("test",)),
-            ("power/alternative", ("test",)),
+            ("type_i_error/sharp_null", ("wald",)),
+            ("power/alternative", ("wald",)),
             ("unknown_family/cell", ()),
         ],
     )

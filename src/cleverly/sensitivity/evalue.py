@@ -710,7 +710,7 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         derived = _derived_risk_ratio(result, source)
         rr, ci, approximate, scale = derived.psi, derived.ci, False, "risk ratio"
         reported_estimand = derived.name
-        support = combine_support([estimate.support, derived.support])
+        support = combine_support([estimate.support, derived.support], kind="derived")
         note = (
             f"Derived {derived.name!r} from cached nuisances by retargeting the reported "
             f"source contrast {source!r}; no nuisance model was refit."
@@ -771,6 +771,9 @@ def _evalue_from_selection(result: TMLEResult, selection: _EValueSelection) -> E
         )
     else:
         raise AssertionError(selection.branch)
+    if selection.branch in ("reported_or", "fixed_baseline_ate", "gaussian_difference"):
+        # A converted effect is a derived estimate, so the row must list the derived kind.
+        support = combine_support([support], kind="derived")
 
     above_null = rr >= 1.0
     limit = ci[0] if above_null else ci[1]

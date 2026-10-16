@@ -1710,6 +1710,7 @@ def truncation_curve(
                     g_bounds=None if mechanism else pair,
                     g_bounds_conditional=None if mechanism else pair,
                     nuisance_bound=lower if mechanism else None,
+                    conditions=result.config.support_conditions,
                 )[0]
                 for repeat in result.repeats
             ],

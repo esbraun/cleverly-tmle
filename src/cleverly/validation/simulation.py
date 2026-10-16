@@ -119,7 +119,7 @@ class ReplicationRecord:
     inference_estimate: float
     alpha: float
     inference: InferenceStatus = "influence_curve"
-    support: str = "supported"
+    support: str = "experimental"
 
 
 @dataclass(frozen=True)
@@ -309,7 +309,7 @@ class EstimandSummary:
     #: the few-cluster floor, gives a mix.
     status_counts: tuple[tuple[str, int], ...] = ()
     #: ``"experimental"`` when any replicate's estimate was, else ``"supported"``.
-    support: str = "supported"
+    support: str = "experimental"
 
     @property
     def mixed_statuses(self) -> str:

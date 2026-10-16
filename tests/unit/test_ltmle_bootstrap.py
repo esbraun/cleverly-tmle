@@ -320,24 +320,6 @@ class TestReporting:
         assert estimate.bootstrap.support.label == "experimental"
         assert "[experimental]" in crossfit.summary()
 
-    def test_the_design_kinds(self, survival_frame: pd.DataFrame) -> None:
-        from cleverly.learners.crossfit import Folds
-        from cleverly.longitudinal.estimator import bootstrap_design_kind
-        from cleverly.longitudinal.regimen import resolve_regimens
-
-        data = LongitudinalData.from_frame(survival_frame, **COLUMNS)
-        static = resolve_regimens({"always": 1, "never": 0}, data.n_times)
-        single = Folds.single(data.n)
-        assert bootstrap_design_kind(data, single, static, None) == "survival/in_sample"
-        assert bootstrap_design_kind(data, single, static, object()) is None
-        frame, _ = make_longitudinal(n=200, seed=1, cluster_size=10)
-        clustered = LongitudinalData.from_frame(frame, id="id", **_end_columns())
-        assert bootstrap_design_kind(clustered, single, static, None) == "end_of_study/cluster"
-        weighted = LongitudinalData.from_frame(
-            frame.assign(w=np.linspace(0.5, 1.5, len(frame))), weights="w", **_end_columns()
-        )
-        assert bootstrap_design_kind(weighted, single, static, None) is None
-
     def test_an_unmeasured_composition_is_experimental(self) -> None:
         """A competing-risk fit has no row listing ``bootstrap``, so its interval is experimental."""
         from tests import discrete_law_competing as law
@@ -494,7 +476,10 @@ class TestDerivedBootstrap:
         derived = bootstrapped.rmst("always", 3)
         parent = bootstrapped["risk_regimen[always @ t=1]"].bootstrap
         assert derived.bootstrap.diagnostic is False
-        assert derived.bootstrap.support == parent.support
+        # The parent's reason is kept, and the derived kind adds its own when the row lacks it.
+        assert derived.bootstrap.support.label == parent.support.label == "experimental"
+        assert parent.support.reason in derived.bootstrap.support.reason
+        assert "licenses no derived estimate" in derived.bootstrap.support.reason
         assert "bootstrap_ci_lower" in derived.to_dict()
 
     def test_a_contrast_of_supported_draws_is_supported_and_a_mix_is_experimental(self) -> None:

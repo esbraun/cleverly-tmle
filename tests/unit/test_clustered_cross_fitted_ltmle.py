@@ -727,17 +727,6 @@ class TestTheTruncationReplayKeepsTheClusters:
 
 
 class TestTheClusteredCrossFitBootstrapIsADiagnostic:
-    def test_the_kinds_are_split(self) -> None:
-        cross_fitted = fit_law(FEW_CLUSTER_THRESHOLD, regimens={"always": 1, "never": 0})
-        in_sample = fit_law(FEW_CLUSTER_THRESHOLD, regimens={"always": 1, "never": 0}, n_folds=1)
-        kind = longitudinal_estimator.bootstrap_design_kind
-        regimens = [fit.regimen for fit in cross_fitted.fits.values()]
-        assert (
-            kind(cross_fitted.data, cross_fitted.folds, regimens, None)
-            == "end_of_study/cluster_cross_fit"
-        )
-        assert kind(in_sample.data, in_sample.folds, regimens, None) == "end_of_study/cluster"
-
     @staticmethod
     def bootstrapped() -> tuple[Any, list[Any]]:
         seen: list[Any] = []

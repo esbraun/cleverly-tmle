@@ -268,7 +268,7 @@ def smooth_contrast(
         covariance_rule=rule,
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
-        support=combine_support(estimates[key].support for key in chosen),
+        support=combine_support((estimates[key].support for key in chosen), kind="derived"),
     )
     return estimate if transform is None else replace(estimate, transform=transform)
 
@@ -398,7 +398,7 @@ def ratio_contrast(
         covariance_rule=rule,
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
-        support=combine_support(estimates[key].support for key in chosen),
+        support=combine_support((estimates[key].support for key in chosen), kind="derived"),
     )
 
 
@@ -418,7 +418,8 @@ def derived_bootstrap(
     full refit implies. A replicate with a missing input gives a missing value. Domain-invalid
     ratios also give missing values. The failure count includes every requested replicate
     without a finite derived value. User callable exceptions propagate. The summary is
-    licensed as inference only when every input's summary is.
+    supported only when every input's summary is and each row of the inputs lists the
+    ``derived`` kind.
 
     Parameters
     ----------
@@ -457,7 +458,8 @@ def derived_bootstrap(
     return replace(
         derived,
         diagnostic=any(summary.diagnostic for summary in kept),
-        support=combine_support([summary.support for summary in kept]),
+        below_floor=any(summary.below_floor for summary in kept),
+        support=combine_support([summary.support for summary in kept], kind="derived"),
     )
 
 
@@ -637,12 +639,14 @@ def attach_bootstrap(
         A copy whose estimates carry their bootstrap summaries.
     """
     alpha = result.config.alpha_sig
+    below_floor = classification is not None and classification.key.dependence == "below_floor"
     estimates = {
         name: (
             estimate.with_bootstrap(
                 replace(
                     bootstrap.summary(name, alpha),
                     diagnostic=diagnostic,
+                    below_floor=below_floor,
                     support=support_for(
                         classification,
                         estimate.inference,

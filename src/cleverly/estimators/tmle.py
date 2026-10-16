@@ -2010,7 +2010,14 @@ class TMLE:
             )
 
         if classification is not None:
-            result = replace(result, config=replace(result.config, support_key=classification.key))
+            result = replace(
+                result,
+                config=replace(
+                    result.config,
+                    support_key=classification.key,
+                    support_conditions=classification.conditions,
+                ),
+            )
         record_fit(classification, result, source="TMLE._fit_single")
         return result
 
@@ -3883,6 +3890,7 @@ class TMLE:
         missingness: FloatArray | None = None,
         nuisance_bound: float | None = None,
         alpha_sig: float | None = None,
+        conditions: Sequence[Refusal] = (),
     ) -> tuple[dict[str, ParameterEstimate], dict[str, Fluctuation]]:
         """Run the targeting step and build estimates from cached nuisance fits.
 
@@ -3893,14 +3901,12 @@ class TMLE:
         ``nuisance_bound`` overrides the lower bound on the missingness and intermediate
         mechanisms, which is the other denominator in the clever covariate and so the
         other bound whose influence on the answer is worth sweeping.
+
+        ``conditions`` are the group-A conditions the fit met, which the fit saves as
+        ``result.config.support_conditions``. A retarget preflights nothing, so a caller that
+        retargets a fitted result passes them and the estimates keep the experimental label
+        of the fit. The default, no condition, gives the plain classification.
         """
-        try:
-            conditions = self._preflight_fit_configuration(data).conditions
-        except ValueError:
-            # A retarget validates nothing. The fit that made these nuisances passed the
-            # preflight, so a refusal here means the caller changed the data or the
-            # estimator, and the estimates keep the plain classification.
-            conditions = ()
         classification = classify_point_fit(
             self, data, tuple(estimands), source="TMLE.retarget", conditions=conditions
         )

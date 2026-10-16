@@ -104,10 +104,18 @@ def point_row(
         The registered study slugs.
     families : iterable of str
         The target families the row covers, as ``P1`` to ``P11``.
-    outcome, missing, treatment, splitting : tuple of str
-        The axis values of :class:`~cleverly._support.SupportKey`.
-    weighting, dependence : str
-        The axis values.
+    outcome : tuple of str, default BINARY
+        The outcome axis of :class:`~cleverly._support.SupportKey`.
+    missing : tuple of str, default ("complete",)
+        The missing-data axis.
+    treatment : tuple of str, default ("binary",)
+        The treatment axis.
+    weighting : str, default "none"
+        The weighting axis.
+    splitting : tuple of str, default ("in_sample",)
+        The splitting axis.
+    dependence : str, default "iid"
+        The dependence axis.
     qualifiers : iterable of str, default ()
         ``strata`` and ``known_mechanism``.
     options : mapping of str to Any or None, default None
@@ -215,14 +223,29 @@ def merge_rows(row_id: str, *rows: SupportRow) -> SupportRow:
     def joined(field: str) -> tuple[str, ...]:
         return tuple(dict.fromkeys(item for row in rows for item in getattr(row, field)))
 
+    families = frozenset().union(*(row.key.family for row in rows))
+    kinds = frozenset().union(*(row.kinds for row in rows))
+    # A kind that only some rows list covers the families of those rows alone.
+    kind_families = []
+    for kind in sorted(kinds):
+        covered: frozenset[str] = frozenset().union(
+            *(
+                dict(row.kind_families).get(kind, row.key.family)
+                for row in rows
+                if kind in row.kinds
+            )
+        )
+        if covered != families:
+            kind_families.append((kind, covered))
     return SupportRow(
         row_id,
-        replace(first.key, family=frozenset().union(*(row.key.family for row in rows))),
-        frozenset().union(*(row.kinds for row in rows)),
+        replace(first.key, family=families),
+        kinds,
         joined("evidence"),
         joined("cells"),
         None,
         joined("limits"),
+        kind_families=tuple(kind_families),
     )
 
 
@@ -265,6 +288,9 @@ def _t_rows() -> tuple[SupportRow, ...]:
         kinds=boot,
         evidence=("canonical-tmle", "full-refit-bootstrap-and-derived-contrasts"),
         cells=("binary", "boot_ate_point_tmle"),
+        # The bootstrap cell fits the ATE, which is the P1 family. A risk ratio, an odds ratio,
+        # an ATT or ATC and a PAR or PAF fit read the bootstrap as experimental.
+        kind_families=(("bootstrap", frozenset({"P1"})),),
     )
     rows += rows_over(
         point_row(
@@ -1316,11 +1342,18 @@ def long_row(
         Whether the row reports working-model coefficients.
     held : bool, default False
         Whether one baseline treatment is held over every node.
-    outcome, missing, treatment, splitting : tuple of str
-        The axis values of :class:`~cleverly._support.SupportKey`. A node count is the length of
-        ``treatment``.
-    weighting, dependence : str
-        The axis values.
+    outcome : tuple of str, default BINARY
+        The outcome axis of :class:`~cleverly._support.SupportKey`.
+    missing : tuple of str, default ("censoring",)
+        The missing-data axis.
+    treatment : tuple of str, default two nodes
+        The treatment axis. A node count is its length.
+    weighting : str, default "none"
+        The weighting axis.
+    splitting : tuple of str, default ("in_sample",)
+        The splitting axis.
+    dependence : str, default "iid"
+        The dependence axis.
     qualifiers : iterable of str, default ()
         The known treatment and censoring factors.
     engine : str, default "tmle"

@@ -381,7 +381,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "property",
         "type_i_error/sharp_null",
         "C01.greedy",
-        ("test",),
+        ("wald",),
         WITHHELD,
         "",
         "Q1",
@@ -441,7 +441,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "property",
         "type_i_error/sharp_null",
         "C02.greedy",
-        ("test",),
+        ("wald",),
         WITHHELD,
         "",
         "Q1",
@@ -671,7 +671,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "property",
         "type_i_error/static__sharp_null",
         "G03",
-        ("test",),
+        ("wald",),
         EXPERIMENTAL,
         "",
         "",
@@ -681,7 +681,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "property",
         "power/mix__alternative",
         "G08.in_sample",
-        ("test",),
+        ("wald",),
         EXPERIMENTAL,
         "",
         "",
@@ -1061,7 +1061,7 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "property",
         "type_i_error/sharp_null",
         "C05.binary",
-        ("test",),
+        ("wald",),
         WITHHELD,
         "",
         "Q1",
@@ -1422,7 +1422,7 @@ def kinds_of(positive: PositiveRow) -> tuple[str, ...]:
     Returns
     -------
     tuple of str
-        Kinds in the order point, wald, wald_t, band, bootstrap, test. A property family with
+        Kinds in the order point, wald, wald_t, band, bootstrap. A property family with
         no rule gives an empty tuple, so the draft shows the gap.
     """
     key = positive.red.key
@@ -1445,7 +1445,7 @@ def kinds_of(positive: PositiveRow) -> tuple[str, ...]:
     if family in _POINT_FAMILIES:
         return ("point",)
     if family in ("type_i_error", "power"):
-        return ("test",)
+        return ("wald",)
     return ()
 
 

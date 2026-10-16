@@ -24,7 +24,7 @@ from .._inference_status import (
     status_record,
     supplies_inference,
 )
-from .._refusal import NO_ALTERNATIVE
+from .._refusal import NO_ALTERNATIVE, Refusal
 from .._support import Classification, SupportKey
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
@@ -195,6 +195,10 @@ class TMLEConfig:
     #: with the result, so a result read back from disk says what its label rested on.
     #: ``None`` on a config built outside a classified fit.
     support_key: SupportKey | None = None
+    #: The group-A conditions the fit met when it was preflighted. Saved with the result, so a
+    #: retarget of the fit's nuisances labels its estimates with the conditions of the fit
+    #: instead of preflighting again on data that may have changed.
+    support_conditions: tuple[Refusal, ...] = ()
 
     # Read-through to the spec, so the settings appear once and cannot drift.
     @property

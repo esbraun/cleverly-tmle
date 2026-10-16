@@ -244,7 +244,7 @@ not rely on that preprint.
 | influence curve at $(d, h)$ | the end-of-study influence curve of the truncated panel |
 | joint band | the multiplier band over the stacked curves of every reported $(d, h)$ |
 | working model, `msm=` | a design over $(d, h)$ cells. Each cell seeds its own $Y_h$ |
-| full-refit bootstrap | a diagnostic. No result licenses its coverage on this outcome |
+| full-refit bootstrap | shown with the label `experimental`. No support row lists `bootstrap` for this outcome |
 
 The remainder at each horizon is the end-of-study product remainder. The stack over horizons adds
 no remainder term. The interval at $(d, h)$ is therefore the end-of-study interval of the truncated
@@ -559,7 +559,7 @@ is an *identity node*.
 | identification | without $L_t$, Benkeser, Carone and Gilbert (2018), Section 2.3. With $L_t$, Díaz, Williams, Hoffman and Schenck (2023), Theorem 1, with the identity policy $d_t(a_t, h_t) = a_t$ at $t \ge 2$ |
 | influence curve | the shipped telescoping curve, with $H_t = 1\{A^d = A\}\,(q_1/g_1) \prod_{s \le t} 1\{C_s = 1\}/c_s$. For an arm or a rule, $q_1/g_1 = 1/g_1(d \mid W)$, which is $H_k$ of Benkeser et al. (2018), Section 4 |
 | end-of-study outcome | the same held design with the shipped end-of-study recursion. Without $L_t$ it equals point TMLE with `delta=` and $\Delta = C_1 \cdots C_K$, because with saturated nuisances the curve keeps only its last term |
-| report | `summary()` prints `treatment: one baseline decision 'A', held over K node(s)`. The nuisance report shows `LONGITUDINAL_HELD_DECISION` in place of a treatment row at each identity node. `bootstrap_design_kind` returns no kind, so the bootstrap is a diagnostic |
+| report | `summary()` prints `treatment: one baseline decision 'A', held over K node(s)`. The nuisance report shows `LONGITUDINAL_HELD_DECISION` in place of a treatment row at each identity node. No support row lists a held baseline treatment with `bootstrap`, so the percentile interval is shown and carries the label `experimental` |
 
 The wide layout with one treatment column per node gives the same fit when the later columns copy
 node 1. With cell-mean learners at one fold the copied fit's later factor is exactly one, so the
@@ -777,7 +777,7 @@ term. The test `test_e11_the_walk_trace` checks both traces and the fixed $\Sigm
 | `diagnostics.score_equations()` | one `solver` row per regimen, cause and horizon, at the horizon node |
 | `diagnostics.nuisance_models()` | one `hazard` row per node and cause, which scores the pseudo-hazard $\rho_j$ the learner fitted |
 | `truncation_curve()` | a rerun of the targeting at each bound from the stored initial hazards. It refits no learner |
-| `n_bootstrap=` | a diagnostic. `bootstrap_design_kind` licenses no hazard fit |
+| `n_bootstrap=` | shown with the label `experimental`. No support row lists `bootstrap` for a hazard fit |
 
 #### Monotonicity
 
@@ -887,7 +887,7 @@ pool-adjacent-violators algorithm (PAVA).
 | record | `result.isotonic_moves` lists `(regimen, cause, horizon, before, after)` for each moved level. `summary()` prints `isotonic projection moved k level(s)` |
 | identity | a one-step hazard fit, a fit with one reported horizon, and a curve that does not decrease |
 | refused | an end-of-study outcome (H3), `msm=` (H5), and a point-treatment functional (H10) |
-| bootstrap | a diagnostic. `bootstrap_design_kind` licenses no projected fit |
+| bootstrap | shown with the label `experimental`. No support row lists `bootstrap` for a projected fit |
 
 R `lmtp` 1.5.4 `lmtp_survival` projects over every grid time with `isotone::gpava` and unit
 weights. `cleverly` projects over the reported horizons only. The two agree when the reported
@@ -1067,7 +1067,7 @@ sums no risk curve.
 | replay | `truncation_curve()` does not rerun the bootstrap. Its check at the fitted bound compares the estimates without their bootstrap summaries |
 | random draws | `run_bootstrap` spawns the stream from `random_state`. The stream draws nothing the fit uses, so every analytic field of the fit is unchanged. `tests/unit/test_ltmle_bootstrap.py` pins a committed `canonical-ltmle` row at `n_bootstrap=0` and at `n_bootstrap=2` |
 | parallel layers | the replicates run in parallel over `n_jobs`, and each replicate fit runs with one worker |
-| licensing scope | `bootstrap_design_kind` names a fit's kind: an end-of-study or single-cause survival outcome, fitted in sample, cross-fitted, clustered in sample (`cluster`) or clustered and cross-fitted (`cluster_cross_fit`), with static regimens, one treatment decision per node, a binary outcome, no weights and no working model. Any other fit has no kind, and a held baseline treatment is one such fit. The `bootstrap` kind of a support row, not a design-kind set, decides the label. The rows `G01` and `G11.nodes4` list it, and the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) measured them. The cross-fitted and clustered kinds have no such row, so their percentile interval carries the label `experimental`, with owner `X20-bootstrap`. No study cell measures `cluster_cross_fit`, so it is experimental too. A `few_cluster_plugin` fit prints `bootstrap sd` and a percentile range. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
+| licensing scope | The `bootstrap` kind of a support row decides the label. A fit is covered when it has an end-of-study or single-cause survival outcome, is fitted in sample, uses static regimens, one treatment decision per node, a binary outcome, no weights and no working model. Any other fit, such as a held baseline treatment, matches no such row. The rows `G01` and `G11.nodes4` list it, and the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) measured them. A cross-fitted fit, a clustered fit and a clustered cross-fitted fit have no such row, so their percentile interval carries the label `experimental`. Owner `X20-bootstrap` holds the red cells. A fit with fewer than 20 clusters prints `bootstrap sd` and a percentile range, whatever its status. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
 | derived estimates | `ratio`, `rmst`, `rmtl` and `contrast` apply the same function to each replicate's estimates, and attach the percentile interval of those values. The derived interval is licensed only when every input's interval is |
 
 ## Variations
@@ -1135,7 +1135,7 @@ step, and established argument.
 | categorical treatments and deterministic dynamic rules | Theorem 3 for a fixed modified treatment policy $d(a_t, h_t)$ that does not depend on $P$ | a fixed rowwise rule assigns one level from that unit's history | Section 2 lets a fixed policy depend on the unit's history, and Section 4, journal page 850, gives the intervention density for a discrete exposure. A sample-adaptive threshold or learned rule is outside this result | [categorical study](method-evidence/cross-fitted-categorical-longitudinal-tmle.md), and the fixed dynamic rule in the [end-of-study study](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) |
 | several horizons, causes, regimens, and their contrasts | Theorem 3 for each parameter | each parameter has its own recursion on one shared split, and the report stacks their influence curves | a fixed-dimension stack by Cramér–Wold, then linearity or the delta method for each contrast | the survival-curve and competing-risk studies |
 | ratios of regimen levels, RMST and RMTL | the stacked curves of the row above | a log ratio is a smooth function of two levels. RMST and RMTL are fixed linear combinations of the risks below the horizon | the delta method, and linearity | the ratio and RMST cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) |
-| the full-refit bootstrap | the estimator of each row above | refit the whole estimator on each resample | none for this estimator. The percentile interval is licensed only for a measured design kind whose cells are green, with correctly specified cell-mean nuisances on finite binary laws | the bootstrap cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) |
+| the full-refit bootstrap | the estimator of each row above | refit the whole estimator on each resample | none for this estimator. The percentile interval is labelled `supported` only when a support row lists `bootstrap` and its cells are green, with correctly specified cell-mean nuisances on finite binary laws | the bootstrap cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) |
 
 Theorem 3 also requires every mechanism ratio and targeted sequential regression to be consistent,
 the sum over nodes of their error products to be $o_P(n^{-1/2})$, and the density ratios to stay
@@ -1204,7 +1204,7 @@ unit, in sample and under cross-fitting. The table gives each part of a clustere
 | targeting | the pooled fluctuation over every follower of each node, as on an unclustered fit |
 | curve and variance | the row curve summed within each cluster. The variance is $J\,\widehat{\mathrm{var}}(S_c)/n^2$, with $S_c = \sum_{i \in c} D_i$ and $J$ clusters |
 | status, reference and bands | the rules of [clusters](inference.md#clusters) for a longitudinal fit. Below 40 positive-mass clusters the reference is Student $t$ with $J - 2$ degrees of freedom. Below 20 the fit takes `"few_cluster_plugin"`, in sample and cross-fitted, because 20 is the smallest count the registered studies measure. Simultaneous bands need 40 or more |
-| bootstrap | the design kind `<outcome>/cluster_cross_fit`, which no study licenses, so the percentile output is a diagnostic. Each replicate redraws a grouped split over its resampled clusters, so two copies of one cluster can land in different folds |
+| bootstrap | no support row lists `bootstrap` for a clustered cross-fitted fit, so the percentile interval is shown with the label `experimental`. Each replicate redraws a grouped split over its resampled clusters, so two copies of one cluster can land in different folds |
 
 The base result is Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, and
 Theorem 3, page 853. Theorem 3 takes $n$ iid units and a random partition of them.

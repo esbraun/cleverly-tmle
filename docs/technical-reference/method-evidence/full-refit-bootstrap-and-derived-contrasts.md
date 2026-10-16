@@ -106,6 +106,8 @@ label `experimental`. `CTMLE` prints every bootstrap as a diagnostic. `tests/uni
 checks each setting. This study measured only correctly specified nuisances, and roadmap F2
 holds the data-adaptive case.
 
+The table above is the policy declared before the run. `LICENSED_BOOTSTRAP_DESIGNS`, the set rule 3 names, no longer exists. The `bootstrap` kind of a support row now plays its role, as the paragraph above states.
+
 Three cells are red, and rule 3 applies to each. The two cross-fitted end-of-study cells
 over-cover, with SE ratios near 1.25. The cluster contrast covers 0.924, with a 99% interval below
 the band, while the cluster mean passes. So `end_of_study/cross_fit` and `end_of_study/cluster`

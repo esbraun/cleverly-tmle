@@ -70,9 +70,11 @@ RECORD_ENVIRONMENT_VARIABLE: Final[str] = "CLEVERLY_SUPPORT_RECORD"
 SupportLabel = Literal["supported", "experimental"]
 
 #: What a support row can license for an estimate: a point estimate, a Wald interval on the
-#: normal or the t reference, a simultaneous band, a bootstrap interval, a derived estimate,
-#: or a hypothesis test.
-Kind = Literal["point", "wald", "wald_t", "band", "bootstrap", "derived", "test"]
+#: normal or the t reference, a simultaneous band, a bootstrap interval, or a derived estimate.
+#: A derived estimate is a ratio, a contrast, a restricted mean or an E-value built from
+#: estimates of one fit. No row lists a hypothesis-test kind, because a test statistic is the
+#: ``wald`` interval read against a null and carries the support of that interval.
+Kind = Literal["point", "wald", "wald_t", "band", "bootstrap", "derived"]
 
 
 @dataclass(frozen=True)
@@ -113,17 +115,22 @@ def _unique(items: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(items))
 
 
-def combine_support(supports: Iterable[Support]) -> Support:
+def combine_support(supports: Iterable[Support], kind: Kind | None = None) -> Support:
     """The support of an estimate built from several estimates.
 
     Equal records stay as they are. When any input is experimental, the result is
     experimental and joins the reasons and the evidence of every experimental input, in first-seen
-    order. Two supported inputs of different rows give an experimental result.
+    order. Two supported inputs of different rows give an experimental result. With ``kind``,
+    every row an input names must also license that kind, and each row that does not adds its
+    reason and makes the result experimental.
 
     Parameters
     ----------
     supports : iterable of Support
         The support of each input estimate. At least one is required.
+    kind : {"point", "wald", "wald_t", "band", "bootstrap", "derived"} or None, default None
+        The kind the new estimate needs from the rows of its inputs. A derived estimate passes
+        ``"derived"``. ``None`` combines the inputs only.
 
     Returns
     -------
@@ -147,6 +154,35 @@ def combine_support(supports: Iterable[Support]) -> Support:
     records = tuple(supports)
     if not records:
         raise ValueError("combine_support needs at least one Support")
+    combined = _combine(records)
+    if kind is None:
+        return combined
+    rows = {row.id: row for row in registered_rows()}
+    reasons: list[str] = []
+    for row_id in _unique(record.row for record in records if record.row is not None):
+        row = rows.get(row_id)
+        if row is None:
+            continue
+        if kind not in row.kinds:
+            reasons.append(f"Row {row.id} licenses no {_KIND_NAMES[kind]} for this estimate.")
+        else:
+            reasons.extend(
+                text for shortfall_kind, text in row.shortfalls if shortfall_kind == kind
+            )
+    if not reasons:
+        return combined
+    return Support(
+        "experimental",
+        " ".join(
+            _unique([*(() if combined.label == "supported" else (combined.reason,)), *reasons])
+        ),
+        combined.evidence if combined.label == "experimental" else (),
+        limits=combined.limits,
+    )
+
+
+def _combine(records: tuple[Support, ...]) -> Support:
+    """The combination of :func:`combine_support` without a kind check."""
     first = records[0]
     if all(record == first for record in records[1:]):
         return first
@@ -588,10 +624,11 @@ def longitudinal_key(
     tuple of SupportKey and dict
         The key, and the learner class per nuisance role (``None`` for a default learner).
     """
-    continuous = tuple(data.continuous_nodes)
     levels = tuple(
-        "continuous" if index < len(continuous) and continuous[index] else str(len(node))
-        for index, node in enumerate(data.treatment_levels)
+        kind if kind != "categorical" else str(len(node))
+        for kind, node in (
+            (data.node_kind(time), node) for time, node in enumerate(data.treatment_levels, 1)
+        )
     )
     key = SupportKey(
         kind="longitudinal",
@@ -657,6 +694,10 @@ class SupportRow:
         Pairs of a kind and a sentence. The sentence states the measured number of a red
         cell inside the configuration of the row. A fit that reads the kind from this row is
         experimental, and the sentence is a reason of its label.
+    kind_families : tuple of tuple, default ()
+        Pairs of a kind and the target families that kind covers. A kind with no pair covers
+        every family of the row. A fit that holds a family outside the pair reads the kind as
+        unlicensed.
     """
 
     id: str
@@ -667,6 +708,27 @@ class SupportRow:
     learners: Mapping[str, type] | None = None
     limits: tuple[str, ...] = ()
     shortfalls: tuple[tuple[str, str], ...] = ()
+    kind_families: tuple[tuple[str, frozenset[str]], ...] = ()
+
+    def licenses(self, kind: str, families: frozenset[str]) -> bool:
+        """Whether the row licenses ``kind`` for a fit that holds ``families``.
+
+        Parameters
+        ----------
+        kind : str
+            A member of :data:`Kind`.
+        families : frozenset of str
+            The target families of the fit.
+
+        Returns
+        -------
+        bool
+            ``True`` when the row lists the kind and the kind covers every family of the fit.
+        """
+        if kind not in self.kinds:
+            return False
+        covered = dict(self.kind_families).get(kind)
+        return covered is None or families <= covered
 
     def matches(self, key: SupportKey, learners: Mapping[str, type | None]) -> bool:
         """Whether a fit with ``key`` and ``learners`` falls inside this row.
@@ -788,6 +850,7 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
     "wald_t": "Student t interval",
     "band": "simultaneous band",
     "bootstrap": "bootstrap interval",
+    "derived": "derived estimate",
 }
 
 
@@ -857,9 +920,16 @@ def support_for(
             study = "" if nearest is None or not nearest.evidence else f" ({nearest.evidence[0]})"
             text += f" Nearest row: {nearest_id}{study}, differing on {', '.join(axes)}."
         reasons.append(text)
-    elif kind not in row.kinds:
-        reasons.append(f"Row {row.id} licenses no {_KIND_NAMES[kind]} for this estimate.")
-    elif row is not None:
+    elif not row.licenses(kind, classification.key.family):
+        if kind in row.kinds:
+            covered = sorted(dict(row.kind_families)[kind])
+            reasons.append(
+                f"Row {row.id} licenses the {_KIND_NAMES[kind]} for the families "
+                f"{', '.join(covered)} only."
+            )
+        else:
+            reasons.append(f"Row {row.id} licenses no {_KIND_NAMES[kind]} for this estimate.")
+    else:
         reasons.extend(text for shortfall_kind, text in row.shortfalls if shortfall_kind == kind)
     for condition in classification.conditions:
         reasons.append(_sentence(condition.condition))

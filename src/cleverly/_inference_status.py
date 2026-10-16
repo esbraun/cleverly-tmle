@@ -149,7 +149,9 @@ class StatusRecord:
         ``LongitudinalResult.summary()``, and the label in ``ParameterEstimate.__repr__``,
         for a withheld status.
     bootstrap_note : str
-        The parenthesis ``summary()`` prints beside a bootstrap percentile range.
+        The parenthesis ``summary()`` prints beside a bootstrap percentile range under a
+        withheld status. A shown status prints the note of ``"few_cluster_plugin"`` when the fit
+        reads fewer clusters than the floor, and none otherwise.
     diagnostic_noun : str
         The noun a coverage-study report uses for the spread it measured.
     reopened_by : str
@@ -309,10 +311,7 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "condition that reopens it for DRTMLE"
             ),
             summary_label="fixed-weight se",
-            bootstrap_note=(
-                "a diagnostic; the bootstrap resamples rows and does not estimate the weights "
-                "again, and no result validates its coverage for this fit"
-            ),
+            bootstrap_note=("the bootstrap resamples rows and does not estimate the weights again"),
             diagnostic_noun="fixed-weight plug-in interval",
             reopened_by="X50",
             alternative=(

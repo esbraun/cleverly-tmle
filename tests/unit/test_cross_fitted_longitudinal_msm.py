@@ -964,14 +964,13 @@ def test_the_band_is_built_from_the_coefficient_curves(monkeypatch: pytest.Monke
     assert first.simultaneous.critical_value == second.simultaneous.critical_value
 
 
-def test_the_bootstrap_of_a_cross_fitted_working_model_is_a_diagnostic() -> None:
+def test_the_bootstrap_of_a_cross_fitted_working_model_is_experimental() -> None:
     frame = end_of_study_frame(n=600, seed=3)
     result = fit_dose(frame, n_bootstrap=20)
     assert result.folds.n_folds == K
-    kind = longitudinal_estimator.bootstrap_design_kind(
-        result.data, result.folds, [plan.regimen for plan in result.replay_recipe.plans], result.msm
-    )
-    assert kind is None
+    summaries = [e.bootstrap for e in result.estimates.values() if e.bootstrap is not None]
+    assert summaries
+    assert all(summary.support.label == "experimental" for summary in summaries)
     assert result.bootstrap is not None
     assert result.bootstrap.n_requested == 20
 

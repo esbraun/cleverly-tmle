@@ -205,7 +205,6 @@ from .msm import (
 from .regimen import (
     DynamicRegimen,
     Plan,
-    Regimen,
     RegimenSpec,
     attach_policy_numerators,
     describe_plan,
@@ -2347,7 +2346,9 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                         total,
                         float(np.sqrt(variance[0, 0])),
                         inference_status(self.estimates, names),
-                        combine_support([self[name].support for name in names]).label,
+                        combine_support(
+                            [self[name].support for name in names], kind="derived"
+                        ).label,
                     )
                 )
         flagged = [row[4] for row in totals if not supplies_inference(row[4])]
@@ -4858,12 +4859,11 @@ class _SequentialEstimator:
         """
         if not supplies_inference(status):
             return None
-        # A parameter with its own labelled status, such as a constant-node risk, stays out of
-        # the band, which is then a joint statement over the others.
+        # A parameter whose status withholds its interval, such as a constant-node risk, stays
+        # out of the band, which is then a joint statement over the others. A parameter that
+        # shows a labelled interval stays in, and its experimental label reaches the band.
         estimates = {
-            name: estimate
-            for name, estimate in estimates.items()
-            if not is_labelled(estimate.inference)
+            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
         }
         if not self.simultaneous or len(estimates) < 2:
             return None
@@ -6349,59 +6349,6 @@ class _BoundReplay:
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     contributors: dict[str, tuple[RegimenFit, ...]]
-
-
-def bootstrap_design_kind(
-    data: LongitudinalData,
-    folds: Folds,
-    regimens: Sequence[RegimenSpec],
-    msm: Any,
-) -> str | None:
-    """The design kind a registered bootstrap study could license, or ``None``.
-
-    A kind is ``"<outcome>/<fit>"``: the outcome ``end_of_study`` or ``survival``, and the fit
-    ``in_sample``, ``cross_fit``, ``cluster`` (clustered, in sample) or ``cluster_cross_fit``
-    (clustered, cross-fitted, whose replicates redraw a grouped split).  Only a binary outcome,
-    static regimens, one event and no weights or working model have a kind; every other fit
-    returns ``None``, which no study licenses.
-
-    Parameters
-    ----------
-    data : LongitudinalData
-        The prepared data of the fit.
-    folds : Folds
-        The outer fold assignment of the fit.
-    regimens : sequence of RegimenSpec
-        The resolved regimens.
-    msm : object or None
-        The evaluated working model, or ``None``.
-
-    Returns
-    -------
-    str or None
-        The kind, or ``None`` for a design no study measures.
-    """
-    if (
-        msm is not None
-        # A repeated outcome's horizon is, by the truncation identity, a licensed
-        # end-of-study replicate, but no registered cell measures the joint curve, so its
-        # bootstrap stays a diagnostic.
-        or data.is_repeated
-        or data.treatment_held
-        or data.is_competing
-        or data.is_weighted
-        or data.family != "binomial"
-        or not all(isinstance(regimen, Regimen) for regimen in regimens)
-    ):
-        return None
-    outcome = "survival" if data.is_survival else "end_of_study"
-    if data.cluster is not None:
-        fit = "cluster_cross_fit" if folds.n_folds > 1 else "cluster"
-    elif folds.n_folds > 1:
-        fit = "cross_fit"
-    else:
-        fit = "in_sample"
-    return f"{outcome}/{fit}"
 
 
 def _refit_bound(

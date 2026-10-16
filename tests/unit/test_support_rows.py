@@ -47,7 +47,7 @@ from tests.studies.support_cases import (
 
 ALL_ROWS = (*POINT_ROWS, *LONGITUDINAL_ROWS)
 ROWS = {row.id: row for row in ALL_ROWS}
-KINDS = {"point", "wald", "wald_t", "band", "bootstrap", "derived", "test"}
+KINDS = {"point", "wald", "wald_t", "band", "bootstrap", "derived"}
 OUTCOME_KINDS = {"end_of_study", "survival", "competing", "repeated"}
 
 

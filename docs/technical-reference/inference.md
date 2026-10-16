@@ -164,8 +164,10 @@ rename a number on a non-inferential status.
 The bootstrap spread is the sample standard deviation of the replicate estimates. A standard error
 is an inference claim, so a non-inferential status publishes that number as `bootstrap sd`.
 `BootstrapSummary.diagnostic` is `True` when the bootstrap columns take the diagnostic names. A
-bootstrap is a diagnostic when its estimate supplies no inference, when its status is
-`"few_cluster_plugin"`, or when the summary says so. `bootstrap_is_diagnostic` in
+bootstrap is a diagnostic when its estimate supplies no inference, when the fit reads fewer
+clusters than the interval floor (10, or 20 for `LTMLE`), or when the summary says so. The cluster
+count decides the second case, so a fit with estimated weights and few clusters is a diagnostic
+too. `BootstrapSummary.below_floor` records it. `bootstrap_is_diagnostic` in
 `inference/influence.py` applies the rule, and `bootstrap_column` names the column. A C-TMLE
 bootstrap sets the field, because no reviewed theorem covers a selector path.
 `BootstrapSummary.support` records whether a support row lists the `bootstrap` kind for the fit.
@@ -304,7 +306,7 @@ missingness tilt and the omitted-variable limits read it through `wald_ci` and
 | --- | --- |
 | the default simultaneous band | skipped. The summary states the reason. No source gives a $t$-calibrated band |
 | `simultaneous_bands()` | `CapabilityError` |
-| the cluster bootstrap | printed as a percentile range from 3 to 9 clusters, under `"few_cluster_plugin"`. From 10 clusters it keeps the interval names and carries the label `experimental`, because no support row lists the `bootstrap` kind for a clustered fit |
+| the cluster bootstrap | printed as a percentile range from 3 to 9 clusters (3 to 19 for `LTMLE`), whatever the status. From 10 clusters it keeps the interval names and carries the label `experimental`, because no support row lists the `bootstrap` kind for a clustered fit |
 
 $J-2$ is the rule that Nugent et al. (2024) and Benitez et al. (2023), Sections 3.1.2 and 3.2.1,
 state for cluster-randomized trials. A classical one-sample mean of independent normal cluster

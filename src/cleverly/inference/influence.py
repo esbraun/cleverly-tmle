@@ -257,8 +257,9 @@ def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
     The one rule. A bootstrap is a diagnostic when the estimate's status withholds its
     interval, when the fit declares the bootstrap a diagnostic
     (:attr:`BootstrapSummary.diagnostic`), or when the fit reads fewer clusters than the
-    floor, which the status ``"few_cluster_plugin"`` records. A bootstrap that none of these
-    makes a diagnostic publishes the inferential names, and its
+    floor (:attr:`BootstrapSummary.below_floor`). The cluster count decides the last case, not
+    the status, so a fit with estimated weights and few clusters is a diagnostic too. A
+    bootstrap that none of these makes a diagnostic publishes the inferential names, and its
     :attr:`BootstrapSummary.support` says whether a registered row measures it.
 
     Parameters
@@ -273,10 +274,8 @@ def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
         diagnostic names.
     """
     summary = estimate.bootstrap
-    return (
-        not estimate.supplies_inference
-        or estimate.inference == "few_cluster_plugin"
-        or (summary is not None and summary.diagnostic)
+    return not estimate.supplies_inference or (
+        summary is not None and (summary.diagnostic or summary.below_floor)
     )
 
 
@@ -310,8 +309,10 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
     # A percentile interval is a confidence interval, and this estimate reports none. The
     # same two numbers are printed as a range under the diagnostic framing, rather than
     # the bootstrap being refused outright.
-    if not estimate.supplies_inference or estimate.inference == "few_cluster_plugin":
+    if not estimate.supplies_inference:
         note = status_record(estimate.inference).bootstrap_note
+    elif summary.below_floor:
+        note = status_record("few_cluster_plugin").bootstrap_note
     else:
         note = DIAGNOSTIC_BOOTSTRAP_NOTE
     return f"{spread}percentile range [{low:.5g}, {high:.5g}] ({note})"
@@ -1116,6 +1117,11 @@ class BootstrapSummary:
         Whether the fit declares the percentile interval a diagnostic. ``True`` publishes
         the columns under their diagnostic names, through :func:`bootstrap_column`, at every
         status. Only the collaborative fit sets it.
+    below_floor : bool, default=False
+        Whether the fit reads fewer clusters with positive weight mass than the interval floor
+        (10 for a point fit, 20 for a longitudinal one). ``True`` publishes the columns under
+        their diagnostic names at every status, because no registered study measures a
+        percentile interval below the floor.
     support : Support, default=UNCLASSIFIED
         Whether a registered row measures the percentile interval of the fit that produced it.
         A row that lists ``bootstrap`` makes it ``supported``. Every other fit that publishes
@@ -1130,6 +1136,7 @@ class BootstrapSummary:
     n_failed: int
     draws: FloatArray
     diagnostic: bool = False
+    below_floor: bool = False
     support: Support = UNCLASSIFIED
 
     @property
