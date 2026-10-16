@@ -376,13 +376,14 @@ It does not require an exact comparator method.
 | status | meaning | public behavior |
 | --- | --- | --- |
 | supported | an acceptance route and its scoped evidence are complete | normal availability, with stated assumptions and coverage limits |
-| experimental | the target is justified, but an algorithm or inference extension has unresolved evidence | explicit opt-in. Each estimate and interval carries the label, and an unsupported interval is withheld |
+| experimental | the target is justified, but an algorithm or inference extension has unresolved evidence | no opt-in. The package returns the estimate and, where it can compute one, the interval, and each carries the label with its reason. An interval with no computable plug-in curve is withheld |
 | unavailable | the implementation is absent, the request is invalid, or a known defect makes the claimed analysis unreliable | a refusal before fitting where possible, which names the reason and an available alternative |
 
 A supported point estimate does not make its confidence interval supported. Track support by the
 combination of target, estimator, outcome, weighting, splitting, and inference. A configuration that
-passed does not certify another configuration of the same method. The `experimental` status does
-not exist in the package yet. [RM42](#rm42-experimental-status-and-support-rows) owns it.
+passed does not certify another configuration of the same method. The package reports the
+`experimental` label on every estimate, and [RM42](#rm42-experimental-status-and-support-rows)
+owns it.
 
 The readiness labels rate method support, not programming effort:
 
@@ -518,13 +519,14 @@ the main grid.
 ### RM42. Experimental status and support rows
 
 The [Eligibility](#eligibility) rule classifies each analysis as supported, experimental, or
-unavailable. The package has no `experimental` status today. Each refusal carries a reason code,
-and [How to read a refusal](technical-reference/scope-and-refusals.md#how-to-read-a-refusal)
-defines the five codes. This row implements the status and the support rows.
+unavailable. The package labels each estimate `supported` or `experimental`, with no opt-in. Each
+refusal carries a reason code, and
+[How to read a refusal](technical-reference/scope-and-refusals.md#how-to-read-a-refusal) defines
+the five codes. This row implements the label and the support rows.
 
 | part | what it delivers |
 | --- | --- |
-| (a) the experimental status | an explicit opt-in for a configuration whose target is justified but whose algorithm or inference extension has unresolved evidence. It is a new record in `cleverly._inference_status` beside the `*_plugin` statuses, not a second status field. Each estimate and interval carries the label, and an unsupported interval is withheld |
+| (a) the experimental label | a label with no opt-in, for a configuration whose target is justified but whose algorithm or inference extension has unresolved evidence. A shown status in `cleverly._inference_status` and a configuration that no support row covers both give it. Each estimate, bootstrap interval and band carries the label and its reason, and an interval with no computable plug-in curve is withheld |
 | (c) configuration support rows | a support row for each combination of target, estimator, outcome, weighting, splitting, and inference, whose status matches the output |
 | (d) persistence | the experimental status, its configuration key, the support row, and the inference assumptions survive `result.save()` and `cleverly.load()` |
 
@@ -537,7 +539,7 @@ call a stochastic or continuous policy an inappropriate question.
 Acceptance:
 
 - a test that an experimental fit carries its label through the summary, the tables, and a
-  save-and-load round trip, and withholds an unsupported interval;
+  save-and-load round trip, and withholds an interval that has no computable plug-in curve;
 - a test that each support row matches the status that the fit reports.
 
 ### X39. Longitudinal evidence over three to five decisions
