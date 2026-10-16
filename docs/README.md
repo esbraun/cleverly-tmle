@@ -15,19 +15,22 @@ ordinary Markdown that is readable on GitHub.
 
 ## The examples contract
 
-[Examples](examples/index.md) carries ten tutorials and the TWINS notebook. Six mirror the six
-method entries in the technical reference. Three cover sections inside an entry: the intervention
-axes and survey non-response inside the point-treatment entry, and longitudinal event outcomes
-inside the longitudinal entry. The tenth applies the longitudinal entry and the sequential
-baselines to a commercial campaign. A new method entry needs a new tutorial, and the two link to
-each other in both directions.
+[Examples](examples/index.md) carries nine tutorials and the TWINS notebook. Five mirror five of the
+six method entries in the technical reference. The sequential pricing tutorial is the one for the
+longitudinal entry. The parametric g-formula entry has no tutorial yet.
 
-The tutorials share two narratives. Nine follow one health program: a health plan's hospital
-network evaluates care-transition navigation. A new tutorial for a method joins that program
-rather than inventing a scenario. The applied commercial pair follows a second program: a
-subscription retailer sends weekly offers. The offers tutorial is the first of the pair, and the
-pricing tutorial of the [roadmap](roadmap.md#x42-applied-tutorials-for-offers-and-pricing) joins
-it.
+Three more tutorials cover sections inside an entry: the intervention axes and survey non-response
+inside the point-treatment entry, and longitudinal event outcomes inside the longitudinal entry. The
+ninth, sequential offers, applies the longitudinal entry and the sequential baselines to a
+commercial campaign. A new method entry needs a new tutorial, and the two link to each other in both
+directions.
+
+The tutorials share two narratives. Seven follow one health program: a health plan's hospital
+network evaluates care-transition navigation. A new tutorial for a method joins that program rather
+than inventing a scenario, unless the method needs a law that the program lacks. The pricing
+tutorial is that case, because the health program has no continuous price. The applied commercial
+pair follows a second program: a subscription retailer sends weekly offers and sets monthly renewal
+prices. The offers tutorial and the pricing tutorial form the pair.
 
 ## The record documents
 

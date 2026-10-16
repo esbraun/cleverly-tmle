@@ -660,6 +660,7 @@ ALLOWED = {
     "inference/multiplier.py": "the pointwise critical value of a band, which refuses a t estimate",
     "validation/nuisance.py": "a Bonferroni calibration screen, not an interval",
     "datasets/synthetic.py": "a data generator",
+    "datasets/pricing.py": "a data generator",
     "longitudinal/gformula.py": "an inverse-CDF draw of a Gaussian covariate, not an interval",
     "sensitivity/simulated_confounding.py": "a latent perturbation threshold",
     "learners/screeners.py": "a screening p-value, not a reported interval",

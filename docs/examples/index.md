@@ -16,7 +16,6 @@ Start with [Point-treatment TMLE](point-treatment-tmle.ipynb).
 | [Collaborative TMLE](collaborative-tmle.ipynb) | the offer's effect on a successful transition home, when one strong predictor of the offer has an uncertain role | [entry](../technical-reference/collaborative-tmle.md) | the predictor makes the fitted propensities extreme. The ordinary TMLE interval under-covers at this law in a review probe. OAT C-TMLE targets the same ATE, and a registered cell measures its coverage |
 | [Choosing a navigation policy](interventions.ipynb) | target by risk, raise assigned navigation intensity, or change assignment odds | [entry](../technical-reference/point-treatment-tmle.md#variations) | the capacity cap is part of the question: two raises of the same size are two estimands |
 | [Survey non-response](survey-nonresponse.ipynb) | many patients do not return the 30-day transition survey | [entry](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) | a complete-case fit estimates the effect standardized to the respondents' covariate distribution |
-| [Longitudinal TMLE](longitudinal-tmle.ipynb) | navigation at discharge and day seven | [entry](../technical-reference/longitudinal-tmle.md) | one regression cannot adjust for a time-varying confounder and preserve the causal path |
 | [Time-to-event outcomes](longitudinal-survival.ipynb) | readmission, with death as a competing event and disenrollment as censoring | [entry](../technical-reference/longitudinal-tmle.md#survival-and-competing-risks) | coding death as censoring targets the readmission risk in a world where death is prevented. That is not the total effect the plan asks about, which leaves death alone |
 | [MSM projections](msm-projections.ipynb) | three navigation cadences summarized as one trend | [entry](../technical-reference/msm-projections.md) | a linear working model that misses the arm means still defines the parameter it reports |
 
@@ -51,8 +50,8 @@ each assumption and explains why consistency requires a well-defined interventio
 
 `navigation_protocol()` in `cleverly.datasets` returns this design as the `StudyProtocol` of the
 standard offer. Each point-treatment tutorial starts from it and uses `dataclasses.replace` to change
-only the fields its question changes. The two longitudinal tutorials start from
-`longitudinal_navigation_protocol()` in the same way. Their time zero is the discharge, and their
+only the fields its question changes. The time-to-event tutorial starts from
+`longitudinal_navigation_protocol()` in the same way. Its time zero is the discharge, and its
 eligibility requires a live discharge.
 
 Only baseline information enters a point-treatment adjustment set. In particular, actual length of
@@ -60,8 +59,7 @@ stay and completed contacts occur after assignment and cannot serve as baseline 
 
 The synthetic laws draw each baseline covariate independently from a standard normal distribution.
 The laws do not standardize a sample. A negative value is below the population average. Real
-covariates would be correlated. Outcome scores are in synthetic units. The longitudinal tutorial uses a binary top-box outcome, and its protocol scores
-death before day 30 as not top box.
+covariates would be correlated. Outcome scores are in synthetic units.
 
 The intervention is the **offer**. This choice fixes treatment versions despite different patient
 uptake. The program records contamination, protocol changes, and capacity breaches because any of
@@ -73,9 +71,6 @@ them can weaken consistency or no interference.
 | --- | --- | --- |
 | transition experience | a 30-day patient-reported score, or its top-box indicator | every tutorial except time-to-event outcomes |
 | time-to-event outcomes | readmission or death | [time-to-event outcomes](longitudinal-survival.ipynb) |
-
-The day-seven engagement score in [longitudinal TMLE](longitudinal-tmle.ipynb) is a time-varying
-confounder, not an outcome.
 
 ## The retailer program
 
@@ -99,6 +94,13 @@ This program differs from the health program in four ways.
 | tutorial | the evaluation question | method entry | the failure mode it demonstrates |
 | --- | --- | --- | --- |
 | [Sequential offers](sequential-offers.ipynb) | which of five weekly offer policies gives the most full-price orders in week 4, and which policy beats which | [entry](../technical-reference/longitudinal-tmle.md#known-node-mechanisms) and [sequential baselines](../technical-reference/sequential-baselines.md) | an unpaired comparison of two policies, which ignores the shared sample, overstates the standard error of their difference |
+| [Sequential pricing](sequential-pricing.ipynb) | what a 12% rise in each of three monthly renewal prices does to month-3 renewal and revenue, where the raised price stays inside the price band | [entry](../technical-reference/longitudinal-tmle.md#modified-treatment-policies-at-a-node) | one regression holds engagement and the engine's later prices fixed, or leaves engagement out, and misses the policy effect |
+
+The pricing tutorial uses a second retailer law. A pricing engine, not a CRM, sets a continuous
+renewal price each month. The data are complete. The engine's price law is unknown, so the tutorial
+declares a price band and estimates the density ratios. `pricing_protocol()` in
+`cleverly.datasets` returns its `StudyProtocol`, and the [datasets reference](../api/datasets.md)
+lists the generator and the exact truth.
 
 ## Real data
 
@@ -114,9 +116,9 @@ cross-fitting
 collaborative-tmle
 interventions
 survey-nonresponse
-longitudinal-tmle
 longitudinal-survival
 msm-projections
 sequential-offers
+sequential-pricing
 twins-causal-inference
 ```
