@@ -151,6 +151,39 @@ Before evaluating the requested grid, replay at the fitted pair must reproduce e
 estimate, regimen fit, and MSM fit exactly. This preflight also runs when the grid omits that pair.
 A mismatch makes the operation unavailable instead of reporting a different fitted procedure.
 
+### Targeting options at each node
+
+`LTMLE` accepts the four targeting options of [point-treatment TMLE](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate):
+`stopping=`, `step_bound=`, `step_search=` and `iterate=`. Set them on `LTMLE`, or through
+`Targeting` on a longitudinal `TMLEMethod`. Each default runs the shipped node solver unchanged.
+The solver applies the options at each node of each regimen.
+
+| item | rule |
+| --- | --- |
+| units $n_u$ | the distinct clusters of the panel when `cluster=` is set, else the rows. The solver receives every row, and a unit that does not follow the regimen adds zero. So the span and $n_u$ are those of the panel |
+| `msm=` | one stacked solve over the regimen cells. The unit codes are tiled, so a subject counts once across its cells |
+| cross-fitting | the pooled targeting pass applies the options once over every fold |
+| repeated outcomes | each horizon applies the options at its own nodes |
+| long panels | the same node solver, so each node applies them |
+| the one-column node | the node with one clever covariate. Under `step_bound=` its direction is $\operatorname{sign}(s)$ |
+| `survival_model="hazard"` | refuses `iterate=`, `stopping=` and `step_bound=`. See [hazard-based survival targeting](#hazard-based-survival-targeting) |
+| `fluctuation="linear"` | refuses all three, as for a point fit |
+| truncation replay | the replay recipe repeats the options, so a replay reruns the same node solve |
+
+A fit under a declared rule prints the pinned residual line in `res.summary()`. When a node misses
+its rule, the pinned failure line replaces the shipped warning. It names each node over its
+threshold once for each stacked solve. A `LongitudinalResult` has no `score_check()`, so the
+summary line is its report.
+
+`tests/unit/test_stopping_rule_longitudinal.py` computes the threshold and the ratio of every node
+by hand with `pandas`. It covers a single fold, cross-fitting, survival, competing risks, every
+repeated-outcome composition, a long panel, clusters and stacked MSM nodes. The crafted-node
+witness uses confident-wrong offsets. The shipped test takes 3 iterations there and the rule takes
+1, and the estimates differ by more than $10^{-4}$. Three mutation controls fail the tests. They
+drop the cluster code, the span or the MSM tile. `tests/unit/test_step_bound.py` checks every node
+against a SciPy walk from the node's own pseudo-outcome. `tests/unit/test_best_iterate.py` covers
+the best iterate per node.
+
 ### Survival and competing risks
 
 [Time-to-event outcomes](../examples/longitudinal-survival.ipynb) works this section applied.
@@ -258,6 +291,7 @@ panel, under the same inference statuses.
 | static, dynamic and known stochastic plans, modified treatment policies | fits. A rule may read $Y_{t-1}$ |
 | cross-fitting, clusters, weights, a held treatment, known mechanisms | fits |
 | `msm=` over $(d, h)$ cells | fits |
+| `stopping=`, `step_bound=`, `step_search=`, `iterate=` | fit. Each horizon applies them at its nodes ([targeting options at each node](#targeting-options-at-each-node)) |
 | `IPSI` | fits. Each horizon is the end-of-study fit of the truncated panel ([below](#ipsi-on-a-repeated-outcome)) |
 | `SDR` | refused before any learner, until [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | competing causes | not declarable. A cause mapping declares an absorbing outcome |
@@ -655,7 +689,7 @@ time. A row holds the covariates measured before its decision, the decision, and
 indicator of the node. The reader reshapes the rows into the wide arrays and calls
 `LongitudinalData.from_frame`, so the wide checks apply unchanged. The estimand, the recursion, and
 the influence curve are those of the wide layout. One unit is one observation, and `cluster=` maps to the cluster
-contract.
+contract. The targeting options apply at each node, as they do on the wide layout.
 
 | item | rule |
 | --- | --- |
@@ -773,6 +807,13 @@ together, so the score of every contrast is solved.
 
 `targeting=` chooses the algorithm. Both stop on the relative score. That score is each target's
 score divided by its scale $\operatorname{mean}(\lvert w \rvert \sum_l \lvert h_l \rvert)$ over the rows at risk.
+
+The hazard walk takes none of the point-treatment targeting rules. `iterate=`, `stopping=` and
+`step_bound=` are refused beside `survival_model="hazard"`, in this order, as one
+`implementation_gap` that the roadmap tracks as X33. The walk imports only `relative_score` and
+`TargetingFailure` from the targeting modules. `tests/unit/test_hazard_x22_refusal.py` checks the
+refusal text and the order. It also shows that the refusal comes before any data or learner. A
+tripwire in the same file replaces every targeting solver, and a default hazard fit still runs.
 
 | item | per horizon, `targeting="iterative"` (default) | one step, `targeting="one_step"` |
 | --- | --- | --- |
@@ -1396,7 +1437,7 @@ mechanism.
 
 | choice | `SDR` | reason |
 | --- | --- | --- |
-| fluctuation | none. `alpha=`, `max_iter=` and `tol=` raise `MethodConfigurationError` with code `invalid_declaration` | the transform replaces the targeting step |
+| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `stopping=`, `step_bound=`, `step_search=` and `iterate=` raise `MethodConfigurationError` with code `invalid_declaration` | the transform replaces the targeting step, so no stopping rule, step bound or iterate exists |
 | regression clip | none. The default `pseudo_learner` is `SuperLearner(task="regression", clip=None)` | a transform can leave $[0, 1]$, and `lmtp` predicts it unbounded. A clipping pseudo learner is accepted and moves the estimate away from `lmtp_sdr` (`tests/unit/test_sdr_bounds_and_clipping.py`) |
 | `g_bounds=` | bounds each partial path probability $\prod_{k=t}^{s} p_k$ | at $t = 1$ this is the cumulative product that LTMLE divides by, equal to rounding. Where a bound binds, the bounded weight is a misspecified ratio on that path, and no SDR property is claimed there. `diagnostics.support()` reports the binding share per node, over the paths that the estimate reads. A cross-fitted fit counts the held-out rows of each fold |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of transforms can leave $[0, 1]$, or $[q_\text{lo}, q_\text{hi}]$ on a continuous outcome (page 854) |
@@ -1644,7 +1685,7 @@ cancelled tilt factor and needs no such bound.
 
 | choice | `IPSI` | reason |
 | --- | --- | --- |
-| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `targeting=` and `fluctuation=` raise `MethodConfigurationError` with code `invalid_declaration` | the estimator averages the influence function at the fitted nuisances |
+| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `stopping=`, `step_bound=`, `step_search=`, `iterate=`, `targeting=` and `fluctuation=` raise `MethodConfigurationError` with code `invalid_declaration` | the estimator averages the influence function at the fitted nuisances |
 | `g_bounds=` | bounds the cumulative censoring, label, rule and policy product. The tilt product multiplies in after the bound | the tilt factor lies in $[\min(\delta, 1/\delta), \max(\delta, 1/\delta)]$ and divides by no mechanism |
 | regression clip | none. The default `pseudo_learner` is a regression Super Learner with `clip=None` | `npcausal` predicts the targets unbounded |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of $\varphi$ can leave $[0, 1]$, or the `q_bounds` range of a continuous outcome |
@@ -1667,7 +1708,7 @@ own one-step average. The hazard model and the isotonic projection are `LTMLE` s
 | a tilt node with other than two levels | the shared point-treatment text, which names the node |
 | an `IPSI` plan with a modified treatment policy or a `RiskRatioTilt` node | `tilt_mix_message` in `longitudinal/regimen.py` |
 | an odds tilt at a continuous node, on `IPSI`, `LTMLE` or `SDR` | `tilt_continuous_message` in `longitudinal/regimen.py` |
-| a fluctuation setting on `IPSI` or `IPSIMethod` | `IPSI_NO_FLUCTUATION` in `cleverly.methods` |
+| a fluctuation setting on `IPSI` or `IPSIMethod`, including `stopping=`, `step_bound=`, `step_search=` and `iterate=` | `IPSI_NO_FLUCTUATION` in `cleverly.methods` |
 | a point-treatment container, or `IPSIMethod` on a point functional | `IPSI_POINT_REFUSAL` in `cleverly.methods` |
 | a design that holds one baseline decision over every node | `IPSI` names `TMLE(incremental=[...])` on the baseline row |
 
