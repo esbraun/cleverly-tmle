@@ -126,7 +126,6 @@ not change the package version.
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Longitudinal fitting options | no new theory; each option keeps its default bit-identical | none | [X33](#x33-longitudinal-fitting-options) |
-| B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
@@ -600,22 +599,6 @@ The R comparators named above are deferred to
 [X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr), so the studies carry Python property
 evidence only. Do not remove this row until the studies land.
 
-### X43. Categorical incremental policies
-
-`IPSI` fits Kennedy's odds-multiplier target at binary nodes, and its odds tilt names two arms. A
-categorical incremental policy is a candidate natural extension, starting from the binary case that
-Kennedy (2019) covers directly. A propensity-dependent policy changes with the observed treatment
-law, so its influence function carries a derivative term that a known stochastic policy does not
-have. Do not substitute the risk-ratio policy of `lmtp`.
-
-Use the pinned `npcausal` runner where it covers the odds-based target. `imtp` 0.1.0 at `d4b5204`
-omits the derivative term from its influence curve
-([comparator survey](development/method-benchmarking.md#choose-the-comparator-before-you-write-the-runner)),
-so it can witness a point estimate only. Re-audit a later `imtp` release, including its
-longitudinal support, before using it as a comparator.
-
-Acceptance: a written derivation of the changed terms under the [Eligibility](#eligibility)
-conditions, identity and treatment-score witnesses, a dropout control, and a registered study.
 
 
 ### X46. Repeated cross-fitting for longitudinal fits

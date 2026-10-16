@@ -546,7 +546,7 @@ These requests with `strata=` refuse before any learner:
 | --- | --- |
 | `targeting_scheme="fold"` | fold targeting fits the fluctuation on the validation rows. Montoya et al. (2023), Section 3.2, Step 2(c), publish that update, and the package does not implement it with strata. [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b) holds this composition |
 | `cv_evaluation=True` | the fold-evaluated estimate needs stratum shares and a stratum-indexed fold average in each validation fold ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)) |
-| an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation has no finite root |
+| an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation may have no finite root. It has none only if some direction of the covariate separates, which depends on the fitted outcome regression, so the guard reads the data alone |
 | an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |
 | a `DRTMLE` stratum with no trainable rows of an arm in some training complement | its reduced regressions cannot be fitted inside the stratum |
 | a stacked PAR, PAF, or `ey_obs` beside arm targets | the arm-indexed stacked contract refuses strata. The step qualifies, and it needs a witness and a registered cell ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)) |
@@ -1061,7 +1061,7 @@ the curve each fit reports.
 | arm means, ATE, RR, OR, PAR, PAF, regimes and MSMs, on complete data | the ordinary curve at $g_0$, which is the exact influence curve | Moore and van der Laan (2009), Sections 2 and 5 |
 | missing outcomes (`delta=`) and a controlled direct effect (`intermediate=`) | the ordinary curve at $g_0$ and at the estimated second mechanism. The declaration replaces the treatment mechanism only. The observation mechanism $\hat\pi$, or the intermediate mechanism $\hat q_z$, is still estimated. The remainder is the product of that mechanism's error and the outcome error, so the ordinary TMLE conditions apply. The interval is established when both are consistent at a product rate. It is not established for a wrong outcome regression | the missing-outcome and controlled-direct-effect contracts above |
 | ATT and ATC | the shipped ATT and ATC curve at $g_0$. It is exact, and it is not the known-score efficient curve | the algebra below; Hahn (1998) |
-| `incremental=` | the curve of the known stochastic regime $q_\delta(g_0)$, with no term in $(A-g)$ | Kennedy (2019), the remark after Corollary 2 |
+| `incremental=` | the curve of the known stochastic regime $q_\delta(g_0)$, with no mechanism term, for any number of levels | Kennedy (2019), the remark after Corollary 2 |
 | `learned_rule=` | the shipped learned-rule curve. The rule reads the outcome regression only | the learned-rule contract above |
 | `DRTMLE` | see the [DR-TMLE contract](dr-tmle/theorem.md#a-known-treatment-mechanism) | Benkeser et al. (2017), Theorem 1 |
 | `LTMLE` | see [known node mechanisms](longitudinal-tmle.md#known-node-mechanisms) | van der Laan and Gruber (2012), Theorem 2 and Section 4 |
@@ -1097,7 +1097,7 @@ remainder algebra above, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)
 the smaller curve. The package does not ship it.
 
 **Incremental interventions.** With $g_0$ known, $q_\delta(g_0)=\delta g_0/(\delta g_0+1-g_0)$ is
-a known stochastic regime. The model with a known mechanism has no mechanism scores, so the
+a known stochastic regime. With $K$ levels it is $q_\delta(a\mid W)=\delta_a g_0(a\mid W)/D_\delta(W)$. The model with a known mechanism has no mechanism scores, so the
 efficient curve is Kennedy's curve projected off that tangent space. The projection removes the
 middle term in $(A-g)$ and leaves the regime curve. Kennedy (2019), arXiv v3, states it after
 Corollary 2: "If the propensity scores were known, the efficient influence function would just be
@@ -1589,8 +1589,88 @@ $$
 The denominator keeps the clever covariate bounded even when the observed propensity approaches
 zero, so this parameter does not need conventional treatment positivity.
 
+**Categorical treatment.** A treatment with $K$ levels takes one factor $\delta_a>0$ for each level. The intervention
+draws the level from the exponential tilt of the observed mechanism:
+
+$$
+q_\delta(a\mid W)=\frac{\delta_a\, g_P(a\mid W)}{D_\delta(W)},
+\qquad D_\delta(W)=\sum_b \delta_b\, g_P(b\mid W).
+$$
+
+Multiplying every factor by one constant changes nothing. The family therefore has $K-1$ free
+parameters: the odds of level $a$ against level $b$ are multiplied by $\delta_a/\delta_b$. With
+$K=2$ and $(\delta_0,\delta_1)=(1,\delta)$ the formula is the binary one above.
+
+The package declares the factors as `Incremental({label: factor})`. A level that the mapping does
+not name keeps the factor 1. A scalar `Incremental(delta)` names two arms, so a treatment with
+other than two levels refuses it before any learner. The table lists the declarations.
+
+| declaration | two levels | three or more levels |
+| --- | --- | --- |
+| `Incremental(2.0)` | the odds of the second sorted level times 2 | refused with `invalid_declaration` |
+| `Incremental({"high": 2.0, "low": 0.5})` | the factors of the named levels, the others keep 1 | the same |
+| `Incremental({"nope": 2.0})` | refused when `"nope"` is not a level | refused when `"nope"` is not a level |
+
+Keys are the treatment labels that `CausalData.treatment_levels` reports. A vector treatment
+whose components are all categorical is one categorical treatment over its observed tuples. Its
+keys are the tuples. A vector with a continuous component is refused.
+
+Identification is Kennedy (2019), Theorem 1, applied to a finite partition of the treatment. It
+needs consistency and exchangeability. It needs no positivity, because
+$q_\delta(a\mid W)=0$ wherever $g_P(a\mid W)=0$.
+
+The derivative of $m(W)=\sum_a q_\delta(a\mid W)Q(a,W)$ in the mechanism is
+$\partial m/\partial g_b=\delta_b\{Q(b,W)-m\}/D_\delta$. The mechanism score of level $b$ is
+$1\{A=b\}-g_b$. Because $\sum_b \delta_b g_b\{Q(b,W)-m\}/D_\delta=0$, the sum collapses and
+the efficient influence function is
+
+$$
+D=\frac{\delta_A}{D_\delta}\{Y-Q(A,W)\}+\frac{\delta_A}{D_\delta}\{Q(A,W)-m(W)\}+m(W)-\psi(\delta)
+ =\frac{\delta_A}{D_\delta}\{Y-m(W)\}+m(W)-\psi(\delta).
+$$
+
+At $K=2$ the middle term is Kennedy's $\delta\{Q(1,W)-Q(0,W)\}(A-g)/D_\delta^2$. The clever
+covariate $\delta_A/D_\delta$ lies in $[\min\delta/\max\delta,\ \max\delta/\min\delta]$, so it never
+divides by $g$. `IncrementalSupport.guaranteed` reports this interval.
+
+**The remainder is exact.** Let $\hat m$ and $\hat D$ be the tilted mean and normaliser at the
+fitted nuisances, and $m_0$ and $D_0$ the values at the truth. Then
+
+$$
+R=E_0\!\left[(\hat m-m_0)\,\frac{\hat D-D_0}{\hat D}\right],
+\qquad \hat D-D_0=\sum_b \delta_b(\hat g_b-g_{0b}).
+$$
+
+Every term of $R$ carries $(\hat g-g_0)$. Hence $R$ is zero when $\hat g=g_0$. No term is linear
+in the error of one nuisance alone, so the construction exposes no linear remainder. The interval
+holds under $\|\hat g-g_0\|(\|\hat g-g_0\|+\|\hat Q-Q_0\|)=o_P(n^{-1/2})$ with the
+$L_2(P_0)$ norm over the levels. `tests/unit/test_categorical_incremental_exact.py` checks $R$
+against the closed form to $10^{-12}$.
+
+**The mechanism fluctuation is a softmax.** With three or more levels the treatment-mechanism
+submodel is $g_\epsilon(a)\propto \hat g(a)\exp\{\epsilon^\top H(a)\}$. The covariate of
+tilt $r$ is $H_r(a,W)=\{\delta_{r,a}/D_{\delta_r}\}\{Q^*(a,W)-m_r(W)\}$, the coefficient of level
+$a$ in the mechanism score. The weighted log-likelihood is concave in $\epsilon$. A damped Newton
+step with backtracking solves it and keeps every row on the simplex. Two levels keep the logistic
+submodel and Kennedy's arithmetic bit for bit, with $\delta=\delta_1/\delta_0$. This is the binary
+surface rule in [the architecture invariants](../architecture-invariants.md).
+
+**Evidence class.** The estimator is validated by Python property evidence: exact-law checks of
+the estimate, the curve and the remainder, deliberate-mutation controls, and the registered study
+[categorical incremental policies](method-evidence/categorical-incremental.md). The rows `T35` match a three-level treatment, in sample or cross-fitted. The study fitted saturated learners, in sample and at five folds, and the rows match any learner and fold count. A categorical fit outside
+those rows has the support label `experimental`. No external comparator exists for the categorical
+tilt.
+
+`tests/unit/test_categorical_incremental_compositions.py` checks four compositions against
+identities. Integer weights equal row duplication. Singleton clusters equal the iid fit, and
+clusters of four give the cluster standard error written longhand. Five exact copies of the sample
+as five folds give the exact cross-fitted fit. A bootstrap replicate equals the fit on the
+resampled rows. The mutation controls clear a margin of $10^{-4}$, except one that rescales the
+rows of $g^*$, which clears $10^{-5}$ because it leaves the estimate unchanged.
+
 **This is the one axis that targets the treatment mechanism.** The intervention is a functional of
-$P$, so the efficient influence function carries a term for the pathwise derivative through $g$:
+$P$, so the efficient influence function carries a term for the pathwise derivative through $g$.
+For binary treatment it is:
 
 $$
 D = \frac{\delta A + 1 - A}{D_\delta}\{Y-Q(A,W)\}
@@ -1599,8 +1679,8 @@ D = \frac{\delta A + 1 - A}{D_\delta}\{Y-Q(A,W)\}
 $$
 
 The middle term lives in the tangent space of the treatment mechanism, so no fluctuation of $Q$
-reaches it. The mechanism therefore gets a logistic submodel of its own whose score is exactly that
-term. Each covariate reads the other's fitted value, so the two alternate. The alternation is
+reaches it. The mechanism therefore gets a submodel of its own whose score is exactly that
+term. The submodel is logistic for two levels and a softmax for more. Each covariate reads the other's fitted value, so the two alternate. The alternation is
 coordinate ascent on one joint likelihood, because the outcome and treatment quasi-likelihoods are
 separate factors, so the joint value never decreases. `score_check()` reports two rows for such a
 fit rather than one.
@@ -1623,7 +1703,12 @@ everything else.
 
 With `strata=`, the outcome and mechanism equations each take one block per stratum, so each
 stratum's mechanism is tilted along its own covariate. A stratum that holds no row of some arm
-refuses before any learner, because its mechanism equation then has no finite root. Kennedy (2019),
+refuses before any learner, because its mechanism equation may then have no finite root. The root is
+missing only if some direction separates: every observed level maximises the covariate in its row.
+That condition depends on the fitted outcome regression, so the guard reads the data alone and is
+conservative, as the binary guard was.
+
+Kennedy (2019),
 arXiv v3, Section 6, lists "how mean outcomes under different interventions vary with covariates" as future
 work. That is a conditional curve in the covariates. A fixed finite partition is the marginal
 result applied inside each stratum, so the passage records no objection to it.

@@ -2621,6 +2621,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                 return check_incremental_support(
                     nuisance.incremental,
                     self._result.data.treatment,
+                    levels=self._result.data.treatment_levels,
                     **score_arguments("ipsi"),
                 )
             return positivity_report(self._result)

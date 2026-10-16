@@ -10,6 +10,11 @@ component. A `DoseQuantile` or a `SupportBoundary` tunes the cap of a `Shift` or
 the treatment law. A `Support` declares the interval of doses that a node can take given its
 history. The fit refuses, before any learner, a dose or a policy outside it.
 
+`Incremental` tilts the odds of the treatment. A scalar multiplies the odds of the second of two
+levels. A mapping from level label to factor tilts a treatment with three or more levels, and a
+level that it does not name keeps the factor 1. `Incremental.factors` resolves a declaration
+against the levels of one treatment or one node.
+
 `DynamicRegimen` defines a plan across the treatment nodes of a longitudinal fit. A node of that
 plan can be a rule. It can also be a `Stochastic` node that draws its arm from a known policy.
 `each_node` writes one rule for every node of a long panel, and it returns one `NodeRule` per node.

@@ -194,7 +194,7 @@ from ..interventions import (
     as_interventions,
 )
 from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
-from ..interventions.incremental import refuse_multi_arm_tilt
+from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_REMEDY,
     LearnedRule,
@@ -1184,11 +1184,11 @@ class TMLE:
         if self.incremental and self.g_bounds != "auto":
             raise CapabilityError(
                 "g_bounds= truncates the treatment mechanism, and on an incremental fit "
-                "the mechanism is part of the *estimand*: q_delta = delta*g / "
-                "(delta*g + 1 - g), so truncating g moves Psi(delta) itself rather than "
+                "the mechanism is part of the *estimand*: q_delta(a) = delta_a*g_a / "
+                "sum_b(delta_b*g_b), so truncating g moves Psi(delta) itself rather than "
                 "regularising a denominator. It is also unnecessary: the clever "
-                "covariate is delta/D at A=1 and 1/D at A=0, both between "
-                "min(delta, 1/delta) and max(delta, 1/delta) whatever g is, which is the "
+                "covariate is delta_a/D at level a, between min(delta)/max(delta) and "
+                "max(delta)/min(delta) whatever g is, which is the "
                 "point of an incremental intervention.",
                 reason=RefusalReason.DIFFERENT_ESTIMAND,
                 alternative=(
@@ -3471,7 +3471,9 @@ class TMLE:
         """Refuse what an incremental fit has no derivation for.
 
         An unsupported composition is refused by name; the arm-indexed estimands support
-        both of these and are the thing to reach for.
+        both of these and are the thing to reach for.  A continuous treatment has no levels
+        to tilt.  A scalar delta on a treatment with other than two levels (R1) and a
+        mapping key that is not a level (R2) are refused here, before any learner.
 
         ``delta=`` used to be refused here too, on the grounds that a further mechanism in
         the outcome half of the covariate would be a different derivation and no oracle law
@@ -3492,7 +3494,12 @@ class TMLE:
                 reason=RefusalReason.DIFFERENT_ESTIMAND,
                 alternative="Omit treatment_adjustment=, or treatment_covariates= in TMLE.fit.",
             )
-        refuse_multi_arm_tilt(data)
+        refuse_continuous_tilt(data)
+        for item in self.incremental:
+            # R1 and R2 are declaration refusals: resolve every factor now, before a learner.
+            # A list that mixes kinds is refused by `refuse_mixed_interventions`, not here.
+            if isinstance(item, Incremental):
+                item.factors(data.treatment_levels, subject=repr(data.treatment_name))
         if data.has_intermediate:
             raise CapabilityError(
                 "incremental= and intermediate= are not combined. A point-treatment fit "
@@ -3503,7 +3510,8 @@ class TMLE:
                 alternative=(
                     "Fit it as a two-node plan: "
                     "IPSI(regimens=[DynamicRegimen('tilt, Z=z', (Incremental(delta), z))]), "
-                    "fitted on the frame with treatment=[A, Z]."
+                    "fitted on the frame with treatment=[A, Z]. For a treatment with "
+                    "more than two levels, declare Incremental({level: factor})."
                 ),
             )
 

@@ -142,10 +142,10 @@ CASES = {
             g_bounds=(0.05, 0.95),
         ),
         "g_bounds= truncates the treatment mechanism, and on an incremental fit the "
-        "mechanism is part of the *estimand*: q_delta = delta*g / (delta*g + 1 - g), so "
+        "mechanism is part of the *estimand*: q_delta(a) = delta_a*g_a / sum_b(delta_b*g_b), so "
         "truncating g moves Psi(delta) itself rather than regularising a denominator. It "
-        "is also unnecessary: the clever covariate is delta/D at A=1 and 1/D at A=0, both "
-        "between min(delta, 1/delta) and max(delta, 1/delta) whatever g is, which is the "
+        "is also unnecessary: the clever covariate is delta_a/D at level a, between "
+        "min(delta)/max(delta) and max(delta)/min(delta) whatever g is, which is the "
         "point of an incremental intervention.",
         "Leave g_bounds at its default. (nuisance_bound= is a different matter and is "
         "accepted: with delta= the missingness mechanism divides the covariate and is not "

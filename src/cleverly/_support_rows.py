@@ -1558,8 +1558,63 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
     return tuple(out)
 
 
-#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``) and C-TMLE (``C``).
-POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls((*_t_rows(), *_d_rows(), *_c_rows()))
+def _categorical_point_rows() -> tuple[SupportRow, ...]:
+    """The point rows of the study ``categorical-incremental`` (X43): ``T35``.
+
+    A categorical tilt fit on one of these configurations carries the evidence of the study.
+    Any other categorical tilt fit stays labelled ``experimental``.
+    """
+    slug = ["categorical-incremental"]
+    point: dict[str, Any] = {
+        "families": ("P9",),
+        "outcome": ("gaussian", "bounded"),
+        "treatment": ("arms3",),
+    }
+    return (
+        point_row("T35.in_sample", slug, **point, cells=["point_in_sample"]),
+        point_row(
+            "T35.cross_fitted",
+            slug,
+            **point,
+            splitting=("stacked",),
+            cells=[
+                "point_crossfit",
+                "point_contrast_t_a",
+                "point_contrast_t_b",
+                "point_contrast_t_a__full_eif",
+                "point_contrast_t_a__sharp_null",
+                "point_contrast_t_a__alternative",
+            ],
+        ),
+        point_row(
+            "T35.known",
+            slug,
+            **point,
+            splitting=("stacked",),
+            qualifiers=("known_mechanism",),
+            cells=["point_known_t_a"],
+        ),
+        point_row(
+            "T35.strata",
+            slug,
+            **point,
+            splitting=("stacked",),
+            qualifiers=("strata",),
+            cells=["point_stratified_t_a_v1"],
+        ),
+    )
+
+
+#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``), C-TMLE (``C``) and the
+#: categorical tilt (``T35``).
+POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
+    (
+        *_t_rows(),
+        *_d_rows(),
+        *_c_rows(),
+        *_categorical_point_rows(),
+    )
+)
 
 
 # --------------------------------------------------------------------------- longitudinal
@@ -2830,11 +2885,40 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
     )
 
 
+def _categorical_long_rows() -> tuple[SupportRow, ...]:
+    """The longitudinal rows of the study ``categorical-incremental`` (X43): ``G43``."""
+    slug = ["categorical-incremental"]
+    ipsi: dict[str, Any] = {
+        "engine": "ipsi",
+        "regimens": ("tilt",),
+        "outcome": ("gaussian", "bounded"),
+        "treatment": ("3", "3"),
+        "splitting": ("cross_fitted",),
+    }
+    return (
+        long_row(
+            "G43.cross_fitted",
+            slug,
+            **ipsi,
+            cells=["longitudinal_dropout_folds_5", "longitudinal_dropout_contrast_t_a"],
+        ),
+        long_row(
+            "G43.complete",
+            slug,
+            **ipsi,
+            missing=("complete",),
+            cells=["longitudinal_folds_5", "longitudinal_contrast_t_a"],
+        ),
+    )
+
+
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
-#: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``) and the
-#: structural nested mean model (``G42``).
-LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
+#: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
+#: structural nested mean model (``G42``) and the categorical tilt (``G43``).
+LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
+    (*_long_rows(), *_categorical_long_rows())
+)
 
 
 # ------------------------------------------------------------------ exemptions and anchors

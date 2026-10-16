@@ -879,6 +879,21 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own SE-ratio endpoint"
             )
 
+        targeting = published.loc[published["property"] == "mechanism_targeting"]
+        for row in targeting.itertuples():
+            if row.role == "control":
+                expected = bool(_with_alternative(row, row.bias_discriminated)) and (
+                    row.bias_ci_lower > 0.0
+                )
+            else:
+                low, high = study.properties().EFFICIENCY_RATIO_BAND
+                expected = bool(row.bias_equivalent) and (
+                    low <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= high
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own targeting endpoints"
+            )
+
         single = published.loc[published["property"] == "single_robustness"]
         positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
@@ -1402,6 +1417,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Absolute bias at two sizes (the ``X4-plan.md`` 6.8 rule), beside a diagnostic cell.
         # Checked row by row below.
         "single_robustness",
+        # X43's softmax update: a positive cell answers to bias equivalence and the efficiency
+        # band of its SE ratio, the outcome-only control to a bias interval wholly above zero
+        # and beyond the margin.  Checked row by row below.
+        "mechanism_targeting",
         # Four rules keyed by the cell's last segment: a conservative SE ratio, accuracy, a
         # one-sided bias control and a growth control.  Checked row by row below.
         property_verdicts.ONE_WRONG_FAMILY,
@@ -1438,6 +1457,8 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "sdr_tmle_agreement",
         "variance_direction",
         "censoring_complete_case",
+        # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
+        "in_sample_fit",
         "one_wrong_reported",
         # The isotonic cell's binding share: the projection moved a level or it did not.
         "isotonic_projection",

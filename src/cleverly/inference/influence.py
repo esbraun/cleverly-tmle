@@ -2158,18 +2158,26 @@ def ipsi_means(
 
         \hat\Psi_r = \frac1n \sum_i m_r(W_i),
         \qquad
-        m_r(W) = \sum_a q_{\delta_r}(a \mid W)\, \bar Q^*(a, W)
+        m_r(W) = \sum_a q_{r}(a \mid W)\, \bar Q^*(a, W)
 
         D_r^*(O) = h_r(A, W)\,\{Y - \bar Q^*(A, W)\}
-                 + \frac{\delta_r\{\bar Q^*(1,W) - \bar Q^*(0,W)\}}{D_{\delta_r}^2}\,(A - g^*)
+                 + h_r(A, W)\,\{\bar Q^*(A, W) - m_r(W)\}
                  + m_r(W) - \Psi_r
+
+    with :math:`q_r(a) = \delta_{r,a} g(a)/D_r` and :math:`h_r(a) = \delta_{r,a}/D_r`.  The
+    middle term is the mechanism term: its coefficient is
+    :math:`\partial m_r/\partial g_b = h_r(b)\{\bar Q^*(b) - m_r\}`, evaluated on the
+    mechanism score :math:`1\{A=b\} - g_b` and summed over :math:`b`.  For two levels it is
+    :math:`\delta_r\{\bar Q^*(1,W) - \bar Q^*(0,W)\}(A - g^*)/D_r^2`, and that expression is
+    the one computed there, so the binary arrays are bit-identical to the ones the binary
+    path produced before the categorical form existed.
 
     **The middle term is the whole reason this is not** :func:`regime_means`.  A
     :class:`~cleverly.interventions.Stochastic` regime evaluated at the very same density
-    :math:`q_{\delta_r}` has the same mean and, entry for entry, the same clever
-    covariate; its influence curve is this one without the middle term.  Because
-    :math:`q_\delta` is built out of :math:`g`, the parameter moves when the mechanism
-    does, and that dependence is a pathwise derivative the regime curve has no term for.
+    :math:`q_{r}` has the same mean and, entry for entry, the same clever covariate; its
+    influence curve is this one without the middle term.  Because :math:`q_r` is built out of
+    :math:`g`, the parameter moves when the mechanism does, and that dependence is a pathwise
+    derivative the regime curve has no term for.
 
     The gap is not a wash.  The extra term is mean zero given :math:`W` and orthogonal to
     both halves of the regime curve -- the residual half is centred given :math:`(A, W)`,
@@ -2179,8 +2187,7 @@ def ipsi_means(
 
         \operatorname{Var}(D^*_{\text{ipsi}})
             = \operatorname{Var}(D^*_{\text{regime}})
-            + \operatorname{Var}\!\left(
-                \frac{\delta(\bar Q(1,W) - \bar Q(0,W))}{D_\delta^2}(A - g)\right),
+            + \operatorname{Var}\!\left(h_r(A)\{\bar Q(A) - m_r\}\right),
 
     an exact decomposition.  Treating an incremental intervention as the regime that
     induces it therefore does not merely report a different quantity: it reports a
@@ -2198,13 +2205,11 @@ def ipsi_means(
     A tilt of a **known** mechanism (:attr:`~cleverly.interventions.IPSISet.mechanism_known`)
     omits the middle term.  With :math:`g_0` known the model has no mechanism scores, so the
     efficient curve is the full-model curve projected off that tangent space, which removes
-    exactly the term in :math:`(A - g)`.  The result is the curve of the known stochastic
+    exactly the mechanism term.  The result is the curve of the known stochastic
     regime :math:`q_\delta(g_0)`.
     """
     _expect(submodel, "ipsi")
     density = np.asarray(incremental.values, dtype=float)
-    derivative = np.asarray(incremental.derivative, dtype=float)
-    mechanism = np.asarray(incremental.propensity, dtype=float).reshape(-1)
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
     levels = targeted.levels
@@ -2220,21 +2225,43 @@ def ipsi_means(
         )
     # (n, K) of the targeted predictions, columns in the same order the densities use.
     predictions = np.column_stack([targeted.arms[level] for level in levels])
-    # The blip is a contrast of arms, so it needs the two-arm layout the tilt declares;
-    # IPSISet.evaluate has already refused anything else.
-    blip = np.asarray(targeted.arms[1.0], dtype=float) - np.asarray(targeted.arms[0.0], dtype=float)
-    treated_residual = np.asarray(treatment, dtype=float).reshape(-1) - mechanism
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    # Two levels keep the expression the binary path has always used, so that its arrays are
+    # unchanged to the last bit.
+    term = _ipsi_term_binary if len(levels) == 2 else _ipsi_term_general
 
     out: dict[float, ArmMean] = {}
     for index in range(density.shape[2]):
         mixture = np.einsum("ij,ij->i", density[:, :, index], predictions)
         psi = float(np.average(mixture, weights=w))
         mechanism_term = (
-            0.0 if incremental.mechanism_known else derivative[:, index] * blip * treated_residual
+            0.0
+            if incremental.mechanism_known
+            else term(incremental, predictions, mixture, a, index)
         )
         curve = submodel.observed[:, index] * residual + mechanism_term + mixture - psi
         out[float(index)] = ArmMean(psi, w * curve)
     return out
+
+
+def _ipsi_term_binary(
+    incremental: Any, predictions: FloatArray, mixture: FloatArray, a: FloatArray, index: int
+) -> FloatArray:
+    r""":math:`\delta\{\bar Q^*(1,W) - \bar Q^*(0,W)\}(A - g^*)/D^2`, Kennedy's mechanism term."""
+    del mixture
+    blip = predictions[:, 1] - predictions[:, 0]
+    treated_residual = a - np.asarray(incremental.propensity, dtype=float)[:, 1]
+    return np.asarray(incremental.binary_derivative[:, index] * blip * treated_residual)
+
+
+def _ipsi_term_general(
+    incremental: Any, predictions: FloatArray, mixture: FloatArray, a: FloatArray, index: int
+) -> FloatArray:
+    r""":math:`h(A)\{\bar Q^*(A, W) - m(W)\}`: the mechanism term for any number of levels."""
+    at_observed = predictions[np.arange(a.size), np.rint(a).astype(int)]
+    # The tilt factor at the received level.  Not `submodel.observed`, which carries the
+    # missingness weight of the outcome half and has no place in this term.
+    return np.asarray(incremental.observed(a)[:, index] * (at_observed - mixture))
 
 
 def _raw_predictions(

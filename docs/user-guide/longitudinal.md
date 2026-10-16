@@ -938,7 +938,10 @@ estimator, the argument, the settings, the refusals and the validation.
 
 Pass `IncrementalEffect` to `identify()` and `method="ipsi"` to `estimate()`. Each
 `Incremental(delta)` multiplies every unit's odds of treatment by `delta` at every node.
-`Incremental(1.0)` is the natural course, and the example uses it as the reference.
+`Incremental(1.0)` is the natural course, and the example uses it as the reference. A node with
+three or more levels takes one factor for each level, such as
+`Incremental({"high": 2.0, "low": 0.5})`. A level that the mapping does not name keeps the
+factor 1.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -984,13 +987,17 @@ reason.
 | fit the engine directly | `IPSI([Incremental(1.0), Incremental(2.0)], ...)` from `cleverly.longitudinal` |
 | use one tilt per node | `DynamicRegimen("ramp", (Incremental(1.5), Incremental(2.0)))` |
 | tilt one node and fix another | `DynamicRegimen("tilt then stop", (Incremental(2.0), 0))` |
+| tilt a node with three levels | `Incremental({"high": 2.0, "low": 0.5})`. A scalar there is refused before any learner, and so is a key that is not a level of the node |
 | declare a known treatment mechanism | pass `treatment_probabilities=` to the design. The tilt is then a known policy |
 
 A level can leave the outcome range, because the estimate is an average of influence-function
 values. The fit then warns with `ParameterSpaceWarning`. A risk curve can also be non-monotone
 across horizons. A mean of a non-absorbing outcome $Y_t$ is the end-of-study estimand on the panel
 truncated after node $t$. Earlier $Y_s$ are covariates there (Kim et al. 2021, Theorem 3.1).
-`IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
+
+A fit with a node of three or more levels carries the label of the registered study
+[categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md)
+when it matches that study's rows. Any other such fit is labelled `experimental`. `IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
 [Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
 the contract.
 

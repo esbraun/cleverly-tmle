@@ -170,18 +170,23 @@ class IPSINodeRow:
     Parameters
     ----------
     tilt_factor_min : float
-        The smallest node factor :math:`(\\delta A + 1 - A)/(\\delta\\pi + 1 - \\pi)` on the
-        rows at risk, ``nan`` off a tilt node.  It lies in
-        :math:`[\\min(\\delta, 1/\\delta), \\max(\\delta, 1/\\delta)]` by construction.
+        The smallest node factor :math:`\\delta_{t,A_t}/D_t` on the rows at risk, ``nan`` off a
+        tilt node, with :math:`D_t = \\sum_b \\delta_{t,b}\\pi_t(b \\mid H_t)`.  It lies in
+        :math:`[\\min_a \\delta_{t,a}/\\max_a \\delta_{t,a},
+        \\max_a \\delta_{t,a}/\\min_a \\delta_{t,a}]` by construction.  With two levels it is
+        :math:`(\\delta A + 1 - A)/(\\delta\\pi + 1 - \\pi)` with
+        :math:`\\delta = \\delta_{t,1}/\\delta_{t,0}`.
     tilt_factor_max : float
         The largest node factor on the rows at risk, ``nan`` off a tilt node.
     mechanism_share : float
         The variance of the node's mechanism term over the variance of the influence
         curve.  It is 0 off a tilt node and at a declared treatment mechanism.
     propensity_degenerate : float
-        The share of the rows at risk whose mechanism :math:`\\hat\\pi_t` is exactly 0 or 1,
-        ``nan`` off a tilt node.  A tilt needs no positivity, so this is reported and not
-        warned.
+        The share of the rows at risk where some level has mechanism
+        :math:`\\hat\\pi_t(a \\mid H_t)` exactly 0 (equivalently some tilted probability
+        :math:`q_t(a)` is 0 or 1), ``nan`` off a tilt node.  With two levels it is the share
+        whose :math:`\\hat\\pi_t` is exactly 0 or 1.  A tilt needs no positivity, so this is
+        reported and not warned.
     """
 
     tilt_factor_min: float
@@ -712,19 +717,29 @@ def _ipsi_node_row(result: Any, fit: Any, step: Any) -> IPSINodeRow | None:
     regimen = fit.regimen
     if not (hasattr(regimen, "is_tilt") and regimen.is_tilt(step.time)):
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
-    delta = float(regimen.plan[step.time - 1].delta)
-    q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk, 1]
-    # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
-    pi = q / (delta * (1.0 - q) + q)
+    odds = regimen.plan[step.time - 1].factors(result.data.treatment_levels[step.time - 1])
+    q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk]
     arm = np.nan_to_num(result.data.node_codes(step.time)[step.at_risk], nan=0.0)
-    factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+    if q.shape[1] == 2:
+        delta = float(odds[1] / odds[0])
+        # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
+        q1 = q[:, 1]
+        pi = q1 / (delta * (1.0 - q1) + q1)
+        factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+        degenerate = (q1 == 0.0) | (q1 == 1.0)
+    else:
+        # The density inverts to the mechanism by pi_a proportional to q_a / delta_a, and
+        # sum_b q_b / delta_b = 1 / D, so the node factor delta_A / D is
+        # delta_A sum_b q_b / delta_b.
+        factor = odds[arm.astype(np.int64)] * (q / odds[None, :]).sum(axis=1)
+        degenerate = np.any((q == 0.0) | (q == 1.0), axis=1)
     if not factor.size:
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
     return IPSINodeRow(
         tilt_factor_min=float(np.min(factor)),
         tilt_factor_max=float(np.max(factor)),
         mechanism_share=share,
-        propensity_degenerate=float(np.mean((q == 0.0) | (q == 1.0))),
+        propensity_degenerate=float(np.mean(degenerate)),
     )
 
 

@@ -193,9 +193,10 @@ _IPSI_ID = Identification(
         "consistency: Y = Y^a when A = a",
         *_NO_INTERFERENCE,
         "no unmeasured confounding: Y^a is independent of A given W",
-        "*no positivity assumption*: the clever covariate is delta/D at A=1 and 1/D at "
-        "A=0 with D = delta*g + 1 - g, so it lies between min(delta, 1/delta) and "
-        "max(delta, 1/delta) however small g is. This is the estimand's reason for "
+        "*no positivity assumption*: the clever covariate is delta_a/D at level a with "
+        "D = sum_b delta_b*g_b (delta_a = delta and D = delta*g + 1 - g for A=1 and 1/D "
+        "for A=0 on two levels), so it lies between min(delta)/max(delta) and "
+        "max(delta)/min(delta) however small g is. This is the estimand's reason for "
         "existing, not an oversight in the list",
         "the intervention is a functional of the observed-data law: q_delta is built "
         "out of g, so the influence function carries a term for the pathwise derivative "
@@ -208,6 +209,8 @@ _IPSI_ID = Identification(
         "(ghat - g0) as a factor. The remainder vanishes identically when the mechanism "
         "is consistent whatever Qbar does, and no accuracy in Qbar rescues an "
         "inconsistent mechanism -- there the remainder is "
+        "E[(mhat - m0)(Dhat - D0)/Dhat] with m the tilted mean and D = sum_b delta_b*g_b, "
+        "which on two levels with Qbar correct is "
         "(delta - 1) delta E[(g0 - ghat)^2 (Qbar(1,W) - Qbar(0,W)) / (D0 Dhat^2)], "
         "second order but not zero. Read the interval as conditional on g being right. "
         "With delta= even that is not sufficient: the remainder gains a cross term in the "
@@ -797,11 +800,10 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         build=_ey_ipsi,
         identification=_IPSI_ID,
         parameter_axis="ipsi",
-        requires_binary_treatment=True,
         in_default_set=True,
         description=(
             "counterfactual mean under each declared tilt of the treatment mechanism, "
-            "E[Y^{q_delta}] with q_delta the odds of g multiplied by delta"
+            "E[Y^{q_delta}] with q_delta the odds of each level of g multiplied by its factor"
         ),
     ),
     Target(
@@ -811,7 +813,6 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         build=_ate_ipsi,
         identification=_IPSI_ID,
         parameter_axis="ipsi",
-        requires_binary_treatment=True,
         in_default_set=True,
         description="contrast of each tilt against the reference tilt",
     ),

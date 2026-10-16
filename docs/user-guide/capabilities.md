@@ -7,7 +7,9 @@ reader-facing inventory. In brief, the package supports point and longitudinal T
 robust longitudinal estimator, arm and regimen contrasts, modified treatment policies, incremental interventions, MSM projections, controlled
 direct effects, C-TMLE, DR-TMLE, cross-fitting, influence-curve inference, sensitivity analysis,
 and post-fit diagnostics in the combinations documented there. The longitudinal
-family also includes Kennedy's incremental estimator `IPSI`.
+family also includes Kennedy's incremental estimator `IPSI`. An incremental intervention takes
+one odds factor for each level of a treatment with three or more levels, at a point treatment and
+at a node of `IPSI`. The registered study [categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md) covers the support rows `T35` at a point treatment and `G43` over time. Any other such fit, for example with weights, clusters or a `delta=` argument, is labelled `experimental`.
 
 | longitudinal estimator | reads | interval |
 | --- | --- | --- |
