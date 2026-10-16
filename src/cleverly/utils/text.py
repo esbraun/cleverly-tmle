@@ -18,7 +18,13 @@ from collections.abc import Sequence
 
 import numpy as np
 
-__all__ = ["format_draw", "format_negligible", "format_pvalue", "format_table"]
+__all__ = [
+    "format_draw",
+    "format_negligible",
+    "format_pvalue",
+    "format_table",
+    "format_within",
+]
 
 
 def format_negligible(
@@ -41,6 +47,20 @@ def format_negligible(
     if np.isfinite(reference) and reference > 0 and abs(value) < reference * fraction:
         displayed = 0.0
     return f"{displayed:.{digits}e}"
+
+
+def format_within(value: float, bound: float, *, digits: int) -> str:
+    """Format a residual that has meaning only against its bound.
+
+    A residual at or below ``bound`` prints as ``< bound``, because its own digits are
+    floating-point residue that changes between machines.  A residual above ``bound``
+    prints in full, because it is the finding.  The raw report frames retain ``value``.
+    """
+    if not np.isfinite(value):
+        return "-"
+    if np.isfinite(bound) and bound > 0 and abs(value) <= bound:
+        return f"< {bound:.{digits}e}"
+    return f"{value:.{digits}e}"
 
 
 def format_draw(reported: int, total: int) -> str:

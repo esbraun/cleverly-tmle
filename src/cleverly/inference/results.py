@@ -15,6 +15,7 @@ from typing import Any, Literal, Protocol, TypeVar
 import numpy as np
 
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
+from .._support import Classification, combine_support, support_for
 from .._typing import FloatArray
 from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapResult
@@ -267,6 +268,7 @@ def smooth_contrast(
         covariance_rule=rule,
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
+        support=combine_support((estimates[key].support for key in chosen), kind="derived"),
     )
     return estimate if transform is None else replace(estimate, transform=transform)
 
@@ -396,6 +398,7 @@ def ratio_contrast(
         covariance_rule=rule,
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
+        support=combine_support((estimates[key].support for key in chosen), kind="derived"),
     )
 
 
@@ -415,7 +418,8 @@ def derived_bootstrap(
     full refit implies. A replicate with a missing input gives a missing value. Domain-invalid
     ratios also give missing values. The failure count includes every requested replicate
     without a finite derived value. User callable exceptions propagate. The summary is
-    licensed as inference only when every input's summary is.
+    supported only when every input's summary is and each row of the inputs lists the
+    ``derived`` kind.
 
     Parameters
     ----------
@@ -450,8 +454,13 @@ def derived_bootstrap(
         n_failed=bootstrap.n_requested - int(np.count_nonzero(np.isfinite(values))),
         resampling=bootstrap.resampling,
     ).summary("derived", alpha)
-    licensed = all(summary.inferential for summary in summaries if summary is not None)
-    return replace(derived, inferential=licensed)
+    kept = [summary for summary in summaries if summary is not None]
+    return replace(
+        derived,
+        diagnostic=any(summary.diagnostic for summary in kept),
+        below_floor=any(summary.below_floor for summary in kept),
+        support=combine_support([summary.support for summary in kept], kind="derived"),
+    )
 
 
 def with_derived_bootstrap(
@@ -599,7 +608,11 @@ _ResultT = TypeVar("_ResultT", bound=_BootstrappableResult)
 
 
 def attach_bootstrap(
-    result: _ResultT, bootstrap: BootstrapResult, *, inferential: bool = True
+    result: _ResultT,
+    bootstrap: BootstrapResult,
+    *,
+    diagnostic: bool = False,
+    classification: Classification | None = None,
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
 
@@ -612,9 +625,13 @@ def attach_bootstrap(
         The fitted result.
     bootstrap : BootstrapResult
         The replicate draws.
-    inferential : bool, default=True
-        Whether a registered study licenses the percentile interval as inference for
-        this fit. Stored on each :class:`~cleverly.inference.BootstrapSummary`.
+    diagnostic : bool, default=False
+        Whether the fit declares its percentile interval a diagnostic. Stored on each
+        :class:`~cleverly.inference.BootstrapSummary`.
+    classification : Classification or None, default=None
+        The fit's classification. Each summary takes the support that
+        :func:`~cleverly._support.support_for` gives for the ``"bootstrap"`` kind. ``None``
+        leaves it unclassified.
 
     Returns
     -------
@@ -622,10 +639,21 @@ def attach_bootstrap(
         A copy whose estimates carry their bootstrap summaries.
     """
     alpha = result.config.alpha_sig
+    below_floor = classification is not None and classification.key.dependence == "below_floor"
     estimates = {
         name: (
             estimate.with_bootstrap(
-                replace(bootstrap.summary(name, alpha), inferential=inferential)
+                replace(
+                    bootstrap.summary(name, alpha),
+                    diagnostic=diagnostic,
+                    below_floor=below_floor,
+                    support=support_for(
+                        classification,
+                        estimate.inference,
+                        estimate.reference_df,
+                        kind="bootstrap",
+                    ),
+                )
             )
             if name in bootstrap.draws
             else estimate

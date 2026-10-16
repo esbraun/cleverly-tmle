@@ -39,8 +39,7 @@ On law L, one gradient-boosting mechanism with a wrong outcome regression gave a
 
 What this is *not*: a better point estimate. The extra fluctuations update the outcome
 regression, the mechanism, or both, so `Ψ̂` differs from the ordinary TMLE in finite samples. The
-[DR-TMLE tutorial](../../examples/dr-tmle.ipynb) prints both estimates on one draw. The design does
-not aim at a smaller error for `Ψ̂`. It removes the part of the first-order remainder that is
+design does not aim at a smaller error for `Ψ̂`. It removes the part of the first-order remainder that is
 a function of the consistent nuisance. The interval is established with one wrong nuisance only
 in the cases [the theorem](theorem.md#the-conditioning-terms-are-linear-in-one-error) lists.
 
@@ -95,8 +94,10 @@ that is not, `R_{3,n}` or `R̃_{5,n}`, can stay first order.
 `DRTMLE` ships under **conditional validity**. Read
 [the release claim](#the-release-claim-in-brief) before you rely on it.
 
-A worked applied analysis is in the [DR-TMLE tutorial](../../examples/dr-tmle.ipynb). It shows why
-one fit cannot display what this variant buys.
+No tutorial covers DR-TMLE. In every case that an analyst can name before a fit, the ordinary
+TMLE interval is valid or conservative whenever the DR-TMLE interval is. Compare the
+[point-treatment contract](../point-treatment-tmle.md#known-treatment-mechanism) with
+[the case table](theorem.md#the-conditioning-terms-are-linear-in-one-error).
 
 An inconsistent nuisance model is not unmeasured confounding. This variant still requires the
 recorded history to satisfy exchangeability.

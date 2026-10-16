@@ -37,7 +37,7 @@ from sklearn.base import BaseEstimator
 from sklearn.linear_model import LogisticRegression
 
 from cleverly import variable_importance
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_instrument, make_missing_outcome
 from cleverly.estimators import CTMLE, TMLE
@@ -52,7 +52,7 @@ from cleverly.validation.score import score_check
 from tests.conftest import SELECTOR_CONFIGS, linear_ctmle, linear_in_sample
 
 #: The selector-path record, read where every raise and report reads it.
-WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
+WORKING_MECHANISM = STATUS_RECORDS["working_mechanism_plugin"]
 
 #: The status every selector path stamps, and the three spread columns an ordinary fit's
 #: tilt carries and a selector-path fit renames.  Read through ``spread_name`` rather than
@@ -150,7 +150,7 @@ class TestVariableImportanceRefusesBeforeItFits:
             self._call(linear_ctmle("oat", estimands=("ate",), oat_design="shared"))
         message = str(raised.value)
         assert message.startswith("variable_importance() is not defined here.")
-        assert NON_INFERENTIAL["generated_design_plugin"].reason in message
+        assert STATUS_RECORDS["generated_design_plugin"].reason in message
         assert WORKING_MECHANISM.reason not in message
 
     def test_an_ordinary_estimator_is_untouched(self) -> None:

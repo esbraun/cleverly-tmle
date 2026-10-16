@@ -53,7 +53,7 @@ import numpy as np
 from scipy.special import expit
 from scipy.stats import norm
 
-from .._inference_status import InferenceStatus, status_record, supplies_inference
+from .._inference_status import InferenceStatus, is_labelled, status_record, supplies_inference
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.weighting import REPORTED_DRAW
 from ..exceptions import capitalize_first
@@ -657,15 +657,17 @@ class NuisanceDiagnostics:
 
     @property
     def inference_note(self) -> str | None:
-        """The fact a report adds when the fit's estimates carry no inference.
+        """The fact a report adds when the fit's estimates carry a labelled status.
 
         The assessment note the status table records for a fit whose estimates declare
-        a diagnostic status, and ``None`` otherwise. Keyed on
+        a labelled status, shown or withheld, and ``None`` otherwise. Keyed on
         :attr:`inference` and not on :attr:`treatment_role`, which the outcome-adaptive
         path shares, and that path has a status of its own. :meth:`summary` and the
         assessment's nuisance-model row both read it here.
         """
-        return status_record(self.inference).assessment_note if self._non_inferential else None
+        return (
+            status_record(self.inference).assessment_note if is_labelled(self.inference) else None
+        )
 
     def _working_mechanism(self, model: NuisanceModelReport) -> bool:
         """Whether this report is a collaborative fit's own selected propensity.

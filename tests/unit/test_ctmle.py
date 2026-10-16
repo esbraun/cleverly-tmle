@@ -22,7 +22,7 @@ from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.datasets import (
     make_binary_outcome,
     make_cde,
@@ -48,7 +48,7 @@ from tests import discrete_law as law
 from tests.conftest import FAST_KWARGS, linear_ctmle, mean_one_weights
 
 #: The selector-path record, read where every raise and report reads it.
-WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
+WORKING_MECHANISM = STATUS_RECORDS["working_mechanism_plugin"]
 
 #: In sample: q_bounds stays None, and a cross-fitted continuous fit refuses that.
 #: Selector-based collaborative fits draw selection and nested folds whether or not

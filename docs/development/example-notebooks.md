@@ -59,7 +59,7 @@ Each code cell is followed by a markdown cell that starts with `**What this outp
 | 9 | `failure-mode` | code | the failure mode the [examples index](../examples/index.md#the-program) names for this tutorial. Before the code, name the mechanism that causes the difference and the estimand of each method, as [comparisons](#comparisons) requires | the numbers that show the failure |
 | 10 | `assessment` | code | `result.assess()` and the retained reports the page reads | the assessment summary and each report summary |
 | 11 | `sensitivity` | code | the sensitivity analysis that is derived for the fitted estimator and runs on this fit. [The sensitivity table](#sensitivity-analysis-for-each-kind-of-fit) names one for each kind of fit | the robustness value and the bounds, the E-value, the stress surface, the tipping point, or the benchmark refits |
-| 12 | `trust` | markdown | "How far to trust this": the validation evidence, the layer table, and the registered study that covers the construction. [The trust step](#the-trust-step) lists what each cited study row names | none |
+| 12 | `method-evidence` | markdown | "Method evidence": a table that links the registered study page of each method the page fits. [The method-evidence step](#the-method-evidence-step) gives the rule | none |
 | 13 | `interpret` | markdown | the answer to the question of row 2: what the estimate means, for which population and intervention, the reported interval, the evidence behind the reading, the assumptions that stay unverified, and the conclusions the analysis does not support | none |
 | 14 | `where-next` | markdown | the next tutorial and the related reference entries | none |
 
@@ -228,26 +228,24 @@ of the technical reference describes each one and says which of them is a bound.
 | kind of fit | the sensitivity analysis to run | how to read it |
 | --- | --- | --- |
 | point-treatment TMLE or CV-TMLE, on a law whose true propensity stays away from 0 and 1 | `robustness_value()`, `benchmark()`, and `omitted_confounding()`, with the default $\nu^2$ estimator | a bound. $\nu^2$ is the second moment of the Riesz representer, and it is finite only when $1/g$ and $1/(1 - g)$ both have finite means |
-| DR-TMLE | `evalue()` | an approximate E-value. The output prints its chain: the standardized mean difference, Chinn's step to an odds ratio, and the common-outcome square root to a risk ratio. The E-value reads only the estimate and its interval, so it does not test the doubted assignment model |
 | C-TMLE | `robustness_value()` and `omitted_confounding()` on the ordinary TMLE fit of the declared adjustment set only. A collaborative fit other than `strategy="derivative"` refuses the bound. Do not run `simulated_confounding()` | a bound for the ordinary fit. It does not cover the collaborative estimate |
 | MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients | a bound on each arm contrast, not on the MSM coefficient. The `msm` axis itself is refused |
 | a fit with missing outcomes | `missingness()` and `tipping_gamma()` | the tilt of the unobserved outcomes at which the estimate reaches its null |
 | longitudinal TMLE, with or without a time-to-event outcome | refit without one recorded covariate at a time, and print each move in standard errors | a benchmark, not a bound. Each move is signed and specific to the dropped covariate |
 | a regime, shift, or incremental intervention | state that no omitted-variable bound exists for these contrasts ([X9](../roadmap.md#x9-omitted-variable-bounds-on-the-other-linear-functionals)). If the page runs `simulated_confounding()`, a fit that declares `q_bounds` admits only a treatment-only grid, such as `ConfounderStrengthGrid(treatment=(0.0, 0.1), outcome=(0.0,))`. One flip strength is enough | a treatment-only cell moves the estimate by misclassification of the treatment, not by confounding. It is not a bound. Say so in the reading, or omit the step |
 
-### The trust step
+### The method-evidence step
 
-The `trust` cell cites the registered studies that cover the construction of the page. Each cited
-study row names the five items of the next table. A review sweep is not a registered study. Cite
-it as "a review probe", with its committed script.
+The `method-evidence` cell links the evidence for each method on the page. Do not copy study
+results, cell names, or citations into the notebook. The study page holds them, and a copy goes
+stale when the study is regenerated.
 
-| item | the values to name |
+| part of the cell | what to write |
 | --- | --- |
-| the law of the study | the law of the page, or another law |
-| the nuisance construction | supplied, oracle, or fitted |
-| the outcome type | binary, continuous, or time to event |
-| the fold layer | in sample or cross-fitted |
-| the role of the cited cell | a positive cell or a control |
+| the table | one row for each fit: the step, a link to the registered study page in `docs/technical-reference/method-evidence/`, and whether the study uses the law of the page or another law |
+| the gap | one sentence for each part of the page that no registered study covers, such as a learner, a fold count, or a fitted mechanism |
+| the review probes | one sentence that a review probe is a script under `reviews/notebook-review/probes/` and is not a registered study. Quote a probe result in the step reading that uses it |
+| the technical entry | a link to the "Validation issues special to this method" section of the method's technical entry |
 
 ## Write the callback
 

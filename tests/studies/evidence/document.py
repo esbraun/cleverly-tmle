@@ -522,6 +522,23 @@ def measured(row: Any) -> str:
         )
     if family == "sdr_tmle_agreement":
         return f"mean absolute difference / SE {render(float(row.mean_abs_difference_over_se))}"
+    if family in {"single_robustness", "censoring_complete_case"}:
+        # A bias reading at a declared size: the robust cells answer to their margin, and the
+        # complete-case and constant-mechanism rows report the same endpoint with no verdict.
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"margin {render(float(row.bias_margin))}, coverage {float(row.coverage):.4f}"
+        )
+    if family == "mechanism_term_necessity":
+        # The full curve answers to the efficiency band, and the curve without the mechanism
+        # term to an SE ratio below the calibration band.
+        measured = f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        if _has_exact_efficiency(row):
+            measured += (
+                ", reported efficiency ratio "
+                f"{_interval(row.efficiency_reported_ci_lower, row.efficiency_reported_ci_upper)}"
+            )
+        return measured
     if family in {"clustered_calibration", "weighted_calibration"}:
         return (
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}, "

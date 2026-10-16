@@ -1,12 +1,15 @@
-"""The inference statuses, and the one table of what each non-inferential status says.
+"""The inference statuses, and the one table of what each labelled status says.
 
 An estimate declares one :data:`InferenceStatus`. ``"influence_curve"`` is the ordinary
-case: the package supplies ``std_error``, ``ci`` and ``pvalue``. Every other status names a
-reason the package supplies none, and :data:`NON_INFERENTIAL` holds that reason with every
-text a report prints for it. A consumer reads the table and never branches on a status
-name, so a new status is one new entry here and one new member of the Literal. The one
-exception is the estimator that stamps a parameter status
-(:data:`PARAMETER_STATUSES`), which names it through :data:`CONSTANT_NODE_STATUS`.
+case: the package supplies ``std_error``, ``ci`` and ``pvalue``. Every other status is
+labelled, and :data:`STATUS_RECORDS` holds its reason with every text a report prints for it.
+A record has an ``interval`` of ``"shown"`` or ``"withheld"``. A shown status supplies
+``std_error``, ``ci`` and ``pvalue`` from the plug-in curve, and the estimate carries the
+experimental label with the record's ``shown_reason``. A withheld status supplies none of the
+three and names the reason. A consumer reads the table and never branches on a status name, so
+a new status is one new entry here and one new member of the Literal. The one exception is the
+estimator that stamps a parameter status (:data:`PARAMETER_STATUSES`), which names it through
+:data:`CONSTANT_NODE_STATUS`.
 
 A leaf module. It imports the standard library and the leaf :mod:`cleverly._refusal` only, so
 :mod:`cleverly.exceptions`, which the rest of the package imports, can read the table at
@@ -29,30 +32,33 @@ __all__ = [
     "HELD_OUT_SCALE",
     "MINIMUM_INTERVAL_CLUSTERS",
     "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS",
-    "NON_INFERENTIAL",
+    "MINIMUM_T_REFERENCE_CLUSTERS",
     "NO_SIMULTANEOUS_BANDS",
     "NO_T_REFERENCE_BANDS",
     "PARAMETER_STATUSES",
     "STACK_FAILURE_STATUS",
-    "T_REFERENCE_BOOTSTRAP_NOTE",
+    "STATUS_RECORDS",
     "T_REFERENCE_NOTE",
     "InferenceStatus",
+    "Interval",
     "StatusRecord",
+    "is_labelled",
     "precedent_status",
     "status_record",
     "supplies_inference",
 ]
 
-#: Whether the package supplies inference for an estimate, or only a point estimate and a
-#: named diagnostic. ``"influence_curve"`` supplies inference. Each other member is a key
-#: of :data:`NON_INFERENTIAL`, and ``tests/unit/test_inference_status_registry.py`` pins
-#: that the two lists agree.
+#: Whether the package supplies an interval for an estimate, and what label it carries.
+#: ``"influence_curve"`` is the ordinary case. Each other member is a key of
+#: :data:`STATUS_RECORDS`, and ``tests/unit/test_inference_status_registry.py`` pins that the
+#: two lists agree.
 InferenceStatus = Literal[
     "influence_curve",
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
     "adaptive_baseline_plugin",
+    "no_cluster_variance_plugin",
     "few_cluster_plugin",
     "constant_node_plugin",
     "stack_failure_plugin",
@@ -71,11 +77,17 @@ InferenceStatus = Literal[
 FEW_CLUSTER_THRESHOLD: Final[int] = 40
 
 #: The fewest clusters with positive weight mass for which a clustered fit reports an
-#: interval. It is the smallest count a registered study measures: ``clustered-few-cluster-tmle``
-#: starts at 10 clusters, because at 4 a share of draws admits no fit at all. Below it the fit
-#: takes ``"few_cluster_plugin"``, and X54 in ``docs/roadmap.md`` holds the evidence for 4 to 9
-#: clusters.
+#: interval without the few-cluster label. It is the smallest count a registered study measures:
+#: ``clustered-few-cluster-tmle`` starts at 10 clusters, because at 4 a share of draws admits no
+#: fit at all. From :data:`MINIMUM_T_REFERENCE_CLUSTERS` to one below it the fit takes
+#: ``"few_cluster_plugin"``, which shows a labelled interval on ``t(J - 2)``. X54 in
+#: ``docs/roadmap.md`` holds the evidence for 4 to 9 clusters.
 MINIMUM_INTERVAL_CLUSTERS: Final[int] = 10
+
+#: The fewest clusters with positive weight mass for which a Student t reference has a positive
+#: degree of freedom, ``J - 2 >= 1``. A fit that reads fewer takes ``"no_cluster_variance_plugin"``
+#: and reports its point estimate only.
+MINIMUM_T_REFERENCE_CLUSTERS: Final[int] = 3
 
 #: The same floor for a longitudinal fit. The registered few-cluster study measures in-sample
 #: ``LTMLE`` from 20 clusters: at 10, about 1 draw in 4,000 admits no LTMLE fit, so those cells
@@ -94,13 +106,6 @@ T_REFERENCE_NOTE: Final[str] = (
     "and 'normal' marks the normal reference. The registered few-cluster evidence uses "
     "parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex "
     "learners at about 20 clusters."
-)
-
-#: The parenthesis a summary prints beside the bootstrap percentile range of an estimate
-#: with a t reference.
-T_REFERENCE_BOOTSTRAP_NOTE: Final[str] = (
-    f"a diagnostic; no result validates the cluster bootstrap below {FEW_CLUSTER_THRESHOLD} "
-    "clusters"
 )
 
 #: Where ``q_bounds=None`` takes the scale of a continuous outcome from. Both outcome-scale
@@ -123,23 +128,30 @@ NO_T_REFERENCE_BANDS: Final[str] = (
 )
 
 
+#: Whether a labelled status shows an interval (``"shown"``) or withholds it (``"withheld"``).
+Interval = Literal["shown", "withheld"]
+
+
 @dataclass(frozen=True)
 class StatusRecord:
-    """Every text the package prints for one non-inferential status.
+    """Every text the package prints for one labelled status.
 
     Parameters
     ----------
     reason : str
         The sentences that say what the fit reports, what result is missing, and which
-        roadmap item reopens it. They open with a capital letter. Every refusal ends with
-        them, and ``summary()`` prints them under the table.
+        roadmap item reopens it. They open with a capital letter. Every refusal of a withheld
+        status ends with them, and ``summary()`` prints them under the table.
     assessment_note : str
         The clause the nuisance report and the assessment's nuisance-model item add.
     summary_label : str
         The header of the spread column in ``TMLEResult.summary()`` and
-        ``LongitudinalResult.summary()``, and the label in ``ParameterEstimate.__repr__``.
+        ``LongitudinalResult.summary()``, and the label in ``ParameterEstimate.__repr__``,
+        for a withheld status.
     bootstrap_note : str
-        The parenthesis ``summary()`` prints beside a bootstrap percentile range.
+        The parenthesis ``summary()`` prints beside a bootstrap percentile range under a
+        withheld status. A shown status prints the note of ``"few_cluster_plugin"`` when the fit
+        reads fewer clusters than the floor, and none otherwise.
     diagnostic_noun : str
         The noun a coverage-study report uses for the spread it measured.
     reopened_by : str
@@ -153,6 +165,17 @@ class StatusRecord:
         :attr:`~cleverly._refusal.RefusalReason.INFERENCE_GAP`. A status that one sample's
         numerical failure sets takes
         :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION`.
+    interval : {"shown", "withheld"}, default "withheld"
+        ``"shown"`` supplies ``std_error``, ``ci`` and ``pvalue`` from the plug-in curve under
+        the experimental label. ``"withheld"`` refuses all three.
+    shown_reason : str or None, default None
+        For a shown status, the sentences the experimental label adds to say what the interval
+        does not cover. Required when ``interval`` is ``"shown"``.
+
+    Raises
+    ------
+    ValueError
+        When a shown record has no ``shown_reason``, or a withheld record has one.
     """
 
     reason: str
@@ -163,6 +186,12 @@ class StatusRecord:
     reopened_by: str
     alternative: str
     code: RefusalReason = RefusalReason.INFERENCE_GAP
+    interval: Interval = "withheld"
+    shown_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.interval == "shown") != (self.shown_reason is not None):
+            raise ValueError("a shown status states a shown_reason, and a withheld one states none")
 
     def summary_note(self) -> str:
         """The paragraph a result summary prints under its table of diagnostics.
@@ -170,7 +199,8 @@ class StatusRecord:
         The refusal's own reason rather than a paraphrase of it, so the summary and every
         raise say one thing. Only the pointer to the table's spread column is the
         summary's own. ``TMLEResult.summary`` and ``LongitudinalResult.summary`` both
-        print it.
+        print it for a withheld status. A shown status prints :attr:`shown_reason` as its
+        label note instead.
 
         Returns
         -------
@@ -187,12 +217,11 @@ class StatusRecord:
         )
 
 
-#: One record per non-inferential status. The insertion order is the precedence: when a
-#: fit meets more than one status, it takes the first one here, as the ordered refusals
-#: in ``TMLE._resolve_estimands_for_data`` give "a fit that breaks several rules" the
-#: first. :func:`precedent_status` applies that order. The text of each record is
-#: asserted by importing it, so a report and a raise cannot drift apart.
-NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
+#: One record per labelled status. The insertion order is the precedence inside a tier: when a
+#: fit meets more than one withheld status, it takes the first one here. When it meets none,
+#: it takes the first shown one. :func:`precedent_status` applies that rule. The text of each
+#: record is asserted by importing it, so a report and a raise cannot drift apart.
+STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
     {
         "working_mechanism_plugin": StatusRecord(
             reason=(
@@ -263,37 +292,39 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
         "estimated_weight_plugin": StatusRecord(
             reason=(
                 "A DR-TMLE fit with a guard and weights declared estimated "
-                "(weights_estimated=True) reports no confidence interval, no p-value and no "
-                "standard error. The DR-TMLE fit adds reduced-dimension regressions of the "
-                "weighted law, and no result read here gives the contribution of the weight "
-                "estimate to its curve. The point estimate stands. The plug-in standard error "
-                "of that curve remains as a diagnostic under plugin_std_error and "
-                "plugin_interval. X50 in docs/roadmap.md reopens this for DRTMLE: the "
-                "conditional reading of the weights does not use efficiency, so it covers the "
-                "fixed-weight DR-TMLE curve. A per-arm outcome-adaptive C-TMLE fit "
-                "(strategy='oat', oat_design='per_arm') with estimated weights takes the "
-                "generated_design_plugin status, because per_arm_parametric_support refuses "
-                "observation weights, and F19 in docs/roadmap.md holds its interval. A sequential "
-                "g-computation or IPW fit with estimated weights takes this status too, because "
-                "its stacked estimating-equation curve conditions on the weights. A "
+                "(weights_estimated=True) reports its interval, p-value and standard error "
+                "from the plug-in curve with the weights held fixed, under the experimental "
+                "label. The DR-TMLE fit adds reduced-dimension regressions of the weighted law, "
+                "and no result read here gives the contribution of the weight estimate to its "
+                "curve. X50 in docs/roadmap.md reopens this for DRTMLE: the conditional reading "
+                "of the weights does not use efficiency, so it covers the fixed-weight DR-TMLE "
+                "curve. A per-arm outcome-adaptive C-TMLE fit (strategy='oat', "
+                "oat_design='per_arm') with estimated weights takes the generated_design_plugin "
+                "status, because per_arm_parametric_support refuses observation weights, and "
+                "F19 in docs/roadmap.md holds its interval. A sequential g-computation or IPW "
+                "fit with estimated weights takes this status too, because its stacked "
+                "estimating-equation curve conditions on the weights. A "
                 "StructuralNestedMean fit with estimated weights takes it for the same reason: its "
                 "curve treats the weights as known."
             ),
             assessment_note=(
-                "the reported curve is a fixed-weight diagnostic: no confidence interval or "
-                "p-value is available for this fit, and X50 in the roadmap is the condition "
-                "that reopens it for DRTMLE"
+                "the reported interval conditions on the weights and is experimental: no "
+                "result gives the weight-estimation term, and X50 in the roadmap is the "
+                "condition that reopens it for DRTMLE"
             ),
             summary_label="fixed-weight se",
-            bootstrap_note=(
-                "a diagnostic; the bootstrap resamples rows and does not estimate the weights "
-                "again, and no result validates its coverage for this fit"
-            ),
-            diagnostic_noun="fixed-weight plug-in diagnostic",
+            bootstrap_note=("the bootstrap resamples rows and does not estimate the weights again"),
+            diagnostic_noun="fixed-weight plug-in interval",
             reopened_by="X50",
             alternative=(
                 "The ordinary TMLE (DRTMLE with guard=(), or TMLE) keeps an interval that "
                 "conditions on the weights."
+            ),
+            interval="shown",
+            shown_reason=(
+                "The interval conditions on the weights, and no result gives the contribution "
+                "of the weight estimate to the curve. X50 in docs/roadmap.md holds the result "
+                "that reopens it."
             ),
         ),
         "adaptive_baseline_plugin": StatusRecord(
@@ -329,38 +360,69 @@ NON_INFERENTIAL: Mapping[str, StatusRecord] = MappingProxyType(
             reopened_by="F35",
             alternative="For an interval, pass GLM models, or fit LTMLE or SDR.",
         ),
-        "few_cluster_plugin": StatusRecord(
+        "no_cluster_variance_plugin": StatusRecord(
             reason=(
                 "A clustered fit reports no confidence interval, no p-value and no standard "
-                f"error when it reads fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters with "
-                "positive weight mass, in the fit or in one reported baseline stratum, or "
-                f"fewer than {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} on a longitudinal fit. "
-                f"From that floor to {FEW_CLUSTER_THRESHOLD - 1} such clusters the package uses "
-                "a Student t reference with J - 2 degrees of freedom, as Nugent et al. (2024), "
+                f"error when it reads fewer than {MINIMUM_T_REFERENCE_CLUSTERS} clusters with "
+                "positive weight mass, in the fit or in one reported baseline stratum. A Student "
+                "t reference with J - 2 degrees of freedom needs at least one degree of "
+                "freedom, and at 1 or 2 clusters no independent-cluster argument applies. The "
+                "point estimate stands. The plug-in standard error of the reported curve "
+                "remains as a diagnostic under plugin_std_error and plugin_interval. F28 in "
+                "docs/roadmap.md holds fits below 3 clusters."
+            ),
+            assessment_note=(
+                "the reported curve is a no-cluster-variance diagnostic: no confidence "
+                "interval or p-value is available for a fit with fewer than "
+                f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters, and F28 in the roadmap is the "
+                "condition that reopens it"
+            ),
+            summary_label="no-df se",
+            bootstrap_note=(
+                "a diagnostic; no result validates the bootstrap of a clustered fit with fewer "
+                f"than {MINIMUM_T_REFERENCE_CLUSTERS} clusters"
+            ),
+            diagnostic_noun="no-cluster-variance plug-in diagnostic",
+            reopened_by="F28",
+            alternative=NO_ALTERNATIVE,
+        ),
+        "few_cluster_plugin": StatusRecord(
+            reason=(
+                "A clustered fit that reads from "
+                f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters with positive weight mass up to one "
+                f"below {MINIMUM_INTERVAL_CLUSTERS} (one below "
+                f"{MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} on a longitudinal fit), in the fit "
+                "or in one reported baseline stratum, reports its interval and p-value on a "
+                "Student t reference with J - 2 degrees of freedom, as Nugent et al. (2024), "
                 "Section 2.2, last paragraph, recommend. The registered few-cluster study "
                 f"measures point-treatment fits from {MINIMUM_INTERVAL_CLUSTERS} clusters and "
                 f"longitudinal fits from {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS}, and no "
-                "registered study measures an interval below those counts. The point estimate "
-                "stands. The plug-in standard error of the reported curve remains as a "
-                "diagnostic under plugin_std_error and plugin_interval, which use the normal "
-                "reference. X54 in docs/roadmap.md holds the registered measurements that "
-                "reopen counts from 4 clusters up to the floor, and F28 holds fits below 4 "
-                "clusters."
+                "registered study measures an interval below those counts. The estimate "
+                "carries the experimental label. X54 in docs/roadmap.md holds the registered "
+                "measurements that reopen counts from "
+                f"{MINIMUM_T_REFERENCE_CLUSTERS} clusters up to the floor."
             ),
             assessment_note=(
-                "the reported curve is a few-cluster diagnostic: no confidence interval or "
-                f"p-value is available for a fit with fewer than {MINIMUM_INTERVAL_CLUSTERS} "
-                f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), "
-                "and X54 in the roadmap is the condition that reopens it"
+                "the reported interval is experimental: no registered study measures it for a "
+                f"fit with fewer than {MINIMUM_INTERVAL_CLUSTERS} clusters "
+                f"({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit), and X54 in "
+                "the roadmap is the condition that supports it"
             ),
             summary_label="normal-reference se",
             bootstrap_note=(
                 "a diagnostic; no result validates the bootstrap coverage of a clustered fit "
                 "with few clusters"
             ),
-            diagnostic_noun="few-cluster plug-in diagnostic",
+            diagnostic_noun="few-cluster plug-in interval",
             reopened_by="X54",
             alternative=NO_ALTERNATIVE,
+            interval="shown",
+            shown_reason=(
+                "The interval uses a Student t reference with J - 2 degrees of freedom, and no "
+                f"registered study measures a clustered interval below {MINIMUM_INTERVAL_CLUSTERS} "
+                f"clusters ({MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS} for a longitudinal fit). "
+                "X54 in docs/roadmap.md holds the measurements."
+            ),
         ),
         "constant_node_plugin": StatusRecord(
             reason=(
@@ -453,12 +515,12 @@ STACK_FAILURE_STATUS: Final = "stack_failure_plugin"
 
 
 def supplies_inference(status: str) -> bool:
-    """Whether the package supplies inference at an inference status.
+    """Whether the package supplies an interval at an inference status.
 
-    The one comparison against ``"influence_curve"``. An estimate, a fit, a frame and a
-    report each ask it of the status they hold. Any other string is non-inferential, so
-    a status with no record fails closed at :func:`status_record` rather than reporting
-    an interval.
+    The one test a consumer applies before it reads ``std_error``, ``ci`` or ``pvalue``. An
+    estimate, a fit, a frame and a report each ask it of the status they hold. It is ``True``
+    for ``"influence_curve"`` and for a labelled status whose record shows its interval. Any
+    other string fails closed at :func:`status_record` rather than reporting an interval.
 
     Parameters
     ----------
@@ -468,14 +530,37 @@ def supplies_inference(status: str) -> bool:
     Returns
     -------
     bool
-        ``True`` for ``"influence_curve"``, which is when ``std_error``, ``ci`` and
-        ``pvalue`` answer. ``False`` for every diagnostic status.
+        ``True`` when ``std_error``, ``ci`` and ``pvalue`` answer. ``False`` for every
+        status that withholds its interval.
+
+    Raises
+    ------
+    KeyError
+        When ``status`` is neither ``"influence_curve"`` nor a key of :data:`STATUS_RECORDS`.
     """
-    return status == "influence_curve"
+    if status == "influence_curve":
+        return True
+    return STATUS_RECORDS[status].interval == "shown"
+
+
+def is_labelled(status: str) -> bool:
+    """Whether a status is a labelled status, shown or withheld.
+
+    Parameters
+    ----------
+    status : str
+        A declared :data:`InferenceStatus`.
+
+    Returns
+    -------
+    bool
+        ``False`` for ``"influence_curve"`` and ``True`` for every other status.
+    """
+    return status != "influence_curve"
 
 
 def status_record(status: str) -> StatusRecord:
-    """The record of a non-inferential status.
+    """The record of a labelled status.
 
     Parameters
     ----------
@@ -492,16 +577,18 @@ def status_record(status: str) -> StatusRecord:
     KeyError
         When ``status`` has no record, which includes ``"influence_curve"``.
     """
-    return NON_INFERENTIAL[status]
+    return STATUS_RECORDS[status]
 
 
 def precedent_status(statuses: Iterable[str]) -> InferenceStatus:
     """The one status a fit takes when several apply.
 
-    The first of ``statuses`` in the order of :data:`NON_INFERENTIAL`, or
-    ``"influence_curve"`` when none of them is non-inferential. A hook that finds more
-    than one reason to withhold inference passes them all here, so the precedence lives
-    in the table and not in the order a subclass happens to call its parent.
+    Two tiers. The first applied status whose interval is withheld, in the order of
+    :data:`STATUS_RECORDS`, wins. When none is withheld, the first applied shown status wins.
+    ``"influence_curve"`` when none applies. A withheld status wins over a shown one, so a fit
+    that loses an interval for one reason does not regain it for another. A hook that finds
+    more than one reason passes them all here, so the precedence lives in the table and not in
+    the order a subclass happens to call its parent.
 
     Parameters
     ----------
@@ -516,13 +603,13 @@ def precedent_status(statuses: Iterable[str]) -> InferenceStatus:
     Raises
     ------
     KeyError
-        When an entry is neither ``"influence_curve"`` nor a key of
-        :data:`NON_INFERENTIAL`.
+        When an entry is neither ``"influence_curve"`` nor a key of :data:`STATUS_RECORDS`.
     """
-    applied = {status for status in statuses if not supplies_inference(status)}
+    applied = {status for status in statuses if is_labelled(status)}
     for status in applied:
         status_record(status)
-    for status in NON_INFERENTIAL:
-        if status in applied:
-            return cast(InferenceStatus, status)
+    for tier in ("withheld", "shown"):
+        for status, record in STATUS_RECORDS.items():
+            if status in applied and record.interval == tier:
+                return cast(InferenceStatus, status)
     return "influence_curve"

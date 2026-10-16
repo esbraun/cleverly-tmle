@@ -881,16 +881,12 @@ class TestPublishedVerdicts:
         single = published.loc[published["property"] == "single_robustness"]
         positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
-            # A study with no rows of the family may publish no ``n`` column at all (the
-            # learned-rule boundary study publishes no property rows), but the two-size rule
-            # reads ``n``, so a study that does publish the family has to carry it.
-            assert "n" in positive, f"{study.slug}: single_robustness rows carry no n column"
-            positive = positive.sort_values("n")
-            small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
-            tolerance = study.properties().ABSOLUTE_BIAS_TOLERANCE
-            expected = bool(large < tolerance and large < small)
-            assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
-                f"{study.slug}: a single_robustness row's verdict is not the two-size rule"
+            own = [bool(value) for value in positive["bias_equivalent"]]
+            assert [bool(value) for value in positive["passed"]] == own, (
+                f"{study.slug}: a single_robustness row's verdict is not its own bias rule"
+            )
+            assert set(single["property_passed"].map(bool)) == {all(own)}, (
+                f"{study.slug}: the single_robustness family verdict is not the joint rule"
             )
 
         # Unconditional over every study with calibration cells.  Guarding this block on the
@@ -1424,7 +1420,6 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "sdr_tmle_agreement",
         "variance_direction",
         "censoring_complete_case",
-        "in_sample_fit",
         "one_wrong_reported",
         # The isotonic cell's binding share: the projection moved a level or it did not.
         "isotonic_projection",
@@ -3161,11 +3156,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES = (
-    "tests.studies.longitudinal_incremental_properties",
-    "tests.studies.longitudinal_incremental_dropout_properties",
-    "tests.studies.structural_nested_mean_properties",
-)
+UNCOMMITTED_MODULES = ("tests.studies.structural_nested_mean_properties",)
 
 
 def _property_modules() -> list[Any]:
