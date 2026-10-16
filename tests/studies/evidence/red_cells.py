@@ -75,6 +75,7 @@ _OWNER_ANCHORS = {
     "F19": "f19-outcome-adaptive-c-tmle-generated-design-inference",
     # The owner of every red cell of the reporting study ``learned-rule-cvtmle-boundary``.
     "F27": "f27-learned-policy-value-outside-the-published-conditions",
+    "F37": "f37-sdr-intervals-under-heavy-cumulative-density-ratios",
 }
 
 #: The kinds of red row, in the order the ledger prints them.  An ``accounting`` row is a hook
@@ -565,6 +566,46 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "truth",
             "cleverly-ctmle-sequences/binary_lasso/ate",
         ),
+    ),
+    # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.
+    "mtp-pricing-calibration": (
+        *_keys(
+            "mtp-pricing",
+            "truth",
+            *(
+                f"cleverly-mtp-pricing/pricing_{engine}_tau5/{estimand}"
+                for engine in ("ltmle", "sdr")
+                for estimand in (
+                    "ey_regimen[price_down]",
+                    "ate_regimen[price_down vs natural_prices]",
+                )
+            ),
+        ),
+    ),
+    # The learned-density arms of the price study, declared ``reporting`` before the run.
+    "mtp-pricing-learned-density": (
+        *_keys(
+            "mtp-pricing",
+            "property",
+            *(
+                f"interval_calibration/up_learned_density_tau{tau}__correctly_specified"
+                for tau in (2, 3, 5)
+            ),
+        ),
+    ),
+    # The ``boundaries_ltmle`` p4 truth rows read the n = 2,000 run. Refresh this claim when the
+    # n = 5,000 primary of ``mtp-boundaries`` lands: drop a row that turns green.
+    "mtp-boundaries-calibration": (
+        *_keys(
+            "mtp-boundaries",
+            "truth",
+            "cleverly-mtp-boundaries/boundaries_ltmle/ey_regimen[p4]",
+            "cleverly-mtp-boundaries/boundaries_ltmle/ate_regimen[p4 vs natural]",
+        ),
+    ),
+    # The ``reporting`` SDR arm of plan p4; the roadmap item F37 owns the open question.
+    "F37": (
+        *_keys("mtp-boundaries", "property", "interval_calibration/p4_sdr__correctly_specified"),
     ),
 }
 
