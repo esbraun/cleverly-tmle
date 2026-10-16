@@ -1,0 +1,163 @@
+{
+  "schema_version": 2,
+  "study": "repeated-outcome longitudinal IPSI",
+  "slug": "longitudinal-repeated-ipsi",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.3",
+      "cleverly_commit": "f890c417eb8e2040fdecf24ba8b78cea03a24d55",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 2400,
+    "n": 8000,
+    "seed": 20263301,
+    "resampling_seed": 2026330101,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly": 0.01
+    },
+    "scenarios": {
+      "repeated_folds_5": [
+        "ey_regimen[odds x0.5 @ t=1]",
+        "ey_regimen[odds x0.5 @ t=2]",
+        "ey_regimen[odds x0.5 @ t=3]",
+        "ey_regimen[natural course @ t=1]",
+        "ey_regimen[natural course @ t=2]",
+        "ey_regimen[natural course @ t=3]",
+        "ey_regimen[odds x2 @ t=1]",
+        "ey_regimen[odds x2 @ t=2]",
+        "ey_regimen[odds x2 @ t=3]",
+        "ate_regimen[odds x0.5 vs natural course @ t=1]",
+        "ate_regimen[odds x0.5 vs natural course @ t=2]",
+        "ate_regimen[odds x0.5 vs natural course @ t=3]",
+        "ate_regimen[odds x2 vs natural course @ t=1]",
+        "ate_regimen[odds x2 vs natural course @ t=2]",
+        "ate_regimen[odds x2 vs natural course @ t=3]"
+      ],
+      "repeated_folds_1": [
+        "ey_regimen[odds x0.5 @ t=1]",
+        "ey_regimen[odds x0.5 @ t=2]",
+        "ey_regimen[odds x0.5 @ t=3]",
+        "ey_regimen[natural course @ t=1]",
+        "ey_regimen[natural course @ t=2]",
+        "ey_regimen[natural course @ t=3]",
+        "ey_regimen[odds x2 @ t=1]",
+        "ey_regimen[odds x2 @ t=2]",
+        "ey_regimen[odds x2 @ t=3]",
+        "ate_regimen[odds x0.5 vs natural course @ t=1]",
+        "ate_regimen[odds x0.5 vs natural course @ t=2]",
+        "ate_regimen[odds x0.5 vs natural course @ t=3]",
+        "ate_regimen[odds x2 vs natural course @ t=1]",
+        "ate_regimen[odds x2 vs natural course @ t=2]",
+        "ate_regimen[odds x2 vs natural course @ t=3]"
+      ]
+    },
+    "construction": "ipsi",
+    "outcome_kind": "repeated",
+    "horizon_mode": "all_prefixes",
+    "estimator": "one_step",
+    "deltas": [
+      0.5,
+      1.0,
+      2.0
+    ],
+    "reference": "natural course",
+    "scenario_folds": {
+      "repeated_folds_5": 5,
+      "repeated_folds_1": 1
+    },
+    "outcome_learner": "CellMeansBackoff",
+    "pseudo_learner": "CellMeansBackoff",
+    "mechanism_learner": "QuasiBinomialGLM",
+    "g_bounds": [
+      1e-08,
+      1.0
+    ],
+    "horizons": [
+      1,
+      2,
+      3
+    ],
+    "labels": [
+      "ipsi_0.5_t1",
+      "ipsi_0.5_t2",
+      "ipsi_0.5_t3",
+      "ipsi_1.0_t1",
+      "ipsi_1.0_t2",
+      "ipsi_1.0_t3",
+      "ipsi_2.0_t1",
+      "ipsi_2.0_t2",
+      "ipsi_2.0_t3",
+      "ipsi_0.5_vs_1.0_t1",
+      "ipsi_0.5_vs_1.0_t2",
+      "ipsi_0.5_vs_1.0_t3",
+      "ipsi_2.0_vs_1.0_t1",
+      "ipsi_2.0_vs_1.0_t2",
+      "ipsi_2.0_vs_1.0_t3"
+    ],
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ipsi_repeated.py": "6c224191d9bcab917bed38493634373760262817a6c1d6df8c1b4e8064b22ebd",
+    "tests/studies/ipsi_repeated_properties.py": "43c1177f2f402983ef02cbff5640b10a08df9bd66fe789b159fcf37481a31ca8",
+    "tests/studies/repeated_sizing.py": "22ea0fd4b646ca559ca497ccc2116e5c8c45fb1b5c89670437212736a03fdaed",
+    "tests/studies/ltmle_repeated_law.py": "46ed4fc1c278c98cc468ed3146de8ff517083dd013ae599d37f4aca05385f8ce",
+    "tests/studies/ltmle_repeated_properties.py": "a5119972c42c9a11e42124bfff0173c93a444774d39637cd1a5a4408a6cd3912",
+    "tests/studies/canonical_ltmle_repeated.py": "4c330c23ae3ca35720face08cbdd0319280086dac8c71b1c4342a5deb0db4b20",
+    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
+    "src/cleverly/datasets/longitudinal.py": "0da84c77c274c906645ee028a5d055c9eb16b18e93b63aaef5425f1e2cd7c950",
+    "tests/studies/evidence/comparison.py": "cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
+    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "3032bef0bd49757ee13a465afc046d3ac01ff676151042b367bc6b95fd3629c2",
+    "summary.csv": "7291d4cc8073c83b30a53c1bb51b1e91a80a21836c4820e2688d7de3559e3bd8",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "1a885c123747f4361cd11637ee09f2e54401b6b3ad53cc82bc6b5be6b5866ec6",
+    "property-replicates.csv.gz": "5662b6a3f47843af1d61d57a270179c787a4c5748fb0a419c88bb6964e936b03",
+    "properties.csv": "76e49d8df72f23a30ed0038e3e1105345e9a111e4446faad905f3a14fc81ed18"
+  }
+}

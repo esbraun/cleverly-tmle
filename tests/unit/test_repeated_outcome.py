@@ -1,10 +1,11 @@
 """A repeated outcome: each horizon is the end-of-study fit on the truncated panel.
 
-W1 is the reduction.  For every horizon ``h`` the repeated fit's estimate, influence
+W1 is the reduction, for ``LTMLE`` and ``IPSI``.  For every horizon ``h`` the repeated fit's estimate, influence
 curve, node regressions and cumulative mechanism equal those of the end-of-study fit on
 the panel truncated after ``h``, with ``Y_h`` as its outcome and each earlier ``Y_s`` as
 the first covariate of block ``s + 1``.  The test runs over every composition the
-repeated outcome supports.
+repeated outcome supports.  Where the end-of-study fit of a kind refuses a composition, the
+repeated fit raises the same exception.
 
 W8 checks that the last horizon is the end-of-study fit with the earlier outcomes declared
 as covariates.  W13 checks that the fit never reads the ``outcome`` field: a permuted copy
@@ -22,8 +23,9 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
-from cleverly.interventions import ModifiedPolicy, Stochastic
-from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalData, Repeated
+from cleverly.exceptions import CapabilityError
+from cleverly.interventions import Incremental, ModifiedPolicy, Stochastic
+from cleverly.longitudinal import IPSI, LTMLE, DynamicRegimen, LongitudinalData, Repeated
 
 T = 3
 N = 400
@@ -124,8 +126,16 @@ MTP: dict[str, tuple[Any, ...]] = {
 }
 
 
-def regimens(plans: dict[str, tuple[Any, ...]], horizon: int, *, held: bool) -> dict[str, Any]:
-    """The plans truncated after ``horizon`` nodes, in ``LTMLE``'s declaration."""
+def regimens(
+    plans: dict[str, tuple[Any, ...]], horizon: int, *, held: bool, tilts: tuple[float, ...] = ()
+) -> Any:
+    """The plans truncated after ``horizon`` nodes, in the declaration of ``LTMLE`` or ``IPSI``.
+
+    ``tilts`` declares odds multipliers instead: each tilts every node, so truncation leaves
+    the declaration as it is.
+    """
+    if tilts:
+        return [Incremental(delta) for delta in tilts]
     out: dict[str, Any] = {}
     for label, nodes in plans.items():
         if held:
@@ -153,6 +163,12 @@ class Composition:
     cluster: bool = False
     weights: bool = False
     known: bool = False
+    tilts: tuple[float, ...] = ()
+
+    @property
+    def labels(self) -> list[str]:
+        """The label of each declared plan."""
+        return [Incremental(delta).name for delta in self.tilts] if self.tilts else list(self.plans)
 
 
 COMPOSITIONS = (
@@ -171,12 +187,51 @@ COMPOSITIONS = (
     Composition("known_mechanisms", {**PLANS, **RULE}, known=True),
 )
 
+#: The compositions of an incremental intervention: tilts of every node, with and without
+#: cross-fitting.  The first plan is the reference.
+TILTED = (
+    Composition("incremental", {}, tilts=(0.5, 2.0, 1.0)),
+    Composition("incremental_folds", {}, tilts=(0.5, 2.0, 1.0), n_folds=5),
+    Composition("incremental_weights", {}, tilts=(0.5, 2.0, 1.0), weights=True),
+    Composition("incremental_clusters", {}, tilts=(0.5, 2.0, 1.0), cluster=True),
+    Composition("incremental_continuous", {}, tilts=(0.5, 2.0, 1.0), continuous=True),
+    Composition("incremental_known", {}, tilts=(0.5, 2.0, 1.0), known=True),
+)
 
-def estimator(composition: Composition, plans: dict[str, Any]) -> LTMLE:
+#: Each estimator kind and the compositions its end-of-study fit accepts.  ``IPSI`` fits no
+#: modified treatment policy and no held baseline decision, so its repeated fit refuses both
+#: (``test_w1_a_refused_composition_refuses_like_the_end_of_study_fit`` checks that).
+KINDS: dict[type[Any], tuple[Composition, ...]] = {
+    LTMLE: COMPOSITIONS,
+    IPSI: (*COMPOSITIONS, *TILTED),
+}
+REFUSED: dict[type[Any], frozenset[str]] = {
+    LTMLE: frozenset(),
+    IPSI: frozenset({"mtp", "held_treatment"}),
+}
+CASES = [
+    (kind, composition)
+    for kind, compositions in KINDS.items()
+    for composition in compositions
+    if composition.name not in REFUSED[kind]
+]
+REFUSED_CASES = [
+    (kind, composition)
+    for kind, compositions in KINDS.items()
+    for composition in compositions
+    if composition.name in REFUSED[kind]
+]
+
+
+def _case_id(case: tuple[type[Any], Composition]) -> str:
+    return f"{case[0].__name__}-{case[1].name}"
+
+
+def estimator(kind: type[Any], composition: Composition, plans: Any) -> Any:
     regression = LinearRegression() if composition.continuous else LogisticRegression()
-    return LTMLE(
+    return kind(
         plans,
-        reference="never",
+        reference=None if composition.tilts else "never",
         outcome_learner=regression,
         pseudo_learner=LinearRegression(),
         treatment_learner=LogisticRegression(),
@@ -212,20 +267,29 @@ def columns(composition: Composition, horizon: int, *, repeated: bool) -> dict[s
     return out
 
 
-def fit(composition: Composition, frame: pd.DataFrame, horizon: int, *, repeated: bool) -> Any:
-    plans = regimens(composition.plans, T if repeated else horizon, held=composition.held)
+def fit(
+    kind: type[Any], composition: Composition, frame: pd.DataFrame, horizon: int, *, repeated: bool
+) -> Any:
+    plans = regimens(
+        composition.plans,
+        T if repeated else horizon,
+        held=composition.held,
+        tilts=composition.tilts,
+    )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return estimator(composition, plans).fit(
+        return estimator(kind, composition, plans).fit(
             frame, **columns(composition, horizon, repeated=repeated)
         )
 
 
-@pytest.fixture(scope="module", params=COMPOSITIONS, ids=[c.name for c in COMPOSITIONS])
-def reduction(request: pytest.FixtureRequest) -> tuple[Composition, pd.DataFrame, Any]:
-    composition = request.param
+@pytest.fixture(scope="module", params=CASES, ids=[_case_id(case) for case in CASES])
+def reduction(
+    request: pytest.FixtureRequest,
+) -> tuple[type[Any], Composition, pd.DataFrame, Any]:
+    kind, composition = request.param
     frame = panel(continuous=composition.continuous, held=composition.held)
-    return composition, frame, fit(composition, frame, T, repeated=True)
+    return kind, composition, frame, fit(kind, composition, frame, T, repeated=True)
 
 
 def _close(left: Any, right: Any, what: str) -> None:
@@ -241,18 +305,21 @@ def _close(left: Any, right: Any, what: str) -> None:
     )
 
 
-@pytest.mark.parametrize("horizon", range(1, T + 1))
-def test_w1_each_horizon_is_the_truncated_end_of_study_fit(
-    reduction: tuple[Composition, pd.DataFrame, Any], horizon: int
+def check_w1(
+    kind: type[Any], composition: Composition, frame: pd.DataFrame, repeated: Any, horizon: int
 ) -> None:
-    composition, frame, repeated = reduction
-    truncated = fit(composition, frame, horizon, repeated=False)
+    """W1: the repeated fit at ``horizon`` equals the end-of-study fit of the truncated panel.
+
+    The mutation controls of ``test_repeated_outcome_ipsi_mutations.py`` call this function
+    with a mutated ``repeated`` fit.
+    """
+    truncated = fit(kind, composition, frame, horizon, repeated=False)
     assert repeated.data.is_repeated and not truncated.data.is_repeated
-    for label in composition.plans:
+    for label in composition.labels:
         name = f"ey_regimen[{label} @ t={horizon}]"
         assert repeated.psi(name) == pytest.approx(
             truncated.psi(f"ey_regimen[{label}]"), rel=RTOL, abs=ATOL
-        )
+        ), f"estimate: {name}"
         _close(
             repeated.influence_curves[name],
             truncated.influence_curves[f"ey_regimen[{label}]"],
@@ -281,14 +348,49 @@ def test_w1_each_horizon_is_the_truncated_end_of_study_fit(
                 _close(a[mine.trained_on], b[theirs.trained_on], f"{name} t={mine.time} {field}")
 
 
-def test_w8_the_last_horizon_is_the_end_of_study_fit() -> None:
+@pytest.mark.parametrize("horizon", range(1, T + 1))
+def test_w1_each_horizon_is_the_truncated_end_of_study_fit(
+    reduction: tuple[type[Any], Composition, pd.DataFrame, Any], horizon: int
+) -> None:
+    kind, composition, frame, repeated = reduction
+    check_w1(kind, composition, frame, repeated, horizon)
+
+
+@pytest.mark.parametrize("kind", [LTMLE, IPSI], ids=lambda kind: kind.__name__)
+def test_w1_a_refused_composition_refuses_like_the_end_of_study_fit(
+    kind: type[Any],
+) -> None:
+    """Where the end-of-study fit refuses a plan, the repeated fit raises the same error.
+
+    The set ``REFUSED`` is declared above, and this test recomputes it: a composition that
+    stops refusing, or a new refusal, fails here rather than leaving the reduction untested.
+    """
+    refused = set()
+    for composition in KINDS[kind]:
+        frame = panel(continuous=composition.continuous, held=composition.held)
+        errors = []
+        for repeated in (True, False):
+            try:
+                fit(kind, composition, frame, T, repeated=repeated)
+            except CapabilityError as error:
+                errors.append(str(error))
+        if errors:
+            refused.add(composition.name)
+            assert len(errors) == 2, composition.name
+            assert errors[0] == errors[1], composition.name
+    assert refused == REFUSED[kind]
+
+
+@pytest.mark.parametrize("kind", [LTMLE, IPSI], ids=lambda kind: kind.__name__)
+def test_w8_the_last_horizon_is_the_end_of_study_fit(kind: type[Any]) -> None:
     """At ``horizons=[T]`` the repeated fit is the end-of-study fit, number for number."""
     composition = COMPOSITIONS[0]
     frame = panel()
+    plans = regimens(PLANS, T, held=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        repeated = LTMLE(
-            regimens(PLANS, T, held=False),
+        repeated = kind(
+            plans,
             reference="never",
             horizons=[T],
             outcome_learner=LogisticRegression(),
@@ -299,7 +401,7 @@ def test_w8_the_last_horizon_is_the_end_of_study_fit() -> None:
             simultaneous=False,
             random_state=3,
         ).fit(frame, **columns(composition, T, repeated=True))
-    end = fit(composition, frame, T, repeated=False)
+    end = fit(kind, composition, frame, T, repeated=False)
     assert set(repeated) == {f"ey_regimen[{label} @ t={T}]" for label in PLANS} | {
         f"ate_regimen[always vs never @ t={T}]"
     }
@@ -307,9 +409,16 @@ def test_w8_the_last_horizon_is_the_end_of_study_fit() -> None:
         assert repeated.psi(f"ey_regimen[{label} @ t={T}]") == pytest.approx(
             end.psi(f"ey_regimen[{label}]"), rel=RTOL, abs=ATOL
         )
+        np.testing.assert_allclose(
+            repeated.influence_curves[f"ey_regimen[{label} @ t={T}]"],
+            end.influence_curves[f"ey_regimen[{label}]"],
+            rtol=RTOL,
+            atol=ATOL,
+        )
 
 
-def test_w13_the_fit_never_reads_the_outcome_field() -> None:
+@pytest.mark.parametrize("kind", [LTMLE, IPSI], ids=lambda kind: kind.__name__)
+def test_w13_the_fit_never_reads_the_outcome_field(kind: type[Any]) -> None:
     """A permuted ``outcome`` field moves no estimate: every horizon reads ``repeated``.
 
     ``outcome`` holds ``Y_T`` for code that reads an end-of-study outcome.  A reader that
@@ -323,8 +432,8 @@ def test_w13_the_fit_never_reads_the_outcome_field() -> None:
     plans = regimens(composition.plans, T, held=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        first = estimator(composition, plans).fit(data)
-        second = estimator(composition, plans).fit(stale)
+        first = estimator(kind, composition, plans).fit(data)
+        second = estimator(kind, composition, plans).fit(stale)
     for name in first:
         assert first.psi(name) == second.psi(name), name
         np.testing.assert_array_equal(first.influence_curves[name], second.influence_curves[name])
