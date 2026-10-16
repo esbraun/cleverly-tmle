@@ -38,16 +38,18 @@ from cleverly._inference_status import (
     MINIMUM_INTERVAL_CLUSTERS,
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     NO_T_REFERENCE_BANDS,
-    NON_INFERENTIAL,
+    STATUS_RECORDS,
 )
+from cleverly._support import Support
 from cleverly.datasets import make_longitudinal_competing
-from cleverly.exceptions import CapabilityError, DataError
+from cleverly.exceptions import DataError
 from cleverly.inference import cluster as cluster_module
+from cleverly.inference import results as results_module
 from cleverly.learners.crossfit import Folds, random_partition
 from cleverly.longitudinal import LTMLE
 from tests.studies import canonical_ltmle_crossfit as subject_study
 from tests.studies import clustered_longitudinal_laws as law
-from tests.unit._inference_status_support import cluster_labels
+from tests.unit._inference_status_support import assert_shows_interval, cluster_labels
 from tests.unit.test_longitudinal_msm import DOSE
 from tests.unit.test_sequential_design import COLUMNS, multivalue_panel
 
@@ -594,11 +596,12 @@ class TestEveryTargetKind:
         assert {e.reference_df for e in result.estimates.values()} == {19}
 
     def test_the_cross_fitted_floor_is_the_smallest_measured_count(self) -> None:
-        """20 clusters keep t(18) and 19 withhold the interval, cross-fitted and in sample.
+        """20 clusters keep t(18) and 19 show a labelled t(17), cross-fitted and in sample.
 
         ``few-cluster-cross-fitted-ltmle`` measures 20 and 30 clusters, and
         ``clustered-few-cluster-tmle`` measures in-sample ``LTMLE`` from 20, so every ``LTMLE``
-        fit below 20 reports no interval. A point-treatment fit keeps the floor of 10.
+        fit below 20 reports its interval under the experimental label. A point-treatment fit
+        keeps the floor of 10.
         """
         assert MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS == 20
         kept = fit_law(20)
@@ -606,13 +609,10 @@ class TestEveryTargetKind:
         assert {e.reference_df for e in kept.estimates.values()} == {18}
         withheld = fit_law(19)
         assert withheld.inference_status == "few_cluster_plugin"
-        for estimate in withheld.estimates.values():
-            assert estimate.reference_df is None
-            with pytest.raises(CapabilityError):
-                _ = estimate.ci
-        reason = NON_INFERENTIAL["few_cluster_plugin"].reason
-        assert "fewer than 20 on a longitudinal fit" in reason
-        assert "X54" in reason and "F28" in reason
+        assert_shows_interval(withheld, "few_cluster_plugin", 17)
+        reason = STATUS_RECORDS["few_cluster_plugin"].reason
+        assert "one below 20 on a longitudinal fit" in reason
+        assert "X54" in reason
         assert fit_law(19, n_folds=1).inference_status == "few_cluster_plugin"
         in_sample = fit_law(20, n_folds=1)
         assert {e.reference_df for e in in_sample.estimates.values()} == {18}
@@ -727,20 +727,6 @@ class TestTheTruncationReplayKeepsTheClusters:
 
 
 class TestTheClusteredCrossFitBootstrapIsADiagnostic:
-    def test_the_kinds_are_split(self) -> None:
-        cross_fitted = fit_law(FEW_CLUSTER_THRESHOLD, regimens={"always": 1, "never": 0})
-        in_sample = fit_law(FEW_CLUSTER_THRESHOLD, regimens={"always": 1, "never": 0}, n_folds=1)
-        kind = longitudinal_estimator.bootstrap_design_kind
-        regimens = [fit.regimen for fit in cross_fitted.fits.values()]
-        assert (
-            kind(cross_fitted.data, cross_fitted.folds, regimens, None)
-            == "end_of_study/cluster_cross_fit"
-        )
-        assert kind(in_sample.data, in_sample.folds, regimens, None) == "end_of_study/cluster"
-        assert "end_of_study/cluster_cross_fit" not in (
-            longitudinal_estimator.LICENSED_BOOTSTRAP_DESIGNS
-        )
-
     @staticmethod
     def bootstrapped() -> tuple[Any, list[Any]]:
         seen: list[Any] = []
@@ -757,36 +743,27 @@ class TestTheClusteredCrossFitBootstrapIsADiagnostic:
             )
         return result, seen
 
-    def test_the_percentile_output_is_a_diagnostic(self) -> None:
+    def test_the_percentile_interval_is_experimental(self) -> None:
         result, seen = self.bootstrapped()
-        assert "percentile range" in result.summary()
-        assert "percentile CI" not in result.summary()
+        text = result.summary()
+        assert "percentile CI" in text and "[experimental]" in text
         for estimate in result.estimates.values():
-            assert {"bootstrap_range_lower", "bootstrap_range_upper"} <= set(estimate.to_dict())
+            assert estimate.bootstrap.support.label == "experimental"
+            assert {"bootstrap_ci_lower", "bootstrap_ci_upper"} <= set(estimate.to_dict())
         # The fit's own draw, then one per replicate: each replicate gives every drawn
         # occurrence of a cluster its own code, so two copies can land in different folds.
         assert len(seen) == 1 + 4
         for codes in seen[1:]:
             assert np.unique(codes).size == FEW_CLUSTER_THRESHOLD
 
-    def test_one_shared_kind_would_license_the_cross_fitted_fit(
+    def test_a_bootstrap_support_that_is_always_supported_fails(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Mutation: the in-sample clustered kind, licensed, read by the cross-fitted fit."""
-        original = longitudinal_estimator.bootstrap_design_kind
-
-        def one_kind(*args: Any, **kwargs: Any) -> Any:
-            kind = original(*args, **kwargs)
-            return None if kind is None else kind.replace("/cluster_cross_fit", "/cluster")
-
-        monkeypatch.setattr(longitudinal_estimator, "bootstrap_design_kind", one_kind)
-        monkeypatch.setattr(
-            longitudinal_estimator,
-            "LICENSED_BOOTSTRAP_DESIGNS",
-            longitudinal_estimator.LICENSED_BOOTSTRAP_DESIGNS | {"end_of_study/cluster"},
-        )
+        """Mutation: every bootstrap summary reads as supported, so the marker disappears."""
+        supported = Support(label="supported", reason="", evidence=(), row=None, limits=())
+        monkeypatch.setattr(results_module, "support_for", lambda *args, **kwargs: supported)
         with pytest.raises(AssertionError):
-            self.test_the_percentile_output_is_a_diagnostic()
+            self.test_the_percentile_interval_is_experimental()
 
 
 class TestTheStudyWorkflowCrossFits:

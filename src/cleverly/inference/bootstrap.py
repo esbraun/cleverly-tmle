@@ -47,6 +47,7 @@ from typing import Any, Literal, Protocol, TypeVar
 import numpy as np
 from scipy.stats import norm
 
+from .._support import UNCLASSIFIED, Support
 from .._typing import FloatArray, IntArray
 from ..utils.parallel import map_parallel
 from .influence import BootstrapSummary
@@ -362,16 +363,17 @@ class BootstrapBand:
         Joint significance level.
     n_replicates : int
         Replicates whose every estimate and standard error was finite and positive.
-    inferential : bool
-        Whether a registered study licenses the band as inference for the fit. ``False``
-        prints it as a diagnostic range.
+    support : Support, default=UNCLASSIFIED
+        Whether a registered row measures the band for the fit. A row that lists the
+        ``bootstrap_band`` kind, with every banded estimate supported on it, makes it
+        ``supported``. Every other band is ``experimental``.
     """
 
     critical_value: float
     bands: dict[str, tuple[float, float]]
     alpha: float
     n_replicates: int
-    inferential: bool = True
+    support: Support = UNCLASSIFIED
 
 
 def studentized_critical_value(
@@ -418,7 +420,7 @@ def bootstrap_band(
     std_errors: Mapping[str, float],
     *,
     alpha: float,
-    inferential: bool,
+    support: Support = UNCLASSIFIED,
 ) -> BootstrapBand:
     """The studentized bootstrap sup-t band over ``estimates``.
 
@@ -433,8 +435,9 @@ def bootstrap_band(
         The full-sample standard error of each alias.
     alpha : float
         Joint significance level.
-    inferential : bool
-        Whether a registered study licenses the band for the fit.
+    support : Support, default=UNCLASSIFIED
+        The band's support, from :func:`~cleverly._support.band_support` with the
+        ``bootstrap_band`` kind.
 
     Returns
     -------
@@ -458,7 +461,7 @@ def bootstrap_band(
         bands=bands,
         alpha=alpha,
         n_replicates=used,
-        inferential=inferential,
+        support=support,
     )
 
 

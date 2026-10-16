@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 
 from cleverly import CapabilityError, PositivityWarning
+from cleverly.data import CausalData
 from cleverly.estimators import CTMLE, DRTMLE
 from tests.conftest import OracleMissingness, OracleOutcome, fast_tmle
 from tests.unit._natural_course_support import (
@@ -99,6 +100,21 @@ SUBJECT = (
 )
 
 
+def _conditions(estimator: Any, frame: pd.DataFrame, **roles: Any) -> list[str]:
+    """The experimental conditions that the preflight collects, before any learner."""
+    declared = {
+        "outcome": "Y",
+        "treatment": "A",
+        "covariates": ("W",),
+        "delta": "Delta",
+        **roles,
+    }
+    data = CausalData.from_frame(frame, **declared)
+    conditions = estimator._preflight_fit_configuration(data).conditions
+    assert NeverFit.calls == 0
+    return [condition.message() for condition in conditions]
+
+
 @pytest.mark.parametrize("estimands", REQUESTS)
 @pytest.mark.parametrize(
     ("overrides", "message"),
@@ -126,13 +142,14 @@ SUBJECT = (
         ),
     ],
 )
-def test_unsupported_method_settings_refuse_before_fitting(
+def test_unsupported_method_settings_are_experimental_conditions(
     estimands: tuple[str, ...], overrides: dict[str, Any], message: str
 ) -> None:
-    with pytest.raises(CapabilityError) as caught:
+    estimator = in_sample_tmle(**never_fit_learners(), **{"estimands": estimands, **overrides})
+    assert SUBJECT + message in _conditions(estimator, _frame())
+    with pytest.raises(AssertionError, match="before any learner is fitted"):
         _fit(_frame(), **never_fit_learners(), **{"estimands": estimands, **overrides})
-    assert str(caught.value) == SUBJECT + message
-    assert NeverFit.calls == 0
+    assert NeverFit.calls > 0
 
 
 def test_cross_fitting_with_stratified_folds_refuses_before_the_natural_course_contract() -> None:
@@ -319,16 +336,18 @@ def test_the_stacked_natural_course_mean_fits_strata() -> None:
 def test_a_stacked_attributable_fit_meets_the_arm_indexed_strata_refusal(
     estimands: tuple[str, ...],
 ) -> None:
-    """PAR, PAF and a joint fit read the arm-indexed contract, which refuses strata."""
-    with pytest.raises(CapabilityError) as caught:
-        stacked_tmle(**never_fit_learners(), estimands=estimands).fit(
-            _frame(), strata=("stratum",), **STRATA_ROLES
-        )
-    assert str(caught.value).endswith(
-        "No audited result covers baseline strata. X53 in docs/roadmap.md tracks this. "
-        "Drop strata= from fit (PointTreatment(strata=()))."
+    """PAR, PAF and a joint fit read the arm-indexed contract, which labels strata."""
+    estimator = stacked_tmle(**never_fit_learners(), estimands=estimands)
+    texts = _conditions(
+        estimator, _frame(), strata=("stratum",), **{**STRATA_ROLES, "covariates": ("W", "stratum")}
     )
-    assert NeverFit.calls == 0
+    assert any(
+        text.endswith(
+            "No audited result covers baseline strata. X53 in docs/roadmap.md tracks this. "
+            "Drop strata= from fit (PointTreatment(strata=()))."
+        )
+        for text in texts
+    )
 
 
 @pytest.mark.parametrize("estimands", REQUESTS)
@@ -348,16 +367,11 @@ def test_a_stacked_attributable_fit_meets_the_arm_indexed_strata_refusal(
     ],
     ids=("weighted", "clustered"),
 )
-def test_stacked_weights_and_clusters_refuse_before_fitting(
+def test_stacked_weights_and_clusters_are_experimental_conditions(
     estimands: tuple[str, ...], fit_roles: dict[str, Any], message: str
 ) -> None:
     estimator = stacked_tmle(**never_fit_learners(), estimands=estimands)
-    with pytest.raises(CapabilityError) as caught:
-        estimator.fit(
-            _frame(), outcome="Y", treatment="A", covariates=("W",), delta="Delta", **fit_roles
-        )
-    assert str(caught.value) == SUBJECT + message
-    assert NeverFit.calls == 0
+    assert SUBJECT + message in _conditions(estimator, _frame(), **fit_roles)
 
 
 @pytest.mark.parametrize("estimands", REQUESTS)
@@ -407,20 +421,21 @@ def test_a_multi_arm_treatment_is_admitted(estimands: tuple[str, ...], cross_fit
         assert "par[0.0]" in result.estimates
 
 
-@pytest.mark.parametrize(
-    ("build", "message"),
-    [
-        pytest.param(in_sample_tmle, "analyst-declared q_bounds", id="in-sample"),
-        pytest.param(stacked_tmle, "requires a binary outcome", id="stacked"),
-    ],
-)
-def test_an_unaudited_continuous_outcome_refuses_before_fitting(build: Any, message: str) -> None:
+@pytest.mark.parametrize("build", [in_sample_tmle, stacked_tmle], ids=("in-sample", "stacked"))
+def test_a_continuous_outcome_without_q_bounds_refuses_before_fitting(build: Any) -> None:
+    """The refusal comes after the stacked condition, which does not mask it."""
     estimator = build(**never_fit_learners())
-    with pytest.raises(CapabilityError, match=message):
+    with pytest.raises(CapabilityError, match="analyst-declared q_bounds"):
         estimator.fit(
             _frame(continuous=True), outcome="Y", treatment="A", covariates=("W",), delta="Delta"
         )
     assert NeverFit.calls == 0
+
+
+def test_a_stacked_continuous_outcome_with_q_bounds_is_an_experimental_condition() -> None:
+    estimator = stacked_tmle(**never_fit_learners(), q_bounds=(-1.0, 1.0))
+    texts = _conditions(estimator, _frame(continuous=True))
+    assert any("requires a binary outcome" in text for text in texts)
 
 
 def test_bounded_continuous_outcome_is_supported() -> None:

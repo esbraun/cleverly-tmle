@@ -152,11 +152,11 @@ holds `constant_node_plugin` only. `_estimates` stamps it through `_parameter_st
 and in `_refit_bound` alike. `_parameter_status` reads one fitted quantity, `constant_nodes(fit)`:
 the nodes whose regression read a constant 0 or 1 over the whole sample. A level takes the status
 when its own fit has such a node, and a contrast when its fit or its reference fit has one. A fit
-status that withholds inference comes first in `NON_INFERENTIAL`, so it stays.
+status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
 
 | path | status it sets |
 | --- | --- |
-| `smooth_contrast` | the status of its inputs, through `inference_status`. A mix of two fit statuses raises `ValueError`. A mix of a fit status and a parameter status takes the earlier one in `NON_INFERENTIAL` |
+| `smooth_contrast` | the status of its inputs, through `inference_status`. A mix of two fit statuses raises `ValueError`. A mix of a fit status and a parameter status takes the earlier one in `STATUS_RECORDS` |
 | `median_estimates` | the status of its repeats. Any mix raises `ValueError`, a parameter status included, because a median would report one draw's refusal under another draw's name |
 | `variable_importance` | none. It raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
 | a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of the result, so the replay at the fitted bound equals the fit in every field that `_fitted_replay_matches` compares |
@@ -167,9 +167,10 @@ status that withholds inference comes first in `NON_INFERENTIAL`, so it stays.
 The same stamp sets the Student $t$ reference of a clustered fit. A builder records the rows an
 estimate reads, and not its degrees of freedom: `_stratum_estimates` returns the stratum code of
 each stratum estimate. `stamp_inference` turns that record into `reference_df`, and it does so
-only when the fit's status supplies inference. A fit at `"few_cluster_plugin"` therefore keeps
-`reference_df=None` on every estimate, and no stratum count below the floor reaches
-`cluster_reference_df`.
+only when the fit's status supplies inference. A fit at `"no_cluster_variance_plugin"` therefore
+keeps `reference_df=None` on every estimate, and no stratum count below 3 reaches
+`cluster_reference_df`. A fit at `"few_cluster_plugin"` shows its interval, so each estimate
+takes the degrees of freedom of its own rows.
 
 A derived estimate takes the smallest `reference_df` of its inputs at its own `make_estimate`
 call. Every interval, p-value and sensitivity limit reads the reference
@@ -180,7 +181,7 @@ stratum's row set into `_average_over_folds`, or its stratum estimates read the 
 *Reconsider when* a source gives a reference that is not a function of the cluster count.
 
 One fit has one fit status. When more than one non-inferential fit status applies, the fit takes
-the first one in `NON_INFERENTIAL` (`src/cleverly/_inference_status.py`). An override that finds
+the first one in `STATUS_RECORDS` (`src/cleverly/_inference_status.py`). An override that finds
 more than one status passes them to `precedent_status`, so the order lives in the table. A
 parameter status can sit beside it on some estimates. The result's `inference_status`, through
 `reported_status`, is the fit status: it leaves parameter statuses out unless every estimate holds
@@ -195,7 +196,7 @@ and the plug-in columns, and `to_frame()` holds the union of the columns.
 A frame or label that
 publishes a spread must take its names from `spread_columns()` or `spread_name`, which raises
 `KeyError` for an inferential name with no diagnostic entry. A text that names a status must read
-it from `NON_INFERENTIAL`. The estimator that stamps a parameter status names it through
+it from `STATUS_RECORDS`. The estimator that stamps a parameter status names it through
 `CONSTANT_NODE_STATUS`. [Inference status](technical-reference/inference.md#inference-status)
 gives the public contract. *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference)
 supplies the selector paths' influence curve, when a second parameter status is added, or when

@@ -660,6 +660,39 @@ learned-weighted-tmle,root_n_and_efficiency,se ratio sanity,se_high
 learned-weighted-tmle,root_n_rate,slope in root-n band,contract
 learned-weighted-tmle,type_i_error,coverage floor,coverage/0.5
 learned-weighted-tmle,type_i_error,rejection ceiling,rejection/0.1
+longitudinal-incremental,interval_calibration,coverage in calibration band,bias
+longitudinal-incremental,interval_calibration,efficiency above band,pair_collapse
+longitudinal-incremental,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+longitudinal-incremental,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+longitudinal-incremental,interval_calibration,se ratio below band,se_high
+longitudinal-incremental,interval_calibration,se ratio in calibration band,se/0.9
+longitudinal-incremental,mechanism_term_necessity,control below calibration band,se_high
+longitudinal-incremental,mechanism_term_necessity,full curve in efficiency band,se_low
+longitudinal-incremental,power,rejection floor,se_high
+longitudinal-incremental,root_n_and_efficiency,bias equivalent,bias
+longitudinal-incremental,root_n_and_efficiency,coverage floor,coverage/0.5
+longitudinal-incremental,root_n_and_efficiency,se ratio sanity,se_high
+longitudinal-incremental,root_n_rate,slope in root-n band,contract
+longitudinal-incremental,simultaneous_coverage,joint coverage below nominal,se_low
+longitudinal-incremental,simultaneous_coverage,joint coverage in calibration band,se_low
+longitudinal-incremental,single_robustness,bias equivalent,bias
+longitudinal-incremental,targeting_necessity,bias discriminated,bias
+longitudinal-incremental,targeting_necessity,bias equivalent,bias
+longitudinal-incremental,targeting_necessity,least displacement over labels,control_concentrated
+longitudinal-incremental,type_i_error,coverage floor,coverage/0.5
+longitudinal-incremental,type_i_error,rejection ceiling,rejection/0.1
+longitudinal-incremental-dropout,clustered_inference,control se ratio under its ceiling,se_high
+longitudinal-incremental-dropout,clustered_inference,coverage gain,coverage/0.94
+longitudinal-incremental-dropout,clustered_inference,coverage in calibration band,shift/0.7
+longitudinal-incremental-dropout,clustered_inference,se ratio in calibration band,se/0.05
+longitudinal-incremental-dropout,interval_calibration,coverage in calibration band,shift/0.7
+longitudinal-incremental-dropout,interval_calibration,efficiency above band,pair_collapse
+longitudinal-incremental-dropout,interval_calibration,efficiency empirical in efficiency band,mixed/6
+longitudinal-incremental-dropout,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+longitudinal-incremental-dropout,interval_calibration,se ratio below band,se_high
+longitudinal-incremental-dropout,interval_calibration,se ratio in calibration band,none
+longitudinal-incremental-dropout,simultaneous_coverage,joint coverage below nominal,se_low
+longitudinal-incremental-dropout,simultaneous_coverage,joint coverage in calibration band,se_low
 longitudinal-msm,double_robustness,bias discriminated,bias
 longitudinal-msm,double_robustness,bias equivalent,bias
 longitudinal-msm,double_robustness,se ratio in union band,se/0.05
@@ -1207,41 +1240,6 @@ tests.studies.long_horizon_sdr_properties,root_n_and_efficiency,se ratio sanity,
 tests.studies.long_horizon_sdr_properties,root_n_rate,slope in root-n band,contract
 tests.studies.long_horizon_sdr_properties,sequential_double_robustness,bias discriminated,pair_collapse
 tests.studies.long_horizon_sdr_properties,sequential_double_robustness,bias equivalent,bias
-tests.studies.longitudinal_incremental_dropout_properties,clustered_inference,control se ratio under its ceiling,none
-tests.studies.longitudinal_incremental_dropout_properties,clustered_inference,coverage gain,se_role/control/0.5+coverage/0.96
-tests.studies.longitudinal_incremental_dropout_properties,clustered_inference,coverage in calibration band,bias
-tests.studies.longitudinal_incremental_dropout_properties,clustered_inference,se ratio in calibration band,se/0.05
-tests.studies.longitudinal_incremental_dropout_properties,interval_calibration,coverage in calibration band,bias
-tests.studies.longitudinal_incremental_dropout_properties,interval_calibration,efficiency above band,pair_collapse
-tests.studies.longitudinal_incremental_dropout_properties,interval_calibration,efficiency empirical in efficiency band,two_point/1.06/1
-tests.studies.longitudinal_incremental_dropout_properties,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
-tests.studies.longitudinal_incremental_dropout_properties,interval_calibration,se ratio below band,se_high
-tests.studies.longitudinal_incremental_dropout_properties,interval_calibration,se ratio in calibration band,none
-tests.studies.longitudinal_incremental_dropout_properties,simultaneous_coverage,joint coverage below nominal,pair_collapse
-tests.studies.longitudinal_incremental_dropout_properties,simultaneous_coverage,joint coverage in calibration band,se_low
-tests.studies.longitudinal_incremental_properties,interval_calibration,coverage in calibration band,shift/0.7
-tests.studies.longitudinal_incremental_properties,interval_calibration,efficiency above band,none
-tests.studies.longitudinal_incremental_properties,interval_calibration,efficiency empirical in efficiency band,none
-tests.studies.longitudinal_incremental_properties,interval_calibration,efficiency reported in efficiency band,two_point/1.03/1
-tests.studies.longitudinal_incremental_properties,interval_calibration,se ratio below band,se_high
-tests.studies.longitudinal_incremental_properties,interval_calibration,se ratio in calibration band,se/0.9
-tests.studies.longitudinal_incremental_properties,mechanism_term_necessity,control below calibration band,none
-tests.studies.longitudinal_incremental_properties,mechanism_term_necessity,full curve in efficiency band,se_low
-tests.studies.longitudinal_incremental_properties,power,rejection floor,none
-tests.studies.longitudinal_incremental_properties,root_n_and_efficiency,bias equivalent,bias
-tests.studies.longitudinal_incremental_properties,root_n_and_efficiency,coverage floor,coverage/0.5
-tests.studies.longitudinal_incremental_properties,root_n_and_efficiency,coverage resolves,coverage_role/control/0.928571428571
-tests.studies.longitudinal_incremental_properties,root_n_and_efficiency,se ratio sanity,se_high
-tests.studies.longitudinal_incremental_properties,root_n_rate,slope in root-n band,contract
-tests.studies.longitudinal_incremental_properties,simultaneous_coverage,joint coverage below nominal,pair_collapse
-tests.studies.longitudinal_incremental_properties,simultaneous_coverage,joint coverage in calibration band,se_low
-tests.studies.longitudinal_incremental_properties,single_robustness,large-size bias bound under the small,contract
-tests.studies.longitudinal_incremental_properties,single_robustness,large-size bias bound under the tolerance,shift/1.5
-tests.studies.longitudinal_incremental_properties,targeting_necessity,bias discriminated,pair_collapse
-tests.studies.longitudinal_incremental_properties,targeting_necessity,bias equivalent,bias
-tests.studies.longitudinal_incremental_properties,targeting_necessity,least displacement over labels,control_concentrated
-tests.studies.longitudinal_incremental_properties,type_i_error,coverage floor,coverage/0.5
-tests.studies.longitudinal_incremental_properties,type_i_error,rejection ceiling,rejection/0.1
 tests.studies.longitudinal_sdr_properties,clustered_calibration,coverage in calibration band,shift/0.7
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,clustered_calibration,se ratio in calibration band,se/0.05

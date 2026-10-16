@@ -1,4 +1,4 @@
-"""BCa interval, studentized sup-t band, refit contract and licensing (X39, T2 and T3).
+"""BCa interval, studentized sup-t band, refit contract and support (X39, T2 and T3).
 
 Every interval below is checked against a hand computation written here, independently of
 :mod:`cleverly.inference.bootstrap`.  Each mutation control applies one plausible slip to
@@ -16,6 +16,7 @@ import pytest
 from scipy.stats import norm
 from sklearn.linear_model import LinearRegression
 
+from cleverly import _support
 from cleverly.inference.bootstrap import (
     REFIT_CONTRACT,
     BootstrapResult,
@@ -26,16 +27,10 @@ from cleverly.inference.bootstrap import (
 )
 from cleverly.learners import GLM
 from cleverly.longitudinal import LTMLE, SDR
-from cleverly.longitudinal import estimator as longitudinal_estimator
-from cleverly.longitudinal.estimator import (
-    LICENSED_BOOTSTRAP_DESIGNS,
-    LICENSED_BOOTSTRAP_INTERVALS,
-    PENDING_BOOTSTRAP_LICENSES,
-    bootstrap_design_kind,
-    bootstrap_licensed,
-)
 from tests import discrete_law_longitudinal_horizon as law_
 from tests import longitudinal_horizon_plans as plans_
+from tests.studies import canonical_ltmle
+from tests.unit.test_ltmle_bootstrap import _end_columns
 
 ALPHA = 0.05
 
@@ -193,7 +188,7 @@ class TestRefitContract:
         assert "influence-curve standard error" in REFIT_CONTRACT
 
 
-# ------------------------------------------------------------------ S5: licensing
+# ------------------------------------------------------------------ S5: support
 
 
 K = 3
@@ -219,71 +214,75 @@ def _fit(cls: Any = LTMLE, **settings: Any) -> Any:
         )
 
 
-class TestLicensing:
-    def test_the_new_intervals_are_pending_and_named(self) -> None:
-        assert frozenset() == LICENSED_BOOTSTRAP_INTERVALS
-        assert {"end_of_study/in_sample", "survival/in_sample"} == LICENSED_BOOTSTRAP_DESIGNS
-        for kind, interval in PENDING_BOOTSTRAP_LICENSES:
-            assert interval in ("percentile", "bca", "supt")
-            assert not bootstrap_licensed(kind, interval)
-        assert not any(
-            kind.startswith("sdr/") and i == "supt" for kind, i in PENDING_BOOTSTRAP_LICENSES
-        )
-        assert bootstrap_licensed("end_of_study/in_sample", "percentile")
-        assert not bootstrap_licensed("end_of_study/in_sample", "bca")
-        assert not bootstrap_licensed(None, "percentile")
+def _canonical(**settings: Any) -> Any:
+    """The registered ``canonical-ltmle`` fit (row ``G01``) at 400 units, with a bootstrap."""
+    frame, _ = canonical_ltmle.draw_scenario(canonical_ltmle.SCENARIO, 400, 0)
+    settings.setdefault("simultaneous", False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return LTMLE(
+            canonical_ltmle.REGIMENS,
+            reference=canonical_ltmle.REFERENCE,
+            outcome_learner=canonical_ltmle.QuasiBinomialGLM(),
+            pseudo_learner=canonical_ltmle.QuasiBinomialGLM(),
+            treatment_learner=canonical_ltmle.KnownLongitudinalMechanism("treatment"),
+            censoring_learner=canonical_ltmle.KnownLongitudinalMechanism("censoring"),
+            n_folds=1,
+            g_bounds=canonical_ltmle.G_BOUNDS,
+            max_iter=100,
+            tol=1e-10,
+            random_state=0,
+            **settings,
+        ).fit(frame, **_end_columns())
 
-    def test_rule_policy_and_sdr_kinds(self) -> None:
-        ltmle = _fit(n_bootstrap=2)
-        regimens = ltmle.config.regimens
-        kind = bootstrap_design_kind(ltmle.data, ltmle.folds, regimens, None)
-        assert kind == "end_of_study/in_sample/policy"
-        rule = [regimen for regimen in regimens if regimen.label != "mix"]
-        assert bootstrap_design_kind(ltmle.data, ltmle.folds, rule, None) == (
-            "end_of_study/in_sample/rule"
-        )
-        assert bootstrap_design_kind(ltmle.data, ltmle.folds, regimens, None, estimator="sdr") == (
-            "sdr/end_of_study/in_sample/policy"
-        )
-        assert bootstrap_design_kind(ltmle.data, ltmle.folds, rule, None, finite=False) is None
-        static = [regimen for regimen in regimens if regimen.label in ("low", "high")]
-        assert bootstrap_design_kind(ltmle.data, ltmle.folds, static, None, finite=False) == (
-            "end_of_study/in_sample"
-        )
+
+def _g01_lists(monkeypatch: pytest.MonkeyPatch, kind: str) -> None:
+    """The mutation: row ``G01`` also lists ``kind``."""
+    from dataclasses import replace
+
+    rows = tuple(
+        replace(row, kinds=row.kinds | {kind}) if row.id == "G01" else row
+        for row in _support.registered_rows()
+    )
+    monkeypatch.setattr(_support, "registered_rows", lambda: rows)
+
+
+class TestSupport:
+    def test_no_row_lists_the_new_kinds(self) -> None:
+        for row in _support.registered_rows():
+            assert not {"bootstrap_bca", "bootstrap_band"} & set(row.kinds), row.id
+
+    def test_the_bca_interval_of_a_supported_fit_is_experimental(self) -> None:
+        percentile = _canonical(n_bootstrap=3)
+        bca = _canonical(n_bootstrap=3, bootstrap_interval="bca")
+        for name, estimate in bca.estimates.items():
+            # The same fit and row: only the interval's kind differs.
+            assert percentile.estimates[name].bootstrap.support.label == "supported"
+            assert estimate.bootstrap.interval == "bca"
+            assert estimate.bootstrap.support.label == "experimental"
+            assert estimate.bootstrap.support.row == "G01"
+            assert "BCa bootstrap interval" in estimate.bootstrap.support.reason
+        text = bca.summary()
+        assert "BCa CI" in text and "[experimental]" in text
+
+    def test_a_row_that_lists_bca_supports_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The mutation control: the label follows the row, not a constant."""
+        _g01_lists(monkeypatch, "bootstrap_bca")
+        result = _canonical(n_bootstrap=3, bootstrap_interval="bca")
+        assert all(e.bootstrap.support.label == "supported" for e in result.estimates.values())
 
     @pytest.mark.parametrize("cls", [LTMLE, SDR])
-    def test_a_bca_fit_prints_a_diagnostic_range(self, cls: Any) -> None:
+    def test_a_rule_and_policy_bca_fit_is_experimental(self, cls: Any) -> None:
         result = _fit(cls, n_bootstrap=4, bootstrap_interval="bca")
         for estimate in result.estimates.values():
             assert estimate.bootstrap is not None
             assert estimate.bootstrap.interval == "bca"
-            assert not estimate.bootstrap.inferential
-        assert "BCa range" in result.summary()
-        assert "BCa CI" not in result.summary()
+            assert estimate.bootstrap.support.label == "experimental"
+        assert "BCa CI" in result.summary()
 
-    def test_a_cross_fitted_bca_fit_claims_no_interval(self) -> None:
+    def test_a_cross_fitted_bca_fit_is_experimental(self) -> None:
         result = _fit(n_folds=2, n_bootstrap=3, bootstrap_interval="bca")
-        assert all(not e.bootstrap.inferential for e in result.estimates.values())
-        assert "BCa range" in result.summary()
-
-    def test_a_data_adaptive_learner_claims_no_interval(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # Mutation: licensing the policy kind.  The finite-dimensional fit then claims
-        # the interval, and the same fit with a penalized outcome learner still does not.
-        monkeypatch.setattr(
-            longitudinal_estimator,
-            "LICENSED_BOOTSTRAP_INTERVALS",
-            frozenset({("end_of_study/in_sample/policy", "bca")}),
-        )
-        finite = _fit(n_bootstrap=3, bootstrap_interval="bca")
-        assert all(e.bootstrap.inferential for e in finite.estimates.values())
-        from sklearn.linear_model import LogisticRegression
-
-        adaptive = _fit(
-            n_bootstrap=3, bootstrap_interval="bca", outcome_learner=LogisticRegression()
-        )
-        assert all(not e.bootstrap.inferential for e in adaptive.estimates.values())
+        assert all(e.bootstrap.support.label == "experimental" for e in result.estimates.values())
 
     def test_bca_needs_replicates(self) -> None:
         with pytest.raises(ValueError, match="n_bootstrap"):
@@ -296,7 +295,7 @@ class TestTheBootstrapBand:
     def test_the_band_reads_the_replicate_standard_errors(self) -> None:
         result = _fit(n_bootstrap=39, simultaneous=True)
         band = result.bootstrap_band
-        assert band is not None and not band.inferential
+        assert band is not None and band.support.label == "experimental"
         assert np.isfinite(band.critical_value)
         names = list(band.bands)
         estimates = np.array([result.estimates[name].psi for name in names])
@@ -304,7 +303,19 @@ class TestTheBootstrapBand:
         errors = np.column_stack([result.bootstrap.std_errors[name] for name in names])
         expected, _ = studentized_critical_value(estimates, draws, errors, ALPHA)
         assert band.critical_value == pytest.approx(expected, abs=1e-14)
-        assert "sup-t diagnostic ranges, not inference" in result.summary()
+        assert "replicates) [experimental]:" in result.summary()
+
+    def test_the_band_of_a_supported_fit_is_experimental(self) -> None:
+        band = _canonical(n_bootstrap=3, simultaneous=True).bootstrap_band
+        assert band is not None
+        assert band.support.label == "experimental"
+        assert "studentized bootstrap band" in band.support.reason
+
+    def test_a_row_that_lists_the_band_supports_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The mutation control: the band's label follows the ``bootstrap_band`` kind."""
+        _g01_lists(monkeypatch, "bootstrap_band")
+        band = _canonical(n_bootstrap=3, simultaneous=True).bootstrap_band
+        assert band is not None and band.support.label == "supported"
 
     def test_no_band_without_simultaneous(self) -> None:
         assert _fit(n_bootstrap=3, simultaneous=False).bootstrap_band is None

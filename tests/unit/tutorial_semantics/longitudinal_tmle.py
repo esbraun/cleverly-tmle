@@ -23,24 +23,11 @@ from tests.unit.tutorial_semantics import (
 NOTEBOOK = EXAMPLES / "longitudinal-tmle.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/longitudinal-tmle-final"
-_LTMLE = "tests/canonical/ltmle"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "0.935": f"Step 6 clustered coverage (374 of 400), seeds 1000-1399: {_PROBE}/summary.log",
-    "0.97": f"mean clustered SE over empirical SD (0.969), 400 draws: {_PROBE}/summary.log",
     "0.65": f"bound that both censoring auc values stayed below on 400 of 400 draws "
     f"(maximum 0.6193): {_PROBE}/summary.log",
-    "0.9413": f"coverage of ate_regimen[always vs never], cleverly: {_LTMLE}/summary.csv",
-    "0.9890": f"se_ratio of ate_regimen[always vs never], cleverly: {_LTMLE}/summary.csv",
-    "-0.0036": f"bias_ci_lower of double_robustness/static__mechanism_correct (-0.003633): "
-    f"{_LTMLE}/properties.csv",
-    "0.0053": f"bias_ci_upper of double_robustness/static__mechanism_correct (0.005264): "
-    f"{_LTMLE}/properties.csv",
-    "0.0149": f"bias_margin of double_robustness/static__mechanism_correct (0.014934): "
-    f"{_LTMLE}/properties.csv",
-    "1.0132": f"se_ratio of double_robustness/static__mechanism_correct (1.013217): "
-    f"{_LTMLE}/properties.csv",
 }
 
 

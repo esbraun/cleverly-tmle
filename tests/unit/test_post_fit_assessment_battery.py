@@ -26,7 +26,7 @@ from cleverly import (
     RiskRatio,
     load,
 )
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.assessment import (
     ASSESSMENT_CAPABILITIES,
     INTERPRETERS,
@@ -282,7 +282,7 @@ def test_an_outcome_adaptive_fit_refuses_every_evalue_branch_by_its_status(estim
             simultaneous=False,
         )
     )
-    reason = NON_INFERENTIAL["generated_design_plugin"].reason
+    reason = STATUS_RECORDS["generated_design_plugin"].reason
     capability = result.sensitivity.capability("evalue")
     assert capability.available is False
     assert reason in (capability.reason or "")
@@ -1017,7 +1017,7 @@ def test_an_outcome_adaptive_evalue_refusal_is_identical_live_saved_and_detached
         with pytest.raises(CapabilityError) as raised:
             result.sensitivity.evalue("ate")
         reasons.append(str(raised.value))
-    assert NON_INFERENTIAL["generated_design_plugin"].reason in reasons[0]
+    assert STATUS_RECORDS["generated_design_plugin"].reason in reasons[0]
     assert reasons == [reasons[0]] * 3
 
 

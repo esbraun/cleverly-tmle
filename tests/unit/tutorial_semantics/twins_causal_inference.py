@@ -10,7 +10,6 @@ number that the next networked execution can move.
 
 from __future__ import annotations
 
-import csv
 import re
 
 import nbformat
@@ -19,13 +18,10 @@ from tests.notebooks import code_cells
 from tests.unit.tutorial_semantics import EXAMPLES, markdown_text, notebook_code, stored_output
 
 NOTEBOOK = EXAMPLES / "twins-causal-inference.ipynb"
-_STUDY = "tests/canonical/tmle3_cvtmle"
 
 #: Decimals the prose writes that no stored output prints, each with the reason.
 UNPRINTED_DECIMALS = {
     "0.5": "a value of the outcome, the share of two twins who die, not a result",
-    "0.9425": f"coverage of the cleverly continuous att row: {_STUDY}/summary.csv",
-    "0.9956": f"se_ratio of the same row: {_STUDY}/summary.csv",
 }
 
 #: A printed residual such as 3.79e-13 is machine noise that changes between machines.
@@ -167,6 +163,7 @@ def check_stored() -> None:
     implied = re.search(r"implied cf_y = (\S+),", sensitivity)
     assert implied and float(implied[1]) < 0.001
     assert "cf_d=benchmark.cf_d" in code["sensitivity"]
+    assert 'estimand="att", benchmark=benchmark' in code["sensitivity"]
     at_benchmark = _row(sensitivity, implied[1])
     assert at_benchmark[0] > att, "the bias bound at the benchmark no longer exceeds the estimate"
     assert at_benchmark[-1] > crude, "the benchmark bound no longer admits the crude difference"
@@ -177,14 +174,3 @@ def check_stored() -> None:
         refit, r"with the three items:\s+(\S+)"
     )
     assert 0 < shift < 0.5 * _number(refit, r"standard error of the ATT:\s+(\S+)")
-
-    # The study numbers that the trust table quotes.
-    with (EXAMPLES.parents[1] / _STUDY / "summary.csv").open(encoding="utf-8") as handle:
-        (study_row,) = [
-            row
-            for row in csv.DictReader(handle)
-            if (row["implementation"], row["scenario"], row["estimand"])
-            == ("cleverly-stacked-cvtmle", "continuous", "att")
-        ]
-    assert f"{float(study_row['coverage']):.4f}" == "0.9425"
-    assert f"{float(study_row['se_ratio']):.4f}" == "0.9956"

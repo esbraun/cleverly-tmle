@@ -413,7 +413,7 @@ their inputs.
 
 Pass `bootstrap_interval="bca"` with `n_bootstrap=` to get a bias-corrected and accelerated
 interval. It corrects for a skewed sampling distribution. A regimen that few units follow has
-one. No study licenses the BCa interval yet, so the summary prints it as a `BCa range`.
+one. No registered study measures the BCa interval yet, so the summary marks it `[experimental]`.
 
 A fit without a bootstrap warns with `SparseInfluenceWarning` when few rows carry an influence
 curve. The condition is a Kish count below about 64. `result.diagnostics.influence()` reports the

@@ -15,6 +15,7 @@ from typing import Any, Literal, Protocol, TypeVar
 import numpy as np
 
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
+from .._support import Classification, Kind, combine_support, support_for
 from .._typing import FloatArray
 from ..exceptions import CapabilityError, RefusalReason
 from .bootstrap import BootstrapInterval, BootstrapResult, bca_acceleration
@@ -267,6 +268,7 @@ def smooth_contrast(
         covariance_rule=rule,
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
+        support=combine_support((estimates[key].support for key in chosen), kind="derived"),
     )
     return estimate if transform is None else replace(estimate, transform=transform)
 
@@ -396,6 +398,7 @@ def ratio_contrast(
         covariance_rule=rule,
         inference=status,
         reference_df=minimum_reference_df([estimates[key] for key in chosen]),
+        support=combine_support((estimates[key].support for key in chosen), kind="derived"),
     )
 
 
@@ -415,8 +418,9 @@ def derived_bootstrap(
     the replicate value of the derived estimate, so its interval is the one the full refit
     implies. A replicate with a missing input gives a missing value. Domain-invalid ratios
     also give missing values. The failure count includes every requested replicate without
-    a finite derived value. User callable exceptions propagate. The summary is licensed as
-    inference only when every input's summary is.
+    a finite derived value. User callable exceptions propagate. The summary is supported
+    only when every input's summary is and each row of the inputs lists the ``derived``
+    kind.
 
     The derived summary takes the interval of its inputs. A BCa interval reads its
     acceleration from the derived estimate's own influence curve, the delta-method curve
@@ -479,8 +483,13 @@ def derived_bootstrap(
         )
     else:
         summary = replicates.summary("derived", alpha)
-    licensed = all(item.inferential for item in summaries if item is not None)
-    return replace(summary, inferential=licensed)
+    kept = [item for item in summaries if item is not None]
+    return replace(
+        summary,
+        diagnostic=any(item.diagnostic for item in kept),
+        below_floor=any(item.below_floor for item in kept),
+        support=combine_support([item.support for item in kept], kind="derived"),
+    )
 
 
 def with_derived_bootstrap(
@@ -633,7 +642,8 @@ def attach_bootstrap(
     result: _ResultT,
     bootstrap: BootstrapResult,
     *,
-    inferential: bool = True,
+    diagnostic: bool = False,
+    classification: Classification | None = None,
     interval: BootstrapInterval = "percentile",
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
@@ -647,9 +657,14 @@ def attach_bootstrap(
         The fitted result.
     bootstrap : BootstrapResult
         The replicate draws.
-    inferential : bool, default=True
-        Whether a registered study licenses the interval as inference for this fit. Stored
-        on each :class:`~cleverly.inference.BootstrapSummary`.
+    diagnostic : bool, default=False
+        Whether the fit declares its bootstrap interval a diagnostic. Stored on each
+        :class:`~cleverly.inference.BootstrapSummary`.
+    classification : Classification or None, default=None
+        The fit's classification. Each summary takes the support that
+        :func:`~cleverly._support.support_for` gives for the interval's kind: ``"bootstrap"``
+        for a percentile interval and ``"bootstrap_bca"`` for a BCa interval. ``None``
+        leaves it unclassified.
     interval : {"percentile", "bca"}, default="percentile"
         The pointwise interval. A BCa interval reads each estimate's acceleration from its
         own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`).
@@ -660,21 +675,32 @@ def attach_bootstrap(
         A copy whose estimates carry their bootstrap summaries.
     """
     alpha = result.config.alpha_sig
+    below_floor = classification is not None and classification.key.dependence == "below_floor"
+    kind: Kind = "bootstrap_bca" if interval == "bca" else "bootstrap"
 
     def summary(name: str, estimate: ParameterEstimate) -> BootstrapSummary:
         if interval == "bca":
-            return bootstrap.summary(
+            drawn = bootstrap.summary(
                 name,
                 alpha,
                 interval="bca",
                 estimate=estimate.psi,
                 acceleration=bca_acceleration(estimate.influence_curve),
             )
-        return bootstrap.summary(name, alpha)
+        else:
+            drawn = bootstrap.summary(name, alpha)
+        return replace(
+            drawn,
+            diagnostic=diagnostic,
+            below_floor=below_floor,
+            support=support_for(
+                classification, estimate.inference, estimate.reference_df, kind=kind
+            ),
+        )
 
     estimates = {
         name: (
-            estimate.with_bootstrap(replace(summary(name, estimate), inferential=inferential))
+            estimate.with_bootstrap(summary(name, estimate))
             if name in bootstrap.draws
             else estimate
         )
