@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Final
 
 from ._support import KEY_AXES, Kind, SupportKey, SupportRow
+from .learners.glm import GLM
 
 __all__ = [
     "EXEMPT_STUDIES",
@@ -123,7 +124,9 @@ def point_row(
     engine : tuple of str, default ("tmle",)
         The engine axis.
     kinds : frozenset of str, default Wald
-        What the row licenses.
+        What the row licenses. A row with a Wald kind that covers ``P1`` and ``P2`` also
+        licenses ``derived``: a difference or a ratio of two arm means is the ``P1`` or ``P2``
+        estimand that the row's study measured.
     cells : sequence of str, default ()
         The licensing study cells.
     limits : sequence of str, default ()
@@ -148,6 +151,8 @@ def point_row(
         qualifiers=frozenset(qualifiers),
         options=tuple(sorted(merged.items())),
     )
+    if {"P1", "P2"} <= key.family and kinds & {"wald", "wald_t"}:
+        kinds = kinds | {"derived"}
     return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), None, tuple(limits))
 
 
@@ -275,7 +280,7 @@ def _guard(*names: str) -> dict[str, Any]:
 
 def _t_rows() -> tuple[SupportRow, ...]:
     """Ordinary TMLE (``T`` rows)."""
-    boot: frozenset[Kind] = frozenset({"point", "wald", "bootstrap"})
+    boot: frozenset[Kind] = frozenset({"point", "wald", "bootstrap", "derived"})
     rows: list[SupportRow] = []
     rows += rows_over(
         point_row("T01", ["canonical-tmle"], families=_ALL_ARM, cells=["binary", "continuous"]),
@@ -528,6 +533,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
             families=("P7",),
             outcome=CONTINUOUS,
             treatment=("continuous",),
+            options={"ratio": "density"},
             cells=["continuous_modified_policy"],
             limits=["One paired calibration leg is red (RM18)."],
         )
@@ -538,6 +544,7 @@ def _t_rows() -> tuple[SupportRow, ...]:
             ["policy-point-mtp"],
             families=("P7",),
             treatment=("continuous",),
+            options={"ratio": "density"},
             cells=["policy_point"],
             limits=["One calibration cell is red."],
         )
@@ -671,6 +678,32 @@ def _t_rows() -> tuple[SupportRow, ...]:
             splitting=("stacked",),
             qualifiers=["known_mechanism"],
             cells=["known_g__cvtmle"],
+        )
+    )
+    # X31: joint policies at a vector treatment. A vector with a dose keys as ``vector``; an
+    # all-categorical vector is a categorical treatment over its observed tuples (four here).
+    for suffix, cells in (
+        ("density", ["point_vector_mixed", "point_vector_density__correctly_specified"]),
+        ("classifier", ["point_vector_classifier__correctly_specified"]),
+    ):
+        rows.append(
+            point_row(
+                f"T33.{suffix}",
+                ["vector-mtp"],
+                families=("P7",),
+                treatment=("vector",),
+                options={"ratio": suffix},
+                cells=cells,
+            )
+        )
+    rows.append(
+        point_row(
+            "T34",
+            ["vector-mtp"],
+            families=("P7",),
+            treatment=("arms4",),
+            options={"ratio": "density"},
+            cells=["point_vector_categorical"],
         )
     )
     return _merged(
@@ -1229,6 +1262,14 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         ),
         "band-finite-sample: joint coverage 0.9085 to 0.9394",
     ),
+    "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
+    "G34.competing": (
+        (
+            "X19-competing-calibration: coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, "
+            "empirical efficiency ratio 0.9239 to 0.9884, reported efficiency ratio 1.0005 to"
+            " 1.0007"
+        ),
+    ),
     "T02.binary": (
         "band-finite-sample: joint coverage 0.9101 to 0.9382",
         "band-finite-sample: joint coverage 0.9173 to 0.9443",
@@ -1322,9 +1363,11 @@ def long_row(
     survival_model: str = "iterated_mean",
     targeting: str = "iterative",
     isotonic: bool = False,
+    ratio: str = "density",
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
+    learners: Mapping[str, type] | None = None,
 ) -> SupportRow:
     """One support row of a longitudinal estimator, with the defaults of a censored two-node fit.
 
@@ -1366,12 +1409,16 @@ def long_row(
         The hazard targeting algorithm of a ``hazard`` row.
     isotonic : bool, default False
         Whether the row projects the curve onto a monotone one.
+    ratio : {"density", "classifier"}, default "density"
+        The policy density ratio of a modified treatment policy row.
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
         The licensing study cells.
     limits : sequence of str, default ()
         The stated limits of the row.
+    learners : mapping of str to type or None, default None
+        The exact learner class per nuisance role, where the study fixes one.
 
     Returns
     -------
@@ -1398,13 +1445,13 @@ def long_row(
         options=(
             ("multiplier_kind", "rademacher"),
             ("normalization", normalization),
-            ("ratio", "density"),
+            ("ratio", ratio),
             ("survival_model", survival_model),
             ("targeting", targeting),
             ("isotonic", isotonic),
         ),
     )
-    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), None, tuple(limits))
+    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), learners, tuple(limits))
 
 
 def _long_rows() -> tuple[SupportRow, ...]:
@@ -1937,6 +1984,103 @@ def _long_rows() -> tuple[SupportRow, ...]:
             cells=["clusters_20"],
         ),
     ]
+    # ``IPSI``: the incremental tilt of every node, without dropout (X19 S1) and with it (S2).
+    s1 = ["longitudinal-incremental"]
+    s2 = ["longitudinal-incremental-dropout"]
+    ipsi: dict[str, Any] = {
+        "engine": "ipsi",
+        "regimens": ("tilt",),
+        "outcome": ("gaussian", "bounded"),
+        "treatment": ("2", "2", "2"),
+    }
+    ipsi_survival = {**ipsi, "outcome": BINARY}
+    rows += [
+        long_row(
+            "G33.cross_fitted",
+            s1,
+            **ipsi,
+            missing=("complete",),
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["contrast_x2", "mean_x2", "per_node", "tilt_then_static", "nine_tilts"],
+        ),
+        long_row(
+            "G33.in_sample",
+            s1,
+            **ipsi,
+            missing=("complete",),
+            cells=["contrast_x2_in_sample"],
+        ),
+        long_row(
+            "G33.known",
+            s1,
+            **ipsi,
+            missing=("complete",),
+            splitting=xf,
+            qualifiers=("A1", "A2", "A3"),
+            cells=["known_x2"],
+        ),
+        long_row(
+            "G33.two_nodes",
+            s1,
+            **{**ipsi, "treatment": ("2", "2")},
+            missing=("complete",),
+            splitting=xf,
+            cells=["no_positivity"],
+        ),
+        long_row(
+            "G34.in_sample", s2, **ipsi, cells=["dropout_folds_1", "dropout_contrast_x2_in_sample"]
+        ),
+        long_row(
+            "G34.cross_fitted",
+            s2,
+            **ipsi,
+            splitting=xf,
+            cells=["dropout_folds_5", "dropout_contrast_x2"],
+        ),
+        long_row(
+            "G34.survival.in_sample",
+            s2,
+            **ipsi_survival,
+            outcome_kind="survival",
+            kinds=_LONG_BAND,
+            cells=["survival_folds_1", "survival_contrast_x2_h3_in_sample", "survival_grid"],
+        ),
+        long_row(
+            "G34.survival.cross_fitted",
+            s2,
+            **ipsi_survival,
+            outcome_kind="survival",
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["survival_folds_5", "survival_contrast_x2_h3", "survival_grid"],
+        ),
+        long_row(
+            "G34.competing",
+            s2,
+            **ipsi_survival,
+            outcome_kind="competing",
+            splitting=xf,
+            cells=["competing_contrast_x2_h3"],
+        ),
+        long_row("G34.msm", s2, **ipsi, msm=True, splitting=xf, cells=["msm_log_delta"]),
+        long_row(
+            "G34.weighted",
+            s2,
+            **ipsi,
+            weighting="fixed",
+            splitting=xf,
+            cells=["weighted_contrast_x0_5"],
+        ),
+        long_row(
+            "G34.clustered",
+            s2,
+            **ipsi,
+            dependence="clustered",
+            splitting=xf,
+            cells=["mean_x2__cluster_robust"],
+        ),
+    ]
     baselines = ["sequential-baselines"]
     for law, regimens, treatment, outcome in (
         ("d2", ("static", "stochastic"), ("2", "3"), BINARY),
@@ -1971,7 +2115,135 @@ def _long_rows() -> tuple[SupportRow, ...]:
         )
         rows[-2] = replace(rows[-2], cells=(f"{law}_hajek",))
         rows[-1] = replace(rows[-1], cells=(f"{law}_ht",))
+    rows += _gformula_rows()
+    # X31: a mixed node of one categorical and one or two dose components. G35 has two such
+    # nodes; G36 has one node whose second dose reads the first (an ordered map).
+    for row_id, treatment, ratio, cells in (
+        (
+            "G35.density",
+            ("mixed", "mixed"),
+            "density",
+            ["longitudinal_vector_mixed", "longitudinal_vector_density__correctly_specified"],
+        ),
+        (
+            "G35.classifier",
+            ("mixed", "mixed"),
+            "classifier",
+            ["longitudinal_vector_classifier__correctly_specified"],
+        ),
+        (
+            "G36.density",
+            ("mixed",),
+            "density",
+            ["longitudinal_vector_ordered_density__correctly_specified"],
+        ),
+        (
+            "G36.classifier",
+            ("mixed",),
+            "classifier",
+            [
+                "longitudinal_vector_ordered_classifier",
+                "longitudinal_vector_ordered_classifier__correctly_specified",
+            ],
+        ),
+    ):
+        rows.append(
+            long_row(
+                row_id,
+                ["vector-mtp"],
+                regimens=("mtp",),
+                missing=("complete",),
+                treatment=treatment,
+                ratio=ratio,
+                cells=cells,
+            )
+        )
     return tuple(rows)
+
+
+def _gformula_cells(
+    law: str, labels: Sequence[str], *, contrast: str | None = "contrast"
+) -> list[str]:
+    """The gated positive cells of ``parametric-gformula`` that license one law.
+
+    The controls (shrunken standard error, added noise) and the Monte Carlo accounting cells at
+    one simulated history carry no row. The three-size and root-n cells read ``contrast``, and a
+    law with no such cell passes ``None``.
+    """
+    cells = [f"interval_calibration/nice_{law}_{label}__correctly_specified" for label in labels]
+    if contrast is not None:
+        cells += [f"root_n_and_efficiency/nice_{law}_{contrast}__n_{n}" for n in (2000, 4000, 8000)]
+        cells += [
+            f"root_n_rate/nice_{law}_{contrast}__{leg}" for leg in ("empirical_sd", "reported_se")
+        ]
+    return cells
+
+
+def _gformula_rows() -> list[SupportRow]:
+    """The rows of the parametric g-formula (``G29``): one per key the study fits.
+
+    Every fit of the study is an in-sample main-terms ``GLM`` fit with no clusters and no
+    weights. ``G2`` and ``G5`` share one key, because both fit a Gaussian outcome with complete
+    data and two arms at three nodes.
+    """
+    study = ["parametric-gformula"]
+    glm = {"outcome": GLM, "treatment": GLM, "censoring": GLM}
+    three = ("2", "2", "2")
+    return [
+        long_row(
+            "G29.g1",
+            study,
+            regimens=("static", "tilt"),
+            engine="parametric_gformula",
+            treatment=three,
+            learners=glm,
+            cells=_gformula_cells("g1", ("contrast", "odds_x2", "rule", "treat_all", "treat_none")),
+        ),
+        long_row(
+            "G29.g2_g5",
+            study,
+            regimens=("static", "stochastic", "tilt"),
+            outcome=CONTINUOUS,
+            missing=("complete",),
+            engine="parametric_gformula",
+            treatment=three,
+            learners=glm,
+            cells=[
+                *_gformula_cells("g2", ("contrast", "policy_b", "treat_all", "treat_none")),
+                *_gformula_cells(
+                    "g5", ("contrast", "odds_x2", "treat_all", "treat_none"), contrast=None
+                ),
+                *(
+                    f"ice_necessity/pair_g2_{plan}__nice"
+                    for plan in ("contrast", "treat_all", "treat_none")
+                ),
+            ],
+        ),
+        long_row(
+            "G29.g3",
+            study,
+            outcome_kind="competing",
+            engine="parametric_gformula",
+            treatment=("2",) * 4,
+            learners=glm,
+            cells=_gformula_cells(
+                "g3",
+                ("contrast_h4", "death_h4", "relapse_h2", "relapse_h4"),
+                contrast="contrast_h4",
+            ),
+        ),
+        long_row(
+            "G29.g4",
+            study,
+            regimens=("static", "mtp"),
+            outcome=CONTINUOUS,
+            missing=("complete",),
+            engine="parametric_gformula",
+            treatment=("continuous",) * 3,
+            learners=glm,
+            cells=_gformula_cells("g4", ("contrast", "dose", "rule_dose", "shift")),
+        ),
+    ]
 
 
 def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
@@ -1985,8 +2257,8 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
     )
 
 
-#: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``) and
-#: the sequential baselines (``G28``).
+#: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
+#: the sequential baselines (``G28``) and the parametric g-formula (``G29``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
 
 

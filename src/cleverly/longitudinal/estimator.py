@@ -105,6 +105,7 @@ from ..exceptions import (
     DataWarning,
     LongitudinalError,
     MethodConfigurationError,
+    MonteCarloWarning,
     ParameterSpaceWarning,
     PositivityWarning,
     Refusal,
@@ -148,10 +149,11 @@ from ..inference.results import (
     sole_estimate,
     with_derived_bootstrap,
 )
+from ..interventions import RiskRatioTilt
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
-from ..interventions.policy import Support
+from ..interventions.policy import Support as DeclaredSupport
 from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
 from ..learners.glm import GLM
 from ..learners.library import _validate_learner
@@ -185,6 +187,17 @@ from .baselines import (
     mechanism_reads_parametric,
 )
 from .data import LongitudinalData, Repeated
+from .gformula import (
+    GFormulaReport,
+    GFormulaSettings,
+    declared_natural,
+    has_set_dose,
+    monte_carlo_share,
+    normal_learner_refusal,
+    plan_node,
+    resolve_covariates,
+    run_gformula,
+)
 from .hazard import (
     HazardAlgorithm,
     InitialHazards,
@@ -239,10 +252,12 @@ __all__ = [
     "SDR",
     "LongitudinalConfig",
     "LongitudinalResult",
+    "ParametricGFormula",
     "SequentialGComputation",
     "SequentialIPW",
     "constant_node_parameters",
     "gcomp",
+    "gformula",
     "ipsi",
     "ipw",
     "ltmle",
@@ -277,7 +292,8 @@ _BASELINE_CROSS_FIT_REFUSAL = Refusal(
 #: Why a baseline estimator refuses a working model over regimens.
 BASELINE_MSM_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
-    "sequential g-computation and IPW report regimen levels and contrasts only.",
+    "sequential g-computation, IPW and the parametric g-formula report regimen levels and "
+    "contrasts only.",
     alternative="A working model over regimens is fitted by LTMLE(msm=...) or SDR(msm=...).",
 )
 #: Why a baseline estimator refuses an odds tilt whose mechanism is estimated.
@@ -320,6 +336,41 @@ GCOMP_TRUNCATION_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
     "a g-computation estimate reads no treatment mechanism, so g_bounds does not move it and "
     "no truncation curve exists.",
+    alternative="Fit SequentialIPW or LTMLE for a truncation curve.",
+)
+
+
+#: Why a parametric g-formula fit refuses a pseudo-outcome learner.
+GFORMULA_PSEUDO_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "the parametric g-formula fits no sequential pseudo-outcome regression, so pseudo_learner= "
+    "has nothing to fit. The estimate reads the covariate, outcome (or hazard) and "
+    "natural-treatment models.",
+    alternative="Pass covariate_learner=, outcome_learner= or hazard_learner= instead.",
+)
+#: Why a parametric g-formula fit refuses a risk-ratio tilt.
+GFORMULA_RR_TILT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the parametric g-formula simulates an odds tilt only (Kennedy 2019). It draws the tilted "
+    "treatment from the odds-tilted law, and it has no draw for a risk-ratio tilt.",
+    alternative=(
+        "Declare the tilt as Incremental(delta), whose draw is validated, or fit LTMLE or SDR "
+        "for a risk-ratio tilt."
+    ),
+)
+#: Why the parametric g-formula refuses a vector treatment node with a dose component.
+GFORMULA_MIXED_NODE_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "the parametric g-formula has no joint model of a vector treatment node with a dose "
+    "component. It draws one natural treatment column per node.",
+    alternative="Fit LTMLE or SDR, which read a mixed node through its joint policy.",
+    roadmap="X73",
+)
+#: Why a truncation curve refuses a parametric g-formula result.
+GFORMULA_TRUNCATION_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "a parametric g-formula estimate divides by no treatment mechanism, so g_bounds does not "
+    "move it and no truncation curve exists.",
     alternative="Fit SequentialIPW or LTMLE for a truncation curve.",
 )
 
@@ -495,10 +546,19 @@ _ESTIMATOR_TITLE: dict[str, str] = {
     "ipsi": "IPSI",
     "gcomp": "g-computation",
     "ipw": "IPW",
+    "parametric_gformula": "parametric g-formula",
 }
 
 #: The estimators that fit no targeting step and read parametric nuisances for an interval.
-_BASELINES: frozenset[str] = frozenset({"gcomp", "ipw"})
+_BASELINES: frozenset[str] = frozenset({"gcomp", "ipw", "parametric_gformula"})
+
+#: Separates the simulation seed of the parametric g-formula from every other stream that
+#: ``random_state`` seeds.
+_SIMULATION_SEED_TAG = 0x47464D31
+
+#: The share of a parametric g-formula curve's variance above which the fit warns that the
+#: simulation error is large.
+MONTE_CARLO_WARN_SHARE = 0.10
 
 #: Match the point-treatment estimator's warning threshold.  The exact share remains
 #: available in ``diagnostics()`` below this value; the warning is only the interruption.
@@ -778,6 +838,7 @@ _REPEATED_OUTCOME_NAMES: dict[str, str] = {
     "ipsi": "IPSI",
     "gcomp": "SequentialGComputation",
     "ipw": "SequentialIPW",
+    "parametric_gformula": "ParametricGFormula",
 }
 
 
@@ -802,7 +863,7 @@ def repeated_outcome_refusal(name: str) -> Refusal:
         condition=REPEATED_OUTCOME_REFUSAL.condition.format(name=name),
         alternative=str(REPEATED_OUTCOME_REFUSAL.alternative).format(kinds=listed, verb=verb),
     )
-    if name in ("SequentialGComputation", "SequentialIPW"):
+    if name in ("SequentialGComputation", "SequentialIPW", "ParametricGFormula"):
         # X32b holds SDR and IPSI.  The baselines' reduction is its own item.
         return replace(refusal, roadmap="X71")
     return refusal
@@ -1243,8 +1304,8 @@ class LongitudinalConfig:
     #: non-decreasing curves.
     isotonic: bool = False
     #: ``"tmle"`` for :class:`LTMLE`, ``"sdr"`` for :class:`SDR`, ``"ipsi"`` for
-    #: :class:`IPSI`, ``"gcomp"`` for :class:`SequentialGComputation` and ``"ipw"`` for
-    #: :class:`SequentialIPW`.
+    #: :class:`IPSI`, ``"gcomp"`` for :class:`SequentialGComputation`, ``"ipw"`` for
+    #: :class:`SequentialIPW` and ``"parametric_gformula"`` for :class:`ParametricGFormula`.
     estimator: str = "tmle"
     #: The IPW normalization, ``"hajek"`` or ``"horvitz_thompson"``, and ``None`` on every
     #: other estimator.
@@ -1301,6 +1362,13 @@ class LongitudinalConfig:
                 "estimator: sequential g-computation, the iterated conditional expectation "
                 "plug-in (Bang and Robins 2005, Section 4), no fluctuation; an interval "
                 "assumes every outcome GLM is correctly specified",
+            )
+        if self.estimator == "parametric_gformula":
+            lines.insert(
+                0,
+                "estimator: parametric g-formula, forward simulation of the fitted covariate, "
+                "outcome and hazard laws (Robins 1986; McGrath et al. 2020), no fluctuation; "
+                "an interval assumes every model is correctly specified",
             )
         if self.estimator == "ipw":
             form = (
@@ -1508,6 +1576,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     replay_recipe : object
         Unfitted recursive learner templates and resolved plans for deterministic refits.
         Keyword-only.
+    simulation : GFormulaReport or None
+        On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
+        models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
+        ``None`` on every other fit.  Keyword-only.
 
     Attributes
     ----------
@@ -1596,6 +1668,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The initial cause-specific hazards of a ``survival_model="hazard"`` fit, which the
     #: nuisance report and a truncation replay read.  ``None`` on an iterated-mean fit.
     initial_hazards: InitialHazards | None = None
+    #: On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
+    #: models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
+    #: ``None`` on every other fit.
+    simulation: GFormulaReport | None = field(default=None, kw_only=True)
     #: Each outer fold's own mechanism, fitted on its training rows, on a cross-fitted SDR
     #: fit.  Empty otherwise.  A truncation replay reuses them.
     fold_mechanisms: tuple[FoldMechanism, ...] = field(default=(), kw_only=True)
@@ -2815,6 +2891,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # ``"level"`` is the scale of every mean, the rule ``to_frame`` reads as well.
         contrast = any(estimate.scale != "level" for estimate in self.estimates.values())
         facts = list(self.config.describe(contrast=contrast))
+        if self.simulation is not None:
+            facts.extend(self.simulation.describe())
         if self.identified_effect is not None:
             facts.extend(self.identified_effect.summary_lines(protocol=protocol))
         else:
@@ -2891,6 +2969,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 if isinstance(fit.regimen, DynamicRegimen) and fit.regimen.has_tilt
                 else "followed it throughout"
             )
+            if fit.simulation is not None:
+                kept = "followed it throughout in the data, which the simulation does not need"
             lines.append(
                 f"  {fit.regimen.label}: {int(fit.scored_nodes[-1].trained_on.sum())} of "
                 f"{self.n} units {kept}; max weight {fit.max_weight:.1f}, "
@@ -2993,6 +3073,7 @@ def _run_recursion(
     fold_mechanisms: Sequence[FoldMechanism] = (),
     normalization: str | None = None,
     parametric: bool = True,
+    gformula: GFormulaSettings | None = None,
 ) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
     """Run the backward recursion over every reported cell, and file the fits by key.
 
@@ -3041,7 +3122,7 @@ def _run_recursion(
         Targeting tolerance per node.  ``None`` on an SDR fit.
     n_jobs : int
         Worker count for the parallel fan-out.
-    estimator : {"tmle", "sdr", "ipsi", "gcomp", "ipw"}
+    estimator : {"tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"}
         Which recursion runs.
     fold_mechanisms : sequence of FoldMechanism
         Each outer fold's own mechanism, on a cross-fitted SDR or IPSI fit.
@@ -3050,6 +3131,8 @@ def _run_recursion(
     parametric : bool
         On a g-computation or IPW fit, whether the curve is the stacked one.  The status reads
         the same flag, so the two agree.
+    gformula : GFormulaSettings or None
+        On a parametric g-formula fit, the simulation settings.
 
     Returns
     -------
@@ -3057,6 +3140,17 @@ def _run_recursion(
         The fits keyed by :func:`_fit_key`, and the projection fits, empty without a
         working model.
     """
+    if estimator == "parametric_gformula":
+        assert msm is None and gformula is not None
+        return _run_gformula(
+            data,
+            plans,
+            mechanism,
+            settings=gformula,
+            scaler=scaler,
+            g_bounds=g_bounds,
+            horizons=horizons,
+        ), ()
     if estimator in _BASELINES:
         assert msm is None
         return _run_baseline(
@@ -3350,6 +3444,37 @@ def _run_baseline(
                 key = _fit_key(plan.label, cause, horizon, data.reports_curve)
                 fits[key] = _with_node_ratio(fit, ratios[plan.label])
     return fits
+
+
+def _run_gformula(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    mechanism: Mechanism,
+    *,
+    settings: GFormulaSettings,
+    scaler: OutcomeScaler,
+    g_bounds: tuple[float, float],
+    horizons: Sequence[int],
+) -> dict[str, RegimenFit]:
+    """The parametric g-formula branch of :func:`_run_recursion`, in the same cell order.
+
+    The models are fitted once and every plan reads the same uniforms, so a contrast is the
+    difference of two cells that share their simulation error.
+    """
+    fits, _ = run_gformula(
+        data,
+        plans,
+        mechanism,
+        settings=settings,
+        scaler=scaler,
+        g_bounds=g_bounds,
+        horizons=horizons,
+    )
+    ratios = {plan.label: node_ratios(data, plan, mechanism) for plan in plans}
+    return {
+        _fit_key(label, cause, horizon, data.reports_curve): _with_node_ratio(fit, ratios[label])
+        for (label, cause, horizon), fit in fits.items()
+    }
 
 
 def _run_sdr(
@@ -3866,6 +3991,10 @@ class _SequentialEstimator:
     step_size: float = 1e-3
     isotonic: bool = False
 
+    #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
+    #: regimen this estimator fits.  Only a model-based estimator accepts one.
+    _allow_set_dose: ClassVar[bool] = False
+
     #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
     _record_support: bool = True
 
@@ -4090,6 +4219,7 @@ class _SequentialEstimator:
         pseudo_learner: Learner,
         mechanism: Mechanism,
         horizons: Sequence[int],
+        plans: Sequence[Plan],
     ) -> bool:
         """Whether every regression the estimator reads is a GLM.
 
@@ -4105,6 +4235,8 @@ class _SequentialEstimator:
             The fitted mechanism.
         horizons : sequence of int
             The reported horizons.
+        plans : sequence of Plan
+            The resolved plans.
 
         Returns
         -------
@@ -4122,6 +4254,73 @@ class _SequentialEstimator:
             random_state=self.random_state,
             fallback=self.outcome_learner,
         )
+
+    def _preflight_followers(
+        self,
+        data: LongitudinalData,
+        plans: tuple[Plan, ...],
+        horizons: Sequence[int],
+        folds: Folds,
+    ) -> None:
+        """Refuse a regimen, horizon or training fold with no follower, before any learner.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+        horizons : sequence of int
+            The reported horizons.
+        folds : Folds
+            The realized outer split.
+        """
+        preflight_terminal_outcomes(data, plans, horizons, folds)
+
+    def _gformula_settings(self, data: LongitudinalData) -> GFormulaSettings | None:
+        """The simulation settings of a parametric g-formula fit, ``None`` on every other."""
+        return None
+
+    def _simulated_parametric(self, parametric: bool, fits: Mapping[str, RegimenFit]) -> bool:
+        """Whether the status may report an interval, once the recursion has run.
+
+        Parameters
+        ----------
+        parametric : bool
+            The value :meth:`_parametric` gave before the recursion.
+        fits : mapping of str to RegimenFit
+            The fits of the recursion.
+
+        Returns
+        -------
+        bool
+            ``parametric`` here.
+        """
+        return parametric
+
+    def _finish(
+        self,
+        result: LongitudinalResult,
+        reported: _Reported,
+        fits: Mapping[str, RegimenFit],
+    ) -> LongitudinalResult:
+        """Add what only this estimator reports to a built result.
+
+        Parameters
+        ----------
+        result : LongitudinalResult
+            The result before any bootstrap.
+        reported : _Reported
+            The names, estimates and contributing fits.
+        fits : mapping of str to RegimenFit
+            The fits of the recursion.
+
+        Returns
+        -------
+        LongitudinalResult
+            The result, unchanged here.
+        """
+        return result
 
     @staticmethod
     def profile_phases() -> AbstractContextManager[PhaseProfile]:
@@ -4160,7 +4359,7 @@ class _SequentialEstimator:
         weights_type: str = "probability",
         weights_estimated: bool = False,
         family: str = "auto",
-        continuous_treatment: Sequence[str] | Mapping[str, Support | None] = (),
+        continuous_treatment: Sequence[str] | Mapping[str, DeclaredSupport | None] = (),
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
         dose_atoms: Mapping[str, Sequence[float]] | None = None,
@@ -4331,7 +4530,7 @@ class _SequentialEstimator:
             )
             self._refuse_fold_average_compositions(plans)
         else:
-            plans = resolve_plans(regimens, prepared)
+            plans = resolve_plans(regimens, prepared, allow_set_dose=self._allow_set_dose)
         # An odds tilt node reads the mechanism, so each estimator decides here, before any
         # learner, whether it fits one.
         plans = self._resolve_tilts(prepared, plans)
@@ -4382,7 +4581,7 @@ class _SequentialEstimator:
         preflight_mechanism_support(
             prepared, prepared.regimen_masks(prepared.treatment), folds, ratio=self.ratio
         )
-        preflight_terminal_outcomes(prepared, plans, horizons, folds)
+        self._preflight_followers(prepared, plans, horizons, folds)
         # A bootstrap replicate carries its fit's label and never classifies.
         classification = (
             classify_longitudinal_fit(
@@ -4422,7 +4621,7 @@ class _SequentialEstimator:
             censoring_learner=censoring_learner,
             folds=folds,
         )
-        parametric = self._parametric(outcome_learner, pseudo_learner, mechanism, horizons)
+        parametric = self._parametric(outcome_learner, pseudo_learner, mechanism, horizons, plans)
         replay_recipe = replace(replay_recipe, parametric=parametric)
         # A modified treatment policy's ratio numerator reads the fitted mechanism, so it is
         # attached to its plan here, once, from the out-of-fold fit.  The replay recipe holds
@@ -4506,9 +4705,11 @@ class _SequentialEstimator:
                 fold_mechanisms=fold_mechanisms,
                 normalization=self._normalization(),
                 parametric=parametric,
+                gformula=self._gformula_settings(prepared),
             )
 
-        if self._estimator != "gcomp":
+        parametric = self._simulated_parametric(parametric, fits)
+        if self._estimator not in ("gcomp", "parametric_gformula"):
             # A g-computation estimate divides by no mechanism, so a bound moves none of it.
             self._warn_on_truncation(fits)
 
@@ -4637,6 +4838,7 @@ class _SequentialEstimator:
             fold_mechanisms=fold_mechanisms,
             fitted_method=self._estimator,
         )
+        result = self._finish(result, reported, fits)
         if self.n_bootstrap:
             # Spawned from ``random_state`` inside ``run_bootstrap``, so the stream draws
             # nothing the fit above used: its split and its multiplier band are unchanged.
@@ -5831,6 +6033,57 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
     class is abstract: each baseline names the regressions its status reads.
     """
 
+    def _fit_diagnostic_mechanism(
+        self,
+        data: LongitudinalData,
+        plans: tuple[Plan, ...],
+        *,
+        treatment_learner: Learner,
+        censoring_learner: Learner,
+        folds: Folds,
+    ) -> Mechanism:
+        """Fit the diagnostic mechanism, and degrade the diagnostics when it cannot fit.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+        treatment_learner : Learner
+            The treatment mechanism learner.
+        censoring_learner : Learner
+            The censoring mechanism learner.
+        folds : Folds
+            The single in-sample fold.
+
+        Returns
+        -------
+        Mechanism
+            The fitted mechanism, or one that holds ``nan`` everywhere.
+
+        Warns
+        -----
+        PositivityWarning
+            When the mechanism cannot fit.
+        """
+        try:
+            return fit_mechanism(
+                data,
+                plans,
+                treatment_learner=treatment_learner,
+                censoring_learner=censoring_learner,
+                folds=folds,
+                n_jobs=self.n_jobs,
+                density_bins=self.density_bins,
+                ratio=self.ratio,
+            )
+        except DataError as error:
+            warnings.warn(
+                GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=5
+            )
+            return _unavailable_mechanism(data, plans)
+
     @abstractmethod
     def _parametric(
         self,
@@ -5838,6 +6091,7 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         pseudo_learner: Learner,
         mechanism: Mechanism,
         horizons: Sequence[int],
+        plans: Sequence[Plan],
     ) -> bool:
         """Whether every regression the estimator reads is a GLM.
 
@@ -5851,6 +6105,8 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
             The fitted mechanism.
         horizons : sequence of int
             The reported horizons.
+        plans : sequence of Plan
+            The resolved plans.
 
         Returns
         -------
@@ -6117,22 +6373,13 @@ class SequentialGComputation(_Baseline):
         Mechanism
             The fitted mechanism, or one that holds ``nan`` everywhere.
         """
-        try:
-            return fit_mechanism(
-                data,
-                plans,
-                treatment_learner=treatment_learner,
-                censoring_learner=censoring_learner,
-                folds=folds,
-                n_jobs=self.n_jobs,
-                density_bins=self.density_bins,
-                ratio=self.ratio,
-            )
-        except DataError as error:
-            warnings.warn(
-                GCOMP_MECHANISM_WARNING.format(error=error), PositivityWarning, stacklevel=4
-            )
-            return _unavailable_mechanism(data, plans)
+        return self._fit_diagnostic_mechanism(
+            data,
+            plans,
+            treatment_learner=treatment_learner,
+            censoring_learner=censoring_learner,
+            folds=folds,
+        )
 
     def _parametric(
         self,
@@ -6140,6 +6387,7 @@ class SequentialGComputation(_Baseline):
         pseudo_learner: Learner,
         mechanism: Mechanism,
         horizons: Sequence[int],
+        plans: Sequence[Plan],
     ) -> bool:
         """Whether every outcome regression is a GLM.
 
@@ -6153,6 +6401,8 @@ class SequentialGComputation(_Baseline):
             The diagnostic mechanism, which the estimate does not read.
         horizons : sequence of int
             The reported horizons.
+        plans : sequence of Plan
+            The resolved plans.
 
         Returns
         -------
@@ -6360,6 +6610,7 @@ class SequentialIPW(_Baseline):
         pseudo_learner: Learner,
         mechanism: Mechanism,
         horizons: Sequence[int],
+        plans: Sequence[Plan],
     ) -> bool:
         """Whether every fitted treatment and censoring model is a GLM.
 
@@ -6373,6 +6624,8 @@ class SequentialIPW(_Baseline):
             The fitted mechanism with its models.
         horizons : sequence of int
             The reported horizons.
+        plans : sequence of Plan
+            Unused.
 
         Returns
         -------
@@ -6424,6 +6677,453 @@ def _tilt_shorthand(regimens: Any) -> Any:
             )
         return {entry.name: entry for entry in regimens}
     return regimens
+
+
+class ParametricGFormula(_Baseline):
+    r"""The parametric g-formula of a treatment regimen over time, by forward simulation.
+
+    The estimator fits a conditional model for every time-varying covariate at nodes ``2..T``,
+    for the outcome (or the discrete hazards of a survival outcome), and for the natural
+    treatment where a plan reads it.  It then simulates each unit's history forward under each
+    regimen and averages the simulated outcomes (Robins 1986; Taubman et al. 2009; McGrath
+    et al. 2020).  The estimate is consistent only when every fitted law is correctly
+    specified, and the draw order within a node defines non-nested models.  See
+    :mod:`cleverly.longitudinal.gformula`.
+
+    With every model a :class:`~cleverly.learners.GLM`, the interval stacks the estimating
+    equations of the models and the estimate (Stefanski and Boos 2002, Section 2).  The
+    simulation error is part of that interval, and ``result.simulation`` reports its share of
+    the variance.  Any other learner gives the ``"adaptive_baseline_plugin"`` status: the point
+    estimate stands, the interval is withheld, and a diagnostic curve stays under
+    ``plugin_std_error``.
+
+    Parameters
+    ----------
+    regimens : mapping, Regimen, DynamicRegimen, or sequence of regimens
+        The regimens, as for :class:`LTMLE`.  Static, dynamic, known stochastic and modified
+        treatment policies are accepted, and so is an odds tilt.  A tilt, and a modified
+        treatment policy at a node ``t >= 2``, draw the natural treatment from a fitted model,
+        or from the declared mechanism (``treatment_probabilities=``) of a node that has one.
+        A fixed number at a continuous treatment node is a fixed dose, and a known rule
+        (``rule_kind="known"``) there sets the dose from the simulated history.  Either reads
+        the model of the dose and reports a support diagnostic.
+    n_draws : int
+        The simulated histories per unit behind the estimate.
+    n_derivative_draws : int or None
+        The simulated histories per unit behind the parameter derivatives, at least two.
+        ``None`` takes the larger of ``n_draws`` and ten.
+    covariate_types : mapping or None
+        The type of each time-varying column at nodes ``2..T``, as ``"binary"``,
+        ``"categorical"`` or ``"normal"``.  A tuple of one-hot columns is one categorical
+        variable.  A column with values in ``{0, 1}`` is binary without a declaration, and
+        any other undeclared column is refused.
+    covariate_learner : object or None
+        The template of every covariate model.  The default is a main-terms
+        :class:`~cleverly.learners.GLM`.  A Gaussian covariate needs a GLM.
+    outcome_learner : object or None
+        The outcome model of an end-of-study outcome.  The default is a main-terms
+        :class:`~cleverly.learners.GLM` of the outcome's family.
+    hazard_learner : object or None
+        The template of every hazard model of a survival outcome.  The default is a GLM.
+    pseudo_learner : object or None
+        Refused when given: the estimator fits no sequential pseudo-outcome regression.
+    **kwargs : Any
+        The settings of :class:`SequentialGComputation` that apply: ``reference``,
+        ``horizons``, ``treatment_learner`` (the natural-treatment models and the diagnostic
+        mechanism), ``censoring_learner``, ``g_bounds``, ``q_bounds``, ``alpha_sig``,
+        ``simultaneous``, ``n_multiplier``, ``multiplier_kind``, ``random_state``,
+        ``run_id``, ``n_jobs``, ``n_bootstrap``, ``bootstrap_resampling``, ``density_bins``
+        and ``ratio``.  ``n_folds`` must be ``1``.  ``msm``, ``alpha``, ``max_iter`` and
+        ``tol`` are refused.
+
+    See Also
+    --------
+    SequentialGComputation : The iterated conditional expectation form of the same parameter.
+    LTMLE : The targeted estimator of the same parameter.
+    gformula : The one-call form of this estimator.
+
+    Notes
+    -----
+    A repeated outcome is refused: roadmap row X71 tracks it.  The simulation draws come from a
+    counter-based Philox generator keyed by ``random_state``, so a fit repeats exactly.
+
+    A declared treatment mechanism at a tilt node, or at a modified-treatment-policy node
+    ``t >= 2``, replaces the natural-treatment model.  The simulation reads the declared
+    probabilities of each unit as that unit's natural law at every simulated history, so the
+    draw is the declared law only when the declaration does not depend on a covariate that the
+    simulation redraws.  That node has no learner and no score term.  A unit with no declared
+    value at such a node is refused.
+
+    A fit with a fixed dose or a rule-set dose reports no mechanism diagnostics for any regimen
+    of the fit, because a dose has no density ratio.  Fit the other regimens in a separate call to
+    read their diagnostics.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import make_longitudinal
+    >>> from cleverly.longitudinal import ParametricGFormula
+    >>> frame, _ = make_longitudinal(n=300, seed=0)
+    >>> result = ParametricGFormula(
+    ...     {"always": 1, "never": 0}, covariate_types={"L2": "normal"}, random_state=0
+    ... ).fit(
+    ...     frame,
+    ...     outcome="Y",
+    ...     treatment=["A1", "A2"],
+    ...     baseline=["W1", "W2"],
+    ...     time_varying=[[], ["L2"]],
+    ...     censoring=["C1", "C2"],
+    ... )
+    >>> sorted(result.estimates)
+    ['ate_regimen[never vs always]', 'ey_regimen[always]', 'ey_regimen[never]']
+    >>> result.inference_status
+    'influence_curve'
+    """
+
+    _estimator: ClassVar[str] = "parametric_gformula"
+    _allow_set_dose: ClassVar[bool] = True
+
+    def __init__(
+        self,
+        regimens: Any,
+        *,
+        n_draws: int = 10,
+        n_derivative_draws: int | None = None,
+        covariate_types: Mapping[Any, str] | None = None,
+        covariate_learner: Learner | None = None,
+        outcome_learner: Learner | None = None,
+        hazard_learner: Learner | None = None,
+        pseudo_learner: Learner | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if pseudo_learner is not None:
+            raise CapabilityError(refusal=GFORMULA_PSEUDO_REFUSAL)
+        _validate_learner(covariate_learner, "covariate_learner")
+        _validate_learner(hazard_learner, "hazard_learner")
+        if isinstance(n_draws, bool) or not isinstance(n_draws, (int, np.integer)) or n_draws < 1:
+            raise ValueError(f"n_draws must be a positive integer; got {n_draws!r}")
+        if n_derivative_draws is not None and (
+            isinstance(n_derivative_draws, bool)
+            or not isinstance(n_derivative_draws, (int, np.integer))
+            or n_derivative_draws < 2
+        ):
+            raise ValueError(
+                "n_derivative_draws must be an integer of at least 2, or None; got "
+                f"{n_derivative_draws!r}. The leave-one-copy-out baseline of the score-function "
+                "derivative needs a second copy"
+            )
+        self.n_draws = int(n_draws)
+        self.n_derivative_draws = (
+            max(self.n_draws, 10) if n_derivative_draws is None else int(n_derivative_draws)
+        )
+        self.covariate_types = covariate_types
+        self.covariate_learner = covariate_learner
+        self.hazard_learner = hazard_learner
+        #: The outcome learner as the caller declared it: ``None`` is a GLM of the data's family.
+        self._declared_outcome = outcome_learner
+        #: A test hook, not API, that replaces the simulation with exact terms.
+        self._exact: Callable[..., Any] | None = None
+        super().__init__(
+            _tilt_shorthand(regimens),
+            outcome_learner=GLM() if outcome_learner is None else outcome_learner,
+            **kwargs,
+        )
+
+    def _resolve_tilts(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> tuple[Plan, ...]:
+        """Keep an odds tilt as it is: the simulation draws the tilted treatment itself.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+
+        Returns
+        -------
+        tuple of Plan
+            The plans, unchanged.
+        """
+        return plans
+
+    def _refuse_design(self, data: LongitudinalData, plans: tuple[Plan, ...]) -> None:
+        """Refuse a setting or a covariate that the simulation cannot fit, before any learner.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+
+        Raises
+        ------
+        CapabilityError
+            When a plan holds a risk-ratio tilt, a covariate is untyped, a learner is declared
+            that nothing reads, a learner carries a family the fit overrides, a Gaussian
+            covariate has a learner that is not a GLM, a binomial GLM meets a continuous
+            outcome with no declared scale, or a declared treatment mechanism is missing for a
+            unit at a node whose natural treatment the simulation draws.
+        """
+        declared_natural(data, plans)
+        for plan in plans:
+            for node in range(1, data.n_times + 1):
+                kind, spec = plan_node(plan.regimen, node)
+                if kind == "mtp" and isinstance(spec, RiskRatioTilt):
+                    raise CapabilityError(refusal=GFORMULA_RR_TILT_REFUSAL)
+        variables = resolve_covariates(data, self.covariate_types)
+        for argument, learner in (
+            ("covariate_learner", self.covariate_learner),
+            ("hazard_learner", self.hazard_learner),
+            ("treatment_learner", self.treatment_learner),
+        ):
+            if isinstance(learner, GLM) and learner.family != "auto":
+                raise CapabilityError(
+                    f"{argument}=GLM(family={learner.family!r}) names a family, and the fit "
+                    "chooses the family of each model from its response: binomial for a "
+                    "binary one, multinomial for a categorical one, Gaussian for a normal one.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=f"Pass {argument}=GLM() with the default family.",
+                )
+        if data.is_survival and self._declared_outcome is not None:
+            raise CapabilityError(
+                "outcome_learner= has nothing to fit on a survival outcome: the outcome law is "
+                "the discrete hazard at each node.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass hazard_learner= instead.",
+            )
+        if not data.is_survival and self.hazard_learner is not None:
+            raise CapabilityError(
+                "hazard_learner= has nothing to fit on an end-of-study outcome.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass outcome_learner= instead.",
+            )
+        normal = [
+            variable
+            for node in variables
+            for variable in node
+            if variable.modelled and variable.kind == "normal"
+        ]
+        if normal and not (
+            self.covariate_learner is None or isinstance(self.covariate_learner, GLM)
+        ):
+            raise normal_learner_refusal("covariate_learner", normal[0].name)
+        if (
+            data.family != "binomial"
+            and self.q_bounds is None
+            and isinstance(self._declared_outcome, GLM)
+            and self._declared_outcome.family != "gaussian"
+        ):
+            raise CapabilityError(refusal=GCOMP_SCALE_REFUSAL)
+
+    def _fit_mechanism(
+        self,
+        data: LongitudinalData,
+        plans: tuple[Plan, ...],
+        *,
+        treatment_learner: Learner,
+        censoring_learner: Learner,
+        folds: Folds,
+    ) -> Mechanism:
+        """Fit the diagnostic mechanism, and degrade the diagnostics when it cannot fit.
+
+        A fixed dose or a rule-set dose has no density ratio, so a fit with one reports no
+        mechanism diagnostics and reads the support diagnostic of ``result.simulation``
+        instead.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+        treatment_learner : Learner
+            The treatment mechanism learner.
+        censoring_learner : Learner
+            The censoring mechanism learner.
+        folds : Folds
+            The single in-sample fold.
+
+        Returns
+        -------
+        Mechanism
+            The fitted mechanism, or one that holds ``nan`` everywhere.
+        """
+        if has_set_dose(data, plans):
+            return _unavailable_mechanism(data, plans)
+        return self._fit_diagnostic_mechanism(
+            data,
+            plans,
+            treatment_learner=treatment_learner,
+            censoring_learner=censoring_learner,
+            folds=folds,
+        )
+
+    def _parametric(
+        self,
+        outcome_learner: Learner,
+        pseudo_learner: Learner,
+        mechanism: Mechanism,
+        horizons: Sequence[int],
+        plans: Sequence[Plan],
+    ) -> bool:
+        """The placeholder: the fitted models decide, in :meth:`_simulated_parametric`.
+
+        Parameters
+        ----------
+        outcome_learner : Learner
+            The resolved outcome learner.
+        pseudo_learner : Learner
+            The resolved pseudo-outcome learner.
+        mechanism : Mechanism
+            The diagnostic mechanism.
+        horizons : sequence of int
+            The reported horizons.
+        plans : sequence of Plan
+            The resolved plans.
+
+        Returns
+        -------
+        bool
+            ``True`` here.
+        """
+        return True
+
+    def _simulated_parametric(self, parametric: bool, fits: Mapping[str, RegimenFit]) -> bool:
+        """Whether every model the estimate read is a GLM, from the fit's own report.
+
+        Parameters
+        ----------
+        parametric : bool
+            The value before the fit.
+        fits : mapping of str to RegimenFit
+            The fits of the recursion.
+
+        Returns
+        -------
+        bool
+            The report's flag.
+        """
+        for fit in fits.values():
+            if fit.simulation is not None and fit.simulation.report is not None:
+                return bool(fit.simulation.report.parametric)
+        return parametric
+
+    def _preflight_followers(
+        self,
+        data: LongitudinalData,
+        plans: tuple[Plan, ...],
+        horizons: Sequence[int],
+        folds: Folds,
+    ) -> None:
+        """Skip the follower check: a regimen with no follower is extrapolation by the model.
+
+        The aliased-design refusal of the simulation covers the cases the model cannot
+        extrapolate.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : tuple of Plan
+            The resolved plans.
+        horizons : sequence of int
+            The reported horizons.
+        folds : Folds
+            The realized outer split.
+
+        Raises
+        ------
+        CapabilityError
+            When a treatment node is a vector with a dose component.
+        """
+        for time in range(1, data.n_times + 1):
+            if data.node_kind(time) == "mixed":
+                raise CapabilityError.from_refusal(GFORMULA_MIXED_NODE_REFUSAL)
+
+    def _gformula_settings(self, data: LongitudinalData) -> GFormulaSettings | None:
+        """The simulation settings: draws, learners and a seed drawn from ``random_state``.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel, which the settings do not read.
+
+        Returns
+        -------
+        GFormulaSettings
+            The settings the simulation reads.
+        """
+        # A sequence of its own, so the seed shares nothing with the bootstrap's spawned children
+        # or with any other consumer of ``random_state``.
+        entropy = np.random.SeedSequence(self.random_state).entropy
+        assert isinstance(entropy, int)
+        child = np.random.SeedSequence([entropy, _SIMULATION_SEED_TAG])
+        seed = int(child.generate_state(1, dtype=np.uint64)[0]) >> 2
+        return GFormulaSettings(
+            n_draws=self.n_draws,
+            n_derivative_draws=self.n_derivative_draws,
+            covariate_types=self.covariate_types,
+            covariate_learner=self.covariate_learner,
+            outcome_learner=self._declared_outcome,
+            hazard_learner=self.hazard_learner,
+            treatment_learner=self.treatment_learner,
+            seed=seed,
+            exact=self._exact,
+            reference=self.reference,
+        )
+
+    def _finish(
+        self,
+        result: LongitudinalResult,
+        reported: _Reported,
+        fits: Mapping[str, RegimenFit],
+    ) -> LongitudinalResult:
+        """Attach the simulation report, with the Monte Carlo share of every parameter.
+
+        Parameters
+        ----------
+        result : LongitudinalResult
+            The result before any bootstrap.
+        reported : _Reported
+            The names, estimates and contributing fits.
+        fits : mapping of str to RegimenFit
+            The fits of the recursion.
+
+        Returns
+        -------
+        LongitudinalResult
+            The result, with ``simulation`` set.
+
+        Warns
+        -----
+        MonteCarloWarning
+            When the simulation is more than 10% of a parameter's variance.
+        """
+        shares: dict[str, float] = {}
+        for name, contributors in reported.contributors.items():
+            curve = contributors[0].influence_curve_scaled
+            if len(contributors) == 2:
+                curve = curve - contributors[1].influence_curve_scaled
+            shares[name] = monte_carlo_share(result.data, contributors, curve)
+        first = next(iter(fits.values()))
+        assert first.simulation is not None
+        report = replace(first.simulation.report, monte_carlo_share=shares)
+        over = {
+            name: share
+            for name, share in shares.items()
+            if np.isfinite(share) and share > MONTE_CARLO_WARN_SHARE
+        }
+        if over:
+            worst = max(over, key=lambda name: over[name])
+            warnings.warn(
+                f"the simulation is {over[worst]:.0%} of the variance of {worst!r}"
+                + (f" and of {len(over) - 1} other parameter(s)" if len(over) > 1 else "")
+                + f", above {MONTE_CARLO_WARN_SHARE:.0%}. The interval includes it. "
+                f"Raise n_draws= (now {self.n_draws}) to lower it.",
+                MonteCarloWarning,
+                stacklevel=4,
+            )
+        return replace(result, simulation=report)
 
 
 @dataclass(frozen=True)
@@ -6750,6 +7450,8 @@ def longitudinal_truncation_curve(
     refuse_evaluated_msm_functions(result.msm)
     if result.config.estimator == "gcomp":
         raise CapabilityError(refusal=GCOMP_TRUNCATION_REFUSAL)
+    if result.config.estimator == "parametric_gformula":
+        raise CapabilityError(refusal=GFORMULA_TRUNCATION_REFUSAL)
     recipe = result.replay_recipe
     if recipe.omissions:
         _refuse_replay(*recipe.omissions, reason=RefusalReason.INVALID_DECLARATION)
@@ -7016,4 +7718,99 @@ def ipw(
         weights_type=weights_type,
         weights_estimated=weights_estimated,
         family=family,
+    )
+
+
+def gformula(
+    data: Any,
+    *,
+    regimens: Any,
+    outcome: str | Sequence[str] | Mapping[str, Sequence[str]],
+    treatment: Sequence[str],
+    baseline: Sequence[str],
+    time_varying: Sequence[Sequence[str]] | None = None,
+    censoring: Sequence[str] | None = None,
+    id: str | None = None,
+    weights: str | None = None,
+    weights_type: str = "probability",
+    weights_estimated: bool = False,
+    family: str = "auto",
+    continuous_treatment: Sequence[str] = (),
+    **kwargs: Any,
+) -> LongitudinalResult:
+    """One-call parametric g-formula, mirroring :func:`ltmle`.
+
+    Parameters
+    ----------
+    data : DataFrame or LongitudinalData
+        One wide frame, or a container that has already read the columns.
+    regimens : mapping, Regimen, DynamicRegimen, or sequence of regimens
+        The regimens, as for :class:`ParametricGFormula`.
+    outcome : str, sequence of str, or mapping
+        The outcome columns, as for :meth:`ParametricGFormula.fit`.
+    treatment : sequence of str
+        The treatment column of each node.
+    baseline : sequence of str
+        The covariates measured before any treatment.
+    time_varying : sequence of sequence of str or None
+        One list of covariate columns per node.
+    censoring : sequence of str or None
+        One column per node, ``1`` where the unit is still observed.
+    id : str or None
+        A cluster column.
+    weights : str or None
+        A column of observation weights.
+    weights_type : str
+        How to read ``weights``.
+    weights_estimated : bool
+        Declare that the weights came out of a fitted model.
+    family : {"auto", "binomial", "gaussian"}
+        The outcome family.
+    continuous_treatment : sequence of str
+        The treatment columns that hold a continuous dose.
+    **kwargs : Any
+        The settings of :class:`ParametricGFormula`.
+
+    Returns
+    -------
+    LongitudinalResult
+        The regimen estimates and contrasts.
+
+    See Also
+    --------
+    ParametricGFormula : The estimator this function builds.
+    gcomp : The iterated conditional expectation form of the same parameter.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import make_longitudinal
+    >>> from cleverly.longitudinal import gformula
+    >>> frame, _ = make_longitudinal(n=300, seed=0)
+    >>> result = gformula(
+    ...     frame,
+    ...     regimens={"always": 1, "never": 0},
+    ...     outcome="Y",
+    ...     treatment=["A1", "A2"],
+    ...     baseline=["W1", "W2"],
+    ...     time_varying=[[], ["L2"]],
+    ...     censoring=["C1", "C2"],
+    ...     covariate_types={"L2": "normal"},
+    ...     random_state=0,
+    ... )
+    >>> sorted(result.estimates)
+    ['ate_regimen[never vs always]', 'ey_regimen[always]', 'ey_regimen[never]']
+    """
+    return ParametricGFormula(regimens, **kwargs).fit(
+        data,
+        outcome=outcome,
+        treatment=treatment,
+        baseline=baseline,
+        time_varying=time_varying,
+        censoring=censoring,
+        id=id,
+        weights=weights,
+        weights_type=weights_type,
+        weights_estimated=weights_estimated,
+        family=family,
+        continuous_treatment=continuous_treatment,
     )

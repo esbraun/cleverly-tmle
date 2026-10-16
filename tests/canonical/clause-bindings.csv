@@ -1203,6 +1203,39 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+parametric-gformula,ice_necessity,bias discriminated,pair_collapse
+parametric-gformula,ice_necessity,bias equivalent,bias
+parametric-gformula,ice_necessity,least displacement over labels,control_concentrated
+parametric-gformula,interval_calibration,bias equivalent,bias
+parametric-gformula,interval_calibration,coverage in calibration band,coverage/0.5
+parametric-gformula,interval_calibration,noise se ratio below band,se_high
+parametric-gformula,interval_calibration,se ratio below band,se_high
+parametric-gformula,interval_calibration,se ratio in calibration band,affine
+parametric-gformula,monte_carlo_accounting,bias equivalent,bias
+parametric-gformula,monte_carlo_accounting,coverage in calibration band,coverage/0.5
+parametric-gformula,monte_carlo_accounting,se ratio in calibration band,affine
+parametric-gformula,root_n_and_efficiency,bias equivalent,bias
+parametric-gformula,root_n_and_efficiency,coverage floor,affine
+parametric-gformula,root_n_and_efficiency,se ratio sanity,se_high
+parametric-gformula,root_n_rate,slope in root-n band,contract
+vector-mtp,double_robustness,bias discriminated,pair_collapse
+vector-mtp,double_robustness,bias equivalent,bias
+vector-mtp,double_robustness,se ratio in union band,se/0.05
+vector-mtp,image_necessity,bias discriminated,pair_collapse
+vector-mtp,image_necessity,bias equivalent,bias
+vector-mtp,image_necessity,least displacement over labels,control_concentrated
+vector-mtp,interval_calibration,coverage in calibration band,affine
+vector-mtp,interval_calibration,efficiency above band,pair_collapse
+vector-mtp,interval_calibration,efficiency empirical in efficiency band,mixed/7
+vector-mtp,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+vector-mtp,interval_calibration,se ratio below band,se_high
+vector-mtp,interval_calibration,se ratio in calibration band,affine
+vector-mtp,jacobian_necessity,bias discriminated,pair_collapse
+vector-mtp,jacobian_necessity,bias equivalent,bias
+vector-mtp,jacobian_necessity,least displacement over labels,control_concentrated
+vector-mtp,preimage_necessity,bias discriminated,pair_collapse
+vector-mtp,preimage_necessity,bias equivalent,bias
+vector-mtp,preimage_necessity,least displacement over labels,control_concentrated
 tests.studies.mtp_boundaries_properties,atom_necessity,bias discriminated,pair_collapse
 tests.studies.mtp_boundaries_properties,atom_necessity,bias equivalent,bias
 tests.studies.mtp_boundaries_properties,atom_necessity,least displacement over labels,control_concentrated
@@ -1235,24 +1268,6 @@ tests.studies.mtp_tuning_properties,interval_calibration,population truth se rat
 tests.studies.mtp_tuning_properties,interval_calibration,se ratio below band,se_high
 tests.studies.mtp_tuning_properties,interval_calibration,se ratio in calibration band,affine
 tests.studies.mtp_tuning_properties,interval_calibration,term dropped se ratio below band,none
-tests.studies.vector_mtp_properties,double_robustness,bias discriminated,pair_collapse
-tests.studies.vector_mtp_properties,double_robustness,bias equivalent,bias
-tests.studies.vector_mtp_properties,double_robustness,se ratio in union band,se/0.05
-tests.studies.vector_mtp_properties,image_necessity,bias discriminated,pair_collapse
-tests.studies.vector_mtp_properties,image_necessity,bias equivalent,bias
-tests.studies.vector_mtp_properties,image_necessity,least displacement over labels,control_concentrated
-tests.studies.vector_mtp_properties,interval_calibration,coverage in calibration band,shift/0.7
-tests.studies.vector_mtp_properties,interval_calibration,efficiency above band,pair_collapse
-tests.studies.vector_mtp_properties,interval_calibration,efficiency empirical in efficiency band,two_point/0.8892/1.03
-tests.studies.vector_mtp_properties,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
-tests.studies.vector_mtp_properties,interval_calibration,se ratio below band,se_high
-tests.studies.vector_mtp_properties,interval_calibration,se ratio in calibration band,affine
-tests.studies.vector_mtp_properties,jacobian_necessity,bias discriminated,pair_collapse
-tests.studies.vector_mtp_properties,jacobian_necessity,bias equivalent,bias
-tests.studies.vector_mtp_properties,jacobian_necessity,least displacement over labels,control_concentrated
-tests.studies.vector_mtp_properties,preimage_necessity,bias discriminated,pair_collapse
-tests.studies.vector_mtp_properties,preimage_necessity,bias equivalent,bias
-tests.studies.vector_mtp_properties,preimage_necessity,least displacement over labels,control_concentrated
 weighted-ltmle,double_robustness,bias discriminated,bias
 weighted-ltmle,double_robustness,bias equivalent,bias
 weighted-ltmle,double_robustness,se ratio in union band,se/0.05

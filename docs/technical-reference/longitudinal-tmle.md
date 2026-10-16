@@ -28,6 +28,9 @@ treatment.
 Reach for [`SequentialGComputation` and `SequentialIPW`](sequential-baselines.md) for the
 plug-in and weighting baselines of the same target. Their intervals hold only under correctly
 specified `GLM` models.
+Reach for [`ParametricGFormula`](parametric-gformula.md) for the forward-simulation form of the same
+target and for a fixed or rule-set continuous dose. Its interval holds only under correctly specified models.
+
 Collaborative TMLE and DR-TMLE have no longitudinal derivation, and `available_methods()` says so
 before any model is fitted.
 

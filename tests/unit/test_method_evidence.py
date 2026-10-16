@@ -881,9 +881,12 @@ class TestPublishedVerdicts:
         single = published.loc[published["property"] == "single_robustness"]
         positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
-            expected = bool(positive["bias_equivalent"].all())
-            assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
-                f"{study.slug}: a single_robustness row's verdict is not its declared rule"
+            own = [bool(value) for value in positive["bias_equivalent"]]
+            assert [bool(value) for value in positive["passed"]] == own, (
+                f"{study.slug}: a single_robustness row's verdict is not its own bias rule"
+            )
+            assert set(single["property_passed"].map(bool)) == {all(own)}, (
+                f"{study.slug}: the single_robustness family verdict is not the joint rule"
             )
 
         # Unconditional over every study with calibration cells.  Guarding this block on the
@@ -1307,6 +1310,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "branch_necessity",
         "atom_necessity",
         "classifier_split",
+        # X45's paired NICE and ICE fits: the parametric fit's bias inside the margin, the
+        # ICE control's outside it.
+        "ice_necessity",
         "projection_necessity",
         "randomizer_projection",
         "ratio_necessity",
@@ -1324,6 +1330,9 @@ BIAS_GATED_PROPERTIES = frozenset(
 #: classified here before its verdicts count.
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # X45's positive cells answer to the calibration rule at one simulated history per
+        # unit; its removed-share rows carry the diagnostic role.
+        "monte_carlo_accounting",
         "clustered_inference",
         "crossfit_overfitting",
         "corrected_mar_inference",
@@ -1418,6 +1427,11 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
+        # X45's parametric g-formula beside ICE, LTMLE or IPSI on the same draws, and its
+        # extrapolation share, each reported with no verdict.
+        "ice_reported",
+        "shared_target",
+        "extrapolation_report",
     }
 )
 

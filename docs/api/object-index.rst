@@ -57,6 +57,7 @@ categorized API tables.
    cleverly.IPSIMethod
    cleverly.GComputationMethod
    cleverly.IPWMethod
+   cleverly.ParametricGFormulaMethod
    cleverly.ModelSpec
    cleverly.CrossFitting
    cleverly.SplitPlan
@@ -82,6 +83,7 @@ categorized API tables.
    cleverly.MethodConfigurationError
    cleverly.NotFittedError
    cleverly.ConvergenceWarning
+   cleverly.MonteCarloWarning
    cleverly.ParameterSpaceWarning
    cleverly.PositivityWarning
    cleverly.VersionMismatchWarning
