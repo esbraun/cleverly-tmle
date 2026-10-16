@@ -149,7 +149,14 @@ def test_baseline_methods_default_to_in_sample(method_class: type) -> None:
 @pytest.mark.parametrize("method_class", [GComputationMethod, IPWMethod])
 @pytest.mark.parametrize(
     ("field", "value", "engine"),
-    [("submodel_alpha", 0.9, "alpha"), ("max_iter", 3, "max_iter"), ("tol", 1e-6, "tol")],
+    [
+        ("submodel_alpha", 0.9, "alpha"),
+        ("max_iter", 3, "max_iter"),
+        ("tol", 1e-6, "tol"),
+        ("stopping", "scaled_var", "stopping"),
+        ("step_bound", 0.5, "step_bound"),
+        ("iterate", "best", "iterate"),
+    ],
 )
 def test_baseline_methods_refuse_a_fluctuation_setting(
     method_class: type, field: str, value: Any, engine: str

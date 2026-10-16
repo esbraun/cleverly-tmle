@@ -373,6 +373,49 @@ forced empty path. The reporting-policy rows keep red cells where the evidence d
 support a stronger claim. Registration does not turn an observed limitation into an inherited
 binary theorem.
 
+## Targeting and fitting options
+
+The options `stopping=`, `step_bound=`, `step_search=`, `iterate=`, `outcome_by_arm=`,
+`patience=` and `treatment_adjustment=` have no registered study. A fluctuation coefficient is
+zero at the truth, so an exact-law check cannot see a stopping rule or a step. Each option
+therefore rests on a hand computation, a nonzero witness and a deliberate-mutation control. The
+Python tests below gate the change. The R comparators are pending, and the next table says which.
+
+| part | exact test | witness | mutation controls |
+| --- | --- | --- | --- |
+| `iterate=` | `tests/unit/test_best_iterate.py` replays $k^*$ steps of an oscillating fixed-step walk. `best_iterate` equals $k^*$, and ties take the first iterate, or the last on the one-step path | $k^*$ differs from the last iterate, and the estimates differ by more than $10^{-6}$ | report $k^*+1$, rank by the relative statistic, include iterate 0, `<=` for `<` |
+| `stopping=` thresholds | `tests/unit/test_stopping_rule.py` computes $n_u$, the span, $\mathrm{sd}_j$ with `ddof=1`, the arm curve and the per-unit sum by hand, on a clustered continuous fixture | the one-step estimate under `sample_size` differs from the full walk by more than $10^{-6}$ | rows for $n_u$, no span, uncapped $\log n$ at $n_u = 30{,}000$, a score column on an arm column, `ddof=0` |
+| `stopping=` report | `tests/unit/test_stopping_rule_report.py` checks the pinned lines, the coverage bound against `scipy.stats.norm`, `residual_se` and `rule_bound_se` by hand | a fit that met its rule passes above the default bar. A fit that missed it fails below the bar | `rule_bound_se` as $\sqrt{2}\,c$, a dropped second-arm weight, a verdict read at the `relative` bar |
+| `stopping=` alternating exits | `tests/unit/test_stopping_rule_engines.py` recomputes the outcome ratio by hand at every round of `DRTMLE` (both orders), the missing-outcome loop and point IPSI | the reported relative score exceeds `tol`, so the shipped exit could not fire. The restated and the solver's ratio differ by 0.78 under `benkeser` | an exit that reads the relative score or the solver's ratio, an outcome entry that drops the ratio, a restatement that keeps old thresholds |
+| `stopping=` per node | `tests/unit/test_stopping_rule_longitudinal.py` computes each node's threshold and ratio by hand | a crafted node where the shipped test takes 3 iterations and the rule takes 1 | no cluster code, no span, no MSM tile |
+| `step_bound=` | `tests/unit/test_step_bound.py` compares each step and the whole path with a SciPy walk written from `tmle3`, at $10^{-7}$, and every longitudinal node | the first bounded step is below the Newton step. A fit unconverged at `max_iter` moves the estimate | un-normalised $Hs$, reversed direction, `xatol=1e-3`, upper bound $2\delta$, Newton direction, unweighted loss |
+| `outcome_by_arm=` | `tests/unit/test_outcome_by_arm.py` compares per-arm predictions with a hand fit at $10^{-12}$ at four sites | an $A \times W$ interaction law, where per-arm and pooled predictions differ by more than $10^{-3}$ | swapped arm models, a mask without the arm, the observed arm read for a shifted arm |
+| `patience=` | `tests/unit/test_patience.py` compares the counter with a transcription of the R loop, and the lazy path with the eager path | a law whose global minimum lies past the stop changes `selected` | `>=` for `>`, no reset on a tie |
+| `treatment_adjustment=` | `tests/unit/test_treatment_covariates.py` and `test_treatment_covariates_collaborative.py`. Exact-law witnesses reproduce $-1/75$ and $-0.0138815$ at $10^{-10}$, and a spy learner sees $W_g$ at every site | the arm-1 error exceeds $10^{-3}$ when the restriction fails | fit $g$ on the full set, and in C-TMLE the pool, the preorder, the lasso design and the learners names |
+| `hazard` refusal | `tests/unit/test_hazard_x22_refusal.py` asserts the text, the order and the timing | a default hazard fit still runs when every targeting solver is replaced | none |
+
+The R comparators have scripts, a registry and a self-test in `tests/canonical/option_fixtures/`.
+The local Study queue ran the four scripts in the pinned images. Each JSON file records the
+checksum of its script. `tests/unit/test_option_fixtures.py` compares each file and ties the label
+in the table to the registry.
+
+| fixture | comparator | parts | status |
+| --- | --- | --- | --- |
+| `tmle3_updater.json` | `tmle3` `tmle_TSM_all()` with `sample_size`, `scaled_var`, `constrain_step` and `use_best` updaters | `stopping=`, `step_bound=`, `step_search=`, `iterate=` | exact tests and R parity |
+| `drtmle_stratify.json` | `drtmle(stratify = TRUE)` and `stratify = FALSE` | `outcome_by_arm=` | exact tests and R parity |
+| `ctmle_patience.json` | `ctmleDiscrete(preOrder = TRUE, patience = 2)` and `patience = FALSE` | `patience=` | exact tests and R parity of the option |
+| `ctmle_wg.json` | `ctmleDiscrete(Wg = W[, c(1, 3)], preOrder = TRUE)` | `treatment_adjustment=` | exact tests and R parity of the option |
+
+The two `ctmle` rows compare the option, not the whole fit. A transcription of `ctmleDiscrete`,
+`tests/canonical/option_fixtures/r_ctmle_discrete.py`, must reproduce every R number in the two
+files. The package must then stop where R's counter stops on the package's own scores, and keep
+R's candidate pool. R's discrete path differs from the package in two ways that the options do not
+touch. [Candidate sequences](collaborative-tmle.md#candidate-sequences) lists them.
+
+The declared differences from the comparators are D4, D7 and D7b.
+[Stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate) and
+[patience](collaborative-tmle.md#patience) state them.
+
 ## Longitudinal estimands outside the target registry
 
 `LTMLE` parameters are indexed by regimen, horizon, and sometimes cause rather than by a

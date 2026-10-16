@@ -1019,3 +1019,60 @@ class TestTheBootstrapPublishesUnderTheStatusName:
             f"  ate   bootstrap se {estimate.bootstrap.std_error:.4g}  "
             f"percentile CI [{low:.5g}, {high:.5g}]"
         ) in lines
+
+
+class TestCompetingRisksFollowerLines:
+    """A competing-risks LTMLE fit prints each regimen's follower line once.
+
+    The fit holds one regimen fit per cause, and the followers and weights come from the
+    treatment and censoring mechanism every cause shares.  The summary printed the line once
+    per cause, so it repeated.
+    """
+
+    @staticmethod
+    def _fit() -> Any:
+        from tests.unit.test_stopping_rule_longitudinal import competing
+
+        return competing("relative")
+
+    def test_each_regimen_line_prints_once(self) -> None:
+        import re
+
+        result = self._fit()
+        deepest = max(fit.horizon for fit in result.fits.values())
+        per_regimen: dict[str, set[str | None]] = {}
+        for fit in result.fits.values():
+            if fit.horizon == deepest:
+                per_regimen.setdefault(fit.regimen.label, set()).add(fit.cause)
+        # Witness: the fit really holds one deepest fit per cause, so the check is not vacuous.
+        assert per_regimen == {"always": {"relapse", "death"}, "never": {"relapse", "death"}}
+        lines = [
+            line
+            for line in result.summary().splitlines()
+            if re.match(r"  (always|never)( \(\w+\))?: \d+ of \d+ units followed", line)
+        ]
+        assert [line.split(":")[0].strip() for line in lines] == ["always", "never"]
+
+    def test_a_cause_whose_line_differs_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Mutation of the shared-mechanism premise: give one cause's fit another weight.  The
+        # summary must then name each cause rather than drop a line.
+        result = self._fit()
+        deepest = max(fit.horizon for fit in result.fits.values())
+        key = next(
+            key
+            for key, fit in result.fits.items()
+            if fit.horizon == deepest and fit.regimen.label == "always" and fit.cause == "death"
+        )
+        original = result.fits[key]
+
+        class Heavier:
+            max_weight = 99.0
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(original, name)
+
+        monkeypatch.setitem(result.fits, key, Heavier())
+        text = result.summary()
+        assert "  always (relapse): " in text and "  always (death): " in text
+        assert "max weight 99.0" in text
+        assert text.count("  never: ") == 1
