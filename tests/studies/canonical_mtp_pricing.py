@@ -6,7 +6,7 @@ node's engagement, ``continuous_treatment={"A_t": Support(4 + 2 L_t, 8 + 2 L_t)}
 upper boundary; ``price_down`` scales it by 0.85 and binds at the lower boundary, with two pieces.  The
 law, the plans, the truths and the learners live in :mod:`tests.studies.mtp_pricing_common`.
 The comparator is R ``lmtp`` 1.5.4, pending.  Six primary scenarios, 1,000 replications at
-n = 2,000:
+n = 5,000:
 
 =======================  ================================================================
 scenario                 subject and pairing
@@ -33,6 +33,13 @@ Both read ``shift__<plan>__<node>__1`` and ``ratio__<plan>__<node>``; the adapte
 ``length(trt)``, so ``tau = 5`` needs no new adapter.  A pre-declaration R smoke of 3
 replications requires every paired estimate and standard error to differ by less than
 :data:`SMOKE_GATE`.  These rows are comparator evidence.
+
+**Second declaration (2026-10-16).**  The first run (cleverly-tmle fb70e6ef, n = 2,000) read
+the four ``tau = 5`` ``price_down`` rows red: coverage 0.903 to 0.912, SE ratio 0.93, bias
+under 0.04 SD, on the exact ratio.  A probe on fresh draws read SE ratio 0.887 at n = 2,000 and
+0.968 at n = 4,000, a finite-sample shortfall of the influence-curve variance.  The primary
+moves to n = 5,000 on Eric's decision (2026-10-16); the property cells keep their declared
+sizes and their committed rows.  The n = 2,000 reading stays in the method-evidence page.
 
 **Red-cell reading, declared before any run.**  As ``mtp-boundaries``
 (:mod:`tests.studies.canonical_mtp_boundaries`), with the owner rows
@@ -68,7 +75,7 @@ from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.fractional_glm import QuasiBinomialGLM
 
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 2_000
+PRIMARY_N = 5_000
 SEED = 20264021
 RESAMPLING_SEED = 2026402101
 #: The pre-declaration smoke gate on the exactness witnesses.

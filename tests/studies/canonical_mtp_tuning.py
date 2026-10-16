@@ -17,8 +17,11 @@ scenario                       subject
 ``population_quantile_sdr``    the same draw, ``SDR``
 =============================  ==========================================================
 
-200 primary replications at n = 2,000: the primary phase exists so that the record has a
-primary table.  The claims are the property cells of :mod:`tests.studies.mtp_tuning_properties`.
+1,000 primary replications at n = 2,000: the primary phase exists so that the record has a
+primary table.  The first declaration's 200 replications (cleverly-tmle fb70e6ef) could not pass
+the bias-equivalence and coverage-floor gates at any plausible bias: both rows read red with
+coverage 0.935 (99% interval 0.876 to 0.972) and SE ratio 0.92 (0.82 to 1.06).  The second
+declaration (2026-10-16) sizes the primary at 1,000, which those gates can resolve.  The claims are the property cells of :mod:`tests.studies.mtp_tuning_properties`.
 
 **Red-cell reading, declared before any run.**  As ``mtp-boundaries``, with the owner row
 ``mtp-tuning-calibration``.  Publication policy is ``reporting``.
@@ -48,7 +51,7 @@ from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.studies.mtp_pricing_common import restricted_cubic
 from tests.studies.oracle_density_bins import oracle_bins
 
-PRIMARY_REPLICATES = 200
+PRIMARY_REPLICATES = 1_000
 PRIMARY_N = 2_000
 SEED = 20264031
 RESAMPLING_SEED = 2026403101
