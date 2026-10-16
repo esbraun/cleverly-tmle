@@ -58,13 +58,17 @@ The `X26-plugin-conservative` owner holds the lower bound of the ATE of arm 2 ag
 cross-fitted three-arm fit of the
 [plug-in bound study](omitted-variable-bound-plugin-standard-error.md). The study reads it as
 conservative. Its SE-ratio interval ends near 1.07, and the diagnosis found the package curve in
-agreement with a jackknife and a sandwich. The rerun at $n = 4000$ is pending.
+agreement with a jackknife and a sandwich. The rerun at $n = 4000$ reads an SE ratio of 0.998, with
+a 99% interval of 0.973 to 1.025, so the cell reads "conservative, contracting".
 
 The `X26-refusal-limited` owner holds the lower bound of the ATT of the same arm pair and fit. Its
 SE-ratio interval, 1.0288 to 1.0683, is inside the band on the complete case. The worst-case
 clause of the failure accounting turns it red. The package refused 32 of 10,000 replicates, all
 with the key `truncation_active`, and no other key refused one. The SE-ratio leg reads 0.0017 on
 the complete case and -0.0048 on the worst case. The study reads the cell as refusal-limited.
+
+The rerun of this cell at $n = 4000$ lost no replicate. It reads an SE ratio of 1.002, with a 99%
+interval of 0.977 to 1.027.
 
 A red row stays red under the `reporting` policy. It is read again only under the condition its
 owner names. The ledger moves no margin and changes no verdict.

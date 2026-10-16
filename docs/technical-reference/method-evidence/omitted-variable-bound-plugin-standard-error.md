@@ -453,12 +453,24 @@ asks for.
 The ledger gives the ATT cell the owner `X26-refusal-limited`. Rule 4 does not make it a defect
 suspect.
 
-**Rule 3: the rerun.** The rerun at $n = 4000$ with 5,000 replicates has not run. It decides
-between "conservative, contracting" and "conservative, not contracting at n=4000". The
+**Rule 3: the rerun.** The rerun at $n = 4000$ with 5,000 replicates has run. It decides between
+"conservative, contracting" and "conservative, not contracting at n=4000". The
 `tests/diagnostics/x26_red_cells/rerun.py` script keeps a checkpoint for each replicate, draws from
-a dedicated seed stream and writes `rerun-rows.csv.gz` and `rerun-reading.csv`. The rerun
-covers both cells. Until it runs, the contraction of both cells stays open. The rule 7 reading of
-the ATT cell stands on the declared run.
+a dedicated seed stream and writes `rerun-rows.csv.gz` and `rerun-reading.csv`. The rerun covers
+both cells. It lost no replicate, so no key refused any of the 5,000 draws.
+
+| cell | SE ratio | 99% interval | coverage | upper bound, SE ratio |
+| --- | --- | --- | --- | --- |
+| ATE of arm 2 against arm 0, lower | 0.998 | 0.973 to 1.025 | 0.9506 | 1.002 |
+| ATT of arm 2 against arm 0, lower | 1.002 | 0.977 to 1.027 | 0.9534 | 1.007 |
+
+The SE ratio of the ATE cell falls from 1.0523 at $n = 1000$ to 0.998 at $n = 4000$. Its interval
+contains 1, so the cell reads "conservative, contracting". The omitted second-order variance term
+is consistent with the excess.
+
+The ATT cell reads the same way at $n = 4000$. Its rule 7 reading, "refusal-limited", stands on the
+declared run, because the rerun has no lost replicate to fill. The rerun is a diagnostic. It does
+not change a verdict of the declared run.
 
 ## Red-cell policy
 
@@ -578,7 +590,7 @@ from the committed results and checked at the precision printed.
 | The corrected $\nu^2$ is not judged | At $n = 1000$ its standard error over-reads the sampling spread. The [reading](#the-corrected-nu2-reading) states the size. The bound intervals read near 1.0 to 1.04 in the diagnostic |
 | $\hat B$ is a package value | The study rebuilds the curve and the bias curve of each bound. The exact-law witnesses in `tests/unit/test_omitted_variable_plugin_second_order.py` check $\hat B$ |
 | Refusals are failed replicates | A refusal fails the cells of one parameter. A cell that loses more than 1 percent of its replicates ends with the verdict `bound exceeded`. No cell did: the largest loss is 32 of 10,000 replicates |
-| One cell reads conservative and one reads refusal-limited | The lower bounds of the ATE and the ATT of arm 2 against arm 0 on `multinomial_logistic_crossfit` have SE ratios of 1.05, and their 99% intervals end at 1.07. The ATT cell is red only through the worst-case fill of 32 lost replicates. A user of the cross-fitted three-arm limits at $n = 1000$ should expect a reported standard error up to 7 percent above the sampling spread. The rerun at $n = 4000$ has not run |
+| One cell reads conservative and one reads refusal-limited | The lower bounds of the ATE and the ATT of arm 2 against arm 0 on `multinomial_logistic_crossfit` have SE ratios of 1.05, and their 99% intervals end at 1.07. The ATT cell is red only through the worst-case fill of 32 lost replicates. A user of the cross-fitted three-arm limits at $n = 1000$ should expect a reported standard error up to 7 percent above the sampling spread. At $n = 4000$ the rerun reads SE ratios of 0.998 and 1.002, so the excess contracts |
 | Three scenarios declare wide truncation bounds | `multinomial_logistic`, `multinomial_logistic_crossfit` and `binary_unbalanced` declare `g_bounds=(0.005, 0.995)`. The automatic bounds refuse 27 to 52 percent of draws on those laws. The study does not test an active clip. The exact-law witness covers it |
 | There is no cross-implementation evidence | No maintained implementation reports limits for the plug-in $\nu^2$ |
 | Correctly specified mechanisms only | Each logistic model is correct for its law. A misspecified model covers $\nu^2$ of its own limit, which the study does not test |

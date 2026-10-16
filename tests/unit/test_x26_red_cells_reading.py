@@ -4,7 +4,8 @@ r"""The diagnostics of the two red cells of ``omitted-variable-bound-plugin-se``
 ``multinomial_logistic_crossfit`` it compares the package curve of the plug-in
 :math:`\hat\nu^2` with an infinitesimal jackknife (unit witness W5) and a numerical sandwich
 (``TestTheNumericalSandwich``).  ``rerun.py`` is rule 3.  These tests hold what the committed
-agreement rows say, and the wiring of the rerun that has not run.
+agreement rows say, the wiring of the rerun, and the rounded numbers that the documents quote from
+``rerun-reading.csv``.
 
 A comparison that passes does not show that it could fail, so a deliberate mutation follows the
 agreement: with the mechanism term of the curve dropped, both comparators leave their tolerance.
@@ -127,7 +128,7 @@ def test_dropping_the_mechanism_term_fails_both_comparators(
     assert abs(variance - curve_variance) / variance > 1e3 * agreement.RTOL
 
 
-# --- the rerun of rule 3, which has not run --------------------------------------------------
+# --- the rerun of rule 3 ----------------------------------------------------------------------
 
 
 def test_the_rerun_design_is_the_declared_one() -> None:
@@ -202,3 +203,38 @@ def test_the_rerun_refuses_checkpoints_of_another_configuration(tmp_path: Path) 
     with pytest.raises(SystemExit, match="--fresh"):
         rerun.prepare(tmp_path, 1_000, fresh=False)
     rerun.prepare(tmp_path, 1_000, fresh=True)
+
+
+#: The numbers that the roadmap owner rows, the red-cell page and the study page quote from
+#: ``rerun-reading.csv``, at the rounding they print: the SE ratio and its 99% interval to three
+#: decimals, the coverage to four.
+QUOTED_RERUN = {
+    "ate_2v0_lower": (0.998, 0.973, 1.025, 0.9506),
+    "ate_2v0_upper": (1.002, 0.976, 1.028, 0.9520),
+    "att_2v0_lower": (1.002, 0.977, 1.027, 0.9534),
+    "att_2v0_upper": (1.007, 0.982, 1.034, 0.9528),
+}
+
+
+def test_the_documents_quote_the_committed_rerun_reading() -> None:
+    reading = pd.read_csv(rerun.HERE / "rerun-reading.csv")
+    assert len(reading) == len(QUOTED_RERUN)
+    for token, (ratio, lower, upper, coverage) in QUOTED_RERUN.items():
+        row = reading.loc[reading["cell"].str.contains(f"crossfit_{token}__")]
+        assert len(row) == 1, token
+        held = row.iloc[0]
+        assert (held["n"], held["replicates"], held["failed_replicates"]) == (4_000, 5_000, 0)
+        assert round(held["se_ratio"], 3) == ratio
+        assert round(held["se_ratio_ci_lower"], 3) == lower
+        assert round(held["se_ratio_ci_upper"], 3) == upper
+        assert round(held["coverage"], 4) == coverage
+
+
+def test_the_rerun_reads_both_red_cells_as_contracting() -> None:
+    """The reading rule 8 gives: the 99% SE-ratio interval at n = 4000 contains 1."""
+    reading = pd.read_csv(rerun.HERE / "rerun-reading.csv")
+    for token in ("ate_2v0", "att_2v0"):
+        row = reading.loc[reading["cell"].str.contains(f"crossfit_{token}_lower__")].iloc[0]
+        assert row["se_ratio_ci_lower"] < 1.0 < row["se_ratio_ci_upper"]
+        assert row["coverage_ci_lower"] < 0.95 < row["coverage_ci_upper"]
+        assert bool(row["passed"])

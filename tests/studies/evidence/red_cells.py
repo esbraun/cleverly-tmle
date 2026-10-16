@@ -598,7 +598,8 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The lower bound of the ATE of arm 2 against arm 0 on the cross-fitted three-arm fit.  Rule 8
     # of the study's red-cell policy reads it as conservative, after rule 2 found the package
-    # curve in agreement with a jackknife and a sandwich.
+    # curve in agreement with a jackknife and a sandwich.  The rerun at n = 4000 reads an SE ratio
+    # of 0.998 (99% interval 0.973 to 1.025), so the reading is "conservative, contracting".
     "X26-plugin-conservative": (
         *_keys(
             "omitted-variable-bound-plugin-se",
@@ -608,7 +609,8 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     ),
     # The lower bound of the ATT of arm 2 against arm 0 on the same fit.  Its endpoints are in
     # band, and only the worst-case clause of the failure accounting turns it red, so rule 7
-    # reads it as refusal-limited.
+    # reads it as refusal-limited.  The rerun at n = 4000 lost no replicate and reads an SE ratio
+    # of 1.002 (99% interval 0.977 to 1.027).
     "X26-refusal-limited": (
         *_keys(
             "omitted-variable-bound-plugin-se",
