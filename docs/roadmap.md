@@ -126,7 +126,6 @@ not change the package version.
 | B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
 | B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
 | B3 | Applied tutorials for offers and pricing | no new theory | X40; the shipped `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
-| B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
@@ -625,23 +624,6 @@ tutorial explains when TMLE, `SDR`, g-computation, or IPW is appropriate, and wh
 differ. It keeps the stagewise support diagnostics, covers positivity and truncation, and labels a truncation curve as a descriptive estimator change.
 
 Acceptance: the notebook executes in the documentation build.
-
-### X43. Categorical incremental policies
-
-`IPSI` fits Kennedy's odds-multiplier target at binary nodes, and its odds tilt names two arms. A
-categorical incremental policy is a candidate natural extension, starting from the binary case that
-Kennedy (2019) covers directly. A propensity-dependent policy changes with the observed treatment
-law, so its influence function carries a derivative term that a known stochastic policy does not
-have. Do not substitute the risk-ratio policy of `lmtp`.
-
-Use the pinned `npcausal` runner where it covers the odds-based target. `imtp` 0.1.0 at `d4b5204`
-omits the derivative term from its influence curve
-([comparator survey](development/method-benchmarking.md#choose-the-comparator-before-you-write-the-runner)),
-so it can witness a point estimate only. Re-audit a later `imtp` release, including its
-longitudinal support, before using it as a comparator.
-
-Acceptance: a written derivation of the changed terms under the [Eligibility](#eligibility)
-conditions, identity and treatment-score witnesses, a dropout control, and a registered study.
 
 ### X44. Structural dynamic treatment effects
 

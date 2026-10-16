@@ -545,8 +545,10 @@ changed: `IncrementalSupport.min_propensity` is the minimum over both columns of
 
 `tests/unit/test_incremental_binary_surface.py` and
 `tests/unit/test_ipsi_binary_surface.py` replay the committed studies to check it. A three-level
-fit has no registered study, so its support label is `experimental`, and no binary support row
-covers it. `tests/unit/test_categorical_ipsi_declaration.py` holds that check for nodes.
+fit on a configuration of the rows `T35` and `G39` carries the label of the registered study
+[categorical incremental policies](technical-reference/method-evidence/categorical-incremental.md).
+Any other three-level fit is `experimental`, and no binary support row covers it.
+`tests/unit/test_categorical_ipsi_declaration.py` holds that check for nodes.
 
 An estimator variant that only changes which nuisance estimate is targeted should override the
 nuisance hook, return a replaced `NuisanceEstimates` with diagnostics, and inherit targeting and

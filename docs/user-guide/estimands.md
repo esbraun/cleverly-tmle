@@ -323,8 +323,11 @@ A scalar on a treatment with other than two levels is refused before any learner
 that is not a level. Keys are the labels that the data reports, and a position is not a label.
 A vector treatment whose columns are all categorical is one treatment over its observed tuples.
 Its keys are the tuples. In a longitudinal fit, one `Incremental` applies to every node, and its
-keys are read against the levels of each node in turn. A fit with three or more levels is
-labelled `experimental` until a registered study covers it.
+keys are read against the levels of each node in turn.
+
+A fit with three or more levels carries the label of the registered study
+[categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md)
+when it matches that study's rows. Any other such fit is labelled `experimental`.
 
 ```python
 from cleverly import IncrementalEffect

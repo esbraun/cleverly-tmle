@@ -61,6 +61,18 @@ ARMS: dict[str, str] = {
     "or": "marginal odds ratio",
     "att": "average effect on the treated",
     "atc": "average effect on the untreated",
+    # ``categorical-incremental`` (X43): the labels of its calibration and property cells.
+    "point_contrast_t_a": "three-level law P, T_a against the natural course",
+    "point_contrast_t_b": "three-level law P, T_b against the natural course",
+    "point_known_t_a": "law P with the treatment mechanism declared, T_a against the natural course",
+    "point_stratified_t_a_v1": "law P in baseline stratum V = 1, T_a against the natural course",
+    "longitudinal_dropout_contrast_t_a": (
+        "two-node law L with dropout and three-level treatment, T_a against the natural course"
+    ),
+    "longitudinal_contrast_t_a": (
+        "two-node law L0 without dropout and three-level treatment, T_a against the natural course"
+    ),
+    "longitudinal_mean_t_a": "two-node law L with dropout, mean under T_a",
     "ey_ipsi": "incremental mean at odds multiplier 2",
     "ey0": "arm-0 mean",
     "ey1": "arm-1 mean",
@@ -688,6 +700,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "npcausal": "R `npcausal`",
     "cleverly-ipsi": "`cleverly` `IPSI`, one-step over time",
     "cleverly-ipsi-dropout": "`cleverly` `IPSI` with a censoring mechanism",
+    "cleverly-categorical-incremental": ("`cleverly` TMLE and `IPSI` with a categorical odds tilt"),
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
     "ctmle3-multi-arm-oat": "R `ctmle3` multi-arm outcome-adaptive TMLE",
@@ -725,6 +738,12 @@ SCENARIOS: dict[str, str] = {
     "missing_treatment": (
         "two arms, treatment unrecorded at random given W3 and the arm, outcomes missing at random"
     ),
+    "point_in_sample": "three-level treatment, four baseline values, nuisances fitted in sample",
+    "point_crossfit": "three-level treatment, four baseline values, five folds",
+    "longitudinal_dropout_folds_5": (
+        "two treatment nodes with three levels each, dropout after each node, five folds"
+    ),
+    "longitudinal_folds_5": ("two treatment nodes with three levels each, no dropout, five folds"),
     "ipsi_folds_2": "three-node law with a continuous outcome, two folds",
     "ipsi_folds_5": "three-node law with a continuous outcome, five folds",
     "repeated_folds_5": (
@@ -1015,6 +1034,8 @@ REGIMENS: dict[str, str] = {
     "halve below 3": "move a dose at or below 3 halfway toward 3",
     "odds x0.5": "multiply the treatment odds by 0.5",
     "odds x2": "multiply the treatment odds by two",
+    "T_a": "multiply the odds of the second level by 2 and of the third by 0.5, against the first",
+    "T_b": "multiply the odds of the second level by 0.5 and of the third by 2, against the first",
     "rule": "follow the covariate-dependent rule",
     "learned rule": "learned on each fold's training rows from its outcome regression",
     "tilt": "draw from the known stochastic tilt",
@@ -1278,6 +1299,14 @@ PROPERTIES: dict[str, str] = {
     "censoring_complete_case": (
         "how far a fit to the rows that never drop out sits from the target, reported rather "
         "than gated"
+    ),
+    "in_sample_fit": (
+        "how far a fit with one fold sits from the target on the same histories, reported "
+        "rather than gated"
+    ),
+    "mechanism_targeting": (
+        "the softmax update of the treatment mechanism removes the first-order error of a "
+        "tilted mechanism, and outcome targeting alone does not"
     ),
     "sequential_double_robustness": (
         "the estimate stays consistent when at each node either the outcome regression or "
@@ -3111,6 +3140,31 @@ CELLS.update(
         ("targeting_necessity", "plug_in"): (
             "the mean of the first-node regression before the correction, on the same fits",
             "bias interval outside the margin",
+        ),
+        ("mechanism_term_necessity", "binary_blip"): (
+            "the same estimates with the mechanism term read from the first two levels only",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("single_robustness", "mechanism_correct__n_8000"): (
+            "cell-frequency treatment mechanism and a constant outcome regression, at n = 8,000",
+            "bias inside the margin at n = 8,000 and at n = 16,000",
+        ),
+        ("single_robustness", "mechanism_correct__n_16000"): (
+            "cell-frequency treatment mechanism and a constant outcome regression, at n = 16,000",
+            "bias inside the margin at n = 8,000 and at n = 16,000",
+        ),
+        ("in_sample_fit", "one_fold"): (
+            "the same histories fitted with one fold, beside the exact-law truth",
+            "reported only",
+        ),
+        ("mechanism_targeting", "mechanism_targeted"): (
+            "the treatment mechanism is tilted along the T_a mechanism score by 2 / sqrt(n), "
+            "then the full targeting runs",
+            "bias inside the margin and the SE-ratio interval inside the efficiency-ratio band",
+        ),
+        ("mechanism_targeting", "outcome_targeted_only"): (
+            "the same tilted mechanism with the outcome fluctuation alone",
+            "bias interval must fall above zero and entirely outside the margin",
         ),
         ("censoring_complete_case", "complete_case"): (
             "a fit to the rows that never drop out, without a censoring model, beside the "

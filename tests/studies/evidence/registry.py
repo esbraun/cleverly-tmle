@@ -424,6 +424,7 @@ def registered() -> tuple[StudyRecord, ...]:
     estimator configuration, and so a study module can import the framework.
     """
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
+    from tests.studies.canonical_categorical_incremental import STUDY as CATEGORICAL_INCREMENTAL
     from tests.studies.canonical_categorical_ltmle import STUDY as CANONICAL_CATEGORICAL_LTMLE
     from tests.studies.canonical_categorical_ltmle_crossfit import (
         STUDY as CANONICAL_CATEGORICAL_LTMLE_CROSSFIT,
@@ -603,6 +604,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LONGITUDINAL_SDR,
         LONGITUDINAL_IPSI,
         LONGITUDINAL_IPSI_DROPOUT,
+        CATEGORICAL_INCREMENTAL,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,

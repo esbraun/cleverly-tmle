@@ -1988,23 +1988,10 @@ def _vector_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
-#: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
-CASES: tuple[RowCase, ...] = (
-    *_t_cases(),
-    *_d_cases(),
-    *_c_cases(),
-    *_gap_cases(),
-    *_long_cases(),
-    *_vector_cases(),
-)
-
-
 def _categorical_incremental_cases() -> tuple[RowCase, ...]:
-    """The cases of ``categorical-incremental`` (X43), pending its registration.
+    """The cases of ``categorical-incremental`` (X43).
 
-    Each runs the study's own fit on a small draw of its stream up to the classifier.  The
-    registration commit moves them into :data:`CASES` with the rows of
-    :data:`cleverly._support_rows.PENDING_ROWS`.
+    Each runs the study's own fit on a small draw of its stream up to the classifier.
     """
     runner, slug = "canonical_categorical_incremental", "categorical-incremental"
     properties = "categorical_incremental_properties"
@@ -2071,5 +2058,13 @@ def _categorical_incremental_cases() -> tuple[RowCase, ...]:
     )
 
 
-#: The cases of ``categorical-incremental``, joined to :data:`CASES` when it registers.
-PENDING_CASES: tuple[RowCase, ...] = _categorical_incremental_cases()
+#: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
+CASES: tuple[RowCase, ...] = (
+    *_t_cases(),
+    *_d_cases(),
+    *_c_cases(),
+    *_gap_cases(),
+    *_long_cases(),
+    *_vector_cases(),
+    *_categorical_incremental_cases(),
+)

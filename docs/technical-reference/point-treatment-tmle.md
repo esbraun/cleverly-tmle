@@ -1210,9 +1210,11 @@ submodel and Kennedy's arithmetic bit for bit, with $\delta=\delta_1/\delta_0$. 
 surface rule in [the architecture invariants](../architecture-invariants.md).
 
 **Evidence class.** The estimator is validated by Python property evidence: exact-law checks of
-the estimate, the curve and the remainder, and deliberate-mutation controls. No registered study
-covers a categorical fit yet, so the support label of such a fit is `experimental`. No external
-comparator exists for the categorical tilt.
+the estimate, the curve and the remainder, deliberate-mutation controls, and the registered study
+[categorical incremental policies](method-evidence/categorical-incremental.md). The study covers
+the rows `T35` with saturated learners, in sample and at five folds. A categorical fit outside
+those rows has the support label `experimental`. No external comparator exists for the categorical
+tilt.
 
 `tests/unit/test_categorical_incremental_compositions.py` checks four compositions against
 identities. Integer weights equal row duplication. Singleton clusters equal the iid fit, and

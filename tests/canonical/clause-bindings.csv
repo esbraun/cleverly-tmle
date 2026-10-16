@@ -373,6 +373,21 @@ canonical-tmle,root_n_and_efficiency,se ratio sanity,se_high
 canonical-tmle,root_n_rate,slope in root-n band,contract
 canonical-tmle,type_i_error,coverage floor,coverage/0.5
 canonical-tmle,type_i_error,rejection ceiling,rejection/0.1
+categorical-incremental,interval_calibration,coverage in calibration band,bias
+categorical-incremental,interval_calibration,efficiency above band,pair_collapse
+categorical-incremental,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+categorical-incremental,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+categorical-incremental,interval_calibration,se ratio below band,se_high
+categorical-incremental,interval_calibration,se ratio in calibration band,se/0.9
+categorical-incremental,mechanism_targeting,SE ratio in efficiency band,se_low
+categorical-incremental,mechanism_targeting,bias equivalent,bias
+categorical-incremental,mechanism_targeting,control bias beyond the margin,pair_collapse
+categorical-incremental,mechanism_term_necessity,control below calibration band,se_high
+categorical-incremental,mechanism_term_necessity,full curve in efficiency band,se_low
+categorical-incremental,power,rejection floor,se_high
+categorical-incremental,single_robustness,bias equivalent,bias
+categorical-incremental,type_i_error,coverage floor,coverage/0.5
+categorical-incremental,type_i_error,rejection ceiling,rejection/0.1
 cde-tmle,cde_robustness,bias discriminated,pair_collapse
 cde-tmle,cde_robustness,bias equivalent,bias
 cde-tmle,cde_robustness,se ratio in union band,se/0.05

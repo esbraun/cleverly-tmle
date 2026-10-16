@@ -27,7 +27,6 @@ __all__ = [
     "LONGITUDINAL_ROWS",
     "MEASURED_LIMITS",
     "OPTION_ALLOWLIST",
-    "PENDING_ROWS",
     "POINT_ROWS",
     "SHORTFALLS",
     "TheoryAnchor",
@@ -1325,8 +1324,63 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
     return tuple(out)
 
 
-#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``) and C-TMLE (``C``).
-POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls((*_t_rows(), *_d_rows(), *_c_rows()))
+def _categorical_point_rows() -> tuple[SupportRow, ...]:
+    """The point rows of the study ``categorical-incremental`` (X43): ``T35``.
+
+    A categorical tilt fit on one of these configurations carries the evidence of the study.
+    Any other categorical tilt fit stays labelled ``experimental``.
+    """
+    slug = ["categorical-incremental"]
+    point: dict[str, Any] = {
+        "families": ("P9",),
+        "outcome": ("gaussian", "bounded"),
+        "treatment": ("arms3",),
+    }
+    return (
+        point_row("T35.in_sample", slug, **point, cells=["point_in_sample"]),
+        point_row(
+            "T35.cross_fitted",
+            slug,
+            **point,
+            splitting=("stacked",),
+            cells=[
+                "point_crossfit",
+                "point_contrast_t_a",
+                "point_contrast_t_b",
+                "point_contrast_t_a__full_eif",
+                "point_contrast_t_a__sharp_null",
+                "point_contrast_t_a__alternative",
+            ],
+        ),
+        point_row(
+            "T35.known",
+            slug,
+            **point,
+            splitting=("stacked",),
+            qualifiers=("known_mechanism",),
+            cells=["point_known_t_a"],
+        ),
+        point_row(
+            "T35.strata",
+            slug,
+            **point,
+            splitting=("stacked",),
+            qualifiers=("strata",),
+            cells=["point_stratified_t_a_v1"],
+        ),
+    )
+
+
+#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``), C-TMLE (``C``) and the
+#: categorical tilt (``T35``).
+POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
+    (
+        *_t_rows(),
+        *_d_rows(),
+        *_c_rows(),
+        *_categorical_point_rows(),
+    )
+)
 
 
 # --------------------------------------------------------------------------- longitudinal
@@ -2295,30 +2349,9 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
     )
 
 
-#: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
-#: the sequential baselines (``G28``), the parametric g-formula (``G29``) and repeated-outcome
-#: ``IPSI`` (``G37``).
-LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
-
-
-# ------------------------------------------------------- pending: categorical incremental
-
-
-def _categorical_incremental_rows() -> tuple[SupportRow, ...]:
-    """The rows of the study ``categorical-incremental`` (X43), pending its registration.
-
-    A categorical tilt fit is labelled ``experimental`` until the study's artifacts land
-    (X43 plan rev 2.2). The registration commit joins these rows to :data:`POINT_ROWS` and
-    :data:`LONGITUDINAL_ROWS` and their cases to ``tests/studies/support_cases.py``'s
-    ``CASES``. Until then no fit matches them: ``tests/unit/test_support_rows.py`` requires
-    every evidence slug to name a registered study.
-    """
+def _categorical_long_rows() -> tuple[SupportRow, ...]:
+    """The longitudinal rows of the study ``categorical-incremental`` (X43): ``G39``."""
     slug = ["categorical-incremental"]
-    point: dict[str, Any] = {
-        "families": ("P9",),
-        "outcome": ("gaussian", "bounded"),
-        "treatment": ("arms3",),
-    }
     ipsi: dict[str, Any] = {
         "engine": "ipsi",
         "regimens": ("tilt",),
@@ -2327,37 +2360,6 @@ def _categorical_incremental_rows() -> tuple[SupportRow, ...]:
         "splitting": ("cross_fitted",),
     }
     return (
-        point_row("T35.in_sample", slug, **point, cells=["point_in_sample"]),
-        point_row(
-            "T35.cross_fitted",
-            slug,
-            **point,
-            splitting=("stacked",),
-            cells=[
-                "point_crossfit",
-                "point_contrast_t_a",
-                "point_contrast_t_b",
-                "point_contrast_t_a__full_eif",
-                "point_contrast_t_a__sharp_null",
-                "point_contrast_t_a__alternative",
-            ],
-        ),
-        point_row(
-            "T35.known",
-            slug,
-            **point,
-            splitting=("stacked",),
-            qualifiers=("known_mechanism",),
-            cells=["point_known_t_a"],
-        ),
-        point_row(
-            "T35.strata",
-            slug,
-            **point,
-            splitting=("stacked",),
-            qualifiers=("strata",),
-            cells=["point_stratified_t_a_v1"],
-        ),
         long_row(
             "G39.cross_fitted",
             slug,
@@ -2374,8 +2376,12 @@ def _categorical_incremental_rows() -> tuple[SupportRow, ...]:
     )
 
 
-#: The rows of ``categorical-incremental``, joined to the registered rows when it registers.
-PENDING_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_categorical_incremental_rows())
+#: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
+#: the sequential baselines (``G28``), the parametric g-formula (``G29``) and repeated-outcome
+#: ``IPSI`` (``G37``) and the categorical tilt (``G39``).
+LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
+    (*_long_rows(), *_categorical_long_rows())
+)
 
 
 # ------------------------------------------------------------------ exemptions and anchors

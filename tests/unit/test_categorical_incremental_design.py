@@ -41,7 +41,6 @@ from scipy.stats import t as student
 
 import cleverly.fluctuation.mechanism as mechanism_module
 from cleverly._support import classify_key
-from cleverly._support_rows import PENDING_ROWS
 from tests import discrete_law_categorical_ipsi_longitudinal as long_law
 from tests import discrete_law_categorical_ipsi_point as point
 from tests.studies import canonical_categorical_incremental as study
@@ -52,7 +51,7 @@ from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.property_verdicts import design_power, power_cell_pass_probability
 from tests.studies.evidence.registry import Margins, registered
 from tests.studies.intervention_study_helpers import incremental_estimates
-from tests.studies.support_cases import PENDING_CASES
+from tests.studies.support_cases import CASES
 from tests.unit._source_mutation import mutate
 
 pytestmark = pytest.mark.xdist_group("categorical_incremental_design")
@@ -318,21 +317,29 @@ def test_the_power_cell_is_sized_on_the_exact_law() -> None:
 # ------------------------------------------------------------------------ support rows
 
 
-@pytest.mark.parametrize(
-    "case",
-    PENDING_CASES,
-    ids=lambda case: case.row,
-)
-def test_each_case_lands_on_its_pending_row_only(case: Any) -> None:
-    """The study's own fits classify onto the pending rows they stand for, and onto no
-    registered row: until registration such a fit is labelled experimental."""
+#: The cases of the study's own two row families.
+STUDY_CASES = tuple(case for case in CASES if case.row.startswith(("T35.", "G39.")))
+
+
+def test_the_study_registers_one_case_for_each_of_its_six_rows() -> None:
+    assert [case.row for case in STUDY_CASES] == [
+        "T35.in_sample",
+        "T35.cross_fitted",
+        "T35.known",
+        "T35.strata",
+        "G39.cross_fitted",
+        "G39.complete",
+    ]
+
+
+@pytest.mark.parametrize("case", STUDY_CASES, ids=lambda case: case.row)
+def test_each_case_lands_on_its_row(case: Any) -> None:
+    """The study's own fits classify onto the rows they stand for."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         built = case.build()
-        landed = classify_key(built.key, built.learners, rows=PENDING_ROWS)
-        registered_row = classify_key(built.key, built.learners).row
+        landed = classify_key(built.key, built.learners)
     assert landed.row is not None and landed.row.id == case.row
-    assert registered_row is None
 
 
 # ---------------------------------------------------------------------- the pilot sizing
@@ -1024,8 +1031,8 @@ def test_the_mechanism_targeting_replicates_follow_the_sizing_rule() -> None:
     assert replicates == 2_000 or _targeting_pass(replicates - REPLICATE_GRAIN) < PRIMARY_PASS
 
 
-@pytest.mark.parametrize("case", PENDING_CASES, ids=lambda case: case.row)
-def test_each_pending_case_cites_the_line_of_its_fit(case: Any) -> None:
+@pytest.mark.parametrize("case", STUDY_CASES, ids=lambda case: case.row)
+def test_each_case_cites_the_line_of_its_fit(case: Any) -> None:
     """Finding 9: a case's ``file:line`` is the line that fits, not merely a line in range."""
     path, _, line = case.source.rpartition(":")
     text = (study.ROOT / path).read_text().splitlines()[int(line) - 1]

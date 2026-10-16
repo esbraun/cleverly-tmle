@@ -797,8 +797,9 @@ values. The fit then warns with `ParameterSpaceWarning`. A risk curve can also b
 across horizons. A mean of a non-absorbing outcome $Y_t$ is the end-of-study estimand on the panel
 truncated after node $t$. Earlier $Y_s$ are covariates there (Kim et al. 2021, Theorem 3.1).
 
-A fit with a node of three or more levels is labelled `experimental` until a registered study
-covers it. `IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
+A fit with a node of three or more levels carries the label of the registered study
+[categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md)
+when it matches that study's rows. Any other such fit is labelled `experimental`. `IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
 [Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
 the contract.
 
