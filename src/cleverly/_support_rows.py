@@ -123,7 +123,9 @@ def point_row(
     engine : tuple of str, default ("tmle",)
         The engine axis.
     kinds : frozenset of str, default Wald
-        What the row licenses.
+        What the row licenses. A row with a Wald kind that covers ``P1`` and ``P2`` also
+        licenses ``derived``: a difference or a ratio of two arm means is the ``P1`` or ``P2``
+        estimand that the row's study measured.
     cells : sequence of str, default ()
         The licensing study cells.
     limits : sequence of str, default ()
@@ -148,6 +150,8 @@ def point_row(
         qualifiers=frozenset(qualifiers),
         options=tuple(sorted(merged.items())),
     )
+    if {"P1", "P2"} <= key.family and kinds & {"wald", "wald_t"}:
+        kinds = kinds | {"derived"}
     return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), None, tuple(limits))
 
 
@@ -275,7 +279,7 @@ def _guard(*names: str) -> dict[str, Any]:
 
 def _t_rows() -> tuple[SupportRow, ...]:
     """Ordinary TMLE (``T`` rows)."""
-    boot: frozenset[Kind] = frozenset({"point", "wald", "bootstrap"})
+    boot: frozenset[Kind] = frozenset({"point", "wald", "bootstrap", "derived"})
     rows: list[SupportRow] = []
     rows += rows_over(
         point_row("T01", ["canonical-tmle"], families=_ALL_ARM, cells=["binary", "continuous"]),
