@@ -272,8 +272,8 @@ class TestLongitudinalControls:
             ("G21", "qualifiers", frozenset({"A1", "A2"})),
             ("G28.d2.ipw.hajek", "options", (("multiplier_kind", "rademacher"),)),
             ("G10.continuous", "treatment", ("continuous", "2")),
-            ("G33.density", "treatment", ("continuous", "continuous")),
-            ("G34.classifier", "treatment", ("mixed", "mixed")),
+            ("G35.density", "treatment", ("continuous", "continuous")),
+            ("G36.classifier", "treatment", ("mixed", "mixed")),
         ],
     )
     def test_one_changed_axis_leaves_the_row(self, row: str, axis: str, value: Any) -> None:

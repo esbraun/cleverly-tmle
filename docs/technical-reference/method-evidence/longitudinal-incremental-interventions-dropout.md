@@ -34,7 +34,7 @@ bias of order (cells)/n. The conditions for the one-fold interval are in the tab
 | --- | --- |
 | Kennedy (2019), Algorithm 2 (Appendix 8.3) | the one-fold interval, under Donsker conditions |
 | Kim et al. (2021), Theorem 5.1 | the dropout result, with sample splitting only |
-| the argument of this study | saturated cell means on a finite history set form a finite-dimensional class. The remainder is a product of $O_P(n^{-1/2})$ errors. The Donsker argument therefore extends the dropout result to one fold |
+| the argument of this study | saturated cell means on a finite history set form a finite-dimensional class. The remainder is a product of $O_P(n^{-1/2})$ errors. The class is Donsker and the fitted influence function converges in $L_2$, so the empirical-process term is $o_P(n^{-1/2})$. The argument therefore extends the dropout result to one fold |
 
 ## Accuracy against known truth
 
@@ -121,15 +121,15 @@ SE-ratio band on the conservative side: the interval 1.0124 to 1.0830 crosses th
 1.07. Its coverage interval, 0.9491 to 0.9681, stays inside the band. The reported efficiency ratio
 is 1.0006, so the reported standard error matches the exact efficient influence-function standard
 deviation. The empirical spread sits 4.4% below that bound. A regular estimator does not stay below
-the bound as n grows, so the diagnosis reads a finite-sample or Monte Carlo excursion and finds no
+the bound as n grows, so the diagnosis reads a finite-sample excursion and finds no
 defect. The design probes on other draws read SE ratios of 0.948 at n = 32,000 and 0.980 at
 n = 64,000 (`tests/diagnostics/x19_sizing/reading.csv`).
 
 By the declared route the study moved to `reporting`. The roadmap row [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) owns
-the cell. No fit was repeated: `regenerate.py --reuse-subject --skip-properties` summarized the
+the cell. No fit of this cell was repeated: `regenerate.py --reuse-subject --skip-properties` summarized the
 committed rows again under the new policy. No property fit failed.
 
-Every property fit uses five folds, saturated cell means at every slot and 3,000 draws. The
+Every property fit uses five folds, except the two one-fold labels, saturated cell means at every slot and 3,000 draws. The
 default size is n = 48,000. `x2` is the plan that doubles the odds of treatment at every node.
 `contrast_x2` is its contrast with the natural course.
 `tests/studies/longitudinal_incremental_dropout_properties.py` declares every cell.
@@ -180,7 +180,11 @@ least 0.95 at the projected bias. It requires 0.90 for each calibration cell.
 | band control | the pointwise intervals cover jointly with exact probability 0.695. The control clears the control-power rule at that value plus 0.005 | the same |
 
 The fallback-read bias bound holds far below these sizes. The study fixed every size,
-replication count, margin, law, learner, fold count and seed before any run.
+replication count, margin, law, learner, fold count and seed before any run. After the run,
+the `censoring_complete_case` diagnostic moved to its own sample stream, because it reused the
+law `C` draws of `interval_calibration`. It was refitted at the declared size and spliced into
+the committed rows. `targeted-refit.json` in the study directory records the baseline, the
+selection, the replacement fits and the identical carried rows. The cell states no verdict.
 
 ## Red-cell route
 

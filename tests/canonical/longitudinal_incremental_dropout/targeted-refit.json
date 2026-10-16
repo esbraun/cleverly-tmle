@@ -1,0 +1,99 @@
+{
+  "kind": "targeted refit of property families on their own sample streams",
+  "trigger": "tests/unit/test_method_evidence.py::test_property_families_do_not_reuse_a_law_and_seed",
+  "baseline": {
+    "artifact_commit": "dd77aea81e747e87bbaba09ab834f0f470203937",
+    "property_run_commit": "340fcd6a71603360af55b51e859349c6d38202c4",
+    "manifest_sha256": "d013eaf8540baf35f3baf3399e5a7c43c3539a7cfa3b534f77c3c78de69fa3f8",
+    "artifact_sha256": {
+      "replicates.csv.gz": "d5253e4b247c1aab2094770ddb60de4ac80e172f05f357aff5c81c2a113eb415",
+      "summary.csv": "145e3b77ccce93a143d9b2b5dab2109dc0c0dfc231780c5e6c4ef3fb6cbb73be",
+      "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+      "performance-tests.csv": "9040a4306b7df8f012b7faf68e1ad237cad79debeae252b24ce1c8d81da0d9e2",
+      "property-replicates.csv.gz": "2e58ba30b6924a76c1d1ba8079b47a98d31a60795350b6ba8733901c31c57af5",
+      "properties.csv": "d573042492b4cf54c3006146d9b9be983862a02712f451fbe4456914b2f3065d"
+    },
+    "generated_with": {
+      "implementation": "cleverly-ipsi-dropout",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "340fcd6a71603360af55b51e859349c6d38202c4",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "study_module_sha256": {
+      "tests/studies/canonical_longitudinal_incremental_dropout.py": "378e2b7253e9c9e1908a12fa5b2729f89ca384efc8a010e0a88340b7eced5222",
+      "tests/studies/longitudinal_incremental_dropout_properties.py": "7410874831346c2041d517c1216c5c9174211258d5a6347a7d3e9b7d0cc395e1",
+      "tests/studies/longitudinal_incremental_common.py": "ed586da4507db03e220361312974bb2bcd34ecdf34092879291f17cbf1e96ad6",
+      "tests/discrete_law_longitudinal_incremental.py": "a1b01eeea0343037b33a6ce948884241e718f882a309dd35216b8217717df0a5",
+      "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+      "tests/longitudinal_ipsi.py": "e0178cef68da828d421c16f68b02e0cc0662e4a82c1f7105ce03501c34677a05",
+      "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+      "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+      "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+      "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
+      "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+      "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+      "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
+    }
+  },
+  "selection": [
+    {
+      "property": "censoring_complete_case",
+      "reason": "the diagnostic reused the interval_calibration law_c draws",
+      "cells": [
+        "mean_x2__complete_case"
+      ],
+      "replicates": 3000,
+      "old_stream": "the shared family's stream_seed(STUDY, 'property_sample', <shared family>, <label>, replicate)",
+      "new_stream": "stream_seed(STUDY, 'property_sample', 'censoring_complete_case', <label>, replicate)",
+      "rows_replaced": 3000,
+      "rows_written": 3000,
+      "parts": "75 parts of 40 keys"
+    }
+  ],
+  "replacement_fits": {
+    "source_commit": "2938fb4b7952c744e4d4d6ebbb1746eb2ef55849",
+    "worktree_clean": true,
+    "result_determining_module_sha256": {
+      "tests/studies/longitudinal_incremental_dropout_properties.py": "87e2a4a51997190fbad0ec08cffcd3d796ac065086e41f1e99e7f5ec2c56661e"
+    },
+    "runtime": {
+      "python": "3.13.7",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "platform": "linux cloud container, 4 workers",
+    "command": "python X19-refit.py run tests.studies.longitudinal_incremental_dropout_properties 4 <out> <families>, then X19-refit.py splice (cleverly-beta-plans)",
+    "fit_failures": 0
+  },
+  "inherited_evidence": {
+    "files": [
+      "replicates.csv.gz",
+      "summary.csv",
+      "equivalence.csv",
+      "performance-tests.csv"
+    ],
+    "property_rows_outside_selection_identical": true,
+    "property_rows_carried": 75000
+  },
+  "combined_analysis": {
+    "commit": "19646803860679dd8930e681e96f708f006e6c5d",
+    "command": "regenerate.py --reuse-subject --skip-properties",
+    "design_unchanged": "sizes, replicates, rules and margins as declared before the baseline run",
+    "properties_csv": "summarize_properties over the combined rows; rows outside the selection keep their baseline summary values"
+  },
+  "final_artifact_sha256": {
+    "replicates.csv.gz": "d5253e4b247c1aab2094770ddb60de4ac80e172f05f357aff5c81c2a113eb415",
+    "summary.csv": "145e3b77ccce93a143d9b2b5dab2109dc0c0dfc231780c5e6c4ef3fb6cbb73be",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "15bd20cc1e981cc6547ef5b3158f8889f5dfbbfcc801dd6b4b4de6f12d89c4d0",
+    "property-replicates.csv.gz": "6b55f2b9e6ea3cff442aa821cbabc8ac58e3112b48d592d857b37ca56a4ac807",
+    "properties.csv": "c825d4260485a5632ae258b53766fac06bc8ce15ccff1c2cf745920b036292ba"
+  }
+}
