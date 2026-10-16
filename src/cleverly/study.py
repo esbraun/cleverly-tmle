@@ -17,6 +17,11 @@ from .data.known_mechanism import (
     KNOWN_POLICY_CLASSIFIER_REFUSAL,
     probability_columns,
 )
+from .data.treatment_covariates import (
+    check_treatment_covariates,
+    known_and_restricted,
+    treatment_mechanism_restriction,
+)
 from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
 from .estimators._strata import check_stratified_targets
@@ -78,6 +83,7 @@ from .targets.base import (
     OUTCOME_REGRESSION,
     TREATMENT_OBSERVATION_MECHANISM,
     Identification,
+    Interpretation,
     arm_alias,
     parameter_name,
     stratum_alias,
@@ -476,8 +482,27 @@ class PointTreatment:
         covariates.  A design names columns, so the array forms of
         :meth:`cleverly.TMLE.fit` are refused here.  ``CollaborativeTMLEMethod`` is
         unavailable on such a design, because there is no mechanism to select.
+    treatment_adjustment : sequence of str or None
+        The adjustment columns that the treatment mechanism reads, a subset of
+        ``adjustment``.  ``None`` reads all of them.  The outcome regression and every
+        other nuisance keep the full set.  The declaration restricts the observed-data
+        model and does not change the estimand.  The interval is claimed only under that
+        restriction, and the identification record prints it.  An empty sequence declares a
+        marginal treatment mechanism.  To exclude instruments, omit them from
+        ``adjustment`` instead.  The declaration is refused beside
+        ``treatment_probabilities``, which supplies a known mechanism, and beside an
+        incremental estimand, which shifts the fitted propensity score.
     continuous_treatment : sequence of str
         The columns of a vector ``treatment`` that hold a continuous dose.
+    treatment_support : Support, mapping of str to Support, or None
+        The declared conditional support of a continuous dose, as
+        :meth:`cleverly.TMLE.fit` takes it.  A vector treatment maps each continuous
+        component to its support.  A modified treatment policy must assign each row a dose
+        inside it.
+    dose_atoms : sequence of float, or mapping of str to sequence of float
+        The doses of a continuous treatment with a recorded point mass, as
+        :meth:`cleverly.TMLE.fit` takes them.  A vector treatment maps each continuous
+        component to its atoms.
 
     Attributes
     ----------
@@ -514,6 +539,16 @@ class PointTreatment:
     ...     treatment_probabilities={0: "p_control", 1: "p_treated"},
     ... ).treatment_probabilities
     ((0, 'p_control'), (1, 'p_treated'))
+
+    A design can let the treatment mechanism read a subset of the adjustment set:
+
+    >>> PointTreatment(
+    ...     outcome="Y",
+    ...     treatment="A",
+    ...     adjustment=("age", "baseline_score"),
+    ...     treatment_adjustment=("age",),
+    ... ).treatment_adjustment
+    ('age',)
     """
 
     outcome: str
@@ -531,11 +566,15 @@ class PointTreatment:
     outcome_family: Family = "auto"
     treatment_missingness: str | None = None
     treatment_probabilities: Any = None
+    treatment_adjustment: Sequence[str] | None = None
     continuous_treatment: Sequence[str] = field(default_factory=tuple)
+    treatment_support: Any = None
+    dose_atoms: Sequence[float] | Mapping[str, Sequence[float]] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "adjustment", tuple(self.adjustment))
         object.__setattr__(self, "strata", tuple(self.strata))
+        object.__setattr__(self, "dose_atoms", _point_atoms(self.dose_atoms))
         continuous = self.continuous_treatment
         object.__setattr__(
             self,
@@ -572,6 +611,19 @@ class PointTreatment:
                 "declare a non-empty adjustment set or randomized=True; an empty set is "
                 "an identification claim, not a nuisance-model default"
             )
+        if self.treatment_adjustment is not None:
+            object.__setattr__(
+                self,
+                "treatment_adjustment",
+                check_treatment_covariates(
+                    self.treatment_adjustment,
+                    self.adjustment,
+                    argument="treatment_adjustment",
+                    base="adjustment",
+                ),
+            )
+            if self.treatment_probabilities is not None:
+                raise known_and_restricted("treatment_adjustment")
 
     @property
     def treatment_columns(self) -> tuple[str, ...]:
@@ -640,7 +692,8 @@ class PointTreatment:
             treatment_probabilities=(
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
-        )
+            treatment_covariates=self.treatment_adjustment,
+        ).with_dose_declarations(self.treatment_support, _declared_atoms(self.dose_atoms))
 
     def _check_prepared(self, data: CausalData) -> None:
         """Reconcile an already-built container with the roles this design declares.
@@ -674,6 +727,12 @@ class PointTreatment:
             ("weights", self.weights, data.weights_name),
             ("strata", tuple(self.strata), tuple(data.strata_names)),
             ("treatment_kind", self.support, data.treatment_kind),
+            (
+                "treatment_support",
+                _point_support(self.treatment_support),
+                _point_support(data.treatment_support),
+            ),
+            ("dose_atoms", _point_atoms(self.dose_atoms), _point_atoms(data.dose_atoms)),
             # Not role names, but they change what the reported variance means, so a
             # disagreement here is as consequential as a mis-named column.
             ("weights_type", self.weights_type, data.weight_spec.kind),
@@ -715,6 +774,25 @@ class PointTreatment:
                 f"the supplied CausalData adjusts for {sorted(sources)}, but this design "
                 f"declares {sorted(declared_adjustment)}; an identification claim and the "
                 "data it is claimed about have to be the same set"
+            )
+        # The mechanism's covariates are a restriction the interval depends on, so a
+        # container that reads another subset is refused like any other mismatch.  A
+        # declaration of the whole adjustment set is no restriction, and a covariate that
+        # was dropped as degenerate is in neither set.
+        dropped = set(data.dropped_covariates)
+        restricted: set[str] | None = (
+            None if self.treatment_adjustment is None else set(self.treatment_adjustment) - dropped
+        )
+        if restricted == set(self.adjustment) - dropped:
+            restricted = None
+        used = data.treatment_adjustment_sources
+        if (restricted is None) != (used is None) or (
+            used is not None and restricted is not None and set(used) != restricted
+        ):
+            raise DataError(
+                f"the supplied CausalData has treatment_adjustment={used!r}, but this design "
+                f"declares treatment_adjustment={self.treatment_adjustment!r}; build the data "
+                "from this design, or correct the design"
             )
 
 
@@ -835,9 +913,14 @@ class LongitudinalTreatment:
         Whether the supplied weights were estimated from these data.
     outcome_family : {"auto", "gaussian", "binomial"}
         Outcome family used by the sequential regressions.
-    continuous_treatment : sequence of str
+    continuous_treatment : sequence of str, or mapping of str to Support or None
         The treatment nodes that hold a continuous dose.  Each such node takes a modified
-        treatment policy, such as :class:`~cleverly.interventions.Shift`.
+        treatment policy, such as :class:`~cleverly.interventions.Shift`.  A mapping
+        also declares the conditional support of each dose, as
+        :meth:`cleverly.longitudinal.LTMLE.fit` takes it.
+    dose_atoms : mapping of str to sequence of float, or None
+        The doses of each continuous node with a recorded point mass, as
+        :meth:`cleverly.longitudinal.LTMLE.fit` takes them.
     treatment_probabilities : mapping or None
         The known treatment mechanism (a tuple of pairs, the form the design stores, is also
         accepted) of a sequentially randomized design: each treatment
@@ -888,12 +971,29 @@ class LongitudinalTreatment:
     weights_type: Literal["probability"] = "probability"
     weights_estimated: bool = False
     outcome_family: Family = "auto"
-    continuous_treatment: Sequence[str] = ()
+    continuous_treatment: Sequence[str] | Mapping[str, Any] = ()
     treatment_probabilities: Any = None
     censoring_probabilities: Any = None
+    dose_atoms: Mapping[str, Sequence[float]] | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "continuous_treatment", tuple(self.continuous_treatment))
+        continuous = self.continuous_treatment
+        object.__setattr__(
+            self,
+            "continuous_treatment",
+            tuple((str(name), support) for name, support in continuous.items())
+            if isinstance(continuous, Mapping)
+            else tuple(continuous),
+        )
+        if self.dose_atoms is not None:
+            object.__setattr__(
+                self,
+                "dose_atoms",
+                tuple(
+                    (str(name), tuple(sorted(float(atom) for atom in atoms)))
+                    for name, atoms in dict(self.dose_atoms).items()
+                ),
+            )
         if self.treatment_probabilities is not None:
             object.__setattr__(
                 self,
@@ -946,7 +1046,7 @@ class LongitudinalTreatment:
             weights_type=self.weights_type,
             weights_estimated=self.weights_estimated,
             family=self.outcome_family,
-            continuous_treatment=self.continuous_treatment,
+            continuous_treatment=_declared_continuous(self.continuous_treatment),
             treatment_probabilities=(
                 None
                 if self.treatment_probabilities is None
@@ -955,6 +1055,7 @@ class LongitudinalTreatment:
             censoring_probabilities=(
                 None if self.censoring_probabilities is None else dict(self.censoring_probabilities)
             ),
+            dose_atoms=None if self.dose_atoms is None else dict(self.dose_atoms),
         )
 
     def _outcome_roles(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -1019,8 +1120,18 @@ class LongitudinalTreatment:
             ("outcome causes", causes, tuple(data.cause_labels)),
             (
                 "continuous_treatment",
-                tuple(self.continuous_treatment),
+                _continuous_names(self.continuous_treatment),
                 data.continuous_columns,
+            ),
+            (
+                "the declared dose supports",
+                _named_declarations(self.continuous_treatment),
+                _held_supports(data),
+            ),
+            (
+                "dose_atoms",
+                dict(self.dose_atoms or ()),
+                _held_atoms(data),
             ),
             (
                 "treatment_probabilities",
@@ -1105,6 +1216,10 @@ class TimeToEvent:
         divides by these probabilities and fits no treatment learner.  A design names
         columns, so the array forms of :meth:`cleverly.longitudinal.LTMLE.fit` are refused
         here.
+    treatment_support : Support or None
+        The declared conditional support of a continuous treatment.
+    dose_atoms : sequence of float
+        The doses of a continuous treatment with a recorded point mass.
 
     Attributes
     ----------
@@ -1139,8 +1254,11 @@ class TimeToEvent:
     time_varying: None = None
     continuous_treatment: bool = False
     treatment_probabilities: Any = None
+    treatment_support: Any = None
+    dose_atoms: Sequence[float] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         if self.treatment_probabilities is not None:
             columns = probability_columns(_stored_pairs(self.treatment_probabilities))
             if columns is None:
@@ -1192,7 +1310,7 @@ class TimeToEvent:
         if isinstance(data, LongitudinalData):
             self._check_prepared(data)
             return data
-        return LongitudinalData.from_time_to_event(
+        built = LongitudinalData.from_time_to_event(
             data,
             time=self.time,
             event=self.event,
@@ -1209,6 +1327,7 @@ class TimeToEvent:
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
         )
+        return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 
     def _check_prepared(self, data: LongitudinalData) -> None:
         """Reconcile an already-built container with the roles this design declares."""
@@ -1225,6 +1344,8 @@ class TimeToEvent:
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("continuous_treatment", self.continuous_treatment, data.is_continuous_node(1)),
+            ("treatment_support", self.treatment_support, data.node_support(1)),
+            ("dose_atoms", tuple(sorted(self.dose_atoms)), data.node_atoms(1)),
         )
         for role, declared, held in expected:
             if declared != held:
@@ -1305,6 +1426,10 @@ class LongPanel:
         Outcome family used by the sequential regressions.
     continuous_treatment : bool
         Whether the treatment holds a continuous dose at every node.
+    treatment_support : Support or None
+        The declared conditional support of the dose at every node.
+    dose_atoms : sequence of float
+        The doses with a recorded point mass at every node.
     treatment_probabilities : mapping of level to str, or None
         The known treatment mechanism: each level mapped to the column that holds
         ``P(A_t = level | past)`` on each row.  A tuple of ``(level, column)`` pairs, the form
@@ -1351,8 +1476,11 @@ class LongPanel:
     continuous_treatment: bool = False
     treatment_probabilities: Mapping[Any, str] | None = None
     censoring_probabilities: str | None = None
+    treatment_support: Any = None
+    dose_atoms: Sequence[float] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "dose_atoms", tuple(float(atom) for atom in self.dose_atoms))
         if (self.outcome is None) == (self.event is None):
             raise DataError(
                 "LongPanel declares exactly one of outcome= (one end-of-study value per unit) "
@@ -1393,7 +1521,7 @@ class LongPanel:
         if isinstance(data, LongitudinalData):
             self._check_prepared(data)
             return data
-        return LongitudinalData.from_long_panel(
+        built = LongitudinalData.from_long_panel(
             data,
             unit=self.unit,
             time=self.time,
@@ -1415,6 +1543,7 @@ class LongPanel:
             ),
             censoring_probabilities=self.censoring_probabilities,
         )
+        return _declare_every_node(built, self.treatment_support, self.dose_atoms)
 
     def _check_prepared(self, data: LongitudinalData) -> None:
         """Reconcile an already-built container with the roles this design declares."""
@@ -1458,6 +1587,8 @@ class LongPanel:
             ("weights_type", self.weights_type, data.weight_spec.kind),
             ("weights_estimated", self.weights_estimated, data.weight_spec.estimated),
             ("continuous_treatment", self.continuous_treatment, data.is_continuous_node(1)),
+            ("treatment_support", self.treatment_support, data.node_support(1)),
+            ("dose_atoms", tuple(sorted(self.dose_atoms)), data.node_atoms(1)),
         )
         if self.times is not None:
             expected += (("times", tuple(self.times), layout.decision_times),)
@@ -1470,6 +1601,96 @@ class LongPanel:
                     f"design declares {role}={declared!r}; build the data from this design, "
                     "or correct the design"
                 )
+
+
+def _continuous_names(declared: Any) -> tuple[str, ...]:
+    """The node names of a normalized ``continuous_treatment``: names, or (name, support)."""
+    return tuple(item[0] if isinstance(item, tuple) else item for item in declared)
+
+
+def _named_declarations(declared: Any) -> dict[str, Any]:
+    """The declared supports of a normalized ``continuous_treatment``, without ``None``."""
+    return {
+        item[0]: item[1] for item in declared if isinstance(item, tuple) and item[1] is not None
+    }
+
+
+def _declared_continuous(declared: Any) -> Sequence[str] | Mapping[str, Any]:
+    """A normalized ``continuous_treatment`` in the form ``from_frame`` reads."""
+    if declared and isinstance(declared[0], tuple):
+        return dict(declared)
+    return declared
+
+
+def _point_atoms(declared: Any) -> Any:
+    """Declared point atoms in one form: sorted floats, or sorted ``(component, atoms)`` pairs.
+
+    A vector treatment declares its atoms by component, as a mapping or as the pairs
+    :attr:`cleverly.data.CausalData.dose_atoms` holds.
+    """
+    if isinstance(declared, Mapping):
+        declared = tuple(declared.items())
+    pairs = [entry for entry in declared if isinstance(entry, tuple)]
+    if pairs:
+        return tuple(
+            sorted((str(name), tuple(sorted(float(a) for a in atoms))) for name, atoms in pairs)
+        )
+    return tuple(sorted(float(atom) for atom in declared))
+
+
+def _declared_atoms(declared: Any) -> Any:
+    """The atoms as ``with_dose_declarations`` takes them: a mapping for a vector."""
+    if declared and isinstance(declared[0], tuple):
+        return dict(declared)
+    return declared
+
+
+def _point_support(declared: Any) -> Any:
+    """A point support for comparison: a vector's component supports become a dict."""
+    return dict(declared) if isinstance(declared, Mapping | tuple) else declared
+
+
+def _held_supports(data: LongitudinalData) -> dict[str, Any]:
+    """The declared support of each continuous node or component of ``data``, by name."""
+    if data.treatment_held:
+        support = data.node_support(1)
+        return {} if support is None else {data.treatment_names[0]: support}
+    held = {
+        name: data.node_support(time)
+        for time, name in enumerate(data.treatment_names, start=1)
+        if data.node_support(time) is not None
+    }
+    for time in range(1, data.n_times + 1):
+        held.update(data.component_supports(time))
+    return held
+
+
+def _held_atoms(data: LongitudinalData) -> dict[str, tuple[float, ...]]:
+    """The declared atoms of each continuous node or component of ``data``, by name."""
+    if data.treatment_held:
+        atoms = data.node_atoms(1)
+        return {data.treatment_names[0]: atoms} if atoms else {}
+    held = {
+        name: data.node_atoms(time)
+        for time, name in enumerate(data.treatment_names, start=1)
+        if data.node_atoms(time)
+    }
+    for time in range(1, data.n_times + 1):
+        held.update(data.component_atoms(time))
+    return held
+
+
+def _declare_every_node(
+    data: LongitudinalData, support: Any, atoms: Sequence[float]
+) -> LongitudinalData:
+    """Declare one support and one atom set at every treatment node of ``data``."""
+    if support is None and not atoms:
+        return data
+    names = tuple(dict.fromkeys(data.treatment_names))
+    return data.with_dose_declarations(
+        {} if support is None else dict.fromkeys(names, support),
+        {} if not atoms else dict.fromkeys(names, atoms),
+    )
 
 
 def _default_grid(data: LongitudinalData) -> tuple[float, ...]:
@@ -2954,11 +3175,18 @@ def _point_identification(
             "Díaz, Carone & van der Laan (2016)",
             "Díaz & van der Laan (2017)",
         )
+    restrictions: list[str] = []
+    if design.treatment_adjustment is not None and set(design.treatment_adjustment) != set(
+        design.adjustment
+    ):
+        restrictions.append(treatment_mechanism_restriction(design.treatment_adjustment))
     return Identification(
         assumptions=tuple(assumptions),
         required_nuisances=tuple(nuisances),
         dr_condition=_bound_dr_condition(base, design, functional, direct=direct),
         references=references,
+        interpretations=base.interpretations,
+        model_restrictions=tuple(restrictions),
     )
 
 
@@ -3193,6 +3421,8 @@ def _matches_registered_point_identification(
         expected = _point_identification(registered, design, expected_functional)
     except (AttributeError, CapabilityError, DataError, KeyError, TypeError, ValueError):
         return False
+    # ``actual == expected`` compares every field of the record, ``model_restrictions``
+    # included, so a design-level restriction dropped or added after the fact is refused.
     return functional == expected_functional and actual == expected
 
 
@@ -3233,30 +3463,69 @@ _LONGITUDINAL_POLICY_IDENTIFICATION = Identification(
 )
 
 
-#: The identification of a regimen set with a modified treatment policy node.  Díaz,
-#: Williams, Hoffman and Schenck (2023), Theorem 1: under their Assumption 3 (strong
-#: sequential randomization) the functional identifies the LMTP, and under Assumption 2
-#: alone the same functional is the LMTP-SI.  One number, two readings.
+#: The two readings of the longitudinal policy functional (X40 part (d)).  Díaz, Williams,
+#: Hoffman and Schenck (2023), Theorem 1: under strong sequential randomization (Assumption 3)
+#: the functional identifies the LMTP, and under standard sequential randomization
+#: (Assumption 2) it identifies the LMTP-SI.  Williams and Díaz (2025) correct the software
+#: paper's exchangeability to the strong form.
+_LONGITUDINAL_MTP_INTERPRETATIONS = (
+    Interpretation(
+        label="modified treatment policy effect",
+        meaning=(
+            "the mean outcome had each node's natural dose a_t been replaced by "
+            "d_t(a_t, h_t), with the history the earlier replacements produce"
+        ),
+        assumptions=(
+            "strong sequential randomization: at every node, every common cause of the dose, "
+            "the outcome, and the later covariates and doses is in the recorded history "
+            "(Díaz et al. 2023, Assumption 3; the strong exchangeability of Williams & Díaz "
+            "2025, A_t independent of Y(a_t, d_{t+1}(A_{t+1}(a_t), H_{t+1}(a_t))) given H_t)",
+        ),
+        references=(
+            "Díaz, Williams, Hoffman & Schenck (2023), Theorem 1 (ii) and Assumption 3",
+            "Williams & Díaz (2025)",
+        ),
+    ),
+    Interpretation(
+        label="stochastic intervention (LMTP-SI)",
+        meaning=(
+            "the mean outcome had each node's dose been drawn from the law of d_t(A_t, H_t) "
+            "given the history"
+        ),
+        assumptions=(
+            "standard sequential randomization: at every node, every common cause of the dose "
+            "and the next covariates, which at the last node are the outcome, is in the "
+            "recorded history (Díaz et al. 2023, Assumption 2)",
+        ),
+        references=("Díaz, Williams, Hoffman & Schenck (2023), Theorem 1 (i) and Assumption 2",),
+    ),
+)
+
+#: The identification of a regimen set with a modified treatment policy node.  The shared
+#: assumptions are what both readings of :data:`_LONGITUDINAL_MTP_INTERPRETATIONS` need,
+#: and one line that names the exchangeability each reading adds.
 _LONGITUDINAL_MTP_IDENTIFICATION = Identification(
     assumptions=(
         *_LONGITUDINAL_IDENTIFICATION.assumptions[:2],
-        "sequential exchangeability of the natural treatment and the outcome given the "
-        "recorded history (Díaz et al. 2023, Assumption 3) identifies the modified treatment "
-        "policy effect; under exchangeability given the history before each node alone "
-        "(Assumption 2) the same number is the LMTP-SI of their Theorem 1 (i)",
+        "sequential exchangeability in the form the chosen interpretation names: strong "
+        "sequential randomization (Díaz et al. 2023, Assumption 3) for the modified "
+        "treatment policy effect, or standard sequential randomization (Assumption 2) for "
+        "the LMTP-SI of their Theorem 1 (i)",
         "positivity: the dose a policy assigns, d(a_t, h_t), lies in the support of A_t given "
-        "h_t wherever a_t does (Assumption 1), and so does remaining under observation",
-        "each policy is known and fixed before the fit, and on a continuous node it is "
-        "piecewise smooth invertible (Assumption 4); a policy reads the history and the "
-        "unit's own treatment at its node, and its earlier treatment columns stand for the "
-        "intervened values",
+        "h_t wherever a_t does (Díaz et al. 2023, Assumption 1, which Williams & Díaz 2025 "
+        "leave unchanged), and so does remaining under observation",
+        "each policy is known and fixed before the fit, or its cap is a declared tuner with a "
+        "declared target (X40 part (e)), and on a continuous node it is piecewise smooth "
+        "invertible (Assumption 4); a policy reads the history and the unit's own treatment "
+        "at its node, and its earlier treatment columns stand for the intervened values",
     ),
     required_nuisances=_LONGITUDINAL_IDENTIFICATION.required_nuisances,
     dr_condition=(
         "the remainder is a sum over nodes of the products of the density ratio error and "
         "the outcome regression error (Díaz et al. 2023, Theorem 3), with bounded ratios"
     ),
-    references=("Díaz, Williams, Hoffman & Schenck (2023)",),
+    references=("Díaz, Williams, Hoffman & Schenck (2023)", "Williams & Díaz (2025)"),
+    interpretations=_LONGITUDINAL_MTP_INTERPRETATIONS,
 )
 
 
@@ -4030,6 +4299,23 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             A printable block naming the estimand, the functional, and the assumptions.
         """
         assumptions = "\n".join(f"  - {item}" for item in self.identification.assumptions)
+        readings = [
+            line
+            for reading in self.identification.interpretations
+            for line in (
+                f"  - {reading.label}: {reading.meaning}",
+                *(f"      needs {item}" for item in reading.assumptions),
+                *(f"      source: {item}" for item in reading.references),
+            )
+        ]
+        restrictions = (
+            [
+                "model restrictions:",
+                *(f"  - {item}" for item in self.identification.model_restrictions),
+            ]
+            if self.identification.model_restrictions
+            else []
+        )
         history = self.functional.history
         # A longitudinal functional conditions each node's mechanism on its own history,
         # so one list of the baseline covariates would understate every later node.
@@ -4045,6 +4331,12 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 *adjustment,
                 f"required nuisances: {list(self.identification.required_nuisances)}",
                 f"assumptions:\n{assumptions}",
+                *(
+                    ["interpretations, each with the assumption it adds:", *readings]
+                    if readings
+                    else []
+                ),
+                *restrictions,
                 *protocol_summary_lines(self.protocol, protocol),
             ]
         )
@@ -4068,6 +4360,16 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             f"identification: {self.provider.name}; {self.functional.expression}",
             "required nuisances: " + ", ".join(self.identification.required_nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
+            *(
+                f"interpretation {reading.label}: {reading.meaning}; needs "
+                + "; ".join(reading.assumptions)
+                for reading in self.identification.interpretations
+            ),
+            *(
+                ("model restrictions: " + "; ".join(self.identification.model_restrictions),)
+                if self.identification.model_restrictions
+                else ()
+            ),
             *protocol_summary_lines(self.protocol, protocol),
         )
 

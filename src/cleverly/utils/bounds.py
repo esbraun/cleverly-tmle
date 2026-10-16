@@ -23,6 +23,7 @@ __all__ = [
     "bound",
     "expit",
     "logit",
+    "policy_scale_refusal",
     "resolve_cumulative_g_bounds",
     "resolve_g_bounds",
     "shrink_probabilities",
@@ -35,6 +36,30 @@ _EXP_CLIP = 709.0
 #: censoring probabilities.  This is a visible value, not an automatic selection
 #: procedure: it does not depend on sample size, follow-up depth, or the fitted data.
 DEFAULT_LTMLE_G_BOUNDS: tuple[float, float] = (0.01, 1.0)
+
+
+def policy_scale_refusal(outcome: str) -> str:
+    """R-f1 of X40: a continuous outcome under a modified treatment policy needs ``q_bounds``.
+
+    Parameters
+    ----------
+    outcome : str
+        The outcome column.
+
+    Returns
+    -------
+    str
+        The refusal text.
+    """
+    return (
+        f"a continuous outcome ({outcome!r}) under a modified treatment policy needs q_bounds "
+        "equal to its known support. The estimator of Díaz et al. (2023), Section 5.2, maps "
+        "the outcome onto [0, 1] with known bounds, and a policy on a continuous dose moves "
+        "rows toward doses where few outcomes were recorded, so the bounds must be the "
+        "support the outcome can take, not the range this sample shows. Declare "
+        "q_bounds=(lower, upper); the fit raises on an outcome outside them and never clips "
+        "one"
+    )
 
 
 def bound(x: FloatArray, lower: float, upper: float) -> FloatArray:

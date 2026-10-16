@@ -1,10 +1,14 @@
 # Interventions
 
 Use interventions to define static, dynamic, stochastic, incremental, or modified treatment
-assignments. Run the matching support check before you interpret an estimate. A modified
-treatment policy is a `Shift`, a `Scale`, a `Piecewise` map, a `ModifiedPolicy` with declared
-pieces, or a `RiskRatioTilt`. Pass a policy to `TMLE(policies=...)` or as a node of a longitudinal
-plan. A vector treatment takes a `JointPolicy`, which declares one policy for each component.
+assignments. Run the matching support check before you interpret an estimate.
+
+A modified treatment policy is a `Shift`, a `Scale`, a `Piecewise` map, a `ModifiedPolicy` with
+declared pieces, or a `RiskRatioTilt`. Pass the policy to `TMLE(policies=...)` or as a node of
+a longitudinal plan. A vector treatment takes a `JointPolicy`, which declares one policy for each
+component. A `DoseQuantile` or a `SupportBoundary` tunes the cap of a `Shift` or a `Scale` from
+the treatment law. A `Support` declares the interval of doses that a node can take given its
+history. The fit refuses, before any learner, a dose or a policy outside it.
 
 `Incremental` tilts the odds of the treatment. A scalar multiplies the odds of the second of two
 levels. A mapping from level label to factor tilts a treatment with three or more levels, and a
@@ -36,8 +40,12 @@ plan can be a rule. It can also be a `Stochastic` node that draws its arm from a
    cleverly.interventions.IPSISet
    cleverly.interventions.Shift
    cleverly.interventions.Scale
+   cleverly.interventions.DoseQuantile
+   cleverly.interventions.SupportBoundary
+   cleverly.interventions.LinearQuantileRegression
    cleverly.interventions.Piecewise
    cleverly.interventions.Piece
+   cleverly.interventions.Support
    cleverly.interventions.ModifiedPolicy
    cleverly.interventions.Randomizer
    cleverly.interventions.RiskRatioTilt

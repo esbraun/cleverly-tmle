@@ -100,6 +100,7 @@ from .._declarations import FunctionDeclaration, FunctionKind
 from .._typing import FloatArray, Learner
 from ..estimators.targeting import ProjectionFluctuation
 from ..exceptions import CapabilityError, DataError, Refusal, RefusalReason
+from ..fluctuation._score import StopContext
 from ..fluctuation.iterative import (
     Fluctuation,
     InitialFit,
@@ -130,10 +131,12 @@ from .sequential import (
     SequentialStep,
     _carried,
     _policy_arm,
+    _probe_arms,
     constant_target,
     pooled_node_inputs,
     prepare_node,
     seed_carried,
+    tuning_term,
     untargeted_fold_recursions,
 )
 
@@ -608,6 +611,10 @@ def fit_regimens_msm(
     max_outer: int = 50,
     n_jobs: int = 1,
     warn: bool = True,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> MSMRegimenFit:
     r"""Target every declared cell against one working model, and project.
 
@@ -639,6 +646,20 @@ def fit_regimens_msm(
     working model therefore reproduces the cross-fitted per-regimen report, as it
     reproduces the single-fold one, which ``tests/e2e/test_ltmle_msm.py`` pins at both fold
     counts.
+
+    **A declared stopping rule** (``stopping="scaled_var"`` or ``"sample_size"``) judges each
+    node's stacked solve.  The stacked rows are ``C`` copies of the panel, so the unit of a
+    stacked row is still its subject (its cluster, when the data declare one), and a threshold
+    counts each subject once.  Counting the copies as separate units would shrink the threshold
+    by ``sqrt(C)``.  The score columns are contrasts of the cells in this sense, so the
+    threshold has no a priori bound as a coefficient's standard error.
+
+    **A step bound** (``step_bound=``) bounds each node's stacked iteration by the constrained
+    step along the normalised score vector of the working-model terms, as for a point fit with
+    several score columns.  ``step_search`` chooses whether the step searches its length.
+
+    **A best iterate** (``iterate="best"``) reports, at each node, the iterate of the stacked
+    walk whose score vector over the working-model terms has the smallest 2-norm.
     """
     plan_of = {plan.label: plan for plan in plans}
     missing = sorted({cell.label for cell in model.cells} - set(plan_of))
@@ -658,6 +679,9 @@ def fit_regimens_msm(
     # ``None`` for a plan without a policy node, whose loss weight is the deterministic one.
     numerators = {plan.label: plan.cumulative_numerator(data) for plan in plans}
     weights = np.asarray(data.weights, dtype=float)
+    # The subject of each row, which the stacked copies of the panel share.  Built once; a
+    # node stacks as many copies as it has live cells.
+    subject = np.arange(data.n) if data.cluster is None else np.asarray(data.cluster)
 
     def backward_pass(
         beta: FloatArray | None,
@@ -725,11 +749,30 @@ def fit_regimens_msm(
                     max_iter=max_iter,
                     tol=tol,
                     warn=warn,
+                    stopping=stopping,
+                    stop=(
+                        None
+                        if stopping == "relative"
+                        else StopContext(np.tile(subject, len(live)), scaler.range)
+                    ),
+                    step_bound=step_bound,
+                    step_search=step_search,
+                    iterate=iterate,
                 )
             targeted = np.split(fluctuation.targeted.arms[_REGIMEN_ARM], len(live))
             for position, k in enumerate(live):
                 node = prepared[k]
                 by_arm, marginal = _cell_policy(fluctuation, node, position, len(live))
+                probes = (
+                    None
+                    if node.probes is None
+                    else np.column_stack(
+                        [
+                            np.split(fluctuation.targeted.arms[key], len(live))[position]
+                            for key in _probe_arms(node.probes.shape[1])
+                        ]
+                    )
+                )
                 step = SequentialStep(
                     time=time,
                     trained_on=node.trained_on,
@@ -744,6 +787,7 @@ def fit_regimens_msm(
                     marginal=marginal,
                     targeted_by_arm=by_arm,
                     initial_by_arm=node.initial_by_arm,
+                    probes=probes,
                 )
                 steps[k].append(step)
                 carried[k] = np.where(node.at_risk, step.value, _FILLER)
@@ -818,7 +862,10 @@ def fit_regimens_msm(
         tol=tol,
         max_outer=max_outer,
     )
-    influence = _influence(data, model, run.steps, scaler, run.projection, run.beta)
+    tuned = _tuning_terms(data, model, plan_of, run.steps)
+    influence = _influence(
+        data, model, run.steps, scaler, run.projection, run.beta, _tuner_matrix(data, tuned)
+    )
     return MSMRegimenFit(
         model=model,
         cause=cause,
@@ -837,6 +884,7 @@ def fit_regimens_msm(
                 numerators,
                 plan_of,
                 k,
+                tuned[k],
             )
             for k in range(model.n_cells)
         ),
@@ -888,6 +936,21 @@ def _stacked_arms(
             ]
         )
         design_arms[_policy_arm(code)] = design
+    if any(node.probes is not None for node in nodes):
+        # A tuned node's boundary and last-moved-dose probes move by the coefficient of
+        # their own cell's block, as its observed-arm prediction does.  A cell without
+        # probes stacks its observed-arm prediction, which no reader takes.
+        width = max(node.probes.shape[1] for node in nodes if node.probes is not None)
+        for position, key in enumerate(_probe_arms(width)):
+            initial_arms[key] = np.concatenate(
+                [
+                    node.initial
+                    if node.probes is None or position >= node.probes.shape[1]
+                    else node.probes[:, position]
+                    for node in nodes
+                ]
+            )
+            design_arms[key] = design
     return initial_arms, design_arms
 
 
@@ -1027,6 +1090,31 @@ def _project(
     )
 
 
+def _tuning_terms(
+    data: LongitudinalData,
+    model: RegimenMSM,
+    plan_of: dict[str, Plan],
+    steps: Sequence[Sequence[SequentialStep]],
+) -> list[tuple[FloatArray | None, tuple[FloatArray, ...]]]:
+    r"""Each cell's weighted tuner term and derivatives, ``(None, ())`` without a tuned cap.
+
+    Cell :math:`c` estimates :math:`\Phi_c(P, \theta_c(P))` when it declares a
+    population-target tuned cap, so its curve gains
+    :math:`w \sum_t \partial_t\Phi_c' \mathrm{IF}_t`
+    (:func:`~cleverly.longitudinal.sequential.tuning_term`).  The projection's estimating
+    equation is stacked over the cells, so its curve is linear in each cell's curve, and
+    the term enters the bracket cell by cell.
+    """
+    return [tuning_term(data, plan_of[cell.label], steps[k]) for k, cell in enumerate(model.cells)]
+
+
+def _tuner_matrix(
+    data: LongitudinalData, terms: Sequence[tuple[FloatArray | None, tuple[FloatArray, ...]]]
+) -> FloatArray:
+    """``(n, C)`` weighted tuner terms, zero for a cell with no tuned cap."""
+    return np.column_stack([np.zeros(data.n) if term is None else term for term, _ in terms])
+
+
 def _influence(
     data: LongitudinalData,
     model: RegimenMSM,
@@ -1034,6 +1122,7 @@ def _influence(
     scaler: OutcomeScaler,
     projection: ProjectionFit,
     beta: FloatArray,
+    tuner_terms: FloatArray,
 ) -> FloatArray:
     r"""``(n, p)`` efficient influence curve of :math:`\hat\beta`.
 
@@ -1053,6 +1142,9 @@ def _influence(
     subtracted, exactly as :func:`fit_regimen` multiplies after subtracting ``psi``.  The
     working model's own :math:`h` is part of the EIF numerator and, at the targeting
     step, part of the loss weight.
+
+    ``tuner_terms`` is each cell's already weighted tuner term (:func:`_tuning_terms`).  It
+    enters beside the weighted bracket, on the outcome scale.
     """
     raw = _raw_first(steps, scaler)
     residual = np.column_stack(
@@ -1068,7 +1160,11 @@ def _influence(
     )
     bracket = residual + raw - model.fitted(beta)
     covariate = model.weighted_design_at(beta)
-    contribution = data.weights[:, None] * np.einsum("ikp,ik->ip", covariate, bracket)
+    contribution = np.einsum(
+        "ikp,ik->ip",
+        covariate,
+        data.weights[:, None] * bracket + scaler.unscale_influence(tuner_terms),
+    )
     return np.asarray(np.linalg.solve(projection.jacobian, contribution.T).T, dtype=float)
 
 
@@ -1082,6 +1178,7 @@ def _cell_fit(
     numerators: dict[str, FloatArray | None],
     plan_of: dict[str, Plan],
     index: int,
+    tuned: tuple[FloatArray | None, tuple[FloatArray, ...]],
 ) -> RegimenFit:
     """One cell's per-regimen fit, for the leverage and risk sets ``diagnostics()`` reports.
 
@@ -1099,7 +1196,7 @@ def _cell_fit(
     return RegimenFit(
         regimen=plan_of[cell.label].regimen,
         psi_scaled=psi,
-        influence_curve_scaled=data.weights * influence,
+        influence_curve_scaled=data.weights * influence + (0.0 if tuned[0] is None else tuned[0]),
         horizon=cell.horizon,
         cause=cause,
         steps=tuple(cell_steps),
@@ -1109,6 +1206,8 @@ def _cell_fit(
         obs_weights=np.asarray(data.weights, dtype=float),
         policy=plan_of[cell.label].policy,
         cumulative_numerator=numerators[cell.label],
+        tuning_term=tuned[0],
+        tuning_derivatives=tuned[1],
     )
 
 
@@ -1201,7 +1300,17 @@ def project_sdr_cells(
     beta = projection.beta
     bracket = raw - model.fitted(beta)
     covariate = model.weighted_design_at(beta)
-    contribution = data.weights[:, None] * np.einsum("ikp,ik->ip", covariate, bracket)
+    # Each cell's population-target tuned cap adds its chain-rule term (``fit.tuning_term``,
+    # already weighted), as in ``_tuning_terms``.
+    tuner_terms = np.column_stack(
+        [
+            np.zeros(data.n)
+            if fit.tuning_term is None
+            else scaler.unscale_influence(fit.tuning_term)
+            for fit in fits
+        ]
+    )
+    contribution = np.einsum("ikp,ik->ip", covariate, data.weights[:, None] * bracket + tuner_terms)
     influence = np.asarray(np.linalg.solve(projection.jacobian, contribution.T).T, dtype=float)
     return MSMRegimenFit(
         model=model,

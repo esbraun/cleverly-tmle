@@ -44,6 +44,7 @@ categorized API tables.
    cleverly.LearnedRuleValue
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
+   cleverly.targets.Interpretation
    cleverly.IncrementalMean
    cleverly.IncrementalEffect
    cleverly.MSMProjection
@@ -85,6 +86,7 @@ categorized API tables.
    cleverly.MonteCarloWarning
    cleverly.ParameterSpaceWarning
    cleverly.PositivityWarning
+   cleverly.SparseInfluenceWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
    cleverly.exceptions.Refusal
@@ -119,8 +121,12 @@ categorized API tables.
    cleverly.interventions.IPSISet
    cleverly.interventions.Shift
    cleverly.interventions.Scale
+   cleverly.interventions.DoseQuantile
+   cleverly.interventions.SupportBoundary
+   cleverly.interventions.LinearQuantileRegression
    cleverly.interventions.Piecewise
    cleverly.interventions.Piece
+   cleverly.interventions.Support
    cleverly.interventions.ModifiedPolicy
    cleverly.interventions.Randomizer
    cleverly.interventions.RiskRatioTilt

@@ -48,6 +48,10 @@ from .. import discrete_law_longitudinal_mtp as law
 from .. import discrete_law_longitudinal_multivalue as multivalue
 from .. import longitudinal_mtp as mtp
 
+#: The mixed law puts every dose on a grid, so R-b4 would refuse each fit; the fixture
+#: turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = pytest.mark.usefixtures("exact_grid_law")
+
 NO_TRUNCATION = (1e-8, 1.0)
 EXACT = 1e-10
 LABELS = ("natural", "dose up", "flag gated", "dose gated", "random")
@@ -261,6 +265,9 @@ def _four_node_fit(labels: tuple[str, ...]) -> Any:
     return fit(labels, regimens={label: plans[label] for label in labels}, columns=columns)
 
 
+# The four-node fit reads the grid dose as a scalar continuous node, which R-b4 of X40
+# refuses on an exact grid law; the fixture turns that refusal off.
+@pytest.mark.usefixtures("exact_grid_law")
 def test_w10_an_identity_flag_map_equals_the_four_node_fit() -> None:
     """Two consecutive nodes read the intervened flag, and a joint policy the natural one.
 

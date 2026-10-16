@@ -1676,9 +1676,13 @@ sizes only the cluster sum is the delta-method variance of the row mean
   exact algorithm claims below remain pinned to the named source release.
 - Williams & Díaz (2025), [*Erratum: lmtp: An R Package for Estimating the Causal Effects of
   Modified Treatment Policies*](https://doi.org/10.1353/obs.2025.a973072), *Observational
-  Studies* 11(3):365–367. The erratum corrects identification and positivity assumptions. It does
-  not change the targeting construction, which is why code-history claims remain tied to the
-  versioned source and commit below.
+  Studies* 11(3):365–367. The erratum corrects one identification assumption: exchangeability
+  becomes strong exchangeability, which also needs every common cause of the exposure and the
+  future covariates and exposures measured. Consistency and positivity are unchanged (reproduced
+  Section 2.2 "Identification", Assumption 2, pp. 365-367). It does not change the targeting
+  construction. Code-history claims therefore stay tied to the versioned source and commit below.
+  This entry relays a full read of PMC13155344 by a local research session on 2026-10-14, not
+  a first-hand read by a cloud session.
 - Schomaker, Luque-Fernandez, Leroy & Davies (2019), [*Using Longitudinal Targeted Maximum
   Likelihood Estimation in Complex Settings with Dynamic Interventions*](https://doi.org/10.1002/sim.8340),
   *Statistics in Medicine* 38(24):4888-4911. Sections 3.4 and 4.3.2 define the complete

@@ -27,7 +27,12 @@ from tests.discrete_law_longitudinal_multivalue import CellProbabilities
 from . import test_point_vector_treatment as point_tests
 from . import test_vector_density_route as density_tests
 
-pytestmark = pytest.mark.xdist_group("point_vector_assessment")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("point_vector_assessment"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 
 def _capabilities(result: Any) -> dict[str, tuple[bool, str]]:
@@ -72,6 +77,7 @@ def _coarsened_fits(**declared: Any) -> tuple[Any, Any]:
     return fitted, scalar
 
 
+@pytest.mark.usefixtures("exact_grid_law")
 def test_the_capability_table_is_the_scalar_dose_table() -> None:
     """Every row has the availability and the status of the one-column dose fit."""
     vector, scalar = point_tests._sample_fits()
@@ -81,11 +87,13 @@ def test_the_capability_table_is_the_scalar_dose_table() -> None:
         assert table[operation][0], operation
 
 
+@pytest.mark.usefixtures("exact_grid_law")
 def test_the_capability_table_with_a_missing_outcome_is_the_scalar_dose_table() -> None:
     vector, scalar = _coarsened_fits(delta="Delta")
     assert _capabilities(vector.single()) == _capabilities(scalar.single())
 
 
+@pytest.mark.usefixtures("exact_grid_law")
 def test_the_nuisance_report_reads_every_fitted_mechanism() -> None:
     """The missingness, intermediate and outcome models each have a row."""
     results, _ = _coarsened_fits(delta="Delta", intermediate="Z")
@@ -157,6 +165,7 @@ def test_a_replacement_that_drops_a_level_of_a_categorical_component_is_refused(
         data._with_components(values)
 
 
+@pytest.mark.usefixtures("exact_grid_law")
 def test_the_placebo_refit_runs_on_a_policy_contrast() -> None:
     vector, _ = point_tests._sample_fits()
     with warnings.catch_warnings():
@@ -167,6 +176,7 @@ def test_the_placebo_refit_runs_on_a_policy_contrast() -> None:
     assert report is not None
 
 
+@pytest.mark.usefixtures("exact_grid_law")
 def test_the_missingness_tilt_names_the_vector() -> None:
     results, _ = _coarsened_fits(delta="Delta")
     with pytest.raises(CapabilityError, match="a vector treatment with a continuous component"):

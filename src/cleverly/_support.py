@@ -70,11 +70,14 @@ RECORD_ENVIRONMENT_VARIABLE: Final[str] = "CLEVERLY_SUPPORT_RECORD"
 SupportLabel = Literal["supported", "experimental"]
 
 #: What a support row can license for an estimate: a point estimate, a Wald interval on the
-#: normal or the t reference, a simultaneous band, a bootstrap interval, or a derived estimate.
+#: normal or the t reference, a simultaneous band, a percentile bootstrap interval, a BCa
+#: bootstrap interval, a studentized bootstrap sup-t band, or a derived estimate.
 #: A derived estimate is a ratio, a contrast, a restricted mean or an E-value built from
 #: estimates of one fit. No row lists a hypothesis-test kind, because a test statistic is the
 #: ``wald`` interval read against a null and carries the support of that interval.
-Kind = Literal["point", "wald", "wald_t", "band", "bootstrap", "derived"]
+Kind = Literal[
+    "point", "wald", "wald_t", "band", "bootstrap", "bootstrap_bca", "bootstrap_band", "derived"
+]
 
 
 @dataclass(frozen=True)
@@ -128,9 +131,9 @@ def combine_support(supports: Iterable[Support], kind: Kind | None = None) -> Su
     ----------
     supports : iterable of Support
         The support of each input estimate. At least one is required.
-    kind : {"point", "wald", "wald_t", "band", "bootstrap", "derived"} or None, default None
-        The kind the new estimate needs from the rows of its inputs. A derived estimate passes
-        ``"derived"``. ``None`` combines the inputs only.
+    kind : str or None, default None
+        A member of :data:`Kind`: the kind the new estimate needs from the rows of its
+        inputs. A derived estimate passes ``"derived"``. ``None`` combines the inputs only.
 
     Returns
     -------
@@ -859,6 +862,8 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
     "wald_t": "Student t interval",
     "band": "simultaneous band",
     "bootstrap": "bootstrap interval",
+    "bootstrap_bca": "BCa bootstrap interval",
+    "bootstrap_band": "studentized bootstrap band",
     "derived": "derived estimate",
 }
 
@@ -898,7 +903,9 @@ def support_for(
         reference.
     kind : str or None, default None
         The kind the row must license instead of the one the status and the reference give:
-        ``"band"`` for a simultaneous band, ``"bootstrap"`` for a percentile interval.
+        ``"band"`` for a simultaneous band, ``"bootstrap"`` for a percentile interval,
+        ``"bootstrap_bca"`` for a BCa interval, and ``"bootstrap_band"`` for a studentized
+        bootstrap sup-t band.
 
     Returns
     -------
@@ -1002,6 +1009,7 @@ def band_support(
     classification: Classification | None,
     status: str,
     supports: Iterable[Support],
+    kind: Kind = "band",
 ) -> Support:
     """What a simultaneous band carries: its row's band kind, combined with its estimates.
 
@@ -1013,14 +1021,17 @@ def band_support(
         The inference status of the fit.
     supports : iterable of Support
         The support of each estimate the band covers.
+    kind : {"band", "bootstrap_band"}, default="band"
+        The band's kind: the influence-curve multiplier band, or the studentized bootstrap
+        sup-t band.
 
     Returns
     -------
     Support
-        ``supported`` only when the row licenses a ``band`` and every estimate is supported on
+        ``supported`` only when the row licenses ``kind`` and every estimate is supported on
         that row. ``experimental`` otherwise.
     """
-    kind_support = support_for(classification, status, None, kind="band")
+    kind_support = support_for(classification, status, None, kind=kind)
     return combine_support([kind_support, *supports])
 
 
@@ -1230,6 +1241,7 @@ def classify_longitudinal_fit(
     known_factors: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
+    conditions: Sequence[Refusal] = (),
 ) -> Classification | None:
     """Classify a longitudinal fit before any mechanism is fitted.
 
@@ -1253,6 +1265,9 @@ def classify_longitudinal_fit(
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
         The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
+    conditions : sequence of Refusal, default ()
+        The conditions the fit meets, such as a declared stopping rule. Each one makes the fit
+        experimental.
 
     Returns
     -------
@@ -1269,7 +1284,7 @@ def classify_longitudinal_fit(
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
         )
-        classification = classify_key(key, learners)
+        classification = classify_key(key, learners, conditions)
     except Exception as error:
         directory = recording_directory()
         if directory is not None:

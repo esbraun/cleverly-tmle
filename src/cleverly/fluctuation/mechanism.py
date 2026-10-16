@@ -217,6 +217,9 @@ class MechanismFluctuation:
     #: non-monotone joint likelihood is a bug in the alternation and nothing else would
     #: show it.
     trace: tuple[tuple[int, float, float, float], ...] = field(default_factory=tuple)
+    #: Under a declared stopping rule, the outcome rule ratio the outer exit read at each
+    #: round, in step with :attr:`trace`.  Empty under ``stopping="relative"``.
+    rule_trace: tuple[float, ...] = field(default_factory=tuple)
 
     @property
     def relative_score(self) -> float:

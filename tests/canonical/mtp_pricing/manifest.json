@@ -1,0 +1,190 @@
+{
+  "schema_version": 2,
+  "study": "boundary-binding price plans over follow-up lengths",
+  "slug": "mtp-pricing",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-mtp-pricing",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "98bad01d1c5dad81b9642a185f949fc41ad10a20",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 5000,
+    "seed": 20264021,
+    "resampling_seed": 2026402101,
+    "scenario_seed_owners": {
+      "pricing_sdr_tau2": "pricing_ltmle_tau2",
+      "pricing_sdr_tau3": "pricing_ltmle_tau3",
+      "pricing_sdr_tau5": "pricing_ltmle_tau5"
+    },
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-mtp-pricing": 0.01,
+      "lmtp": 0.01
+    },
+    "scenarios": {
+      "pricing_ltmle_tau2": [
+        "ey_regimen[natural_prices]",
+        "ey_regimen[price_up]",
+        "ey_regimen[price_down]",
+        "ate_regimen[price_up vs natural_prices]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "pricing_sdr_tau2": [
+        "ey_regimen[natural_prices]",
+        "ey_regimen[price_up]",
+        "ey_regimen[price_down]",
+        "ate_regimen[price_up vs natural_prices]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "pricing_ltmle_tau3": [
+        "ey_regimen[natural_prices]",
+        "ey_regimen[price_up]",
+        "ey_regimen[price_down]",
+        "ate_regimen[price_up vs natural_prices]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "pricing_sdr_tau3": [
+        "ey_regimen[natural_prices]",
+        "ey_regimen[price_up]",
+        "ey_regimen[price_down]",
+        "ate_regimen[price_up vs natural_prices]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "pricing_ltmle_tau5": [
+        "ey_regimen[natural_prices]",
+        "ey_regimen[price_up]",
+        "ey_regimen[price_down]",
+        "ate_regimen[price_up vs natural_prices]",
+        "ate_regimen[price_down vs natural_prices]"
+      ],
+      "pricing_sdr_tau5": [
+        "ey_regimen[natural_prices]",
+        "ey_regimen[price_up]",
+        "ey_regimen[price_down]",
+        "ate_regimen[price_up vs natural_prices]",
+        "ate_regimen[price_down vs natural_prices]"
+      ]
+    },
+    "construction": "ordinary, one fold",
+    "g_bounds": [
+      0.001,
+      1.0
+    ],
+    "support": "Support(4 + 2 L_t, 8 + 2 L_t) at every A_t",
+    "outcome_learner": "QuasiBinomialGLM at the last node; LinearRegression at earlier nodes",
+    "treatment_learner": "OracleRatio (the exact ratio on the classifier route)",
+    "plans": [
+      "natural_prices",
+      "price_up",
+      "price_down"
+    ],
+    "horizons": [
+      2,
+      3,
+      5
+    ],
+    "reference": "natural_prices",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_mtp_pricing.py": "38eaa61b2ed1422801e8821e3e7654197a66643aa28acea4bc7dfa4e20cdfeba",
+    "tests/studies/mtp_pricing_properties.py": "1962266491b694654bb0975ea62bec34987ae0c8634e0bb35d8c69a574068dd4",
+    "tests/studies/mtp_pricing_common.py": "5da8c15baaee240013f43988653f9ed2fdf6b3e8a538a7ac99a3b6e343d70e3a",
+    "tests/studies/mtp_study_tools.py": "1ae81eda30faf49fdcd13973e9a5e5d69a4ec6bb93c6d9d86b73e71ee7f11b40",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
+    "tests/law_q_tuned.py": "f79cd1f308db26c789e57356bccd441b53c47e1ae0400e2672e174cc2211fd53",
+    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
+    "tests/studies/canonical_mtp_tuning.py": "68ce19b5639b329cccabbce4e20383f0304665170bda82ae778177efd4829956",
+    "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
+    "tests/studies/oracle_density_bins.py": "b9a31fd237704d9cac446755171cdeb4cfa090b3dfbf2ae059cd5eaf25164c85",
+    "tests/studies/canonical_categorical_ltmle.py": "2dc1081ad4c1d871415a41444122a7fe90dd526748710f98c4fb133bc9428311",
+    "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
+    "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
+    "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
+    "tests/canonical/lmtp_sdr_adapter.R": "f9b5678dba1bf35b2c76a461a2bec2cf63b706e542b2ef86b3518d2a91bc9816",
+    "tests/canonical/mtp_pricing_runner.R": "8688d5f76d975ca7f1e2e1ed06f7b0caa28aacea9ee6ca671ca8c2a533af5848"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "0234af4fda622f123681e6b815878ded10514d2888d8b7c74595983a1b95a1cc",
+    "summary.csv": "b9644a8e27f65a08c46ef599e3591e315b54cabb5f4f00b2a305b1b07ac1bdb5",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "7cd491af98bfe11dd746b7a4b78b5b58f91fe4100fe6ab2569fa3244c1b0fab8",
+    "property-replicates.csv.gz": "e6d39ce639b511e05a1044b29dcfac07a0e68614f08f283fa3a4f026c94f083f",
+    "properties.csv": "21a1593a440ae9944dc0a5b7be7140bcba367a915c11034cf5894e622b6a575d"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "lmtp",
+    "reason": "the lmtp 1.5.4 runs have not run: they need R in the lmtp container, which this container lacks. The X40 plan's step J owns them: the 3-replicate R smoke under SMOKE_GATE, then the declared R run, in the beta plans' Study queue after S2's Python phase",
+    "metadata": {
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "lmtp cf_tmle and theta_dr (LTMLE scenarios) and cf_sdr and theta_dr (SDR scenarios) on an LmtpTask with the shifted values and the per-node ratios this package computed written beside the replicate data; no lmtp density ratio is fitted",
+      "reference_adapter": "tests/canonical/lmtp_mtp_adapter.R, tests/canonical/lmtp_sdr_adapter.R",
+      "pairing": {
+        "pricing_ltmle_tau2": "exact under SMOKE_GATE",
+        "pricing_sdr_tau2": "exact under SMOKE_GATE",
+        "pricing_ltmle_tau3": "exact under SMOKE_GATE",
+        "pricing_sdr_tau3": "exact under SMOKE_GATE",
+        "pricing_ltmle_tau5": "exact under SMOKE_GATE",
+        "pricing_sdr_tau5": "exact under SMOKE_GATE"
+      }
+    },
+    "declared_sources_sha256": {
+      "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+      "tests/canonical/mtp_pricing_runner.R": "8688d5f76d975ca7f1e2e1ed06f7b0caa28aacea9ee6ca671ca8c2a533af5848",
+      "tests/canonical/lmtp_mtp_adapter.R": "ce52f70ba0cbe69cd151b4453d14fe274e3a68fcc8d8f86f54d0fc7b74976788",
+      "tests/canonical/lmtp_policy_adapter.R": "399b3dbf0c2c36e5289b2d59fba1b31f01f97c60c0692a27b98a7b04b0f9d58d",
+      "tests/canonical/lmtp_sdr_adapter.R": "f9b5678dba1bf35b2c76a461a2bec2cf63b706e542b2ef86b3518d2a91bc9816",
+      "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+    }
+  }
+}

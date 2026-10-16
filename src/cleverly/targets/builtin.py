@@ -21,6 +21,7 @@ from .base import (
     OUTCOME_REGRESSION,
     TREATMENT_MECHANISM,
     Identification,
+    Interpretation,
     Target,
     TargetContext,
     parameter_name,
@@ -219,6 +220,45 @@ _IPSI_ID = Identification(
 )
 
 
+#: The two readings of the point policy functional (X40 part (d)).  Díaz, Williams, Hoffman
+#: and Schenck (2023), Theorem 1: under strong sequential randomization (Assumption 3) the
+#: functional is the policy effect, and under standard sequential randomization (Assumption
+#: 2) it is the mean under the stochastic intervention that draws the dose from the law of
+#: d(A, W).  At one node Assumption 3 has no later dose, so it reduces to Assumption 2, and
+#: the two readings rest on one exchangeability assumption.
+_ONE_NODE = (
+    "at one node the strong and the standard sequential randomization coincide: Díaz, "
+    "Williams, Hoffman & Schenck (2023), Assumption 3, has no later dose, so it reduces to "
+    "Assumption 2"
+)
+_POLICY_INTERPRETATIONS = (
+    Interpretation(
+        label="modified treatment policy effect",
+        meaning="the mean outcome had each unit's own dose a been replaced by d(a, w)",
+        assumptions=(
+            "strong sequential randomization: Y^b is independent of A given W for every "
+            "dose b, so every common cause of the dose and the outcome is in W (the strong "
+            f"exchangeability of Williams & Díaz 2025); {_ONE_NODE}",
+        ),
+        references=(
+            "Diaz, Williams, Hoffman & Schenck (2023), Theorem 1 (ii) and Assumption 3",
+            "Williams & Díaz (2025)",
+        ),
+    ),
+    Interpretation(
+        label="stochastic intervention (LMTP-SI)",
+        meaning=(
+            "the mean outcome had each unit's dose been drawn from the law of d(A, W) "
+            "given its covariates"
+        ),
+        assumptions=(
+            "standard sequential randomization: the dose and the outcome have no common "
+            f"cause outside W; {_ONE_NODE}",
+        ),
+        references=("Diaz, Williams, Hoffman & Schenck (2023), Theorem 1 (i) and Assumption 2",),
+    ),
+)
+
 _POLICY_ID = Identification(
     assumptions=(
         "consistency: Y = Y^a when A = a",
@@ -233,8 +273,10 @@ _POLICY_ID = Identification(
         "it does not establish true conditional support or identification",
         "the policy is a known function of (A, W), and of a randomizer of known law when "
         "it is randomized: d does not depend on the observed-data law, so the influence "
-        "function carries no term for estimating it. A cap fitted from the data would "
-        "break this, which is why cap= is required rather than defaulted to max(A)",
+        "function carries no term for estimating it. A cap read from the data is a "
+        "declared tuner with a declared target instead (X40 part (e)): the population "
+        "target adds the tuner's term to the curve, and the fold-average target fits each "
+        "fold's map on its training rows. cap= is never defaulted to max(A)",
         "on a continuous treatment, d is piecewise smooth invertible (Diaz, Williams, "
         "Hoffman & Schenck 2023, Assumption 4): a policy that maps an interval to one dose "
         "is not pathwise differentiable and is refused",
@@ -260,6 +302,7 @@ _POLICY_ID = Identification(
         "Haneuse & Rotnitzky (2013)",
         "Diaz, Williams, Hoffman & Schenck (2023)",
     ),
+    interpretations=_POLICY_INTERPRETATIONS,
 )
 
 

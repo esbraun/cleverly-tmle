@@ -102,6 +102,7 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 | `oat_design=` | the design of `strategy="oat"`. `"per_arm"` (the default) fits one binary mechanism per arm on that arm's own prediction. `"shared"` fits the one categorical mechanism of the archived `ctmle3`. See [the per-arm outcome-adaptive design](#the-per-arm-outcome-adaptive-design) |
 | `candidates=`, `ordering=` | supply the candidate sets or the preorder explicitly. A refit that adds a covariate, such as the `random_common_cause` refutation, places it after the declared ordering. Independent noise has no prior relevance, so it ranks last |
 | `selection_folds=` | folds for the stopping-index cross-validation. Default 5. The draw is unstratified, and it reads the row count and the seed |
+| `patience=` | stop the cross-validated scoring of the candidate path after `patience` candidates that score worse than the best so far. `None`, the default, reads the whole path. See [patience](#patience) |
 | `selection_inner_folds=` | the explicit cost control. Default 2, so a selection path uses three fits per nuisance or candidate rather than silently borrowing the outer nuisance fold count. This draw is unstratified as well |
 | `loss=`, `penalty=` | the selection loss, and whether the variance-plus-squared-mean penalty is applied |
 | `selection_estimand=` | which parameter vector the selection optimizes |
@@ -155,6 +156,114 @@ This fixed-weight surface claims no numerical parity with either implementation.
 **`CTMLE` on an `incremental=` fit is wrong by construction**, not a gap. Each candidate mechanism
 defines a different estimand, so the search would select between estimands rather than between
 estimators.
+
+### Patience
+
+`patience=p` is the `patience` argument of R `ctmleDiscrete`. It applies to every strategy that
+selects a path position by cross-validated risk: `"greedy"`, `"ordered"`, `"discrete"`, `"lasso"`
+and `"learners"`. With the default `None`, the fit builds every fold's whole path first, as before.
+
+The fit scores each position `k` by the summed held-out loss plus the penalty from the pooled
+influence. The counter then reads the risk of `k`.
+
+| step | rule |
+| --- | --- |
+| pointer | the smallest risk seen so far |
+| a risk above the pointer | the count rises by one. The search stops when the count reaches `p` |
+| a risk at or below the pointer | the pointer takes that risk, and the count returns to zero. A tie resets |
+| a risk that is not finite | counts as worse |
+| selection | the position of the smallest scored risk, the first of ties |
+
+The count is not a run length. A worse risk after a reset adds one, and a later worse risk adds
+another. This matches the counter in `functions_discrete.R` of R `ctmle`.
+
+The path is lazy under `patience`. The fit builds each fold's path one position at a time, in step
+over the folds. So the stop is a function of the summed fold risk. No position after the stop is
+scored, and one stop position applies to the full-sample path too. Every stored array
+ends at the stop. `CTMLESelection.patience` records the setting. `CTMLESelection.stopped_at`
+records the index where the counter fired. The summary prints one line that states which case
+occurred.
+
+Under `greedy`, `ordered` and `discrete`, no position after the stop is fitted. Under `lasso` and
+`learners` the later positions are fitted. `lasso` fits its whole penalty grid before the path
+starts, and an indexed pass fluctuates every remaining candidate before it yields. The summary
+line says which case applies.
+
+Two differences from R are declared.
+
+| id | R `ctmle` | `cleverly` |
+| --- | --- | --- |
+| D7 | takes the last tied minimum of the scored risks | takes the first tied minimum |
+| D7b | scores the rest of its batch after the counter fires | stops at the counter |
+
+With `preOrder = TRUE` a batch holds one covariate, so neither difference shows in the R fixture
+`ctmle_patience.json`. On that fixture, R's counter stops after 6 of 7 candidates. Applied to the
+package's own whole-path scores, the same counter stops where the package stops. A mutation
+control that stops one candidate late fails the fixture. The scores themselves differ from R's for
+the two reasons in [candidate sequences](#candidate-sequences).
+
+The inference status does not change. A fit with `patience=` keeps `working_mechanism_plugin`.
+
+| check | what `tests/unit/test_patience.py` asserts |
+| --- | --- |
+| the counter | it equals a transcription of the R loop on nine risk sequences, ties and non-finite risks included, for four values of `p` |
+| the lazy path | it equals the eager path at every position when `p` exceeds the path, for every strategy |
+| the witness | a law whose global minimum lies past the stop changes `selected` and the estimate |
+| mutation controls | `>=` for `>`, and no reset on a tie. Each fails the counter test |
+| refusals | R-g1 refuses a malformed `patience`. R-g2 refuses a strategy that scores no path |
+
+### Treatment-mechanism covariates and the candidate pool
+
+A design with `PointTreatment(treatment_adjustment=...)` fixes the candidate pool of every
+selector strategy to the declared subset $W_g$. The outcome regression keeps the full set.
+
+| part of the search | reads |
+| --- | --- |
+| the pool of `"greedy"` | $W_g$ |
+| the preorders of `"ordered"`, both `"logistic"` and `"partial_correlation"` | $W_g$. An explicit `ordering=` or `candidates=` must lie inside $W_g$ (R-h5) |
+| the candidates of `"discrete"` | $W_g$ |
+| the design and default penalty grid of `"lasso"`, and the learners of `"learners"` | $W_g$ |
+| `strategy="derivative"` | the mechanism and its partner read $W_g$ |
+| `strategy="oat"` | refused (R-h2). The mechanism is fitted on the outcome predictions, so it has no covariates to restrict |
+| the outcome regression, the missingness mechanisms | the full set |
+
+`CTMLESelection.covariates` is the pool. `CTMLESelection.restricted_pool` is set only when the
+design declares a subset, and the summary then prints "collaborative candidate pool: {Wg}".
+
+A fit that selects nothing takes the status of the ordinary TMLE. These are a `"discrete"` fit with
+one candidate equal to the pool and a `"learners"` fit with an empty declared list. The test
+`declares_no_selection` compares the candidate with $W_g$, and not with the full adjustment set.
+Such a fit prints the restriction text of the design and claims its interval under that
+restriction. Every other collaborative fit prints the same text and keeps
+`working_mechanism_plugin`.
+
+[Treatment-mechanism covariates](point-treatment-tmle.md#treatment-mechanism-covariates) gives the
+text, the remainder when the restriction fails, and the exact-law witnesses.
+`tests/unit/test_treatment_covariates_collaborative.py` checks the pool in three ways.
+
+| strategy | check |
+| --- | --- |
+| greedy, ordered, discrete | a spy learner sees $W_g$ only |
+| lasso, learners | the propensity of the $W_g$ fit equals that of a fit that omits the other covariates, to $10^{-12}$. A control shows that the full set moves it |
+| every strategy | a mutation control fails when the pool, the preorder, the lasso design or the learners names read the full set |
+
+On the R fixture `ctmle_wg.json`, the restricted path holds the pool's candidates in R's order
+and no other covariate. Both R and the package give the restricted fit and the whole-pool fit
+different estimates.
+
+### The targeting options on a collaborative fit
+
+`CTMLE` inherits `stopping=`, `step_bound=`, `step_search=`, `iterate=` and `outcome_by_arm=` from
+`TMLE`.
+
+| item | rule |
+| --- | --- |
+| a candidate solve | it gets the stop context of its training rows, so $n_u$ counts the units of those rows |
+| `outcome_by_arm=True` | it applies at the selection base and at the honest base of `oat` |
+| `strategy="derivative"` | it passes the stop context to its update and reads $W_g$. It raises when a step bound stops short of the derivative equation |
+
+`tests/unit/test_x22_derivative_strategy.py` covers these cases. It has mutation controls for the
+stop context and the $W_g$ design.
 
 ## Candidate sequences
 
@@ -221,6 +330,8 @@ requires. A fit does not refuse when it does not.
 | type 1 has no branch for a selected last penalty | `R/ctmle_glmnet.R`, line 270 | the selected candidate is reported |
 | the construction criterion adds `var(D*)` whatever `PEN` is | `R/functions_glmnet.R`, lines 172 to 177; `R/functions_general.R`, lines 65 to 72 | the construction adds the penalty only when `penalty=True` |
 | the construction penalty carries the factor `n_train / n` inside each fold | `R/functions_glmnet.R`, line 172 | no factor |
+| the discrete cross-validation fits each candidate mechanism on every row, the validation rows included | `R/functions_discrete.R`, lines 32, 81, 508 and 557 | each fold fits its training rows |
+| the discrete path fluctuates with one ATE clever covariate `hAW` | `R/functions_discrete.R`, lines 33 and 82 | one column for each arm |
 
 Under `lasso`, `treatment_learner` remains the fallback for a missingness mechanism, and the lasso
 candidates do not use it. A scikit-learn `FrozenEstimator` passes as a learner entry and is not
@@ -512,7 +623,7 @@ the [stacked curve](#parametric-per-arm-intervals) instead.
 | the diagnostic's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits report the diagnostic curve, and they withhold their interval unless `per_arm_parametric_support` admits them |
 | withheld | every `strategy="oat"` fit of either design that `per_arm_parametric_support` refuses. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the predicate refuses it on the `strata`, `missing_outcome` or `missing_treatment` axis |
 | bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
-| predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits an in-sample per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on a binary treatment with complete, unweighted and unstratified data. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
+| predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits a per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on a binary treatment with complete, unweighted and unstratified data. The fit is in sample, or cross-fitted inside the fold-count cap with any `repeats`. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
 
 **The shared design publishes no inference.** It fits one categorical mechanism on the outcome
 predictions of every arm. Theorem 1 covers one scalar design, and no reviewed result supplies the
@@ -552,6 +663,7 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 | [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design, comparator-backed against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
 | [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit with a scikit-learn learner withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
 | [outcome-adaptive per-arm C-TMLE (parametric)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | the stacked interval of the in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism`. Python property evidence, no comparator. Calibration on six laws, two negative controls that read red, the sharp null and power |
+| [outcome-adaptive per-arm C-TMLE (parametric crossfit)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) | the stacked interval of the cross-fitted per-arm fit at five folds, at one draw and at the median of three draws. Python property evidence, no comparator. Calibration from $n = 500$ to $n = 8000$, two negative controls that read red, and the sharp null |
 | `tests/diagnostics/x17_generated_design/` | the generated-design term $c^\top \mathrm{IF}_\beta$ restores the standard-error ratio on the binary law |
 | `tests/unit/test_outcome_adaptive_per_arm.py` | an exact law on which the two designs differ, the curve of Theorem 1 row by row, in-sample and cross-fitted longhands to `1e-8`, the joint covariance, and fixed weights against duplicated rows. Its class `TestEachMutationFailsItsCheck` applies 13 mutations by `monkeypatch`, and each one fails its check |
 | `tests/unit/test_shared_oat_replay.py` | the shared design refits replication 0 of each registered `ctmle3` study to its committed rows |
@@ -617,13 +729,14 @@ default.
 
 ### Parametric per-arm intervals
 
-An in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism` reports an interval.
-`per_arm_parametric_support` admits the fit. The reported curve is the curve of one stacked
+A per-arm fit with `ParametricOutcome` and `ParametricMechanism` reports an interval, in sample or
+cross-fitted. `per_arm_parametric_support` admits the fit. The reported curve is the curve of one stacked
 Z-estimator. It is not the curve of Theorem 1, and it carries the generated-design term that
 condition (v) lets Theorem 1 drop. The registered study
 [`ctmle-oat-per-arm-parametric`](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md)
-measures it, and [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome)
-part (a) delivered it. The module `cleverly.estimators._oat_stack` computes the curve.
+measures the in-sample fit, and [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome)
+part (a) delivered it. Part (c) adds the cross-fitted fit, which the next paragraphs call the
+V-fold stack. The module `cleverly.estimators._oat_stack` computes the curve.
 
 **The stack.** Let $x(A, W)$ be the declared outcome feature row, $x_a(W) = x(a, W)$, and
 $\phi$ the declared mechanism basis. Write $q_a = \operatorname{expit}(x_a^\top \beta)$,
@@ -755,6 +868,60 @@ negligible. For a user value such as $\alpha = 0.9$ the factor is 0.09, and the 
 negligible. The registered study runs the default $\alpha$ only, so no cell measures a user
 $\alpha$.
 
+**The V-fold stack.** A cross-fitted fit is one Z-estimator over every fold. Each fold $k$ has
+its own outcome coefficients $\beta_k$ and its own mechanism coefficients $\gamma_{a,k}$. Each arm
+has one pooled $\epsilon_a$ and one whole-sample mean $\psi_a$. Write $v(i)$ for the validation
+fold of row $i$. The curve is $-A_n^{-1} U_i$ of this finite system, as in sample.
+
+| equation | rows that enter it | coefficients that it reads |
+| --- | --- | --- |
+| outcome GLM of fold $k$ | the training rows of fold $k$ | $\beta_k$ |
+| mechanism of arm $a$, fold $k$ | the training rows of fold $k$ | $\gamma_{a,k}$, on $\phi(q^k_a)$ with $q^k_a = \operatorname{expit}(x_a^\top \beta_k)$ |
+| fluctuation of arm $a$ | every row | $\beta_{v(i)}$, $\gamma_{a,v(i)}$ and $\epsilon_a$, with the clip state of fold $v(i)$ |
+| mean of arm $a$ | every row | $\beta_{v(i)}$, $\gamma_{a,v(i)}$, $\epsilon_a$ and $\psi_a$ |
+
+So a row enters the outcome and mechanism equations of each fold $k \ne v(i)$. It enters the
+fluctuation and mean equations at its own fold. With `cross_fit=False` the system has one fold, and
+it is the in-sample stack. `tests/unit/test_oat_crossfit_stack.py` gives each block a witness, and
+`tests/unit/test_oat_repeated_stack.py` gives each repeated draw one.
+
+The claim needs a fold count that stays fixed as $n$ grows. The predicate withholds the interval
+above `MAX_STACK_FOLDS` (20) folds, or when a held-out fold holds fewer than `MIN_STACK_FOLD_ROWS`
+(30) rows. Such a fit takes `"generated_design_plugin"` on the `n_folds` axis and keeps its point
+estimate.
+
+| `repeats` | what the fit reports |
+| --- | --- |
+| 1 | the V-fold stack of one draw |
+| above 1 | the median over draws, with the split-adjusted variance of `median_estimates` (Chernozhukov et al., 2018, equation 3.14) |
+
+`result.repeats[r].inference` keeps the status, standard error and curve of draw $r$ for each
+estimand. It also keeps `shipped_se`, the standard error of the draw's uncorrected
+adaptive-propensity curve. When the stack of one arm fails on one draw, the median takes
+`"stack_failure_plugin"` on the estimates that read that arm. Draws with different fit statuses
+make the median raise `ValueError`. The fit builds no simultaneous band, and
+X58 part (b) holds the band.
+
+**The support label of the V-fold stack.** The registered study `ctmle-oat-per-arm-parametric-crossfit`
+fits `binary_active` with `n_folds=5`, at `repeats=1` and `repeats=3`. Its
+[evidence page](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) reports
+the declared run, and every gated cell passes. The support rows of the study cover the binary cells. Another admitted fit reports its interval
+with the `"experimental"` label.
+
+| fit | support row | label |
+| --- | --- | --- |
+| cross-fitted, `n_folds=5`, `repeats=1`, binary outcome, a subset of `ey0`, `ey1`, `ate`, `rr` and `or` | `C11.stacked` | `"supported"` |
+| cross-fitted, `n_folds=5`, `repeats=3`, binary outcome, a subset of `ey0`, `ey1` and `ate` | `C11.repeated` | `"supported"` |
+| cross-fitted, another `n_folds` inside the cap, or another `repeats` | `C11.stacked` or `C11.repeated` | `"experimental"`, interval shown |
+| cross-fitted, `repeats=3`, with `rr` or `or` | none | `"experimental"`, interval shown |
+| cross-fitted, a continuous outcome with declared `q_bounds` | none | `"experimental"`, interval shown |
+
+The support key does not hold the fold count or the repeat count. So the `CTMLE` preflight adds a
+condition for a fold count other than 5 and for a repeat count other than 1 or 3. The condition
+makes the fit experimental, and its reason names the measured value. Its evidence is
+[X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome).
+`tests/unit/test_oat_per_arm_crossfit_support.py` checks each line of the table.
+
 **The support predicate.** `per_arm_parametric_support(estimator, data)` returns a
 `SupportVerdict`. The verdict holds `admitted`, `axis` and `detail`. The predicate is an
 allow-list over every constructor option of `TMLE` and `CTMLE`, in `PER_ARM_PARAMETRIC_OPTIONS`,
@@ -767,11 +934,16 @@ learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclas
 | --- | --- | --- |
 | `strategy`, `oat_design` | `"oat"` and `"per_arm"` | F19 for the shared design |
 | `outcome_learner`, `treatment_learner` | exactly `ParametricOutcome` and exactly `ParametricMechanism` | F19 for a flexible learner |
-| `cross_fit`, `repeats`, `split_plan`, `cv_evaluation`, `targeting_scheme` | `False`, 1, `None`, `False`, `"pooled"` | X58 part (c) |
+| `cross_fit` | `True` or `False` | none |
+| `n_folds` | with `cross_fit=True`, at most 20 folds and held-out folds of at least 30 rows, checked on the data | none. Outside the cap the fixed fold-count argument does not apply |
+| `repeats` | any positive integer | none |
+| `split_plan` | `None`. A supplied partition can depend on the data, and the V-fold argument needs fold labels independent of the data | none. A data-dependent partition needs its own theory step |
+| `cv_evaluation`, `targeting_scheme` | `False` and `"pooled"`. The stack has no per-fold fluctuation $\epsilon_{a,k}$ | none. `CTMLE` refuses both values at construction |
 | `simultaneous` | any value. The fit builds no band | X58 part (b) for the band |
 | `family`, `fluctuation`, `targeting` | `"auto"`, `"binomial"` or `"gaussian"`; `"logistic"`; `"iterative"` | none |
 | `q_bounds` | a declared tuple for an outcome that is not binary, checked on the data | none |
 | `target_weights`, `screen_treatment` | `False` | none |
+| `stopping`, `step_bound`, `iterate`, `outcome_by_arm`, `patience` | `"relative"`, `None`, `"last"`, `False`, `None`. The stacked equations assume the solved fluctuation and one outcome model | none |
 | `interventions`, `policies`, `incremental`, `msm`, `learned_rule`, `density_bins` | none declared | none. `CTMLE` does not combine them with this design |
 | `preorder`, `ordering`, `candidates`, `ctmle_estimand` | `None`, `None`, `None`, `"ate"` | none |
 | `estimands` | a subset of `ate`, `rr`, `or`, `ey`, `ey0` and `ey1` | X58 part (b) for `ey_obs`, `par` and `paf` |
@@ -781,7 +953,7 @@ learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclas
 | `cluster` | none | X52 part (d) |
 | `missing_treatment`, `intermediate`, `known_treatment` | none | none |
 
-Every other option accepts any value, because the in-sample fit never reads it. `g_bounds`,
+Every other option accepts any value, because the stack never reads it. `g_bounds`,
 `alpha`, `nuisance_bound`, `n_bootstrap` and `max_iter` are examples. A fit outside the allow-list
 takes `"generated_design_plugin"`, with the axis in the reason.
 
@@ -816,6 +988,7 @@ before the stack. That error is a refusal of the fit.
 | `tests/unit/test_parametric_learners.py` | the point estimate against the `ctmle-oat-per-arm` pipelines to `4e-14` | the uncertainty |
 | `tests/unit/test_oat_per_arm_support.py` | the predicate on each axis, the status of a failed stack, and the round trip through `save()` and `load()` | the sampling distribution |
 | the registered [parametric study](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | calibration of the SE ratio and coverage on six laws, two negative controls, the sharp null and power. Python property evidence, no comparator | cross-fitting, repeats, weights, strata, missing data, more than two arms, the band, a user `alpha` |
+| the registered [cross-fitted study](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) | calibration of the SE ratio and coverage of the V-fold stack at five folds from $n = 500$ to $n = 8000$, the median of three draws, the generated-design pair, two negative controls and the sharp null. Python property evidence, no comparator | a fold count other than 5, a repeat count other than 1 and 3, weights, strata, missing data, more than two arms, the band, a user `alpha` |
 
 ### Baseline strata and missing data in the per-arm design
 

@@ -177,7 +177,7 @@ class TestTheSupportLabel:
         wider = [row for row in rows if set(row.key.treatment) != {"2"}]
         assert wider, "the categorical-incremental study registers three-level rows"
         for row in wider:
-            assert row.id.startswith("G39."), row.id
+            assert row.id.startswith("G42."), row.id
             assert set(row.key.treatment) == {"3"}, row.id
 
 

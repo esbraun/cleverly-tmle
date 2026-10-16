@@ -867,3 +867,28 @@ def assert_estimate_coherent(
         f"different branches, and this is where a scale confusion in either surfaces"
     )
     assert 0.0 <= pvalue <= 1.0, f"{name}: p={pvalue}"
+
+
+@pytest.fixture
+def exact_grid_law(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn off the undeclared-atom refusal (R-b4) for a fit on an exact grid law.
+
+    The exact oracles have finite support, so every grid dose is a recorded point mass and
+    R-b4 refuses the fit.  The fixture sets the private seam
+    ``cleverly.interventions.policy._ATOM_CHECK`` to ``False``.  The seam gates the refusal
+    only: the fit still runs the shipped density, ratio and design code.  No public object
+    reaches the seam (``tests/unit/test_mtp_atoms.py``, T-s1).
+    """
+    import cleverly.interventions.policy as policy_module
+
+    monkeypatch.setattr(policy_module, "_ATOM_CHECK", False)
+
+
+@pytest.fixture(scope="module")
+def exact_grid_law_module() -> Any:
+    """:func:`exact_grid_law` for a module-scoped fixture that fits a grid law."""
+    import cleverly.interventions.policy as policy_module
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(policy_module, "_ATOM_CHECK", False)
+        yield

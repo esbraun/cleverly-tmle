@@ -50,6 +50,66 @@ The independent evidence still checks the target, each changed mathematical term
 statistical property. The [roadmap's eligibility rules](roadmap.md#eligibility) apply this
 standard to method entry. *Reconsider when* the project owner changes the acceptance policy.
 
+### Option defaults keep the shipped code path
+
+A targeting or fitting option defaults to the value that runs the code that existed before the
+option. The solver tests the option at its top, and the `else` branch holds the shipped body
+unchanged. `stopping="relative"`, `step_bound=None`, `iterate="last"`, `outcome_by_arm=False`,
+`treatment_adjustment=None` and `patience=None` all follow this rule. A default must not call a
+new function that gives the same answer. A rounding difference in the last place would move
+recorded results.
+
+Prove a default with the A/B replay.
+
+1. Set `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1`.
+2. Run `python -m tests.canonical.replay_committed replay --all --replicates 20 --jobs 4 --write <dir>` at the base commit.
+3. Run the same command at the branch.
+4. Run `compare <A> <B> --rtol 0`.
+
+`compare` exits 2 when both sides name one source tree, and it exits 1 on any difference. The
+committed rows are not the gate, because they drift across platforms in the last bits.
+`tests/unit/test_replay_committed.py` tests the tool. Plumbing tests such as
+`tests/unit/test_stopping_rule.py::TestPlumbing` assert that a written-out default gives the same
+fit as an omitted option. *Reconsider when* a change moves a default on purpose. Then regenerate
+the studies it moves, in the same change.
+
+### A declared stopping rule changes what the solver and the score check read
+
+A rule other than `"relative"` needs a stop context. The context holds the unit of each row and
+the outcome range. `TMLE._retarget_detailed` builds it once, so every caller of the targeting step
+gets it. A solver that receives a declared rule and no context raises `ValueError` at once. It
+never invents a threshold. A fold solve and a C-TMLE candidate solve pass `stop.restrict(rows)`, so
+$n_u$ counts the units of the rows each solve receives.
+
+A rule ratio is valid only at the pair of fit and score where it was computed. An outer loop that
+moves the regression or the mechanism after the outcome solve must restate the ratio at the pair
+it judges, through `rule_ratio_at`. It must not read the ratio the solver stored.
+`tests/unit/test_stopping_rule_engines.py` recomputes the ratio by hand at every round.
+
+`score_check` reads the declared rule. Under a rule other than `"relative"`, a fluctuation row is
+held to `Fluctuation.thresholds`, and an estimand row is a `"diagnostic"` row that cannot fail.
+The diagnostic row reports the residual in standard errors and the coverage a Wald interval keeps
+at it. The default rule keeps its rows and its bar. *Reconsider when* a stopping rule gets a
+derivation that bounds the residual of a contrast. Then the estimand rows can carry that bound as a
+bar.
+
+### Comparator fixtures ship pending
+
+A cloud session cannot run R. So an R comparator ships with the change in an explicit pending
+state. `tests/canonical/option_fixtures/registry.py` holds one entry for each fixture with its
+script hash and its state. A pending entry has no JSON file, a stated reason and a matching hash.
+A present entry has a JSON file with the same hash, and its parity test runs. A self-test writes a
+payload in the comparator's schema, requires the comparison to pass, and requires each mutated copy
+to fail.
+
+A reader-facing table row that names a pending fixture carries the label "exact tests, with
+comparator runs pending". `tests/unit/test_option_fixtures.py` ties the label to the registry. A
+row that carries the label while its fixture is present fails, and so does an unlabelled row of a
+pending fixture. This applies the rule of
+[Theory and comparators](#theory-and-comparators): the missing comparator blocks nothing, and
+the label states the gap. *Reconsider when* the local Study queue has run the images and every
+entry is present.
+
 ## Dataframes and labels
 
 User-facing frames go through narwhals and results return in the caller's dataframe library. Keep
@@ -545,7 +605,7 @@ changed: `IncrementalSupport.min_propensity` is the minimum over both columns of
 
 `tests/unit/test_incremental_binary_surface.py` and
 `tests/unit/test_ipsi_binary_surface.py` replay the committed studies to check it. A three-level
-fit on a configuration of the rows `T35` and `G39` carries the label of the registered study
+fit on a configuration of the rows `T35` and `G42` carries the label of the registered study
 [categorical incremental policies](technical-reference/method-evidence/categorical-incremental.md).
 Any other three-level fit is `experimental`, and no binary support row covers it.
 `tests/unit/test_categorical_ipsi_declaration.py` holds that check for nodes.

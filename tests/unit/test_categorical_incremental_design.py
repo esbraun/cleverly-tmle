@@ -318,7 +318,7 @@ def test_the_power_cell_is_sized_on_the_exact_law() -> None:
 
 
 #: The cases of the study's own two row families.
-STUDY_CASES = tuple(case for case in CASES if case.row.startswith(("T35.", "G39.")))
+STUDY_CASES = tuple(case for case in CASES if case.row.startswith(("T35.", "G42.")))
 
 
 def test_the_study_registers_one_case_for_each_of_its_six_rows() -> None:
@@ -327,8 +327,8 @@ def test_the_study_registers_one_case_for_each_of_its_six_rows() -> None:
         "T35.cross_fitted",
         "T35.known",
         "T35.strata",
-        "G39.cross_fitted",
-        "G39.complete",
+        "G42.cross_fitted",
+        "G42.complete",
     ]
 
 

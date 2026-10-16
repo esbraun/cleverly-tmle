@@ -36,16 +36,27 @@ import numpy as np
 from .._typing import BoolArray, FloatArray
 from ..exceptions import ConvergenceWarning
 from ._score import (
+    STOP_CONTEXT_MISSING,
+    BestIterate,
+    StopContext,
     absolute_score_weights,
+    iterate_norm,
     quasi_loglik,
     relative_score,
+    ruled_warning,
     score_columns,
     score_scale,
 )
 from .iterative import (
     _SEPARATION_EPSILON as SEPARATION_EPSILON,
 )
-from .iterative import Fluctuation, InitialFit, TargetingFailure, apply_logistic
+from .iterative import (
+    Fluctuation,
+    InitialFit,
+    TargetingFailure,
+    _rule_state,
+    apply_logistic,
+)
 from .submodel import Submodel, weighted_form
 
 __all__ = ["solve_one_step"]
@@ -64,6 +75,9 @@ def solve_one_step(
     max_steps: int = 20_000,
     tol: float = 1e-10,
     warn: bool = True,
+    stopping: str = "relative",
+    stop: StopContext | None = None,
+    iterate: str = "last",
 ) -> Fluctuation:
     """Walk the universal least-favorable submodel until the score vanishes.
 
@@ -76,7 +90,36 @@ def solve_one_step(
     max_steps:
         Safety cap.  Exceeding it warns rather than raising, and the partially
         targeted fit is returned so the caller can inspect the trace.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that ends the walk.  ``"relative"`` runs the shipped walk below, untouched.
+        A declared rule runs :func:`_solve_one_step_ruled`, which takes the same steps and
+        ends at the first step the rule is met.
+    stop : StopContext, optional
+        The units and outcome range a declared rule computes its threshold from.  A
+        declared rule without one raises ``ValueError``.
+    iterate : {"last", "best"}
+        Which iterate is reported.  ``"last"`` runs the shipped walk below, untouched.
+        ``"best"`` runs :func:`_solve_one_step_ruled`, which keeps the iterate of smallest raw
+        score norm.  The walk accepts a step only when the norm does not rise, so that iterate
+        is the last one, and a tie takes the later iterate.
     """
+    if stopping != "relative" or iterate == "best":
+        return _solve_one_step_ruled(
+            outcome,
+            initial,
+            submodel,
+            weights,
+            observed,
+            target_weights=target_weights,
+            alpha=alpha,
+            step_size=step_size,
+            max_steps=max_steps,
+            tol=tol,
+            warn=warn,
+            stopping=stopping,
+            stop=stop,
+            iterate=iterate,
+        )
     y = np.asarray(outcome, dtype=float).reshape(-1)
     n = y.shape[0]
     mask = np.ones(n, dtype=bool) if observed is None else np.asarray(observed, dtype=bool)
@@ -152,6 +195,148 @@ def solve_one_step(
         ),
         loglik=loglik,
         absolute_score_weights=absolute_score_weights(scoring_h, w, mask),
+    )
+
+
+def _solve_one_step_ruled(
+    outcome: FloatArray,
+    initial: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    observed: BoolArray | None,
+    *,
+    target_weights: bool,
+    alpha: float,
+    step_size: float,
+    max_steps: int,
+    tol: float,
+    warn: bool,
+    stopping: str,
+    stop: StopContext | None,
+    iterate: str = "last",
+) -> Fluctuation:
+    """:func:`solve_one_step` under a declared stopping rule, a best iterate, or both.
+
+    The walk is the shipped one, step for step, including the halving on an overshoot.  Under a
+    declared rule it ends at the first accepted step where the largest score over its threshold
+    is at most one, so a rule that is looser than ``tol`` stops the same walk earlier, and
+    ``tol`` is not read.  Under ``stopping="relative"`` it tests ``tol`` on the relative score
+    as the shipped walk does.
+
+    Under ``iterate="best"`` each accepted step is offered to a
+    :class:`~cleverly.fluctuation._score.BestIterate` by the 2-norm of its raw score vector.  The
+    walk accepts a step only when that norm does not rise, so the smallest norm is the last
+    accepted step's, and a step of equal norm replaces its predecessor (``last_on_ties``).  The
+    best iterate is the last one.
+    """
+    declared = stopping != "relative"
+    if declared and stop is None:
+        raise ValueError(STOP_CONTEXT_MISSING)
+    y = np.asarray(outcome, dtype=float).reshape(-1)
+    n = y.shape[0]
+    mask = np.ones(n, dtype=bool) if observed is None else np.asarray(observed, dtype=bool)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    if step_size <= 0:
+        raise ValueError(f"step_size must be positive; got {step_size}")
+
+    scoring_h = submodel.observed
+    fit_submodel, fit_weights = weighted_form(submodel, w) if target_weights else (submodel, w)
+
+    current = initial.shrunk(alpha)
+    epsilon = np.zeros(fit_submodel.dim)
+    dx = float(step_size)
+    scale = score_scale(scoring_h, w, mask)
+    trace: list[float] = []
+    loglik = quasi_loglik(y[mask], current.observed[mask], fit_weights[mask])
+    steps = 0
+
+    score = score_columns(y, current.observed, scoring_h, w, mask)
+    score_before = score
+    norm = float(np.linalg.norm(score))
+    trace.append(relative_score(score, scale))
+    thresholds: FloatArray | None = None
+    ratio: float | None = None
+    if stop is not None and declared:
+        thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+    best = BestIterate(last_on_ties=True) if iterate == "best" else None
+
+    while steps < max_steps and (ratio > 1.0 if ratio is not None else trace[-1] > tol):
+        if norm == 0.0:
+            break
+        direction = score / norm
+        candidate_epsilon = epsilon + dx * direction
+        candidate = apply_logistic(current, fit_submodel, dx * direction, alpha)
+        candidate_score = score_columns(y, candidate.observed, scoring_h, w, mask)
+        candidate_norm = float(np.linalg.norm(candidate_score))
+
+        if candidate_norm > norm:
+            dx *= 0.5
+            if dx < 1e-14:
+                break
+            continue
+
+        epsilon = candidate_epsilon
+        current = candidate
+        score = candidate_score
+        norm = candidate_norm
+        loglik = quasi_loglik(y[mask], current.observed[mask], fit_weights[mask])
+        trace.append(relative_score(score, scale))
+        if stop is not None and declared:
+            thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+        steps += 1
+        if best is not None:
+            best.offer(
+                steps, iterate_norm(score), (epsilon, current, score, loglik, thresholds, ratio)
+            )
+
+    reported: int | None = None
+    if best is not None:
+        reported = steps if best.k is None else best.k
+        if best.state is not None:
+            epsilon, current, score, loglik, thresholds, ratio = best.state
+
+    if ratio is not None:
+        converged = bool(ratio <= 1.0)
+    else:
+        converged = bool(relative_score(score, scale) <= tol)
+    if not converged and warn:
+        if ratio is not None:
+            message = ruled_warning(
+                stopping,
+                steps,
+                ratio,
+                f"the walk took steps of at most {step_size:g}. Try a smaller step_size, or "
+                "check res.diagnostics.support() for a positivity violation.",
+            )
+        else:
+            message = (
+                f"one-step targeting stopped after {steps} step(s) with a relative score of "
+                f"{relative_score(score, scale):.3g} > {tol:g}. Try a smaller step_size, or "
+                "check res.diagnostics.support() for a positivity violation."
+            )
+        warnings.warn(message, ConvergenceWarning, stacklevel=3)
+    return Fluctuation(
+        epsilon=epsilon,
+        targeted=current,
+        score=score,
+        converged=converged,
+        n_iter=steps,
+        trace=tuple(trace),
+        method="one_step",
+        names=submodel.names,
+        score_scale=scale,
+        score_initial=score_before,
+        failure=(
+            None
+            if converged
+            else _classify_one_step(epsilon, current, alpha, steps, max_steps, mask)
+        ),
+        loglik=loglik,
+        absolute_score_weights=absolute_score_weights(scoring_h, w, mask),
+        stopping=stopping,
+        thresholds=thresholds,
+        rule_ratio=ratio,
+        best_iterate=reported,
     )
 
 

@@ -244,6 +244,8 @@ class TestTheRefusals:
             estimator(density_bins=bins)
 
 
+# A dose on a grid of four values, which R-b4 of X40 refuses; the fixture turns it off.
+@pytest.mark.usefixtures("exact_grid_law")
 class TestACoarsenedShiftFit:
     """``delta=`` and ``intermediate=`` on a dose, at the seam this module covers.
 

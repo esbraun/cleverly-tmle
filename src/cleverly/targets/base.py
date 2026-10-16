@@ -64,6 +64,7 @@ __all__ = [
     "TREATMENT_MECHANISM",
     "TREATMENT_OBSERVATION_MECHANISM",
     "Identification",
+    "Interpretation",
     "Target",
     "TargetContext",
     "parameter_name",
@@ -195,29 +196,69 @@ POINT_NUISANCES = (
 
 
 @dataclass(frozen=True)
+class Interpretation:
+    """One causal reading of an identified functional, with the assumptions it adds.
+
+    A functional can identify two causal parameters under two different exchangeability
+    assumptions.  The modified treatment policy functional of Díaz, Williams, Hoffman and
+    Schenck (2023) is the policy effect under strong sequential randomization (Theorem 1
+    (ii)) and the mean under a stochastic intervention under standard sequential
+    randomization (Theorem 1 (i)).  :attr:`Identification.assumptions` holds what both
+    readings need, and each reading holds its own exchangeability assumption.
+
+    Parameters
+    ----------
+    label : str
+        The name of the causal parameter.
+    meaning : str
+        What the number is under this reading.
+    assumptions : tuple of str
+        What this reading adds to the shared assumptions.
+    references : tuple of str
+        Where the reading is proved.
+    """
+
+    label: str
+    meaning: str
+    assumptions: tuple[str, ...]
+    references: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Identification:
     """The assumptions under which a target is the causal quantity it claims to be.
 
-    Attributes
+    Parameters
     ----------
-    assumptions:
+    assumptions : tuple of str
         What must hold for the observed-data functional to equal the causal
-        parameter.  Written for a reader, not for a parser.
-    required_nuisances:
+        parameter.  Written for a reader, not for a parser.  With ``interpretations``,
+        what every reading needs.
+    required_nuisances : tuple of str
         Which nuisance estimates enter the influence function.
-    dr_condition:
+    dr_condition : str
         What double robustness actually buys for *this* estimand.  It is not the
         same sentence for every one: adding a missingness mechanism turns "``Qbar``
         right or ``g`` right" into "``Qbar`` right or the *product* ``g * pi``
         right", which is a strictly stronger requirement on the mechanism half.
-    references:
+    references : tuple of str
         Where the influence function is derived.
+    interpretations : tuple of Interpretation
+        The causal readings of the functional, each with the exchangeability assumption
+        it adds.  Empty when the functional has one reading, whose assumptions are all in
+        ``assumptions``.
+    model_restrictions:
+        Restrictions a design places on the observed-data model.  They do not change the
+        estimand, and the interval is claimed only under them.  Empty by default, and a
+        summary prints nothing for an empty tuple.
     """
 
     assumptions: tuple[str, ...]
     required_nuisances: tuple[str, ...]
     dr_condition: str
     references: tuple[str, ...] = ()
+    interpretations: tuple[Interpretation, ...] = ()
+    model_restrictions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -390,6 +431,14 @@ class TargetContext:
     policies: FloatArray | None = None
     #: ``(S, C)`` known component weights of a randomized policy set, or ``None``.
     policy_mixing: FloatArray | None = None
+    #: ``(n, C)`` the rows each policy component reads, or ``None`` when every component
+    #: reads every row: a fold-average policy's component reads its fold's held-out rows
+    #: (:attr:`~cleverly.interventions.PolicySet.component_rows`).
+    policy_rows: BoolArray | None = None
+    #: ``(n, S)`` the term each policy's curve adds, or ``None``: the chain-rule term of a
+    #: population target with a tuned cap
+    #: (:attr:`~cleverly.interventions.PolicySet.curve_terms`).
+    policy_terms: FloatArray | None = None
     #: ``(n, K, p)`` working-model design and ``(n, K)`` weights, for the ``msm``
     #: fluctuation; ``None`` otherwise.  Two arrays rather than one product because the
     #: projection needs them apart: the Gram matrix is ``h * phi * phi'`` and the fitted
@@ -504,6 +553,8 @@ class TargetContext:
                 self.weights,
                 self.observed,
                 self.policy_mixing,
+                rows=self.policy_rows,
+                terms=self.policy_terms,
             )
         if self.regimes is not None:
             return regime_means(
