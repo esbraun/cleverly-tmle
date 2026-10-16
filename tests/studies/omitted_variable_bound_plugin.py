@@ -72,11 +72,15 @@ bound, and the study rebuilds the first and the coefficient.  :math:`\hat B` and
 correction themselves are package values.  The exact-law witnesses of
 ``tests/unit/test_omitted_variable_plugin_second_order.py`` check them, and this study does not
 rebuild them.  Each control is the package's curve minus (inflated) or plus (shrunken) a
-mechanism term that this module computed, and it subtracts the same package variance correction.
+mechanism term that this module computed.  It keeps the positive's *relative* variance
+correction, :math:`(v_+ - c^2 v) / v_+`, so the control's variance stays positive whenever the
+package's own is (:func:`_control_standard_errors`).  A control therefore never fails a replicate
+that the package returned.
 
 **The failure accounting.**  A replicate is one parameter of one draw.  A refusal of one
 parameter raises :class:`~cleverly.exceptions.DataError`, which the driver records as a failed
-replicate of that parameter's cells and of no other parameter's.  The primary phase therefore
+replicate of that parameter's cells and of no other parameter's.  Only a refusal of the package
+raises it.  A defect of the study stops the run (:func:`parameter_rows`).  The primary phase therefore
 registers one scenario for each parameter (:func:`primary_name`), and the three parameters of a
 scenario read one sample through ``scenario_seed_owners``.
 
@@ -255,6 +259,13 @@ PROPERTY_CELLS = {"interval_calibration": _cells()}
 NU2_ROWS = "nu2-replicates.csv.gz"
 NU2_READING = "nu2-reading.csv"
 
+#: The unjudged readings of the property phase.  ``correction-reading.csv`` holds, for each
+#: positive cell, the same-draw SE ratio and coverage without the package's variance correction
+#: and the mean share the correction removes.  ``refusal-reading.csv`` holds the refusals of
+#: each parameter by key.  Neither one carries a verdict.
+CORRECTION_READING = "correction-reading.csv"
+REFUSAL_READING = "refusal-reading.csv"
+
 STUDY = StudyRecord(
     name="omitted-variable bound plug-in standard error",
     slug="omitted-variable-bound-plugin-se",
@@ -285,10 +296,11 @@ STUDY = StudyRecord(
     properties_module="tests.studies.omitted_variable_bound_plugin_properties",
     property_cells=PROPERTY_CELLS,
     extra_artifacts=(NU2_ROWS, NU2_READING),
+    property_artifacts=(CORRECTION_READING, REFUSAL_READING),
     publication_policy="reporting",
 )
 
-CONFIGURATION = {
+CONFIGURATION: dict[str, Any] = {
     "laws": {
         "balanced": "make_linear_ate(n=1000): W ~ N(0, I_4), g = expit(0.3 W1 - 0.2 W2 + 0.1 W3), "
         "Y = 2 + 1.5 A + W1 + 0.5 W2 - 0.8 W3 + 0.4 W4 + N(0, 1)",
@@ -307,13 +319,14 @@ CONFIGURATION = {
         "binary_logistic_ridge_crossfit": "the same as binary_logistic_ridge with "
         "cross_fit=True, n_folds=5, q_bounds=(-40.0, 45.0)",
         "multinomial_logistic": "in-sample TMLE, LinearRegression outcome, "
-        "LogisticRegression(C=inf, max_iter=2000), reference arm 0",
+        f"LogisticRegression(C=inf, max_iter=2000), reference arm 0, g_bounds={WIDE_G_BOUNDS}",
         "multinomial_logistic_crossfit": "the same with cross_fit=True, n_folds=5, "
-        "q_bounds=(-40.0, 45.0)",
+        f"q_bounds=(-40.0, 45.0), g_bounds={WIDE_G_BOUNDS}",
         "binary_known": "in-sample TMLE, LinearRegression outcome, the law's own mechanism "
         "linear_dgp().propensity declared through treatment_probabilities=",
         "binary_unbalanced": "in-sample TMLE, LinearRegression outcome, "
-        "LogisticRegression(C=inf, max_iter=2000), treatment intercept -1.5",
+        "LogisticRegression(C=inf, max_iter=2000), treatment intercept -1.5, "
+        f"g_bounds={WIDE_G_BOUNDS}",
     },
     "nu2_estimator": "plugin, second-order corrected by the package (nu2_correction and "
     "nu2_variance_correction are package values)",
@@ -322,43 +335,160 @@ CONFIGURATION = {
     "z_0.95 and (ci_upper - upper) / z_0.95, each checked against the rebuilt curve less the "
     "package variance correction; interval = estimate +/- 1.959964 std_error. One primary "
     "scenario for each parameter, so a refusal of one parameter loses only its rows",
+    "correction_reading": "for each positive cell, the same-draw SE ratio and coverage without "
+    "the package variance correction, the 99% SE-ratio interval inside the calibration band or "
+    "not, and the mean and the largest share of the variance that the correction removes, "
+    "published unjudged in correction-reading.csv; the refusals of each parameter by key in "
+    "refusal-reading.csv",
     "nu2_reading": "the corrected nu2, its corrected standard error, the raw "
     "E_n[alpha_hat^2], B_hat and the variance correction of every draw, published unjudged in "
     "nu2-replicates.csv.gz and nu2-reading.csv",
     "controls": {
         "inflated_se_control": "the estimated-mechanism scenarios' ATT and ATC bound rows, with "
-        "the package curve minus the independently rebuilt mechanism term and the package "
-        "variance correction",
+        "the package curve minus the independently rebuilt mechanism term, with the positive's "
+        "relative variance correction (v_control * (v_positive - c^2 v) / v_positive), so the "
+        "control's variance is positive whenever the package's is",
         "shrunken_se_control": "binary_known's ATT and ATC bound rows, with the package curve "
-        "plus the mechanism term of a study-side LogisticRegression(C=inf) fit and the package "
-        "variance correction",
+        "plus the mechanism term of a study-side LogisticRegression(C=inf) fit, with the "
+        "positive's relative variance correction",
     },
     "truth": "sigma2 = 1. balanced: nu2 = 2 + 2 exp(0.07) for ate, 4 exp(0.07) for att and atc, "
     "effect 1.5. unbalanced: 1-D Gauss-Hermite quadrature, effect 1.5. multinomial: 80 x 80 "
     "Gauss-Hermite quadrature, effects 1.44, 1.44, 0.6",
 }
 
-#: The red-cell route, declared before any run (X26 plan section 3.5 and review F10).
+#: The red-cell route, declared before any run (X26 plan section 3.5 and review F10, and the
+#: pre-queue design review C2 to C5).
+#:
+#: Owner ids.  Each names the roadmap row ("Red-cell owners") that closes the cells it reads.
 RED_CELL_OWNER = "X26-plugin-finite-sample"
+CROSSFIT_REFUSAL_OWNER = "X26-crossfit-refusals"
+UNDERPOWERED_CONTROL_OWNER = "X26-unbalanced-control"
+CORRECTION_OVERSHOOT_OWNER = "X26-correction-overshoot"
+REFUSAL_LIMITED_OWNER = "X26-refusal-limited"
+
+#: The declarations that the owner of the study has not yet confirmed.  The working decision keeps
+#: the package's variance correction of :math:`\hat\nu^2` in the estimator.  It rests on the
+#: pilot (``_x26/pilot``).  On the pilot's draws the correction moves the unbalanced ATC SE ratio
+#: from 1.039 to 0.951.  Two things follow, and each is declared here and nowhere else, so a
+#: different decision changes these constants and :data:`RED_CELL_POLICY` only.
+#:
+#: * :data:`EXPECTED_BOUND_EXCEEDED` lists the scenarios whose refusal rate the pilot put above
+#:   the failure bound (``FAILURE_BOUND`` in the properties module stays 0.01).  Their cells read
+#:   ``bound exceeded`` and are published red with the refusal rate by key.
+#: * :data:`UNDERPOWERED_CONTROLS` lists the controls that the design test already predicts as
+#:   weak and that the pilot read inside the band (1.052 and 1.053 against a design ratio of
+#:   1.11).  They read "control underpowered".
+EXPECTED_BOUND_EXCEEDED = ("multinomial_logistic_crossfit",)
+UNDERPOWERED_CONTROLS = (
+    "binary_unbalanced_atc_lower__inflated_se_control",
+    "binary_unbalanced_atc_upper__inflated_se_control",
+)
+
+
+#: The key a refusal of the package names.  The study raises :class:`DataError` for these three
+#: and for no other reason.
+REFUSAL_KEYS = ("truncation_active", "correction_unstable", "corrected_nonpositive")
+
+
+def refusal_key(message: str) -> str:
+    """The refusal key a failure record's message names, or ``other``.
+
+    The study raises ``DataError("the plug-in bound of 'name' refused: key")`` for the three
+    refusals of the package (:data:`REFUSAL_KEYS`).  Any other recorded failure, such as a
+    failure of the fit itself, reads ``other``.
+    """
+    for key in REFUSAL_KEYS:
+        if message.endswith(f"refused: {key}"):
+            return key
+    return "other"
+
+
+def cell_parameter(cell: str) -> tuple[str, str]:
+    """The scenario and the parameter token whose fit fills a property cell."""
+    label = cell.split("__")[0]
+    for scenario, parameters in PARAMETERS.items():
+        for token in parameters:
+            if label in {cell_label(scenario, token, row) for row in CLAIM_ROWS}:
+                return scenario, token
+    raise KeyError(f"{STUDY.slug} has no property cell {cell!r}")
+
+
+def expected_bound_exceeded_cells() -> tuple[str, ...]:
+    """The property cells that the policy declares to read ``bound exceeded``."""
+    return tuple(
+        cell
+        for cell in PROPERTY_CELLS["interval_calibration"]
+        if cell_parameter(cell)[0] in EXPECTED_BOUND_EXCEEDED
+    )
+
+
+def expected_bound_exceeded_primary() -> tuple[str, ...]:
+    """The primary scenarios that the policy declares to read ``bound exceeded``."""
+    return tuple(
+        name for name, (scenario, _) in PRIMARY.items() if scenario in EXPECTED_BOUND_EXCEEDED
+    )
+
+
+_EXPECTED_CELLS = expected_bound_exceeded_cells()
+
 RED_CELL_POLICY = (
     "the study publishes under reporting; no replicate count, margin, law, learner or "
     "strength changes after a verdict is seen",
     "a red positive cell is diagnosed first: on 20 replicates of its scenario, the "
     "infinitesimal jackknife (unit witness W5) and the numerical sandwich "
-    "(TestTheNumericalSandwich) are compared with the package curve. A mismatch is a defect, "
-    "which is fixed and the study regenerated under a fresh declaration commit",
+    "(TestTheNumericalSandwich) are compared with the package curve. The diagnosis also reads "
+    f"{CORRECTION_READING}: the same-draw SE ratio without the package's variance correction, "
+    "and the mean share of the variance that the correction removes. A mismatch of the curve is "
+    "a defect, which is fixed and the study regenerated under a fresh declaration commit",
     "when they agree, the cell is rerun at n = 4000 with 5,000 replicates and published red "
     f"with owner {RED_CELL_OWNER} and the reading 'finite-sample, contracting' or "
     "'finite-sample, not contracting at n=4000', with a roadmap owner row",
     "a red positive cell reads as finite-sample only when its 99% SE-ratio interval contains "
     "1, its coverage is consistent with 0.95, and the diagnosis finds no defect; any other "
-    "red positive cell is a defect suspect and never ends as an owner row unfixed",
-    "a control that does not leave the band is reported as 'control underpowered', with its ratio",
+    "red positive cell is a defect suspect and never ends as an owner row unfixed, except a "
+    "red cell that rule 7, 8 or 9 reads",
+    "a control that does not leave the band is reported as 'control underpowered', with its "
+    f"ratio. {len(UNDERPOWERED_CONTROLS)} controls ({', '.join(UNDERPOWERED_CONTROLS)}) are "
+    f"declared so before the run, with owner {UNDERPOWERED_CONTROL_OWNER}: the pilot read the "
+    "ratios of the ATC controls at 1.052 and 1.053 against a design ratio of 1.11",
     "the corrected nu2 rows are measured, not claimed: their reading is never a verdict, and a "
     "shortfall in it opens no red cell",
+    f"the cells of {', '.join(EXPECTED_BOUND_EXCEEDED)} ({len(_EXPECTED_CELLS)} property cells and "
+    f"{len(expected_bound_exceeded_primary())} primary scenarios) are declared to read 'bound "
+    "exceeded', because the "
+    "pilot refused 1.7 to 4.2 percent of its draws and the failure bound stays 0.01. They are "
+    f"published red with owner {CROSSFIT_REFUSAL_OWNER}, with the refusal rate of each key in "
+    f"{REFUSAL_READING} and with the complete-case SE ratio and coverage labelled 'not a "
+    "verdict'. Rules 2 to 4 do not apply to a cell that only the bound turns red",
+    "a cell that is green on the complete case and red only because a worst-case clause fails "
+    f"reads 'refusal-limited' with owner {REFUSAL_LIMITED_OWNER}. It publishes the number of "
+    "lost replicates, the complete-case value and the worst-case value. It is not a defect "
+    "suspect under rule 4",
+    "a red positive cell whose 99% SE-ratio interval without the variance correction lies "
+    f"inside the calibration band ({CORRECTION_READING}, column uncorrected_in_band), and whose "
+    "diagnosis under rule 2 finds no mismatch of the curve, reads 'variance-correction "
+    f"overshoot' with owner {CORRECTION_OVERSHOOT_OWNER}. It is rerun under rule 3 and "
+    "published as 'contracting' or 'not contracting at n=4000'. It is not a defect suspect "
+    "under rule 4",
 )
 
 CONFIGURATION["red_cell_policy"] = list(RED_CELL_POLICY)
+CONFIGURATION["declared_red_cells"] = {
+    "bound_exceeded": {
+        "scenarios": list(EXPECTED_BOUND_EXCEEDED),
+        "property_cells": list(_EXPECTED_CELLS),
+        "primary_scenarios": list(expected_bound_exceeded_primary()),
+        "owner": CROSSFIT_REFUSAL_OWNER,
+    },
+    "control_underpowered": {
+        "cells": list(UNDERPOWERED_CONTROLS),
+        "owner": UNDERPOWERED_CONTROL_OWNER,
+    },
+    "refusal_limited": {"owner": REFUSAL_LIMITED_OWNER},
+    "correction_overshoot": {"owner": CORRECTION_OVERSHOOT_OWNER},
+    "finite_sample": {"owner": RED_CELL_OWNER},
+}
 
 #: The two-sided 95% multiplier of each row's interval, and the one-sided multiplier the bound
 #: reports its limit with.
@@ -938,43 +1068,87 @@ def _bias_curve(elements: Any, psi_nu2: np.ndarray) -> np.ndarray:
     )
 
 
-def _variance(curve: np.ndarray, cluster: Any, correction: float, what: str) -> float:
-    """The variance of a curve less a package variance correction, which must stay positive."""
-    value = float(influence_variance(curve, cluster)) - correction
+def _corrected_variance(raw: float, correction: float, what: str) -> float:
+    """A variance less a package variance correction.
+
+    The package returned limits before this runs, and it applies the same subtraction to the
+    same curve.  A variance that is not positive here is a defect of the study's rebuild and
+    stops the run.  It is not a refusal of the package, so it is never a recorded replicate.
+    """
+    value = raw - correction
     if not value > 0.0:
-        raise DataError(f"the corrected variance of {what} is {value:.6g}")
+        raise RuntimeError(
+            f"the rebuilt corrected variance of {what} is {value:.6g}, though the package "
+            "returned limits"
+        )
     return value
 
 
 def _nu2_standard_error(result: Any, elements: Any, psi_nu2: np.ndarray) -> float:
     """The corrected standard error of ``nu^2`` from one curve of ``nu^2``."""
-    correction = float(elements.nu2_variance_correction)
-    return math.sqrt(_variance(psi_nu2, result.data.cluster, correction, "nu^2"))
+    raw = float(influence_variance(psi_nu2, result.data.cluster))
+    return math.sqrt(_corrected_variance(raw, float(elements.nu2_variance_correction), "nu^2"))
 
 
-def _bound_standard_errors(
-    result: Any, name: str, elements: Any, psi_nu2: np.ndarray, strength_value: float
-) -> dict[str, float]:
-    r"""The standard error of each bound end, from one curve of ``nu^2``.
+@dataclass(frozen=True)
+class BoundVariances:
+    r"""The variance of each bound end before the package's variance correction.
 
-    The variance is that of the combined curve less :math:`c^2 v`, with :math:`v` the package's
-    variance correction of :math:`\hat\nu^2` and
-    :math:`c = \kappa \sigma^2 / (2 \sqrt{\sigma^2 \nu^2})` the delta-method coefficient of the
-    bound in :math:`\nu^2`.  The coefficient is this module's.
+    Parameters
+    ----------
+    raw : dict
+        The variance of the combined curve of ``lower`` and of ``upper``, before the correction.
+    correction : float
+        :math:`c^2 v`, with :math:`v` the package's variance correction of :math:`\hat\nu^2` and
+        :math:`c = \kappa \sigma^2 / (2 \sqrt{\sigma^2 \nu^2})` the delta-method coefficient
+        of the bound in :math:`\nu^2`.  The coefficient is this module's.
     """
+
+    raw: dict[str, float]
+    correction: float
+
+    def standard_error(self, row: str, what: str) -> float:
+        """The standard error of one bound end, less the correction."""
+        return math.sqrt(_corrected_variance(self.raw[row], self.correction, f"{what} {row}"))
+
+    def uncorrected_standard_error(self, row: str) -> float:
+        """The standard error of one bound end without the correction."""
+        return math.sqrt(self.raw[row])
+
+    def share(self, row: str) -> float:
+        """The share of one bound end's variance that the correction removes."""
+        return self.correction / self.raw[row]
+
+
+def _bound_variances(
+    result: Any, name: str, elements: Any, psi_nu2: np.ndarray, strength_value: float
+) -> BoundVariances:
+    """The variance of each bound end, from one curve of ``nu^2``, before the correction."""
     cluster = result.data.cluster
     curve = np.asarray(result[name].influence_curve, dtype=float)
     bias = _bias_curve(elements, psi_nu2)
     coefficient = strength_value * float(elements.sigma2) / (2.0 * float(elements.max_bias))
-    correction = coefficient**2 * float(elements.nu2_variance_correction)
-    return {
-        "lower": math.sqrt(
-            _variance(curve - strength_value * bias, cluster, correction, f"{name} lower")
-        ),
-        "upper": math.sqrt(
-            _variance(curve + strength_value * bias, cluster, correction, f"{name} upper")
-        ),
-    }
+    return BoundVariances(
+        raw={
+            "lower": float(influence_variance(curve - strength_value * bias, cluster)),
+            "upper": float(influence_variance(curve + strength_value * bias, cluster)),
+        },
+        correction=coefficient**2 * float(elements.nu2_variance_correction),
+    )
+
+
+def _control_standard_errors(positive: BoundVariances, control: BoundVariances) -> dict[str, float]:
+    """A control's standard error, with the positive's *relative* variance correction.
+
+    A control withholds or adds a term, so its raw variance differs from the positive's.  The
+    package's absolute correction is a quantity of the positive's curve.  Taken from a smaller
+    control curve it can leave a variance below zero while the package returned limits (two of
+    the six unbalanced ATC losses in the pilot).  The control therefore loses the same share of
+    its variance as the positive does: ``v_control (v_positive - c^2 v) / v_positive``.  That is
+    positive whenever the positive's corrected variance is, so a control never fails a replicate
+    the package returned.
+    """
+    return {row: math.sqrt(control.raw[row] * (1.0 - positive.share(row))) for row in CLAIM_ROWS}
 
 
 @dataclass(frozen=True)
@@ -989,11 +1163,18 @@ class Bound:
         The standard error read back off the reported confidence limit.
     control : float or None
         The control's standard error, or ``None`` for a parameter without one.
+    std_error_uncorrected : float
+        The standard error of the same draw without the package's variance correction.
+    correction_share : float
+        The share of the bound's variance that the package's variance correction removes on
+        this draw, so ``std_error`` is ``std_error_uncorrected * sqrt(1 - correction_share)``.
     """
 
     estimate: float
     std_error: float
     control: float | None
+    std_error_uncorrected: float
+    correction_share: float
 
 
 @dataclass(frozen=True)
@@ -1040,19 +1221,28 @@ class ParameterValues:
     nu2: Nu2
 
 
+def _refusal_key_of(refusal: CapabilityError) -> str | None:
+    """The key of the package's variance refusal, or ``None`` when it is another refusal."""
+    return "corrected_nonpositive" if "(corrected_nonpositive)" in str(refusal) else None
+
+
 def parameter_rows(result: Any, scenario: str, token: str) -> ParameterValues:
     """Each row's estimate, reported standard error and control standard error.
 
     The reported standard error of a bound end is read back off its limit, and it must equal
     the standard error of the rebuilt curve less the package's variance correction.  The
-    control is ``None`` for a parameter without one.
+    control is ``None`` for a parameter without one.  Each bound also carries the same draw's
+    standard error without the correction and the share the correction removes, which the
+    property study publishes as the correction reading.
 
     Raises
     ------
     DataError
         If the package refuses the limits of this fit (``truncation_active``,
         ``correction_unstable`` or ``corrected_nonpositive``).  The driver records it as a
-        failed replicate of this parameter, and of no other.
+        failed replicate of this parameter, and of no other.  A refusal of the bound that is not
+        ``corrected_nonpositive``, and a variance of the study's own rebuild that is not
+        positive, are not recorded: they stop the run.
     """
     ov = omitted_variable_module
     scenario = scenario_of(scenario)
@@ -1074,8 +1264,12 @@ def parameter_rows(result: Any, scenario: str, token: str) -> ParameterValues:
         )
     except CapabilityError as refusal:
         # The corrected variance of a bound end is not positive.  CapabilityError stops a run,
-        # so the study states the refusal as the recordable error it is for one replicate.
-        raise DataError(f"the plug-in bound of {name!r} refused: {refusal}") from refusal
+        # so the study states that one refusal as the recordable error it is for one replicate.
+        # Any other CapabilityError is a defect of the study and stops the run.
+        key = _refusal_key_of(refusal)
+        if key is None:
+            raise
+        raise DataError(f"the plug-in bound of {name!r} refused: {key}") from refusal
     if bounds.ci_lower is None or bounds.ci_upper is None:
         raise RuntimeError(f"the plug-in bound of {name!r} reported no limit")
     rebuilt = rebuild(result, scenario, token, elements)
@@ -1086,7 +1280,8 @@ def parameter_rows(result: Any, scenario: str, token: str) -> ParameterValues:
         "lower": (bounds.lower - bounds.ci_lower) / ONE_SIDED,
         "upper": (bounds.ci_upper - bounds.upper) / ONE_SIDED,
     }
-    own = _bound_standard_errors(result, name, elements, rebuilt.curve, strength_value)
+    positive = _bound_variances(result, name, elements, rebuilt.curve, strength_value)
+    own = {row: positive.standard_error(row, name) for row in CLAIM_ROWS}
     own["nu2"] = _nu2_standard_error(result, elements, rebuilt.curve)
     for row in ("nu2", "lower", "upper"):
         if abs(own[row] - reported[row]) > REBUILD_TOLERANCE * max(1.0, own[row]):
@@ -1098,7 +1293,9 @@ def parameter_rows(result: Any, scenario: str, token: str) -> ParameterValues:
             changed = psi - rebuilt.mechanism_term
         else:
             changed = psi + study_mechanism_term(result, scenario, token)
-        control = _bound_standard_errors(result, name, elements, changed, strength_value)
+        control = _control_standard_errors(
+            positive, _bound_variances(result, name, elements, changed, strength_value)
+        )
     cluster = result.data.cluster
     return ParameterValues(
         bounds={
@@ -1106,6 +1303,8 @@ def parameter_rows(result: Any, scenario: str, token: str) -> ParameterValues:
                 estimate=float(estimates[row]),
                 std_error=float(reported[row]),
                 control=None if control is None else float(control[row]),
+                std_error_uncorrected=positive.uncorrected_standard_error(row),
+                correction_share=positive.share(row),
             )
             for row in CLAIM_ROWS
         },

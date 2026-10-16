@@ -2600,7 +2600,9 @@ STUDY_ARM_CELLS.update(
                 "inflated_se_control",
                 (
                     "the standard errors come from the package curve of nu^2 minus the "
-                    "mechanism term the study rebuilt, which is too wide at a correct model",
+                    "mechanism term the study rebuilt, with the share of the variance that the "
+                    "package correction removes from the positive, which is too wide at a "
+                    "correct model",
                     "the SE-ratio interval must fall above the calibration band",
                 ),
             ),
@@ -2608,8 +2610,9 @@ STUDY_ARM_CELLS.update(
                 "shrunken_se_control",
                 (
                     "the standard errors come from the known-mechanism curve plus the "
-                    "mechanism term of a study-side logistic fit, which is too narrow for a "
-                    "declared mechanism",
+                    "mechanism term of a study-side logistic fit, with the share of the variance "
+                    "that the package correction removes from the positive, which is too narrow "
+                    "for a declared mechanism",
                     "the SE-ratio interval must fall below the calibration band",
                 ),
             ),
