@@ -267,8 +267,9 @@ class SupportKey:
         The missing-data structure: ``"complete"`` or the names of what is missing, and
         ``"intermediate"`` for a declared intermediate.
     treatment : tuple of str
-        The treatment kind and arm count. A longitudinal key holds the level count of each node,
-        led by ``held`` when one baseline treatment is held over every node.
+        The treatment kind and arm count, or ``vector`` for a vector with a dose. A
+        longitudinal key holds the level count of each node, led by ``held`` when one baseline
+        treatment is held over every node.
     weighting : {"none", "fixed", "estimated"}
         How the observation weights are read.
     splitting : tuple of str
@@ -283,9 +284,10 @@ class SupportKey:
         ``strata`` and ``known_mechanism``. A longitudinal key holds the known factors.
     options : tuple of tuple
         Sorted ``(name, value)`` pairs of the options that change the estimator's arithmetic. A
-        longitudinal key holds ``multiplier_kind``, the inverse-probability ``normalization``,
-        the policy density ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm
-        and the ``isotonic`` projection.
+        point key on the policy axis holds the policy density ``ratio``. A longitudinal key
+        holds ``multiplier_kind``, the inverse-probability ``normalization``, the policy density
+        ``ratio``, the ``survival_model``, the hazard ``targeting`` algorithm and the
+        ``isotonic`` projection.
     """
 
     kind: str
@@ -518,7 +520,10 @@ def point_key(
     if data.has_intermediate:
         missing.append("intermediate")
 
-    if data.is_continuous_treatment:
+    if data.treatment_kind == "vector":
+        # A vector with a dose has no arms, and its one-column readers refuse (X31).
+        treatment: tuple[str, ...] = ("vector",)
+    elif data.is_continuous_treatment:
         treatment = ("continuous",)
     else:
         treatment = ("binary",) if data.n_arms == 2 else (f"arms{data.n_arms}",)
@@ -539,6 +544,10 @@ def point_key(
         for name in ("guard", "reduction", "reduced_crossfit", "update_order", "randomized"):
             options[name] = getattr(estimator, name)
         options["evaluation"] = estimator.evaluation is not None
+    if str(estimator._axis) == "policy":
+        # The policy density ratio changes the clever covariate, so a classifier fit never
+        # matches a row whose study fitted the density route.
+        options["ratio"] = estimator.ratio
 
     key = SupportKey(
         kind="point",

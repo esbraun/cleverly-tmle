@@ -109,32 +109,42 @@ class TestTheDerivedKind:
             warnings.simplefilter("ignore")
             return estimator.fit(data).single()
 
-    def test_a_ratio_from_a_row_without_the_kind_is_experimental(self) -> None:
+    def test_a_ratio_of_arm_means_reads_the_rows_derived_kind(self) -> None:
+        """T01.binary covers P1 and P2, so a ratio or difference of two arm means is studied.
+
+        The ratio of ``ey1`` to ``ey0`` is the ``rr`` estimand that ``canonical-tmle`` measured,
+        and their difference is the ``ate``.
+        """
         result = self.point_fit()
         assert result["ey1"].support.label == "supported"
-        assert "derived" not in ROWS["T01.binary"].kinds
-        ratio = result.ratio("ey1", "ey0")
-        assert ratio.support.label == "experimental"
-        assert "licenses no derived estimate" in ratio.support.reason
+        assert "derived" in ROWS["T01.binary"].kinds
+        assert result.ratio("ey1", "ey0").support.label == "supported"
         contrast = result.contrast(lambda p: p[0] - p[1], ("ey1", "ey0"))
-        assert contrast.support.label == "experimental"
-        assert ratio.bootstrap is not None
-        assert ratio.bootstrap.support.label == "experimental"
+        assert contrast.support.label == "supported"
 
-    def test_a_row_with_the_kind_keeps_a_supported_derived_estimate(self) -> None:
-        """The control: with the kind added to the row the same ratio reads supported."""
+    def test_a_row_without_the_kind_labels_a_derived_estimate_experimental(self) -> None:
+        """The control: with the kind dropped from the row the same ratio reads experimental."""
         listed = ROWS["T01.binary"]
         support = Support("supported", "Row T01.binary covers this configuration.", row=listed.id)
-        assert combine_support([support, support], kind="derived").label == "experimental"
-        rows = {**ROWS, listed.id: replace(listed, kinds=listed.kinds | {"derived"})}
+        assert combine_support([support, support], kind="derived").label == "supported"
+        rows = {**ROWS, listed.id: replace(listed, kinds=listed.kinds - {"derived"})}
         original = registered_rows
         import cleverly._support as module
 
         module.registered_rows = lambda: tuple(rows.values())  # type: ignore[assignment]
         try:
-            assert combine_support([support, support], kind="derived").label == "supported"
+            dropped = combine_support([support, support], kind="derived")
         finally:
             module.registered_rows = original  # type: ignore[assignment]
+        assert dropped.label == "experimental"
+        assert "licenses no derived estimate" in dropped.reason
+
+    def test_a_point_row_without_p2_licenses_no_derived_estimate(self) -> None:
+        """Only a point row that covers both P1 and P2 gains the derived kind."""
+        from cleverly._support_rows import point_row
+
+        assert "derived" in point_row("X", ["s"], families=("P1", "P2")).kinds
+        assert "derived" not in point_row("X", ["s"], families=("P1",)).kinds
 
     def test_a_longitudinal_row_that_lists_the_kind_stays_supported(self) -> None:
         for row_id in ("G01", "G02", "G11.nodes4", "G12.nodes4"):

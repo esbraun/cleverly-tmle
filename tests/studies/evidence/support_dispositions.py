@@ -68,6 +68,7 @@ LIMIT_OWNERS = frozenset(
         "X8-drtmle-small-stratum",
         "X16-plugin-variance",
         "RM18-comparator-density",
+        "X19-competing-calibration",
     }
 )
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
@@ -1366,6 +1367,16 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "",
         "",
     ),
+    (
+        "longitudinal-incremental-dropout",
+        "property",
+        "interval_calibration/competing_contrast_x2_h3__correctly_specified",
+        "G34.competing",
+        ("wald",),
+        LIMIT,
+        "X19-competing-calibration: coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, empirical efficiency ratio 0.9239 to 0.9884, reported efficiency ratio 1.0005 to 1.0007",
+        "",
+    ),
 )
 
 #: The committed decisions, one per positive red row.
@@ -1404,6 +1415,12 @@ NO_SHORTFALL: Mapping[RedKey, str] = {
         key: "the cell is a cross-fitted or clustered bootstrap, outside the configuration of the row"
         for key, entry in DISPOSITIONS.items()
         if entry.row == "T01.binary" and entry.disposition == EXPERIMENTAL
+    },
+    **{
+        key: "the cell measures a hypothesis test, and the label has no test kind; the row's "
+        "coverage cells carry its interval limit"
+        for key, entry in DISPOSITIONS.items()
+        if entry.disposition == EXPERIMENTAL and key.key.startswith(("type_i_error/", "power/"))
     },
 }
 

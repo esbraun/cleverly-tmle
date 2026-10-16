@@ -14,7 +14,6 @@ Start with [Point-treatment TMLE](point-treatment-tmle.ipynb).
 | [Point-treatment TMLE](point-treatment-tmle.ipynb) | assignment to the standard navigation offer | [entry](../technical-reference/point-treatment-tmle.md) | one consistent nuisance gives a consistent point estimate. Two inconsistent nuisances have no general guarantee |
 | [CV-TMLE](cross-fitting.ipynb) | the same offer, with flexible learners and patients nested in navigator teams | [entry](../technical-reference/cv-tmle.md) | in-sample nuisance evaluation and ignored teams can understate uncertainty |
 | [Collaborative TMLE](collaborative-tmle.ipynb) | the offer's effect on a successful transition home, when one strong predictor of the offer has an uncertain role | [entry](../technical-reference/collaborative-tmle.md) | the predictor makes the fitted propensities extreme. The ordinary TMLE interval under-covers at this law in a review probe. OAT C-TMLE targets the same ATE, and a registered cell measures its coverage |
-| [DR-TMLE](dr-tmle.ipynb) | the same offer, assigned by a logged rule with recorded probabilities and analyzed with a doubtful outcome model | [entry](../technical-reference/dr-tmle/index.md) | solved score equations do not show that the reduced regressions are adequate. The logged assignment probabilities, not the choice of estimator, make the interval valid |
 | [Choosing a navigation policy](interventions.ipynb) | target by risk, raise assigned navigation intensity, or change assignment odds | [entry](../technical-reference/point-treatment-tmle.md#variations) | the capacity cap is part of the question: two raises of the same size are two estimands |
 | [Survey non-response](survey-nonresponse.ipynb) | many patients do not return the 30-day transition survey | [entry](../technical-reference/point-treatment-tmle.md#missing-outcomes-and-controlled-direct-effects) | a complete-case fit estimates the effect standardized to the respondents' covariate distribution |
 | [Longitudinal TMLE](longitudinal-tmle.ipynb) | navigation at discharge and day seven | [entry](../technical-reference/longitudinal-tmle.md) | one regression cannot adjust for a time-varying confounder and preserve the causal path |
@@ -113,7 +112,6 @@ of smoking mothers (ATT). It also shows why the adjustment set stops before birt
 point-treatment-tmle
 cross-fitting
 collaborative-tmle
-dr-tmle
 interventions
 survey-nonresponse
 longitudinal-tmle
