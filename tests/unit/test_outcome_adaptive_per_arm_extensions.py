@@ -852,7 +852,7 @@ def check_status(case: str) -> None:
         for name in result.estimates:
             summary = result[name].bootstrap
             assert summary is not None, name
-            assert summary.inferential is False, name
+            assert summary.diagnostic is True, name
         columns = set(result.to_frame().columns)
         assert {"bootstrap_sd", "bootstrap_range_lower", "bootstrap_range_upper"} <= columns
         assert not {"bootstrap_ci_lower", "bootstrap_ci_upper", "bootstrap_std_err"} & columns

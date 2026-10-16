@@ -1,0 +1,2126 @@
+"""The support rows of the point-treatment estimators.
+
+Each row names one configuration that a registered study covers, the kinds of inference the
+study licenses there, and the study cells that license it. The rows are explicit tuples: a
+row covers a set of values on one axis only where :func:`rows_over` expands it into one row
+per value, and each expanded row has a case in ``tests/studies/support_cases.py``.
+
+The row ids follow ``docs/roadmap.md`` and the support inventory: ``T`` for ordinary TMLE,
+``D`` for DR-TMLE and ``C`` for C-TMLE. A suffix names the expanded value. The longitudinal
+rows (``G``) are a later addition.
+
+A leaf module: it imports :mod:`cleverly._support` only.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
+from typing import Any, Final
+
+from ._support import KEY_AXES, Kind, SupportKey, SupportRow
+
+__all__ = [
+    "EXEMPT_STUDIES",
+    "FAMILY_THEORY",
+    "LONGITUDINAL_ROWS",
+    "MEASURED_LIMITS",
+    "OPTION_ALLOWLIST",
+    "POINT_ROWS",
+    "SHORTFALLS",
+    "TheoryAnchor",
+    "default_options",
+    "long_row",
+    "merge_rows",
+    "point_row",
+    "rows_over",
+]
+
+BINARY: Final[tuple[str, ...]] = ("binomial",)
+CONTINUOUS: Final[tuple[str, ...]] = ("gaussian", "unbounded")
+BOUNDED: Final[tuple[str, ...]] = ("gaussian", "bounded")
+
+_WALD: Final[frozenset[Kind]] = frozenset({"point", "wald"})
+_WALD_T: Final[frozenset[Kind]] = frozenset({"point", "wald_t"})
+_POINT: Final[frozenset[Kind]] = frozenset({"point"})
+
+
+def default_options(engine: str) -> dict[str, Any]:
+    """The options a default fit of ``engine`` carries in its key.
+
+    Parameters
+    ----------
+    engine : str
+        ``"tmle"``, ``"drtmle"`` or ``"collaborative_tmle"``.
+
+    Returns
+    -------
+    dict of str to Any
+        The option names and values of :func:`cleverly._support.point_key`.
+    """
+    options: dict[str, Any] = {
+        "fluctuation": "logistic",
+        "targeting": "iterative",
+        "target_weights": False,
+        "multiplier_kind": "rademacher",
+    }
+    if engine == "drtmle":
+        options |= {
+            "guard": ("Q", "g"),
+            "reduction": "univariate",
+            "reduced_crossfit": "pooled",
+            "update_order": "drtmle",
+            "randomized": False,
+            "evaluation": False,
+        }
+    return options
+
+
+def point_row(
+    row_id: str,
+    evidence: Sequence[str],
+    *,
+    families: Iterable[str],
+    outcome: tuple[str, ...] = BINARY,
+    missing: tuple[str, ...] = ("complete",),
+    treatment: tuple[str, ...] = ("binary",),
+    weighting: str = "none",
+    splitting: tuple[str, ...] = ("in_sample",),
+    dependence: str = "iid",
+    qualifiers: Iterable[str] = (),
+    options: Mapping[str, Any] | None = None,
+    engine: tuple[str, ...] = ("tmle",),
+    kinds: frozenset[Kind] = _WALD,
+    cells: Sequence[str] = (),
+    limits: Sequence[str] = (),
+) -> SupportRow:
+    """One support row of a point-treatment estimator, with the defaults of an ordinary fit.
+
+    Parameters
+    ----------
+    row_id : str
+        The row id.
+    evidence : sequence of str
+        The registered study slugs.
+    families : iterable of str
+        The target families the row covers, as ``P1`` to ``P11``.
+    outcome : tuple of str, default BINARY
+        The outcome axis of :class:`~cleverly._support.SupportKey`.
+    missing : tuple of str, default ("complete",)
+        The missing-data axis.
+    treatment : tuple of str, default ("binary",)
+        The treatment axis.
+    weighting : str, default "none"
+        The weighting axis.
+    splitting : tuple of str, default ("in_sample",)
+        The splitting axis.
+    dependence : str, default "iid"
+        The dependence axis.
+    qualifiers : iterable of str, default ()
+        ``strata`` and ``known_mechanism``.
+    options : mapping of str to Any or None, default None
+        Overrides of :func:`default_options`.
+    engine : tuple of str, default ("tmle",)
+        The engine axis.
+    kinds : frozenset of str, default Wald
+        What the row licenses.
+    cells : sequence of str, default ()
+        The licensing study cells.
+    limits : sequence of str, default ()
+        The stated limits of the row.
+
+    Returns
+    -------
+    SupportRow
+        The row.
+    """
+    merged = default_options(engine[0]) | dict(options or {})
+    key = SupportKey(
+        kind="point",
+        engine=engine,
+        family=frozenset(families),
+        outcome=outcome,
+        missing=missing,
+        treatment=treatment,
+        weighting=weighting,
+        splitting=splitting,
+        dependence=dependence,
+        qualifiers=frozenset(qualifiers),
+        options=tuple(sorted(merged.items())),
+    )
+    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), None, tuple(limits))
+
+
+def rows_over(
+    base: SupportRow, axis: str, values: Mapping[str, Any], *, evidence: Sequence[str] | None = None
+) -> tuple[SupportRow, ...]:
+    """Expand one row over the values of one axis.
+
+    Each value becomes its own row, so a case has to exist for each one.
+
+    Parameters
+    ----------
+    base : SupportRow
+        The row to expand.
+    axis : str
+        An axis of :class:`~cleverly._support.SupportKey`, other than ``family``.
+    values : mapping of str to Any
+        The row-id suffix and the axis value of each expanded row.
+    evidence : sequence of str or None, default None
+        Evidence of the expanded rows. ``None`` keeps the base evidence.
+
+    Returns
+    -------
+    tuple of SupportRow
+        One row per value, with the id ``<base id>.<suffix>``.
+
+    Raises
+    ------
+    ValueError
+        When ``axis`` is not an axis of the key, or is ``family``.
+    """
+    if axis not in KEY_AXES or axis == "family":
+        raise ValueError(f"cannot expand a row over {axis!r}")
+    return tuple(
+        replace(
+            base,
+            id=f"{base.id}.{suffix}",
+            key=replace(base.key, **{axis: value}),
+            evidence=base.evidence if evidence is None else tuple(evidence),
+        )
+        for suffix, value in values.items()
+    )
+
+
+def merge_rows(row_id: str, *rows: SupportRow) -> SupportRow:
+    """Merge rows whose keys differ only in family into one row.
+
+    Two rows that cover the same fit would both match it, so rows of one configuration are
+    one row. The merged row covers the union of the families, and names every study and cell.
+
+    Parameters
+    ----------
+    row_id : str
+        The id of the merged row.
+    *rows : SupportRow
+        The rows to merge. They agree on every axis except the family.
+
+    Returns
+    -------
+    SupportRow
+        The merged row.
+
+    Raises
+    ------
+    ValueError
+        When the rows differ on an axis other than the family.
+    """
+    first = rows[0]
+    for other in rows[1:]:
+        if replace(other.key, family=first.key.family) != first.key:
+            raise ValueError(f"rows {first.id} and {other.id} differ on more than the family")
+
+    def joined(field: str) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(item for row in rows for item in getattr(row, field)))
+
+    families = frozenset().union(*(row.key.family for row in rows))
+    kinds = frozenset().union(*(row.kinds for row in rows))
+    # A kind that only some rows list covers the families of those rows alone.
+    kind_families = []
+    for kind in sorted(kinds):
+        covered: frozenset[str] = frozenset().union(
+            *(
+                dict(row.kind_families).get(kind, row.key.family)
+                for row in rows
+                if kind in row.kinds
+            )
+        )
+        if covered != families:
+            kind_families.append((kind, covered))
+    return SupportRow(
+        row_id,
+        replace(first.key, family=families),
+        kinds,
+        joined("evidence"),
+        joined("cells"),
+        None,
+        joined("limits"),
+        kind_families=tuple(kind_families),
+    )
+
+
+def _merged(
+    rows: Sequence[SupportRow], groups: Mapping[str, Sequence[str]]
+) -> tuple[SupportRow, ...]:
+    """Replace each group of rows by its merge, at the place of the group's first row."""
+    by_id = {row.id: row for row in rows}
+    grouped = {member for members in groups.values() for member in members}
+    merged = {
+        members[0]: merge_rows(new_id, *(by_id[m] for m in members))
+        for new_id, members in groups.items()
+    }
+    return tuple(merged.get(row.id, row) for row in rows if row.id not in grouped - merged.keys())
+
+
+_ALL_ARM = ("P1", "P2", "P3", "P4")
+
+
+def _ctmle(strategy: str, design: str = "None") -> tuple[str, ...]:
+    return ("collaborative_tmle", strategy, design)
+
+
+def _guard(*names: str) -> dict[str, Any]:
+    return {"guard": tuple(names)}
+
+
+def _t_rows() -> tuple[SupportRow, ...]:
+    """Ordinary TMLE (``T`` rows)."""
+    boot: frozenset[Kind] = frozenset({"point", "wald", "bootstrap"})
+    rows: list[SupportRow] = []
+    rows += rows_over(
+        point_row("T01", ["canonical-tmle"], families=_ALL_ARM, cells=["binary", "continuous"]),
+        "outcome",
+        {"binary": BINARY, "continuous": CONTINUOUS},
+    )
+    # The full-refit bootstrap cell is the binary ATE of the in-sample ordinary fit.
+    rows[0] = replace(
+        rows[0],
+        kinds=boot,
+        evidence=("canonical-tmle", "full-refit-bootstrap-and-derived-contrasts"),
+        cells=("binary", "boot_ate_point_tmle"),
+        # The bootstrap cell fits the ATE, which is the P1 family. A risk ratio, an odds ratio,
+        # an ATT or ATC and a PAR or PAF fit read the bootstrap as experimental.
+        kind_families=(("bootstrap", frozenset({"P1"})),),
+    )
+    rows += rows_over(
+        point_row(
+            "T02",
+            ["canonical-cvtmle"],
+            families=_ALL_ARM,
+            splitting=("stacked",),
+            cells=["binary", "continuous"],
+        ),
+        "outcome",
+        {"binary": BINARY, "continuous": BOUNDED},
+    )
+    # The default-band study fits ``TMLE()`` with its default splitting on the binary law, and
+    # reads the band that fit publishes.
+    rows[-2] = replace(
+        rows[-2],
+        evidence=(*rows[-2].evidence, "default-simultaneous-bands"),
+        kinds=rows[-2].kinds | {"band"},
+        cells=(*rows[-2].cells, "default_fit"),
+    )
+    rows += rows_over(
+        point_row(
+            "T03",
+            ["fold-evaluated-cvtmle"],
+            families=("P1", "P3"),
+            splitting=("fold_evaluated",),
+            cells=["binary", "continuous"],
+        ),
+        "outcome",
+        {"binary": BINARY, "continuous": BOUNDED},
+    )
+    # The fold-targeted study reads the fold-evaluated ATE on the binary law as its other leg.
+    rows[-2] = replace(
+        rows[-2],
+        evidence=("fold-evaluated-cvtmle", "fold-targeted-cvtmle"),
+        cells=("binary", "fold_evaluated_leg"),
+    )
+    rows.append(
+        point_row(
+            "T04",
+            ["fold-targeted-cvtmle"],
+            families=("P1",),
+            splitting=("fold_targeted_evaluated",),
+            cells=["binary"],
+        )
+    )
+    rows += rows_over(
+        point_row(
+            "T05",
+            ["repeated-crossfit-tmle"],
+            families=_ALL_ARM,
+            splitting=("stacked", "repeated"),
+            cells=["binary", "continuous"],
+        ),
+        "outcome",
+        {"binary": BINARY, "continuous": BOUNDED},
+    )
+    rows.append(
+        point_row(
+            "T06",
+            ["weighted-tmle"],
+            families=("P1", "P2"),
+            weighting="fixed",
+            cells=["binary_biased_sample"],
+        )
+    )
+    rows.append(
+        point_row(
+            "T07",
+            ["learned-weighted-tmle"],
+            families=("P1",),
+            outcome=CONTINUOUS,
+            weighting="fixed",
+            options={"fluctuation": "linear"},
+            cells=["continuous_selected_weighted_nuisances"],
+        )
+    )
+    rows.append(
+        point_row(
+            "T08",
+            ["canonical-multi-arm-tmle"],
+            families=("P1", "P2"),
+            treatment=("arms3",),
+            cells=["multi_arm_binary"],
+        )
+    )
+    rows.append(
+        point_row(
+            "T09",
+            ["clustered-tmle"],
+            families=("P1",),
+            splitting=("stacked",),
+            dependence="clustered",
+            cells=["clustered_binary"],
+        )
+    )
+    rows += rows_over(
+        point_row(
+            "T10",
+            ["clustered-unequal-cvtmle"],
+            families=("P1",),
+            splitting=("stacked",),
+            dependence="clustered",
+            cells=["unequal_noninformative", "unequal_informative"],
+            limits=["The fold-evaluated cluster-covariate cell is red (F28)."],
+        ),
+        "weighting",
+        {"unweighted": "none", "cluster_average": "fixed"},
+    )
+    rows += rows_over(
+        point_row(
+            "T10",
+            ["clustered-unequal-cvtmle"],
+            families=("P1",),
+            splitting=("fold_evaluated",),
+            dependence="clustered",
+            cells=["fold_evaluated_property"],
+            limits=["The cluster-covariate cell is red (F28)."],
+        ),
+        "weighting",
+        {"fold_evaluated": "none"},
+    )
+    rows += rows_over(
+        point_row(
+            "T11",
+            ["clustered-few-cluster-tmle"],
+            families=("P1",),
+            dependence="t",
+            kinds=_WALD_T,
+            cells=["few_cluster_reference"],
+            limits=["The informative-size cells at 10 to 30 clusters include red cells (F28)."],
+        ),
+        "splitting",
+        {
+            "in_sample": ("in_sample",),
+            "stacked": ("stacked",),
+            "fold_evaluated": ("fold_evaluated",),
+        },
+    )
+    rows.append(
+        point_row(
+            "T13",
+            ["canonical-stratified-tmle"],
+            families=("P1", "P3", "P4"),
+            qualifiers=["strata"],
+            cells=["stratified_binary"],
+            limits=["Two truth cells at the stratum boundary are red."],
+        )
+    )
+    rows.append(
+        point_row(
+            "T14",
+            ["canonical-stratified-tmle"],
+            families=("P1",),
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            cells=["stratified_binary"],
+        )
+    )
+    rows.append(
+        point_row(
+            "T15",
+            ["canonical-stratified-incremental-msm"],
+            families=("P9",),
+            qualifiers=["strata"],
+            cells=["stratified_incremental"],
+        )
+    )
+    rows += rows_over(
+        point_row(
+            "T16",
+            ["canonical-stratified-incremental-msm"],
+            families=("P10",),
+            qualifiers=["strata"],
+            cells=["stratified_l1_logit"],
+            limits=["The logit slope at the smallest stratum is red (X8)."],
+        ),
+        "treatment",
+        {"logit_binary": ("binary",), "dose_logit": ("continuous",)},
+    )
+    rows.append(
+        point_row(
+            "T16.dose_identity",
+            ["canonical-stratified-incremental-msm"],
+            families=("P10",),
+            outcome=CONTINUOUS,
+            treatment=("continuous",),
+            qualifiers=["strata"],
+            cells=["stratified_l2_identity"],
+        )
+    )
+    rows.append(
+        point_row(
+            "T16.natural_course",
+            ["canonical-stratified-incremental-msm"],
+            families=("P4",),
+            missing=("outcome",),
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            cells=["stratified_natural_course"],
+        )
+    )
+    rows.append(
+        point_row(
+            "T17",
+            ["canonical-stratified-msm-identity"],
+            families=("P10",),
+            outcome=CONTINUOUS,
+            qualifiers=["strata"],
+            cells=["stratified_msm_identity"],
+            limits=["One paired cell at the smallest stratum is red (X8)."],
+        )
+    )
+    rows.append(
+        point_row(
+            "T18",
+            ["point-msm"],
+            families=("P10",),
+            outcome=CONTINUOUS,
+            cells=["bounded_continuous_projection"],
+        )
+    )
+    rows.append(
+        point_row("T19", ["deterministic-regimes"], families=("P5",), cells=["binary_dynamic_rule"])
+    )
+    rows.append(
+        point_row(
+            "T20", ["stochastic-regimes"], families=("P6",), cells=["binary_known_stochastic"]
+        )
+    )
+    rows.append(
+        point_row(
+            "T21",
+            ["shift-policies"],
+            families=("P7",),
+            outcome=CONTINUOUS,
+            treatment=("continuous",),
+            cells=["continuous_modified_policy"],
+            limits=["One paired calibration leg is red (RM18)."],
+        )
+    )
+    rows.append(
+        point_row(
+            "T22",
+            ["policy-point-mtp"],
+            families=("P7",),
+            treatment=("continuous",),
+            cells=["policy_point"],
+            limits=["One calibration cell is red."],
+        )
+    )
+    rows.append(
+        point_row(
+            "T23",
+            ["incremental-interventions"],
+            families=("P9",),
+            cells=["binary_incremental_odds"],
+        )
+    )
+    rows.append(
+        point_row(
+            "T24",
+            ["learned-rule-cvtmle"],
+            families=("P11",),
+            splitting=("fold_evaluated",),
+            cells=["non_exceptional", "misspecified_limit"],
+            limits=["The exceptional and weak-blip laws are red (F27)."],
+        )
+    )
+    rows.append(
+        point_row(
+            "T25",
+            ["mar-tmle"],
+            families=("P1",),
+            missing=("outcome",),
+            cells=["binary_mar_observational"],
+        )
+    )
+    for suffix, outcome, treatment, families, cell in (
+        ("binary", BINARY, ("binary",), ("P1", "P2"), "binary_mar_two_arm_stacked"),
+        ("continuous", BOUNDED, ("binary",), ("P1",), "continuous_mar_two_arm_stacked"),
+        ("three_arm", BINARY, ("arms3",), ("P1", "P2"), "binary_mar_three_arm_stacked"),
+        ("three_arm_continuous", BOUNDED, ("arms3",), ("P1",), "continuous_mar_three_arm_stacked"),
+    ):
+        rows.append(
+            point_row(
+                f"T26.{suffix}",
+                ["stacked-mar-arm-indexed-cvtmle"],
+                families=families,
+                outcome=outcome,
+                missing=("outcome",),
+                treatment=treatment,
+                splitting=("stacked",),
+                kinds=frozenset({"point", "wald", "band"}),
+                cells=[cell],
+            )
+        )
+    rows += rows_over(
+        point_row(
+            "T27",
+            ["mar-natural-course-tmle"],
+            families=("P4",),
+            missing=("outcome",),
+            cells=["binary_mar_natural_course", "continuous_mar_natural_course"],
+        ),
+        "outcome",
+        {"binary": BINARY, "continuous": BOUNDED},
+    )
+    rows.append(
+        point_row(
+            "T28",
+            ["stacked-mar-natural-course-cvtmle"],
+            families=("P4",),
+            missing=("outcome",),
+            splitting=("stacked",),
+            cells=["binary_mar_natural_course_flexible"],
+        )
+    )
+    attributable = ("P1", "P4")
+    for suffix, kwargs, cell in (
+        ("binary", {}, "binary_mar_attributable"),
+        ("continuous", {"outcome": BOUNDED}, "continuous_mar_attributable"),
+        ("three_arm", {"treatment": ("arms3",)}, "three_arm_mar_attributable"),
+        ("binary_stacked", {"splitting": ("stacked",)}, "binary_mar_attributable_cvtmle"),
+        (
+            "three_arm_stacked",
+            {"treatment": ("arms3",), "splitting": ("stacked",)},
+            "three_arm_mar_attributable_cvtmle",
+        ),
+        ("weighted", {"weighting": "fixed"}, "binary_mar_attributable_weighted"),
+        ("clustered", {"dependence": "clustered"}, "binary_mar_attributable_clustered"),
+    ):
+        rows.append(
+            point_row(
+                f"T29.{suffix}",
+                ["mar-attributable-tmle"],
+                families=attributable,
+                missing=("outcome",),
+                kinds=frozenset({"point", "wald", "band"}),
+                cells=[cell],
+                **kwargs,
+            )
+        )
+    rows.append(
+        point_row(
+            "T30",
+            ["cde-tmle"],
+            families=("P1", "P2"),
+            missing=("outcome", "intermediate"),
+            cells=["binary_cde_z0_mar", "binary_cde_z1_mar"],
+            limits=["The simultaneous band at z = 0 is red."],
+        )
+    )
+    rows.append(
+        point_row(
+            "T31",
+            ["known-treatment-mechanism"],
+            families=("P1", "P2", "P3"),
+            qualifiers=["known_mechanism"],
+            kinds=frozenset({"point", "wald", "bootstrap"}),
+            cells=["binary_q_correct", "binary_q_wrong", "ate__known_g__q_wrong__percentile"],
+        )
+    )
+    rows.append(
+        point_row(
+            "T31.incremental",
+            ["known-treatment-mechanism"],
+            families=("P9",),
+            qualifiers=["known_mechanism"],
+            cells=["known_g__incremental"],
+        )
+    )
+    rows.append(
+        point_row(
+            "T32",
+            ["known-treatment-mechanism"],
+            families=("P1",),
+            splitting=("stacked",),
+            qualifiers=["known_mechanism"],
+            cells=["known_g__cvtmle"],
+        )
+    )
+    return _merged(
+        rows,
+        {
+            "T10.unweighted": ["T09", "T10.unweighted"],
+            "T25": ["T25", "T27.binary", "T29.binary"],
+            "T26.binary": ["T26.binary", "T28", "T29.binary_stacked"],
+            "T26.three_arm": ["T26.three_arm", "T29.three_arm_stacked"],
+            "T27.continuous": ["T27.continuous", "T29.continuous"],
+        },
+    )
+
+
+def _d_rows() -> tuple[SupportRow, ...]:
+    """DR-TMLE (``D`` rows)."""
+    dr = ("drtmle",)
+    rows: list[SupportRow] = [
+        point_row(
+            "D01",
+            ["canonical-drtmle"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            cells=["both_correct", "outcome_correct", "treatment_correct"],
+            limits=["The one-inconsistent-nuisance cells are red (RM18)."],
+        ),
+        point_row(
+            "D02",
+            ["canonical-multi-arm-drtmle"],
+            families=("P1", "P2"),
+            engine=dr,
+            treatment=("arms3",),
+            splitting=("stacked",),
+            cells=["multi_arm_binary_drtmle"],
+            limits=["The boundary and one-sided-bias cells are red (RM18)."],
+        ),
+        point_row(
+            "D03",
+            ["canonical-stratified-drtmle"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            cells=["stratified_both_correct"],
+            limits=["Two truth cells and the small-stratum cell are red (X8)."],
+        ),
+        point_row(
+            "D04",
+            ["clustered-unequal-cvtmle"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            dependence="clustered",
+            cells=["unequal_informative"],
+        ),
+        point_row(
+            "D05",
+            ["clustered-few-cluster-tmle"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            dependence="t",
+            kinds=_WALD_T,
+            cells=["few_cluster_reference"],
+        ),
+    ]
+    for suffix, guard, treatment in (
+        ("none", (), ("binary",)),
+        ("q", ("Q",), ("binary",)),
+        ("g", ("g",), ("binary",)),
+        ("qg", ("Q", "g"), ("binary",)),
+        ("none_three_arm", (), ("arms3",)),
+    ):
+        rows.append(
+            point_row(
+                f"D06.{suffix}",
+                ["known-treatment-mechanism-drtmle"],
+                families=("P1",),
+                engine=dr,
+                treatment=treatment,
+                qualifiers=["known_mechanism"],
+                options=_guard(*guard),
+                cells=[f"guard_{suffix}"],
+            )
+        )
+    rows += [
+        point_row(
+            "D07.estimated_g",
+            ["drtmle-one-wrong"],
+            families=("P1",),
+            engine=dr,
+            cells=["q_wrong_g_glm"],
+        ),
+        point_row(
+            "D07.known_g",
+            ["drtmle-one-wrong"],
+            families=("P1",),
+            engine=dr,
+            qualifiers=["known_mechanism"],
+            cells=["q_wrong_g_known"],
+        ),
+        point_row(
+            "D07.estimated_g_stacked",
+            ["drtmle-one-wrong"],
+            families=("P1",),
+            engine=dr,
+            splitting=("stacked",),
+            cells=["q_wrong_g_glm_cf"],
+        ),
+        point_row(
+            "D08",
+            ["mar-drtmle", "drtmle-one-wrong"],
+            families=("P1",),
+            engine=dr,
+            missing=("outcome",),
+            qualifiers=["known_mechanism"],
+            options={"randomized": True},
+            kinds=frozenset({"point", "wald", "band"}),
+            cells=["binary_mar_randomized", "mar_q_wrong_pi_slow"],
+        ),
+        point_row(
+            "D09",
+            ["multi-arm-mar-drtmle"],
+            families=("P1", "P2"),
+            engine=dr,
+            missing=("outcome",),
+            treatment=("arms3",),
+            qualifiers=["known_mechanism"],
+            options={"randomized": True},
+            kinds=frozenset({"point", "wald", "band"}),
+            cells=["three_arm_mar_randomized"],
+            limits=["The F4 calibration-draw cell is red."],
+        ),
+        point_row(
+            "D10.outcome",
+            ["composite-missing-drtmle"],
+            families=("P1", "P2"),
+            engine=dr,
+            missing=("outcome",),
+            cells=["binary_observational_mar"],
+        ),
+        point_row(
+            "D10.outcome_treatment",
+            ["composite-missing-drtmle"],
+            families=("P1", "P2"),
+            engine=dr,
+            missing=("outcome", "treatment"),
+            cells=["binary_mar_outcome_and_treatment"],
+        ),
+        point_row(
+            "D10.three_arm",
+            ["composite-missing-drtmle"],
+            families=("P1", "P2"),
+            engine=dr,
+            missing=("outcome", "treatment"),
+            treatment=("arms3",),
+            cells=["three_arm_mar_outcome_and_treatment"],
+            limits=["The high-arm truth row is red (composite-high-arm)."],
+        ),
+        point_row(
+            "D10.tmle_outcome_treatment",
+            ["composite-missing-drtmle"],
+            families=("P1", "P2"),
+            missing=("outcome", "treatment"),
+            cells=["binary_mar_outcome_and_treatment"],
+        ),
+        point_row(
+            "D10.tmle_three_arm",
+            ["composite-missing-drtmle"],
+            families=("P1", "P2"),
+            missing=("outcome", "treatment"),
+            treatment=("arms3",),
+            cells=["three_arm_mar_outcome_and_treatment"],
+        ),
+    ]
+    return _merged(
+        rows, {"D01": ["D01", "D07.estimated_g_stacked"], "D06.qg": ["D06.qg", "D07.known_g"]}
+    )
+
+
+def _c_rows() -> tuple[SupportRow, ...]:
+    """C-TMLE (``C`` rows). Every path withholds the interval, so each row licenses the point."""
+    rows: list[SupportRow] = []
+    for strategy in ("greedy", "ordered", "discrete"):
+        rows.append(
+            point_row(
+                f"C01.{strategy}",
+                ["canonical-ctmle-selector"],
+                families=("P1",),
+                engine=_ctmle(strategy),
+                kinds=_POINT,
+                cells=[f"binary_{strategy}"],
+                limits=["The selector plug-in interval is withheld (F18)."],
+            )
+        )
+        rows.append(
+            point_row(
+                f"C02.{strategy}",
+                ["canonical-multi-arm-ctmle-selector"],
+                families=("P1", "P2"),
+                engine=_ctmle(strategy),
+                treatment=("arms3",),
+                kinds=_POINT,
+                cells=[f"multi_arm_selector_{strategy}"],
+                limits=["The selector plug-in interval is withheld (F18)."],
+            )
+        )
+    shared = _ctmle("oat", "shared")
+    per_arm = _ctmle("oat", "per_arm")
+    rows += [
+        point_row(
+            "C03",
+            ["canonical-ctmle-oat"],
+            families=("P1", "P2"),
+            engine=shared,
+            kinds=_POINT,
+            cells=["binary"],
+        ),
+        point_row(
+            "C03.stacked",
+            ["canonical-ctmle-oat"],
+            families=("P1",),
+            engine=shared,
+            outcome=BOUNDED,
+            splitting=("stacked",),
+            kinds=_POINT,
+            cells=["crossfit_overfitting"],
+        ),
+        point_row(
+            "C04",
+            ["canonical-multi-arm-ctmle-oat"],
+            families=("P1", "P2"),
+            engine=shared,
+            treatment=("arms3",),
+            kinds=_POINT,
+            cells=["multi_arm_binary_oat"],
+            limits=["The generated-design interval is withheld (F19)."],
+        ),
+        point_row(
+            "C05.binary",
+            ["ctmle-oat-per-arm"],
+            families=("P1", "P2", "P4"),
+            engine=per_arm,
+            kinds=_POINT,
+            cells=["binary_active"],
+        ),
+        point_row(
+            "C05.three_arm",
+            ["ctmle-oat-per-arm"],
+            families=("P1", "P2"),
+            engine=per_arm,
+            treatment=("arms3",),
+            kinds=_POINT,
+            cells=["three_arm_active"],
+        ),
+        point_row(
+            "C05.binary_stacked",
+            ["ctmle-oat-per-arm"],
+            families=("P1",),
+            engine=per_arm,
+            splitting=("stacked",),
+            kinds=_POINT,
+            cells=["interval_calibration"],
+        ),
+        point_row(
+            "C05.three_arm_stacked",
+            ["ctmle-oat-per-arm"],
+            families=("P1",),
+            engine=per_arm,
+            treatment=("arms3",),
+            splitting=("stacked",),
+            kinds=_POINT,
+            cells=["simultaneous_coverage"],
+        ),
+        point_row(
+            "C05.weighted_stacked",
+            ["ctmle-oat-per-arm"],
+            families=("P1",),
+            engine=per_arm,
+            weighting="fixed",
+            splitting=("stacked",),
+            kinds=_POINT,
+            cells=["binary_weighted__correctly_specified"],
+        ),
+        point_row(
+            "C05.repeated",
+            ["ctmle-oat-per-arm"],
+            families=("P1",),
+            engine=per_arm,
+            splitting=("stacked", "repeated"),
+            kinds=_POINT,
+            cells=["binary_repeats__correctly_specified"],
+        ),
+        point_row(
+            "C06.strata",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1",),
+            engine=per_arm,
+            qualifiers=["strata"],
+            kinds=_POINT,
+            cells=["strata"],
+        ),
+        point_row(
+            "C06.missing_outcome",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1", "P2", "P4"),
+            engine=per_arm,
+            missing=("outcome",),
+            kinds=_POINT,
+            cells=["missing_outcome", "natural_course_insample"],
+        ),
+        point_row(
+            "C06.missing_outcome_stacked",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1", "P2", "P4"),
+            engine=per_arm,
+            missing=("outcome",),
+            splitting=("stacked",),
+            kinds=_POINT,
+            cells=["missing_outcome_crossfit"],
+        ),
+        point_row(
+            "C06.strata_missing_stacked",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1", "P4"),
+            engine=per_arm,
+            missing=("outcome",),
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            kinds=_POINT,
+            cells=["strata_missing"],
+        ),
+        point_row(
+            "C06.weighted_strata_missing_stacked",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1",),
+            engine=per_arm,
+            missing=("outcome",),
+            weighting="fixed",
+            splitting=("stacked",),
+            qualifiers=["strata"],
+            kinds=_POINT,
+            cells=["weighted_strata_missing"],
+        ),
+        point_row(
+            "C06.three_arm_missing",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1", "P2"),
+            engine=per_arm,
+            missing=("outcome",),
+            treatment=("arms3",),
+            kinds=_POINT,
+            cells=["three_arm_missing"],
+        ),
+        point_row(
+            "C06.missing_treatment",
+            ["ctmle-oat-per-arm-strata-missing"],
+            families=("P1", "P2"),
+            engine=per_arm,
+            missing=("outcome", "treatment"),
+            kinds=_POINT,
+            cells=["missing_treatment"],
+        ),
+    ]
+    derivative = _ctmle("derivative")
+    study = "ctmle-derivative"
+    rows += [
+        point_row(
+            "C10.in_sample",
+            [study],
+            families=("P1",),
+            engine=derivative,
+            cells=["in_sample"],
+        ),
+        point_row(
+            "C10.stacked",
+            [study],
+            families=("P1",),
+            engine=derivative,
+            splitting=("stacked",),
+            cells=["cross_fitted"],
+        ),
+        point_row(
+            "C10.multi_arm",
+            [study],
+            families=("P1", "P2"),
+            engine=derivative,
+            treatment=("arms3",),
+            cells=["multi_arm"],
+        ),
+        point_row(
+            "C10.missing_outcome",
+            [study],
+            families=("P1",),
+            engine=derivative,
+            missing=("outcome",),
+            cells=["missing_outcome"],
+        ),
+        point_row(
+            "C10.clustered",
+            [study],
+            families=("P1",),
+            engine=derivative,
+            splitting=("stacked",),
+            dependence="clustered",
+            cells=["cluster_robust"],
+        ),
+    ]
+    stack = (*_ctmle("oat", "per_arm"), "parametric_stack")
+    parametric = "ctmle-oat-per-arm-parametric"
+    rows += [
+        point_row(
+            "C11.binary",
+            [parametric],
+            families=("P1", "P2"),
+            engine=stack,
+            cells=["binary_active__ate__corrected"],
+        ),
+        point_row(
+            "C11.bounded",
+            [parametric],
+            families=("P1",),
+            engine=stack,
+            outcome=BOUNDED,
+            cells=["bounded_outcome__ate__corrected"],
+        ),
+    ]
+    rows += [
+        point_row(
+            f"C09.{strategy}",
+            ["canonical-ctmle-sequences"],
+            families=("P1",),
+            engine=_ctmle(strategy),
+            kinds=_POINT,
+            cells=[f"binary_{strategy}"],
+            limits=["The C-TMLE plug-in interval is withheld."],
+        )
+        for strategy in ("lasso", "learners")
+    ]
+    return tuple(rows)
+
+
+#: The red cells that lie inside the configuration of one row, as ``(row id, kind) -> sentence``.
+#: A fit that reads the kind from the row is experimental, and the sentence gives the measured
+#: number (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell).
+SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
+    ("T10.fold_evaluated", "wald"): (
+        "Row T10.fold_evaluated is red for the fold-evaluated cluster-covariate interval: "
+        "coverage 0.9182 to 0.9450 and SE ratio 0.9453 to 1.0187 (F28)."
+    ),
+    ("T11.fold_evaluated", "wald_t"): (
+        "Row T11.fold_evaluated is red when cluster sizes are informative at 10 to 30 clusters: "
+        "at 10 clusters bias 0.1146 to 0.1310, coverage 0.8940 to 0.9180 and SE ratio "
+        "0.8297 to 0.8849 (F28)."
+    ),
+    ("T16.logit_binary", "wald"): (
+        "Row T16.logit_binary is red for the logit slope at the smallest stratum: coverage "
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+    ),
+    ("T16.dose_logit", "wald"): (
+        "Row T16.dose_logit is red for the logit slope at the smallest stratum: coverage "
+        "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
+    ),
+}
+
+
+#: The measured numbers of the red cells that leave a row supported with a stated limit, by row id
+#: (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell). The
+#: row note prints each sentence after the limits of the row itself.
+MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
+    "C02.greedy": ("RM18-boundary: bias 0.0010, coverage 0.8965 to 0.9627, SE ratio 0.9892",),
+    "D01": ("RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",),
+    "D02": (
+        "RM18-boundary: coverage 0.8988 to 0.9542, bias 0.000900",
+        "RM18-boundary: coverage 0.9300 to 0.9597, SE ratio 0.9258 to 1.0123",
+        "RM18-boundary: bias -0.000902, coverage 0.8965 to 0.9627, SE ratio 0.9888",
+    ),
+    "D03": (
+        "X8-drtmle-small-stratum: bias 0.0023 to 0.0112, coverage 0.9000, SE ratio 0.9388",
+        (
+            "X8-drtmle-small-stratum: coverage 0.9069 to 0.9380, SE ratio 0.9294 to 1.0112, "
+            "empirical efficiency ratio 1.0348 to 1.1237, reported efficiency ratio 1.0296 to"
+            " 1.0653"
+        ),
+    ),
+    "D09": (
+        (
+            "F4-calibration-draws: coverage 0.9287 to 0.9537, SE ratio 0.9294 to 1.0000, "
+            "empirical efficiency ratio 0.9994 to 1.0751, reported efficiency ratio 0.9980 to"
+            " 1.0008"
+        ),
+        "F4-calibration-draws: joint coverage 0.9196 to 0.9462",
+    ),
+    "D10.outcome": (
+        "composite-high-arm: bias -0.0054 to 0.0013, coverage 0.9225, SE ratio 0.9342",
+    ),
+    "G03": (
+        (
+            "RM18-ordinary-weighted: coverage 0.9187 to 0.9454, SE ratio 0.9263 to 0.9985, "
+            "empirical efficiency ratio 0.9855 to 1.0615, reported efficiency ratio 0.9783 to"
+            " 0.9899"
+        ),
+        "RM18-ordinary-weighted: bias -0.0025 to 0.0019, margin 0.0075",
+        "RM18-ordinary-weighted: bias -0.0027 to 0.0075, margin 0.0172",
+    ),
+    "G04": (
+        (
+            "RM18-boundary: difference -0.000150 to 0.000202 within 0.0031, RMSE ratio bound "
+            "1.0162 vs 1.1000, coverage difference bound -0.0475 vs -0.0250, calibration "
+            "excess bound 0.1050 vs 0.0500, resolution 0.1121"
+        ),
+        (
+            "RM18-fixed-weights: difference -0.000350 to 0.000263 within 0.0047, RMSE ratio "
+            "bound 1.0245 vs 1.1000, coverage difference bound -0.0300 vs -0.0250, "
+            "calibration excess bound 0.0465 vs 0.0500, resolution 0.0662"
+        ),
+        (
+            "RM18-boundary: difference -0.000118 to 0.000400 within 0.0032, RMSE ratio bound "
+            "1.0175 vs 1.1000, coverage difference bound -0.0425 vs -0.0250, calibration "
+            "excess bound 0.0382 vs 0.0500, resolution 0.1119"
+        ),
+        (
+            "RM18-fixed-weights: coverage 0.9232 to 0.9492, SE ratio 0.9430 to 1.0203, "
+            "empirical efficiency ratio 1.0195 to 1.1006, reported efficiency ratio 1.0333 to"
+            " 1.0442"
+        ),
+    ),
+    "G05.cross_fitted": ("band-finite-sample: joint coverage 0.9191 to 0.9458",),
+    "G10.continuous": (
+        (
+            "mtp-longitudinal-limits: coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, "
+            "empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to"
+            " 1.1006"
+        ),
+    ),
+    "G11": ("band-finite-sample: joint coverage 0.9140 to 0.9283",),
+    "G14.survival": (
+        (
+            "X13-finite-sample: coverage 0.9421 to 0.9689, SE ratio 0.9807 to 1.0762, "
+            "empirical efficiency ratio 0.9300 to 1.0204, reported efficiency ratio 1.0000 to"
+            " 1.0015"
+        ),
+    ),
+    "G17.survival": (
+        (
+            "X13-finite-sample: coverage 0.9421 to 0.9689, SE ratio 0.9650 to 1.0560, "
+            "empirical efficiency ratio 1.0101 to 1.1085, reported efficiency ratio 1.0592 to"
+            " 1.0764"
+        ),
+    ),
+    "G23.in_sample": (
+        (
+            "X4-finite-sample: bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to "
+            "0.9327, SE ratio 0.9459"
+        ),
+        "band-finite-sample: joint coverage 0.9085 to 0.9394",
+    ),
+    "T02.binary": (
+        "band-finite-sample: joint coverage 0.9101 to 0.9382",
+        "band-finite-sample: joint coverage 0.9173 to 0.9443",
+        "band-finite-sample: joint coverage 0.9015 to 0.9309",
+    ),
+    "T13": (
+        "strata-boundary-mean: bias -0.0027 to 0.000813, coverage 0.9170, SE ratio 0.9850",
+        (
+            "strata-boundary-mean: coverage 0.9056 to 0.9344, SE ratio 0.9315 to 1.0094, "
+            "empirical efficiency ratio 0.9753 to 1.0552, reported efficiency ratio 0.9742 to"
+            " 0.9931"
+        ),
+    ),
+    "T17": (
+        (
+            "X8-identity-small-stratum: difference -0.000049 to 0.000037 within 0.000694, "
+            "RMSE ratio bound 1.0047 vs 1.1000, coverage difference bound -0.0220 vs -0.0250,"
+            " calibration excess bound 0.0523 vs 0.0500, resolution 0.0476"
+        ),
+        (
+            "X8-identity-small-stratum: coverage 0.9233 to 0.9515, SE ratio 0.9264 to 1.0042,"
+            " empirical efficiency ratio 0.9925 to 1.0766, reported efficiency ratio 0.9937 "
+            "to 1.0005"
+        ),
+    ),
+    "T21": (
+        (
+            "RM18-comparator-density: difference 0.000061 to 0.000361 within 0.000770, RMSE "
+            "ratio bound 1.0587 vs 1.1000, coverage difference bound -0.0050 vs -0.0250, "
+            "calibration excess bound 0.0648 vs 0.0500, resolution 0.0439"
+        ),
+    ),
+    "T22": (
+        (
+            "mtp-point-calibration: coverage 0.9479 to 0.9709, SE ratio 1.0011 to 1.0881, "
+            "empirical efficiency ratio 0.9208 to 1.0003, reported efficiency ratio 1.0003 to"
+            " 1.0034"
+        ),
+    ),
+}
+
+
+def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
+    """Attach the :data:`SHORTFALLS` and :data:`MEASURED_LIMITS` sentences to their rows."""
+    out = []
+    for row in rows:
+        pairs = tuple(
+            (kind, text) for (row_id, kind), text in SHORTFALLS.items() if row_id == row.id
+        )
+        limits = tuple(dict.fromkeys((*row.limits, *MEASURED_LIMITS.get(row.id, ()))))
+        out.append(replace(row, shortfalls=pairs, limits=limits))
+    return tuple(out)
+
+
+#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``) and C-TMLE (``C``).
+POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls((*_t_rows(), *_d_rows(), *_c_rows()))
+
+
+# --------------------------------------------------------------------------- longitudinal
+
+_LONG_WALD: Final[frozenset[Kind]] = frozenset({"point", "wald"})
+_LONG_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "band"})
+_LONG_T: Final[frozenset[Kind]] = frozenset({"point", "wald_t"})
+_LONG_DERIVED: Final[frozenset[Kind]] = frozenset({"point", "wald", "band", "derived"})
+_LONG_BOOTSTRAP: Final[frozenset[Kind]] = frozenset(
+    {"point", "wald", "band", "bootstrap", "derived"}
+)
+_TWO: Final[tuple[str, ...]] = ("2", "2")
+_OUTCOME_KINDS: Final[frozenset[str]] = frozenset(
+    {"end_of_study", "survival", "competing", "repeated"}
+)
+
+
+def long_row(
+    row_id: str,
+    evidence: Sequence[str],
+    *,
+    outcome_kind: str = "end_of_study",
+    regimens: Iterable[str] = ("static",),
+    msm: bool = False,
+    held: bool = False,
+    outcome: tuple[str, ...] = BINARY,
+    missing: tuple[str, ...] = ("censoring",),
+    treatment: tuple[str, ...] = _TWO,
+    weighting: str = "none",
+    splitting: tuple[str, ...] = ("in_sample",),
+    dependence: str = "iid",
+    qualifiers: Iterable[str] = (),
+    engine: str = "tmle",
+    normalization: str | None = None,
+    survival_model: str = "iterated_mean",
+    targeting: str = "iterative",
+    isotonic: bool = False,
+    kinds: frozenset[Kind] = _LONG_WALD,
+    cells: Sequence[str] = (),
+    limits: Sequence[str] = (),
+) -> SupportRow:
+    """One support row of a longitudinal estimator, with the defaults of a censored two-node fit.
+
+    Parameters
+    ----------
+    row_id : str
+        The row id.
+    evidence : sequence of str
+        The registered study slugs.
+    outcome_kind : str, default "end_of_study"
+        ``end_of_study``, ``survival``, ``competing`` or ``repeated``.
+    regimens : iterable of str, default ("static",)
+        The regimen kinds of :data:`cleverly._support.REGIMEN_KINDS` the row covers.
+    msm : bool, default False
+        Whether the row reports working-model coefficients.
+    held : bool, default False
+        Whether one baseline treatment is held over every node.
+    outcome : tuple of str, default BINARY
+        The outcome axis of :class:`~cleverly._support.SupportKey`.
+    missing : tuple of str, default ("censoring",)
+        The missing-data axis.
+    treatment : tuple of str, default two nodes
+        The treatment axis. A node count is its length.
+    weighting : str, default "none"
+        The weighting axis.
+    splitting : tuple of str, default ("in_sample",)
+        The splitting axis.
+    dependence : str, default "iid"
+        The dependence axis.
+    qualifiers : iterable of str, default ()
+        The known treatment and censoring factors.
+    engine : str, default "tmle"
+        ``tmle``, ``sdr``, ``ipsi``, ``gcomp`` or ``ipw``.
+    normalization : str or None, default None
+        The inverse-probability normalization of an ``ipw`` row.
+    survival_model : {"iterated_mean", "hazard"}, default "iterated_mean"
+        How a survival curve is targeted.
+    targeting : str, default "iterative"
+        The hazard targeting algorithm of a ``hazard`` row.
+    isotonic : bool, default False
+        Whether the row projects the curve onto a monotone one.
+    kinds : frozenset of str, default Wald
+        What the row licenses.
+    cells : sequence of str, default ()
+        The licensing study cells.
+    limits : sequence of str, default ()
+        The stated limits of the row.
+
+    Returns
+    -------
+    SupportRow
+        The row.
+    """
+    key = SupportKey(
+        kind="longitudinal",
+        engine=(engine,),
+        family=frozenset(
+            (
+                outcome_kind,
+                "msm" if msm else "regimens",
+                *regimens,
+            )
+        ),
+        outcome=outcome,
+        missing=missing,
+        treatment=("held", *treatment) if held else treatment,
+        weighting=weighting,
+        splitting=splitting,
+        dependence=dependence,
+        qualifiers=frozenset(qualifiers),
+        options=(
+            ("multiplier_kind", "rademacher"),
+            ("normalization", normalization),
+            ("ratio", "density"),
+            ("survival_model", survival_model),
+            ("targeting", targeting),
+            ("isotonic", isotonic),
+        ),
+    )
+    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), None, tuple(limits))
+
+
+def _long_rows() -> tuple[SupportRow, ...]:
+    """The longitudinal rows (``G``): ``LTMLE``, ``SDR`` and the sequential baselines."""
+    xf = ("cross_fitted",)
+    boot = "full-refit-bootstrap-and-derived-contrasts"
+    rows: list[SupportRow] = [
+        long_row(
+            "G01",
+            ["canonical-ltmle", boot],
+            kinds=_LONG_BOOTSTRAP,
+            cells=["interval_calibration", "simultaneous_coverage", "boot_ey_end_of_study"],
+        ),
+        long_row(
+            "G02",
+            ["canonical-ltmle-crossfit", boot],
+            splitting=xf,
+            kinds=_LONG_DERIVED,
+            cells=["interval_calibration", "simultaneous_coverage"],
+            limits=["The full-refit bootstrap reads an SE ratio of 1.17 to 1.33 here (X20)."],
+        ),
+        long_row(
+            "G03",
+            ["weighted-ltmle"],
+            weighting="fixed",
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G04",
+            ["weighted-ltmle-crossfit"],
+            weighting="fixed",
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G05.cross_fitted",
+            ["clustered-cross-fitted-ltmle"],
+            splitting=xf,
+            dependence="clustered",
+            kinds=_LONG_BAND,
+            cells=["interval_calibration", "simultaneous_coverage"],
+        ),
+        long_row(
+            "G05.in_sample",
+            [boot],
+            dependence="clustered",
+            kinds=_POINT,
+            cells=["boot_ey_clustered"],
+            limits=["Only the full-refit bootstrap measures this configuration (X20)."],
+        ),
+        long_row(
+            "G06",
+            ["clustered-few-cluster-tmle"],
+            missing=("complete",),
+            treatment=("2",),
+            dependence="t",
+            kinds=_LONG_T,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G07",
+            ["few-cluster-cross-fitted-ltmle"],
+            splitting=xf,
+            dependence="t",
+            kinds=_LONG_T,
+            cells=["interval_calibration"],
+        ),
+    ]
+    # Static and known stochastic categorical regimens share one key, so they are one row.
+    for suffix, splitting in (("in_sample", ("in_sample",)), ("cross_fitted", xf)):
+        categorical = long_row(
+            f"G08.{suffix}",
+            ["canonical-categorical-ltmle" + ("-crossfit" if suffix == "cross_fitted" else "")],
+            missing=("complete",),
+            treatment=("3", "3"),
+            splitting=splitting,
+            cells=["interval_calibration"],
+        )
+        policy = long_row(
+            f"G09.{suffix}",
+            ["stochastic-categorical-ltmle"],
+            regimens=("static", "stochastic"),
+            missing=("complete",),
+            treatment=("3", "3"),
+            splitting=splitting,
+            kinds=_LONG_BAND if suffix == "in_sample" else _LONG_WALD,
+            cells=["interval_calibration"],
+        )
+        rows.append(merge_rows(categorical.id, categorical, policy))
+    for suffix, treatment, splitting in (
+        ("continuous", ("continuous", "continuous"), ("in_sample",)),
+        ("continuous_cross_fitted", ("continuous", "continuous"), xf),
+        ("categorical", ("6", "6"), ("in_sample",)),
+        ("rr_tilt", _TWO, ("in_sample",)),
+    ):
+        rows.append(
+            long_row(
+                f"G10.{suffix}",
+                ["longitudinal-mtp"],
+                regimens=("mtp",),
+                missing=("complete",),
+                treatment=treatment,
+                splitting=splitting,
+                kinds=_LONG_BAND,
+                cells=["interval_calibration"],
+            )
+        )
+    rows += [
+        long_row(
+            "G11",
+            ["canonical-ltmle-survival"],
+            outcome_kind="survival",
+            kinds=_LONG_BAND,
+            cells=["interval_calibration", "simultaneous_coverage"],
+        ),
+        long_row(
+            "G11.nodes4",
+            [boot],
+            outcome_kind="survival",
+            treatment=("2",) * 4,
+            kinds=_LONG_BOOTSTRAP,
+            cells=["boot_risk2_survival", "boot_risk4_survival", "rmst_survival"],
+        ),
+        long_row(
+            "G12",
+            ["canonical-ltmle-survival-crossfit"],
+            outcome_kind="survival",
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G12.nodes4",
+            [boot],
+            outcome_kind="survival",
+            treatment=("2",) * 4,
+            splitting=xf,
+            kinds=_LONG_DERIVED,
+            cells=["rmst_crossfit"],
+        ),
+        long_row(
+            "G13.in_sample",
+            ["canonical-ltmle-competing"],
+            outcome_kind="competing",
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G13.cross_fitted",
+            ["canonical-ltmle-competing-crossfit"],
+            outcome_kind="competing",
+            splitting=xf,
+            cells=["interval_calibration"],
+        ),
+    ]
+    survival = "point-treatment-survival"
+    rows += [
+        long_row(
+            "G14.survival",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            kinds=_LONG_BAND,
+            cells=["survival_t5", "rmst_5"],
+        ),
+        long_row(
+            "G14.competing",
+            [survival],
+            outcome_kind="competing",
+            held=True,
+            treatment=("2",) * 4,
+            kinds=_LONG_BAND,
+            cells=["competing_t4"],
+        ),
+        long_row(
+            "G14.three_arm",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("3",) * 3,
+            kinds=_LONG_BAND,
+            cells=["three_arm_t3"],
+        ),
+        long_row(
+            "G14.continuous_time",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 4,
+            kinds=_LONG_BAND,
+            cells=["continuous_t4"],
+        ),
+        long_row(
+            "G14.end_of_study",
+            [survival],
+            held=True,
+            kinds=_LONG_BAND,
+            cells=["end_of_study"],
+        ),
+        long_row(
+            "G15",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            weighting="fixed",
+            cells=["weighted_t5"],
+            limits=["The fixed-weight cell reads a finite-sample shortfall (X13)."],
+        ),
+        long_row(
+            "G16",
+            [survival],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            dependence="t",
+            kinds=_LONG_T,
+            cells=["clustered_t5"],
+        ),
+        long_row(
+            "G17.survival",
+            ["point-treatment-survival-crossfit"],
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["survival_t5"],
+        ),
+        long_row(
+            "G17.three_arm",
+            ["point-treatment-survival-crossfit"],
+            outcome_kind="survival",
+            held=True,
+            treatment=("3",) * 3,
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["three_arm_t3"],
+            limits=["The three-arm cell reads a finite-sample shortfall (X13)."],
+        ),
+        long_row(
+            "G18.stochastic",
+            ["point-treatment-survival-policies"],
+            outcome_kind="survival",
+            regimens=("stochastic", "mtp"),
+            held=True,
+            treatment=("2",) * 5,
+            cells=["policy_t5"],
+        ),
+        long_row(
+            "G18.policy",
+            ["point-treatment-survival-policies"],
+            outcome_kind="survival",
+            regimens=("mtp",),
+            held=True,
+            treatment=("6",) * 5,
+            cells=["mtp_t5"],
+        ),
+    ]
+    # Per-horizon and one-step hazard targeting of a held baseline treatment.
+    hazard = "point-survival-hazard"
+    curve = "point-survival-curve"
+    curve_xf = "point-survival-curve-crossfit"
+    held5 = ("2",) * 5
+    held4 = ("2",) * 4
+    rows += [
+        long_row(
+            "G30.survival",
+            [hazard, curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            survival_model="hazard",
+            kinds=_LONG_BAND,
+            cells=["survival_t5", "survival_t5_per_horizon"],
+        ),
+        long_row(
+            "G30.competing",
+            [hazard],
+            outcome_kind="competing",
+            held=True,
+            treatment=held4,
+            survival_model="hazard",
+            kinds=_LONG_BAND,
+            cells=["competing_t4"],
+        ),
+        long_row(
+            "G31.survival",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["survival_t5"],
+        ),
+        long_row(
+            "G31.competing",
+            [curve],
+            outcome_kind="competing",
+            held=True,
+            treatment=held4,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["competing_t4"],
+        ),
+        long_row(
+            "G31.three_arm",
+            [curve],
+            outcome_kind="survival",
+            regimens=("static", "stochastic"),
+            held=True,
+            treatment=("3",) * 3,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["rule_t3", "policy_t3"],
+        ),
+        long_row(
+            "G31.weighted",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            weighting="fixed",
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["weighted_t5"],
+        ),
+        long_row(
+            "G31.weighted_per_horizon",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            weighting="fixed",
+            survival_model="hazard",
+            kinds=_LONG_BAND,
+            cells=["weighted_t5_per_horizon"],
+        ),
+        long_row(
+            "G31.clustered",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            dependence="t",
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_T,
+            cells=["clustered_t5"],
+        ),
+        long_row(
+            "G31.clustered_per_horizon",
+            [curve],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            dependence="t",
+            survival_model="hazard",
+            kinds=_LONG_T,
+            cells=["clustered_t5_per_horizon"],
+        ),
+        long_row(
+            "G31.isotonic",
+            [curve],
+            outcome_kind="survival",
+            treatment=("2", "2"),
+            isotonic=True,
+            kinds=_LONG_BAND,
+            cells=["isotonic_t2"],
+        ),
+        long_row(
+            "G32.survival",
+            [curve_xf],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            splitting=xf,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["survival_t5"],
+        ),
+        long_row(
+            "G32.survival_per_horizon",
+            [curve_xf],
+            outcome_kind="survival",
+            held=True,
+            treatment=held5,
+            splitting=xf,
+            survival_model="hazard",
+            kinds=_LONG_BAND,
+            cells=["survival_t5_per_horizon"],
+        ),
+        long_row(
+            "G32.competing",
+            [curve_xf],
+            outcome_kind="competing",
+            held=True,
+            treatment=held4,
+            splitting=xf,
+            survival_model="hazard",
+            targeting="one_step",
+            kinds=_LONG_BAND,
+            cells=["competing_t4"],
+        ),
+    ]
+    rows += [
+        long_row(
+            "G19",
+            ["longitudinal-msm"],
+            msm=True,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G20",
+            ["cross-fitted-longitudinal-msm"],
+            msm=True,
+            splitting=xf,
+            kinds=_LONG_BAND,
+            cells=["interval_calibration"],
+        ),
+        long_row(
+            "G21",
+            ["known-node-mechanisms"],
+            qualifiers=("A1", "A2", "C1", "C2"),
+            cells=["smart_q_correct"],
+        ),
+        long_row(
+            "G27",
+            ["longitudinal-repeated-outcome"],
+            outcome_kind="repeated",
+            treatment=("2",) * 3,
+            cells=["interval_calibration"],
+        ),
+    ]
+    sdr = ["longitudinal-sdr"]
+    rows += [
+        long_row("G23.in_sample", sdr, engine="sdr", kinds=_LONG_BAND, cells=["static"]),
+        long_row(
+            "G23.cross_fitted", sdr, engine="sdr", splitting=xf, kinds=_LONG_BAND, cells=["static"]
+        ),
+        long_row(
+            "G24.survival.in_sample",
+            sdr,
+            outcome_kind="survival",
+            engine="sdr",
+            cells=["survival"],
+        ),
+        long_row(
+            "G24.survival.cross_fitted",
+            sdr,
+            outcome_kind="survival",
+            engine="sdr",
+            splitting=xf,
+            cells=["survival"],
+        ),
+        long_row(
+            "G24.competing",
+            sdr,
+            outcome_kind="competing",
+            engine="sdr",
+            splitting=xf,
+            cells=["competing"],
+        ),
+        long_row(
+            "G24.mtp.in_sample",
+            sdr,
+            regimens=("mtp",),
+            engine="sdr",
+            missing=("complete",),
+            treatment=("continuous", "continuous"),
+            cells=["mtp"],
+        ),
+        long_row(
+            "G24.mtp.cross_fitted",
+            sdr,
+            regimens=("mtp",),
+            engine="sdr",
+            missing=("complete",),
+            treatment=("continuous", "continuous"),
+            splitting=xf,
+            cells=["mtp"],
+        ),
+        long_row(
+            "G24.policy.in_sample",
+            sdr,
+            regimens=("static", "stochastic"),
+            engine="sdr",
+            missing=("complete",),
+            treatment=("3", "3"),
+            cells=["policy"],
+        ),
+        long_row(
+            "G24.policy.cross_fitted",
+            sdr,
+            regimens=("static", "stochastic"),
+            engine="sdr",
+            missing=("complete",),
+            treatment=("3", "3"),
+            splitting=xf,
+            cells=["policy"],
+        ),
+        long_row("G24.msm", sdr, msm=True, engine="sdr", splitting=xf, cells=["msm"]),
+        long_row(
+            "G25", sdr, engine="sdr", weighting="fixed", splitting=xf, cells=["selection_weighted"]
+        ),
+        long_row(
+            "G26.clusters_200",
+            sdr,
+            engine="sdr",
+            splitting=xf,
+            dependence="clustered",
+            cells=["clusters_200"],
+        ),
+        long_row(
+            "G26.clusters_20",
+            sdr,
+            engine="sdr",
+            splitting=xf,
+            dependence="t",
+            kinds=_LONG_T,
+            cells=["clusters_20"],
+        ),
+    ]
+    baselines = ["sequential-baselines"]
+    for law, regimens, treatment, outcome in (
+        ("d2", ("static", "stochastic"), ("2", "3"), BINARY),
+        ("g", ("static",), ("2", "2", "2"), BOUNDED),
+    ):
+        rows.append(
+            long_row(
+                f"G28.{law}.gcomp",
+                baselines,
+                regimens=regimens,
+                treatment=treatment,
+                outcome=outcome,
+                engine="gcomp",
+                cells=[f"{law}_ice"],
+            )
+        )
+        ipw = long_row(
+            f"G28.{law}.ipw",
+            baselines,
+            regimens=regimens,
+            treatment=treatment,
+            outcome=outcome,
+            engine="ipw",
+        )
+        rows += rows_over(
+            ipw,
+            "options",
+            {
+                "hajek": _long_options("hajek"),
+                "horvitz_thompson": _long_options("horvitz_thompson"),
+            },
+        )
+        rows[-2] = replace(rows[-2], cells=(f"{law}_hajek",))
+        rows[-1] = replace(rows[-1], cells=(f"{law}_ht",))
+    return tuple(rows)
+
+
+def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
+    return (
+        ("multiplier_kind", "rademacher"),
+        ("normalization", normalization),
+        ("ratio", "density"),
+        ("survival_model", "iterated_mean"),
+        ("targeting", "iterative"),
+        ("isotonic", False),
+    )
+
+
+#: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``) and
+#: the sequential baselines (``G28``).
+LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
+
+
+# ------------------------------------------------------------------ exemptions and anchors
+
+#: The registered studies that no row names, each with the reason. A study that measures no
+#: estimate cannot license a configuration, so it is not the evidence of a row.
+EXEMPT_STUDIES: Final[Mapping[str, str]] = {
+    "omitted-variable-bound-se": (
+        "It measures the standard error of a sensitivity bound. The bound carries its own "
+        "status and is no fit of a row."
+    ),
+    "calibration-slope-warning": (
+        "It measures the rate of a diagnostic warning. The warning is no estimate."
+    ),
+    "learned-rule-cvtmle-boundary": (
+        "It reports truth rows at the exceptional and weak-blip laws, has no property cell, "
+        "and licenses no configuration (F27)."
+    ),
+}
+
+#: The constructor options that stay out of a key, each with a file that states the option. An
+#: option here changes how a nuisance is fitted or how a run is seeded and scheduled, and a
+#: study covers the target at every value. A row names a learner class only where it sets
+#: ``learners``.
+OPTION_ALLOWLIST: Final[Mapping[str, str]] = {
+    "outcome_learner": "src/cleverly/estimators/tmle.py",
+    "treatment_learner": "src/cleverly/estimators/tmle.py",
+    "missingness_learner": "src/cleverly/estimators/tmle.py",
+    "intermediate_learner": "src/cleverly/estimators/tmle.py",
+    "pseudo_learner": "docs/technical-reference/longitudinal-tmle.md",
+    "censoring_learner": "docs/technical-reference/longitudinal-tmle.md",
+    "g_bounds": "docs/technical-reference/point-treatment-tmle.md",
+    "n_folds": "docs/technical-reference/cv-tmle.md",
+    "learner_folds": "docs/technical-reference/longitudinal-tmle.md",
+    "random_state": "src/cleverly/estimators/tmle.py",
+    "n_jobs": "src/cleverly/estimators/tmle.py",
+    "run_id": "src/cleverly/estimators/tmle.py",
+}
+
+
+@dataclass(frozen=True)
+class TheoryAnchor:
+    """Where the theory of one target family is checked.
+
+    Parameters
+    ----------
+    row : str
+        The first cell of the row of ``docs/technical-reference/evidence.md`` that covers the
+        family. Empty when that page has no row for the family yet.
+    instruments : tuple of str
+        The exact-law and Gateaux files of the family, relative to the repository root.
+    """
+
+    row: str
+    instruments: tuple[str, ...]
+
+
+def _anchor(row: str, *instruments: str) -> TheoryAnchor:
+    return TheoryAnchor(row, instruments)
+
+
+#: The theory anchor of each family a key can hold. A family with no anchor has no exact-law or
+#: theory row, and a fit that reports it is experimental.
+FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
+    "P1": _anchor("`ate`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux.py"),
+    "P2": _anchor("`rr`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux.py"),
+    "P3": _anchor("`att`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux.py"),
+    "P4": _anchor("`par`", "tests/discrete_law.py", "tests/discrete_law_mar.py"),
+    "P5": _anchor(
+        "`ey_regime`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_regime.py"
+    ),
+    "P6": _anchor(
+        "`ey_regime`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_regime.py"
+    ),
+    "P7": _anchor(
+        "`ey_policy`", "tests/discrete_law_shift.py", "tests/unit/test_influence_gateaux_shift.py"
+    ),
+    "P8": _anchor(
+        "`ey_rr_tilt`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_rr_tilt.py"
+    ),
+    "P9": _anchor(
+        "`ey_ipsi`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_ipsi.py"
+    ),
+    "P10": _anchor("`msm`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_msm.py"),
+    "P11": _anchor("`ey_learned_rule`", "tests/discrete_law.py"),
+    "end_of_study": _anchor(
+        "end-of-study, static and dynamic regimens",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal.py",
+    ),
+    "survival": _anchor(
+        "absorbing survival curve",
+        "tests/discrete_law_survival.py",
+        "tests/unit/test_influence_gateaux_survival.py",
+    ),
+    "competing": _anchor(
+        "competing-risks cumulative incidence",
+        "tests/discrete_law_competing.py",
+        "tests/unit/test_influence_gateaux_competing.py",
+    ),
+    "repeated": _anchor(
+        "repeated outcome means over horizons",
+        "tests/discrete_law_repeated.py",
+        "tests/unit/test_influence_gateaux_repeated.py",
+    ),
+    "regimens": _anchor(
+        "end-of-study, static and dynamic regimens",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal.py",
+    ),
+    "static": _anchor(
+        "end-of-study, static and dynamic regimens",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal.py",
+    ),
+    "msm": _anchor(
+        "working model over regimen/horizon cells",
+        "tests/discrete_law_longitudinal.py",
+        "tests/unit/test_influence_gateaux_longitudinal_msm.py",
+    ),
+    "stochastic": _anchor(
+        "known stochastic categorical policies",
+        "tests/discrete_law_longitudinal_policy.py",
+        "tests/unit/test_influence_gateaux_longitudinal_policy.py",
+    ),
+    "mtp": _anchor(
+        "",
+        "tests/discrete_law_longitudinal_mtp.py",
+        "tests/unit/test_influence_gateaux_longitudinal_mtp.py",
+    ),
+    "tilt": _anchor(
+        "",
+        "tests/discrete_law_longitudinal_ipsi.py",
+        "tests/unit/test_influence_gateaux_ipsi.py",
+    ),
+}

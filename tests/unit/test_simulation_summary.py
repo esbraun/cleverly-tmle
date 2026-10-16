@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.datasets import make_clustered
 from cleverly.estimators import TMLE
 from cleverly.exceptions import (
@@ -343,10 +343,13 @@ class TestAStudyWhoseReplicatesMixStatuses:
     """A draw-dependent status summarizes under the precedent status, not a refusal.
 
     Every record measures the plug-in numbers of its replicate, so the mix averages one
-    kind of number. The summary takes the status that withholds, and names the mix.
+    kind of number. The summary takes the status that withholds, or the first shown status
+    when none withholds, and names the mix.
     """
 
-    def test_the_mix_summarizes_as_the_diagnostic_and_names_the_statuses(self) -> None:
+    def test_a_mix_of_a_shown_status_and_the_ordinary_one_reads_each_reported_interval(
+        self,
+    ) -> None:
         study = _straddling_study()
         records = study.replications
         # The witness: the draws straddle the threshold, so both statuses occur.
@@ -360,16 +363,40 @@ class TestAStudyWhoseReplicatesMixStatuses:
         assert summary.n_replicates == len(records) == 8
         assert summary.coverage == np.mean([record.covered for record in records])
         text = study.summary()
-        assert "estimates supply no interval on some replicates" in text
+        # Both statuses show an interval, so the study measures no diagnostic.
+        assert "supply no interval" not in text
         assert (
             f"ate: the replicates took more than one status (few_cluster_plugin in {few}, "
-            f"influence_curve in {8 - few}), and every column reads them as the "
-            f"{NON_INFERENTIAL[FEW].diagnostic_noun}"
+            f"influence_curve in {8 - few}), and every column reads the interval each "
+            "replicate reported"
         ) in text
         row = study.to_frame().iloc[0]
         assert row["inference"] == FEW
         assert row["mixed_statuses"] == summary.mixed_statuses
-        assert "mean_std_error" not in row.index
+        assert "mean_std_error" in row.index
+
+    def test_a_mix_with_a_withheld_status_summarizes_as_the_diagnostic(self) -> None:
+        summary = _summary(
+            estimand="ate",
+            inference="no_cluster_variance_plugin",
+            status_counts=(("no_cluster_variance_plugin", 3), ("influence_curve", 1)),
+        )
+        study = StudyResult(
+            summaries={"ate": summary},
+            replications=(),
+            failures=(),
+            n=500,
+            n_replicates=4,
+            alpha=0.05,
+            label="mixed",
+        )
+        text = study.summary()
+        assert "estimates supply no interval on some replicates" in text
+        assert (
+            "every column reads them as the "
+            f"{STATUS_RECORDS['no_cluster_variance_plugin'].diagnostic_noun}"
+        ) in text
+        assert "mean_std_error" not in study.to_frame().iloc[0].index
 
     def test_a_mix_read_as_inference_fails_the_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The mutation: a summary that labels the mix with the inferential status."""
@@ -386,8 +413,8 @@ class TestAStudyWhoseReplicatesMixStatuses:
     def test_two_diagnostic_statuses_keep_their_distinct_names(self) -> None:
         summary = _summary(
             estimand="ate",
-            inference="estimated_weight_plugin",
-            status_counts=(("estimated_weight_plugin", 2), (FEW, 2)),
+            inference="adaptive_baseline_plugin",
+            status_counts=(("adaptive_baseline_plugin", 2), ("no_cluster_variance_plugin", 2)),
         )
         study = StudyResult(
             summaries={"ate": summary},
@@ -402,4 +429,4 @@ class TestAStudyWhoseReplicatesMixStatuses:
         assert "measuring a plug-in diagnostic" in text
         assert "every column reads them as the plug-in diagnostic" in text
         assert "on some replicates" not in text
-        assert "estimated_weight_plugin in 2, few_cluster_plugin in 2" in text
+        assert "adaptive_baseline_plugin in 2, no_cluster_variance_plugin in 2" in text

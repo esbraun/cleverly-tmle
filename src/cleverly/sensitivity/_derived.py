@@ -41,6 +41,7 @@ def _derived_risk_ratio(
                 g_bounds_conditional=result.config.g_bounds_conditional,
                 nuisance_bound=result.config.missingness_bound,
                 alpha_sig=result.config.alpha_sig,
+                conditions=result.config.support_conditions,
             )
             reports.append(estimates)
         combined = median_estimates(reports)

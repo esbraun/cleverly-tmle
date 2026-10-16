@@ -1,12 +1,13 @@
-"""A clustered ``LTMLE`` fit withholds its interval below 20 clusters.
+"""A clustered ``LTMLE`` fit shows a labelled t interval below 20 clusters.
 
 The point-treatment few-cluster status applies to the longitudinal path too, with the floor of
-:data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`. A fit with fewer
+:data:`~cleverly._inference_status.MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS`. A fit with 3 to 19
 positive-mass clusters stamps ``"few_cluster_plugin"`` on every mean, contrast and MSM
-coefficient, and X54 holds the evidence for those fits. From 20 to 39 such clusters every estimate keeps its
-interval on a Student t reference with ``J - 2`` degrees of freedom. The witness and the control
-run in sample and at five whole-cluster folds, for every kind but the working model, which
-``LTMLE`` refuses above one fold for every fit.
+coefficient. Each estimate keeps its interval on a Student t reference with ``J - 2`` degrees of
+freedom, under the experimental label, and X54 holds the evidence for those fits. From 20 to 39
+such clusters every estimate keeps the same reference and the ordinary status. The witness and
+the control run in sample and at five whole-cluster folds, for every kind but the working model,
+which ``LTMLE`` refuses above one fold for every fit.
 
 Each kind of fit draws 400 rows from its law and passes the labels
 ``np.arange(400) * k // 400`` as ``id=``. Only the labels differ between the witness at 19
@@ -33,7 +34,7 @@ from cleverly._inference_status import (
     MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS,
     NO_SIMULTANEOUS_BANDS,
     NO_T_REFERENCE_BANDS,
-    NON_INFERENTIAL,
+    STATUS_RECORDS,
 )
 from cleverly.datasets import (
     make_longitudinal,
@@ -44,14 +45,12 @@ from cleverly.exceptions import CapabilityError
 from cleverly.inference.cluster import cluster_inference_status
 from cleverly.longitudinal import LTMLE
 from tests.unit._inference_status_support import (
-    DIAGNOSTIC_COLUMNS,
     INFERENTIAL_COLUMNS,
     ROUTES,
     assert_assessment_note,
     assert_keeps_inference,
-    assert_no_inferential_name,
     assert_round_trips,
-    assert_withholds,
+    assert_shows_interval,
     at_or_below,
     longitudinal_estimator,
     restore,
@@ -170,71 +169,67 @@ def control_result(design: tuple[str, int]) -> Any:
         return FITS[kind](floor(n_folds), n_folds=n_folds)
 
 
-def assert_reports_withhold(result: Any, kind: str) -> None:
-    """The report each kind of fit adds to ``to_frame`` renames its spread too."""
-    if kind == "survival":
-        risk, survival = result.curve("risk"), result.curve("survival")
-        for curve in (risk, survival):
-            assert set(curve.columns) >= DIAGNOSTIC_COLUMNS
-            assert_no_inferential_name(curve.columns)
+def assert_reports_show(result: Any, kind: str) -> None:
+    """The report each kind of fit adds to ``to_frame`` keeps its spread names and the label."""
+    if kind in CURVES:
+        views = ("risk", "survival") if kind == "survival" else ("risk",)
+        for curve in (result.curve(view) for view in views):
+            assert set(curve.columns) >= INFERENTIAL_COLUMNS - {"p_value"}
+            assert_no_diagnostic_name(curve.columns)
             assert (curve["inference"] == FEW).all()
-        # The survival view maps each plug-in bound by the rule of its scale: a level
-        # mirrors about a half, and a contrast is negated.
-        for at_risk, surviving in zip(risk.itertuples(), survival.itertuples(), strict=True):
-            estimate = result[at_risk.parameter]
-            assert surviving.parameter == at_risk.parameter
-            assert (at_risk.plugin_interval_lower, at_risk.plugin_interval_upper) == (
-                estimate.plugin_interval
-            )
-            assert surviving.plugin_std_err == at_risk.plugin_std_err == estimate.plugin_std_error
-            flip = 1.0 if estimate.scale == "level" else 0.0
-            assert surviving.plugin_interval_lower == flip - at_risk.plugin_interval_upper
-            assert surviving.plugin_interval_upper == flip - at_risk.plugin_interval_lower
-    elif kind == "competing risks":
-        curve = result.curve()
-        assert set(curve.columns) >= DIAGNOSTIC_COLUMNS
-        assert_no_inferential_name(curve.columns)
-        for row in curve.itertuples():
-            estimate = result[row.parameter]
-            assert row.inference == FEW
-            assert row.plugin_std_err == estimate.plugin_std_error
-            assert (row.plugin_interval_lower, row.plugin_interval_upper) == (
-                estimate.plugin_interval
-            )
-        total = result.incidence_total()
-        assert "plugin_std_err" in total.columns
-        assert_no_inferential_name(total.columns)
-        # The same spread through the joint covariance, a second path to the number.
-        for row in total.itertuples():
-            names = [
-                name
-                for name, (regimen, _, horizon) in result.parameter_index.items()
-                if name.startswith("cif_regimen[") and (regimen, horizon) == (row.regimen, row.time)
-            ]
-            assert len(names) == len(result.config.causes)
-            expected = float(np.sqrt(result.covariance(names).sum()))
-            assert row.plugin_std_err == pytest.approx(expected, rel=1e-12)
+            assert (curve["support"] == "experimental").all()
+            for row in curve.itertuples():
+                estimate = result[row.parameter]
+                assert row.std_err == estimate.std_error
+        if kind == "competing risks":
+            total = result.incidence_total()
+            assert "std_err" in total.columns
+            assert_no_diagnostic_name(total.columns)
+            assert (total["inference"] == FEW).all()
+            assert (total["support"] == "experimental").all()
+            # The same spread through the joint covariance, a second path to the number.
+            for row in total.itertuples():
+                names = [
+                    name
+                    for name, (regimen, _, horizon) in result.parameter_index.items()
+                    if name.startswith("cif_regimen[")
+                    and (regimen, horizon) == (row.regimen, row.time)
+                ]
+                assert len(names) == len(result.config.causes)
+                expected = float(np.sqrt(result.covariance(names).sum()))
+                assert row.std_err == pytest.approx(expected, rel=1e-12)
     elif kind == "msm":
         columns = result.coefficients().columns
-        assert set(columns) >= DIAGNOSTIC_COLUMNS
-        assert_no_inferential_name(columns)
+        assert set(columns) >= INFERENTIAL_COLUMNS
+        assert_no_diagnostic_name(columns)
     else:
         contrast = result.contrast(
             lambda psi: psi[0] - psi[1], ["ey_regimen[always]", "ey_regimen[never]"]
         )
         assert contrast.inference == FEW
-        with pytest.raises(CapabilityError):
-            _ = contrast.ci
+        assert contrast.reference_df == result["ey_regimen[always]"].reference_df
+        assert contrast.support.label == "experimental"
+        low, high = contrast.ci
+        assert low < high
 
 
-class TestFewClustersWithholdTheLongitudinalInterval:
-    """The first witness: 19 clusters withhold every interval, on every kind of fit."""
+def assert_no_diagnostic_name(names: Any) -> None:
+    """A shown status keeps the inferential names, so none is renamed to a plug-in one."""
+    assert not set(names) & {"plugin_std_err", "plugin_interval_lower", "plugin_interval_upper"}
 
-    def test_the_estimates_withhold_their_inference(self, few_result: Any) -> None:
-        assert_withholds(few_result, FEW)
 
-    def test_each_report_renames_its_spread(self, few_result: Any, kind: str) -> None:
-        assert_reports_withhold(few_result, kind)
+class TestFewClustersShowALabelledLongitudinalInterval:
+    """The first witness: 19 clusters show t(17) under the label, on every kind of fit."""
+
+    def test_the_estimates_show_the_plug_in_t_interval(
+        self, few_result: Any, design: tuple[str, int]
+    ) -> None:
+        assert_shows_interval(few_result, FEW, floor(design[1]) - 3)
+
+    def test_each_report_keeps_its_spread_names_and_the_label(
+        self, few_result: Any, kind: str
+    ) -> None:
+        assert_reports_show(few_result, kind)
 
     def test_an_explicit_band_request_is_skipped_and_named(self) -> None:
         with warnings.catch_warnings(record=True) as caught:
@@ -242,7 +237,7 @@ class TestFewClustersWithholdTheLongitudinalInterval:
             result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1, simultaneous=True)
         assert not caught
         assert result.simultaneous is None
-        assert NO_SIMULTANEOUS_BANDS in result.summary()
+        assert NO_T_REFERENCE_BANDS in result.summary()
 
     def test_the_nuisance_item_and_the_assessment_carry_the_note(self) -> None:
         assert_assessment_note(fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1), FEW)
@@ -259,7 +254,7 @@ class TestFewClustersWithholdTheLongitudinalInterval:
         result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS, **ONE_ZERO_MASS_CLUSTER)
         # The witness that the labels alone would keep the interval.
         assert result.data.n_clusters == MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
-        assert_withholds(result, FEW)
+        assert_shows_interval(result, FEW, MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3)
         assert (
             f"positive weight mass in {MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1}"
             in result.summary()
@@ -309,7 +304,7 @@ class TestTwentyClustersKeepTheLongitudinalInterval:
             assert "inference" not in control_result.curve().columns
         if kind == "competing risks":
             assert "std_err" in control_result.incidence_total().columns
-        assert NON_INFERENTIAL[FEW].reason not in control_result.summary()
+        assert STATUS_RECORDS[FEW].shown_reason not in control_result.summary()
         assert {e.reference_df for e in control_result.estimates.values()} == {floor(design[1]) - 2}
 
     def test_the_default_bands_are_built_at_forty_clusters(self) -> None:
@@ -359,24 +354,32 @@ class TestTheMutationsFailTheWitness:
             "_inference_status",
             lambda data, folds, **_: "influence_curve",
         )
-        # The forced status reaches the t reference, which refuses fewer than 10 clusters.
-        with pytest.raises((AssertionError, ValueError)):
-            assert_withholds(FITS[kind](MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1), FEW)
+        with pytest.raises(AssertionError):
+            assert_shows_interval(
+                FITS[kind](MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1),
+                FEW,
+                MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3,
+            )
 
     def test_a_threshold_of_zero_fails_the_witness(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The longitudinal path reads its own floor in its own module."""
         monkeypatch.setattr(longitudinal_estimator, "MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS", 0)
         result = fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1)
-        for check in (assert_withholds, assert_assessment_note):
-            with pytest.raises(AssertionError):
-                check(result, FEW)
+        with pytest.raises(AssertionError):
+            assert_shows_interval(result, FEW, MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3)
+        with pytest.raises(AssertionError):
+            assert_assessment_note(result, FEW)
 
     def test_an_at_or_below_comparison_fails_the_control(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(longitudinal_estimator, "cluster_inference_status", at_or_below)
         # The mutant still passes the witness, so only the control can catch it.
-        assert_withholds(fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1), FEW)
+        assert_shows_interval(
+            fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 1),
+            FEW,
+            MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3,
+        )
         with pytest.raises(AssertionError):
             assert_keeps_inference(fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS))
 
@@ -389,9 +392,10 @@ class TestTheMutationsFailTheWitness:
             lambda data, folds, **_: cluster_inference_status(data.cluster),
         )
         with pytest.raises((AssertionError, ValueError)):
-            assert_withholds(
+            assert_shows_interval(
                 fit_end_of_study(MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS, **ONE_ZERO_MASS_CLUSTER),
                 FEW,
+                MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS - 3,
             )
 
     def test_a_replay_without_the_status_fails_the_truncation_check(

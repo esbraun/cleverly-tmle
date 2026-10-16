@@ -475,6 +475,8 @@ ARMS: dict[str, str] = {
     "mean_x2": "odds-x2 mean at every node, three-node law",
     "contrast_x2": "odds-x2 against the natural course, three-node law",
     "contrast_x2_in_sample": "odds-x2 against the natural course, one fold",
+    "dropout_contrast_x2_in_sample": "odds-x2 contrast at the end of study, with dropout, one fold",
+    "survival_contrast_x2_h3_in_sample": "odds-x2 contrast in the risk by t = 3, with dropout, one fold",
     "known_x2": "odds-x2 mean with the true treatment probabilities declared",
     "no_positivity": "odds-x2 contrast on a law with propensities of exactly 0 and 1",
     "per_node": "odds multipliers 2, 0.5 and 1.5 at the three nodes",
@@ -709,7 +711,9 @@ SCENARIOS: dict[str, str] = {
     ),
     "ipsi_folds_2": "three-node law with a continuous outcome, two folds",
     "ipsi_folds_5": "three-node law with a continuous outcome, five folds",
+    "dropout_folds_1": "three-node law with dropout after each arm, one fold",
     "dropout_folds_5": "three-node law with dropout after each arm, five folds",
+    "survival_folds_1": "three-node survival law with dropout, horizons 1 to 3, one fold",
     "survival_folds_5": "three-node survival law with dropout, horizons 1 to 3, five folds",
     "binary_active": (
         "two arms, an arm-specific outcome index, an instrument, correct outcome regression"
@@ -1286,13 +1290,12 @@ PROPERTIES: dict[str, str] = {
     ),
     "single_robustness": (
         "the estimate stays consistent when the treatment mechanism is correct and the "
-        "outcome regressions are constant"
+        "outcome regressions are misspecified linear fits"
     ),
     "censoring_complete_case": (
         "how far a fit to the rows that never drop out sits from the target, reported rather "
         "than gated"
     ),
-    "in_sample_fit": ("how a one-fold fit behaves on the same draws, reported rather than gated"),
     "sequential_double_robustness": (
         "the estimate stays consistent when at each node either the outcome regression or "
         "the treatment and censoring mechanisms are correct"
@@ -2248,10 +2251,14 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("root_n_and_efficiency", "n_24000"): (
         "bias, coverage and SE calibration at n = 24,000",
+        "",  # the smallest rung's rule depends on its role; :func:`cell` sets it
+    ),
+    ("root_n_and_efficiency", "n_64000"): (
+        "bias, coverage and SE calibration at n = 64,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
-    ("root_n_and_efficiency", "n_48000"): (
-        "bias, coverage and SE calibration at n = 48,000",
+    ("root_n_and_efficiency", "n_96000"): (
+        "bias, coverage and SE calibration at n = 96,000",
         "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
     ),
     ("root_n_and_efficiency", "n_500"): (
@@ -2946,7 +2953,7 @@ def cell(
                 if base == "targeted"
                 else "the identical targeted mechanism is evaluated with the initial outcome regression"
             )
-    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000", "n_6000"}:
+    if family == "root_n_and_efficiency" and base in {"n_500", "n_1000", "n_24000"}:
         # The smallest rung is a positive cell in some studies and a retained small-sample
         # control in others, and the two are held to opposite rules.  Publishing one rule
         # beside the other role's verdict is the failure this branch exists to prevent, so an
@@ -3081,19 +3088,20 @@ CELLS.update(
     {
         ("mechanism_term_necessity", "full_eif"): (
             "the reported standard error from the full influence curve",
-            "both efficiency-ratio intervals inside their band",
+            "the SE-ratio interval inside the efficiency-ratio band",
         ),
         ("mechanism_term_necessity", "mechanism_term_dropped"): (
-            "the same estimates with the treatment-mechanism term removed from the curve",
+            "the same estimates with the treatment-mechanism term, on the outcome's own scale, "
+            "removed from the curve",
             "the SE-ratio interval must fall below the calibration band",
         ),
-        ("single_robustness", "mechanism_correct__n_6000"): (
-            "cell-mean treatment mechanism and constant outcome regressions, at n = 6,000",
-            "absolute bias + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+        ("single_robustness", "mechanism_correct__n_48000"): (
+            "cell-mean treatment mechanism and linear outcome regressions, at n = 48,000",
+            "bias inside the margin at n = 48,000 and at n = 96,000",
         ),
-        ("single_robustness", "mechanism_correct__n_24000"): (
-            "cell-mean treatment mechanism and constant outcome regressions, at n = 24,000",
-            "absolute bias + 2 MCSE at n = 24,000 below 0.01 and below its value at n = 6,000",
+        ("single_robustness", "mechanism_correct__n_96000"): (
+            "cell-mean treatment mechanism and linear outcome regressions, at n = 96,000",
+            "bias inside the margin at n = 48,000 and at n = 96,000",
         ),
         ("single_robustness", "mechanism_constant"): (
             "constant treatment mechanism and cell-mean outcome regressions, beside the "
@@ -3101,7 +3109,7 @@ CELLS.update(
             "reported only",
         ),
         ("targeting_necessity", "one_step"): (
-            "the one-step estimate with constant outcome regressions",
+            "the one-step estimate with linear outcome regressions",
             "bias inside the margin",
         ),
         ("targeting_necessity", "plug_in"): (
@@ -3111,10 +3119,6 @@ CELLS.update(
         ("censoring_complete_case", "complete_case"): (
             "a fit to the rows that never drop out, without a censoring model, beside the "
             "exact-law limit",
-            "reported only",
-        ),
-        ("in_sample_fit", "one_fold"): (
-            "the same estimand fitted with one fold on the same draws",
             "reported only",
         ),
     }

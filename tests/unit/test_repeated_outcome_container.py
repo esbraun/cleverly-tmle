@@ -25,7 +25,7 @@ from cleverly.inference.influence import make_estimate
 from cleverly.interventions import Incremental
 from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, Repeated
 from cleverly.longitudinal import estimator as sequential
-from cleverly.longitudinal.estimator import HORIZON_INFIX, bootstrap_design_kind
+from cleverly.longitudinal.estimator import HORIZON_INFIX
 from cleverly.msm import MSM
 from cleverly.study import LongitudinalTreatment
 from cleverly.utils.bounds import OutcomeScaler
@@ -279,9 +279,11 @@ def test_w10_the_study_lists_only_ltmle_on_a_repeated_outcome() -> None:
 def test_w11_the_bootstrap_is_a_diagnostic_on_a_repeated_fit() -> None:
     data = LongitudinalData.from_frame(panel(), **ROLES)
     result = _quiet_fit(_estimator(n_bootstrap=3), data)
-    assert bootstrap_design_kind(data, result.folds, result.config.regimens, None) is None
     for estimate in result.estimates.values():
-        assert estimate.bootstrap is None or estimate.bootstrap.inferential is False
+        assert estimate.bootstrap is None or (
+            estimate.bootstrap.diagnostic is False
+            and estimate.bootstrap.support.label == "experimental"
+        )
 
 
 def test_w12_the_truncation_replay_reproduces_the_fit() -> None:

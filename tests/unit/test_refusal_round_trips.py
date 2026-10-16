@@ -29,10 +29,10 @@ from cleverly import (
     PointTreatment,
     RegimeContrast,
 )
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.assessment import AssessmentItem, AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_longitudinal, make_shift_dose
-from cleverly.estimators import DRTMLE
+from cleverly.estimators import TMLE
 from cleverly.exceptions import (
     CapabilityError,
     RefusalReason,
@@ -153,11 +153,11 @@ def test_the_capability_row_of_a_loaded_result_keeps_its_refusal(
 
 def test_a_withheld_interval_refuses_with_the_same_record_after_a_load(tmp_path: Path) -> None:
     frame = make_binary_outcome(n=500, seed=3)[0]
-    frame["w"] = np.random.default_rng(3).uniform(0.5, 2.0, len(frame))
-    status = "estimated_weight_plugin"
+    frame["cluster"] = np.arange(len(frame)) % 2
+    status = "no_cluster_variance_plugin"
     result = (
-        DRTMLE(**linear_in_sample(estimands=("ate", "ey0")))
-        .fit(frame, outcome="Y", treatment="A", weights="w", weights_estimated=True)
+        TMLE(**linear_in_sample(estimands=("ate", "ey0")))
+        .fit(frame, outcome="Y", treatment="A", id="cluster")
         .single()
     )
     assert _statuses(result) == dict.fromkeys(result.estimates, status)
@@ -169,7 +169,7 @@ def test_a_withheld_interval_refuses_with_the_same_record_after_a_load(tmp_path:
         expected = inference_refusal(".std_error", status)
         assert raised.value.refusal == expected
         assert expected.reason is RefusalReason.INFERENCE_GAP
-        assert NON_INFERENTIAL[status].reason in str(raised.value)
+        assert STATUS_RECORDS[status].reason in str(raised.value)
         assert name in result.estimates
 
 
