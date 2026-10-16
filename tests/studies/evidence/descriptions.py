@@ -80,6 +80,24 @@ ARMS: dict[str, str] = {
         )
         for horizon in (1, 2, 3)
     },
+    # The repeated-outcome IPSI study's parameters, one label per tilt and horizon.
+    **{
+        f"ipsi_{delta}_t{horizon}": f"{words} at horizon t = {horizon}, repeated binary outcome"
+        for delta, words in (
+            (0.5, "mean under the odds tilt 0.5"),
+            (1.0, "mean under the natural course"),
+            (2.0, "mean under the odds tilt 2"),
+        )
+        for horizon in (1, 2, 3)
+    },
+    **{
+        f"ipsi_{delta}_vs_1.0_t{horizon}": (
+            f"contrast of the odds tilt {delta} against the natural course at horizon "
+            f"t = {horizon}, repeated binary outcome"
+        )
+        for delta in (0.5, 2.0)
+        for horizon in (1, 2, 3)
+    },
     "survival_t5": "difference of arm 1 and arm 0 at visit 5, five-visit held law",
     "survival_t5_per_horizon": (
         "difference of arm 1 and arm 0 at visit 5, five-visit held law, targeted one horizon "
@@ -795,6 +813,12 @@ SCENARIOS: dict[str, str] = {
     ),
     "ipsi_folds_2": "three-node law with a continuous outcome, two folds",
     "ipsi_folds_5": "three-node law with a continuous outcome, five folds",
+    "repeated_folds_5": (
+        "three-time-point law with a repeated binary outcome and monotone censoring, five folds"
+    ),
+    "repeated_folds_1": (
+        "three-time-point law with a repeated binary outcome and monotone censoring, in sample"
+    ),
     "dropout_folds_1": "three-node law with dropout after each arm, one fold",
     "dropout_folds_5": "three-node law with dropout after each arm, five folds",
     "survival_folds_1": "three-node survival law with dropout, horizons 1 to 3, one fold",
@@ -1039,6 +1063,9 @@ REPEATED_REGIMENS: dict[str, str] = {
     "treat then treat after an outcome": (
         "treat at the first time, then treat at each later time after an outcome of one"
     ),
+    "odds x0.5": "multiply the treatment odds by 0.5",
+    "odds x2": "multiply the treatment odds by two",
+    "natural course": "leave the observed treatment mechanism unchanged",
 }
 
 #: The bracketed half of a longitudinal estimand key.
@@ -1311,6 +1338,10 @@ PROPERTIES: dict[str, str] = {
     "outcome_history_necessity": (
         "leaving the earlier outcomes out of every history targets a different g-formula, "
         "because the earlier outcomes confound the later nodes"
+    ),
+    "booster_calibration": (
+        "the SE ratio and coverage of the cross-fitted fits with a shallow regularized booster "
+        "for both outcome learners, reported rather than gated"
     ),
     "full_history_necessity": (
         "an outcome regression that reads the full history, rather than the previous node "
@@ -2586,6 +2617,79 @@ STUDY_ARM_CELLS.update(
         if (kind == "shrunken_se_control") == (scenario == "binary_known")
     }
 )
+
+
+#: The ``longitudinal-repeated-ipsi`` cells, keyed by label, which only this study publishes.
+#: The labels mirror
+#: ``tests.studies.canonical_ipsi_repeated.LABELS``, which this module cannot import (descriptions
+#: stay out of every study's hashed module list).  ``tests/unit/test_ipsi_repeated_method_study.py``
+#: pins the two equal.
+_IPSI_LABELS = (
+    *(f"ipsi_{delta}_t{horizon}" for delta in (0.5, 1.0, 2.0) for horizon in (1, 2, 3)),
+    *(f"ipsi_{delta}_vs_1.0_t{horizon}" for delta in (0.5, 2.0) for horizon in (1, 2, 3)),
+)
+_IPSI_BAND = "SE-ratio and coverage intervals inside the calibration bands"
+_IPSI_FITS: dict[tuple[str, str], tuple[str, str]] = {
+    ("interval_calibration", "in_sample"): (
+        "in sample, cell-mean outcome regressions with a backoff, main-terms quasibinomial "
+        "treatment and censoring mechanisms, n = 8,000",
+        _IPSI_BAND,
+    ),
+    ("interval_calibration", "crossfit"): (
+        "five folds, cell-mean outcome regressions with a backoff, main-terms quasibinomial "
+        "treatment and censoring mechanisms, n = 8,000",
+        _IPSI_BAND,
+    ),
+    ("interval_calibration", "continuous"): (
+        "the three-value outcome law, in sample, cell-mean outcome regressions with a backoff, "
+        "main-terms quasibinomial mechanisms, outcome bounds (0, 1), n = 8,000",
+        _IPSI_BAND,
+    ),
+    ("booster_calibration", "crossfit_boosted"): (
+        "five folds, a shallow regularized booster for both outcome learners, main-terms "
+        "quasibinomial mechanisms, n = 8,000",
+        "reported, no verdict",
+    ),
+    ("small_sample_calibration", "in_sample"): (
+        "the in-sample binary calibration arm at n = 2,000",
+        "reported, no verdict",
+    ),
+    ("small_sample_calibration", "continuous"): (
+        "the continuous calibration arm at n = 2,000",
+        "reported, no verdict",
+    ),
+    ("single_robustness", "w_only_m"): (
+        "the outcome regression reads the baseline covariate and the current arm alone, which is "
+        "wrong for the history, with the correctly specified mechanisms, n = 2,000",
+        "bias interval inside the equivalence margin",
+    ),
+    ("single_robustness", "one_step_necessity"): (
+        "the tilt plug-in with the same wrong regression and the same fitted treatment "
+        "mechanism, written without `cleverly`",
+        "bias interval outside the margin, and inside it around the plug-in's exact limit",
+    ),
+    ("repeated_outcome_necessity", "repeated"): (
+        "the repeated-outcome fit, correctly specified mechanisms, cell-mean outcome regressions",
+        "bias interval inside the equivalence margin",
+    ),
+    ("repeated_outcome_necessity", "absorbing_reading"): (
+        "an end-of-study fit of the maximum of the outcomes through the horizon, with the earlier "
+        "outcomes in the history",
+        "bias interval outside the margin, and inside it around the absorbing tilt functional",
+    ),
+    ("outcome_history_necessity", "repeated"): (
+        "the repeated-outcome fit, correctly specified mechanisms, cell-mean outcome regressions",
+        "bias interval inside the equivalence margin",
+    ),
+    ("outcome_history_necessity", "history_free"): (
+        "an end-of-study fit with no earlier outcome in any history, cell-mean outcome "
+        "regressions and mechanisms on the coarse key",
+        "bias interval outside the margin, and inside it around the coarse tilt functional",
+    ),
+}
+for _label in _IPSI_LABELS:
+    for (_family, _base), _words in _IPSI_FITS.items():
+        ARM_CELLS[(_family, _label, _base)] = _words
 ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (
     "the outcome regression, treatment mechanism and observation mechanism are correct",
     "SE ratio and coverage intervals both inside their calibration bands",
