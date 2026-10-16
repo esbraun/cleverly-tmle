@@ -1400,10 +1400,13 @@ mechanism.
 ### The interval under heavy cumulative density ratios
 
 The `SDR` interval runs short of nominal when the cumulative density ratios are heavy. The study
-cell `p4_sdr` of `mtp-boundaries` reads a standard-error ratio near 0.93 at n = 4,000. The cell
-uses a pseudo-outcome learner that projects onto [0, 1]. The package publishes this cell as
-`reporting`. [F37](../roadmap.md#f37-sdr-intervals-under-heavy-cumulative-density-ratios) owns
-the open question.
+cell `p4_sdr` of `mtp-boundaries` reads a standard-error ratio of 0.9408 at n = 4,000, with a 99%
+interval of 0.9060 to 0.9775, and a coverage of 0.9357. The `LTMLE` cell of the same plan reads a
+standard-error ratio of 0.9572. The cell uses a pseudo-outcome learner that projects onto [0, 1].
+
+Treat this interval as experimental under the measured-shortfall standard. The study publishes the
+cell as `reporting`, and the red-cell owner `X40-sdr-heavy-ratios` records the measured numbers.
+The fit support key does not read the plan, so a fit carries no label of its own for this cell.
 
 ### Choices that differ from LTMLE
 

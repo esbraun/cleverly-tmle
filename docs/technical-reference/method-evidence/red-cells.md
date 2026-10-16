@@ -108,11 +108,10 @@ The test fails on four states.
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) | 4 | boundary-binding price plans over follow-up lengths |
 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) | 3 | boundary-binding price plans over follow-up lengths |
-| [`mtp-boundaries-calibration`](../../roadmap.md#red-cell-owners) | 2 | modified treatment policies at declared boundaries |
-| [`F37`](../../roadmap.md#f37-sdr-intervals-under-heavy-cumulative-density-ratios) | 1 | modified treatment policies at declared boundaries |
+| [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) | 1 | modified treatment policies at declared boundaries |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 184 | 35 studies |
+| total | 182 | 35 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -188,9 +187,7 @@ same text as the "measured" column of its study page.
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `type_i_error/static__sharp_null` | positive | its own rule | rejection 0.0750, 0.0530 to 0.1022 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary known stochastic categorical longitudinal TMLE](stochastic-categorical-longitudinal-tmle.md) | property | `power/mix__alternative` | positive | its own rule | rejection 0.5575, 0.5114 to 0.6029 | [`F1-power-design`](../../roadmap.md#red-cell-owners) |
 | [longitudinal modified treatment policies](longitudinal-modified-treatment-policies.md) | property | `interval_calibration/categorical_mtp__correctly_specified` | positive | its own rule | coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to 1.1006 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) |
-| [modified treatment policies at declared boundaries](mtp-boundaries.md) | truth | `cleverly-mtp-boundaries/boundaries_ltmle/ate_regimen[p4 vs natural]` | cleverly-mtp-boundaries | its truth gate | bias -0.0022 to 0.0040, coverage 0.9160, SE ratio 0.9248 | [`mtp-boundaries-calibration`](../../roadmap.md#red-cell-owners) |
-| [modified treatment policies at declared boundaries](mtp-boundaries.md) | truth | `cleverly-mtp-boundaries/boundaries_ltmle/ey_regimen[p4]` | cleverly-mtp-boundaries | its truth gate | bias -0.0022 to 0.0042, coverage 0.9220, SE ratio 0.9270 | [`mtp-boundaries-calibration`](../../roadmap.md#red-cell-owners) |
-| [modified treatment policies at declared boundaries](mtp-boundaries.md) | property | `interval_calibration/p4_sdr__correctly_specified` | positive | its own rule | coverage 0.9233 to 0.9467, SE ratio 0.9060 to 0.9775 | [`F37`](../../roadmap.md#f37-sdr-intervals-under-heavy-cumulative-density-ratios) |
+| [modified treatment policies at declared boundaries](mtp-boundaries.md) | property | `interval_calibration/p4_sdr__correctly_specified` | positive | its own rule | coverage 0.9233 to 0.9467, SE ratio 0.9060 to 0.9775 | [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_ltmle_tau5/ate_regimen[price_down vs natural_prices]` | cleverly-mtp-pricing | its truth gate | bias -0.000974 to 0.0024, coverage 0.9160, SE ratio 0.9310 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_ltmle_tau5/ey_regimen[price_down]` | cleverly-mtp-pricing | its truth gate | bias -0.000992 to 0.0023, coverage 0.9170, SE ratio 0.9479 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_sdr_tau5/ate_regimen[price_down vs natural_prices]` | cleverly-mtp-pricing | its truth gate | bias -0.000981 to 0.0024, coverage 0.9190, SE ratio 0.9339 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |

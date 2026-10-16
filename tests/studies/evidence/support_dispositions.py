@@ -84,11 +84,10 @@ FLAGGED_EXPERIMENTAL = {
         "X40: the five-node price_down rows read a coverage of 0.916 to 0.923 and an SE ratio of "
         "0.93 to 0.95"
     ),
-    "mtp-boundaries-calibration": (
-        "X40: the two-branch plan p4 reads a coverage of 0.916 to 0.922 and an SE ratio of 0.925 "
-        "at n = 2,000"
+    "X40-sdr-heavy-ratios": (
+        "X40: SDR under the two-branch plan p4 reads an SE ratio of 0.9408 and a coverage of 0.9357 "
+        "at n = 4,000"
     ),
-    "F37": "X40: SDR under the two-branch plan p4 reads an SE ratio of 0.906 to 0.978",
 }
 #: The studies whose interval calibration cells use a t reference, so a Wald row there is ``wald_t``.
 T_REFERENCE_SLUGS = frozenset({"clustered-few-cluster-tmle", "few-cluster-cross-fitted-ltmle"})
@@ -1463,25 +1462,10 @@ _X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str]
     ),
 )
 
-#: X40 S1 (``mtp-boundaries``). These three lines read the committed S1 primary and property
-#: tables. The two ``boundaries_ltmle`` p4 truth rows were red at n = 2,000 and the primary is
-#: re-run at n = 5,000, so refresh this block from the new artefacts: drop a truth line whose row
-#: turns green, and keep a line that stays red. The ``p4_sdr`` calibration cell is a declared
-#: ``reporting`` arm at n = 4,000 and does not move with the primary.
+#: X40 S1 (``mtp-boundaries``). The ``p4_sdr`` calibration cell is a declared ``reporting`` arm
+#: at n = 4,000. The ``boundaries_ltmle`` p4 truth rows pass at the n = 5,000 primary, so they
+#: have no line here.
 _X40_BOUNDARIES: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
-    *(
-        (
-            "mtp-boundaries",
-            "truth",
-            f"cleverly-mtp-boundaries/boundaries_ltmle/{estimand}",
-            "G10.continuous",
-            ("wald",),
-            EXPERIMENTAL,
-            "",
-            "X40",
-        )
-        for estimand in ("ate_regimen[p4 vs natural]", "ey_regimen[p4]")
-    ),
     (
         "mtp-boundaries",
         "property",
@@ -1541,14 +1525,8 @@ NO_SHORTFALL: Mapping[RedKey, str] = {
         if entry.row == "T01.binary" and entry.disposition == EXPERIMENTAL
     },
     **{
-        key: "the cell is the two-branch plan p4, which the key of the fit cannot read; the "
-        "study page states the reading"
-        for key, entry in DISPOSITIONS.items()
-        if key.slug == "mtp-boundaries" and key.kind == "truth"
-    },
-    **{
         key: "the cell is the two-branch plan p4 under SDR with heavy cumulative ratios, which "
-        "the key of the fit cannot read; the SDR caveat of longitudinal-tmle.md states the reading"
+        "the key of the fit cannot read; the SDR caveat of longitudinal-tmle.md states the measured reading"
         for key, entry in DISPOSITIONS.items()
         if key.slug == "mtp-boundaries" and key.kind == "property"
     },

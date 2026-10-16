@@ -75,7 +75,6 @@ _OWNER_ANCHORS = {
     "F19": "f19-outcome-adaptive-c-tmle-generated-design-inference",
     # The owner of every red cell of the reporting study ``learned-rule-cvtmle-boundary``.
     "F27": "f27-learned-policy-value-outside-the-published-conditions",
-    "F37": "f37-sdr-intervals-under-heavy-cumulative-density-ratios",
 }
 
 #: The kinds of red row, in the order the ledger prints them.  An ``accounting`` row is a hook
@@ -593,18 +592,8 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             ),
         ),
     ),
-    # The ``boundaries_ltmle`` p4 truth rows read the n = 2,000 run. Refresh this claim when the
-    # n = 5,000 primary of ``mtp-boundaries`` lands: drop a row that turns green.
-    "mtp-boundaries-calibration": (
-        *_keys(
-            "mtp-boundaries",
-            "truth",
-            "cleverly-mtp-boundaries/boundaries_ltmle/ey_regimen[p4]",
-            "cleverly-mtp-boundaries/boundaries_ltmle/ate_regimen[p4 vs natural]",
-        ),
-    ),
-    # The ``reporting`` SDR arm of plan p4; the roadmap item F37 owns the open question.
-    "F37": (
+    # The ``reporting`` SDR arm of plan p4. X40 owns it: the interval is labelled experimental.
+    "X40-sdr-heavy-ratios": (
         *_keys("mtp-boundaries", "property", "interval_calibration/p4_sdr__correctly_specified"),
     ),
 }
