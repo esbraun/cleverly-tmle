@@ -1011,3 +1011,141 @@ def test_the_clause_bindings_name_this_slug_and_leave_the_binding_search_to_the_
             ROOT / "tests" / "studies" / "canonical_ctmle_oat_per_arm_parametric_extensions.py"
         ).read_text()
     )
+
+
+# ------------------------------------------------------------------------------ the pilot
+
+#: The declared-size pilot (plans repository ``reviews/x58/x58b/pilot/``: ``x58b2_step2_report.log``
+#: at 5,000 replicates per group on seed 9_258_000_058, ``x58b2_declared_report.log`` at the
+#: declared budgets on seed 9_558_000_058, ``x58b2_primary_report.log`` for the primary phase on
+#: seed 9_458_000_058; code commit ``7880f787``).  The pilot rows are not committed, so the figures
+#: are constants.  Each value is ``(lowest SE ratio, highest SE ratio, highest upper 99% bound)``
+#: over the group's positive calibration rows, at the declared budget (step 4).
+PILOT_STEP4_RATIOS = {
+    "three_arm": (0.9929, 1.0015, 1.0122),
+    "three_arm_shared": (0.9887, 0.9950, 1.0103),
+    "binary_population": (0.9881, 1.0107, 1.0295),
+    "three_arm_crossfit": (1.0084, 1.0138, 1.0278),
+    "three_arm_generated_design": (1.0145, 1.0355, 1.0531),
+    "weighted": (0.9903, 0.9966, 1.0103),
+    "weighted_crossfit": (0.9907, 1.0018, 1.0187),
+    "composition": (1.0090, 1.0158, 1.0298),
+}
+#: Step 2 (5,000 replicates per group), for the same groups: lowest and highest SE ratio.
+PILOT_STEP2_RATIOS = {
+    "three_arm": (0.9821, 1.0031),
+    "three_arm_shared": (0.9837, 1.0048),
+    "binary_population": (0.9854, 0.9951),
+    "three_arm_crossfit": (1.0015, 1.0329),
+    "three_arm_generated_design": (1.0061, 1.0277),
+    "weighted": (0.9825, 1.0098),
+    "weighted_crossfit": (0.9908, 1.0140),
+    "composition": (0.9971, 1.0117),
+}
+#: Joint coverage of the band cells at the declared budget (step 4) and at step 2.
+PILOT_BANDS = {
+    "three_arm": (0.9439, 0.9402),
+    "binary_population": (0.9467, 0.9488),
+    "three_arm_crossfit": (0.9484, 0.9496),
+}
+#: The negative controls at the declared budget: the SE ratio or the joint coverage.
+PILOT_CONTROLS = {
+    "three_arm__ey_1__shipped_curve__shrunken_se_control": 0.7767,
+    "three_arm__pointwise_joint_control": 0.8185,
+    "three_arm__shipped_curve_band_control": 0.8527,
+    "three_arm_shared__ate_0_vs_1__cross_term_dropped__inflated_se_control": 1.1560,
+    "binary_population__par__shipped_curve__shrunken_se_control": 0.7753,
+    "binary_population__pointwise_joint_control": 0.8373,
+    "binary_population__shipped_curve_band_control": 0.8707,
+    "three_arm_crossfit__ey_1__shipped_curve__shrunken_se_control": 0.7952,
+    "weighted__ey0__shipped_curve__shrunken_se_control": 0.8130,
+}
+#: Rejections of the two type I rows over 1,600 replicates (step 4), and the primary phase
+#: figure: all 11 rows pass at 1,600 per law, and 200 bootstrap resamples all pass.
+PILOT_TYPE_I_REJECTIONS = (0.0450, 0.0525)
+PILOT_PRIMARY = 1.0000
+#: The predictive model's unit probability at the declared budgets, step 4 (study-wise 0.7926 with
+#: all 19 units).  Step 2 gave 0.7675 over 18 units.  The model carries the pilot's own sampling
+#: error, so it cannot reach the target for the cross-fitted groups at any budget (step 2), and
+#: three units sit below it at step 4.  The budgets stay at the plan values on the X58b1 precedent;
+#: the declared reading passes every row at both steps.
+PILOT_STEP4_UNITS = {
+    "three_arm": 0.99993,
+    "three_arm_shared": 0.99846,
+    "binary_population": 0.98897,
+    "three_arm_crossfit": 0.99736,
+    "three_arm_generated_design": 0.80937,
+    "weighted": 0.99949,
+    "weighted_crossfit": 0.99842,
+    "composition": 0.99653,
+}
+PILOT_STUDY_WISE = 0.7926
+
+
+def test_the_pilot_reads_every_gated_row_inside_the_calibration_band_at_the_declared_size() -> None:
+    low, high = runner.STUDY.margins.calibration_se_ratio
+    assert (
+        set(PILOT_STEP4_RATIOS)
+        == set(PILOT_STEP2_RATIOS)
+        == set(GATED_ROWS) | {"three_arm_generated_design"}
+    )
+    for group, (lowest, highest, bound) in PILOT_STEP4_RATIOS.items():
+        assert low < lowest <= highest < bound < high, group
+        assert low < PILOT_STEP2_RATIOS[group][0] <= PILOT_STEP2_RATIOS[group][1] < high, group
+    # The pair is the closest row: its upper 99% bound sits 0.017 under the band edge.
+    assert (
+        max(bound for *_, bound in PILOT_STEP4_RATIOS.values())
+        == (PILOT_STEP4_RATIOS["three_arm_generated_design"][2])
+    )
+    assert high - PILOT_STEP4_RATIOS["three_arm_generated_design"][2] > 0.016
+
+
+def test_the_pilot_band_cells_and_the_type_i_and_primary_figures_pass() -> None:
+    margins = runner.STUDY.margins
+    low, high = margins.calibration_coverage
+    for label, figures in PILOT_BANDS.items():
+        replicates = runner.BUDGETS[label]
+        for coverage in figures:
+            assert low < coverage < high, label
+        step4 = figures[0]
+        interval = clopper_pearson(
+            round(step4 * replicates), replicates, confidence_level=margins.confidence_level
+        )
+        assert interval.within(low, high), label
+    # The in-sample three-arm band reads lowest, 0.9402 at step 2 against the exact 0.9505.
+    assert min(f[1] for f in PILOT_BANDS.values()) == PILOT_BANDS["three_arm"][1]
+    replicates = runner.BUDGETS["three_arm_null"]
+    ceiling = margins.alpha + margins.type_i_margin
+    for rate in PILOT_TYPE_I_REJECTIONS:
+        covered = round(rate * replicates)
+        assert (
+            clopper_pearson(covered, replicates, confidence_level=margins.confidence_level).high
+            <= ceiling
+        )
+    assert PILOT_PRIMARY > TARGET
+
+
+def test_the_pilot_controls_are_red_on_their_declared_side() -> None:
+    low, high = runner.STUDY.margins.calibration_se_ratio
+    assert set(PILOT_CONTROLS) == set(runner.NEGATIVE_CONTROLS)
+    declared = runner.CONFIGURATION["negative_control_expected"]
+    for name, value in PILOT_CONTROLS.items():
+        side = runner.NEGATIVE_CONTROLS[name]
+        figure = declared[name]
+        if "se_ratio" in figure:
+            assert abs(value - figure["se_ratio"]) < 0.04, name
+            assert (value < low) if side == "below" else (value > high), name
+        else:
+            assert abs(value - figure["joint_coverage"]) < 0.01, name
+            assert value < 0.95, name
+
+
+def test_the_pilot_study_wise_figure_is_recorded_with_its_shortfall() -> None:
+    """The predictive model gives 0.7926 over 19 units: three groups sit under the target."""
+    below = {g for g, v in PILOT_STEP4_UNITS.items() if v < TARGET}
+    assert below == {"binary_population", "three_arm_generated_design", "composition"}
+    assert (
+        pytest.approx(float(np.prod(list(PILOT_STEP4_UNITS.values()))), abs=1e-3)
+        == PILOT_STUDY_WISE
+    )
+    assert len(PILOT_STEP4_UNITS) + runner.UNITS["negative_controls"] + 2 == UNITS
