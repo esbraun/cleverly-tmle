@@ -391,19 +391,25 @@ Python tests below gate the change. The R comparators are pending, and the next 
 | `hazard` refusal | `tests/unit/test_hazard_x22_refusal.py` asserts the text, the order and the timing | a default hazard fit still runs when every targeting solver is replaced | none |
 
 The R comparators have scripts, a registry and a self-test in `tests/canonical/option_fixtures/`.
-The cloud session that wrote them has no R, so each fixture is pending. The local Study queue runs
-the images and adds the JSON. `tests/unit/test_option_fixtures.py` ties the label in the table to
-the registry.
+The local Study queue ran the four scripts in the pinned images. Each JSON file records the
+checksum of its script. `tests/unit/test_option_fixtures.py` compares each file and ties the label
+in the table to the registry.
 
 | fixture | comparator | parts | status |
 | --- | --- | --- | --- |
-| `tmle3_updater.json` | `tmle3` `tmle_TSM_all()` with `sample_size`, `scaled_var`, `constrain_step` and `use_best` updaters | `stopping=`, `step_bound=`, `step_search=`, `iterate=` | exact tests, with comparator runs pending |
-| `drtmle_stratify.json` | `drtmle(stratify = TRUE)` and `stratify = FALSE` | `outcome_by_arm=` | exact tests, with comparator runs pending |
-| `ctmle_patience.json` | `ctmleDiscrete(preOrder = TRUE, patience = 2)` and `patience = FALSE` | `patience=` | exact tests, with comparator runs pending |
-| `ctmle_wg.json` | `ctmleDiscrete(Wg = W[, c(1, 3)], preOrder = TRUE)` | `treatment_adjustment=` | exact tests, with comparator runs pending |
+| `tmle3_updater.json` | `tmle3` `tmle_TSM_all()` with `sample_size`, `scaled_var`, `constrain_step` and `use_best` updaters | `stopping=`, `step_bound=`, `step_search=`, `iterate=` | exact tests and R parity |
+| `drtmle_stratify.json` | `drtmle(stratify = TRUE)` and `stratify = FALSE` | `outcome_by_arm=` | exact tests and R parity |
+| `ctmle_patience.json` | `ctmleDiscrete(preOrder = TRUE, patience = 2)` and `patience = FALSE` | `patience=` | exact tests and R parity of the option |
+| `ctmle_wg.json` | `ctmleDiscrete(Wg = W[, c(1, 3)], preOrder = TRUE)` | `treatment_adjustment=` | exact tests and R parity of the option |
 
-A pending fixture claims no parity. The declared differences from the comparators are D4, D7 and
-D7b. [Stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate) and
+The two `ctmle` rows compare the option, not the whole fit. A transcription of `ctmleDiscrete`,
+`tests/canonical/option_fixtures/r_ctmle_discrete.py`, must reproduce every R number in the two
+files. The package must then stop where R's counter stops on the package's own scores, and keep
+R's candidate pool. R's discrete path differs from the package in two ways that the options do not
+touch. [Candidate sequences](collaborative-tmle.md#candidate-sequences) lists them.
+
+The declared differences from the comparators are D4, D7 and D7b.
+[Stopping rules](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate) and
 [patience](collaborative-tmle.md#patience) state them.
 
 ## Longitudinal estimands outside the target registry

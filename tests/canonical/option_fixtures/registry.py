@@ -2,10 +2,11 @@
 
 Each fixture holds the R side of a comparison for a targeting or fitting option: the ``tmle3``
 updater (parts a to c), ``drtmle(stratify=)`` (part f), ``ctmleDiscrete(patience=)`` (part g) and
-``ctmleDiscrete(Wg=)`` (part h).  R is not part of the cloud session that wrote the scripts, so every fixture ships ``pending``.
-A pending fixture has no JSON file, a reason, and the checksum of its script.  The local Study queue runs the script, adds the JSON and sets the status to
-``present`` in a follow-up change.  :func:`check_entry` reads the state of one entry and returns
-the findings; ``tests/unit/test_option_fixtures.py`` asserts that none are left.
+``ctmleDiscrete(Wg=)`` (part h).  The fixtures shipped ``pending``, because the cloud session that
+wrote the scripts has no R.  A pending fixture has no JSON file, a reason, and the checksum of its
+script.  The local Study queue ran each script and added its JSON, and the follow-up change set
+every status to ``present``.  :func:`check_entry` reads the state of one entry and returns the
+findings; ``tests/unit/test_option_fixtures.py`` asserts that none are left.
 
 A missing comparator never blocks a method (``docs/architecture-invariants.md``), and the Python
 exact tests of each option gate the change.  The pending state is asserted and reported, never
@@ -46,12 +47,6 @@ PENDING_LABEL = "exact tests, with comparator runs pending"
 
 #: The two reader-facing pages whose rows name a fixture file.
 DOCS_FILES = ("docs/technical-reference/evidence.md", "docs/technical-reference/index.md")
-
-#: Why every fixture is pending today.
-_REASON = (
-    "R is not installed in the cloud session that wrote the script; the run waits in the local "
-    "Study queue (request X22-R-fixtures)"
-)
 
 _STATUSES = ("pending", "present")
 
@@ -115,8 +110,8 @@ REGISTRY: tuple[FixtureEntry, ...] = (
         image="cleverly-tmle3-reference:ed72f8a",
         context="tests/canonical/tmle3",
         packages=("tmle3", "sl3"),
-        status="pending",
-        reason=_REASON,
+        status="present",
+        reason="",
         script_sha256="479960e47e90c756b39867d293c5590afd2b46dfbe26d2e1170b632fa4e0b236",
     ),
     FixtureEntry(
@@ -127,8 +122,8 @@ REGISTRY: tuple[FixtureEntry, ...] = (
         image="cleverly-drtmle-reference:538a3a2",
         context="tests/canonical/drtmle",
         packages=("drtmle",),
-        status="pending",
-        reason=_REASON,
+        status="present",
+        reason="",
         script_sha256="784c88934bee039a6e67edcc123c087dcdc3ef3863599bf4c50992262be7f9fa",
     ),
     FixtureEntry(
@@ -139,8 +134,8 @@ REGISTRY: tuple[FixtureEntry, ...] = (
         image="cleverly-ctmle-reference:18de559",
         context="tests/canonical/ctmle_selector",
         packages=("ctmle",),
-        status="pending",
-        reason=_REASON,
+        status="present",
+        reason="",
         script_sha256="a66fb36987fb3caea38ab9ec3f3b233534230918350d1a23a82b9bf6175f423c",
     ),
     FixtureEntry(
@@ -151,8 +146,8 @@ REGISTRY: tuple[FixtureEntry, ...] = (
         image="cleverly-ctmle-reference:18de559",
         context="tests/canonical/ctmle_selector",
         packages=("ctmle",),
-        status="pending",
-        reason=_REASON,
+        status="present",
+        reason="",
         script_sha256="b24782f31c47fd5f1652e79314cb41e7c9acdf64c692f1bceaeb55b72aa207a2",
     ),
 )

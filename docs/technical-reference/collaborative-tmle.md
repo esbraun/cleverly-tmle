@@ -197,7 +197,10 @@ Two differences from R are declared.
 | D7b | scores the rest of its batch after the counter fires | stops at the counter |
 
 With `preOrder = TRUE` a batch holds one covariate, so neither difference shows in the R fixture
-`ctmle_patience.json`. That fixture is pending: exact tests, with comparator runs pending.
+`ctmle_patience.json`. On that fixture, R's counter stops after 6 of 7 candidates. Applied to the
+package's own whole-path scores, the same counter stops where the package stops. A mutation
+control that stops one candidate late fails the fixture. The scores themselves differ from R's for
+the two reasons in [candidate sequences](#candidate-sequences).
 
 The inference status does not change. A fit with `patience=` keeps `working_mechanism_plugin`.
 
@@ -244,7 +247,9 @@ text, the remainder when the restriction fails, and the exact-law witnesses.
 | lasso, learners | the propensity of the $W_g$ fit equals that of a fit that omits the other covariates, to $10^{-12}$. A control shows that the full set moves it |
 | every strategy | a mutation control fails when the pool, the preorder, the lasso design or the learners names read the full set |
 
-The R fixture `ctmle_wg.json` is pending: exact tests, with comparator runs pending.
+On the R fixture `ctmle_wg.json`, the restricted path holds the pool's candidates in R's order
+and no other covariate. Both R and the package give the restricted fit and the whole-pool fit
+different estimates.
 
 ### The targeting options on a collaborative fit
 
@@ -325,6 +330,8 @@ requires. A fit does not refuse when it does not.
 | type 1 has no branch for a selected last penalty | `R/ctmle_glmnet.R`, line 270 | the selected candidate is reported |
 | the construction criterion adds `var(D*)` whatever `PEN` is | `R/functions_glmnet.R`, lines 172 to 177; `R/functions_general.R`, lines 65 to 72 | the construction adds the penalty only when `penalty=True` |
 | the construction penalty carries the factor `n_train / n` inside each fold | `R/functions_glmnet.R`, line 172 | no factor |
+| the discrete cross-validation fits each candidate mechanism on every row, the validation rows included | `R/functions_discrete.R`, lines 32, 81, 508 and 557 | each fold fits its training rows |
+| the discrete path fluctuates with one ATE clever covariate `hAW` | `R/functions_discrete.R`, lines 33 and 82 | one column for each arm |
 
 Under `lasso`, `treatment_learner` remains the fallback for a missingness mechanism, and the lasso
 candidates do not use it. A scikit-learn `FrozenEstimator` passes as a learner entry and is not
