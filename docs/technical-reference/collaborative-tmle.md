@@ -512,7 +512,7 @@ the [stacked curve](#parametric-per-arm-intervals) instead.
 | the diagnostic's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits report the diagnostic curve, and they withhold their interval unless `per_arm_parametric_support` admits them |
 | withheld | every `strategy="oat"` fit of either design that `per_arm_parametric_support` refuses. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the predicate refuses it on the `strata`, `missing_outcome` or `missing_treatment` axis |
 | bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
-| predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits a per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on a binary treatment with complete, unweighted and unstratified data. The fit is in sample, or cross-fitted inside the fold-count cap with any `repeats`. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
+| predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits a per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on an arm-coded treatment of any arm count, declared with `arm_columns` equal to the number of arms minus one, with complete and unstratified data, and with fixed observation weights or none. The fit is in sample, or cross-fitted inside the fold-count cap with any `repeats`. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
 
 **The shared design publishes no inference.** It fits one categorical mechanism on the outcome
 predictions of every arm. Theorem 1 covers one scalar design, and no reviewed result supplies the
@@ -581,7 +581,7 @@ budgets.
 | type I error at the sharp null | 0.88 | 0.904 |
 | the default band over the three-arm family | not applicable | 0.871 joint coverage |
 
-The shipped fit builds no band. The study's band cell calls `simultaneous_bands` on the plug-in
+The shipped fit with scikit-learn learners builds no band. The study's band cell calls `simultaneous_bands` on the plug-in
 curves of its own fit. It measures the band that the per-arm design would build from those curves.
 
 The deficit does not shrink with $n$. The comparator-backed comparison with R `drtmle` 1.1.2, with
@@ -619,13 +619,16 @@ default.
 ### Parametric per-arm intervals
 
 A per-arm fit with `ParametricOutcome` and `ParametricMechanism` reports an interval, in sample or
-cross-fitted. `per_arm_parametric_support` admits the fit. The reported curve is the curve of one stacked
+cross-fitted, when `per_arm_parametric_support` admits it. The reported curve is the curve of one stacked
 Z-estimator. It is not the curve of Theorem 1, and it carries the generated-design term that
 condition (v) lets Theorem 1 drop. The registered study
 [`ctmle-oat-per-arm-parametric`](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md)
 measures the in-sample fit, and [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome)
 part (a) delivered it. Part (c) adds the cross-fitted fit, which the next paragraphs call the
-V-fold stack. The module `cleverly.estimators._oat_stack` computes the curve.
+V-fold stack. Parts (b) and (d) add three or more arms, known observation weights, the targets
+`ey_obs`, `par` and `paf`, and the simultaneous band.
+
+The module `cleverly.estimators._oat_stack` computes the curve.
 
 **The stack.** Let $x(A, W)$ be the declared outcome feature row, $x_a(W) = x(a, W)$, and
 $\phi$ the declared mechanism basis. Write $q_a = \operatorname{expit}(x_a^\top \beta)$,
@@ -788,20 +791,66 @@ estimate.
 estimand. It also keeps `shipped_se`, the standard error of the draw's uncorrected
 adaptive-propensity curve. When the stack of one arm fails on one draw, the median takes
 `"stack_failure_plugin"` on the estimates that read that arm. Draws with different fit statuses
-make the median raise `ValueError`. The fit builds no simultaneous band, and
-X58 part (b) holds the band.
+make the median raise `ValueError`.
 
-**The support label of the V-fold stack.** The registered study `ctmle-oat-per-arm-parametric-crossfit`
-fits `binary_active` with `n_folds=5`, at `repeats=1` and `repeats=3`. Its
-[evidence page](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) reports
-the declared run, and every gated cell passes. The support rows of the study cover the binary cells. Another admitted fit reports its interval
-with the `"experimental"` label.
+A fit with `repeats` above 1, at least two estimates and the default `simultaneous=True` raises
+`CapabilityError`. The band would use the curve of one central draw and not the split-adjusted
+median estimator. The alternative is `simultaneous=False`, one estimate, or one split. The study
+cells of the repeated fit set `simultaneous=False`.
+
+**Three or more arms, weights and the population targets.** The stack extends to these cases
+without a new construction. The table states what changes.
+
+| extension | what the stack does | what the user declares |
+| --- | --- | --- |
+| $K$ arms | the outcome features carry $K - 1$ arm indicators and the covariates. One outcome GLM is shared. Each arm has its own mechanism, fluctuation and mean. The shared coefficients $\beta$ couple the arm curves, so the cross-arm covariance comes from the stacked curves | `ParametricOutcome(arm_columns=K - 1)`. A fit with another width raises `MethodConfigurationError` with the code `invalid_declaration`, for `TMLE` and for `CTMLE` |
+| `reference` | a contrast reads its arm and the reference arm. `par` and `paf` read the reference arm | the label of the reference arm |
+| fixed weights $w_i$ | every equation carries the mass $w_i / \sum_j w_j$. The curve of a row is $w_i$ times the stacked row of $-A_n^{-1} U_i$, and the mean $\psi_a$ is the weighted mean. The interval conditions on the weights | `weights=` with `target_weights=False` |
+| estimated weights | the same curve as the fixed-weight fit. The status is `"estimated_weight_plugin"` and the label is `"experimental"` | `weights_estimated=True` |
+| `ey_obs` | the weighted mean of $Y$, with the curve $w_i (Y_i - \bar Y_w)$. It reads no arm | none |
+| `par` | $\bar Y_w - \psi_{\mathrm{ref}}$. The curve is the `ey_obs` curve minus the stacked curve of the reference arm | the reference arm |
+| `paf` | $1 - \psi_{\mathrm{ref}} / \bar Y_w$, by the delta method on the same two curves | the reference arm |
+
+The registered study `ctmle-oat-per-arm-parametric-extensions` measures these cases. Its
+[evidence page](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-extensions.md) reports
+the declared run, and every gated cell passes. The exact SD of each curve comes from the quadrature
+module `tests/studies/oat_multi_arm_quadrature.py`. The tests `tests/unit/test_oat_multi_arm_stack.py`,
+`tests/unit/test_oat_population_weighted.py` and `tests/unit/test_oat_per_arm_k_arm_support.py` give
+each extension a witness on a law where it is nonzero.
+
+**The simultaneous band.** An admitted fit with the default `simultaneous=True` builds the max-t
+multiplier band over the stacked curves of its estimates.
+
+The band covers the estimates that supply inference. An estimate with the status `"stack_failure_plugin"` stays out of the band, the band is a
+joint statement over the others, and the summary names the estimate left out. Below two such
+estimates the fit builds no band. The band of a fit with `repeats` above 1 is refused, as
+the paragraph on `repeats` states.
+
+The label of the band comes from the `band` kind of the support rows. A band over a set that no
+row measures reports the `"experimental"` label.
+
+**The support labels of the stack.** Three registered studies cover the rows in the table. The
+study `ctmle-oat-per-arm-parametric` measures the in-sample binary fit. The study
+`ctmle-oat-per-arm-parametric-crossfit` fits `binary_active` with `n_folds=5`, at `repeats=1` and
+`repeats=3`, and its [evidence page](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md)
+reports the declared run. The study `ctmle-oat-per-arm-parametric-extensions` measures the other
+rows. Every gated cell of the three studies passes. Another admitted fit reports its interval with
+the `"experimental"` label.
 
 | fit | support row | label |
 | --- | --- | --- |
-| cross-fitted, `n_folds=5`, `repeats=1`, binary outcome, a subset of `ey0`, `ey1`, `ate`, `rr` and `or` | `C11.stacked` | `"supported"` |
-| cross-fitted, `n_folds=5`, `repeats=3`, binary outcome, a subset of `ey0`, `ey1` and `ate` | `C11.repeated` | `"supported"` |
-| cross-fitted, another `n_folds` inside the cap, or another `repeats` | `C11.stacked` or `C11.repeated` | `"experimental"`, interval shown |
+| in sample, binary treatment, no weights, a subset of `ey0`, `ey1`, `ate`, `rr`, `or` | `C11.binary` | `"supported"` |
+| the same fit with `ey_obs`, `par` or `paf`, and the band over `ey0`, `ey1`, `ate`, `ey_obs`, `par` and `paf` | `C11.binary` | `"supported"` |
+| in sample, three arms, no weights, with `ey`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf` | `C11.k_arms` | `"supported"`. The band covers `ey` and `ate` |
+| in sample, binary treatment, fixed weights | `C11.weighted` | `"supported"` |
+| cross-fitted, `n_folds=5`, `repeats=1`, binary treatment, a subset of `ey0`, `ey1`, `ate`, `rr` and `or` | `C11.stacked` | `"supported"` |
+| cross-fitted, `n_folds=5`, `repeats=3`, binary treatment, a subset of `ey0`, `ey1` and `ate` | `C11.repeated` | `"supported"` |
+| cross-fitted, `n_folds=5`, binary treatment, fixed weights, `ey0`, `ey1` and `ate` | `C11.weighted_stacked` | `"supported"` |
+| cross-fitted, `n_folds=5`, three arms, no weights, `ey`, `ate` and the band | `C11.stacked_k_arms` | `"supported"` |
+| cross-fitted, `n_folds=5`, three arms, fixed weights, `ey` and `ate` | `C11.stacked_k_arms_weighted` | `"supported"` |
+| another `n_folds` inside the cap, or another `repeats` | the row of the fit | `"experimental"`, interval shown |
+| four or more arms, a weighted in-sample three-arm fit, repeats with weights, or estimated weights | none | `"experimental"`, interval shown |
+| a band over `rr` or `or`, or over a set that no row measures | none | `"experimental"`, interval shown |
 | cross-fitted, `repeats=3`, with `rr` or `or` | none | `"experimental"`, interval shown |
 | cross-fitted, a continuous outcome with declared `q_bounds` | none | `"experimental"`, interval shown |
 
@@ -809,7 +858,8 @@ The support key does not hold the fold count or the repeat count. So the `CTMLE`
 condition for a fold count other than 5 and for a repeat count other than 1 or 3. The condition
 makes the fit experimental, and its reason names the measured value. Its evidence is
 [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome).
-`tests/unit/test_oat_per_arm_crossfit_support.py` checks each line of the table.
+`tests/unit/test_oat_per_arm_crossfit_support.py` and `tests/unit/test_oat_per_arm_k_arm_support.py`
+check each line of the table.
 
 **The support predicate.** `per_arm_parametric_support(estimator, data)` returns a
 `SupportVerdict`. The verdict holds `admitted`, `axis` and `detail`. The predicate is an
@@ -828,15 +878,15 @@ learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclas
 | `repeats` | any positive integer | none |
 | `split_plan` | `None`. A supplied partition can depend on the data, and the V-fold argument needs fold labels independent of the data | none. A data-dependent partition needs its own theory step |
 | `cv_evaluation`, `targeting_scheme` | `False` and `"pooled"`. The stack has no per-fold fluctuation $\epsilon_{a,k}$ | none. `CTMLE` refuses both values at construction |
-| `simultaneous` | any value. The fit builds no band | X58 part (b) for the band |
+| `simultaneous` | any value. The fit builds the band over the estimates that supply inference. With `repeats` above 1 and at least two estimates, the default value raises `CapabilityError` | none |
 | `family`, `fluctuation`, `targeting` | `"auto"`, `"binomial"` or `"gaussian"`; `"logistic"`; `"iterative"` | none |
 | `q_bounds` | a declared tuple for an outcome that is not binary, checked on the data | none |
 | `target_weights`, `screen_treatment` | `False` | none |
 | `interventions`, `policies`, `incremental`, `msm`, `learned_rule`, `density_bins` | none declared | none. `CTMLE` does not combine them with this design |
 | `preorder`, `ordering`, `candidates`, `ctmle_estimand` | `None`, `None`, `None`, `"ate"` | none |
-| `estimands` | a subset of `ate`, `rr`, `or`, `ey`, `ey0` and `ey1` | X58 part (b) for `ey_obs`, `par` and `paf` |
-| `treatment` | binary | X58 part (b) |
-| `weights` | none | X58 part (d) |
+| `estimands` | a subset of `ate`, `rr`, `or`, `ey`, `ey0`, `ey1`, `ey_obs`, `par` and `paf` | none |
+| `treatment` | arm-coded, one column, any arm count. `ParametricOutcome(arm_columns=K - 1)` | none |
+| `weights` | none, or fixed weights with `target_weights=False` | none |
 | `strata`, `missing_outcome` | none | X52 part (b) |
 | `cluster` | none | X52 part (d) |
 | `missing_treatment`, `intermediate`, `known_treatment` | none | none |
