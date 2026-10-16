@@ -15,10 +15,10 @@ from typing import Any, Literal, Protocol, TypeVar
 import numpy as np
 
 from .._inference_status import PARAMETER_STATUSES, InferenceStatus, precedent_status
-from .._support import Classification, combine_support, support_for
-from .._typing import FloatArray
+from .._support import Classification, Kind, combine_support, support_for
+from .._typing import FloatArray, IntArray
 from ..exceptions import CapabilityError, RefusalReason
-from .bootstrap import BootstrapResult
+from .bootstrap import BootstrapInterval, BootstrapResult, bca_acceleration
 from .cluster import influence_covariance, stacked_second_moment_covariance
 from .delta import Transform, delta_method, log_odds_ratio_influence, log_ratio_influence
 from .influence import (
@@ -409,17 +409,24 @@ def derived_bootstrap(
     function: Callable[[FloatArray], float],
     *,
     alpha: float,
+    derived: ParameterEstimate | None = None,
+    cluster: IntArray | None = None,
 ) -> BootstrapSummary | None:
     """The bootstrap summary of a derived estimate, from its inputs' replicate draws.
 
     Each bootstrap replicate already holds a point estimate of every reported parameter, in
     aligned rows of :attr:`BootstrapResult.draws`.  Applying ``function`` to each row gives
-    the replicate value of the derived estimate, so its percentile interval is the one the
-    full refit implies. A replicate with a missing input gives a missing value. Domain-invalid
-    ratios also give missing values. The failure count includes every requested replicate
-    without a finite derived value. User callable exceptions propagate. The summary is
-    supported only when every input's summary is and each row of the inputs lists the
-    ``derived`` kind.
+    the replicate value of the derived estimate, so its interval is the one the full refit
+    implies. A replicate with a missing input gives a missing value. Domain-invalid ratios
+    also give missing values. The failure count includes every requested replicate without
+    a finite derived value. User callable exceptions propagate. The summary is supported
+    only when every input's summary is and each row of the inputs lists the ``derived``
+    kind.
+
+    The derived summary takes the interval of its inputs. A BCa interval reads its
+    acceleration from the derived estimate's influence curve on the scale of its draws
+    (the delta-method curve of :func:`smooth_contrast` with a ratio's log and a
+    ``transform=`` undone), and its bias correction from the derived point estimate.
 
     Parameters
     ----------
@@ -432,34 +439,63 @@ def derived_bootstrap(
     function : callable
         The derived value as a function of the inputs.
     alpha : float
-        Significance level of the percentile interval.
+        Significance level of the interval.
+    derived : ParameterEstimate or None, default=None
+        The derived estimate. Required when the inputs carry BCa summaries.
+    cluster : ndarray or None, default=None
+        ``(n,)`` cluster codes of the fit. A BCa acceleration sums the curve within clusters
+        when the bootstrap resampled clusters.
 
     Returns
     -------
     BootstrapSummary or None
         ``None`` when the fit carries no bootstrap, or an input has no draws.
+
+    Raises
+    ------
+    ValueError
+        When the inputs carry BCa summaries and ``derived`` is ``None``, or the inputs mix
+        two intervals.
     """
     if bootstrap is None or any(name not in bootstrap.draws for name in names):
         return None
     summaries = [estimates[name].bootstrap for name in names]
     if any(summary is None for summary in summaries):
         return None
+    intervals = {summary.interval for summary in summaries if summary is not None}
+    if len(intervals) != 1:
+        raise ValueError(f"the inputs of a derived bootstrap mix intervals {sorted(intervals)}")
+    interval = intervals.pop()
     matrix = np.column_stack([np.asarray(bootstrap.draws[name], dtype=float) for name in names])
     values = np.array(
         [float(function(row)) if np.all(np.isfinite(row)) else np.nan for row in matrix]
     )
-    derived = BootstrapResult(
+    replicates = BootstrapResult(
         draws={"derived": values},
         n_requested=bootstrap.n_requested,
         n_failed=bootstrap.n_requested - int(np.count_nonzero(np.isfinite(values))),
         resampling=bootstrap.resampling,
-    ).summary("derived", alpha)
-    kept = [summary for summary in summaries if summary is not None]
+    )
+    if interval == "bca":
+        if derived is None:
+            raise ValueError("a BCa summary of a derived estimate needs the derived estimate")
+        summary = replicates.summary(
+            "derived",
+            alpha,
+            interval="bca",
+            estimate=derived.psi,
+            acceleration=bca_acceleration(
+                _reported_curve(derived), cluster if bootstrap.resampling == "cluster" else None
+            ),
+        )
+    else:
+        summary = replicates.summary("derived", alpha)
+    kept = [item for item in summaries if item is not None]
     return replace(
-        derived,
-        diagnostic=any(summary.diagnostic for summary in kept),
-        below_floor=any(summary.below_floor for summary in kept),
-        support=combine_support([summary.support for summary in kept], kind="derived"),
+        summary,
+        diagnostic=any(item.diagnostic for item in kept),
+        below_floor=any(item.below_floor for item in kept),
+        support=combine_support([item.support for item in kept], kind="derived"),
     )
 
 
@@ -469,9 +505,19 @@ def with_derived_bootstrap(
     bootstrap: BootstrapResult | None,
     names: Sequence[str],
     function: Callable[[FloatArray], float],
+    *,
+    cluster: IntArray | None = None,
 ) -> ParameterEstimate:
     """``derived`` with the bootstrap summary :func:`derived_bootstrap` gives, if any."""
-    summary = derived_bootstrap(estimates, bootstrap, names, function, alpha=derived.alpha)
+    summary = derived_bootstrap(
+        estimates,
+        bootstrap,
+        names,
+        function,
+        alpha=derived.alpha,
+        derived=derived,
+        cluster=cluster,
+    )
     return derived if summary is None else derived.with_bootstrap(summary)
 
 
@@ -613,6 +659,7 @@ def attach_bootstrap(
     *,
     diagnostic: bool = False,
     classification: Classification | None = None,
+    interval: BootstrapInterval = "percentile",
 ) -> _ResultT:
     """Return a copy of ``result`` with bootstrap summaries attached.
 
@@ -626,12 +673,17 @@ def attach_bootstrap(
     bootstrap : BootstrapResult
         The replicate draws.
     diagnostic : bool, default=False
-        Whether the fit declares its percentile interval a diagnostic. Stored on each
+        Whether the fit declares its bootstrap interval a diagnostic. Stored on each
         :class:`~cleverly.inference.BootstrapSummary`.
     classification : Classification or None, default=None
         The fit's classification. Each summary takes the support that
-        :func:`~cleverly._support.support_for` gives for the ``"bootstrap"`` kind. ``None``
+        :func:`~cleverly._support.support_for` gives for the interval's kind: ``"bootstrap"``
+        for a percentile interval and ``"bootstrap_bca"`` for a BCa interval. ``None``
         leaves it unclassified.
+    interval : {"percentile", "bca"}, default="percentile"
+        The pointwise interval. A BCa interval reads each estimate's acceleration from its
+        own influence curve (:func:`~cleverly.inference.bootstrap.bca_acceleration`), summed within
+        clusters when the bootstrap resamples clusters.
 
     Returns
     -------
@@ -640,21 +692,37 @@ def attach_bootstrap(
     """
     alpha = result.config.alpha_sig
     below_floor = classification is not None and classification.key.dependence == "below_floor"
+    kind: Kind = "bootstrap_bca" if interval == "bca" else "bootstrap"
+    # A cluster bootstrap resamples clusters, so its acceleration reads the cluster sums.
+    unit = (
+        getattr(getattr(result, "data", None), "cluster", None)
+        if bootstrap.resampling == "cluster"
+        else None
+    )
+
+    def summary(name: str, estimate: ParameterEstimate) -> BootstrapSummary:
+        if interval == "bca":
+            drawn = bootstrap.summary(
+                name,
+                alpha,
+                interval="bca",
+                estimate=estimate.psi,
+                acceleration=bca_acceleration(estimate.influence_curve, unit),
+            )
+        else:
+            drawn = bootstrap.summary(name, alpha)
+        return replace(
+            drawn,
+            diagnostic=diagnostic,
+            below_floor=below_floor,
+            support=support_for(
+                classification, estimate.inference, estimate.reference_df, kind=kind
+            ),
+        )
+
     estimates = {
         name: (
-            estimate.with_bootstrap(
-                replace(
-                    bootstrap.summary(name, alpha),
-                    diagnostic=diagnostic,
-                    below_floor=below_floor,
-                    support=support_for(
-                        classification,
-                        estimate.inference,
-                        estimate.reference_df,
-                        kind="bootstrap",
-                    ),
-                )
-            )
+            estimate.with_bootstrap(summary(name, estimate))
             if name in bootstrap.draws
             else estimate
         )

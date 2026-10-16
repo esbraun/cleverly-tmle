@@ -61,6 +61,10 @@ class QuasiBinomialGLM(BaseEstimator):
     solver rather than silently comparing different regression families.
     """
 
+    #: Unpenalized, and started from the weighted mean, so a row of integer weight ``c``
+    #: fits as ``c`` copies of the row (:mod:`cleverly.longitudinal.frequency`).
+    frequency_exact = True
+
     def __init__(self, *, max_iter: int = 100, tol: float = 1e-10) -> None:
         self.max_iter = max_iter
         self.tol = tol

@@ -59,7 +59,12 @@ from ..discrete_law_longitudinal_multivalue import CellProbabilities
 from . import test_longitudinal_mixed_node as long_tests
 from . import test_point_vector_treatment as point_tests
 
-pytestmark = pytest.mark.xdist_group("vector_density_route")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("vector_density_route"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 EXACT = 1e-10
 INF = np.inf

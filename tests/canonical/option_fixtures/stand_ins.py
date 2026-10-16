@@ -8,9 +8,10 @@ must pass, and then on a copy with one value changed, which must fail.
 The ``tmle3`` and ``drtmle`` stand-ins do not call the code they check.  The first transcribes
 ``tmle3_Update`` (``update_step``, ``fit_submodel``, ``check_convergence``, ``update_best``) with
 ``numpy`` and ``scipy``.  The second fits the nuisance models with scikit-learn and solves the
-fluctuation score by a root finder.  The ``ctmle`` stand-ins take the selected index, the scores and
-the estimate from a ``CTMLE`` fit, because a second implementation of the collaborative search is
-what the R run is for.  They prove that the comparison reads every field it claims to read.
+fluctuation score by a root finder.  The ``ctmle`` stand-ins write their runs with
+:mod:`tests.canonical.option_fixtures.r_ctmle_discrete`, the transcription of ``ctmleDiscrete``
+that the comparison checks the R runs against.  They prove that the comparison reads every field
+it claims to read.
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ from scipy.optimize import brentq, minimize_scalar
 from scipy.special import expit, logit
 from sklearn.linear_model import LogisticRegression
 
-from tests.canonical.option_fixtures.parity import ctmle_fit, outcome_columns
+from tests.canonical.option_fixtures.parity import outcome_columns
+from tests.canonical.option_fixtures.r_ctmle_discrete import ctmle_discrete
 
 __all__ = [
     "ctmle_patience_stand_in",
@@ -463,33 +465,42 @@ def _initial_outcome(sample: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
 
 def _run_record(
     sample: dict[str, Any],
+    q0: np.ndarray,
+    q1: np.ndarray,
     *,
     ordering: list[str],
     patience: int | None,
-    pool: list[str] | None,
     candidates: int,
 ) -> dict[str, Any]:
-    """One ``ctmleDiscrete`` run as the R script writes it, from a ``CTMLE`` fit."""
-    result = ctmle_fit(sample, ordering=ordering, patience=patience, pool=pool)
-    selection = result.extra["ctmle"]
-    risk = [float(value) for value in selection.cv_risk]
-    best_k = selection.selected + 1
+    """One ``ctmleDiscrete`` run as the R script writes it, from the transcription of R."""
+    data = sample["data"]
+    run = ctmle_discrete(
+        data["Y"],
+        data["A"],
+        np.column_stack([data[name] for name in ordering]),
+        ordering,
+        q0,
+        q1,
+        sample["fold"],
+        patience=patience,
+    )
+    scored = [value for value in run.cv_score if np.isfinite(value)]
     record: dict[str, Any] = {
-        "best_k": best_k,
-        "est": float(result["ate"].psi),
-        "cv_score": risk + [None] * (candidates - len(risk)),
-        "terms": ordering[: max(best_k - 1, 1)],
+        "best_k": run.best_k,
+        "est": run.est,
+        "cv_score": scored + [None] * (candidates - len(scored)),
+        "terms": list(run.terms),
     }
     if patience is not None:
         record["patience"] = patience
-        record["scored"] = len(risk)
+        record["scored"] = len(scored)
         record["candidates"] = candidates
-        record["stopped_early"] = selection.stopped_at is not None
+        record["stopped_early"] = len(scored) < candidates
     return record
 
 
-def ctmle_patience_stand_in(n: int = 600, seed: int = 13) -> dict[str, Any]:
-    """The ``ctmle_patience.json`` schema, from ``CTMLE`` fits.
+def ctmle_patience_stand_in(n: int = 600, seed: int = 14) -> dict[str, Any]:
+    """The ``ctmle_patience.json`` schema, from the transcription of ``ctmleDiscrete``.
 
     The sample has one confounder (``W1``) and five noise covariates, so the cross-validated risk
     rises after the first covariate and ``patience=2`` stops the path before its end.
@@ -524,20 +535,20 @@ def ctmle_patience_stand_in(n: int = 600, seed: int = 13) -> dict[str, Any]:
         "q_arm1": q1,
         "runs": {
             "whole_path": {
-                **_run_record(sample, ordering=names, patience=None, pool=None, candidates=7),
+                **_run_record(sample, q0, q1, ordering=names, patience=None, candidates=7),
                 "patience": None,
                 "scored": 7,
                 "candidates": 7,
                 "stopped_early": False,
             },
-            "patient": _run_record(sample, ordering=names, patience=2, pool=None, candidates=7),
+            "patient": _run_record(sample, q0, q1, ordering=names, patience=2, candidates=7),
         },
     }
     return _listed(payload)  # type: ignore[no-any-return]
 
 
 def ctmle_wg_stand_in(n: int = 400, seed: int = 2) -> dict[str, Any]:
-    """The ``ctmle_wg.json`` schema, from ``CTMLE`` fits.
+    """The ``ctmle_wg.json`` schema, from the transcription of ``ctmleDiscrete``.
 
     ``W2`` drives the treatment and lies outside the restricted pool ``{W1, W3}``.
 
@@ -574,12 +585,12 @@ def ctmle_wg_stand_in(n: int = 400, seed: int = 2) -> dict[str, Any]:
             "restricted": {
                 "pool": pool,
                 "order": [1, 2],
-                **_run_record(sample, ordering=pool, patience=None, pool=pool, candidates=3),
+                **_run_record(sample, q0, q1, ordering=pool, patience=None, candidates=3),
             },
             "whole_pool": {
                 "pool": names,
                 "order": [1, 2, 3, 4],
-                **_run_record(sample, ordering=names, patience=None, pool=None, candidates=5),
+                **_run_record(sample, q0, q1, ordering=names, patience=None, candidates=5),
             },
         },
     }

@@ -33,6 +33,7 @@ import hashlib
 import json
 import os
 import pickle
+import tempfile
 from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
@@ -99,8 +100,10 @@ class PhaseResult:
     ----------
     rows : pandas.DataFrame
         The subject's replicate rows, from the fits that succeeded.
-    samples : pandas.DataFrame or None
-        The samples the reference fits, or ``None`` for a study with no reference.
+    samples : pandas.DataFrame, pathlib.Path or None
+        The samples the reference fits, or ``None`` for a study with no reference.  A path names
+        an assembled ``samples.csv.gz`` (:func:`assembled_samples`), which the driver moves into
+        place instead of writing a frame, so a study need not hold every sample in memory.
     truths : pandas.DataFrame or None
         The truth rows the reference reads, or ``None`` with ``samples``.
     failures : pandas.DataFrame or None
@@ -113,7 +116,7 @@ class PhaseResult:
     """
 
     rows: pd.DataFrame
-    samples: pd.DataFrame | None = None
+    samples: pd.DataFrame | Path | None = None
     truths: pd.DataFrame | None = None
     failures: pd.DataFrame | None = None
     reference_input_from_fit: bool = False
@@ -212,6 +215,10 @@ class Outcomes:
         One record per failed key, in key order, with the columns of :data:`FAILURE_FIELDS`.
     reused : int
         How many keys came from a checkpoint.
+    substituted : bool
+        True when an ``on_failure`` value stands in for each failed key.
+    spill_directory : pathlib.Path or None
+        Where :func:`fit_primary` spilled the samples (``spill_samples_at``), or ``None``.
     """
 
     keys: list[Hashable]
@@ -222,6 +229,7 @@ class Outcomes:
     )
     reused: int = 0
     substituted: bool = False
+    spill_directory: Path | None = None
 
     @property
     def values(self) -> list[Any]:
@@ -543,6 +551,7 @@ def fit_primary(
     seed_of: Callable[[Any], int | None] | None = None,
     cell_of: Callable[[Any], str] | None = None,
     replicate_of: Callable[[Any], int] | None = None,
+    spill_samples_at: int | None = None,
 ) -> Outcomes:
     """:func:`fit_replicates` for a study's primary loop, with the defaults most studies share.
 
@@ -552,8 +561,26 @@ def fit_primary(
     :func:`invalid_rows` without the coverage rule.  ``reference_input`` builds a failed key's value without the fit, so
     the reference still fits that replicate.  A study whose reference input needs the fit
     passes none.
+
+    ``spill_samples_at`` is the position, in the value, of a sample frame.  Each worker writes
+    that frame to disk when its fit ends and keeps a :class:`SpilledSample` in its place, so
+    neither the checkpoint nor the driver holds a frame, and memory does not grow with the
+    number of replicates.  Under the driver the files sit beside the checkpoints, so a rerun
+    that reuses a checkpoint reuses its file.  Elsewhere they sit in a new temporary directory.
+    :func:`assembled_samples` joins them.
     """
-    return fit_replicates(
+    directory = None
+    if spill_samples_at is not None:
+        root = checkpoint_root()
+        if root is None:
+            directory = Path(tempfile.mkdtemp(prefix="cleverly-samples-"))
+        else:
+            directory = Path(root) / implementation / "primary-samples"
+            directory.mkdir(parents=True, exist_ok=True)
+        fit_one = _Spilling(fit_one, spill_samples_at, directory)
+        if reference_input is not None:
+            reference_input = _Spilling(reference_input, spill_samples_at, directory)
+    outcomes = fit_replicates(
         keys,
         fit_one,
         draw=draw,
@@ -566,13 +593,127 @@ def fit_primary(
         replicate_of=replicate_of or _second,
         seed_of=seed_of,
     )
+    outcomes.spill_directory = directory
+    return outcomes
+
+
+@dataclass(frozen=True)
+class SpilledSample:
+    """A sample frame that a worker wrote to disk, in the place of the frame.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The gzip pickle that holds the frame.
+    """
+
+    path: Path
+
+    def load(self) -> pd.DataFrame:
+        """The frame."""
+        with gzip.open(self.path, "rb") as handle:
+            frame = pickle.load(handle)  # written by this run's own workers
+        assert isinstance(frame, pd.DataFrame)
+        return frame
+
+
+@dataclass(frozen=True)
+class _Spilling:
+    """Wrap a fit so that the sample at position ``at`` of its value goes to ``directory``."""
+
+    fit_one: Callable[[Any, Any], Any]
+    at: int
+    directory: Path
+
+    def __call__(self, key: Any, drawn: Any) -> Any:
+        value = list(self.fit_one(key, drawn))
+        path = self.directory / f"{_digest(('samples', repr(key)))}.pkl.gz"
+        temporary = path.with_suffix(".tmp")
+        with gzip.open(temporary, "wb", compresslevel=1) as handle:
+            pickle.dump(value[self.at], handle, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(temporary, path)  # a checkpoint never names a half-written file
+        value[self.at] = SpilledSample(path)
+        return tuple(value)
+
+
+def _representative(frame: pd.DataFrame) -> pd.DataFrame:
+    """One row of ``frame`` with each column's first non-missing value, and its dtype.
+
+    ``pd.concat`` picks a column's dtype from the dtypes and the missing-ness of the pieces,
+    never from the number of rows, so this row stands in for the whole frame.
+    """
+    columns = {}
+    for name in frame.columns:
+        column = frame[name]
+        valid = column.dropna()
+        columns[name] = (valid if len(valid) else column).iloc[:1].reset_index(drop=True)
+    return pd.DataFrame(columns)
+
+
+def assembled_samples(outcomes: Outcomes, *, at: int = 0) -> Path:
+    """Join the spilled samples of ``outcomes`` into one ``samples.csv.gz`` and return its path.
+
+    The file holds what ``write_csv(pd.concat(frames, ignore_index=True), path,
+    compression={"method": "gzip", "mtime": 0})`` writes for the frames in key order, and the
+    same bytes, but only one frame is in memory at a time.  The columns are the union in order
+    of first appearance, and each column takes the dtype ``pd.concat`` gives it.  The file is
+    in the spill directory; the driver moves it into place.
+
+    Parameters
+    ----------
+    outcomes : Outcomes
+        The result of :func:`fit_primary` called with ``spill_samples_at``.
+    at : int
+        The position of the :class:`SpilledSample` in each kept value.
+
+    Returns
+    -------
+    pathlib.Path
+        The assembled file.
+    """
+    from tests.studies.evidence.manifest import NEWLINE
+
+    if outcomes.spill_directory is None:
+        raise ValueError("these outcomes spilled no samples; pass spill_samples_at to fit_primary")
+    chunks = [value[at] for value in outcomes.kept]
+    representatives: dict[tuple[Any, ...], pd.DataFrame] = {}
+    for chunk in chunks:
+        frame = chunk.load()
+        signature = tuple(
+            (name, str(frame[name].dtype), frame[name].isna().all()) for name in frame
+        )
+        representatives.setdefault(signature, _representative(frame))
+        del frame
+    template = pd.concat(list(representatives.values()), ignore_index=True)
+    destination = outcomes.spill_directory / "samples.csv.gz"
+    temporary = destination.with_name("assembling.csv.gz")
+    # pandas opens a gzip file the same way, so the header names the file as it does.
+    with temporary.open("wb") as raw:
+        stream = gzip.GzipFile(filename=str(destination), fileobj=raw, mode="wb", mtime=0)
+        with stream:
+            for index, chunk in enumerate(chunks):
+                frame = chunk.load().reindex(columns=template.columns)
+                frame = frame.astype(template.dtypes.to_dict())
+                # Text, not a handle: pandas flushes a handle after each call, which would
+                # add a sync-flush marker per chunk to the stream.
+                text = frame.to_csv(None, index=False, lineterminator=NEWLINE, header=index == 0)
+                stream.write(text.encode("utf-8"))
+                del frame
+            stream.flush()  # pandas ends its gzip stream with this sync flush too
+    os.replace(temporary, destination)
+    return destination
+
+
+def load_samples(samples: pd.DataFrame | Path) -> pd.DataFrame:
+    """The sample frame of a :class:`PhaseResult`, read from disk when it is a path."""
+    return samples if isinstance(samples, pd.DataFrame) else pd.read_csv(samples)
 
 
 def result(
     outcomes: Outcomes,
     rows: pd.DataFrame,
     *,
-    samples: pd.DataFrame | None = None,
+    samples: pd.DataFrame | Path | None = None,
     truths: pd.DataFrame | None = None,
 ) -> PhaseResult:
     """The :class:`PhaseResult` of a primary loop whose frames were built from ``outcomes.kept``."""

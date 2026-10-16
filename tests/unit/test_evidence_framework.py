@@ -177,7 +177,12 @@ def test_an_inflated_standard_error_control_must_rise_above_the_band() -> None:
     )
     calibration_verdicts(summary, margins=Margins(), efficiency_band=None)
     assert list(summary["passed"]) == [True, False, False, False]
-    assert SE_CONTROL_SIDES == {"shrunken_se_control": "below", "inflated_se_control": "above"}
+    assert SE_CONTROL_SIDES == {
+        "shrunken_se_control": "below",
+        "inflated_se_control": "above",
+        "term_dropped_control": "below",
+        "population_truth_control": "below",
+    }
     with pytest.raises(ValueError, match="unknown side"):
         se_ratio_leaves_band(Interval(1.0, 1.1), (0.93, 1.07), "beside")  # type: ignore[arg-type]
 

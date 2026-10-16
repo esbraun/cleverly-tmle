@@ -861,7 +861,7 @@ statistic, include iterate 0, or take the first of ties on the one-step path.
 | weights | a weighted fit uses the weighted loss in the line search, which `tmle3` does not define |
 
 The R fixture `tmle3_updater.json` compares the updater steps, epsilons and estimates at the
-default `alpha`. It is pending: exact tests, with comparator runs pending. See the
+default `alpha`. All ten updater runs agree with R at the tolerances of the fixture README. See the
 [evidence manifest](evidence.md#targeting-and-fitting-options).
 
 ### Per-arm outcome regression
@@ -903,8 +903,8 @@ witness is an $A \times W$ interaction law. There the per-arm and pooled predict
 than $10^{-3}$ at the primary, nested, selection and OAT sites.
 
 Mutation controls swap the arm models, drop the arm from the mask, and read the observed arm for a
-shifted arm. Each fails the hand comparison. The R fixture `drtmle_stratify.json` is pending: exact tests, with comparator
-runs pending.
+shifted arm. Each fails the hand comparison. On the R fixture `drtmle_stratify.json`, the arm
+regressions agree with `drtmle(stratify = TRUE)` to $10^{-8}$ and the estimates to $10^{-6}$.
 
 ### Treatment-mechanism covariates
 
@@ -1023,7 +1023,8 @@ A refusal covers each composition that has no meaning.
 | R-h6 | a repeated name |
 
 [Scope and refusals](scope-and-refusals.md#targeting-and-fitting-option-refusals) gives each text.
-The R fixture `ctmle_wg.json` is pending: exact tests, with comparator runs pending.
+The R fixture `ctmle_wg.json` checks the candidate pool of the restriction. See
+[treatment-mechanism covariates and the candidate pool](collaborative-tmle.md#treatment-mechanism-covariates-and-the-candidate-pool).
 
 ### Known treatment mechanism
 
@@ -1456,7 +1457,10 @@ and
 
 A vector treatment holds several treatment columns. Díaz, Williams, Hoffman and Schenck (2023),
 Section 2, let the treatment be a vector $A = (C, D)$. The components $C$ are categorical and the
-components $D$ are continuous. Theorem 1 identifies the policy mean for such a vector.
+components $D$ are continuous. Theorem 1 identifies the policy mean for such a vector. Part (ii)
+reads the mean as the modified treatment policy effect, and part (i) reads it as a stochastic
+intervention. At one decision both parts need the same exchangeability assumption.
+`Identification.interpretations` records the two readings (`tests/unit/test_mtp_interpretations.py`).
 
 Hoffman et al. (2024), Introduction, name interventions on several exposures at once. This
 section covers the point treatment. The
@@ -1467,6 +1471,7 @@ node of `LTMLE` and `SDR`.
 | --- | --- | --- |
 | `treatment=["A1", "A2"]`, all columns categorical | one categorical treatment over the observed tuples. Each tuple is a level, and there are at most 20 | every estimand of a categorical treatment, with tuple levels. `policies=` takes a `JointPolicy` or a `ModifiedPolicy` that maps tuples |
 | `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, and nothing else |
+| the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`) |
 
 `from_arrays` and `PointTreatment` take the same two keywords. A vector names two or more
 distinct columns. `treatment_kind=` describes a treatment of one column, so a vector refuses it.

@@ -1219,6 +1219,18 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
         "Row T16.dose_logit is red for the logit slope at the smallest stratum: coverage "
         "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
     ),
+    # X40: the owner chose this label for the four red price_down cells of the five-node price
+    # study (2026-10-16). To flip it to a stated limit, move each sentence to MEASURED_LIMITS
+    # under the same row id, and change the four dispositions of ``mtp-pricing`` in
+    # ``tests/studies/evidence/support_dispositions.py`` (see ``_X40_PRICE_DOWN`` there).
+    ("G39.ltmle.tau5", "wald"): (
+        "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
+        "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration)."
+    ),
+    ("G39.sdr.tau5", "wald"): (
+        "Row G39.sdr.tau5 is red for the price_down plan at five nodes and n = 5,000: "
+        "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration)."
+    ),
 }
 
 
@@ -1290,6 +1302,7 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
             "empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to"
             " 1.1006"
         ),
+        "mtp-pricing-learned-density: coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162",
     ),
     "G11": ("band-finite-sample: joint coverage 0.9140 to 0.9283",),
     "G14.survival": (
@@ -1314,6 +1327,12 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         "band-finite-sample: joint coverage 0.9085 to 0.9394",
     ),
     "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
+    "G40.tau3": (
+        "mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",
+    ),
+    "G40.tau5": (
+        "mtp-pricing-learned-density: coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323",
+    ),
     "G34.competing": (
         (
             "X19-competing-calibration: coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, "
@@ -1594,16 +1613,24 @@ def _long_rows() -> tuple[SupportRow, ...]:
             cells=["interval_calibration"],
         )
         rows.append(merge_rows(categorical.id, categorical, policy))
-    for suffix, treatment, splitting in (
-        ("continuous", ("continuous", "continuous"), ("in_sample",)),
-        ("continuous_cross_fitted", ("continuous", "continuous"), xf),
-        ("categorical", ("6", "6"), ("in_sample",)),
-        ("rr_tilt", _TWO, ("in_sample",)),
+    # X40: the two-node continuous fit on the density route also stands for the declared supports,
+    # branches and atoms of ``mtp-boundaries`` and the learned density of ``mtp-pricing`` at
+    # two nodes. The key reads none of them, so they share this row.
+    for suffix, treatment, splitting, studies in (
+        (
+            "continuous",
+            ("continuous", "continuous"),
+            ("in_sample",),
+            ["longitudinal-mtp", "mtp-boundaries", "mtp-pricing"],
+        ),
+        ("continuous_cross_fitted", ("continuous", "continuous"), xf, ["longitudinal-mtp"]),
+        ("categorical", ("6", "6"), ("in_sample",), ["longitudinal-mtp"]),
+        ("rr_tilt", _TWO, ("in_sample",), ["longitudinal-mtp"]),
     ):
         rows.append(
             long_row(
                 f"G10.{suffix}",
-                ["longitudinal-mtp"],
+                studies,
                 regimens=("mtp",),
                 missing=("complete",),
                 treatment=treatment,
@@ -2014,7 +2041,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
         ),
         long_row(
             "G24.mtp.in_sample",
-            sdr,
+            [*sdr, "mtp-boundaries"],
             regimens=("mtp",),
             engine="sdr",
             missing=("complete",),
@@ -2246,7 +2273,166 @@ def _long_rows() -> tuple[SupportRow, ...]:
                 cells=cells,
             )
         )
+    rows += _continuous_dose_rows()
     return tuple(rows)
+
+
+def _continuous_dose_rows() -> list[SupportRow]:
+    """The rows of the continuous-policy studies (X40): ``G39`` to ``G41``.
+
+    The key reads the node count, the engine, the splitting, the outcome scale and the ratio
+    route. It does not read a declared support, an atom, a branch or a tuned cap. The two-node
+    density rows of ``mtp-boundaries`` therefore stand on ``G10.continuous`` and
+    ``G24.mtp.in_sample``. These rows hold the keys that no earlier row covers.
+
+    ``G39`` is the classifier ratio route on a price with a declared support
+    (``mtp-pricing``), by engine and horizon. ``G40`` is the learned density at three and five
+    nodes. ``G41`` is a cap tuned on the data over a bounded outcome (``mtp-tuning``).
+    """
+    xf = ("cross_fitted",)
+    pricing, tuning = ["mtp-pricing"], ["mtp-tuning"]
+    rows: list[SupportRow] = []
+    for suffix, engine, nodes, splitting, outcome, cells in (
+        (
+            "ltmle.tau2",
+            "tmle",
+            2,
+            ("in_sample",),
+            BINARY,
+            [
+                "pricing_ltmle_tau2",
+                "interval_calibration/up_oracle_tau2__correctly_specified",
+                "interval_calibration/up_learned_classifier_tau2__correctly_specified",
+            ],
+        ),
+        ("sdr.tau2", "sdr", 2, ("in_sample",), BINARY, ["pricing_sdr_tau2"]),
+        (
+            "ltmle.tau3",
+            "tmle",
+            3,
+            ("in_sample",),
+            BINARY,
+            [
+                "pricing_ltmle_tau3",
+                "interval_calibration/up_oracle_tau3__correctly_specified",
+                "interval_calibration/up_learned_classifier_tau3__correctly_specified",
+                "double_robustness/up_tau3__outcome_wrong_learned_classifier",
+                "ratio_necessity/up_tau3__learned_classifier",
+            ],
+        ),
+        ("sdr.tau3", "sdr", 3, ("in_sample",), BINARY, ["pricing_sdr_tau3"]),
+        (
+            "ltmle.tau3_cross_fitted",
+            "tmle",
+            3,
+            xf,
+            BINARY,
+            ["interval_calibration/crossfit_ltmle_learned_classifier_tau3__correctly_specified"],
+        ),
+        (
+            "sdr.tau3_cross_fitted",
+            "sdr",
+            3,
+            xf,
+            BINARY,
+            ["interval_calibration/crossfit_sdr_learned_classifier_tau3__correctly_specified"],
+        ),
+        (
+            "ltmle.tau3_revenue",
+            "tmle",
+            3,
+            ("in_sample",),
+            BOUNDED,
+            ["interval_calibration/revenue_learned_classifier_tau3__correctly_specified"],
+        ),
+        (
+            "ltmle.tau5",
+            "tmle",
+            5,
+            ("in_sample",),
+            BINARY,
+            [
+                "pricing_ltmle_tau5",
+                "interval_calibration/up_oracle_tau5__correctly_specified",
+                "interval_calibration/up_learned_classifier_tau5__correctly_specified",
+                "ratio_necessity/up_tau5__learned_classifier",
+            ],
+        ),
+        ("sdr.tau5", "sdr", 5, ("in_sample",), BINARY, ["pricing_sdr_tau5"]),
+    ):
+        rows.append(
+            long_row(
+                f"G39.{suffix}",
+                pricing,
+                regimens=("mtp",),
+                engine=engine,
+                missing=("complete",),
+                treatment=("continuous",) * nodes,
+                splitting=splitting,
+                outcome=outcome,
+                ratio="classifier",
+                cells=cells,
+            )
+        )
+    for nodes in (3, 5):
+        rows.append(
+            long_row(
+                f"G40.tau{nodes}",
+                pricing,
+                regimens=("mtp",),
+                missing=("complete",),
+                treatment=("continuous",) * nodes,
+                cells=[f"interval_calibration/up_learned_density_tau{nodes}__correctly_specified"],
+            )
+        )
+    tuned = "interval_calibration/{}__correctly_specified".format
+    for suffix, engine, splitting, ratio, cells in (
+        (
+            "ltmle",
+            "tmle",
+            ("in_sample",),
+            "density",
+            [
+                "population_quantile_ltmle",
+                tuned("population_dose_quantile_tau2"),
+                tuned("population_quantile_regression_tau2"),
+            ],
+        ),
+        ("sdr", "sdr", ("in_sample",), "density", ["population_quantile_sdr"]),
+        (
+            "ltmle_cross_fitted",
+            "tmle",
+            xf,
+            "density",
+            [
+                tuned("population_dose_quantile_crossfit_tau2"),
+                tuned("fold_average_dose_quantile_tau2"),
+                tuned("fold_average_quantile_regression_tau2"),
+            ],
+        ),
+        (
+            "ltmle_cross_fitted_classifier",
+            "tmle",
+            xf,
+            "classifier",
+            [tuned("population_dose_quantile_crossfit_classifier_tau2")],
+        ),
+    ):
+        rows.append(
+            long_row(
+                f"G41.{suffix}",
+                tuning,
+                regimens=("mtp",),
+                engine=engine,
+                missing=("complete",),
+                treatment=("continuous", "continuous"),
+                splitting=splitting,
+                outcome=BOUNDED,
+                ratio=ratio,
+                cells=cells,
+            )
+        )
+    return rows
 
 
 def _gformula_cells(
@@ -2346,8 +2532,8 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
 
 
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
-#: the sequential baselines (``G28``), the parametric g-formula (``G29``) and repeated-outcome
-#: ``IPSI`` (``G37``).
+#: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
+#: ``IPSI`` (``G37``) and the continuous-dose price and tuned-cap rows (``G39`` to ``G41``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
 
 
