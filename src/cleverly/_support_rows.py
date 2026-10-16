@@ -1199,13 +1199,36 @@ def _c_rows() -> tuple[SupportRow, ...]:
     ]
     stack = (*_ctmle("oat", "per_arm"), "parametric_stack")
     parametric = "ctmle-oat-per-arm-parametric"
+    extensions = "ctmle-oat-per-arm-parametric-extensions"
+    # The binary in-sample row also carries the population targets and the band of X58 part (b):
+    # the study ctmle-oat-per-arm-parametric-extensions gates ey_obs, par and paf, and the band over
+    # the arm means, the ATE and those targets, on the same law.
     rows += [
-        point_row(
-            "C11.binary",
-            [parametric],
-            families=("P1", "P2"),
-            engine=stack,
-            cells=["binary_active__ate__corrected"],
+        replace(
+            point_row(
+                "C11.binary",
+                [parametric, extensions],
+                families=("P1", "P2", "P4"),
+                engine=stack,
+                kinds=_WALD | {"band"},
+                cells=[
+                    "binary_active__ate__corrected",
+                    "binary_population__par__corrected",
+                    "binary_population__paf__corrected",
+                    "binary_population__ey_obs__corrected",
+                    "binary_population__simultaneous_band",
+                ],
+                limits=[
+                    "The band covers the arm means, the ATE and the population targets (cell "
+                    "binary_population). A band over rr or or (family P2) is experimental.",
+                    "The study measures the band over ey0, ey1, ate, ey_obs, par and paf. A band "
+                    "over another set of these families rests on the same multiplier argument "
+                    "(plan 13.2).",
+                    "The curve of ey_obs is the shipped empirical curve. The cell "
+                    "binary_population__ey_obs__corrected measures its interval.",
+                ],
+            ),
+            kind_families=(("band", frozenset({"P1", "P4"})),),
         ),
         point_row(
             "C11.bounded",
@@ -1265,6 +1288,147 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 "The repeats cells cannot see the split-adjustment term of the median rule, about "
                 "0.2% of the variance. A unit identity test pins that term.",
             ],
+        ),
+    ]
+    # The K-arm, weighted and population-target stack (X58 part (b) and (d), X58b2). The study
+    # fits three arms, a known observation weight, and ey_obs, par and paf, in sample and
+    # cross-fitted at n_folds=5. The key holds neither the arm count beyond the axis nor the fold
+    # count, so the CTMLE preflight adds the group-A condition for another fold count, and a
+    # fit at four arms or with estimated weights matches no row.
+    folds = (
+        "The study ctmle-oat-per-arm-parametric-extensions measures n_folds=5 only. A fit at "
+        "another fold count inside the cap of 20 folds is experimental."
+    )
+    three_arms = (
+        "The study measures three arms only. A fit at four arms matches no row and is experimental."
+    )
+    known_weight = (
+        "The study measures a known observation weight only. A fit with estimated weights is "
+        "experimental."
+    )
+    rows += [
+        replace(
+            point_row(
+                "C11.k_arms",
+                [extensions],
+                families=("P1", "P2", "P4"),
+                engine=stack,
+                treatment=("arms3",),
+                kinds=_WALD | {"band"},
+                cells=[
+                    *(
+                        f"three_arm__{estimand}__corrected"
+                        for estimand in (
+                            "ey_0",
+                            "ey_1",
+                            "ey_2",
+                            "ate_0_vs_1",
+                            "ate_2_vs_1",
+                            "log_rr_0_vs_1",
+                            "log_rr_2_vs_1",
+                            "log_or_0_vs_1",
+                            "log_or_2_vs_1",
+                            "par_1",
+                            "paf_1",
+                            "ey_obs",
+                        )
+                    ),
+                    "three_arm__simultaneous_band",
+                    *(
+                        f"three_arm_shared__{estimand}__corrected"
+                        for estimand in ("ey_0", "ey_1", "ey_2", "ate_0_vs_1", "ate_2_vs_1")
+                    ),
+                    "three_arm_null__ate_0_vs_1",
+                    "three_arm_null__ate_2_vs_1",
+                ],
+                limits=[
+                    three_arms,
+                    "The band covers the three arm means and the two contrasts against the "
+                    "reference arm (cell three_arm). A band over rr or or (family P2) or over a "
+                    "population target (family P4) is experimental.",
+                    "The study measures the band over ey[0], ey[1], ey[2] and the two ate "
+                    "contrasts against the reference arm. A band over another set of arm means and "
+                    "ate contrasts rests on the same multiplier argument (plan 13.2).",
+                    "The study fits the reference arm 1 in sample. The arm curves of the law "
+                    "three_arm_active are nearly uncorrelated, and the law three_arm_shared "
+                    "(correlation 0.25 to 0.26) measures the cross-arm covariance.",
+                ],
+            ),
+            kind_families=(("band", frozenset({"P1"})),),
+        ),
+        point_row(
+            "C11.weighted",
+            [extensions],
+            families=("P1", "P2", "P4"),
+            engine=stack,
+            weighting="fixed",
+            cells=[
+                f"weighted__{estimand}__corrected"
+                for estimand in ("ey0", "ey1", "ate", "log_rr", "log_or", "par", "paf", "ey_obs")
+            ],
+            limits=[
+                known_weight,
+                "The curve of ey_obs is the shipped weighted empirical curve. The cell "
+                "weighted__ey_obs__corrected measures its interval.",
+            ],
+        ),
+        point_row(
+            "C11.weighted_stacked",
+            [extensions],
+            families=("P1",),
+            engine=stack,
+            weighting="fixed",
+            splitting=("stacked",),
+            cells=[
+                f"weighted_crossfit__{estimand}__corrected" for estimand in ("ey0", "ey1", "ate")
+            ],
+            limits=[
+                folds,
+                known_weight,
+                "The study measures one cross-fitting draw. A fit with repeats and weights "
+                "matches no row and is experimental.",
+            ],
+        ),
+        point_row(
+            "C11.stacked_k_arms",
+            [extensions],
+            families=("P1",),
+            engine=stack,
+            treatment=("arms3",),
+            splitting=("stacked",),
+            kinds=_WALD | {"band"},
+            cells=[
+                *(
+                    f"three_arm_crossfit__{estimand}__corrected"
+                    for estimand in ("ey_0", "ey_1", "ey_2", "ate_1_vs_0", "ate_2_vs_0")
+                ),
+                "three_arm_crossfit__simultaneous_band",
+                "three_arm_active__estimated__ate_1_vs_0",
+                "three_arm_active__estimated__ate_2_vs_0",
+            ],
+            limits=[
+                folds,
+                three_arms,
+                "The study measures one cross-fitting draw and the reference arm 0. A fit with "
+                "repeats at three arms matches no row and is experimental.",
+                "The study measures the band over ey[0], ey[1], ey[2] and the two ate contrasts "
+                "against the reference arm. A band over another set of arm means and ate "
+                "contrasts rests on the same multiplier argument (plan 13.2).",
+            ],
+        ),
+        point_row(
+            "C11.stacked_k_arms_weighted",
+            [extensions],
+            families=("P1",),
+            engine=stack,
+            treatment=("arms3",),
+            weighting="fixed",
+            splitting=("stacked",),
+            cells=[
+                f"composition__{estimand}__corrected"
+                for estimand in ("ey_0", "ey_1", "ey_2", "ate_0_vs_1", "ate_2_vs_1")
+            ],
+            limits=[folds, three_arms, known_weight],
         ),
     ]
     rows += [
@@ -1484,8 +1648,63 @@ def _with_shortfalls(rows: Iterable[SupportRow]) -> tuple[SupportRow, ...]:
     return tuple(out)
 
 
-#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``) and C-TMLE (``C``).
-POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls((*_t_rows(), *_d_rows(), *_c_rows()))
+def _categorical_point_rows() -> tuple[SupportRow, ...]:
+    """The point rows of the study ``categorical-incremental`` (X43): ``T35``.
+
+    A categorical tilt fit on one of these configurations carries the evidence of the study.
+    Any other categorical tilt fit stays labelled ``experimental``.
+    """
+    slug = ["categorical-incremental"]
+    point: dict[str, Any] = {
+        "families": ("P9",),
+        "outcome": ("gaussian", "bounded"),
+        "treatment": ("arms3",),
+    }
+    return (
+        point_row("T35.in_sample", slug, **point, cells=["point_in_sample"]),
+        point_row(
+            "T35.cross_fitted",
+            slug,
+            **point,
+            splitting=("stacked",),
+            cells=[
+                "point_crossfit",
+                "point_contrast_t_a",
+                "point_contrast_t_b",
+                "point_contrast_t_a__full_eif",
+                "point_contrast_t_a__sharp_null",
+                "point_contrast_t_a__alternative",
+            ],
+        ),
+        point_row(
+            "T35.known",
+            slug,
+            **point,
+            splitting=("stacked",),
+            qualifiers=("known_mechanism",),
+            cells=["point_known_t_a"],
+        ),
+        point_row(
+            "T35.strata",
+            slug,
+            **point,
+            splitting=("stacked",),
+            qualifiers=("strata",),
+            cells=["point_stratified_t_a_v1"],
+        ),
+    )
+
+
+#: The point-treatment rows: ordinary TMLE (``T``), DR-TMLE (``D``), C-TMLE (``C``) and the
+#: categorical tilt (``T35``).
+POINT_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
+    (
+        *_t_rows(),
+        *_d_rows(),
+        *_c_rows(),
+        *_categorical_point_rows(),
+    )
+)
 
 
 # --------------------------------------------------------------------------- longitudinal
@@ -2321,6 +2540,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
         rows[-2] = replace(rows[-2], cells=(f"{law}_hajek",))
         rows[-1] = replace(rows[-1], cells=(f"{law}_ht",))
     rows += _gformula_rows()
+    rows += _structural_rows()
     # X31: a mixed node of one categorical and one or two dose components. G35 has two such
     # nodes; G36 has one node whose second dose reads the first (an ordered map).
     for row_id, treatment, ratio, cells in (
@@ -2610,6 +2830,140 @@ def _gformula_rows() -> list[SupportRow]:
     ]
 
 
+#: The calibration labels of ``structural-nested-mean`` that license each key, by setup.
+_STRUCTURAL_LABELS: Final[Mapping[str, tuple[str, ...]]] = {
+    "s2": ("ate_r11", "blip_a1_l1", "blip_a2_l1", "ey0", "ey_r10", "ey_r11"),
+    "h": (
+        "ate_r10",
+        "ate_r11",
+        "blip_a1_l1",
+        "blip_a1_l1_w",
+        "blip_a2_l1",
+        "blip_a2_l1_a1",
+        "blip_a2_l1_w",
+        "ey0",
+        "ey_r11",
+    ),
+    "p": ("ate_r11", "blip_a1_l1", "blip_a2_l1", "blip_a2_l1_a1", "ey0", "ey_r01"),
+    "m": ("ate_r11", "blip_a1_l1", "blip_a2_l1", "ey0"),
+    "s3": ("ate_r101", "ate_r111", "blip_a1_l1", "blip_a2_l1", "blip_a3_l1", "ey0"),
+    "k": (
+        "ate_r12",
+        "ate_r21",
+        "blip_a1_l1",
+        "blip_a1_l2",
+        "blip_a2_l1",
+        "blip_a2_l2",
+        "ey0",
+        "ey_r12",
+    ),
+    "c": ("ate_dose_high", "ate_dose_mid", "blip_a1", "blip_a2", "ey0", "ey_dose_mid"),
+    "l": ("blip_a1_l1", "blip_a2_l1", "blip_a2_l1_s2", "ey0"),
+    "s2w": ("ate_r11", "blip_a1_l1", "ey0", "ey_r11"),
+    "s2c": ("ate_r11", "blip_a1_l1", "ey0", "ey_r11"),
+}
+
+#: The size-ladder labels of ``structural-nested-mean`` and their three sizes, by setup.
+_STRUCTURAL_LADDERS: Final[Mapping[str, tuple[tuple[str, ...], tuple[int, ...]]]] = {
+    "s2": (("ate_r11",), (500, 2000, 8000)),
+    "h": (("ate_r11",), (500, 2000, 8000)),
+    "k": (("ate_r12",), (1000, 4000, 16000)),
+    "c": (("ate_dose_high",), (500, 2000, 8000)),
+}
+
+
+def _structural_cells(*setups: str) -> list[str]:
+    """The gated positive cells of ``structural-nested-mean`` that license the given setups.
+
+    The calibration controls, the negative controls ``LU`` and ``VB``, the weak-positivity
+    report ``SP`` and the model-check cells carry no row: none of them licenses an estimate.
+    """
+    cells: list[str] = []
+    for setup in setups:
+        cells += [
+            f"interval_calibration/{setup}_{label}__correctly_specified"
+            for label in _STRUCTURAL_LABELS[setup]
+        ]
+        labels, sizes = _STRUCTURAL_LADDERS.get(setup, ((), ()))
+        for label in labels:
+            cells += [f"root_n_and_efficiency/{setup}_{label}__n_{n}" for n in sizes]
+            cells += [
+                f"root_n_rate/{setup}_{label}__{leg}" for leg in ("empirical_sd", "reported_se")
+            ]
+    return cells
+
+
+def _structural_rows() -> list[SupportRow]:
+    """The rows of the structural nested mean model (``G42``): one per key the study fits.
+
+    Every fit of ``structural-nested-mean`` is cross-fitted, with a Gaussian outcome and no
+    declared bounds, complete data and the Rademacher multiplier. The keys follow the support
+    records of the declared run. ``S2``, ``H``, ``P`` and ``M`` share one key. The study fits
+    no simultaneous band and no derived contrast, so each row licenses the point and the Wald
+    interval only.
+
+    Law ``N`` has no row. A row names a learner class and not its settings. The study measures
+    one early-stopped booster, and a booster of fixed size has a bias that does not vanish at
+    n = 512,000, so a row for the class would license a configuration the study refutes.
+    """
+    study = ("structural-nested-mean",)
+    glm: dict[str, type | None] = {"outcome": GLM, "treatment": GLM, "regression": None}
+    limits = (
+        "The intervals are valid under the linear structural nested mean model with the "
+        "declared blip features. The study laws satisfy that model.",
+        "The EconML DynamicDML comparator runs are pending.",
+    )
+
+    def row(
+        row_id: str,
+        cells: list[str],
+        *,
+        treatment: tuple[str, ...] = _TWO,
+        weighting: str = "none",
+        dependence: str = "iid",
+        regimens: bool = True,
+        covariate_features: bool = False,
+        extra: tuple[str, ...] = (),
+    ) -> SupportRow:
+        key = SupportKey(
+            kind="longitudinal",
+            engine=("snmm",),
+            family=frozenset(
+                ("end_of_study", "blips", *(("regimens", "static") if regimens else ()))
+            ),
+            outcome=CONTINUOUS,
+            missing=("complete",),
+            treatment=treatment,
+            weighting=weighting,
+            splitting=("cross_fitted",),
+            dependence=dependence,
+            qualifiers=frozenset(),
+            options=(("covariate_features", covariate_features), ("multiplier_kind", "rademacher")),
+        )
+        return SupportRow(
+            row_id, key, _LONG_WALD, study, tuple(cells), dict(glm), (*limits, *extra)
+        )
+
+    return [
+        row("G42.two_nodes", _structural_cells("s2", "h", "p", "m")),
+        row("G42.three_nodes", _structural_cells("s3"), treatment=("2", "2", "2")),
+        row("G42.categorical", _structural_cells("k"), treatment=("3", "3")),
+        row("G42.dose", _structural_cells("c"), treatment=("continuous", "continuous")),
+        row(
+            "G42.covariate_feature",
+            _structural_cells("l"),
+            regimens=False,
+            covariate_features=True,
+            extra=(
+                "A feature that reads a time-varying covariate reports the blips and the "
+                "reference mean only. A static level or contrast is refused (X72).",
+            ),
+        ),
+        row("G42.weighted", _structural_cells("s2w"), weighting="fixed"),
+        row("G42.clustered", _structural_cells("s2c"), dependence="clustered"),
+    ]
+
+
 def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
     return (
         ("multiplier_kind", "rademacher"),
@@ -2621,10 +2975,40 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
     )
 
 
+def _categorical_long_rows() -> tuple[SupportRow, ...]:
+    """The longitudinal rows of the study ``categorical-incremental`` (X43): ``G43``."""
+    slug = ["categorical-incremental"]
+    ipsi: dict[str, Any] = {
+        "engine": "ipsi",
+        "regimens": ("tilt",),
+        "outcome": ("gaussian", "bounded"),
+        "treatment": ("3", "3"),
+        "splitting": ("cross_fitted",),
+    }
+    return (
+        long_row(
+            "G43.cross_fitted",
+            slug,
+            **ipsi,
+            cells=["longitudinal_dropout_folds_5", "longitudinal_dropout_contrast_t_a"],
+        ),
+        long_row(
+            "G43.complete",
+            slug,
+            **ipsi,
+            missing=("complete",),
+            cells=["longitudinal_folds_5", "longitudinal_contrast_t_a"],
+        ),
+    )
+
+
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
-#: ``IPSI`` (``G37``) and the continuous-dose price and tuned-cap rows (``G39`` to ``G41``).
-LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
+#: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
+#: structural nested mean model (``G42``) and the categorical tilt (``G43``).
+LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
+    (*_long_rows(), *_categorical_long_rows())
+)
 
 
 # ------------------------------------------------------------------ exemptions and anchors
@@ -2710,6 +3094,11 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
     ),
     "P10": _anchor("`msm`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_msm.py"),
     "P11": _anchor("`ey_learned_rule`", "tests/discrete_law.py"),
+    "blips": _anchor(
+        "structural nested mean model (`StructuralNestedMean`)",
+        "tests/discrete_law_structural.py",
+        "tests/unit/test_structural_nested_mean.py",
+    ),
     "end_of_study": _anchor(
         "end-of-study, static and dynamic regimens",
         "tests/discrete_law_longitudinal.py",

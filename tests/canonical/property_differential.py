@@ -617,6 +617,12 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
             for cell, judged in property_failures._judged(rule, family, summary, ctx).items():
                 selected = (summary["property"] == family) & (summary["cell"] == cell)
                 row = summary.loc[selected].iloc[0]
+                # A cell stamped with recorded failures fills its lost values, so its candidates
+                # are at k > 0 and differ from the complete case by design.  The fast tier
+                # recomputes that cell's accounting from the records instead.  Zeroing the stamp
+                # reads the candidates of the same cell at k = 0, where each is the complete case.
+                row = row.copy()
+                row["failed_replicates"] = 0
                 for clause, value in judged:
                     if clause.candidates is None:
                         continue

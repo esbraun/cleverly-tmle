@@ -28,6 +28,8 @@ holds its questions, and the [natural-extension verdicts](technical-reference/na
 holds the record of RM40, the DR-TMLE one-wrong inference correction.
 [The roadmap at commit `2a8ad955`](https://github.com/esbraun/cleverly-tmle/blob/2a8ad9552e7aeb19f171643da5311eb0c6b03a91/docs/roadmap.md#rm39-keep-a-study-run-alive-through-a-failed-replicate)
 holds the record of RM39, the failure record and accounting of a study run.
+[The roadmap at commit `c1b2ce12`](https://github.com/esbraun/cleverly-tmle/blob/c1b2ce128f1b7ff48977a55345f545c4f588a968/docs/roadmap.md#x42-applied-tutorials-for-offers-and-pricing)
+holds the record of X42, the applied tutorials for offers and pricing.
 
 ## Remediation
 
@@ -108,7 +110,7 @@ scope, not dates.
 | B0 | the acceptance policy, the status and refusal contract, and accurate refusals | none | the foundation for each beta claim |
 | B1 | the trajectory contract, the panel adapter, and evidence over longer horizons | B0 | a reliable sequential core |
 | B2 | validated continuous longitudinal modified treatment policies | B1 | required for the pricing beta |
-| B3 | sequential baselines and the two applied tutorials | B1; B2 for the continuous examples | completes the first beta |
+| B3 | sequential baselines and the two applied tutorials | B1; B2 for the continuous examples | completes the first beta. Both tutorials ship: [sequential offers](examples/sequential-offers.ipynb) and [sequential pricing](examples/sequential-pricing.ipynb). The former X42 row asked for a truncation curve in the pricing tutorial. That tutorial reads the support step in one sentence instead, and the owner accepts this |
 | B4 | categorical incremental policies and repeated longitudinal cross-fitting | the relevant B1 to B3 engine | the prioritized beta expansion |
 | BP | the beta parity group: the former priority-1 rows that this reorganization does not place in B0 to B4 | their own dependencies | required for the first beta |
 | BD | the worked examples and the documentation, reviewed against the methods that ship at that time | every row of milestones B0 to B4 and BP, merged | the last work before the first beta |
@@ -124,16 +126,13 @@ not change the package version.
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Longitudinal fitting options | no new theory; each option keeps its default bit-identical | none | [X33](#x33-longitudinal-fitting-options) |
-| B3 | Applied tutorials for offers and pricing | no new theory | the shipped longitudinal modified treatment policies, `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
-| B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
-| BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome, parts (b) to (d) | [natural extension](technical-reference/hard-stop-review.md) candidate; part (a) shipped | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
+| BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (o); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
-| B5 | Structural dynamic treatment effects | source audit | X41 | [X44](#x44-structural-dynamic-treatment-effects) |
 | B5 | Longitudinal simulated-confounding replay with a time-fixed latent | natural extension | the shipped point-treatment replay | [X48](#x48-longitudinal-simulated-confounding-replay-with-a-time-fixed-latent) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
@@ -164,9 +163,12 @@ not change the package version.
 | after beta | Simulated confounding beyond X47 and X48 | natural extension | X47; X57 for part (c); X50, X51 and X62 for part (h); F5 for a continuous fit in part (f) | [X66](#x66-simulated-confounding-beyond-x47-and-x48) |
 | after beta | Refutation and assessment adapters | no new theory | the shipped `refute` catalog | [X67](#x67-refutation-and-assessment-adapters) |
 | after beta | Repeated outcomes for the sequential baselines | no new theory | the shipped `LTMLE` repeated outcome; X41 | [X71](#x71-repeated-outcomes-for-the-sequential-baselines) |
+| after beta | Static regimen values from structural blips with time-varying features | published support for identification; the inference result is a preprint | the shipped `StructuralNestedMean`; the shipped `LTMLE` | [X72](#x72-static-regimen-values-from-structural-blips-with-time-varying-features) |
+| after beta | Assessment and study integration for the structural nested mean model | no new theory | the shipped assessment layer; the shipped `StructuralNestedMean` | [X74](#x74-assessment-and-study-integration-for-the-structural-nested-mean-model) |
 | after beta | Studies of the targeting and fitting options | no new theory | the shipped `stopping=`, `outcome_by_arm=`, `patience=` and `treatment_adjustment=` | [X76](#x76-studies-of-the-targeting-and-fitting-options) |
 | after beta | Pooled-over-time parametric g-formula models | no new theory; the stacked equations of the shipped `ParametricGFormula`, with unit-summed scores | the shipped `ParametricGFormula` | [X73](#x73-pooled-over-time-parametric-g-formula-models) |
 | after beta | Data-tuned policies beyond the shipped tuned caps | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) |
+| after beta | Censored data for continuous price policies | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor | [X77](#x77-censored-data-for-continuous-price-policies) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -237,6 +239,7 @@ It moved each part that an established method or a natural extension carries to 
 | arbitrary dependence | an argument for a fixed number of dependent units |
 | serial dependence | a limit theorem for split-based TMLE under mixing |
 | algorithm definition | a published definition of the procedure that the package would implement |
+| efficiency | the efficient influence function of a model, and an estimator that attains its bound |
 
 | investigation | kept claim | kind of missing argument | current boundary | details |
 | --- | --- | --- | --- | --- |
@@ -260,6 +263,7 @@ It moved each part that an established method or a natural extension carries to 
 | Other intervention and design compositions | the composite missing-treatment indicator with a controlled direct effect; an `IPSI` plan with a modified-policy or risk-ratio-tilt node; an MSM weight from a learned mechanism; automatic cumulative-bound selection for `LTMLE` | identification; regularity; adaptive-optimum inference | named pre-fit refusals. [X63](#x63-missing-data-intermediates-and-designs) and [X64](#x64-intervention-and-policy-declarations) hold the declarations that a natural extension carries | [F33](#f33-other-intervention-and-design-compositions) |
 | E-values beyond the total-population arm contrast | the ATT and ATC E-value on a binomial outcome; the E-value of a regime, policy or incremental contrast, with the derived risk ratio off the arm axis | identification | E-values of total-population arm contrasts, and the standardized ATT and ATC E-value on a gaussian outcome. [X49](#x49-e-value-for-a-controlled-direct-effect) holds the controlled direct effect, and [X65](#x65-sensitivity-analyses-beyond-the-shipped-scope) the other sensitivity requests | [F34](#f34-e-values-beyond-the-total-population-arm-contrast) |
 | Inference for sequential baselines with data-adaptive nuisances | an asymptotic-linearity result for longitudinal sequential g-computation or IPW whose nuisances are fitted by a data-adaptive learner | asymptotic | the point estimate stands. A fit that reads a regression fitted by a learner other than `GLM` takes the `adaptive_baseline_plugin` status and reports a plug-in diagnostic only | [F35](#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
+| Locally efficient g-estimation of the structural nested mean model | an interval for the blips from the g-estimator that weights its instrument by the conditional variance of the outcome residual | efficiency | the shipped `StructuralNestedMean` solves the unweighted equation. Its interval is valid under the linear model, and it is not the efficient estimator of that model | [F36](#f36-locally-efficient-g-estimation-of-the-structural-nested-mean-model) |
 
 ## Eligibility
 
@@ -604,53 +608,7 @@ The R comparators named above are deferred to
 [X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr), so the studies carry Python property
 evidence only. Do not remove this row until the studies land.
 
-### X42. Applied tutorials for offers and pricing
 
-Publish one tutorial that runs through the public API. The
-[sequential offers tutorial](examples/sequential-offers.ipynb) covers categorical and dynamic
-rules, randomized offers with declared probabilities, treatment-confounder feedback, censoring, a
-contrast of LTMLE and g-computation under a wrong outcome model, and paired policy comparisons. The
-pricing tutorial remains.
-
-| tutorial | required content |
-| --- | --- |
-| sequential pricing | continuous modified treatment policies, support boundaries, price-induced engagement changes, and contrasts against a declared reference policy |
-
-The tutorial states time zero, eligibility, treatment versions, available history, confounders,
-outcome horizon, and interference assumptions. Use synthetic laws with known truth, and a held-out
-applied pilot where data access permits. The offers tutorial states when g-computation, IPW, and
-LTMLE are consistent, and it reads the stagewise support and one truncated weight. The pricing
-tutorial explains when TMLE, `SDR`, g-computation, or IPW is appropriate, and why their answers can
-differ. It keeps the stagewise support diagnostics, covers positivity and truncation, and labels a truncation curve as a descriptive estimator change.
-
-Acceptance: the notebook executes in the documentation build.
-
-### X43. Categorical incremental policies
-
-`IPSI` fits Kennedy's odds-multiplier target at binary nodes, and its odds tilt names two arms. A
-categorical incremental policy is a candidate natural extension, starting from the binary case that
-Kennedy (2019) covers directly. A propensity-dependent policy changes with the observed treatment
-law, so its influence function carries a derivative term that a known stochastic policy does not
-have. Do not substitute the risk-ratio policy of `lmtp`.
-
-Use the pinned `npcausal` runner where it covers the odds-based target. `imtp` 0.1.0 at `d4b5204`
-omits the derivative term from its influence curve
-([comparator survey](development/method-benchmarking.md#choose-the-comparator-before-you-write-the-runner)),
-so it can witness a point estimate only. Re-audit a later `imtp` release, including its
-longitudinal support, before using it as a comparator.
-
-Acceptance: a written derivation of the changed terms under the [Eligibility](#eligibility)
-conditions, identity and treatment-score witnesses, a dropout control, and a registered study.
-
-### X44. Structural dynamic treatment effects
-
-EconML's `DynamicDML` estimates sequential treatment effects under structural assumptions that
-differ from general policy-value estimation. Lewis and Syrgkanis (2021), *NeurIPS*, give the
-targets and the assumptions. Assess it as a separate optional method or integration. Compare a
-shared target only where the structural model makes the targets equal, and do not treat a
-structural coefficient as an unrestricted policy value.
-
-Acceptance: a written map of the targets and the assumptions, and the decision whether to ship.
 
 ### X46. Repeated cross-fitting for longitudinal fits
 
@@ -739,8 +697,20 @@ states the contract.
 **Part (c) is implemented.** A cross-fitted fit reads the exact V-fold stack, and `repeats` above 1
 reports the median of the draws. Its study `ctmle-oat-per-arm-parametric-crossfit` is registered, and
 its [evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md)
-reports the declared run. Every gated cell passes. Parts (b) and (d) stay open. The text below keeps the part (a)
-scope for reference and states what each open part still needs.
+reports the declared run. Every gated cell passes.
+
+**Parts (b) and (d) are implemented.** A fit admits three or more arms, known fixed observation
+weights, the targets `ey_obs`, `par` and `paf`, and the simultaneous band, in sample and
+cross-fitted. Its study `ctmle-oat-per-arm-parametric-extensions` is registered, and its
+[evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-extensions.md)
+reports the declared run. Every gated cell passes.
+
+An admitted fit with the default
+`simultaneous=True` builds a band labelled by the support rows. A fit with `repeats` above 1, at
+least two estimates and the default `simultaneous=True` raises `CapabilityError`. Four or more
+arms, estimated weights, a weighted in-sample three-arm fit and repeats with weights have no
+support row, so they report the `experimental` label. The text below keeps the part (a) scope for
+reference and states what each part needed.
 
 **What is known.** [The applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)
 and the [per-arm evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle.md)
@@ -806,12 +776,14 @@ This item must confirm that every step is in the standard-step table of
 | (c) | cross-fitting with parametric learners, and `repeats` above 1 | an explicit map of the fold-specific coefficient contributions, and a written expansion. Without one, the claim stays in F19 |
 | (d) | fixed known weights | the weight-tilted law of the shipped per-arm contract, with its own witness and cell |
 
-The `ctmle-oat-per-arm` revert cells split by part. Part (a) took the in-sample binary primary
+The `ctmle-oat-per-arm` revert cells split by study. Part (a) took the in-sample binary primary
 rows. The cross-fitted cells `interval_calibration/binary_active__correctly_specified` and the
-binary `generated_design` pair belong to part (c), because those cells cross-fit. Part (b) takes
-the other primary rows, the three-arm cells and the simultaneous band. Part (c) also takes
-`binary_repeats__correctly_specified`, and part (d) takes `binary_weighted__correctly_specified`.
-A cell stays with F19 until its part passes.
+binary `generated_design` pair belong to part (c), because those cells cross-fit. Part (c) also
+takes `binary_repeats__correctly_specified`. The in-sample three-arm primary rows, the cross-fitted
+three-arm cells, the three-arm `generated_design` pair, the simultaneous band and
+`binary_weighted__correctly_specified` also cross-fit, so they run on the V-fold stack of part (c).
+
+The study of parts (b) and (d) re-measures them. A cell stays with F19 until its study passes.
 
 **Routes compared in part (a).** Part (a) evaluated each route, then implemented the smallest
 justified route. It chose the joint estimating equation. The full-mechanism route is dominated and
@@ -828,7 +800,7 @@ mechanism is a further objective, and F19 keeps it. A correct outcome model alon
 establish calibrated uncertainty. This item claims no superefficiency and no efficiency gain over
 ordinary TMLE without a separate argument.
 
-**Implementation sequence.** Part (a) completed steps 1 to 7. Step 8 remains.
+**Implementation sequence.** Part (a) completed steps 1 to 7. Parts (b) to (d) completed step 8.
 
 1. Derive the complete first-order expansion for the fitted estimator and the learner contract.
 2. Name each oracle quantity, and specify an estimable or declared replacement.
@@ -852,7 +824,7 @@ The corrected status, the covariance and the method declaration survive `result.
 part (c) supplies the support rows. `plugin_std_error`, `plugin_interval` and the bootstrap spread
 stay diagnostics. Ordinary TMLE stays the inference alternative under its own assumptions.
 
-**Acceptance for each open part.**
+**Acceptance for each part.**
 
 | criterion | evidence |
 | --- | --- |
@@ -891,7 +863,7 @@ A method here means one implementation family of the
 | --- | --- |
 | inventory | a table that maps each implementation family to the example page or section that shows it, or records that no example shows it |
 | update | each notebook runs on the current API. Replace removed and renamed calls, refresh the stored output, and correct each claim that the current code no longer supports |
-| add | an example for each family that the inventory shows without one. The [X42](#x42-applied-tutorials-for-offers-and-pricing) tutorials count as coverage |
+| add | an example for each family that the inventory shows without one. The [sequential offers](examples/sequential-offers.ipynb) and [sequential pricing](examples/sequential-pricing.ipynb) tutorials count as coverage. After the deletion of the health longitudinal tutorial, no example shows a cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) |
 | index | each new page has a row in the [examples index](examples/index.md), with its evaluation question, its method entry, and the failure mode it shows. The page and its method entry link to each other, as the examples contract in `docs/README.md` requires |
 
 Use the shared program and study design of the [examples index](examples/index.md) when the method
@@ -1626,6 +1598,41 @@ as it covers several plans.
 Acceptance: the exact reduction test for all three estimators, and a registered property study of the
 repeated-outcome cells.
 
+### X72. Static regimen values from structural blips with time-varying features
+
+`StructuralNestedMean` fits blips whose features read baseline columns, earlier treatments and
+time-varying covariates. A feature that reads a time-varying covariate allows the blip coefficients
+and the reference mean `ey_reference` only. The estimator refuses a static level, a static
+contrast and `check_model` for such a fit with `IMPLEMENTATION_GAP` and this item.
+
+The static value needs the regimen mean of the feature, $E[\phi_t(H_t(\bar a))]$. That mean
+depends on the law of the covariates under the regimen, which the estimator does not fit.
+Lewis and Syrgkanis (2021), supplement Lemma 6, identifies the value from the blips and that law.
+Their arXiv version, Corollary 9, gives the inference. The proceedings version has no such result.
+
+| part | what to add | published source |
+| --- | --- | --- |
+| (a) | static levels and contrasts when a feature reads a time-varying covariate | the supplement, Lemma 6, and the arXiv version, Corollary 9 |
+| (b) | a stack of the blip coefficients with the `LTMLE` intermediate means $E[\phi_t(H_t(\bar a))]$, as an alternative route to part (a) | a natural extension of the sequential regression of [`LTMLE`](technical-reference/longitudinal-tmle.md) |
+| (c) | the model check for the contrasts of parts (a) and (b) | the same joint Wald construction as the shipped check |
+
+Acceptance: a written derivation of the influence curve under the [Eligibility](#eligibility)
+conditions, an exact-law witness whose feature reads a covariate with a nonzero effect on the
+contrast, a mutation control that drops the covariate-law term, and a registered study cell.
+
+### X74. Assessment and study integration for the structural nested mean model
+
+`StructuralNestedMeanResult` declares `fitted_method = "snmm"` and no `assessment_family`.
+`cleverly.assessment.assessment_capabilities` therefore raises a bare `TypeError` that names the
+missing family. `CausalStudy` offers no method that fits `StructuralNestedMean`.
+
+| part | what to add | evidence |
+| --- | --- | --- |
+| (a) | an `assessment_family` for the result, with one declaration per assessment operation. Each declaration is available, or refuses with a reason code and a roadmap id | a test that every operation of `assessment_capabilities` runs or refuses with a code and an id on a structural fit |
+| (b) | a `CausalStudy` method for the estimator, whose study report carries the structural label | a study test that the label reaches the study report |
+
+Acceptance: both tests, and a refusal for each operation that a structural fit cannot support, such
+as a truncation curve, which an estimator with no inverse probability has no use for.
 
 ### X76. Studies of the targeting and fitting options
 
@@ -1687,6 +1694,20 @@ the compositions in the table below before any learner. The refusals name this i
 
 Acceptance: a pre-fit refusal test for each request that stays refused until its part ships. Each
 part that ships needs an exact-law check with a nonzero witness for the derivative term.
+
+### X77. Censored data for continuous price policies
+
+A longitudinal fit of a continuous-node policy with a censoring factor runs. It carries the
+experimental label. The `mtp-pricing` study draws complete data, so its support rows cover
+complete data only (`src/cleverly/_support_rows.py`). The longitudinal rows of categorical
+treatments cover censored fits.
+
+| what to add | evidence |
+| --- | --- |
+| a censoring draw on the `mtp-pricing` law, with the censoring factor learned beside the classifier price ratio | a registered study cell per engine at three nodes, with its red cells reported, and support rows with `missing=("censoring",)` |
+
+Acceptance: the registered cells, and a support case in `tests/studies/support_cases.py`. This
+row ships after the beta release (owner decision, 2026-10-16).
 
 ### P1. EP learner
 
@@ -2437,6 +2458,18 @@ bias is then of the order of the learner's error.
 | an interval for sequential g-computation with a data-adaptive outcome learner | asymptotic | an asymptotic-linearity theorem for the iterated conditional expectation plug-in over several time points, such as an undersmoothing result. No source read here derives one |
 | an interval for longitudinal IPW with a data-adaptive mechanism learner | asymptotic | the same result for the cumulative weights. Ertefaie, Hejazi and van der Laan (2023), Section 3, Theorem 1, cover IPW with an undersmoothed highly adaptive lasso propensity at a single time point only |
 | a cross-fitted baseline, `n_folds` above 1 | asymptotic | the same result for cross-fitted nuisances. Cross-fitting does not remove the first-order bias of a plug-in or IPW estimate, so the in-sample result does not carry over |
+
+### F36. Locally efficient g-estimation of the structural nested mean model
+
+`StructuralNestedMean` solves the unweighted g-estimating equation. Its instrument is the residual
+treatment $\tilde Z_{t,t}$. The semiparametric efficient estimator of a structural nested mean
+model weights that instrument by the conditional variance of the outcome residual. The shipped
+estimator is not that one, and no result read for this item ranks its variance against the
+variance of `LTMLE`. The weighted instrument also needs a nuisance for that variance.
+
+| kept claim | kind | missing argument |
+| --- | --- | --- |
+| an interval for the blips from the variance-weighted g-estimator, with a cross-fitted variance nuisance | efficiency | the efficient influence function of the linear structural nested mean model, and a limit theorem for the cross-fitted weighted estimator. No source read for this item states either |
 
 ## Reading a gap correctly
 

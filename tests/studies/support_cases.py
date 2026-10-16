@@ -40,6 +40,7 @@ from cleverly._support import (
     classify_key,
     longitudinal_key,
     point_key,
+    structural_key,
 )
 from cleverly.data.causal_data import CausalData
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -162,12 +163,17 @@ def capture(run: Callable[[], Any]) -> Observed:
         When the call returns without reaching a classifier.
     """
     longitudinal = importlib.import_module("cleverly.longitudinal.estimator")
+    structural = importlib.import_module("cleverly.longitudinal.structural")
     point = importlib.import_module("cleverly.estimators.tmle")
 
     def at_longitudinal(estimator: Any, data: Any, **settings: Any) -> None:
         settings.pop("source", None)
         settings.pop("conditions", None)
         raise _Reached(Observed(*longitudinal_key(estimator, data, **settings)))
+
+    def at_structural(estimator: Any, data: Any, **settings: Any) -> None:
+        settings.pop("source", None)
+        raise _Reached(Observed(*structural_key(estimator, data, **settings)))
 
     def at_point(
         estimator: Any, data: Any, estimands: Any, *, source: str = "", conditions: Any = ()
@@ -178,6 +184,7 @@ def capture(run: Callable[[], Any]) -> Observed:
         warnings.simplefilter("ignore")
         with (
             mock.patch.object(longitudinal, "classify_longitudinal_fit", at_longitudinal),
+            mock.patch.object(structural, "classify_structural_fit", at_structural),
             mock.patch.object(point, "classify_point_fit", at_point),
         ):
             try:
@@ -1355,6 +1362,68 @@ def _c_cases() -> tuple[RowCase, ...]:
                 names,
             )
         )
+    extensions = "canonical_ctmle_oat_per_arm_parametric_extensions"
+    where = _ST + "canonical_ctmle_oat_per_arm_parametric_extensions.py:895"
+    # The configurations of X58b2. A case needs no reference arm: the key reads structure only,
+    # and the generator labels the arms by number.
+    for row, cell, fit, data, names in (
+        (
+            "C11.binary",
+            "binary_population__par__corrected",
+            {"estimands": ("ey0", "ey1", "ate", "ey_obs", "par", "paf"), "simultaneous": True},
+            {},
+            ("ey0", "ey1", "ate", "ey_obs", "par", "paf"),
+        ),
+        (
+            "C11.k_arms",
+            "three_arm__ey_0__corrected",
+            {"estimands": ("ey", "ate", "rr", "or", "ey_obs", "par", "paf"), "k": 3},
+            {"arms": 3},
+            ("ey", "ate", "rr", "or", "ey_obs", "par", "paf"),
+        ),
+        (
+            "C11.weighted",
+            "weighted__ate__corrected",
+            {
+                "estimands": ("ey0", "ey1", "ate", "rr", "or", "ey_obs", "par", "paf"),
+                "weighted": True,
+            },
+            {"weights": True},
+            ("ey0", "ey1", "ate", "rr", "or", "ey_obs", "par", "paf"),
+        ),
+        (
+            "C11.weighted_stacked",
+            "weighted_crossfit__ate__corrected",
+            {"estimands": ATE, "cross_fit": True, "weighted": True},
+            {"weights": True},
+            ATE,
+        ),
+        (
+            "C11.stacked_k_arms",
+            "three_arm_crossfit__ate_1_vs_0__corrected",
+            {"estimands": ("ey", "ate"), "k": 3, "cross_fit": True, "simultaneous": True},
+            {"arms": 3},
+            ("ey", "ate"),
+        ),
+        (
+            "C11.stacked_k_arms_weighted",
+            "composition__ate_0_vs_1__corrected",
+            {"estimands": ("ey", "ate"), "k": 3, "cross_fit": True, "weighted": True},
+            {"arms": 3, "weights": True},
+            ("ey", "ate"),
+        ),
+    ):
+        add(
+            _case(
+                row,
+                "ctmle-oat-per-arm-parametric-extensions",
+                cell,
+                where,
+                lambda fit=fit: _study(extensions).estimator(_study(extensions).Fit("main", **fit)),
+                data,
+                names,
+            )
+        )
     return tuple(cases)
 
 
@@ -1699,6 +1768,26 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, frame, configuration=configuration: study.fit(frame, configuration),
         )
 
+    # The structural nested mean study (X44): one primary scenario for each key it fits.
+    for row, scenario in (
+        ("G42.two_nodes", "s2"),
+        ("G42.three_nodes", "s3"),
+        ("G42.categorical", "k"),
+        ("G42.dose", "c"),
+        ("G42.covariate_feature", "l"),
+        ("G42.weighted", "s2w"),
+        ("G42.clustered", "s2c"),
+    ):
+        seeded(
+            row,
+            "structural-nested-mean",
+            scenario,
+            "canonical_structural_nested_mean.py:320",
+            scenario,
+            2000,
+            lambda study, frame, scenario=scenario: study.fit(study.SETUP_OF[scenario], frame),
+        )
+
     # The IS and cross-fitted fits of ``SDR``: the runner's scenarios and the property cells.
     sdr = "canonical_longitudinal_sdr.py:362"
     sdr_slug = "longitudinal-sdr"
@@ -2035,6 +2124,76 @@ def _vector_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+def _categorical_incremental_cases() -> tuple[RowCase, ...]:
+    """The cases of ``categorical-incremental`` (X43).
+
+    Each runs the study's own fit on a small draw of its stream up to the classifier.
+    """
+    runner, slug = "canonical_categorical_incremental", "categorical-incremental"
+    properties = "categorical_incremental_properties"
+
+    def primary(row: str, scenario: str, line: int) -> RowCase:
+        return _seeded(
+            row,
+            slug,
+            scenario,
+            f"{runner}.py:{line}",
+            runner,
+            scenario,
+            400,
+            lambda study, frame, scenario=scenario: study.fit(frame, scenario),
+        )
+
+    def point_draw(module: Any) -> Any:
+        return module._draw_fit_set(("interval_calibration", "law_p", "calibration", 0, 400, 1))
+
+    def long_draw(stream: str) -> Callable[[Any], Any]:
+        return lambda module: module._draw_fit_set(
+            ("interval_calibration", stream, "calibration", 0, 2000, 1)
+        )
+
+    return (
+        primary("T35.in_sample", "point_in_sample", 235),
+        primary("T35.cross_fitted", "point_crossfit", 235),
+        _observed(
+            "T35.known",
+            slug,
+            "point_known_t_a",
+            f"{properties}.py:468",
+            properties,
+            point_draw,
+            lambda m, f: m.common.fit_point(f.drop(columns="V"), cross_fit=True, known=True),
+        ),
+        _observed(
+            "T35.strata",
+            slug,
+            "point_stratified_t_a_v1",
+            f"{properties}.py:469",
+            properties,
+            point_draw,
+            lambda m, f: m.common.fit_point(f, cross_fit=True, strata=True),
+        ),
+        _observed(
+            "G43.cross_fitted",
+            slug,
+            "longitudinal_dropout_contrast_t_a",
+            f"{properties}.py:497",
+            properties,
+            long_draw("law_l"),
+            lambda m, f: m.common.fit_longitudinal(f, m.long_law.LAW_L, n_folds=m.common.N_FOLDS),
+        ),
+        _observed(
+            "G43.complete",
+            slug,
+            "longitudinal_contrast_t_a",
+            f"{properties}.py:517",
+            properties,
+            long_draw("law_l0"),
+            lambda m, f: m.common.fit_longitudinal(f, m.long_law.LAW_L0, n_folds=m.common.N_FOLDS),
+        ),
+    )
+
+
 def _continuous_dose_cases() -> tuple[RowCase, ...]:
     """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
     cases: list[RowCase] = []
@@ -2149,5 +2308,6 @@ CASES: tuple[RowCase, ...] = (
     *_plugin_limit_cases(),
     *_long_cases(),
     *_vector_cases(),
+    *_categorical_incremental_cases(),
     *_continuous_dose_cases(),
 )

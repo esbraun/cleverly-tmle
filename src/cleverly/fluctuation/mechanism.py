@@ -6,20 +6,20 @@ distribution alone: the efficient influence function then lives entirely in the 
 space those two span, and one submodel through :math:`\bar Q^0` reaches all of it.
 
 An :class:`~cleverly.interventions.Incremental` intervention is not such a parameter.
-Its :math:`q_\delta = \delta g / (\delta g + 1 - g)` is built out of the mechanism, so
+Its :math:`q_\delta(a) = \delta_a g(a) / \sum_b \delta_b g(b)` is built out of the
+mechanism, so
 
 .. math::
 
-    \Psi(\delta) = E\!\left[\frac{\delta g \bar Q(1, W) + (1 - g)\bar Q(0, W)}
-                                 {\delta g + 1 - g}\right]
+    \Psi(\delta) = E\!\left[\sum_a q_\delta(a \mid W)\,\bar Q(a, W)\right]
 
 mentions :math:`g` directly and its influence function carries a term
-:math:`\partial m/\partial g \cdot (A - g)` that no fluctuation of :math:`\bar Q` can
-touch -- it is a score in the tangent space of the *treatment* mechanism.  A TMLE that
-solved only the :math:`\bar Q` equation would report an influence curve it had not made
-mean zero, which is the one thing the method is for.
+:math:`\sum_b (\partial m/\partial g_b)\{1(A=b) - g_b\}` that no fluctuation of
+:math:`\bar Q` can touch -- it is a score in the tangent space of the *treatment*
+mechanism.  A TMLE that solved only the :math:`\bar Q` equation would report an influence
+curve it had not made mean zero, which is the one thing the method is for.
 
-So the mechanism gets a submodel of its own,
+So the mechanism gets a submodel of its own.  On two levels it is logistic,
 
 .. math::
 
@@ -29,21 +29,37 @@ So the mechanism gets a submodel of its own,
     \frac{\partial}{\partial \epsilon} \log g_\epsilon(A \mid W)
         = H_g(W)\,\{A - g_\epsilon(W)\},
 
-whose score at the solution is exactly the missing term once
-:math:`H_g = (\partial m/\partial g)` -- for the incremental tilt,
-:math:`\delta\{\bar Q(1,W) - \bar Q(0,W)\}/D_\delta^2`, which is
-:attr:`~cleverly.interventions.IPSISet.derivative` times the blip.
+with :math:`H_g = \delta\{\bar Q(1,W) - \bar Q(0,W)\}/D_\delta^2`, which is
+:meth:`~cleverly.interventions.IPSISet.binary_derivative` times the blip.  On three or more
+levels it is the softmax submodel,
 
-**It is the same solver.**  A weighted logistic MLE with an offset and no intercept is
-what :func:`~cleverly.fluctuation.iterative.solve_fluctuation` already runs; only
-:math:`(y, \text{offset})` change, from :math:`(Y, \operatorname{logit}\bar Q^0)` to
+.. math::
+
+    g_\epsilon(a \mid W) \propto \hat g(a \mid W)\,\exp\{\epsilon^\top H_g(a, W)\},
+    \qquad
+    \frac{\partial}{\partial \epsilon} \log g_\epsilon(A \mid W)
+        = H_g(A, W) - \sum_a g_\epsilon(a \mid W)\, H_g(a, W),
+
+with :math:`H_g(a, W) = h_\delta(a, W)\{\bar Q(a, W) - m(W)\}`.  Rows of :math:`g_\epsilon`
+stay on the simplex.  At the current mechanism :math:`\sum_a g_a H_g(a) = 0`, so the score at
+the solution is exactly the mechanism term :math:`H_g(A)`.  At two levels the softmax
+submodel is the logistic one with covariate :math:`H_g(1) - H_g(0)`, so the binary path keeps
+its logistic solver and its arrays.
+
+**Two levels use the same solver.**  A weighted logistic MLE with an offset and no
+intercept is what :func:`~cleverly.fluctuation.iterative.solve_fluctuation` already runs;
+only :math:`(y, \text{offset})` change, from :math:`(Y, \operatorname{logit}\bar Q^0)` to
 :math:`(A, \operatorname{logit}\hat g)`.  Sharing
 :func:`~cleverly.fluctuation.iterative._newton_logistic` rather than writing a second
 Newton loop is deliberate: two solvers would mean two line searches, two failure
-vocabularies and two definitions of "converged" for one idea.
+vocabularies and two definitions of "converged" for one idea.  The softmax solver
+:func:`solve_multinomial_mechanism` keeps that vocabulary: the same damped Newton step, the
+same backtracking on the log-likelihood, the same :class:`MechanismFluctuation` record and
+failure names.  It is concave, so a Newton step with backtracking converges.
 
-**The tilt is logistic whatever ``fluctuation=`` says.**  A linear tilt of a probability
-is not a probability, and here the tilted mechanism is not merely a regression target --
+**The tilt is logistic or softmax whatever ``fluctuation=`` says.**  A linear tilt of a
+probability is not a probability, and here the tilted mechanism is not merely a regression
+target --
 it is substituted back into :math:`\Psi`, so a value outside :math:`(0, 1)` would not be
 an inaccuracy but a nonsense.  ``fluctuation="linear"`` therefore applies to the outcome
 regression only.
@@ -72,7 +88,14 @@ from scipy.special import expit, logit
 
 from .._typing import FloatArray
 from ._score import relative_score, score_columns, score_scale
-from .iterative import InitialFit, TargetingFailure, _newton_logistic
+from .iterative import (
+    _LINE_SEARCH_SLACK,
+    InitialFit,
+    NewtonDetail,
+    TargetingFailure,
+    _newton_logistic,
+    _solve_step,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - `interventions` does not import `fluctuation`
     from ..interventions import IPSISet
@@ -85,11 +108,13 @@ __all__ = [
     "armwise_mechanism_score",
     "mechanism_covariate",
     "mechanism_score",
+    "multinomial_mechanism_score",
     "needs_mechanism",
     "register_mechanism",
     "solve_armwise_bounded_mechanism",
     "solve_bounded_mechanism",
     "solve_mechanism",
+    "solve_multinomial_mechanism",
     "split_mechanism_carry",
 ]
 
@@ -143,23 +168,31 @@ class MechanismFluctuation:
     subclass: it reports the same kind of thing about a different equation, and the two
     are carried together on a fit that solves both.
 
-    Attributes
+    Parameters
     ----------
-    propensity:
-        ``(n,)``, the targeted :math:`g^*(1 \\mid W)`.  This is what
+    propensity : FloatArray
+        ``(n,)`` for two levels, the targeted :math:`g^*(1 \\mid W)`; ``(n, K)`` for more,
+        the targeted :math:`g^*(a \\mid W)` with rows on the simplex.  This is what
         :math:`\\Psi(\\delta)` is evaluated at, and what the influence curve's
         :math:`(A - g)` is taken against.  It is **not** written back onto
         :class:`~cleverly.estimators._nuisance.NuisanceEstimates`, which keeps the
         initial cross-fitted mechanism exactly as it keeps the initial
         :math:`\\bar Q` -- so ``retarget`` stays idempotent and the nuisance diagnostics
         keep describing the model that was actually fitted.
-    epsilon:
+    epsilon : FloatArray
         One coefficient per tilt.
-    score, score_scale, score_initial:
-        :math:`P_n[H_g (A - g^*)]` after targeting, the largest magnitude it could have
-        had, and its value before.  Reported on the same footing as the outcome
-        fluctuation's so that :func:`~cleverly.validation.score_check` can put the two
-        equations in one table.
+    score : FloatArray
+        :math:`P_n[H_g (A - g^*)]` after targeting.
+    score_scale : FloatArray
+        The largest magnitude the score could have had.
+    score_initial : FloatArray
+        The score before targeting.  The three are reported on the same footing as the
+        outcome fluctuation's so that :func:`~cleverly.validation.score_check` can put the
+        two equations in one table.
+
+    Attributes
+    ----------
+    relative_score : float
     """
 
     propensity: FloatArray
@@ -210,20 +243,37 @@ def register_mechanism(group: str, builder: Callable[..., FloatArray]) -> Callab
 
 
 def ipsi_mechanism_covariate(targeted: InitialFit, incremental: IPSISet) -> FloatArray:
-    r"""``(n, R)``: :math:`\delta_r \{\bar Q^*(1, W) - \bar Q^*(0, W)\} / D_{\delta_r}^2`.
+    r"""The covariate of the mechanism fluctuation: ``(n, R)`` for two levels, ``(n, K, R)`` else.
 
-    The blip weighted by :math:`\partial q_\delta / \partial g`.  It reads the *targeted*
+    Two levels give the blip weighted by :math:`\partial q_\delta / \partial g`,
+    :math:`\delta_r \{\bar Q^*(1, W) - \bar Q^*(0, W)\} / D_{\delta_r}^2`, for the logistic
+    submodel.  Three or more levels give :math:`H_r(a, W) = h_r(a, W)\{\bar Q^*(a, W) -
+    m_r(W)\}` with :math:`m_r = \sum_a q_r(a)\bar Q^*(a)`, the coefficient of level
+    :math:`a` in the mechanism score, for the softmax submodel.  Either reads the *targeted*
     outcome regression, which is why the alternation exists: with the initial
     :math:`\bar Q^0` here the mechanism would be tilted toward the wrong equation.
 
-    The blip is on the ``[0, 1]`` outcome scale, as every other clever covariate here is.
-    The whole influence curve is mapped back by ``ctx.finish``, and it is linear in the
+    The covariate is on the ``[0, 1]`` outcome scale, as every other clever covariate here
+    is.  The whole influence curve is mapped back by ``ctx.finish``, and it is linear in the
     outcome, so no term needs unscaling on its own.
     """
-    derivative = np.asarray(incremental.derivative, dtype=float)
+    build = _covariate_binary if incremental.n_arms == 2 else _covariate_general
+    return build(targeted, incremental)
+
+
+def _covariate_binary(targeted: InitialFit, incremental: IPSISet) -> FloatArray:
+    """``(n, R)``: the blip weighted by ``delta / D^2``, for the logistic submodel."""
     arms = targeted.arms
     blip = np.asarray(arms[1.0], dtype=float) - np.asarray(arms[0.0], dtype=float)
-    return np.asarray(derivative * blip[:, None], dtype=float)
+    return np.asarray(incremental.binary_derivative * blip[:, None], dtype=float)
+
+
+def _covariate_general(targeted: InitialFit, incremental: IPSISet) -> FloatArray:
+    """``(n, K, R)``: ``h_r(a)(Qbar*_a - m_r)``, for the softmax submodel."""
+    predictions = np.column_stack([targeted.arms[level] for level in targeted.levels])
+    mixture = np.einsum("ijr,ij->ir", np.asarray(incremental.values, dtype=float), predictions)
+    centred = predictions[:, :, None] - mixture[:, None, :]
+    return np.asarray(np.asarray(incremental.weights, dtype=float) * centred, dtype=float)
 
 
 register_mechanism("ipsi", ipsi_mechanism_covariate)
@@ -313,6 +363,53 @@ def _armwise_width(a: FloatArray, g: FloatArray, h: FloatArray, arms: tuple[floa
     return int(h.shape[1] // k)
 
 
+def multinomial_mechanism_score(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    covariate: FloatArray,
+    weights: FloatArray,
+) -> tuple[FloatArray, FloatArray]:
+    r"""``(score, scale)`` of the softmax mechanism equation, without solving it.
+
+    The score of column :math:`r` is :math:`P_n[w\{H_r(A) - \sum_a g_a H_r(a)\}]`.  Its scale
+    is :math:`P_n[w\{\max_a H_r(a) - \min_a H_r(a)\}]`, the largest the score could be.  For
+    two levels it is the logistic score of the covariate :math:`H(1) - H(0)` and its scale.
+
+    A function of its own and not a branch of :func:`mechanism_score`, which the DR-TMLE
+    equations also read.
+
+    Parameters
+    ----------
+    treatment : ndarray
+        ``(n,)`` observed arm codes.
+    propensity : ndarray
+        ``(n, K)`` mechanism, columns in arm-code order.
+    covariate : ndarray
+        ``(n, K, R)`` covariate :math:`H_r(a, W)`.
+    weights : ndarray
+        ``(n,)`` observation weights.
+
+    Returns
+    -------
+    tuple of ndarray
+        The ``(R,)`` score and its ``(R,)`` scale.
+    """
+    a = np.rint(np.asarray(treatment, dtype=float).reshape(-1)).astype(int)
+    g = np.asarray(propensity, dtype=float)
+    h = np.asarray(covariate, dtype=float)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    if h.ndim != 3 or g.shape != h.shape[:2] or h.shape[0] != a.size:
+        raise ValueError(
+            f"the softmax mechanism must be ({a.size}, K) and its covariate ({a.size}, K, R); "
+            f"got {g.shape} and {h.shape}"
+        )
+    observed = h[np.arange(a.size), a, :]
+    expected = np.einsum("ij,ijr->ir", g, h)
+    score = (w[:, None] * (observed - expected)).mean(axis=0)
+    scale = (np.abs(w)[:, None] * (h.max(axis=1) - h.min(axis=1))).mean(axis=0)
+    return np.asarray(score, dtype=float), np.asarray(scale, dtype=float)
+
+
 def apply_mechanism_tilt(
     propensity: FloatArray,
     covariate: FloatArray,
@@ -391,6 +488,145 @@ def solve_mechanism(
         score_initial=before,
         converged=converged,
         n_iter=max_iter,
+        epsilon_std_error=detail.epsilon_std_error,
+        hessian_condition=detail.hessian_condition,
+        loglik=detail.loglik,
+        failure=failure,
+    )
+
+
+def solve_multinomial_mechanism(
+    treatment: FloatArray,
+    propensity: FloatArray,
+    covariate: FloatArray,
+    weights: FloatArray,
+    *,
+    max_iter: int = 50,
+    tol: float = 1e-12,
+) -> MechanismFluctuation:
+    r"""Tilt a multinomial ``propensity`` along ``covariate`` until its softmax score is zero.
+
+    The submodel is :math:`g_\epsilon(a) \propto \hat g(a)\exp\{\epsilon^\top H(a)\}`.  The
+    weighted log-likelihood :math:`\sum_i w_i \log g_\epsilon(A_i \mid W_i)` is concave in
+    :math:`\epsilon`, with gradient :math:`\sum_i w_i\{H(A_i) - E_{g_\epsilon}H\}` and
+    Hessian :math:`-\sum_i w_i \operatorname{Cov}_{g_\epsilon}(H)`.  A damped Newton step
+    with backtracking on the log-likelihood solves it, on the terms
+    :func:`~cleverly.fluctuation.iterative._newton_logistic` does for two levels.  Rows stay
+    on the simplex.  An all-zero covariate is not a failure: :math:`\epsilon` is zero and the
+    mechanism comes back untouched.  A level with :math:`\hat g(a \mid W_i) = 0` keeps zero
+    mass in that row at every :math:`\epsilon`.  The two-level :func:`solve_mechanism` clips
+    :math:`\hat g` at ``1e-12`` instead, so that its binary arrays are those of the binary
+    path before this solver existed.
+
+    Not :func:`solve_armwise_bounded_mechanism`, which fits one unnormalised one-versus-rest
+    mechanism per arm for DR-TMLE and does not keep rows on the simplex.
+
+    Parameters
+    ----------
+    treatment : ndarray
+        ``(n,)`` observed arm codes.
+    propensity : ndarray
+        ``(n, K)`` mechanism :math:`\hat g`, columns in arm-code order.
+    covariate : ndarray
+        ``(n, K, R)`` covariate :math:`H_r(a, W)`.
+    weights : ndarray
+        ``(n,)`` observation weights.
+    max_iter : int
+        Newton iteration limit.
+    tol : float
+        Convergence threshold on the gradient per unit of weight, and on the step size.
+
+    Returns
+    -------
+    MechanismFluctuation
+        The targeted ``(n, K)`` mechanism, ``epsilon`` of length ``R`` and the score record.
+    """
+    a = np.rint(np.asarray(treatment, dtype=float).reshape(-1)).astype(int)
+    g = np.asarray(propensity, dtype=float)
+    h = np.asarray(covariate, dtype=float)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    if h.ndim != 3 or g.shape != h.shape[:2] or h.shape[0] != a.size:
+        raise ValueError(
+            f"the softmax mechanism must be ({a.size}, K) and its covariate ({a.size}, K, R); "
+            f"got {g.shape} and {h.shape}"
+        )
+    rows = np.arange(a.size)
+    # A level the mechanism excludes (g = 0 exactly) stays excluded: the submodel multiplies g
+    # by a positive factor, so its mass is zero at every epsilon.  The guard that keeps the
+    # logarithm finite applies to a positive g only.  A row with no positive entry is not a
+    # distribution, and keeps the guard so that the softmax stays defined.
+    support = (g > 0.0) | ~(g > 0.0).any(axis=1, keepdims=True)
+    log_g = np.where(support, np.log(np.clip(g, _LOGIT_GUARD, 1.0)), -np.inf)
+
+    def tilted(epsilon: FloatArray) -> FloatArray:
+        eta = log_g + h @ epsilon
+        eta = eta - eta.max(axis=1, keepdims=True)
+        p = np.exp(eta)
+        return np.asarray(p / p.sum(axis=1, keepdims=True), dtype=float)
+
+    def loglik(p: FloatArray) -> float:
+        return float(np.sum(w * np.log(np.clip(p[rows, a], 1e-15, 1.0))))
+
+    before, scale = multinomial_mechanism_score(a, g, h, w)
+    detail = NewtonDetail()
+    epsilon = np.zeros(h.shape[2])
+    p = tilted(epsilon)
+    current = loglik(p)
+    detail.loglik = current
+    total_weight = float(w.sum())
+    iterations = 0
+    converged = True
+    if h.size and not np.allclose(h, 0.0) and total_weight > 0.0:
+        converged = False
+        for _ in range(max_iter):
+            mean_h = np.einsum("ij,ijr->ir", p, h)
+            gradient = (w[:, None] * (h[rows, a, :] - mean_h)).sum(axis=0)
+            if np.max(np.abs(gradient)) / total_weight <= tol:
+                converged = True
+                break
+            second = np.einsum("i,ij,ijr,ijs->rs", w, p, h, h)
+            hessian = second - np.einsum("i,ir,is->rs", w, mean_h, mean_h)
+            detail.observe(hessian)
+            step = _solve_step(hessian, gradient)
+            if step is None:
+                detail.failure = "nonfinite_step"
+                break
+            # Backtracking, on the terms _newton_logistic gives: the slack is relative to the
+            # size of the log-likelihood, so a step near the optimum is not rejected for
+            # falling below the floating-point granularity of a number of that size.
+            slack = _LINE_SEARCH_SLACK * max(1.0, abs(current))
+            factor = 1.0
+            for _ in range(30):
+                candidate = epsilon + factor * step
+                p_candidate = tilted(candidate)
+                value = loglik(p_candidate)
+                if value >= current - slack:
+                    epsilon, p, current = candidate, p_candidate, value
+                    detail.loglik = current
+                    break
+                factor *= 0.5
+            else:
+                detail.failure = "line_search_exhausted"
+                break
+            iterations += 1
+            if np.max(np.abs(factor * step)) <= tol:
+                converged = True
+                break
+        else:
+            detail.failure = "max_iter_reached"
+    final = tilted(epsilon) if np.any(epsilon) else g
+    failure: TargetingFailure | None = detail.failure
+    if failure is None and not converged:
+        failure = "max_iter_reached"
+    score, _ = multinomial_mechanism_score(a, final, h, w)
+    return MechanismFluctuation(
+        propensity=final,
+        epsilon=epsilon,
+        score=score,
+        score_scale=scale,
+        score_initial=before,
+        converged=converged,
+        n_iter=iterations,
         epsilon_std_error=detail.epsilon_std_error,
         hessian_condition=detail.hessian_condition,
         loglik=detail.loglik,

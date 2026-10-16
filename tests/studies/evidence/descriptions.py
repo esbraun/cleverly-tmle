@@ -61,6 +61,18 @@ ARMS: dict[str, str] = {
     "or": "marginal odds ratio",
     "att": "average effect on the treated",
     "atc": "average effect on the untreated",
+    # ``categorical-incremental`` (X43): the labels of its calibration and property cells.
+    "point_contrast_t_a": "three-level law P, T_a against the natural course",
+    "point_contrast_t_b": "three-level law P, T_b against the natural course",
+    "point_known_t_a": "law P with the treatment mechanism declared, T_a against the natural course",
+    "point_stratified_t_a_v1": "law P in baseline stratum V = 1, T_a against the natural course",
+    "longitudinal_dropout_contrast_t_a": (
+        "two-node law L with dropout and three-level treatment, T_a against the natural course"
+    ),
+    "longitudinal_contrast_t_a": (
+        "two-node law L0 without dropout and three-level treatment, T_a against the natural course"
+    ),
+    "longitudinal_mean_t_a": "two-node law L with dropout, mean under T_a",
     "ey_ipsi": "incremental mean at odds multiplier 2",
     "ey0": "arm-0 mean",
     "ey1": "arm-1 mean",
@@ -627,6 +639,121 @@ _PLUGIN_LAWS = {
     ),
 }
 
+#: The labels of ``structural-nested-mean``: a setup and one estimand of it.  Mirrored from
+#: ``tests.studies.canonical_structural_nested_mean.CALIBRATION_LABELS``, which this module
+#: cannot import; ``tests/unit/test_structural_nested_mean_design.py`` pins that every cell
+#: resolves.
+_STRUCTURAL_SETUPS = {
+    "s2": "law S2, two binary nodes",
+    "s3": "law S3, three binary nodes with a path from each treatment to the later ones",
+    "k": "law K, two nodes of three levels",
+    "c": "law C, two doses with linear conditional means",
+    "h": "law H, blip features of the baseline and the past treatment",
+    "p": "law P, the second blip reads the first treatment",
+    "m": "law M, the second treatment and the outcome read the first covariate",
+    "l": "law L, the second blip reads the second covariate, which the feature declares",
+    "n": "law N, nonlinear nuisances fitted by a shallow booster",
+    "s2w": "law S2 with the known weight 0.5 + 1.5 W",
+    "s2c": "law S2 in clusters of ten that share the baseline and an outcome intercept",
+    "sp": "law SP, treatment logits multiplied by three, weak positivity",
+    "lu": "law L fitted without its second-covariate feature",
+    "vb": "law P fitted with a baseline-only second feature",
+}
+_STRUCTURAL_KEYS = {
+    "s2": ("blip_a1_l1", "blip_a2_l1", "ey0", "ey_r11", "ate_r11", "ey_r10"),
+    "s3": ("blip_a1_l1", "blip_a2_l1", "blip_a3_l1", "ey0", "ate_r111", "ate_r101"),
+    "k": (
+        "blip_a1_l1",
+        "blip_a1_l2",
+        "blip_a2_l1",
+        "blip_a2_l2",
+        "ey0",
+        "ey_r12",
+        "ate_r12",
+        "ate_r21",
+    ),
+    "c": ("blip_a1", "blip_a2", "ey0", "ey_dose_mid", "ate_dose_mid", "ate_dose_high"),
+    "h": (
+        "blip_a1_l1",
+        "blip_a1_l1_w",
+        "blip_a2_l1",
+        "blip_a2_l1_w",
+        "blip_a2_l1_a1",
+        "ey0",
+        "ey_r11",
+        "ate_r11",
+        "ate_r10",
+    ),
+    "p": ("blip_a1_l1", "blip_a2_l1", "blip_a2_l1_a1", "ey0", "ate_r11", "ey_r01"),
+    "m": ("blip_a1_l1", "blip_a2_l1", "ey0", "ate_r11"),
+    "l": ("blip_a1_l1", "blip_a2_l1", "blip_a2_l1_s2", "ey0"),
+    "n": ("blip_a1_l1", "blip_a2_l1", "ey0", "ate_r11"),
+    "s2w": ("blip_a1_l1", "ey0", "ey_r11", "ate_r11"),
+    "s2c": ("blip_a1_l1", "ey0", "ey_r11", "ate_r11"),
+    "sp": (
+        "blip_a1_l1",
+        "blip_a1_l1_w",
+        "blip_a2_l1",
+        "blip_a2_l1_w",
+        "blip_a2_l1_a1",
+        "ey0",
+        "ey_r11",
+        "ate_r11",
+        "ate_r10",
+        "ate_r01",
+    ),
+    "lu": ("ey_r11", "ate_r10", "ate_r01"),
+    "vb": ("ey_r11", "ate_r11", "ate_r10", "ate_r01"),
+}
+_STRUCTURAL_ORDINALS = {"1": "first", "2": "second", "3": "third"}
+_STRUCTURAL_FEATURES = {"w": "baseline W", "a1": "first treatment", "s2": "second covariate"}
+_STRUCTURAL_BLIP = re.compile(r"^blip_a(?P<node>\d)(?:_l(?P<level>\d))?(?:_(?P<feature>w|a1|s2))?$")
+
+
+def _structural_target(key: str) -> str:
+    """The estimand a short label key names, in words."""
+    if key == "ey0":
+        return "mean outcome with every treatment at its reference"
+    blip = _STRUCTURAL_BLIP.match(key)
+    if blip is not None:
+        words = f"blip of the {_STRUCTURAL_ORDINALS[blip.group('node')]} treatment"
+        if blip.group("level"):
+            words += f" at level {blip.group('level')}"
+        if blip.group("feature"):
+            words += f", slope on the {_STRUCTURAL_FEATURES[blip.group('feature')]}"
+        return words
+    kind, _, plan = key.partition("_")
+    if kind == "ey":
+        return f"mean outcome under regimen {plan}"
+    return f"contrast of regimen {plan} against the reference regimen"
+
+
+ARMS.update(
+    {
+        f"{setup}_{key}": f"{_STRUCTURAL_SETUPS[setup]}: {_structural_target(key)}"
+        for setup, keys in _STRUCTURAL_KEYS.items()
+        for key in keys
+    }
+)
+
+#: The model-check cells of ``structural-nested-mean``, by their cell prefix.
+ARMS.update(
+    {
+        "s2_f2": "law S2, structural model correct, two outer folds, n = 1,000",
+        "s2_f10": "law S2, structural model correct, ten outer folds, n = 1,000",
+        "h_f2": "law H, structural model correct, two outer folds, n = 1,000",
+        "h_f10": "law H, structural model correct, ten outer folds, n = 1,000",
+        "s2_n2000_f2": "law S2, structural model correct, two outer folds, n = 2,000",
+        "s2_n2000_f10": "law S2, structural model correct, ten outer folds, n = 2,000",
+        "h_n2000_f2": "law H, structural model correct, two outer folds, n = 2,000",
+        "h_n2000_f10": "law H, structural model correct, ten outer folds, n = 2,000",
+        "sp_f2": "law SP, treatment logits multiplied by three, two outer folds, n = 2,000",
+        "sp_f10": "law SP, treatment logits multiplied by three, ten outer folds, n = 2,000",
+        "lu_f2": "law L fitted without its second-covariate feature, two outer folds, n = 2,000",
+        "lu_f10": "law L fitted without its second-covariate feature, ten outer folds, n = 2,000",
+    }
+)
+
 #: The labels of ``parametric-gformula``: a method, a law and a target.  Mirrored from
 #: ``tests.studies.parametric_gformula_properties``, which this module cannot import;
 #: ``tests/unit/test_parametric_gformula_design.py`` pins that every cell resolves.
@@ -725,6 +852,10 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-ctmle-oat-per-arm-parametric-crossfit": (
         "`cleverly` cross-fitted per-arm outcome-adaptive C-TMLE with a parametric outcome and "
         "mechanism"
+    ),
+    "cleverly-ctmle-oat-per-arm-parametric-extensions": (
+        "`cleverly` per-arm outcome-adaptive C-TMLE with a parametric outcome and mechanism, "
+        "at three arms, with known weights and for the population targets"
     ),
     "drtmle-r-oat-per-arm": "R `drtmle` with `adapt_g`, by a binary recode per arm",
     "drtmle-r-oat-per-arm-strata-missing": (
@@ -840,6 +971,7 @@ IMPLEMENTATIONS: dict[str, str] = {
     "npcausal": "R `npcausal`",
     "cleverly-ipsi": "`cleverly` `IPSI`, one-step over time",
     "cleverly-ipsi-dropout": "`cleverly` `IPSI` with a censoring mechanism",
+    "cleverly-categorical-incremental": ("`cleverly` TMLE and `IPSI` with a categorical odds tilt"),
     "r-ctmle": "R `ctmle`",
     "tlverse-ctmle3-oat": "R `ctmle3`",
     "ctmle3-multi-arm-oat": "R `ctmle3` multi-arm outcome-adaptive TMLE",
@@ -877,6 +1009,12 @@ SCENARIOS: dict[str, str] = {
     "missing_treatment": (
         "two arms, treatment unrecorded at random given W3 and the arm, outcomes missing at random"
     ),
+    "point_in_sample": "three-level treatment, four baseline values, nuisances fitted in sample",
+    "point_crossfit": "three-level treatment, four baseline values, five folds",
+    "longitudinal_dropout_folds_5": (
+        "two treatment nodes with three levels each, dropout after each node, five folds"
+    ),
+    "longitudinal_folds_5": ("two treatment nodes with three levels each, no dropout, five folds"),
     "ipsi_folds_2": "three-node law with a continuous outcome, two folds",
     "ipsi_folds_5": "three-node law with a continuous outcome, five folds",
     "repeated_folds_5": (
@@ -1195,6 +1333,8 @@ REGIMENS: dict[str, str] = {
     "halve below 3": "move a dose at or below 3 halfway toward 3",
     "odds x0.5": "multiply the treatment odds by 0.5",
     "odds x2": "multiply the treatment odds by two",
+    "T_a": "multiply the odds of the second level by 2 and of the third by 0.5, against the first",
+    "T_b": "multiply the odds of the second level by 0.5 and of the third by 2, against the first",
     "rule": "follow the covariate-dependent rule",
     "learned rule": "learned on each fold's training rows from its outcome regression",
     "tilt": "draw from the known stochastic tilt",
@@ -1486,6 +1626,14 @@ PROPERTIES: dict[str, str] = {
     "censoring_complete_case": (
         "how far a fit to the rows that never drop out sits from the target, reported rather "
         "than gated"
+    ),
+    "in_sample_fit": (
+        "how far a fit with one fold sits from the target on the same histories, reported "
+        "rather than gated"
+    ),
+    "mechanism_targeting": (
+        "the softmax update of the treatment mechanism removes the first-order error of a "
+        "tilted mechanism, and outcome targeting alone does not"
     ),
     "sequential_double_robustness": (
         "the estimate stays consistent when at each node either the outcome regression or "
@@ -3080,6 +3228,195 @@ CELLS[("interval_calibration", "repeats__ate__shipped_curve__shrunken_se_control
     "the SE-ratio interval must fall below the calibration band",
 )
 
+#: The ``ctmle-oat-per-arm-parametric-extensions`` cells (X58b2).  Each calibration label names one
+#: fit of the stacked curve; a cell reads one estimate of it.  The names follow
+#: ``tests.studies.canonical_ctmle_oat_per_arm_parametric_extensions.slug``: ``ate[0 vs 1]`` is
+#: ``ate_0_vs_1`` and ``par[1]`` is ``par_1``.
+_EXTENSION_SLUG = "ctmle-oat-per-arm-parametric-extensions"
+#: The label ``weighted`` is an :data:`ARMS` key of other studies, so the cell lookup strips it
+#: as an arm prefix.  Its cells are therefore keyed by study in :data:`STUDY_ARM_CELLS`, and the
+#: fit description is the study's reading of the arm.
+_EXTENSION_ARM_LABELS = ("weighted",)
+
+
+def _extension_put(family: str, name: str, tested: str, required: str) -> None:
+    """Register one cell of the extensions study under :data:`CELLS` or its study-keyed arm."""
+    label, _, rest = name.partition("__")
+    if label in _EXTENSION_ARM_LABELS:
+        STUDY_ARM_CELLS[(_EXTENSION_SLUG, family, label, rest)] = (tested, required)
+    else:
+        CELLS[(family, name)] = (tested, required)
+
+
+_EXTENSION_FITS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "three_arm": (
+        "the stacked curve on the three-arm law, in sample, reference arm 1",
+        (
+            "ey_0",
+            "ey_1",
+            "ey_2",
+            "ate_0_vs_1",
+            "ate_2_vs_1",
+            "log_rr_0_vs_1",
+            "log_rr_2_vs_1",
+            "log_or_0_vs_1",
+            "log_or_2_vs_1",
+            "par_1",
+            "paf_1",
+            "ey_obs",
+        ),
+    ),
+    "three_arm_shared": (
+        "the stacked curve on a three-arm law whose arms share W1 and W2 in their outcome index, "
+        "in sample, reference arm 1",
+        ("ey_0", "ey_1", "ey_2", "ate_0_vs_1", "ate_2_vs_1"),
+    ),
+    "binary_population": (
+        "the stacked curve of the population targets on the two-arm law, in sample",
+        ("par", "paf", "ey_obs"),
+    ),
+    "three_arm_crossfit": (
+        "the cross-fitted stacked curve on the three-arm law, five folds, reference arm 0",
+        ("ey_0", "ey_1", "ey_2", "ate_1_vs_0", "ate_2_vs_0"),
+    ),
+    "weighted": (
+        "the stacked curve on the two-arm law under the known weight 0.5 + 1{W1 > 0}, in sample",
+        ("ey0", "ey1", "ate", "log_rr", "log_or", "par", "paf", "ey_obs"),
+    ),
+    "weighted_crossfit": (
+        "the cross-fitted stacked curve on the two-arm law under the known weight, five folds",
+        ("ey0", "ey1", "ate"),
+    ),
+    "composition": (
+        "the cross-fitted stacked curve on the three-arm law under the known weight, five folds, "
+        "reference arm 1",
+        ("ey_0", "ey_1", "ey_2", "ate_0_vs_1", "ate_2_vs_1"),
+    ),
+}
+_EXTENSION_ESTIMATES = {
+    "ey0": "arm-0 mean",
+    "ey1": "arm-1 mean",
+    "ate": "ATE",
+    "ey_obs": "observed mean of the outcome",
+    "log_rr": "log risk ratio",
+    "log_or": "log odds ratio",
+    "par": "population attributable risk against reference arm 0",
+    "paf": "population attributable fraction against reference arm 0",
+}
+
+
+def _extension_estimate(token: str) -> str:
+    """The reader-facing name of an estimate slug of the extensions study."""
+    if token in _EXTENSION_ESTIMATES:
+        return _EXTENSION_ESTIMATES[token]
+    for prefix, words in (
+        ("ey_", "mean of arm {0}"),
+        ("par_", "population attributable risk against reference arm {0}"),
+        ("paf_", "population attributable fraction against reference arm {0}"),
+    ):
+        if token.startswith(prefix):
+            return words.format(token[len(prefix) :])
+    for prefix, words in (
+        ("ate_", "ATE, arm {0} versus arm {1}"),
+        ("log_rr_", "log risk ratio, arm {0} versus arm {1}"),
+        ("log_or_", "log odds ratio, arm {0} versus arm {1}"),
+    ):
+        if token.startswith(prefix):
+            first, second = token[len(prefix) :].split("_vs_")
+            return words.format(first, second)
+    raise KeyError(token)
+
+
+for _label, (_fit, _tokens) in _EXTENSION_FITS.items():
+    for _token in _tokens:
+        _extension_put(
+            "interval_calibration",
+            f"{_label}__{_token}__corrected",
+            _extension_estimate(_token)
+            if _label in _EXTENSION_ARM_LABELS
+            else f"{_fit}: {_extension_estimate(_token)}",
+            *_PARAMETRIC_CALIBRATION,
+        )
+for _label, _contrast in (
+    ("three_arm", "ate_0_vs_1"),
+    ("three_arm_shared", "ate_0_vs_1"),
+    ("binary_population", "par"),
+    ("three_arm_crossfit", "ate_1_vs_0"),
+    ("weighted", "ate"),
+    ("weighted_crossfit", "ate"),
+    ("composition", "ate_0_vs_1"),
+):
+    _extension_put(
+        "interval_calibration",
+        f"{_label}__{_contrast}__shrunken_se_control",
+        "the standard errors of this contrast are multiplied by a declared factor below one",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+    _extension_put(
+        "interval_calibration",
+        f"{_label}__{_contrast}__noise_control",
+        "a declared scale of independent noise is added to each estimate of this contrast",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+for _label, _token in (
+    ("three_arm", "ey_1"),
+    ("three_arm_crossfit", "ey_1"),
+    ("binary_population", "par"),
+    ("weighted", "ey0"),
+):
+    _extension_put(
+        "interval_calibration",
+        f"{_label}__{_token}__shipped_curve__shrunken_se_control",
+        f"the standard errors of {_extension_estimate(_token)} come from the shipped "
+        "adaptive-propensity curve of the same fits, which omits the generated-design term",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+CELLS[
+    (
+        "interval_calibration",
+        "three_arm_shared__ate_0_vs_1__cross_term_dropped__inflated_se_control",
+    )
+] = (
+    "the standard errors of the contrast are built from the two arm variances without the "
+    "cross-arm covariance, on a law whose arm estimates correlate",
+    "the SE-ratio interval must fall above the calibration band",
+)
+for _label in ("three_arm", "three_arm_crossfit", "binary_population"):
+    CELLS[("simultaneous_coverage", f"{_label}__simultaneous_band")] = (
+        "the max-t multiplier band over the declared set of stacked estimates, from the "
+        "same-row stacked influence curves",
+        "joint coverage interval inside the calibration coverage band",
+    )
+for _label in ("three_arm", "binary_population"):
+    CELLS[("simultaneous_coverage", f"{_label}__pointwise_joint_control")] = (
+        "the pointwise 95% intervals of the same fits, read jointly",
+        "joint coverage upper endpoint must fall below the nominal rate",
+    )
+    CELLS[("simultaneous_coverage", f"{_label}__shipped_curve_band_control")] = (
+        "the max-t band built from the shipped adaptive-propensity curves of the same estimates",
+        "joint coverage upper endpoint must fall below the nominal rate",
+    )
+for _contrast in ("ate_1_vs_0", "ate_2_vs_0"):
+    ARM_CELLS[("generated_design", "three_arm_active", f"oracle_design__{_contrast}")] = (
+        "the outcome-adaptive design is supplied rather than estimated, cross-fitted, "
+        f"{_extension_estimate(_contrast)}",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    )
+    ARM_CELLS[("generated_design", "three_arm_active", f"estimated__{_contrast}")] = (
+        "the same design is estimated from the data, as a real fit does, cross-fitted, "
+        f"{_extension_estimate(_contrast)}",
+        "SE ratio and coverage intervals both inside their calibration bands; the paired "
+        "deficit is reported only",
+    )
+for _contrast in ("ate_0_vs_1", "ate_2_vs_1"):
+    CELLS[("type_i_error", f"three_arm_null__{_contrast}")] = (
+        "the three-arm law whose arms share one outcome index, so every contrast is zero: "
+        f"{_extension_estimate(_contrast)}",
+        "one-sided rejection bound stays under the declared type-I ceiling",
+    )
+
+STUDY_ARMS[(_EXTENSION_SLUG, "weighted")] = _EXTENSION_FITS["weighted"][0]
+
 
 def implementation(key: str) -> str:
     """The reader-facing name of an implementation column value."""
@@ -3114,6 +3451,11 @@ def estimand(key: str, *, outcome_kind: str = "absorbing") -> str:
         except KeyError:
             raise Undescribed(f"no description for estimand {key!r}") from None
     name, argument = match.group("name"), match.group("argument")
+    if name == "blip":
+        treatment, level, feature = argument.split(":")
+        words = f"blip of treatment {treatment}"
+        words += " per unit dose" if level == "dose" else f" at level {float(level):g}"
+        return words if feature == "intercept" else f"{words}, coefficient of {feature}"
     if name == "ey":
         return f"counterfactual mean under treatment arm {argument!r}"
     if name in {"par", "paf"}:
@@ -3461,6 +3803,31 @@ CELLS.update(
             "the mean of the first-node regression before the correction, on the same fits",
             "bias interval outside the margin",
         ),
+        ("mechanism_term_necessity", "binary_blip"): (
+            "the same estimates with the mechanism term read from the first two levels only",
+            "the SE-ratio interval must fall below the calibration band",
+        ),
+        ("single_robustness", "mechanism_correct__n_8000"): (
+            "cell-frequency treatment mechanism and a constant outcome regression, at n = 8,000",
+            "bias inside the margin at n = 8,000 and at n = 16,000",
+        ),
+        ("single_robustness", "mechanism_correct__n_16000"): (
+            "cell-frequency treatment mechanism and a constant outcome regression, at n = 16,000",
+            "bias inside the margin at n = 8,000 and at n = 16,000",
+        ),
+        ("in_sample_fit", "one_fold"): (
+            "the same histories fitted with one fold, beside the exact-law truth",
+            "reported only",
+        ),
+        ("mechanism_targeting", "mechanism_targeted"): (
+            "the treatment mechanism is tilted along the T_a mechanism score by 2 / sqrt(n), "
+            "then the full targeting runs",
+            "bias inside the margin and the SE-ratio interval inside the efficiency-ratio band",
+        ),
+        ("mechanism_targeting", "outcome_targeted_only"): (
+            "the same tilted mechanism with the outcome fluctuation alone",
+            "bias interval must fall above zero and entirely outside the margin",
+        ),
         ("censoring_complete_case", "complete_case"): (
             "a fit to the rows that never drop out, without a censoring model, beside the "
             "exact-law limit",
@@ -3638,6 +4005,28 @@ CELLS.update(
 )
 
 
+# ------------------------------------------------------------- structural-nested-mean
+IMPLEMENTATIONS["cleverly-structural-nested-mean"] = (
+    "`cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow "
+    "booster on law N)"
+)
+ESTIMANDS["ey_reference"] = "mean outcome with every treatment at its reference level"
+SCENARIOS.update(
+    {
+        "s2": "law S2: two binary nodes, a constant blip at each node",
+        "s3": "law S3: three binary nodes with a path from each treatment to the later ones",
+        "k": "law K: two nodes of three levels with unequal level effects",
+        "c": "law C: two doses on -1, 0, 1, every conditional mean linear in the history",
+        "h": "law H: blip features of the baseline at node 1 and of the baseline and the past "
+        "treatment at node 2",
+        "p": "law P: the second blip depends on the first treatment",
+        "m": "law M: the second treatment and the outcome read the first covariate",
+        "l": "law L: the second blip depends on the second covariate, which the feature declares",
+        "n": "law N: nonlinear nuisances on a nine-point baseline, fitted by a shallow booster",
+        "s2w": "law S2 with the known weight 0.5 + 1.5 W, target the reweighted population",
+        "s2c": "law S2 in clusters of ten that share the baseline and an outcome intercept",
+    }
+)
 # -------------------------------------------------------------------- parametric-gformula
 IMPLEMENTATIONS["cleverly-parametric-gformula"] = (
     "`cleverly` parametric g-formula (NICE), a forward simulation of node-specific GLMs"
@@ -3664,12 +4053,65 @@ SCENARIOS.update(
 )
 REGIMENS.update(
     {
+        "r00": "assign no treatment at both nodes",
+        "r11": "assign treatment at both nodes",
+        "r10": "assign treatment at the first node only",
+        "r01": "assign treatment at the second node only",
+        "r000": "assign no treatment at the three nodes",
+        "r111": "assign treatment at the three nodes",
+        "r101": "assign treatment at the first and third nodes only",
+        "r12": "assign level 1 at the first node and level 2 at the second",
+        "r21": "assign level 2 at the first node and level 1 at the second",
+        "dose0": "assign dose 0 at both nodes",
+        "dose_mid": "assign dose 0.5 at the first node and 0.25 at the second",
+        "dose_high": "assign dose 1 at the first node and -0.5 at the second",
         "treat_all_4": "treat at each of the four times",
         "treat_none_4": "treat at none of the four times",
         "policy_b": "treat with probability 0.3 + 0.4 B_t at each of the three times",
         "shift_half": "add 0.5 to the dose at each of the three times",
         "dose_half": "assign the fixed dose 0.5 at each of the three times",
         "rule_dose": "assign the dose 0.5 + 0.5 L_t at each of the three times",
+    }
+)
+PROPERTIES["blip_feature_control"] = (
+    "with a blip feature missing, the regimen estimates move off the g-formula truth, and the "
+    "bias interval shows it"
+)
+PROPERTIES["positivity_reporting"] = (
+    "the bias, coverage and SE ratio of the structural estimator when some treatment "
+    "probabilities reach 0.05 and 0.94, reported rather than gated"
+)
+PROPERTIES["unclustered_se"] = (
+    "the standard error that ignores the cluster column, against the empirical spread"
+)
+CELLS.update(
+    {
+        ("blip_feature_control", "too_few_features"): (
+            "the structural fit with the second-node blip feature the law needs left out",
+            "the bias interval must lie beyond the margin on the side of the computed gap",
+        ),
+        ("warning_rate", "model_check"): (
+            "the structural model check against the nonparametric contrasts, with the "
+            "structural model correct; the rejection rate is published beside the verdict, and on "
+            "the sparse-positivity law the covariance has few degrees of freedom, so the check "
+            "can reject above its nominal level there",
+            "rejection upper bound at or below the type-I ceiling",
+        ),
+        ("power", "model_check"): (
+            "the same check on a law whose second blip reads a covariate the structural "
+            "model omits",
+            "rejection lower bound clears the minimum power",
+        ),
+        ("positivity_reporting", "weak_positivity"): (
+            "the structural fit on a law with weak positivity, correct blip features",
+            "reported with no verdict",
+        ),
+        ("unclustered_se", "unclustered"): (
+            "the fit without the cluster column, on the clustered draws",
+            "the gated cells `s2c_ey0` and `s2c_ey_r11` need the SE-ratio interval below the "
+            "calibration band, and the result column reads reported; the other cells state no "
+            "verdict",
+        ),
     }
 )
 PROPERTIES.update(

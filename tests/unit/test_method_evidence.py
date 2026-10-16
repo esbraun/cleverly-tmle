@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
+import io
 import json
 import math
 import re
@@ -890,6 +891,21 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own SE-ratio endpoint"
             )
 
+        targeting = published.loc[published["property"] == "mechanism_targeting"]
+        for row in targeting.itertuples():
+            if row.role == "control":
+                expected = bool(_with_alternative(row, row.bias_discriminated)) and (
+                    row.bias_ci_lower > 0.0
+                )
+            else:
+                low, high = study.properties().EFFICIENCY_RATIO_BAND
+                expected = bool(row.bias_equivalent) and (
+                    low <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= high
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own targeting endpoints"
+            )
+
         single = published.loc[published["property"] == "single_robustness"]
         positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
@@ -1347,6 +1363,10 @@ BIAS_GATED_PROPERTIES = frozenset(
         "repeated_outcome_necessity",
         "outcome_history_necessity",
         "full_history_necessity",
+        # X44's negative controls: a blip feature left out moves the regimen estimates off the
+        # g-formula truth.  A control passes when its bias interval lies beyond the margin on
+        # the side of the computed gap, which is the discrimination endpoint read on one side.
+        "blip_feature_control",
     }
 )
 
@@ -1416,6 +1436,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Absolute bias at two sizes (the ``X4-plan.md`` 6.8 rule), beside a diagnostic cell.
         # Checked row by row below.
         "single_robustness",
+        # X43's softmax update: a positive cell answers to bias equivalence and the efficiency
+        # band of its SE ratio, the outcome-only control to a bias interval wholly above zero
+        # and beyond the margin.  Checked row by row below.
+        "mechanism_targeting",
         # Four rules keyed by the cell's last segment: a conservative SE ratio, accuracy, a
         # one-sided bias control and a growth control.  Checked row by row below.
         property_verdicts.ONE_WRONG_FAMILY,
@@ -1426,6 +1450,9 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # outside the calibration band on a predicted side; the other cells report.
         "first_node_se",
         "fixed_mechanism_se",
+        # The SE of a clustered fit made without its cluster column, which must leave the band
+        # from below.
+        "unclustered_se",
     }
 )
 
@@ -1449,11 +1476,15 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "sdr_tmle_agreement",
         "variance_direction",
         "censoring_complete_case",
+        # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
+        "in_sample_fit",
         "one_wrong_reported",
         # The isotonic cell's binding share: the projection moved a level or it did not.
         "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
+        # X44's weak-positivity fit of the structural estimator, reported with no verdict.
+        "positivity_reporting",
         # X45's parametric g-formula beside ICE, LTMLE or IPSI on the same draws, and its
         # extrapolation share, each reported with no verdict.
         "ice_reported",
@@ -2671,6 +2702,7 @@ class TestThePublishedTestTables:
                     cell,
                     role=role,
                     nuisance_count=study.nuisance_count,
+                    slug=study.slug,
                 )
             except descriptions.Undescribed as absent:
                 undescribed.append(str(absent))
@@ -3130,6 +3162,11 @@ class TestPropertyFailures:
             witnesses=property_failures.read_witnesses(
                 study.artifact(property_failures.PROPERTY_WITNESSES)
             ),
+        )
+        # The artifact is a CSV, so the recomputed frame is compared as the driver writes it
+        # and as ``_property_accounting`` reads it back: an empty ``imputation`` reads as NaN.
+        recomputed = pd.read_csv(
+            io.StringIO(recomputed.to_csv(index=False)), keep_default_na=False, na_values=[""]
         )
         pd.testing.assert_frame_equal(
             committed, recomputed, check_dtype=False, check_exact=False, rtol=1e-12
