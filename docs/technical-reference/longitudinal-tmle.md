@@ -1592,17 +1592,24 @@ messages. `tests/unit/test_ipsi_e2e.py` pins each refusal before any learner run
 
 | limitation | detail |
 | --- | --- |
-| finite-sample bias at one fold | on the declared study laws, a one-fold fit carries a plug-in-order bias of about 0.2 standardized units at $n$ = 4,000 to 8,000. Source: the pre-declaration design probe in the `tests/studies/canonical_longitudinal_incremental_dropout.py` module docstring. The registered `in_sample_fit` family reports it |
-| finite-sample bias at five folds | the cross-fitted contrasts carry a second-order bias of order $1/n$. On law `C` the probe measured 0.44 standardized units at $n$ = 2,000, 0.22 at 8,000 and 0.05 at 32,000. Both primary studies run at $n$ = 24,000 for this reason. Source: the `PRIMARY_N` docstrings of the two study modules |
+| finite-sample bias at one fold | on the declared study laws, a one-fold fit carries a plug-in-order bias of about 0.2 standardized units at $n$ = 8,000. The design probe reads -0.18 on law `A` and -0.19 on law `C`. Source: `tests/diagnostics/x19_sizing/reading.csv`. Kennedy (2019), Algorithm 2 (Appendix 8.3), gives the one-fold interval under Donsker conditions. Saturated cell means on a finite history set form a Donsker class. Kim et al. (2021), Theorem 5.1, states the dropout result with sample splitting only, and the same Donsker argument extends it to one fold. Both studies gate the one-fold fits at sizes where this bias is small |
+| finite-sample bias at five folds | the cross-fitted contrasts carry a second-order bias of order $1/n$. At $n$ = 8,000 the design probe reads 0.25 to 0.27 standardized units on law `A` at five folds, 0.35 at two folds, and 0.28 to 0.31 on law `C`. A sizing rule sets each gated cell before its run. A primary or rate cell passes with a probability of at least 0.95 at the projected bias, and a calibration cell with at least 0.90. The primary studies run at $n$ = 96,000 and 80,000 for this reason. Source: `tests/unit/test_longitudinal_incremental_design.py` |
 | a band over the continuum of $\delta$ | not offered. Theorem 4 of Kennedy (2019) gives a band over a compact set of $\delta$, and the API represents a finite grid only |
 | the no-effect test | not offered. Kennedy (2019), Section 4.4, gives it, and `npcausal` does not return it |
 | a TMLE for the tilt over time | not offered. The package ships Kennedy's own estimator, which Theorem 3 covers with no extension |
 | separate covariate sets for the mechanism and the regressions | not offered. Each nuisance reads the full history |
 
-Two registered studies are declared and have not run. `longitudinal-incremental` pairs the
-estimator with `npcausal` 0.1.0 `ipsi()` at commit `56a5ac11`. `longitudinal-incremental-dropout`
-calibrates dropout, survival, weights and clusters against exact truths, with no comparator.
-This page claims no result from either study.
+Two registered studies measure the estimator. The
+[complete-data study](method-evidence/longitudinal-incremental-interventions.md) carries Python
+property evidence. Its `npcausal` 0.1.0 comparator runs at commit `56a5ac11` are pending. The
+[dropout study](method-evidence/longitudinal-incremental-interventions-dropout.md) calibrates
+dropout, survival, weights and clusters against exact truths, with no comparator. This page
+claims no result from either study.
+
+The natural-course value is the sample mean of the outcome. A tilt of 1 sets every weight to 1,
+so the correction terms cancel. Each contrast with the natural course is therefore the tilted
+value minus that mean. Source: `test_the_fitted_natural_course_is_the_sample_mean` in
+`tests/unit/test_longitudinal_incremental_design.py`.
 
 ## Validation issues special to this method
 
