@@ -41,6 +41,7 @@ __all__ = [
     "Inference",
     "MethodAvailability",
     "ModelSpec",
+    "ParametricGFormulaMethod",
     "Runtime",
     "SDRMethod",
     "TMLEMethod",
@@ -77,10 +78,12 @@ _BASELINE_NO_FLUCTUATION = Refusal(
     "logistic shrink, iteration limit or score tolerance.",
     alternative="LTMLE takes {name}=, so pass the setting there.",
 )
-#: Why a point-treatment functional refuses ``method="gcomp"`` and ``method="ipw"``.
+#: Why a point-treatment functional refuses ``method="gcomp"``, ``method="ipw"`` and
+#: ``method="parametric_gformula"``.
 BASELINE_POINT_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
-    "sequential g-computation and sequential IPW are the baselines of a longitudinal fit.",
+    "sequential g-computation, sequential IPW and the parametric g-formula are the baselines "
+    "of a longitudinal fit.",
     alternative="A point-treatment functional fits tmle, drtmle or collaborative_tmle.",
 )
 #: Why a point-treatment functional refuses ``method="sdr"`` (R4).
@@ -1349,7 +1352,11 @@ class SDRMethod(TMLEMethod):
 
 
 #: The engine each baseline method configures, as the curve-setting refusal names it.
-_BASELINE_ENGINES = {"gcomp": "SequentialGComputation", "ipw": "SequentialIPW"}
+_BASELINE_ENGINES = {
+    "gcomp": "SequentialGComputation",
+    "ipw": "SequentialIPW",
+    "parametric_gformula": "ParametricGFormula",
+}
 
 
 @dataclass(frozen=True)
@@ -1534,6 +1541,103 @@ class IPWMethod(_BaselineMethod):
         """
         kwargs = super().estimator_kwargs(longitudinal=longitudinal)
         kwargs["normalization"] = self.normalization
+        return kwargs
+
+
+@dataclass(frozen=True)
+class ParametricGFormulaMethod(_BaselineMethod):
+    """Configure the parametric g-formula of a longitudinal regimen.
+
+    Forward simulation of fitted covariate, outcome and hazard laws (Robins 1986; McGrath et
+    al. 2020), fitted by :class:`cleverly.longitudinal.ParametricGFormula`.  The method fits in
+    sample, so ``cross_fitting`` defaults to ``CrossFitting(enabled=False)``, and above one fold
+    the engine refuses.  It fits no fluctuation, so the fluctuation settings of
+    :class:`Targeting` stay at their defaults.  A point-treatment functional and a working model
+    over regimens refuse the method.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners.  ``outcome_learner`` fits the outcome model, and
+        ``treatment_learner`` fits the natural-treatment models.  ``pseudo_learner`` is refused.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  The default is in sample, and the engine refuses more
+        than one fold.
+    targeting : Targeting
+        ``g_bounds`` and ``q_bounds``.  ``g_bounds`` moves the positivity diagnostics only.
+    inference : Inference
+        Interval and resampling settings.
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+    n_draws : int
+        The simulated histories per unit behind the estimate.
+    n_derivative_draws : int or None
+        The simulated histories per unit behind the derivatives.  ``None`` takes the larger of
+        ``n_draws`` and ten.
+    covariate_types : mapping or None
+        The type of each time-varying column at nodes ``2..T``.
+    covariate_learner : estimator or None
+        The template of every covariate model.  ``None`` is a main-terms GLM.
+    hazard_learner : estimator or None
+        The template of every hazard model of a survival outcome.  ``None`` is a GLM.
+
+    See Also
+    --------
+    GComputationMethod : The iterated conditional expectation form of the same parameter.
+    cleverly.longitudinal.ParametricGFormula : The engine this configuration is translated for.
+    cleverly.LongitudinalTreatment : The design whose functionals take this method.
+
+    Examples
+    --------
+    >>> from cleverly import ParametricGFormulaMethod
+    >>> method = ParametricGFormulaMethod(n_draws=20)
+    >>> method.name, method.cross_fitting.enabled
+    ('parametric_gformula', False)
+    >>> kwargs = method.estimator_kwargs(longitudinal=True)
+    >>> kwargs["n_draws"], kwargs["n_folds"], "alpha" in kwargs
+    (20, 1, False)
+    """
+
+    name: str = "parametric_gformula"
+    n_draws: int = 10
+    n_derivative_draws: int | None = None
+    covariate_types: Any = None
+    covariate_learner: Any = None
+    hazard_learner: Any = None
+
+    def __post_init__(self) -> None:
+        _validate_learner(self.covariate_learner, "covariate_learner")
+        _validate_learner(self.hazard_learner, "hazard_learner")
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the longitudinal g-formula engine.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be true, because the estimator is longitudinal.
+
+        Returns
+        -------
+        dict of str to Any
+            Engine keyword arguments, with the simulation settings.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is false, or when a fluctuation setting differs from its
+            default.
+        """
+        kwargs = super().estimator_kwargs(longitudinal=longitudinal)
+        kwargs.update(
+            n_draws=self.n_draws,
+            n_derivative_draws=self.n_derivative_draws,
+            covariate_types=self.covariate_types,
+            covariate_learner=self.covariate_learner,
+            hazard_learner=self.hazard_learner,
+        )
         return kwargs
 
 

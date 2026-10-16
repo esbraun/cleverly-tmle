@@ -125,8 +125,8 @@ def _policy_at_every_node(monkeypatch: pytest.MonkeyPatch) -> None:
     """The mutation: copy node 1's policy onto the held nodes, so the numerator is q^K."""
     original = regimen_module._resolve_plan
 
-    def mutated(regimen: Any, data: Any, *, collapse: bool) -> Any:
-        plan = original(regimen, data, collapse=collapse)
+    def mutated(regimen: Any, data: Any, *, collapse: bool, **flags: Any) -> Any:
+        plan = original(regimen, data, collapse=collapse, **flags)
         if not plan.policy:
             return plan
         from dataclasses import replace

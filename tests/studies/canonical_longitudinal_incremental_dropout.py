@@ -56,9 +56,9 @@ reported efficiency ratio is 1.0006, so the reported standard error matches the 
 influence-function standard deviation of the law, which
 ``tests.studies.longitudinal_incremental_common.eif_sd`` computes apart from the estimator.  The
 empirical spread sits 4.4% below that bound (interval 0.924 to 0.988).  No regular estimator
-stays below the bound as n grows, so the gap is a finite-sample or Monte Carlo reading, not a
-defect of the interval.  The design probes on other draws read SE ratios of 0.948 at n = 32,000 and 0.980 at
-n = 64,000.  The diagnosis finds no defect, so by the route above the study moves to
+stays below the bound as n grows, so the gap is a finite-sample reading, not a defect of the
+interval.  The design probes on other draws read SE ratios of 0.948 at n = 32,000 and 0.980
+at n = 64,000.  The diagnosis finds no defect, so by the route above the study moves to
 ``reporting`` with the owner row ``X19-competing-calibration``.  The committed rows are
 summarized again with no new fit (``--reuse-subject --skip-properties``).
 """
