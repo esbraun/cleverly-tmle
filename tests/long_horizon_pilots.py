@@ -15,9 +15,10 @@ law.
 
 Rev 4.3 appends again after the :data:`REV_42_PARTS` parts of rev 4.2 and moves none of them.
 The new parts are four factor-2 fallback scans (the Wald regime ``n >= 2 n_kappa``, decision C1),
-the ``truth_boot`` pilots (the refit bootstrap at B = 399 with the BCa interval, the S3 scenarios
-first), the ``band_boot`` pilots (the studentized sup-t band at B = 399) and the ``f2_c1`` pilots
-(the calibration cells that C1 moved).  ``run`` refuses a ``truth_boot`` part of S1 or S2 until
+the ``truth_boot`` pilots (the refit bootstrap at B = 199 with the BCa interval, the S3 scenarios
+first), the ``band_boot`` pilots (the S2 studentized sup-t band at B = 199) and the ``f2_c1``
+pilots (the calibration cells that C1 moved).  Rev 4.4 appends the ``truth_msm`` pilot (the MSM
+scenario at its raised n, 96,000).  ``run`` refuses a ``truth_boot`` part of S1 or S2 until
 the S3 ``truth_boot`` parts exist and their reading passes, because the S3 parts are the first
 evidence that BCa holds for the SDR estimator (plan rev 4.3, Q-E5).
 
@@ -128,6 +129,7 @@ SAMPLE_FAMILIES = (
     "truth_boot",
     "band_boot",
     "f2_c1",
+    "truth_msm",
 )
 #: The parts of rev 4.1.  Rev 4.2 appends after them; none of their idents, order or seeds moves.
 REV_41_PARTS = 3_288
@@ -907,7 +909,7 @@ def _band_boot_fit(stream: D.Stream, drawn: pd.DataFrame) -> dict[str, Any]:
 
     config = stream.config
     assert config is not None
-    arm = properties.Arm("k5", "positive", config, read="band", plans=stream.plans)
+    arm = properties.Arm("k5", "positive", config, read="boot_band", plans=stream.plans)
     result = properties._call(
         arm,
         drawn,
@@ -1425,9 +1427,15 @@ def read_truth(frame: pd.DataFrame) -> list[str]:
     gated = set(D.gated_rows())
     kept = frame[frame["failure"] == ""]
     skipped = 0
+    declared = {
+        (study, scenario.name): scenario.n for study in D.STUDIES for scenario in D.scenarios(study)
+    }
     for (stream, estimand), rows in kept.groupby(["stream", "estimand"], sort=False):
         study, scenario = str(stream).split("|")[1].split(":", 1)
-        if (study, scenario, str(estimand)) not in gated:
+        # A stream at another n than the scenario's declared n (the rev 4.2 MSM stream at 48,000)
+        # reports and sets no R.
+        at_declared = int(rows["n"].iloc[0]) == declared[(study, scenario)]
+        if not at_declared or (study, scenario, str(estimand)) not in gated:
             skipped += 1
             continue
         errors = rows["estimate"].to_numpy(float) - rows["truth"].to_numpy(float)
@@ -1654,6 +1662,7 @@ READERS: dict[str, Callable[[pd.DataFrame], list[str]]] = {
     "overfit": read_overfit,
     "band": read_band,
     "rung": read_rung,
+    "truth_msm": read_truth,
     "truth_boot": read_truth_boot,
     "band_boot": read_band_boot,
     "f2_c1": read_f2_c1,

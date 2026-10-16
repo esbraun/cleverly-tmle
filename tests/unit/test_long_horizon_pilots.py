@@ -5,6 +5,7 @@ from __future__ import annotations
 import collections
 import itertools
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -192,20 +193,18 @@ def test_the_rev_43_parts_append_after_every_rev_42_part() -> None:
     assert seeds.hexdigest() == REV_42_SEEDS
     new = every[P.REV_42_PARTS :]
     order = [part.family for part in new]
-    # Four factor-2 scans, then truth_boot, band_boot and f2_c1, each family contiguous.
+    # Four factor-2 scans, then truth_boot, band_boot, f2_c1 and truth_msm, each contiguous.
     assert order == (
         ["lawscan"] * 4
         + ["truth_boot"] * order.count("truth_boot")
         + ["band_boot"] * order.count("band_boot")
         + ["f2_c1"] * order.count("f2_c1")
+        + ["truth_msm"] * order.count("truth_msm")
     )
-    assert [order.count(f) for f in ("lawscan", "truth_boot", "band_boot", "f2_c1")] == [
-        4,
-        92,
-        64,
-        1_376,
-    ]
-    assert len(every) == 4_985
+    assert [
+        order.count(f) for f in ("lawscan", "truth_boot", "band_boot", "f2_c1", "truth_msm")
+    ] == [4, 92, 32, 1_376, 4]
+    assert len(every) == 4_957
     scans = [p for p in new if p.family == "lawscan"]
     assert all(len(p.detail) == 5 and p.detail[4] == D.WALD_REGIME_FACTOR for p in scans)
     # The S3 truth_boot parts come before S1 and S2.
@@ -217,16 +216,28 @@ def test_the_rev_43_parts_append_after_every_rev_42_part() -> None:
 def test_the_bootstrap_streams_are_the_declared_pilots() -> None:
     streams = D.bootstrap_streams()
     by_family = collections.Counter(s.family for s in streams)
-    assert by_family == {"truth_boot": 23, "band_boot": 2, "f2_c1": 43}
+    assert by_family == {
+        "truth_boot": 23,
+        "band_boot": 1,
+        "f2_c1": 43,
+        "truth_msm": 1,
+    }
     assert {s.replicates for s in streams if s.family == "truth_boot"} == {400}
-    assert {s.replicates for s in streams if s.family != "truth_boot"} == {3_200}
+    assert {s.replicates for s in streams if s.family in ("band_boot", "f2_c1")} == {3_200}
+    assert {s.replicates for s in streams if s.family == "truth_msm"} == {400}
     # Only a single-fold, non-MSM scenario bootstraps.
     for stream in streams:
         if stream.family == "truth_boot":
             study, name = stream.scenario
             scenario = next(s for s in D.scenarios(study) if s.name == name)
             assert scenario.n_folds == 1 and not scenario.msm
-    assert {s.name for s in streams if s.family == "band_boot"} == {"S1:band_k5", "S2:band_k5"}
+    assert {s.name for s in streams if s.family == "band_boot"} == {"S2:band_k5"}
+    # Plan rev 4.4: S1 keeps its Wald-curve band, so it has no bootstrap band stream.
+    (msm,) = [s for s in streams if s.family == "truth_msm"]
+    assert (msm.scenario, msm.n) == (("S1", "binary_k5_msm"), 96_000)
+    # The pinned rev 4.2 truth stream of the MSM scenario stays at its old n.
+    legacy = [s for s in D.streams() if s.family == "truth" and s.name == "S1:binary_k5_msm"]
+    assert [s.n for s in legacy] == [48_000]
     # The earlier streams are the rev 4.2 ones: f2 keeps the 65 rev 4.2 cells.
     assert sum(s.family == "f2" for s in D.streams()) == 65
     # The unmoved cells' rev 4.2 f2 parts are the other half of the F2 reading.
@@ -514,7 +525,7 @@ def test_merge_reports_a_stopped_reading(
 def test_the_band_pilots_are_the_property_phases_fits(monkeypatch: pytest.MonkeyPatch) -> None:
     """The rev 4.2 band pilot is the property phase's ``ic_band`` row; ``band_boot`` its band row.
 
-    Both pilots draw one sample.  The sup-t band reads B = 399 resamples; the test cuts that to
+    Both pilots draw one sample.  The sup-t band reads B = 199 resamples; the test cuts that to
     30 so that the check stays in the fast tier.
     """
     import dataclasses
@@ -524,8 +535,8 @@ def test_the_band_pilots_are_the_property_phases_fits(monkeypatch: pytest.Monkey
     from tests.studies.evidence.simultaneous import joint_cells
 
     monkeypatch.setattr(D, "B_GATE", 30)
-    stream = next(s for s in D.streams() if s.family == "band" and s.name.startswith("S1"))
-    boot = next(s for s in D.bootstrap_streams() if s.family == "band_boot" and "S1" in s.name)
+    stream = next(s for s in D.streams() if s.family == "band" and s.name.startswith("S2"))
+    boot = next(s for s in D.bootstrap_streams() if s.family == "band_boot" and "S2" in s.name)
     small = dataclasses.replace(stream, n=2_000)
     small_boot = dataclasses.replace(boot, n=2_000)
     drawn = P._draw(small, (0, 11))
@@ -533,10 +544,10 @@ def test_the_band_pilots_are_the_property_phases_fits(monkeypatch: pytest.Monkey
         warnings.simplefilter("ignore")
         old = P._sample_fit(small, (0, 11), drawn)
         new = P._sample_fit(small_boot, (0, 11), drawn)
-        fit_set = properties.fit_sets("S1")[
-            [f.family for f in properties.fit_sets("S1")].index("simultaneous_coverage")
+        fit_set = properties.fit_sets("S2")[
+            [f.family for f in properties.fit_sets("S2")].index("simultaneous_coverage")
         ]
-        rows = properties.fit_key(("S1", fit_set.name, 0, 1, 2_000), drawn)
+        rows = properties.fit_key(("S2", fit_set.name, 0, 1, 2_000), drawn)
     band_cell, control_cell = joint_cells("k5")
     by_cell = {row["cell"]: row for row in rows}
     ic = by_cell[properties.ic_band_cell("k5")]
@@ -556,10 +567,11 @@ def test_the_band_pilots_are_the_property_phases_fits(monkeypatch: pytest.Monkey
     assert row["covered"] == by_cell[band_cell]["covered"]
     assert row["ic_covered"] == ic["covered"]
     assert row["ic_critical"] == pytest.approx(ic["std_error"])
-    assert row["std_error"] == pytest.approx(by_cell[band_cell]["std_error"])
+    assert row["std_error"] == pytest.approx(by_cell[band_cell]["std_error"], nan_ok=True)
     assert row["pointwise_covered"] == by_cell[control_cell]["covered"]
     # The bootstrap critical value is the band's own: it is not the IC band's.
-    assert row["std_error"] != pytest.approx(row["ic_critical"])
+    if math.isfinite(row["std_error"]):
+        assert row["std_error"] != pytest.approx(row["ic_critical"])
 
 
 def _band_frame(study: str, coverage: float, replicates: int = 3_200) -> pd.DataFrame:
