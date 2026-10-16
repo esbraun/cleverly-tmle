@@ -1632,6 +1632,9 @@ repeated-outcome cells.
 
 ### X73. Pooled-over-time parametric g-formula models
 
+This row has two parts. Part (a) adds pooled models. Part (b) adds a vector treatment node
+with a dose component.
+
 `ParametricGFormula` fits one model per node and covariate. `gfoRmula` and `pygformula` fit one
 pooled model per covariate over all time rows, with lag and cumulative-average terms of the
 history. A pooled model restricts the node-specific models, so it needs fewer parameters and it
@@ -1643,6 +1646,14 @@ extrapolates over time. This row adds the pooled form to the shipped estimator.
 
 Acceptance: the exact-law witnesses of the pooled model, the mutation controls, and a registered study
 cell for a law with a lag term.
+
+`ParametricGFormula` refuses a mixed treatment node today (`GFORMULA_MIXED_NODE_REFUSAL`). A
+mixed node holds a categorical component and a dose, and the simulation draws one natural
+treatment column per node.
+
+| what to add | evidence |
+| --- | --- |
+| (b) a joint natural-treatment model of a mixed node: the categorical component first, then each dose given the component, with the score of each factor in the stacked equations. The draw of a `JointPolicy` reads the drawn components | exact laws with a mixed node, the complex-step Gateaux check of the curve, and a mutation control that drops the dose factor's score |
 
 ### P1. EP learner
 

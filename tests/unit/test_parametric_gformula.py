@@ -2639,3 +2639,16 @@ class TestSurface:
         assert "parametric_gformula" in rows["support"].methods
         assert not rows["score_equations"].available
         assert not rows["truncation_curve"].available
+
+
+def test_a_mixed_treatment_node_is_refused_before_any_learner() -> None:
+    """A vector node with a dose has no joint natural-treatment model yet (X73 (b))."""
+    from .. import discrete_law_longitudinal_mtp as mixed_law
+    from .. import longitudinal_mtp as mixed_mtp
+
+    plans = mixed_mtp.mixed_regimens(("natural", "dose up"))
+    with pytest.raises(CapabilityError, match="vector treatment node") as raised:
+        ParametricGFormula(plans, reference="natural", n_draws=2).fit(
+            mixed_law.mixed_frame("end"), **mixed_mtp.MIXED_COLUMNS
+        )
+    assert raised.value.refusal.roadmap == "X73"

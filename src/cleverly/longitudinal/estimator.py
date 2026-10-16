@@ -353,6 +353,14 @@ GFORMULA_RR_TILT_REFUSAL = Refusal(
         "for a risk-ratio tilt."
     ),
 )
+#: Why the parametric g-formula refuses a vector treatment node with a dose component.
+GFORMULA_MIXED_NODE_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "the parametric g-formula has no joint model of a vector treatment node with a dose "
+    "component. It draws one natural treatment column per node.",
+    alternative="Fit LTMLE or SDR, which read a mixed node through its joint policy.",
+    roadmap="X73",
+)
 #: Why a truncation curve refuses a parametric g-formula result.
 GFORMULA_TRUNCATION_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
@@ -6925,7 +6933,15 @@ class ParametricGFormula(_Baseline):
             The reported horizons.
         folds : Folds
             The realized outer split.
+
+        Raises
+        ------
+        CapabilityError
+            When a treatment node is a vector with a dose component.
         """
+        for time in range(1, data.n_times + 1):
+            if data.node_kind(time) == "mixed":
+                raise CapabilityError.from_refusal(GFORMULA_MIXED_NODE_REFUSAL)
 
     def _gformula_settings(self, data: LongitudinalData) -> GFormulaSettings | None:
         """The simulation settings: draws, learners and a seed drawn from ``random_state``.
