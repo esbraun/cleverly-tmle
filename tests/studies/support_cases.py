@@ -1702,6 +1702,126 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, frame, fit_name=fit_name: getattr(study, fit_name)(frame),
         )
 
+    # ``IPSI`` (X19): each property fit, on its own stream's draw at a small size.
+    s1, s1_slug = "longitudinal_incremental_properties.py", "longitudinal-incremental"
+    s1_cases: tuple[tuple[str, str, str, int, Callable[[Any, Any], Any]], ...] = (
+        (
+            "G33.cross_fitted",
+            "contrast_x2",
+            "law_a",
+            505,
+            lambda m, f: m._fit(f, m.law.LAW_A, m.PLANS),
+        ),
+        (
+            "G33.in_sample",
+            "contrast_x2_in_sample",
+            "law_a",
+            506,
+            lambda m, f: m._fit(f, m.law.LAW_A, m.PLANS, n_folds=1),
+        ),
+        (
+            "G33.known",
+            "known_x2",
+            "law_a",
+            507,
+            lambda m, f: m._fit(
+                f,
+                m.law.LAW_A,
+                m.PLANS,
+                treatment_probabilities=m.common.known_treatment(f, m.law.LAW_A),
+            ),
+        ),
+        (
+            "G33.two_nodes",
+            "no_positivity",
+            "law_ax",
+            485,
+            lambda m, f: m._fit(f, m.law.LAW_AX, m.AX_PLANS),
+        ),
+    )
+    for row, cell, stream, line, fit in s1_cases:
+        observed(
+            row,
+            s1_slug,
+            cell,
+            f"{s1}:{line}",
+            lambda m, stream=stream: m._draw_fit_set(
+                ("interval_calibration", stream, "calibration", 0, 2000, 1, stream)
+            ),
+            fit,
+        )
+    s2, s2_slug = (
+        "longitudinal_incremental_dropout_properties.py",
+        "longitudinal-incremental-dropout",
+    )
+    s2_cases: tuple[tuple[str, str, str, int, Callable[[Any, Any], Any]], ...] = (
+        (
+            "G34.cross_fitted",
+            "dropout_contrast_x2",
+            "law_c",
+            478,
+            lambda m, f: m._fit(f, m.law.LAW_C),
+        ),
+        (
+            "G34.in_sample",
+            "dropout_contrast_x2_in_sample",
+            "law_c",
+            481,
+            lambda m, f: m._fit(f, m.law.LAW_C, n_folds=1),
+        ),
+        (
+            "G34.msm",
+            "msm_log_delta",
+            "law_c",
+            479,
+            lambda m, f: m._fit(f, m.law.LAW_C, reference=None, msm=m.MSM_LOG_DELTA),
+        ),
+        (
+            "G34.weighted",
+            "weighted_contrast_x0_5",
+            "law_c",
+            480,
+            lambda m, f: m._fit(f.assign(weight=m.weight(f)), m.law.LAW_C, weights="weight"),
+        ),
+        (
+            "G34.competing",
+            "competing_contrast_x2_h3",
+            "law_dc",
+            442,
+            lambda m, f: m._fit(f, m.law.LAW_DC, horizons=[3]),
+        ),
+        (
+            "G34.clustered",
+            "mean_x2__cluster_robust",
+            "law_ck",
+            454,
+            lambda m, f: m._fit(f, m.law.LAW_CK.marginal, id="id"),
+        ),
+    )
+    for row, cell, stream, line, fit in s2_cases:
+        observed(
+            row,
+            s2_slug,
+            cell,
+            f"{s2}:{line}",
+            lambda m, stream=stream: m._draw_fit_set(("interval_calibration", stream, 0, 2000, 1)),
+            fit,
+        )
+    for row, folds, line in (
+        ("G34.survival.cross_fitted", None, 525),
+        ("G34.survival.in_sample", 1, 526),
+    ):
+        observed(
+            row,
+            s2_slug,
+            "survival_grid" if folds is None else "survival_contrast_x2_h3_in_sample",
+            f"{s2}:{line}",
+            lambda m: m._draw_band((0, 1)),
+            lambda m, f, folds=folds: m._fit(
+                f, m.law.LAW_D, horizons=[3], **({} if folds is None else {"n_folds": folds})
+            ),
+        )
+
     # The sequential baselines: g-computation and inverse-probability weighting.
     baselines = "canonical_sequential_baselines.py:275"
     for scenario in ("d2_ice", "d2_hajek", "d2_ht", "g_ice", "g_hajek", "g_ht"):
