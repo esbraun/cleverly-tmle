@@ -106,6 +106,7 @@ known-node-mechanisms-ltmle
 sequential-baselines
 parametric-gformula
 repeated-outcome-longitudinal-tmle
+repeated-outcome-ipsi
 omitted-variable-bound-standard-error
 calibration-slope-warning
 default-simultaneous-bands
