@@ -16,12 +16,15 @@ tmle3_updater       cumulative epsilon, final estimates                    1e-6
 tmle3_updater       thresholds (relative), final ED                        1e-9, 1e-8
 drtmle_stratify     outcome regression ``Qn``, propensity                  1e-8
 drtmle_stratify     TMLE estimate                                          1e-6
-ctmle_*             selected index                                         equal
-ctmle_*             cross-validated score (relative), estimate             1e-6
+ctmle_*             R against its transcription: selected index, terms     equal
+ctmle_*             R against its transcription: score (relative), est     1e-6
+ctmle_*             ``CTMLE``: patience stop, candidate pool               equal
 ==================  =====================================================  =============
 
 The ``ctmle`` rows use the X16 fixture tolerance ``GLM_TOLERANCE = 1e-6``
-(``tests/canonical/ctmle_sequence_witness/harness.py``).
+(``tests/canonical/ctmle_sequence_witness/harness.py``).  ``CTMLE`` is not compared with R's
+scores or estimates: :mod:`tests.canonical.option_fixtures.r_ctmle_discrete` names the two
+differences of R's discrete path that the X22 options do not touch.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.special import expit
 from sklearn.base import BaseEstimator
 
 from cleverly.estimators import CTMLE, DRTMLE
@@ -43,6 +47,11 @@ from cleverly.fluctuation._score import (
     score_columns,
 )
 from cleverly.learners import GLM
+from tests.canonical.option_fixtures.r_ctmle_discrete import (
+    DiscreteRun,
+    ctmle_discrete,
+    patience_stop,
+)
 
 __all__ = [
     "COMPARATORS",
@@ -451,6 +460,48 @@ class ColumnGLM(BaseEstimator):
         return np.asarray(self.model_.predict(self._select(design)), dtype=float)
 
 
+class FrozenColumnGLM(BaseEstimator):
+    """R's fitted ``glm(Y ~ A + ...)`` on a subset of the design columns: ``fit`` learns nothing.
+
+    ``ctmleDiscrete`` takes the initial ``Q`` as given, so every selection fold reads the
+    full-sample fit.  ``CTMLE`` refits its outcome learner inside each selection fold, so a
+    learner that refits would score a different ``Q`` from R's.  This one keeps the full-sample
+    coefficients, as ``FixedLogit`` does in ``tests/canonical/ctmle_sequence_witness``.
+
+    Parameters
+    ----------
+    columns : sequence of int or None
+        The design columns, as :class:`ColumnGLM` reads them.
+    coef : tuple of float
+        The intercept, then one coefficient per selected column.
+    """
+
+    def __init__(self, columns: Sequence[int] | None = None, coef: tuple[float, ...] = ()) -> None:
+        self.columns = columns
+        self.coef = coef
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> FrozenColumnGLM:
+        del design, target, sample_weight
+        return self
+
+    def predict(self, design: Any) -> np.ndarray:
+        values = np.asarray(design, dtype=float)
+        if self.columns is not None:
+            values = values[:, list(self.columns)]
+        coef = np.asarray(self.coef, dtype=float)
+        return np.asarray(expit(coef[0] + values @ coef[1:]), dtype=float)
+
+
+def frozen_outcome(payload: Payload) -> FrozenColumnGLM:
+    """The payload's initial outcome regression, fitted once on the whole sample."""
+    covariates = list(payload["covariates"])
+    frame = sample_frame(payload, covariates)
+    columns = outcome_columns(payload)
+    design = np.column_stack([frame["A"], *(frame[name] for name in covariates)])
+    model = GLM(family="binomial").fit(design[:, columns], frame["Y"].to_numpy(dtype=float))
+    return FrozenColumnGLM(columns, tuple(float(value) for value in model.coef_))
+
+
 def outcome_columns(payload: Payload) -> list[int]:
     """The design columns of the R outcome regression: the treatment, then ``q_covariates``."""
     covariates = list(payload["covariates"])
@@ -466,8 +517,9 @@ def ctmle_fit(
 ) -> Any:
     """The ``cleverly`` counterpart of ``ctmleDiscrete(preOrder = TRUE)`` on the payload's sample.
 
-    The selection folds are the payload's, the initial outcome regression is a binomial GLM on
-    every covariate, the treatment mechanism is a binomial GLM, and the bound is R's ``gbound``.
+    The selection folds are the payload's, the initial outcome regression is R's full-sample GLM
+    held fixed in every fold (:class:`FrozenColumnGLM`), the treatment mechanism is a binomial
+    GLM, and the bound is R's ``gbound``.
     """
     covariates = list(payload["covariates"])
     frame = sample_frame(payload, covariates)
@@ -483,7 +535,7 @@ def ctmle_fit(
         loss="loglik",
         ctmle_estimand="ate",
         cross_fit=False,
-        outcome_learner=ColumnGLM(outcome_columns(payload)),
+        outcome_learner=frozen_outcome(payload),
         treatment_learner=GLM(family="binomial"),
         g_bounds=(0.025, 0.975),
         estimands=("ate",),
@@ -508,48 +560,61 @@ def _compare_initial(payload: Payload, result: Any) -> list[str]:
     return findings
 
 
-def _compare_run(label: str, run: Payload, result: Any, *, expect_stop: bool | None) -> list[str]:
-    """The selected index, the scored prefix and the estimate of one ``ctmleDiscrete`` run."""
+def _transcribed(payload: Payload, pool: Sequence[str], patience: int | None) -> DiscreteRun:
+    """The transcription of ``ctmleDiscrete`` on the payload's sample, pool and folds."""
+    data = payload["data"]
+    return ctmle_discrete(
+        data["Y"],
+        data["A"],
+        np.column_stack([np.asarray(data[name], dtype=float) for name in pool]),
+        list(pool),
+        payload["q_arm0"],
+        payload["q_arm1"],
+        payload["fold"],
+        patience=patience,
+    )
+
+
+def _compare_r_run(label: str, run: Payload, reference: DiscreteRun) -> list[str]:
+    """One R run against the transcription: the index, the scores, the estimate and the terms."""
     findings: list[str] = []
-    selection = result.extra["ctmle"]
-    score = _vector(run["cv_score"])
+    score = np.array([np.inf if value is None else value for value in run["cv_score"]], dtype=float)
     finite = np.isfinite(score)
     scored = int(finite.sum())
     if not finite[:scored].all() or finite[scored:].any():
         findings.append(f"{label}: the unscored candidates are not a suffix of the path")
-    if int(run["best_k"]) != selection.selected + 1:
+    if int(run["best_k"]) != reference.best_k:
         findings.append(
-            f"{label}: R selects k={run['best_k']} and cleverly index {selection.selected} (k={selection.selected + 1})"
+            f"{label}: R selects k={run['best_k']} and the transcription k={reference.best_k}"
         )
-    risk = np.asarray(selection.cv_risk, dtype=float)
-    if risk.shape != (scored,):
-        findings.append(f"{label}: R scored {scored} candidates and cleverly {risk.size}")
-    elif not np.allclose(risk, score[:scored], rtol=CTMLE_RTOL, atol=0.0):
+    expected = np.asarray(reference.cv_score, dtype=float)
+    expected_scored = int(np.isfinite(expected).sum())
+    if score.shape != expected.shape or scored != expected_scored:
         findings.append(
-            f"{label}: the cross-validated scores differ by up to {_gap(risk, score[:scored]):.3g}"
+            f"{label}: R scored {scored} candidates and the transcription {expected_scored}"
         )
-    estimate = float(result["ate"].psi)
-    if abs(estimate - float(run["est"])) > CTMLE_ESTIMATE:
+    elif not np.allclose(score[:scored], expected[:scored], rtol=CTMLE_RTOL, atol=0.0):
+        gap = _gap(score[:scored], expected[:scored])
+        findings.append(f"{label}: the cross-validated scores differ by up to {gap:.3g}")
+    if abs(float(run["est"]) - reference.est) > CTMLE_ESTIMATE:
         findings.append(
-            f"{label}: the estimate {estimate:.8g} differs from R's {float(run['est']):.8g}"
+            f"{label}: R's estimate {float(run['est']):.8g} differs from the transcription's "
+            f"{reference.est:.8g}"
         )
-    stopped = selection.stopped_at is not None
-    if expect_stop is not None and stopped != expect_stop:
+    if list(np.atleast_1d(run["terms"])) != list(reference.terms):
         findings.append(
-            f"{label}: stopped_at is {selection.stopped_at} but R stopped early is {expect_stop}"
-        )
-    if bool(run.get("stopped_early", False)) != stopped:
-        findings.append(
-            f"{label}: R stopped early is {run.get('stopped_early')} and cleverly stopped_at is {selection.stopped_at}"
+            f"{label}: R's terms {run['terms']} are not the transcription's {list(reference.terms)}"
         )
     return findings
 
 
 def compare_ctmle_patience(payload: Payload) -> list[str]:
-    """Repeat ``ctmleDiscrete(patience = 2)`` and ``patience = FALSE`` with ``CTMLE(patience=)``.
+    """Check R's ``patience = 2`` and ``patience = FALSE`` runs, then ``CTMLE(patience=)``.
 
-    The comparison reads the selected index, the cross-validated score of each scored candidate and
-    the estimate.  The patient run must stop early, or the fixture does not exercise the counter.
+    The transcription must reproduce both R runs.  ``CTMLE``'s patient run must score the exact
+    prefix of its whole path that R's counter (:func:`patience_stop`) scores on ``CTMLE``'s own
+    whole-path scores, and must report the stop.  The patient R run must stop early, or the
+    fixture does not exercise the counter.
 
     Parameters
     ----------
@@ -562,6 +627,7 @@ def compare_ctmle_patience(payload: Payload) -> list[str]:
         One sentence per finding.
     """
     covariates = list(payload["covariates"])
+    patience = int(payload["patience"])
     findings: list[str] = []
     whole = payload["runs"]["whole_path"]
     patient = payload["runs"]["patient"]
@@ -571,26 +637,40 @@ def compare_ctmle_patience(payload: Payload) -> list[str]:
         )
     if whole["stopped_early"]:
         findings.append("the whole-path R run stopped early")
+    findings.extend(_compare_r_run("whole path", whole, _transcribed(payload, covariates, None)))
+    findings.extend(
+        _compare_r_run("patience", patient, _transcribed(payload, covariates, patience))
+    )
     full = ctmle_fit(payload, ordering=covariates)
     findings.extend(_compare_initial(payload, full))
-    findings.extend(_compare_run("whole path", whole, full, expect_stop=False))
-    findings.extend(
-        _compare_run(
-            "patience",
-            patient,
-            ctmle_fit(payload, ordering=covariates, patience=int(payload["patience"])),
-            expect_stop=True,
+    patient_fit = ctmle_fit(payload, ordering=covariates, patience=patience)
+    path = np.asarray(full.extra["ctmle"].cv_risk, dtype=float)
+    prefix = np.asarray(patient_fit.extra["ctmle"].cv_risk, dtype=float)
+    stop = patience_stop(path, patience)
+    if prefix.size != stop:
+        findings.append(
+            f"cleverly's patient run scores {prefix.size} candidates; R's counter on cleverly's "
+            f"scores stops at {stop}"
         )
-    )
+    elif not np.array_equal(prefix, path[:stop]):
+        findings.append("cleverly's patient scores are not the prefix of its whole path")
+    stopped = patient_fit.extra["ctmle"].stopped_at is not None
+    if stopped != (stop < path.size):
+        findings.append(
+            f"cleverly's patient run reports stopped_at={patient_fit.extra['ctmle'].stopped_at} "
+            f"after scoring {prefix.size} of {path.size} candidates"
+        )
+    if full.extra["ctmle"].stopped_at is not None:
+        findings.append("cleverly's whole-path run reports a stop")
     return findings
 
 
 def compare_ctmle_wg(payload: Payload) -> list[str]:
-    """Repeat ``ctmleDiscrete(Wg = W[, c(1, 3)])`` and ``Wg = W`` with ``treatment_covariates=``.
+    """Check R's ``Wg = W[, c(1, 3)]`` and ``Wg = W`` runs, then ``treatment_covariates=``.
 
-    Beside the selected index, the scores and the estimate, the comparison requires the restricted
-    path to stay inside the pool and the two R runs to give different estimates, so that the
-    restriction has an effect to compare.
+    The transcription must reproduce both R runs.  ``CTMLE``'s restricted path must hold the pool's
+    candidates in R's order and no other, and both programs must give the restricted and the
+    whole-pool fits different estimates, so that the restriction has an effect to compare.
 
     Parameters
     ----------
@@ -609,24 +689,30 @@ def compare_ctmle_wg(payload: Payload) -> list[str]:
     findings: list[str] = []
     if list(np.atleast_1d(restricted["pool"])) != pool:
         findings.append(f"R's restricted pool {restricted['pool']} is not {pool}")
-    result = ctmle_fit(payload, ordering=pool, pool=pool)
-    selection = result.extra["ctmle"]
-    findings.extend(_compare_initial(payload, result))
-    findings.extend(_compare_run("restricted", restricted, result, expect_stop=False))
-    if selection.restricted_pool != tuple(pool):
-        findings.append(f"cleverly's restricted pool is {selection.restricted_pool}")
-    if any(not set(names) <= set(pool) for names in selection.path):
-        findings.append("a cleverly candidate leaves the pool")
-    if not set(np.atleast_1d(restricted["terms"])) <= set(pool):
+    # R names the intercept-only candidate "1"; it is no covariate.
+    if not set(np.atleast_1d(restricted["terms"])) - {"1"} <= set(pool):
         findings.append(f"R's terms {restricted['terms']} leave the pool")
-    full = ctmle_fit(payload, ordering=covariates)
-    findings.extend(_compare_run("whole pool", whole, full, expect_stop=False))
-    if full.extra["ctmle"].restricted_pool is not None:
-        findings.append("the whole-pool run reports a restricted pool")
+    findings.extend(_compare_r_run("restricted", restricted, _transcribed(payload, pool, None)))
+    findings.extend(_compare_r_run("whole pool", whole, _transcribed(payload, covariates, None)))
     if not abs(float(restricted["est"]) - float(whole["est"])) > 1e-4:
         findings.append(
             "the restricted and whole-pool R estimates agree to 1e-4; Wg has no effect to compare"
         )
+    result = ctmle_fit(payload, ordering=pool, pool=pool)
+    selection = result.extra["ctmle"]
+    findings.extend(_compare_initial(payload, result))
+    if selection.restricted_pool != tuple(pool):
+        findings.append(f"cleverly's restricted pool is {selection.restricted_pool}")
+    nested = [tuple(pool[:k]) for k in range(len(pool) + 1)]
+    if [tuple(names) for names in selection.path] != nested:
+        findings.append(
+            f"cleverly's restricted path {selection.path} is not the pool in R's order {nested}"
+        )
+    full = ctmle_fit(payload, ordering=covariates)
+    if full.extra["ctmle"].restricted_pool is not None:
+        findings.append("the whole-pool run reports a restricted pool")
+    if not abs(float(result["ate"].psi) - float(full["ate"].psi)) > 1e-4:
+        findings.append("the restricted and whole-pool cleverly estimates agree to 1e-4")
     return findings
 
 
