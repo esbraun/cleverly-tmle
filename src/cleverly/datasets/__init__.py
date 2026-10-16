@@ -29,6 +29,15 @@ from .offers import (
     win_back,
     win_back_then_ship,
 )
+from .pricing import (
+    PRICE_BANDS,
+    PRICE_NODES,
+    PRICE_PLANS,
+    make_sequential_pricing,
+    price_rise,
+    pricing_protocol,
+    pricing_truth,
+)
 from .survival_point import make_point_survival, point_survival_truth
 from .synthetic import (
     DGP,
@@ -76,6 +85,9 @@ __all__ = [
     "OFFER_LEVELS",
     "OFFER_PLANS",
     "OFFER_WEEKS",
+    "PRICE_BANDS",
+    "PRICE_NODES",
+    "PRICE_PLANS",
     "REPEATED_RULE_LABEL",
     "RULE_LABEL",
     "WEIGHTED_SELECTION_PROBABILITIES",
@@ -113,6 +125,7 @@ __all__ = [
     "make_nonlinear_bounded",
     "make_point_survival",
     "make_sequential_offers",
+    "make_sequential_pricing",
     "make_shift_dose",
     "make_weak_overlap",
     "missing_outcome_binary_dgp",
@@ -127,6 +140,9 @@ __all__ = [
     "offers_protocol",
     "offers_truth",
     "point_survival_truth",
+    "price_rise",
+    "pricing_protocol",
+    "pricing_truth",
     "repeated_truth",
     "rule_arm_at_node_two",
     "sampling_probability",
