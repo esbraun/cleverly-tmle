@@ -15,11 +15,13 @@ declared and pending (`STUDY.pending_reference`). A later change registers the c
 
 ## State of this directory
 
-No run artifact exists yet. The design is complete and the study is not in `registered()`,
-because a registered study needs its committed artifacts. The property module is listed in
-`SYNTHETIC_MODULES` of `tests/canonical/property_differential.py` and in `UNCOMMITTED_MODULES`
-of `tests/unit/test_method_evidence.py`, as the incremental studies were before their runs.
-The change that commits the run artifacts also adds the registry line.
+The declared run is committed and registered. It ran from a clean worktree at commit `4f9038c0`.
+All 61 primary tests and all 237 gated property cells pass. The 14 `diagnostic` cells report
+without a verdict. Six fits of the calibration loop of law `M` raised a singular `GLM` matrix or a
+separated fit. Each of the 12 cells they write lost 6 of 8,000 replicates, inside the bound of 80.
+`property-failures.csv`, `property-failure-accounting.csv` and `property-failure-witnesses.csv`
+record them. The support rows `G39` in `src/cleverly/_support_rows.py` come from the support
+records of this run.
 
 The design declares no red row. The two negative controls (`LU` and `VB`) read as a detection
 rule: a cell passes when its bias interval lies beyond the margin on the side of the computed

@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
+import io
 import json
 import math
 import re
@@ -3079,6 +3080,11 @@ class TestPropertyFailures:
                 study.artifact(property_failures.PROPERTY_WITNESSES)
             ),
         )
+        # The artifact is a CSV, so the recomputed frame is compared as the driver writes it
+        # and as ``_property_accounting`` reads it back: an empty ``imputation`` reads as NaN.
+        recomputed = pd.read_csv(
+            io.StringIO(recomputed.to_csv(index=False)), keep_default_na=False, na_values=[""]
+        )
         pd.testing.assert_frame_equal(
             committed, recomputed, check_dtype=False, check_exact=False, rtol=1e-12
         )
@@ -3169,7 +3175,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES = ("tests.studies.structural_nested_mean_properties",)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:
