@@ -1,0 +1,5 @@
+draws 60, seeds 1000 to 1059, n = 10000
+  revenue price_up    linear    outcome learner: bias +0.0126 (MC SE 0.0075); coverage 55 of 60
+  revenue price_up    quadratic outcome learner: bias +0.0028 (MC SE 0.0075); coverage 55 of 60
+  revenue price_down  linear    outcome learner: bias +0.0138 (MC SE 0.0071); coverage 57 of 60
+  revenue price_down  quadratic outcome learner: bias +0.0071 (MC SE 0.0073); coverage 57 of 60

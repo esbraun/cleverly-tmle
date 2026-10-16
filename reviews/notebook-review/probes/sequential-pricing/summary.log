@@ -1,0 +1,150 @@
+draws 200, seeds 1000 to 1199, n = 10000, complete data
+seconds per draw: mean 7.5
+
+Coverage, bias, and SE ratio of LTMLE
+  renewal  price_up    coverage 186 of 200 (0.930); bias -0.0002 (MC SE 0.0005); SD 0.0066; mean SE 0.0063; ratio 0.959
+  renewal  price_down  coverage 187 of 200 (0.935); bias +0.0004 (MC SE 0.0005); SD 0.0077; mean SE 0.0080; ratio 1.034
+  revenue  price_up    coverage 185 of 200 (0.925); bias +0.0092 (MC SE 0.0040); SD 0.0559; mean SE 0.0537; ratio 0.960
+  revenue  price_down  coverage 191 of 200 (0.955); bias +0.0083 (MC SE 0.0038); SD 0.0538; mean SE 0.0550; ratio 1.023
+
+Support label of every fit
+  ladder_price_up_label: supported on 200 of 200 (1.000)
+  ladder_up_25_label: supported on 200 of 200 (1.000)
+  ladder_up_6_label: supported on 200 of 200 (1.000)
+  r_price_down_label: supported on 200 of 200 (1.000)
+  r_price_up_label: supported on 200 of 200 (1.000)
+  y_price_down_label: supported on 200 of 200 (1.000)
+  y_price_up_label: supported on 200 of 200 (1.000)
+
+Warnings
+  renewal_warnings: SparseInfluenceWarning on 42 of 200 (0.210)
+  renewal_warnings: other warnings []
+  revenue_warnings: SparseInfluenceWarning on 55 of 200 (0.275)
+  revenue_warnings: other warnings []
+  ladder_warnings: SparseInfluenceWarning on 0 of 200 (0.000)
+  ladder_warnings: other warnings []
+  revenue price_down SparseInfluenceWarning, seed 1000: False
+
+The revenue cut: the interval and the draws that span zero
+  revenue price_down interval contains zero: 60 of 200 (0.300)
+  revenue price_up interval contains zero: 0 of 200 (0.000)
+
+Failure mode: the logistic regression with the plan's prices, against LTMLE
+  price_up: truth -0.1003
+    adjust: mean -0.0807, SD 0.0049, median -0.0807, 5% -0.0886, 95% -0.0724, min -0.0935, max -0.0689
+    omit: mean -0.0207, SD 0.0036, median -0.0207, 5% -0.0263, 95% -0.0147, min -0.0303, max -0.0096
+    adjust further from the truth than LTMLE: 193 of 200 (0.965)
+    adjust outside the LTMLE interval: 193 of 200 (0.965)
+    omit outside the LTMLE interval: 200 of 200 (1.000)
+    adjust between LTMLE and omit: 200 of 200 (1.000)
+  price_down: truth 0.1149
+    adjust: mean 0.0975, SD 0.0049, median 0.0974, 5% 0.0892, 95% 0.1049, min 0.0856, max 0.1090
+    omit: mean 0.0275, SD 0.0045, median 0.0275, 5% 0.0198, 95% 0.0347, min 0.0130, max 0.0391
+    adjust further from the truth than LTMLE: 184 of 200 (0.920)
+    adjust outside the LTMLE interval: 127 of 200 (0.635)
+    omit outside the LTMLE interval: 200 of 200 (1.000)
+    adjust between LTMLE and omit: 199 of 200 (0.995)
+
+Node-3 support of the renewal fit
+  price_up: max weight mean 15.0739, SD 2.1232, median 14.6803, 5% 12.3371, 95% 18.9181, min 11.0947, max 23.3719
+  price_up: effective n over n mean 0.3590, SD 0.0075, median 0.3589, 5% 0.3465, 95% 0.3696, min 0.3377, max 0.3801
+  price_up: no weight truncated: 200 of 200 (1.000)
+  price_down: max weight mean 32.4389, SD 5.3990, median 31.4340, 5% 25.3671, 95% 42.5353, min 22.2689, max 52.5899
+  price_down: effective n over n mean 0.1522, SD 0.0059, median 0.1522, 5% 0.1430, 95% 0.1620, min 0.1357, max 0.1663
+  price_down: no weight truncated: 200 of 200 (1.000)
+
+Factor ladder: a 6%, a 12%, and a 25% rise, node 3
+  up_6      coverage 184 of 200 (0.920); bias -0.0001 (MC SE 0.0002); interval width mean 0.0126, SD 0.0002, median 0.0127, 5% 0.0124, 95% 0.0129, min 0.0122, max 0.0131
+  up_6      max weight mean 6.4629, SD 0.6001, median 6.3662, 5% 5.6409, 95% 7.6480, min 5.4116, max 8.6040
+  up_6      effective n over n mean 0.6667, SD 0.0037, median 0.6669, 5% 0.6607, 95% 0.6727, min 0.6574, max 0.6749
+  up_6      no weight truncated: 200 of 200 (1.000)
+  price_up  coverage 186 of 200 (0.930); bias -0.0002 (MC SE 0.0005); interval width mean 0.0246, SD 0.0005, median 0.0246, 5% 0.0238, 95% 0.0255, min 0.0235, max 0.0262
+  price_up  max weight mean 15.0739, SD 2.1232, median 14.6803, 5% 12.3371, 95% 18.9181, min 11.0947, max 23.3719
+  price_up  effective n over n mean 0.3590, SD 0.0075, median 0.3589, 5% 0.3465, 95% 0.3696, min 0.3377, max 0.3801
+  price_up  no weight truncated: 200 of 200 (1.000)
+  up_25     coverage 190 of 200 (0.950); bias -0.0001 (MC SE 0.0007); interval width mean 0.0397, SD 0.0008, median 0.0396, 5% 0.0385, 95% 0.0413, min 0.0379, max 0.0421
+  up_25     max weight mean 20.5143, SD 3.1338, median 20.1148, 5% 16.2938, 95% 27.0212, min 15.4782, max 31.6810
+  up_25     effective n over n mean 0.1966, SD 0.0054, median 0.1966, 5% 0.1873, 95% 0.2047, min 0.1823, max 0.2099
+  up_25     no weight truncated: 200 of 200 (1.000)
+  width increases with the factor: 200 of 200 (1.000)
+  max weight increases with the factor: 192 of 200 (0.960)
+  effective n decreases with the factor: 200 of 200 (1.000)
+
+Limits of the regressions, one draw of n = 400000, seed 3000001
+  adjust price_up: limit -0.0801, truth -0.1003, gap 0.0202
+  adjust price_down: limit 0.0970, truth 0.1149, gap 0.0179
+  omit price_up: limit -0.0203, truth -0.1003, gap 0.0800
+  omit price_down: limit 0.0270, truth 0.1149, gap 0.0879
+
+The independent transcription truth.py against pricing_truth()
+  same keys: True
+  largest difference: 3.2e-13
+
+Seed 1000, the draw the page shows
+                               0
+seed                        1000
+renewal_warnings             NaN
+revenue_warnings             NaN
+y_price_up_psi         -0.102561
+y_price_up_se           0.006462
+y_price_up_lo          -0.115225
+y_price_up_hi          -0.089897
+y_price_up_truth       -0.100302
+y_price_up_label       supported
+y_price_down_psi        0.105036
+y_price_down_se         0.007889
+y_price_down_lo         0.089573
+y_price_down_hi         0.120499
+y_price_down_truth       0.11491
+y_price_down_label     supported
+r_price_up_psi         -0.313028
+r_price_up_se           0.055748
+r_price_up_lo          -0.422292
+r_price_up_hi          -0.203765
+r_price_up_truth       -0.312247
+r_price_up_label       supported
+r_price_down_psi        0.073978
+r_price_down_se         0.053882
+r_price_down_lo        -0.031628
+r_price_down_hi         0.179584
+r_price_down_truth      0.125366
+r_price_down_label     supported
+maxw_price_up          13.696774
+essr_price_up           0.351676
+trunc_price_up                 0
+maxw_price_down        31.464289
+essr_price_down         0.154081
+trunc_price_down               0
+adjust_price_up        -0.079591
+adjust_price_down       0.093788
+omit_price_up          -0.020187
+omit_price_down         0.026777
+ladder_warnings              NaN
+ladder_up_6_psi        -0.059896
+ladder_up_6_se          0.003335
+ladder_up_6_lo         -0.066433
+ladder_up_6_hi         -0.053358
+ladder_up_6_truth      -0.058653
+ladder_up_6_label      supported
+ladder_up_6_maxw        5.744303
+ladder_up_6_essr        0.657678
+ladder_up_6_trunc              0
+ladder_price_up_psi    -0.102561
+ladder_price_up_se      0.006462
+ladder_price_up_lo     -0.115225
+ladder_price_up_hi     -0.089897
+ladder_price_up_truth  -0.100302
+ladder_price_up_label  supported
+ladder_price_up_maxw   13.696774
+ladder_price_up_essr    0.351676
+ladder_price_up_trunc          0
+ladder_up_25_psi       -0.122315
+ladder_up_25_se         0.009932
+ladder_up_25_lo        -0.141782
+ladder_up_25_hi        -0.102847
+ladder_up_25_truth     -0.128338
+ladder_up_25_label     supported
+ladder_up_25_maxw      19.686495
+ladder_up_25_essr       0.199585
+ladder_up_25_trunc             0
+seconds                 8.246106
