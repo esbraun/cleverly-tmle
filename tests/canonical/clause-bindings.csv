@@ -518,7 +518,7 @@ ctmle-oat-per-arm-parametric,type_i_error,coverage floor,coverage/0.5
 ctmle-oat-per-arm-parametric,type_i_error,rejection ceiling,rejection/0.1
 ctmle-oat-per-arm-parametric-crossfit,generated_design,coverage in calibration band,affine
 ctmle-oat-per-arm-parametric-crossfit,generated_design,se ratio in calibration band,se/0.05
-ctmle-oat-per-arm-parametric-crossfit,interval_calibration,coverage in calibration band,bias
+ctmle-oat-per-arm-parametric-crossfit,interval_calibration,coverage in calibration band,affine
 ctmle-oat-per-arm-parametric-crossfit,interval_calibration,noise se ratio below band,se_high
 ctmle-oat-per-arm-parametric-crossfit,interval_calibration,se ratio below band,se_high
 ctmle-oat-per-arm-parametric-crossfit,interval_calibration,se ratio in calibration band,affine
