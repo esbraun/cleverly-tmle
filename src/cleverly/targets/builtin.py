@@ -372,7 +372,11 @@ def _ey(ctx: TargetContext) -> list[ParameterEstimate]:
     """
     return [
         ctx.finish(
-            parameter_name("ey", arm=ctx.label(arm)), mean.psi, mean.influence_curve, "level"
+            parameter_name("ey", arm=ctx.label(arm)),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+            reads=(arm,),
         )
         for arm, mean in sorted(ctx.means.items())
     ]
@@ -380,18 +384,18 @@ def _ey(ctx: TargetContext) -> list[ParameterEstimate]:
 
 def _ey1(ctx: TargetContext) -> list[ParameterEstimate]:
     mean = ctx.means[1.0]
-    return [ctx.finish("ey1", mean.psi, mean.influence_curve, "level")]
+    return [ctx.finish("ey1", mean.psi, mean.influence_curve, "level", reads=(1.0,))]
 
 
 def _ey0(ctx: TargetContext) -> list[ParameterEstimate]:
     mean = ctx.means[0.0]
-    return [ctx.finish("ey0", mean.psi, mean.influence_curve, "level")]
+    return [ctx.finish("ey0", mean.psi, mean.influence_curve, "level", reads=(0.0,))]
 
 
 def _ey_obs(ctx: TargetContext) -> list[ParameterEstimate]:
     r"""The natural-course mean :math:`E[Y]`."""
     mean = ctx.observed_mean
-    return [ctx.finish("ey_obs", mean.psi, mean.influence_curve, "level")]
+    return [ctx.finish("ey_obs", mean.psi, mean.influence_curve, "level", reads=())]
 
 
 def _par(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -405,6 +409,7 @@ def _par(ctx: TargetContext) -> list[ParameterEstimate]:
             observed.psi - intervention.psi,
             observed.influence_curve - intervention.influence_curve,
             "difference",
+            reads=(ctx.reference,),
         )
     ]
 
@@ -420,7 +425,11 @@ def _paf(ctx: TargetContext) -> list[ParameterEstimate]:
         -intervention.influence_curve / observed.psi
         + intervention.psi * observed.influence_curve / observed.psi**2
     )
-    return [ctx.finish_unscaled(ctx.name_for("paf", ctx.reference), psi, curve, "fraction")]
+    return [
+        ctx.finish_unscaled(
+            ctx.name_for("paf", ctx.reference), psi, curve, "fraction", reads=(ctx.reference,)
+        )
+    ]
 
 
 def _difference_against_reference(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
@@ -438,6 +447,7 @@ def _difference_against_reference(ctx: TargetContext, stem: str) -> list[Paramet
             ctx.means[arm].psi - reference.psi,
             ctx.means[arm].influence_curve - reference.influence_curve,
             "difference",
+            reads=(arm, ctx.reference),
         )
         for arm in ctx.contrast_arms
     ]
@@ -571,6 +581,7 @@ def _ratio_contrasts(
                 ic,
                 "ratio",
                 log_psi=log_psi,
+                reads=(arm, ctx.reference),
             )
         )
     return out

@@ -334,7 +334,7 @@ import copy
 import inspect
 import numbers
 import warnings
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -370,7 +370,7 @@ from ..learners._l1_logistic import (
 from ..learners.crossfit import _POST_DRAW_REMEDY, Folds, check_integrity, make_folds
 from ..learners.parametric import ParametricMechanism, ParametricOutcome
 from ..learners.super_learner import resolve_learner
-from ..targets.base import parameter_name
+from ..targets.base import READS_SINK, parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
@@ -763,21 +763,24 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
     "screen_treatment": (lambda v: v is False, "screen_treatment=False"),
     "screen_threshold": (_anything, "any value; screening is off"),
     "min_retain": (_anything, "any value; screening is off"),
-    "estimands": (_anything, "ate, rr, or and the arm means (checked on the data)"),
+    "estimands": (
+        _anything,
+        "ate, rr, or, the arm means, ey_obs, par and paf (checked on the data)",
+    ),
     "interventions": (lambda v: not v, "no interventions"),
     "policies": (lambda v: not v, "no policies"),
     "incremental": (lambda v: not v, "no incremental"),
     "msm": (lambda v: v is None, "msm=None"),
     "learned_rule": (lambda v: v is None, "learned_rule=None"),
     "density_bins": (lambda v: v is None, "density_bins=None"),
-    "ratio": (_anything, "any value; the treatment is binary"),
+    "ratio": (_anything, "any value"),
     "reference": (_anything, "any arm"),
     "alpha_sig": (_anything, "any value"),
     "n_bootstrap": (_anything, "any value; the bootstrap range is a diagnostic"),
     "bootstrap_resampling": (_anything, "any value"),
-    "simultaneous": (_anything, "any value; no band is built, and X58 part (b) holds it"),
-    "n_multiplier": (_anything, "any value; no band"),
-    "multiplier_kind": (_anything, "any value; no band"),
+    "simultaneous": (_anything, "any value; the band reads the stacked curves"),
+    "n_multiplier": (_anything, "any value; the band reads the stacked curves"),
+    "multiplier_kind": (_anything, "any value; the band reads the stacked curves"),
     "step_size": (_anything, "any value; the logistic fluctuation ignores it"),
     "max_iter": (
         _anything,
@@ -819,13 +822,8 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
 _PER_ARM_PARAMETRIC_DATA: Final[tuple[tuple[str, Callable[[CausalData], bool], str], ...]] = (
     (
         "treatment",
-        lambda d: d.is_binary_treatment,
-        "a binary treatment; X58 part (b) holds more arms",
-    ),
-    (
-        "weights",
-        lambda d: not d.is_weighted,
-        "no observation weights; X58 part (d) holds fixed weights",
+        lambda d: d.has_arms and not d.is_vector_treatment,
+        "an arm-coded treatment of one column: the stack has one mechanism per arm",
     ),
     ("cluster", lambda d: d.cluster is None, "no cluster identifier"),
     ("strata", lambda d: not d.has_strata, "no baseline strata; X52 part (b) holds them"),
@@ -840,11 +838,12 @@ _PER_ARM_PARAMETRIC_DATA: Final[tuple[tuple[str, Callable[[CausalData], bool], s
 )
 
 
-#: The estimands the stacked per-arm interval covers.
-STACKED_ESTIMANDS: Final[frozenset[str]] = frozenset({"ate", "rr", "or", "ey", "ey0", "ey1"})
-
-#: The estimands that X58 part (b) holds for the stacked interval.
-_PART_B_ESTIMANDS: Final[frozenset[str]] = frozenset({"ey_obs", "par", "paf"})
+#: The estimands the stacked per-arm interval covers. ``ey_obs`` adds the equation
+#: ``w (Y - psi_obs)``, which reads no other parameter, and ``par`` and ``paf`` are smooth
+#: maps of ``psi_obs`` and the reference arm mean (X58 plan, 13.2).
+STACKED_ESTIMANDS: Final[frozenset[str]] = frozenset(
+    {"ate", "rr", "or", "ey", "ey0", "ey1", "ey_obs", "par", "paf"}
+)
 
 #: The estimands of the :meth:`CTMLE._estimates_for` call in progress, so that
 #: :meth:`CTMLE._corrections` reads the stack only for a call the stack covers. A
@@ -882,10 +881,12 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
     A cross-fitted fit is admitted at any fold count inside the fold-count cap
     (:data:`MAX_STACK_FOLDS` folds, held-out folds of at least :data:`MIN_STACK_FOLD_ROWS`
     rows), with any ``repeats``, on a binary outcome or on a continuous outcome with declared
-    ``q_bounds``. The predicate states what the stacked theory covers. The support label
-    states what a registered study measures: the rows of the study
-    ``ctmle-oat-per-arm-parametric-crossfit`` cover a binary outcome, and a fit outside
-    every row reports its interval labelled ``"experimental"``.
+    ``q_bounds``. The treatment can have any number of arms, and the outcome features then
+    carry ``K - 1`` arm indicators. Observation weights are admitted with
+    ``target_weights=False``: every equation carries the weight, and the interval conditions
+    on it. The predicate states what the stacked theory covers. The support label states what
+    a registered study measures, and a fit outside every support row reports its interval
+    labelled ``"experimental"``.
 
     Parameters
     ----------
@@ -956,13 +957,11 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
         )
     outside = sorted(set(resolved) - STACKED_ESTIMANDS)
     if outside:
-        held = [name for name in outside if name in _PART_B_ESTIMANDS]
         return SupportVerdict(
             False,
             "estimands",
-            "the stacked interval needs estimands among ate, rr, or and the arm means; got "
-            + ", ".join(outside)
-            + (f". X58 part (b) holds {', '.join(held)}" if held else ""),
+            "the stacked interval needs estimands among ate, rr, or, the arm means, ey_obs, "
+            "par and paf; got " + ", ".join(outside),
         )
     splitting = (
         f", cross-fitted over {estimator.n_folds} folds"
@@ -971,12 +970,51 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
         if estimator.cross_fit
         else ", in sample,"
     )
+    treatment = "a binary treatment" if data.n_arms == 2 else f"a {data.n_arms}-arm treatment"
+    weighting = (
+        ""
+        if not data.is_weighted
+        else " with estimated weights"
+        if data.declares_estimated_weights
+        else " with fixed weights"
+    )
     return SupportVerdict(
         True,
         None,
-        f"the per-arm fit{splitting} with ParametricOutcome and ParametricMechanism on a "
-        "binary treatment",
+        f"the per-arm fit{splitting} with ParametricOutcome and ParametricMechanism on "
+        f"{treatment}{weighting}",
     )
+
+
+def _held_estimates(
+    estimates: Mapping[str, Any],
+    reads: Mapping[str, frozenset[float]],
+    failures: Mapping[float, str],
+) -> frozenset[str]:
+    """The estimates that read no failed arm, and so keep the stacked curve.
+
+    The target of each estimate records the arm means it reads (:attr:`TargetContext.reads
+    <cleverly.targets.TargetContext.reads>`): ``ey[a]`` reads ``a``, a contrast reads its
+    arm and the reference, ``par`` and ``paf`` read the reference, and ``ey_obs`` reads no
+    arm. An estimate whose target records nothing counts as reading every arm. The names are
+    never parsed (X58 plan, 13.2, D4).
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The estimates of one fluctuation.
+    reads : mapping of str to frozenset of float
+        The arm codes each estimate reads, as its target recorded them.
+    failures : mapping of float to str
+        The failed arm codes, each with its reason.
+
+    Returns
+    -------
+    frozenset of str
+        The names of the estimates that read only arms whose stack held.
+    """
+    failed = frozenset(float(arm) for arm in failures)
+    return frozenset(name for name in estimates if name in reads and not reads[name] & failed)
 
 
 def _unstudied_stack_conditions(estimator: Any, data: CausalData) -> tuple[Refusal, ...]:
@@ -1476,16 +1514,24 @@ _STACKED_INTERVAL_NOTE: Final = (
     "Its intervals read the stacked parametric curve of {models}. Each interval is pointwise "
     "and covers the arm mean when the outcome model is correct, and its limit psi* otherwise. "
     "The g_bounds are constants of the fit, so with a wrong outcome model psi* can move with "
-    "n while a bound binds. No simultaneous band is built (X58 part (b))"
+    "n while a bound binds. A simultaneous band is joint over the reported estimates that "
+    "supply inference, and it reads their stacked curves"
 )
 
 
-def _stacked_interval_models(estimator: Any) -> str:
+def _stacked_interval_models(estimator: Any, data: CausalData) -> str:
     outcome, mechanism = estimator.outcome_learner, estimator.treatment_learner
     models = (
-        f"ParametricOutcome(features={outcome.features!r}) and "
-        f"ParametricMechanism(degree={mechanism.degree})"
+        f"ParametricOutcome(features={outcome.features!r}, arm_columns={outcome.arm_columns}) "
+        f"and ParametricMechanism(degree={mechanism.degree}), one mechanism for each of the "
+        f"{data.n_arms} arms"
     )
+    if data.is_weighted:
+        models += (
+            ", with the data weights in every equation. The interval conditions on the "
+            "weights"
+            + (", which are declared estimated" if data.declares_estimated_weights else "")
+        )
     if not estimator.cross_fit:
         return models
     models += (
@@ -1543,6 +1589,9 @@ class CTMLEOutcomeAdaptiveFit:
     stacked_repeats : int or None
         On an admitted fit, the cross-fitting repeats whose median the fit reports.
         ``None`` on every other fit.
+    stacked_arms : int or None
+        On an admitted fit, ``K``: the arms of the stack, one mechanism, fluctuation and
+        mean each. ``None`` on every other fit.
     """
 
     strategy: CTMLEStrategy
@@ -1557,6 +1606,7 @@ class CTMLEOutcomeAdaptiveFit:
     stacked_refusal: str | None = None
     stacked_folds: int | None = None
     stacked_repeats: int | None = None
+    stacked_arms: int | None = None
 
     @property
     def treatment_risk_selected(self) -> float:
@@ -1953,10 +2003,11 @@ default="greedy"
         per-arm standard errors too small, because condition (v) of Benkeser, Cai and van der
         Laan (2020), Theorem 1, fails for an estimated outcome regression. The predicate admits
         a fit with the parametric learners, in sample or cross-fitted, whose stacked curve
-        includes the generated-design term. It refuses observation weights, so estimated weights
-        never reach an admitted fit. An admitted fit takes the :class:`~cleverly.TMLE` status.
-        The status table of ``docs/technical-reference/inference.md`` states the shipped
-        behaviour.
+        includes the generated-design term. An admitted fit takes the :class:`~cleverly.TMLE`
+        status. With weights declared estimated it takes ``"estimated_weight_plugin"``: the
+        stacked curve holds the weights fixed, so the interval conditions on the weight
+        estimate (X58 plan, 13.4, D8). The status table of
+        ``docs/technical-reference/inference.md`` states the shipped behaviour.
 
         Parameters
         ----------
@@ -1990,8 +2041,12 @@ default="greedy"
         if per_arm_parametric_support(self, data).admitted:
             # The stacked curve of X58: the outcome GLM, each arm's mechanism, fluctuation and
             # mean as one Z-estimator. An arm whose stack fails on the sample takes the
-            # parameter status "stack_failure_plugin" in _estimates_for.
-            return precedent_status(["influence_curve", super()._inference_status(data)])
+            # parameter status "stack_failure_plugin" in _estimates_for. The stack treats the
+            # weights as known, so estimated weights give the conditional interval.
+            own = (
+                "estimated_weight_plugin" if data.declares_estimated_weights else "influence_curve"
+            )
+            return precedent_status([own, super()._inference_status(data)])
         return "generated_design_plugin"
 
     def _stack_report(
@@ -2084,6 +2139,9 @@ default="greedy"
         token = _REQUESTED.set(tuple(requested))
         reports: list[StackReport | None] = []
         held_token = _REPORT.set(reports)
+        reads: dict[str, frozenset[float]] = {}
+        reads_token = READS_SINK.set(reads)
+        reads_open = True
         try:
             estimates = super()._estimates_for(
                 data,
@@ -2098,6 +2156,9 @@ default="greedy"
                 drop_undefined=drop_undefined,
                 natural_course=natural_course,
             )
+            # Only the first build records: the shipped rebuild below reads the same targets.
+            READS_SINK.reset(reads_token)
+            reads_open = False
             if index is not None:
                 return estimates
             if (
@@ -2139,18 +2200,13 @@ default="greedy"
                     {name: float(np.sqrt(estimate.variance)) for name, estimate in shipped.items()}
                 )
         finally:
+            if reads_open:
+                READS_SINK.reset(reads_token)
             _REPORT.reset(held_token)
             _REQUESTED.reset(token)
         if report is None or not report.failures:
             return estimates
-        # An arm mean has two reported forms: ``ey1`` from the arm-code targets and
-        # ``ey[<label>]`` from the ``ey`` target. Both name the arm they read.
-        held = {
-            name
-            for arm in data.arm_codes
-            if float(arm) not in report.failures
-            for name in (f"ey{arm:g}", parameter_name("ey", arm=data.arm_label(arm)))
-        }
+        held = _held_estimates(estimates, reads, report.failures)
         warnings.warn(
             "the stacked per-arm interval failed on this sample: "
             + "; ".join(
@@ -2236,28 +2292,6 @@ default="greedy"
         """
         del data
         return True
-
-    def _builds_default_band(self, data: CausalData) -> bool:
-        """Whether ``simultaneous=True`` builds a band; ``False`` on an admitted per-arm fit.
-
-        X58 part (b) holds the band over the stacked curves, and no registered study measures
-        it yet. The fit reports its pointwise intervals, and its summary says that no band is
-        built.
-
-        Parameters
-        ----------
-        data : CausalData
-            The prepared data the estimates are fitted on.
-
-        Returns
-        -------
-        bool
-            ``False`` when :func:`per_arm_parametric_support` admits the fit, else the
-            inherited answer.
-        """
-        if self.strategy == "oat" and per_arm_parametric_support(self, data).admitted:
-            return False
-        return super()._builds_default_band(data)
 
     def _admits_natural_course_with_missing(self) -> bool:
         """Whether this fit may target the natural course with missing outcomes.
@@ -3322,10 +3356,13 @@ default="greedy"
                 strata=strata,
                 factors=tuple(spec.label for spec in specs),
                 risk_by_factor=risk_by_factor,
-                stacked_interval=(_stacked_interval_models(self) if verdict.admitted else None),
+                stacked_interval=(
+                    _stacked_interval_models(self, data) if verdict.admitted else None
+                ),
                 stacked_refusal=(None if verdict.admitted or not per_arm else verdict.detail),
                 stacked_folds=(base.folds.n_folds if verdict.admitted else None),
                 stacked_repeats=(int(self.repeats) if verdict.admitted else None),
+                stacked_arms=(int(data.n_arms) if verdict.admitted else None),
             )
         }
 
