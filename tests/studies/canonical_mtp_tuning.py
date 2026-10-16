@@ -369,9 +369,13 @@ def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict
     return lawq.sample(n, seed), {ESTIMAND: population_truth("dose_quantile")}
 
 
+def draw_scenario(scenario: str, n: int, replicate: int) -> tuple[pd.DataFrame, dict[str, float]]:
+    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
+
+
 def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
     scenario, replicate, n = key
-    return draw_replicate(STUDY, draw_from_seed, scenario, n, replicate)
+    return draw_scenario(scenario, n, replicate)
 
 
 def result_rows(

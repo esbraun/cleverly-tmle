@@ -141,7 +141,6 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         for cell in ("correctly_specified", "shrunken_se_control", "noise_control")
     ),
     **{family: tuple(c for pair in pairs for c in pair) for family, pairs in PAIRED_CELLS.items()},
-    "reporting": ("declared_hazard_default_bins_tau2__declared",),
 }
 
 STUDY = StudyRecord(
