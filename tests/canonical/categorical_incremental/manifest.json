@@ -6,7 +6,7 @@
     "subject": {
       "implementation": "cleverly-categorical-incremental",
       "cleverly_version": "0.1.4",
-      "cleverly_commit": "7cb43c927966bc7963a41dbf856a316e932434f9",
+      "cleverly_commit": "2b5077d3aee33ab631b7a1902c9031d20116fad5",
       "cleverly_worktree_clean": true,
       "python": "3.13.16",
       "numpy": "2.5.4",
@@ -113,7 +113,7 @@
   },
   "study_module_sha256": {
     "tests/studies/canonical_categorical_incremental.py": "655fc9b8303e0042a055dcf0decb102d395eb7bfadb1f7ad7a55e00dce4c256b",
-    "tests/studies/categorical_incremental_properties.py": "47f1d124c12fd87e80af9e8595266ec7826d9c5910aec1ab2b1a75b7d1ab0c73",
+    "tests/studies/categorical_incremental_properties.py": "a1865665c8ba8671ccf8d283ca28e882422ec2c45dbaf64154ed2e639ccea4cd",
     "tests/studies/categorical_incremental_common.py": "ba170b3e2e2fa9e19bbb5b94d12aff8cfab6b4510c05ffe6ee44f78afa427f2f",
     "tests/discrete_law_categorical_ipsi_point.py": "f6124b035e3e389f30cd1d90731a5c75a08f5eee28ac1aa67c116ebfd1e8a249",
     "tests/discrete_law_categorical_ipsi_longitudinal.py": "a39c4a1caf427fef34d3a57879857cfb52682e8399b69fbc8019a7c49c7c8abd",
@@ -134,7 +134,7 @@
     "summary.csv": "edb9ac07a15bbc979ae66796fe4266efa64ef4ffd62aab09791397dfc248f49a",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "32895599e6ef75d0cbc2ae9babc176dc03469afbeee492d07b1aa5557d43463b",
-    "property-replicates.csv.gz": "cf9e1d0b2911695dbc8f95bb4ac558b88d39a9be7b83f5ea2d48c990bd9c4860",
-    "properties.csv": "751167a345eb3a11752c4b171014a73bba8b305f081a5c54ed29a8e4554c47bb"
+    "property-replicates.csv.gz": "15d85798cd1d0919a39cf4eb3c9166f37142ceaa5e4a50abc43a7f7ef3a9446f",
+    "properties.csv": "1a0e8bb41189d0c9d043519ab912ef696dbe207ac13ff2a01a1bbd9b66df6698"
   }
 }
