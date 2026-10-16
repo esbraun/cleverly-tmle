@@ -101,10 +101,12 @@ from tests.studies.evidence.seeds import stream_seed
 
 #: The replicates of every calibration cell and of the necessity family, by the arm-pooled
 #: predictive rule (``tests/unit/test_categorical_incremental_design.py``).
-CALIBRATION_REPLICATES = 2_800
-#: The size of the longitudinal calibration and reported cells: the primary size, at which
-#: the complete-case control misses its truth by 4.1 of its standard errors.
-LONGITUDINAL_N = 8_000
+CALIBRATION_REPLICATES = 3_600
+#: The size of the longitudinal calibration and reported cells.  At the primary size, 8,000,
+#: the 2,400-draw pilot put law ``L0``'s SE ratio at 0.958 (coverage 0.941); at 16,000 the
+#: 1,600-draw pilot puts both cells at 1.01 to 1.02.  The complete-case control misses its
+#: truth there by 5.8 of its standard errors.
+LONGITUDINAL_N = 16_000
 NULL_N = 4_000
 NULL_REPLICATES = 2_000
 REQUIREMENT_REPLICATES = 2_000

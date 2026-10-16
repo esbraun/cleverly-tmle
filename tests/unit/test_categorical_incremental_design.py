@@ -353,6 +353,11 @@ CALIBRATION_PILOT: dict[str, tuple[int, float, float, float]] = {
     "point_known_t_a": (8_400, 1.0031, 0.0193, 0.0010),
     "point_stratified_t_a_v1": (8_400, 0.9946, 0.0317, -0.0642),
 }
+#: The longitudinal calibration cells at ``LONGITUDINAL_N`` (``pilot_l.py``, 1,600 draws).
+LONGITUDINAL_CALIBRATION_PILOT: dict[str, tuple[int, float, float, float]] = {
+    "longitudinal_dropout_contrast_t_a": (1_600, 1.0089, 0.0086, 0.0144),
+    "longitudinal_contrast_t_a": (1_600, 1.0157, 0.0085, 0.0357),
+}
 #: The two necessity controls in the same draws: the SE ratio and the SE's relative spread.
 NECESSITY_PILOT = {"mechanism_term_dropped": (0.6140, 0.0194), "binary_blip": (0.7847, 0.0222)}
 #: The constant-outcome cells of the rung pilot, ``ate_ipsi[T_a vs natural course]``: the
@@ -434,16 +439,17 @@ ARM_LAWS = {"point": 1, "longitudinal": 2}
 def test_the_calibration_replicates_follow_the_sizing_rule() -> None:
     """``R`` is the smallest multiple of 400 with family-wise pass chance >= 0.95.
 
-    Provisional: only the point arm is piloted.  The longitudinal arm joins the rule with
-    its pilot (stage 2), and the declared ``R`` can only rise.
+    The arms are the point cells (one law) and the longitudinal cells (laws ``L`` and
+    ``L0``).
     """
-    arms = {"point": CALIBRATION_PILOT}
+    arms = {"point": CALIBRATION_PILOT, "longitudinal": LONGITUDINAL_CALIBRATION_PILOT}
     replicates = properties.CALIBRATION_REPLICATES
     assert replicates % REPLICATE_GRAIN == 0
     assert family_pass_probability(replicates, arms) >= FAMILY_FLOOR
     assert family_pass_probability(replicates - REPLICATE_GRAIN, arms) < FAMILY_FLOOR
-    point_labels = {label for label in properties.CALIBRATION_LABELS if label.startswith("point")}
-    assert set(CALIBRATION_PILOT) == point_labels
+    assert {*CALIBRATION_PILOT, *LONGITUDINAL_CALIBRATION_PILOT} == set(
+        properties.CALIBRATION_LABELS
+    )
 
 
 def test_the_pilot_reads_the_exact_control_ratios() -> None:
