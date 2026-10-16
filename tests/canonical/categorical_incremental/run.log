@@ -1,0 +1,21 @@
+=== categorical-incremental declared run
+command: /home/claude/cleverly-tmle/.venv/bin/python /home/claude/cleverly-tmle/tests/canonical/categorical_incremental/regenerate.py --output /tmp/claude-0/x43-run/out1 --jobs 4
+commit: 7cb43c927966bc7963a41dbf856a316e932434f9; upstream 7cb43c927966bc7963a41dbf856a316e932434f9
+clean tree: True
+cleverly 0.1.4 from /home/claude/cleverly-tmle/src/cleverly/__init__.py
+python 3.13.16; numpy 2.5.4; scipy 1.18.1; pandas 3.0.6; scikit-learn 1.9.1; joblib 1.6.0
+installed distributions: 134, sha256 7d76550e4961ad6e11526ef79cc902452dd44ed33d8fbf9643d4c72e132bd8e8
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 4
+started: 2026-10-16T11:00:43+00:00
+finished: 2026-10-16T13:43:48+00:00
+wall seconds: 9785.4
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 884fe35764c73d0b09ac4b5525465035dec7d66272581dace1381bb7f541f469
+sha256 performance-tests.csv: 32895599e6ef75d0cbc2ae9babc176dc03469afbeee492d07b1aa5557d43463b
+sha256 properties.csv: 751167a345eb3a11752c4b171014a73bba8b305f081a5c54ed29a8e4554c47bb
+sha256 property-replicates.csv.gz: cf9e1d0b2911695dbc8f95bb4ac558b88d39a9be7b83f5ea2d48c990bd9c4860
+sha256 replicates.csv.gz: 59d32d5dc816b298fa7e9ffa1ccc447485ca865fd320276fa51b628454f93d18
+sha256 summary.csv: edb9ac07a15bbc979ae66796fe4266efa64ef4ffd62aab09791397dfc248f49a
+
