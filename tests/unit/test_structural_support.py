@@ -1,11 +1,16 @@
 """The support label of ``StructuralNestedMean`` (RM42b).
 
-No registered study covers the estimator yet, so no support row names the engine ``snmm``.
-Every fit reads ``experimental`` until the X44 study is registered and a row lands. Each class
-below names a component that can vanish and a witness that fails when it does.
+The rows ``G39`` of :mod:`cleverly._support_rows` name the engine ``snmm``. Each covers one key
+that the registered study ``structural-nested-mean`` (X44) fits: cross-fitted, with the point
+estimate and the Wald interval. Each class below names a component that can vanish and a
+witness that fails when it does.
 
-* ``TestEveryFitReadsExperimental`` pins the label, the reason and the nearest row at every
-  surface a reader meets: the estimate, the frame, the summary, the bands and a saved result.
+* ``TestTheStudyRowsCoverTheFit`` pins that a cross-fitted ``GLM`` fit of two binary nodes reads
+  ``supported`` on ``G39.two_nodes``, that its band stays ``experimental``, and that the fit
+  reads ``experimental`` once the ``G39`` rows are removed.
+* ``TestAnUncoveredFitReadsExperimental`` pins the label, the reason and the nearest row of an
+  in-sample fit, which no row covers, at every surface a reader meets: the estimate, the frame,
+  the summary, the bands and a saved result.
 * ``TestTheKeyReadsTheFit`` pins the axes of the support key, so a later row can cover a fit.
 * ``TestARowCoversTheKey`` registers a row built from a fit's own key. The same fit then reads
   ``supported``, and a row that differs on one axis leaves it ``experimental``. The control
@@ -57,50 +62,84 @@ def result() -> Any:
     return fit()
 
 
-class TestEveryFitReadsExperimental:
-    def test_every_estimate_is_experimental_with_the_nearest_row(self, result: Any) -> None:
+@pytest.fixture(scope="module")
+def uncovered() -> Any:
+    """An in-sample ``GLM`` fit. The ``G39`` rows are cross-fitted, so no row covers it."""
+    return fit(n_folds=1)
+
+
+class TestTheStudyRowsCoverTheFit:
+    def test_every_estimate_is_supported_on_the_two_node_row(self, result: Any) -> None:
         assert result.estimates
         for name, estimate in result.estimates.items():
+            assert estimate.support.label == "supported", name
+            assert estimate.support.row == "G39.two_nodes", name
+            assert estimate.support.evidence == ("structural-nested-mean",), name
+        assert set(result.to_frame()["support"]) == {"supported"}
+
+    def test_the_band_is_experimental_because_the_row_licenses_no_band(self, result: Any) -> None:
+        assert result.simultaneous is not None
+        support = result.simultaneous.support
+        assert support.label == "experimental"
+        assert "G39.two_nodes licenses no simultaneous band" in support.reason
+
+    def test_removing_the_study_rows_leaves_the_fit_experimental(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        rows = tuple(row for row in _support.registered_rows() if not row.id.startswith("G39"))
+        monkeypatch.setattr(_support, "registered_rows", lambda: rows)
+        estimate = fit()["ey_regimen[always]"]
+        assert estimate.support.label == "experimental"
+        assert estimate.support.reason.startswith(NO_STUDY)
+
+
+class TestAnUncoveredFitReadsExperimental:
+    def test_every_estimate_is_experimental_with_the_nearest_row(self, uncovered: Any) -> None:
+        assert uncovered.estimates
+        for name, estimate in uncovered.estimates.items():
             support = estimate.support
             assert support.label == "experimental", name
             assert support.row is None
             assert support.reason.startswith(NO_STUDY), name
-            assert "Nearest row:" in support.reason, name
+            assert "Nearest row: G39.two_nodes" in support.reason, name
+            assert "differing on splitting" in support.reason, name
             assert support is not UNCLASSIFIED
 
-    def test_the_repr_and_the_frame_carry_the_label(self, result: Any) -> None:
-        assert "[experimental]" in repr(result["ey_regimen[always]"])
-        frame = result.to_frame()
+    def test_the_repr_and_the_frame_carry_the_label(self, uncovered: Any) -> None:
+        assert "[experimental]" in repr(uncovered["ey_regimen[always]"])
+        frame = uncovered.to_frame()
         assert set(frame["support"]) == {"experimental"}
         assert all(str(reason).startswith(NO_STUDY) for reason in frame["support_reason"])
 
-    def test_the_summary_prints_the_column_and_one_note_per_reason(self, result: Any) -> None:
-        text = result.summary()
+    def test_the_summary_prints_the_column_and_one_note_per_reason(self, uncovered: Any) -> None:
+        text = uncovered.summary()
         header = next(line for line in text.splitlines() if line.startswith("parameter"))
         assert header.split()[-1] == "support"
         notes = [line for line in text.splitlines() if line.startswith("experimental:")]
         assert len(notes) == 1
         assert NO_STUDY in notes[0]
 
-    def test_the_bands_and_a_contrast_carry_the_label(self, result: Any) -> None:
-        assert result.simultaneous is not None
-        assert result.simultaneous.support.label == "experimental"
-        assert "pointwise) [experimental]:" in result.summary()
-        derived = result.contrast(
+    def test_the_bands_and_a_contrast_carry_the_label(self, uncovered: Any) -> None:
+        assert uncovered.simultaneous is not None
+        assert uncovered.simultaneous.support.label == "experimental"
+        assert "pointwise) [experimental]:" in uncovered.summary()
+        derived = uncovered.contrast(
             lambda psi: psi[0] - psi[1],
             ["ey_regimen[always]", "ey_regimen[never]"],
         )
         assert derived.support.label == "experimental"
 
-    def test_the_label_and_the_key_survive_save_and_load(self, result: Any, tmp_path: Any) -> None:
+    def test_the_label_and_the_key_survive_save_and_load(
+        self, uncovered: Any, tmp_path: Any
+    ) -> None:
         path = tmp_path / "snmm.joblib"
-        result.save(path)
+        uncovered.save(path)
         loaded = cleverly.load(path)
-        assert loaded.config.support_key == result.config.support_key
+        assert loaded.config.support_key == uncovered.config.support_key
         assert loaded.config.support_key is not None
-        for name, estimate in result.estimates.items():
+        for name, estimate in uncovered.estimates.items():
             assert loaded[name].support == estimate.support
-        assert loaded.simultaneous.support == result.simultaneous.support
+        assert loaded.simultaneous.support == uncovered.simultaneous.support
 
     def test_dropping_the_classification_fails_the_witness(
         self, monkeypatch: pytest.MonkeyPatch
@@ -288,6 +327,7 @@ class TestTheStatusesKeepTheirIntervals:
 
 class TestTheModelCheckCarriesTheLabel:
     def test_the_check_is_experimental_and_prints_the_reason(self, result: Any) -> None:
+        """The structural side is supported, and the ``LTMLE`` side of the check has no row."""
         check = result.check_model(q_bounds=BOUNDS)
         assert check.support.label == "experimental"
         assert NO_STUDY in check.support.reason
