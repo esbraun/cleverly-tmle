@@ -392,8 +392,10 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
         n_jobs=n_jobs,
         implementation=STUDY.implementation,
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+        # Each fit writes its sample to disk, so the run holds one sample per worker.
+        spill_samples_at=0,
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    samples = replication.assembled_samples(outcomes, at=0)
     truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
     estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
     return replication.result(
