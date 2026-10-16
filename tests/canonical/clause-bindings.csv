@@ -889,6 +889,38 @@ mar-tmle,targeting_necessity,bias equivalent,bias
 mar-tmle,targeting_necessity,least displacement over labels,control_concentrated
 mar-tmle,type_i_error,coverage floor,coverage/0.5
 mar-tmle,type_i_error,rejection ceiling,rejection/0.1
+mtp-boundaries,atom_necessity,bias discriminated,pair_collapse
+mtp-boundaries,atom_necessity,bias equivalent,bias
+mtp-boundaries,atom_necessity,least displacement over labels,control_concentrated
+mtp-boundaries,branch_necessity,bias discriminated,pair_collapse
+mtp-boundaries,branch_necessity,bias equivalent,bias
+mtp-boundaries,branch_necessity,least displacement over labels,control_concentrated
+mtp-boundaries,interval_calibration,coverage in calibration band,bias
+mtp-boundaries,interval_calibration,noise se ratio below band,se_high
+mtp-boundaries,interval_calibration,se ratio below band,se_high
+mtp-boundaries,interval_calibration,se ratio in calibration band,none
+mtp-boundaries,jacobian_necessity,bias discriminated,pair_collapse
+mtp-boundaries,jacobian_necessity,bias equivalent,bias
+mtp-boundaries,jacobian_necessity,least displacement over labels,control_concentrated
+mtp-boundaries,ratio_necessity,bias discriminated,pair_collapse
+mtp-boundaries,ratio_necessity,bias equivalent,bias
+mtp-boundaries,ratio_necessity,least displacement over labels,control_concentrated
+mtp-pricing,double_robustness,bias discriminated,pair_collapse
+mtp-pricing,double_robustness,bias equivalent,bias
+mtp-pricing,double_robustness,se ratio in union band,se/0.05
+mtp-pricing,interval_calibration,coverage in calibration band,bias
+mtp-pricing,interval_calibration,noise se ratio below band,se_high
+mtp-pricing,interval_calibration,se ratio below band,se_high
+mtp-pricing,interval_calibration,se ratio in calibration band,none
+mtp-pricing,ratio_necessity,bias discriminated,pair_collapse
+mtp-pricing,ratio_necessity,bias equivalent,bias
+mtp-pricing,ratio_necessity,least displacement over labels,control_concentrated
+mtp-tuning,interval_calibration,coverage in calibration band,bias
+mtp-tuning,interval_calibration,noise se ratio below band,se_high
+mtp-tuning,interval_calibration,population truth se ratio below band,se_high
+mtp-tuning,interval_calibration,se ratio below band,se_high
+mtp-tuning,interval_calibration,se ratio in calibration band,affine
+mtp-tuning,interval_calibration,term dropped se ratio below band,se_high
 multi-arm-mar-drtmle,corrected_mar_inference,bias clears the both-wrong floor,shift/0.15
 multi-arm-mar-drtmle,corrected_mar_inference,bias discriminated,mixed/0
 multi-arm-mar-drtmle,corrected_mar_inference,bias equivalent,bias
@@ -1236,38 +1268,6 @@ vector-mtp,jacobian_necessity,least displacement over labels,control_concentrate
 vector-mtp,preimage_necessity,bias discriminated,pair_collapse
 vector-mtp,preimage_necessity,bias equivalent,bias
 vector-mtp,preimage_necessity,least displacement over labels,control_concentrated
-tests.studies.mtp_boundaries_properties,atom_necessity,bias discriminated,pair_collapse
-tests.studies.mtp_boundaries_properties,atom_necessity,bias equivalent,bias
-tests.studies.mtp_boundaries_properties,atom_necessity,least displacement over labels,control_concentrated
-tests.studies.mtp_boundaries_properties,branch_necessity,bias discriminated,pair_collapse
-tests.studies.mtp_boundaries_properties,branch_necessity,bias equivalent,bias
-tests.studies.mtp_boundaries_properties,branch_necessity,least displacement over labels,control_concentrated
-tests.studies.mtp_boundaries_properties,interval_calibration,coverage in calibration band,bias
-tests.studies.mtp_boundaries_properties,interval_calibration,noise se ratio below band,none
-tests.studies.mtp_boundaries_properties,interval_calibration,se ratio below band,se_high
-tests.studies.mtp_boundaries_properties,interval_calibration,se ratio in calibration band,affine
-tests.studies.mtp_boundaries_properties,jacobian_necessity,bias discriminated,pair_collapse
-tests.studies.mtp_boundaries_properties,jacobian_necessity,bias equivalent,bias
-tests.studies.mtp_boundaries_properties,jacobian_necessity,least displacement over labels,control_concentrated
-tests.studies.mtp_boundaries_properties,ratio_necessity,bias discriminated,pair_collapse
-tests.studies.mtp_boundaries_properties,ratio_necessity,bias equivalent,bias
-tests.studies.mtp_boundaries_properties,ratio_necessity,least displacement over labels,control_concentrated
-tests.studies.mtp_pricing_properties,double_robustness,bias discriminated,pair_collapse
-tests.studies.mtp_pricing_properties,double_robustness,bias equivalent,bias
-tests.studies.mtp_pricing_properties,double_robustness,se ratio in union band,se/0.05
-tests.studies.mtp_pricing_properties,interval_calibration,coverage in calibration band,bias
-tests.studies.mtp_pricing_properties,interval_calibration,noise se ratio below band,se_high
-tests.studies.mtp_pricing_properties,interval_calibration,se ratio below band,se_high
-tests.studies.mtp_pricing_properties,interval_calibration,se ratio in calibration band,affine
-tests.studies.mtp_pricing_properties,ratio_necessity,bias discriminated,pair_collapse
-tests.studies.mtp_pricing_properties,ratio_necessity,bias equivalent,bias
-tests.studies.mtp_pricing_properties,ratio_necessity,least displacement over labels,control_concentrated
-tests.studies.mtp_tuning_properties,interval_calibration,coverage in calibration band,affine
-tests.studies.mtp_tuning_properties,interval_calibration,noise se ratio below band,none
-tests.studies.mtp_tuning_properties,interval_calibration,population truth se ratio below band,none
-tests.studies.mtp_tuning_properties,interval_calibration,se ratio below band,se_high
-tests.studies.mtp_tuning_properties,interval_calibration,se ratio in calibration band,affine
-tests.studies.mtp_tuning_properties,interval_calibration,term dropped se ratio below band,none
 weighted-ltmle,double_robustness,bias discriminated,bias
 weighted-ltmle,double_robustness,bias equivalent,bias
 weighted-ltmle,double_robustness,se ratio in union band,se/0.05
