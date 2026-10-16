@@ -719,7 +719,7 @@ LIMIT_COLUMN = "exact_limit"
 
 
 def reported_families(summary: pd.DataFrame) -> None:
-    """The two reported families state no verdict; the complete case publishes its limit."""
+    """The reported family states no verdict; the complete case publishes its limit."""
     complete = summary["property"] == "censoring_complete_case"
     summary.loc[complete, LIMIT_COLUMN] = COMPLETE_CASE_LIMIT
     summary.loc[complete, "passed"] = True

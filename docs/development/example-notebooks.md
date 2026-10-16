@@ -228,7 +228,6 @@ of the technical reference describes each one and says which of them is a bound.
 | kind of fit | the sensitivity analysis to run | how to read it |
 | --- | --- | --- |
 | point-treatment TMLE or CV-TMLE, on a law whose true propensity stays away from 0 and 1 | `robustness_value()`, `benchmark()`, and `omitted_confounding()`, with the default $\nu^2$ estimator | a bound. $\nu^2$ is the second moment of the Riesz representer, and it is finite only when $1/g$ and $1/(1 - g)$ both have finite means |
-| DR-TMLE | `evalue()` | an approximate E-value. The output prints its chain: the standardized mean difference, Chinn's step to an odds ratio, and the common-outcome square root to a risk ratio. The E-value reads only the estimate and its interval, so it does not test the doubted assignment model |
 | C-TMLE | `robustness_value()` and `omitted_confounding()` on the ordinary TMLE fit of the declared adjustment set only. A collaborative fit other than `strategy="derivative"` refuses the bound. Do not run `simulated_confounding()` | a bound for the ordinary fit. It does not cover the collaborative estimate |
 | MSM projection | `robustness_value(estimand="ate[medium vs low]")` and its sibling on the multi-arm `ATE(reference="low")` fit, whose contrasts share the influence curves of the saturated MSM coefficients | a bound on each arm contrast, not on the MSM coefficient. The `msm` axis itself is refused |
 | a fit with missing outcomes | `missingness()` and `tipping_gamma()` | the tilt of the unobserved outcomes at which the estimate reaches its null |

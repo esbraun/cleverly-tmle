@@ -104,10 +104,11 @@ The test fails on four states.
 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) | 1 | ordinary point modified treatment policies |
 | [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) | 1 | longitudinal incremental propensity-score interventions under dropout |
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
+| [`X45-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | parametric g-formula |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 173 | 32 studies |
+| total | 174 | 33 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -197,6 +198,7 @@ same text as the "measured" column of its study page.
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/hajek_x_contrast__main_terms` | control | its own rule | bias 0.1306 to 0.1344, margin 0.0175, coverage 0.5072 to 0.5348, SE ratio 0.9970 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ht_x_contrast__main_terms` | control | its own rule | bias 0.1637 to 0.1682, margin 0.0208, coverage 0.4709 to 0.4984, SE ratio 0.9988 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ice_x_contrast__main_terms` | control | its own rule | bias 0.1075 to 0.1111, margin 0.0162, coverage 0.5952 to 0.6221, SE ratio 1.0002 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
+| [parametric g-formula](parametric-gformula.md) | property | `interval_calibration/nice_g1_treat_all__correctly_specified` | positive | its own rule | coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000 | [`X45-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [outcome-adaptive per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle.md) | truth | `cleverly-ctmle-oat-per-arm/binary_active/ate` | cleverly-ctmle-oat-per-arm | its truth gate | bias -0.0021 to 0.0031, coverage 0.9087, SE ratio 0.8500 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle.md) | truth | `cleverly-ctmle-oat-per-arm/binary_active/ey0` | cleverly-ctmle-oat-per-arm | its truth gate | bias -0.0024 to 0.0013, coverage 0.9025, SE ratio 0.8526 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle.md) | truth | `cleverly-ctmle-oat-per-arm/binary_active/ey1` | cleverly-ctmle-oat-per-arm | its truth gate | bias -0.0019 to 0.0018, coverage 0.9062, SE ratio 0.8463 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |

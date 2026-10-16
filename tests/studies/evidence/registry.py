@@ -501,6 +501,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_MULTI_ARM_MAR_DRTMLE,
     )
     from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
+    from tests.studies.canonical_parametric_gformula import STUDY as PARAMETRIC_GFORMULA
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
     from tests.studies.canonical_point_survival import STUDY as POINT_SURVIVAL
     from tests.studies.canonical_point_survival_crossfit import (
@@ -625,6 +626,7 @@ def registered() -> tuple[StudyRecord, ...]:
         DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
+        PARAMETRIC_GFORMULA,
         CTMLE_OAT_PER_ARM,
         CTMLE_OAT_PER_ARM_PARAMETRIC,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
