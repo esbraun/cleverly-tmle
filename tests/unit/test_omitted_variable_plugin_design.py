@@ -15,8 +15,6 @@ The checks, in the plan's letters:
 * (b) no law truncates a cell with probability above 1e-6 per row;
 * (c) every control leaves the band with power of at least 0.9 at the declared ``R``;
 * (d) every positive cell's 99% SE-ratio half-width is at most 0.035 at ``R``;
-* (e) the first-order ridge shrinkage of ``binary_logistic_ridge`` is below
-  ``PENALTY_BIAS_FRACTION`` of the standard error of :math:`\nu^2`;
 * (f) the family-wise pass probability under perfect calibration reaches 0.95 at ``R``, and
   ``R`` is at least the smallest multiple of 400 that reaches it;
 * (g) on ``binary_known``, adding the logistic mechanism term puts the ATT and ATC ratios
@@ -41,7 +39,6 @@ import pytest
 from scipy.special import expit, logit
 from scipy.stats import norm
 
-from cleverly.sensitivity._mechanism_stack import PENALTY_BIAS_FRACTION
 from tests.studies import omitted_variable_bound_plugin as study
 from tests.studies import omitted_variable_bound_plugin_properties as properties
 from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
@@ -130,7 +127,6 @@ class Population:
     second_moment: np.ndarray
     share_term: np.ndarray
     mechanism_term: np.ndarray
-    shrinkage: float
 
 
 def population(scenario: str, token: str) -> Population:
@@ -172,11 +168,9 @@ def population(scenario: str, token: str) -> Population:
                 x * (omega * factor)[:, None]
             ).T @ x
     penalty = np.zeros_like(information)
-    theta = np.zeros((arms - 1) * d)
     if scenario == "binary_logistic_ridge":
         # sklearn's C = 1 penalty on the slopes, per observation at n = 1000.
         penalty = np.diag([0.0] + [1.0] * (d - 1)) / study.PRIMARY_N
-        theta = np.array([0.0, 0.3, -0.2, 0.1, 0.0])
     inner = (slope * g[:, None, :]).sum(axis=2)
     chain = g[:, None, 1:] * (slope[:, :, 1:] - inner[:, :, None])
     gradient = np.einsum(
@@ -196,7 +190,6 @@ def population(scenario: str, token: str) -> Population:
         second_moment=alpha**2 - nu2,
         share_term=np.array(share_term),
         mechanism_term=score @ direction,
-        shrinkage=float(abs(direction @ (penalty @ theta))),
     )
 
 
@@ -460,27 +453,6 @@ def test_every_positive_cell_resolves_the_band() -> None:
     # The three-arm ATE's nu^2 carries the heaviest curve: E[alpha^8] grows like E[1/g^7].
     widest = max(widths, key=widths.__getitem__)
     assert widest == "multinomial_logistic_ate_2v0_nu2__correctly_specified"
-
-
-# ----------------------------------------------------------------------- (e) ridge penalty
-
-
-def test_the_ridge_shrinkage_is_below_the_gate() -> None:
-    r"""(e) The first-order shrinkage of :math:`\nu^2` under C = 1 is below the gate fraction.
-
-    The shrinkage is :math:`|D (J + P/(Cn))^{-1} P \theta / (Cn)|`, over the standard error
-    :math:`\mathrm{sd}(\psi_{\nu^2}) / \sqrt n`.  The package ships the ``penalty_bias`` gate,
-    and a replicate that met it would stop the study.  Across 150 replicates the ATE fraction
-    had mean 0.050, standard deviation 0.009 and maximum 0.073.
-    """
-    fractions = {}
-    for token in study.BINARY_PARAMETERS:
-        pop, positive, _ = _curves("binary_logistic_ridge", token)
-        second, _ = moments("binary_logistic_ridge", positive, pop, "nu2")
-        fractions[token] = pop.shrinkage / math.sqrt(second / study.PRIMARY_N)
-    assert max(fractions.values()) < PENALTY_BIAS_FRACTION
-    assert fractions["ate"] == pytest.approx(0.0491, abs=1e-3)
-    assert fractions["att"] == pytest.approx(0.0365, abs=1e-3)
 
 
 # ------------------------------------------------------------------------- (f) the budget

@@ -75,20 +75,6 @@ TIGHT: dict[str, Any] = {"solver": "newton-cg", "tol": 1e-14, "max_iter": 1000}
 NO_CLIP = (1e-6, 1.0 - 1e-6)
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _no_penalty_gate() -> Iterator[None]:
-    """Lift the ``penalty_bias`` gate and the ``cross_fit`` refusal.
-
-    These witnesses test the curve of the penalized and of the cross-fitted functional.  The
-    gate and the refusal are separate finite-sample stops, and
-    ``test_omitted_variable_plugin_refusals.py`` pins them.
-    """
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(ov, "PENALTY_BIAS_FRACTION", np.inf)
-        patch.setattr(ms, "OUT_OF_FOLD_REFUSED", False)
-        yield
-
-
 #: The weight function of the weighted two-arm fits.
 WEIGHTING = "treatment_and_outcome"
 
@@ -399,6 +385,11 @@ def _elements(result: Any, name: str, estimator: str = "plugin") -> Any:
     return ov.sensitivity_elements(result, name, nu2_estimator=estimator)
 
 
+def _uncorrected(elements: Any) -> float:
+    """``E_n[alpha_hat^2]``: the reported ``nu^2`` plus the correction it subtracted."""
+    return float(elements.nu2 + (elements.nu2_correction or 0.0))
+
+
 def reported_curve(case: ExactCase) -> np.ndarray | None:
     """The package's plug-in curve at one row of each support point, or ``None``."""
     elements = _elements(exact_fit(case.fit), case.reported)
@@ -679,8 +670,10 @@ class TestTheExactLawCurve:
             mechanism=spec.cell_mechanism(),
         )
         elements = _elements(exact_fit(spec), case.reported)
-        assert elements.nu2 == pytest.approx(float(np.real(expected)), rel=1e-11)
-        assert elements.plugin_mechanism == ("known" if spec.known else "logistic")
+        assert _uncorrected(elements) == pytest.approx(float(np.real(expected)), rel=1e-11)
+        expected_mechanism = "known" if spec.known else "logistic"
+        if elements.limit_refusal is None:
+            assert elements.plugin_mechanism == expected_mechanism
 
     def test_the_clip_binds_on_the_clipped_law(self) -> None:
         """W4 is not vacuous: the W = 2 cell, with g = 0.25, sits below the bound 0.3."""
@@ -761,7 +754,8 @@ class TestTheClusteredLimit:
             result, name, cf_y=CF_Y, cf_d=CF_D, rho=1.0, nu2_estimator="plugin"
         )
         reported = (bounds.lower - bounds.ci_lower) / stats.norm.ppf(0.95)
-        assert reported == pytest.approx(clustered, rel=1e-10)
+        corrected = float(np.sqrt(clustered**2 - elements.bias_variance_correction(STRENGTH)))
+        assert reported == pytest.approx(corrected, rel=1e-10)
         row_level = float(np.sqrt(influence_variance(rows, None)))
         assert abs(clustered - row_level) > 1e-3 * row_level
 
@@ -783,7 +777,8 @@ class TestTheInfinitesimalJackknife:
             arms = np.asarray(result.data.treatment, dtype=float).astype(int)
             for estimand in variant.jackknife:
                 expected = _plugin_nu2(estimand, mechanism, arms, weights)
-                assert _elements(result, estimand).nu2 == pytest.approx(expected, rel=1e-10)
+                elements = _elements(result, estimand)
+                assert _uncorrected(elements) == pytest.approx(expected, rel=1e-10)
 
     def test_the_clipped_variant_clips_rows_away_from_the_bounds(self) -> None:
         """The clipped variant moves cells, and no cell is near enough a bound to cross it."""
@@ -1041,7 +1036,7 @@ class TestTheNumericalSandwich:
         sandwich = inverse @ meat @ inverse.T / n
         elements = _elements(result, estimand)
         assert elements.psi_nu2 is not None
-        assert elements.nu2 == pytest.approx(nu2, rel=1e-10)
+        assert _uncorrected(elements) == pytest.approx(nu2, rel=1e-10)
         expected = influence_variance(np.asarray(elements.psi_nu2), None) * (n - 1) / n
         assert sandwich[p, p] == pytest.approx(expected, rel=RTOL)
 
@@ -1091,7 +1086,7 @@ class TestTheWitnessHasTeeth:
             out = original(*arguments)
             if isinstance(out, ms.MechanismRefusal):
                 return out
-            return ms.MechanismTerm(np.zeros_like(out.values))
+            return replace(out, values=np.zeros_like(out.values))
 
         monkeypatch.setattr(ov, "plugin_mechanism_term", dropped)
         _fails(_exact_deviations(W1 + W2 + W3), M1_EXACT_FLOOR)
@@ -1233,13 +1228,13 @@ class TestTheWitnessHasTeeth:
     ) -> None:
         original = ms.representer_g_derivative
 
-        def frozen(*arguments: Any) -> tuple[np.ndarray, np.ndarray]:
-            alpha, derivative = original(*arguments)
+        def frozen(*arguments: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            alpha, derivative, second = original(*arguments)
             arms = arguments[3]
             if len(arms) == 2:
                 derivative = derivative.copy()
                 derivative[:, list(arms).index(0.0)] = 0.0
-            return alpha, derivative
+            return alpha, derivative, second
 
         monkeypatch.setattr(ms, "representer_g_derivative", frozen)
         _fails(_exact_deviations(_only(W1, "ate", "atc", "ey0")), M8_EXACT_FLOOR)

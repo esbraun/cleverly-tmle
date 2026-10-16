@@ -26,7 +26,6 @@ import copy
 import dataclasses
 import pickle
 import re
-from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -48,10 +47,8 @@ from cleverly.estimators import TMLE
 from cleverly.estimators._mechanism_fit import MechanismFit, ScalerStep, describe_mechanism
 from cleverly.estimators._nuisance import ConstantFit, cross_fit_companion
 from cleverly.exceptions import CapabilityError, RefusalReason
-from cleverly.inference.cluster import influence_variance
 from cleverly.interventions import Incremental
 from cleverly.learners import SuperLearner, random_partition
-from cleverly.sensitivity import _mechanism_stack as mechanism_stack
 from cleverly.sensitivity import omitted_variable
 from cleverly.sensitivity._mechanism_stack import MechanismRefusal, plugin_mechanism_term
 from cleverly.sensitivity.omitted_variable import (
@@ -252,14 +249,6 @@ def assert_refusal(
     assert bound.to_dict()["limit_refusal"] == stored.text
     assert bound.to_dict()["nu2_estimator"] == "plugin"
     assert stored.text in bound.summary()
-
-
-@pytest.fixture
-def out_of_fold() -> Iterator[None]:
-    """Lift the ``cross_fit`` refusal, so that a cross-fitted fit reaches the fold checks."""
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(mechanism_stack, "OUT_OF_FOLD_REFUSED", False)
-        yield
 
 
 # ------------------------------------------------------------------ the learner clauses
@@ -473,35 +462,24 @@ class TestEveryLearnerClauseHasAQualifyingTwin:
             assert bound.limit_refusal is None and bound.plugin_mechanism == "logistic"
             assert np.isfinite(bound.ci_lower)
 
-    def test_cross_fit(self) -> None:
-        assert_refusal(
-            bound_of(fit_three_arm(), "ey[1.0]"),
-            key="cross_fit",
-            text=full_text(
-                "the treatment mechanism was fitted out of fold, and the out-of-fold "
-                "E_n[alpha_hat^2] carries a second-order bias that the stacked curve does not "
-                "cover",
-                learner=False,
-            ),
-            alternative=(
-                "Fit the bound with nu2_estimator='doubly_robust', which has derived limits for "
-                "a cross-fitted fit, or fit the TMLE with cross_fit=False."
-            ),
-            roadmap="F26",
-        )
+    def test_a_cross_fitted_fit_reaches_the_correction(self) -> None:
+        """A cross-fitted fit has no refusal of its own: it meets the correction's checks.
 
-    def test_the_cross_fitted_stack_opens_when_the_refusal_is_lifted(
-        self, out_of_fold: None
-    ) -> None:
-        """The stack handles folds; the refusal, not the stack, stops a cross-fitted fit."""
-        bound = bound_of(fit_three_arm(), "ate[2.0 vs 0.0]")
-        assert bound.limit_refusal is None and np.isfinite(bound.ci_lower)
+        On this two-fold, 1,000-row fit the ``ey[1.0]`` logit sits near a bound and the
+        ``ate[2.0 vs 0.0]`` correction exceeds its variance.
+        """
+        result = fit_three_arm()
+        keys = {
+            estimand: bound_of(result, estimand).limit_refusal.key
+            for estimand in ("ey[1.0]", "ate[2.0 vs 0.0]")
+        }
+        assert keys == {"ey[1.0]": "truncation_active", "ate[2.0 vs 0.0]": "corrected_nonpositive"}
 
     def test_the_summary_names_the_stacked_mechanism(self) -> None:
         summary = bound_of(fit_binary(LogisticRegression(max_iter=1000))).summary()
         assert (
-            "plug-in nu^2; its standard error carries the score of the fitted "
-            "LogisticRegression mechanism, stacked" in summary
+            "plug-in nu^2, second-order corrected by 0.021593; its standard error carries the "
+            "score of the fitted LogisticRegression mechanism, stacked" in summary
         )
 
     def test_the_mappings_name_the_estimator_and_no_refusal(self) -> None:
@@ -510,8 +488,17 @@ class TestEveryLearnerClauseHasAQualifyingTwin:
         assert row["nu2_estimator"] == "plugin"
         assert "limit_refusal" not in row
         assert {"ci_lower", "ci_upper", "robustness_value_ci"} <= set(row)
+        assert row["nu2_correction"] > 0.0 and row["nu2_variance_correction"] > 0.0
         report = robustness_value(result, "ate", nu2_estimator="plugin")
-        assert list(report) == ["nu2_estimator", "rv", "rva", "max_bias"]
+        assert list(report) == [
+            "nu2_estimator",
+            "nu2_correction",
+            "nu2_variance_correction",
+            "rv",
+            "rva",
+            "max_bias",
+        ]
+        assert report["nu2_correction"] == row["nu2_correction"]
 
 
 # ------------------------------------------------------------------------- the fold clauses
@@ -580,7 +567,7 @@ class TestEveryFoldClauseCarriesNoRoadmapItem:
             roadmap=None,
         )
 
-    def test_missing_arm(self, out_of_fold: None) -> None:
+    def test_missing_arm(self) -> None:
         """A fold whose training rows hold one arm fewer fits a model of fewer classes.
 
         The package refuses a declared split with such a fold before the fit, so the capture is
@@ -602,7 +589,7 @@ class TestEveryFoldClauseCarriesNoRoadmapItem:
             roadmap=None,
         )
 
-    def test_a_fold_that_fitted_no_model_is_a_missing_arm(self, out_of_fold: None) -> None:
+    def test_a_fold_that_fitted_no_model_is_a_missing_arm(self) -> None:
         result = fit_three_arm()
         fits = result.repeats[0].nuisance.treatment_fits
         constant = describe_mechanism(ConstantFit(value=1.0))
@@ -640,7 +627,7 @@ class TestEveryFoldClauseCarriesNoRoadmapItem:
         bound = bound_of(with_nuisance(result, treatment_fits=(corrupted,)))
         assert bound.limit_refusal.key == "score_not_zero"
 
-    def test_a_record_of_the_wrong_length_is_a_mismatch(self, out_of_fold: None) -> None:
+    def test_a_record_of_the_wrong_length_is_a_mismatch(self) -> None:
         result = fit_three_arm()
         fits = result.repeats[0].nuisance.treatment_fits
         bound = bound_of(with_nuisance(result, treatment_fits=fits[:1]), "ey[1.0]")
@@ -730,7 +717,9 @@ class TestAKnownMechanismTruncatedByTheBounds:
         term = self.stack(known_fit, (0.0, 1.0))
         assert not isinstance(term, MechanismRefusal)
         assert term.values.shape == (known_fit.n,) and not np.any(term.values)
-        assert term.penalty_shift == 0.0
+        # An unweighted ATE of a known mechanism is linear in the sample: no second-order bias.
+        assert term.correction == pytest.approx(0.0, abs=1e-12)
+        assert bound.nu2_correction == pytest.approx(0.0, abs=1e-12)
 
     def test_known_truncated(self, known_fit: Any) -> None:
         probabilities = known_fit.repeats[0].nuisance.propensity.values
@@ -765,92 +754,6 @@ class TestAKnownMechanismTruncatedByTheBounds:
 
 
 # ------------------------------------------------------------------------- the capture
-
-
-class TestTheRidgeShrinkageGate:
-    """A fixed L2 penalty moves ``nu^2`` by ``O(1/n)``, a bias the limits do not cover.
-
-    The gate refuses when the first-order shift exceeds ``PENALTY_BIAS_FRACTION`` of the
-    standard error of ``nu^2`` (X26 plan check 12).  The shift is a witness of its own: it
-    matches the change of the plug-in when the penalty is lifted.
-    """
-
-    @staticmethod
-    def shift_and_se(result: Any, estimand: str = "ate") -> tuple[float, float]:
-        with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(omitted_variable, "PENALTY_BIAS_FRACTION", np.inf)
-            elements = sensitivity_elements(result, estimand, nu2_estimator="plugin")
-        term = plugin_mechanism_term(
-            result,
-            result.repeats[0],
-            resolve_parameter(result, estimand),
-            elements.riesz_representer,
-            (0.0, 1.0),
-            None,
-        )
-        assert not isinstance(term, MechanismRefusal)
-        assert elements.psi_nu2 is not None
-        return term.penalty_shift, float(
-            np.sqrt(influence_variance(elements.psi_nu2, result.data.cluster))
-        )
-
-    def test_penalty_bias(self) -> None:
-        result = fit_binary(LogisticRegression(C=0.05, max_iter=1000), binary_frame(n=300))
-        assert_refusal(
-            bound_of(result),
-            key="penalty_bias",
-            text=full_pattern(
-                "the fixed L2 penalty moves nu^2 by ",
-                ", which is more than 0.1 of its standard error",
-            ),
-            alternative="Raise C.",
-            roadmap=None,
-        )
-
-    def test_the_remedy_it_names_opens_the_limits(self) -> None:
-        result = fit_binary(LogisticRegression(C=100.0, max_iter=1000), binary_frame(n=300))
-        assert bound_of(result).limit_refusal is None
-
-    def test_the_shift_is_the_change_when_the_penalty_is_lifted(self) -> None:
-        learner = {"solver": "newton-cholesky", "tol": 1e-12}
-        penalized = fit_binary(LogisticRegression(C=10.0, **learner))
-        lifted = fit_binary(LogisticRegression(C=np.inf, **learner))
-        shift, _ = self.shift_and_se(penalized)
-        change = (
-            sensitivity_elements(lifted, "ate", nu2_estimator="plugin").nu2
-            - sensitivity_elements(penalized, "ate", nu2_estimator="plugin").nu2
-        )
-        assert shift > 0.0
-        assert shift == pytest.approx(change, rel=0.02)
-
-    def test_the_multinomial_shift_is_the_change_when_the_penalty_is_lifted(self) -> None:
-        """The three-arm penalty ``(I - 11'/K) kron S`` moves ``nu^2`` as the refit does."""
-        name = "ate[2.0 vs 0.0]"
-        learner = {"solver": "newton-cg", "tol": 1e-12, "max_iter": 1000}
-        penalized = fit_three_arm(
-            cross_fit=False, treatment_learner=LogisticRegression(C=10.0, **learner)
-        )
-        lifted = fit_three_arm(
-            cross_fit=False, treatment_learner=LogisticRegression(C=np.inf, **learner)
-        )
-        shift, _ = self.shift_and_se(penalized, name)
-        change = (
-            sensitivity_elements(lifted, name, nu2_estimator="plugin").nu2
-            - sensitivity_elements(penalized, name, nu2_estimator="plugin").nu2
-        )
-        assert shift != 0.0
-        assert shift == pytest.approx(change, rel=0.02)
-
-    def test_the_gate_reads_the_standard_error_of_nu2(self) -> None:
-        result = fit_binary(LogisticRegression(C=0.5, max_iter=1000), binary_frame(n=300))
-        shift, se = self.shift_and_se(result)
-        ratio = abs(shift) / se
-        with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(omitted_variable, "PENALTY_BIAS_FRACTION", 1.01 * ratio)
-            assert bound_of(result).limit_refusal is None
-            patch.setattr(omitted_variable, "PENALTY_BIAS_FRACTION", 0.99 * ratio)
-            refusal = bound_of(result).limit_refusal
-            assert refusal is not None and refusal.key == "penalty_bias"
 
 
 def assert_same_record(first: MechanismFit, second: MechanismFit) -> None:

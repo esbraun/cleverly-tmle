@@ -1021,6 +1021,8 @@ class TestThePluginLimitsRefuse:
         assert list(plugin) == [
             "estimand",
             "nu2_estimator",
+            "nu2_correction",
+            "nu2_variance_correction",
             "limit_refusal",
             "psi",
             "cf_y",
@@ -1061,7 +1063,15 @@ class TestThePluginLimitsRefuse:
     def test_the_robustness_value_reports_no_limit_value(self, exact_fit: Any) -> None:
         plugin = robustness_value(exact_fit, "att", nu2_estimator="plugin")
         robust = robustness_value(exact_fit, "att")
-        assert list(plugin) == ["nu2_estimator", "rv", "max_bias", "limit_refusal"]
+        assert list(plugin) == [
+            "nu2_estimator",
+            "nu2_correction",
+            "nu2_variance_correction",
+            "rv",
+            "max_bias",
+            "limit_refusal",
+        ]
+        assert plugin["nu2_correction"] is None
         assert plugin["nu2_estimator"] == "plugin"
         assert plugin["limit_refusal"].startswith("nu2_estimator='plugin': ")
         assert not any("rva" in key for key in plugin)
@@ -1167,6 +1177,8 @@ PUBLIC_PARAMETERS: tuple[str, ...] = (
     "nu2_estimator",
     "limit_refusal",
     "plugin_mechanism",
+    "nu2_correction",
+    "nu2_variance_correction",
 )
 
 
@@ -1239,7 +1251,7 @@ class TestReplaceKeepsTheStoredLimits:
         parameters = inspect.signature(SensitivityBounds).parameters
         assert tuple(parameters) == PUBLIC_PARAMETERS
         required = [name for name, p in parameters.items() if p.default is p.empty]
-        assert required == list(PUBLIC_PARAMETERS[:-4])
+        assert required == list(PUBLIC_PARAMETERS[:-6])
 
     @pytest.mark.parametrize(
         ("kind", "accessor"),
