@@ -1692,6 +1692,20 @@ the compositions in the table below before any learner. The refusals name this i
 Acceptance: a pre-fit refusal test for each request that stays refused until its part ships. Each
 part that ships needs an exact-law check with a nonzero witness for the derivative term.
 
+### X77. Censored data for continuous price policies
+
+A longitudinal fit of a continuous-node policy with a censoring factor runs. It carries the
+experimental label. The `mtp-pricing` study draws complete data, so its support rows cover
+complete data only (`src/cleverly/_support_rows.py`). The longitudinal rows of categorical
+treatments cover censored fits.
+
+| what to add | evidence |
+| --- | --- |
+| a censoring draw on the `mtp-pricing` law, with the censoring factor learned beside the classifier price ratio | a registered study cell per engine at three nodes, with its red cells reported, and support rows with `missing=("censoring",)` |
+
+Acceptance: the registered cells, and a support case in `tests/studies/support_cases.py`. This
+row ships after the beta release (owner decision, 2026-10-16).
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
