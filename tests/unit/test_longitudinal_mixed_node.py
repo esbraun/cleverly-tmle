@@ -502,6 +502,18 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.encode_assignment"): "mixed branch first",
     ("longitudinal/estimator.py", "_run_hazard"): "after refuse_hazard_design",
+    ("longitudinal/gformula.py", "Layout.build"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "ModelBook.models"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_Simulator.__init__"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_Simulator._modified"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_Simulator._set_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_Simulator._tilted"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_support_rows"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "fit_models"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "natural_nodes"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "observed_table"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "has_set_dose"): "is_continuous_node raises at a mixed node",
     ("longitudinal/hazard.py", "hazard_inputs"): "after refuse_hazard_design",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/sdr.py", "node_factors"): "fitted factors",
@@ -527,13 +539,24 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/data.py", "LongitudinalData.history_design"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.observed_labels"): "mixed branch first",
     ("longitudinal/data.py", "LongitudinalData.policy_frame"): "mixed branch first",
+    (
+        "longitudinal/estimator.py",
+        "ParametricGFormula._refuse_design",
+    ): "a tilt at a mixed node is refused first",
+    ("longitudinal/gformula.py", "Layout.build"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_Simulator._code_of"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_Simulator._codes_of"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_Simulator._level_array"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_Simulator._modified"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "_Simulator._policy_density"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "fit_models"): "after GFORMULA_MIXED_NODE_REFUSAL",
+    ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/hazard.py", "level_plans"): "after refuse_hazard_design",
     ("longitudinal/hazard.py", "regimen_weights"): "after refuse_hazard_design",
     ("longitudinal/regimen.py", "DynamicRegimen.policy_density"): "categorical policy node",
     ("longitudinal/regimen.py", "_categorical_carry"): "categorical policy node",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_plan"): "a tilt at a mixed node is refused first",
-    ("longitudinal/regimen.py", "refuse_multi_arm_tilt_node"): "a tilt at a mixed node is refused",
     ("longitudinal/sequential.py", "_categorical_node"): "categorical node",
     ("longitudinal/sequential.py", "_check_policy_arm_support"): "categorical node guard",
     ("longitudinal/sequential.py", "_rule_hint"): "a rule at a mixed node is refused",
@@ -725,13 +748,17 @@ def test_a_whole_node_declaration_at_a_mixed_node(node: Any) -> None:
 
 @pytest.mark.parametrize("engine", [LTMLE, SDR, IPSI], ids=["ltmle", "sdr", "ipsi"])
 @pytest.mark.parametrize("whole_plan", [False, True], ids=["node", "plan"])
-def test_an_odds_tilt_at_a_mixed_node(engine: Any, whole_plan: bool) -> None:
+@pytest.mark.parametrize(
+    "tilt", [Incremental(2.0), Incremental({"high": 2.0})], ids=["scalar", "mapping"]
+)
+def test_an_odds_tilt_at_a_mixed_node(engine: Any, whole_plan: bool, tilt: Incremental) -> None:
     """An odds tilt multiplies the odds of one categorical node; a mixed node is not one.
 
-    The refusal precedes every learner, on every engine that reads a tilt, for a tilt
-    declared at the node and for a one-entry plan that tilts every node.
+    The refusal precedes every learner and precedes the read of the node's levels, so a
+    mapping whose key is no level of the node meets this refusal and not the key refusal.  It
+    holds on every engine that reads a tilt, for a tilt declared at the node and for a
+    one-entry plan that tilts every node.
     """
-    tilt = Incremental(2.0)
     regimens = {
         "p": tilt
         if whole_plan

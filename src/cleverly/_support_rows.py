@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Final
 
 from ._support import KEY_AXES, Kind, SupportKey, SupportRow
+from .learners.glm import GLM
 
 __all__ = [
     "EXEMPT_STUDIES",
@@ -1262,6 +1263,7 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         ),
         "band-finite-sample: joint coverage 0.9085 to 0.9394",
     ),
+    "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
     "G34.competing": (
         (
             "X19-competing-calibration: coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, "
@@ -1366,6 +1368,7 @@ def long_row(
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
+    learners: Mapping[str, type] | None = None,
 ) -> SupportRow:
     """One support row of a longitudinal estimator, with the defaults of a censored two-node fit.
 
@@ -1415,6 +1418,8 @@ def long_row(
         The licensing study cells.
     limits : sequence of str, default ()
         The stated limits of the row.
+    learners : mapping of str to type or None, default None
+        The exact learner class per nuisance role, where the study fixes one.
 
     Returns
     -------
@@ -1447,7 +1452,7 @@ def long_row(
             ("isotonic", isotonic),
         ),
     )
-    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), None, tuple(limits))
+    return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), learners, tuple(limits))
 
 
 def _long_rows() -> tuple[SupportRow, ...]:
@@ -2111,6 +2116,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
         )
         rows[-2] = replace(rows[-2], cells=(f"{law}_hajek",))
         rows[-1] = replace(rows[-1], cells=(f"{law}_ht",))
+    rows += _gformula_rows()
     # X31: a mixed node of one categorical and one or two dose components. G35 has two such
     # nodes; G36 has one node whose second dose reads the first (an ordered map).
     for row_id, treatment, ratio, cells in (
@@ -2156,6 +2162,91 @@ def _long_rows() -> tuple[SupportRow, ...]:
     return tuple(rows)
 
 
+def _gformula_cells(
+    law: str, labels: Sequence[str], *, contrast: str | None = "contrast"
+) -> list[str]:
+    """The gated positive cells of ``parametric-gformula`` that license one law.
+
+    The controls (shrunken standard error, added noise) and the Monte Carlo accounting cells at
+    one simulated history carry no row. The three-size and root-n cells read ``contrast``, and a
+    law with no such cell passes ``None``.
+    """
+    cells = [f"interval_calibration/nice_{law}_{label}__correctly_specified" for label in labels]
+    if contrast is not None:
+        cells += [f"root_n_and_efficiency/nice_{law}_{contrast}__n_{n}" for n in (2000, 4000, 8000)]
+        cells += [
+            f"root_n_rate/nice_{law}_{contrast}__{leg}" for leg in ("empirical_sd", "reported_se")
+        ]
+    return cells
+
+
+def _gformula_rows() -> list[SupportRow]:
+    """The rows of the parametric g-formula (``G29``): one per key the study fits.
+
+    Every fit of the study is an in-sample main-terms ``GLM`` fit with no clusters and no
+    weights. ``G2`` and ``G5`` share one key, because both fit a Gaussian outcome with complete
+    data and two arms at three nodes.
+    """
+    study = ["parametric-gformula"]
+    glm = {"outcome": GLM, "treatment": GLM, "censoring": GLM}
+    three = ("2", "2", "2")
+    return [
+        long_row(
+            "G29.g1",
+            study,
+            regimens=("static", "tilt"),
+            engine="parametric_gformula",
+            treatment=three,
+            learners=glm,
+            cells=_gformula_cells("g1", ("contrast", "odds_x2", "rule", "treat_all", "treat_none")),
+        ),
+        long_row(
+            "G29.g2_g5",
+            study,
+            regimens=("static", "stochastic", "tilt"),
+            outcome=CONTINUOUS,
+            missing=("complete",),
+            engine="parametric_gformula",
+            treatment=three,
+            learners=glm,
+            cells=[
+                *_gformula_cells("g2", ("contrast", "policy_b", "treat_all", "treat_none")),
+                *_gformula_cells(
+                    "g5", ("contrast", "odds_x2", "treat_all", "treat_none"), contrast=None
+                ),
+                *(
+                    f"ice_necessity/pair_g2_{plan}__nice"
+                    for plan in ("contrast", "treat_all", "treat_none")
+                ),
+            ],
+        ),
+        long_row(
+            "G29.g3",
+            study,
+            outcome_kind="competing",
+            engine="parametric_gformula",
+            treatment=("2",) * 4,
+            learners=glm,
+            cells=_gformula_cells(
+                "g3",
+                ("contrast_h4", "death_h4", "relapse_h2", "relapse_h4"),
+                contrast="contrast_h4",
+            ),
+        ),
+        long_row(
+            "G29.g4",
+            study,
+            regimens=("static", "mtp"),
+            outcome=CONTINUOUS,
+            missing=("complete",),
+            engine="parametric_gformula",
+            treatment=("continuous",) * 3,
+            learners=glm,
+            cells=_gformula_cells("g4", ("contrast", "dose", "rule_dose", "shift")),
+        ),
+    ]
+
+
 def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
     return (
         ("multiplier_kind", "rademacher"),
@@ -2167,8 +2258,8 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
     )
 
 
-#: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``) and
-#: the sequential baselines (``G28``).
+#: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
+#: the sequential baselines (``G28``) and the parametric g-formula (``G29``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
 
 

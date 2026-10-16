@@ -529,6 +529,23 @@ ratio, the support report and the longitudinal node read those branches and noth
 class adds a branch type there, not a new axis. `RiskRatioTilt` differs in its report only. It
 reads `g`, so it reports on the `rr_tilt` axis. `TMLE` refuses a tilt beside other policies.
 
+An incremental intervention is an odds tilt with one factor for each level of the treatment. A
+scalar names the second level of two. A mapping names levels by label. The `Incremental.factors`
+method resolves a declaration against one treatment or one node, and it is the only reader of the
+declaration. A new consumer calls it with the levels it holds and a subject for the refusal text.
+It does not read `.delta`.
+
+The binary surface rule holds at every consumer: with two levels, the
+code runs the arithmetic of Kennedy (2019) with $\delta=\delta_1/\delta_0$, and with more levels it
+runs the general formulas. The two branches meet in the mechanism fluctuation too, which is
+logistic for two levels and a softmax for more. A two-level result is bit-identical to the result
+before the categorical change.
+
+`tests/unit/test_incremental_binary_surface.py` and
+`tests/unit/test_ipsi_binary_surface.py` replay the committed studies to check it. A three-level
+fit has no registered study, so its support label is `experimental`, and no binary support row
+covers it. `tests/unit/test_categorical_ipsi_declaration.py` holds that check for nodes.
+
 An estimator variant that only changes which nuisance estimate is targeted should override the
 nuisance hook, return a replaced `NuisanceEstimates` with diagnostics, and inherit targeting and
 result behavior. `CTMLE` is the reference pattern. A method with different data ordering or
@@ -594,8 +611,12 @@ sample only. `tests/unit/test_sequential_baselines.py` checks that the g-computa
 the first-node mean of the shared recursion (W8).
 
 The incremental estimator `IPSI` shares plan resolution, masks, designs and the mechanism fit
-with LTMLE. An odds-tilt node's factor is computed in the cancelled form
-$(\delta A + 1 - A)/(\delta\pi + 1 - \pi)$. It is never divided by a bounded mechanism.
+with LTMLE. An odds-tilt node's factor is computed in the cancelled form $\delta_{A}/D$, with
+$D=\sum_b\delta_b\pi(b)$. With two levels it is $(\delta A + 1 - A)/(\delta\pi + 1 - \pi)$. It is
+never divided by a bounded mechanism, and it is never written as $q/\pi$. The mechanism term at a
+node is $W_{t-1}(\delta_{A_t}/D_t)\{m_t(H_t,A_t)-\bar m_t(H_t)\}$ for any number of levels. A
+node reads its own factors, and a node with two levels branches to Kennedy's arithmetic.
+
 `g_bounds` bounds only the cumulative censoring, label, rule and policy product, and the tilt
 product multiplies in after the bound. The influence function holds a mechanism term exactly at
 each tilt node whose treatment mechanism is estimated.

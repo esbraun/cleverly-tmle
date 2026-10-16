@@ -309,6 +309,23 @@ gives the details.
 positivity requirement, but the target depends on the true treatment mechanism and therefore does
 not have ordinary two-sided double robustness.
 
+A treatment with three or more levels takes one factor for each level. Declare the factors as a
+mapping from the level label to the factor. A level that the mapping does not name keeps the
+factor 1. The odds of level $a$ against level $b$ are multiplied by the ratio of their factors.
+
+| declaration | meaning |
+| --- | --- |
+| `Incremental(2.0)` | two levels only: the odds of the second sorted level times 2 |
+| `Incremental({"high": 2.0})` | the odds of `"high"` against every other level times 2 |
+| `Incremental({"high": 2.0, "low": 0.5})` | the factors of `"high"` and `"low"`, and 1 for the other levels |
+
+A scalar on a treatment with other than two levels is refused before any learner, and so is a key
+that is not a level. Keys are the labels that the data reports, and a position is not a label.
+A vector treatment whose columns are all categorical is one treatment over its observed tuples.
+Its keys are the tuples. In a longitudinal fit, one `Incremental` applies to every node, and its
+keys are read against the levels of each node in turn. A fit with three or more levels is
+labelled `experimental` until a registered study covers it.
+
 ```python
 from cleverly import IncrementalEffect
 from cleverly.interventions import Incremental

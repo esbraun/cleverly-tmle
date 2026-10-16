@@ -39,6 +39,7 @@ from .longitudinal import (
     SDR,
     LongitudinalData,
     LongitudinalResult,
+    ParametricGFormula,
     Repeated,
     SequentialGComputation,
     SequentialIPW,
@@ -63,6 +64,7 @@ from .methods import (
     IPSIMethod,
     IPWMethod,
     MethodAvailability,
+    ParametricGFormulaMethod,
     Runtime,
     SDRMethod,
     TMLEMethod,
@@ -3857,6 +3859,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             drtmle_blocker = drtmle_axis_refusal("policies")
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
+        gformula, gformula_reason = self._gformula_method()
         return (
             MethodAvailability("tmle", tmle, tmle_reason),
             MethodAvailability(
@@ -3869,6 +3872,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             MethodAvailability("ipsi", ipsi, ipsi_reason),
             MethodAvailability("gcomp", gcomp, gcomp_reason),
             MethodAvailability("ipw", ipw, ipw_reason),
+            MethodAvailability("parametric_gformula", gformula, gformula_reason),
             MethodAvailability(
                 "riesz_tmle",
                 False,
@@ -3967,6 +3971,24 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if "ipw" not in kinds:
                 ipw, ipw_reason = False, _sequential.repeated_outcome_refusal("SequentialIPW")
         return gcomp, gcomp_reason, ipw, ipw_reason
+
+    def _gformula_method(self) -> tuple[bool, Refusal | None]:
+        """Whether ``parametric_gformula`` fits this functional, with its reason.
+
+        It fits longitudinal regimen means and contrasts only, and refuses a working model over
+        regimens.  It accepts every plan kind, an odds tilt included, because it models the
+        natural treatment itself.  On a repeated outcome it is unavailable, as the fit refuses
+        it before any learner.
+        """
+        if not self.functional.longitudinal:
+            return False, BASELINE_POINT_REFUSAL
+        if self.functional.msm is not None:
+            return False, BASELINE_MSM_REFUSAL
+        if getattr(getattr(self._study, "data", None), "is_repeated", False):
+            kinds = _sequential.REPEATED_OUTCOME_KINDS
+            if "parametric_gformula" not in kinds:
+                return False, _sequential.repeated_outcome_refusal("ParametricGFormula")
+        return True, None
 
     def _baseline_plan_methods(self) -> tuple[bool, Refusal | None, bool, Refusal | None]:
         """The two baselines' availability as the plan set allows."""
@@ -4166,6 +4188,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "ipsi": IPSIMethod,
                 "gcomp": GComputationMethod,
                 "ipw": IPWMethod,
+                "parametric_gformula": ParametricGFormulaMethod,
             }
             return constructors[method]().with_overrides(**overrides)
         if not isinstance(method, EstimationMethod):
@@ -4361,6 +4384,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             if isinstance(method, GComputationMethod)
             else SequentialIPW
             if isinstance(method, IPWMethod)
+            else ParametricGFormula
+            if isinstance(method, ParametricGFormulaMethod)
             else LTMLE
         )
         estimator = engine(

@@ -7,7 +7,9 @@ reader-facing inventory. In brief, the package supports point and longitudinal T
 robust longitudinal estimator, arm and regimen contrasts, modified treatment policies, incremental interventions, MSM projections, controlled
 direct effects, C-TMLE, DR-TMLE, cross-fitting, influence-curve inference, sensitivity analysis,
 and post-fit diagnostics in the combinations documented there. The longitudinal
-family also includes Kennedy's incremental estimator `IPSI`.
+family also includes Kennedy's incremental estimator `IPSI`. An incremental intervention takes
+one odds factor for each level of a treatment with three or more levels, at a point treatment and
+at a node of `IPSI`. Such a fit is labelled `experimental` until a registered study covers it.
 
 | longitudinal estimator | reads | interval |
 | --- | --- | --- |
@@ -16,10 +18,13 @@ family also includes Kennedy's incremental estimator `IPSI`.
 | `IPSI` | the treatment mechanism | the influence curve of the incremental estimator |
 | `SequentialGComputation` | the outcome and pseudo-outcome regressions | the stacked curve when every regression is a `GLM`. Otherwise the point only |
 | `SequentialIPW` | the treatment and censoring mechanisms | the stacked curve when every mechanism is a `GLM`. Otherwise the point only |
+| `ParametricGFormula` | a model of each time-varying covariate, and the outcome or hazard models | the stacked curve with the simulation error when every model is a `GLM`. Otherwise the point only |
 
 The two sequential baselines are reference estimators. They refuse `n_folds > 1` and `msm=`.
 [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md#refusals) lists
-every refusal.
+every refusal. `ParametricGFormula` refuses the same two requests, and it accepts a fixed
+or rule-set continuous dose with a stated model reliance. [Parametric g-formula](../technical-reference/parametric-gformula.md#refusals)
+lists its refusals.
 
 ## Why a request can be refused
 
