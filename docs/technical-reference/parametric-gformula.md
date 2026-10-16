@@ -216,7 +216,7 @@ for the outcome, the treatment or the censoring model leaves every row.
 
 | row | configuration | licensed |
 | --- | --- | --- |
-| `G29.g1` | end-of-study binary outcome with censoring, two arms at three nodes, static, rule and odds-tilt regimens | point. The Wald interval is `experimental` because the treat-all calibration cell is red (X45) |
+| `G29.g1` | end-of-study binary outcome with censoring, two arms at three nodes, static, rule and odds-tilt regimens | point, Wald, with a stated limit: the treat-all calibration cell reads an SE ratio of 0.9259 to 1.0000 against a lower bound of 0.93 (owner `X45-finite-sample`) |
 | `G29.g2_g5` | end-of-study Gaussian outcome with complete data, two arms at three nodes, static, known stochastic and odds-tilt regimens | point, Wald |
 | `G29.g3` | competing-risk cumulative incidence with censoring, two arms at four nodes, static regimens | point, Wald |
 | `G29.g4` | end-of-study Gaussian outcome with complete data, continuous dose at three nodes, shift, fixed-dose and rule-set-dose regimens | point, Wald |

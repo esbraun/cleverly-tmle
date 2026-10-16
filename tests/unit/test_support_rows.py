@@ -192,6 +192,7 @@ class TestControls:
             ("D01", "guard", ("Q",)),
             ("D08", "randomized", False),
             ("C03", "oat_design", "per_arm"),
+            ("T22", "ratio", "classifier"),
         ],
     )
     def test_one_changed_setting_leaves_the_row(self, row: str, attribute: str, value: Any) -> None:
@@ -271,6 +272,8 @@ class TestLongitudinalControls:
             ("G21", "qualifiers", frozenset({"A1", "A2"})),
             ("G28.d2.ipw.hajek", "options", (("multiplier_kind", "rademacher"),)),
             ("G10.continuous", "treatment", ("continuous", "2")),
+            ("G35.density", "treatment", ("continuous", "continuous")),
+            ("G36.classifier", "treatment", ("mixed", "mixed")),
         ],
     )
     def test_one_changed_axis_leaves_the_row(self, row: str, axis: str, value: Any) -> None:
