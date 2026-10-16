@@ -2,8 +2,8 @@
 
 This study measures the interval of
 `CTMLE(strategy="oat", oat_design="per_arm")` with `ParametricOutcome` and `ParametricMechanism`
-in four settings that the two earlier studies leave out: three arms, a known observation weight,
-the population targets `ey_obs`, `par` and `paf`, and the simultaneous band. Each fit is an exact
+in four settings that the two earlier studies leave out. The settings are three arms, a known
+observation weight, the population targets `ey_obs`, `par` and `paf`, and the simultaneous band. Each fit is an exact
 stacked Z-estimator, in sample or cross-fitted. The weight enters the stack as the normalized mass
 of each row.
 
@@ -421,7 +421,9 @@ The binding search of the `property-differential` job chose the perturbation of 
 `tests/canonical/clause-bindings.csv` for this study. The command is
 `python -m tests.canonical.property_differential --bindings <dir> --subjects ctmle-oat-per-arm-parametric-extensions`.
 The search bound 11 of 11 clauses with the shared kinds and needed no targeted kind. It took 1,876
-seconds. It found the seeded `affine` map for `interval_calibration, coverage in calibration band`
+seconds.
+
+It found the seeded `affine` map for `interval_calibration, coverage in calibration band`
 where the plan copied `bias`, and `shift/0.7` for `generated_design, coverage in calibration band`
 where the plan copied `affine`. It kept `se_low` for both `simultaneous_coverage` clauses. The
 design review expected that `se_low` could not decide `joint coverage below nominal`. The search
