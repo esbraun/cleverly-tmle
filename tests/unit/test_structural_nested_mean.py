@@ -30,7 +30,7 @@ from scipy import stats
 
 import cleverly
 from cleverly.exceptions import CapabilityError, DataError, RefusalReason
-from cleverly.inference.cluster import influence_covariance
+from cleverly.inference.cluster import cluster_sums, influence_covariance
 from cleverly.inference.multiplier import simultaneous_bands
 from cleverly.interventions import Shift, Stochastic
 from cleverly.learners import GLM
@@ -1198,7 +1198,9 @@ def test_check_model_statistic_on_exact_law_l() -> None:
     assert check.df == 3 and check.tested
     gap = check.difference
     assert check.statistic == pytest.approx(gap @ np.linalg.solve(check.covariance, gap))
-    assert check.pvalue == pytest.approx(stats.chi2.sf(check.statistic, df=3), rel=1e-12)
+    assert check.pvalue == pytest.approx(
+        module._wald_pvalue(check.statistic, 3, check.reference_df), rel=1e-12
+    )
 
 
 FOUR_REGIMENS = {
@@ -1217,10 +1219,16 @@ def _check_pieces(check: Any, result: StructuralNestedMeanResult, cluster: Any) 
     structural_only = np.column_stack([result[name].influence_curve for name in check.names])
     gap = check.structural - check.nonparametric
     covariance = influence_covariance(difference, cluster)
+    # One split: the Satterthwaite value reads the empirical variance of the squared unit sums.
+    units = difference if cluster is None else cluster_sums(difference, cluster)
+    squares = (units - units.mean(axis=0)) ** 2
+    m, n = units.shape[0], difference.shape[0]
+    spread = (m / ((m - 1) * n**2)) ** 2 * np.sum((squares - squares.mean(axis=0)) ** 2, axis=0)
     return {
         "covariance": covariance,
         "structural_only": influence_covariance(structural_only, cluster),
         "statistic": float(gap @ np.linalg.solve(covariance, gap)),
+        "reference_df": float(np.min(2.0 * np.diag(covariance) ** 2 / spread)),
     }
 
 
@@ -1248,7 +1256,10 @@ def test_check_model_covariance_degrees_of_freedom_and_clusters(clustered: bool)
     pieces = _check_pieces(check, result, cluster)
     assert np.allclose(check.covariance, pieces["covariance"], rtol=1e-10)
     assert check.statistic == pytest.approx(pieces["statistic"], rel=1e-8)
-    assert check.pvalue == pytest.approx(stats.chi2.sf(check.statistic, df=3), rel=1e-10)
+    assert check.reference_df == pytest.approx(pieces["reference_df"], rel=1e-8)
+    nu = check.reference_df
+    hotelling = stats.f.sf(check.statistic * (nu - 2.0) / (nu * 3.0), 3, nu - 2.0)
+    assert check.pvalue == pytest.approx(hotelling, rel=1e-10)
     # The statistic is large enough that a wrong degrees of freedom moves the tail.
     assert abs(stats.chi2.sf(check.statistic, df=1) - check.pvalue) > 0.01
     norm = np.linalg.norm

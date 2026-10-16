@@ -59,6 +59,7 @@ from ..exceptions import (
 )
 from ..inference.cluster import (
     cluster_inference_status,
+    cluster_sums,
     fewest_clusters,
     influence_covariance,
     positive_mass_clause,
@@ -1070,6 +1071,63 @@ def _split_covariance(
     return np.asarray((covariance + covariance.T) / 2.0, dtype=float)
 
 
+def _satterthwaite_df(
+    differences: FloatArray, curves: Sequence[FloatArray], cluster: Any, covariance: FloatArray
+) -> float:
+    """The Welch-Satterthwaite degrees of freedom of the model-check covariance.
+
+    The Wald statistic has its chi-squared law only when the covariance is estimated with
+    negligible error.  Each diagonal entry is a sum of per-unit terms plus, over several
+    splits, the between-split variance over ``S``.  Under weak positivity a few rows carry
+    large inverse weights, and they carry most of that sum.  Its relative error is then
+    large at any number of splits.  The Satterthwaite (1946) value is ``2 v**2 / var(v)``.
+    It uses the empirical variance of the per-unit terms and ``2 b**2 / (S - 1)`` for the
+    between-split part ``b``.  It approximates each entry by a scaled chi-squared law, as
+    Bell and McCaffrey (2002) and Imbens and Kolesar (2016) do for a robust variance with
+    high-leverage rows.  The joint test takes the smallest value over the contrasts.
+    """
+    count = len(curves)
+    units = [
+        np.asarray(curve if cluster is None else cluster_sums(curve, cluster), dtype=float)
+        for curve in curves
+    ]
+    centered = [unit - unit.mean(axis=0) for unit in units]
+    m = centered[0].shape[0]
+    n = curves[0].shape[0]
+    # influence_covariance scales the centered sum of squares by m / ((m - 1) n**2).
+    scale = m / ((m - 1) * n**2)
+    diagonal = np.diag(covariance)
+    if count == 1:
+        terms = centered[0] ** 2
+        between_variance = np.zeros_like(diagonal)
+    else:
+        total = np.sum(centered, axis=0)
+        terms = (total**2 - np.sum([unit**2 for unit in centered], axis=0)) / (count * (count - 1))
+        between = np.var(differences, axis=0, ddof=1) / count
+        between_variance = 2.0 * between**2 / (count - 1)
+    term_variance = scale**2 * np.sum((terms - terms.mean(axis=0)) ** 2, axis=0)
+    error = term_variance + between_variance
+    with np.errstate(divide="ignore", invalid="ignore"):
+        values = np.where(error > 0.0, 2.0 * diagonal**2 / error, np.inf)
+    return float(np.min(values))
+
+
+def _wald_pvalue(statistic: float, k: int, reference_df: float) -> float:
+    """The tail probability of a Wald statistic over ``k`` contrasts.
+
+    The covariance has ``reference_df`` degrees of freedom.  The Hotelling law gives
+    ``T (nu - k + 1) / (nu k)`` the law ``F(k, nu - k + 1)``.  An infinite ``nu`` reads
+    chi-squared on ``k``.  With ``nu`` at most ``k - 1`` there is no reference law, and the
+    value is ``nan``.
+    """
+    if not np.isfinite(reference_df):
+        return float(stats.chi2.sf(statistic, df=k))
+    if reference_df <= k - 1:
+        return float("nan")
+    ratio = statistic * (reference_df - k + 1) / (reference_df * k)
+    return float(stats.f.sf(ratio, k, reference_df - k + 1))
+
+
 def _smallest_eigenvalue(block: FloatArray) -> float:
     """The smallest eigenvalue of ``block`` standardized to unit diagonal."""
     diagonal = np.diag(block)
@@ -1686,13 +1744,19 @@ class StructuralModelCheck:
     df : int
         The degrees of freedom: the number of contrasts.
     pvalue : float
-        The chi-squared tail probability, ``nan`` when no test is reported.
+        The tail probability of the Hotelling-type reference law, ``nan`` when no test is
+        reported.
     reason : str or None
         Why no test is reported, or ``None``.
     ltmle : LongitudinalResult
         The nonparametric fit on the folds of the structural fit.
     n_splits : int
         The fold splits behind the estimates: ``1`` for an in-sample fit.
+    reference_df : float, default=nan
+        The Welch-Satterthwaite degrees of freedom of the covariance, the smallest over the
+        contrasts.  The p-value reads the Hotelling-type law
+        ``F(df, reference_df - df + 1)`` of the scaled statistic, and ``inf`` reads
+        chi-squared.  ``nan`` when no statistic is reported.
     """
 
     names: tuple[str, ...]
@@ -1705,6 +1769,7 @@ class StructuralModelCheck:
     reason: str | None
     ltmle: Any
     n_splits: int
+    reference_df: float = float("nan")
 
     @property
     def difference(self) -> FloatArray:
@@ -1742,8 +1807,8 @@ class StructuralModelCheck:
         )
         if self.tested:
             tail = (
-                f"joint Wald chi-squared = {self.statistic:.3f} on {self.df} df, "
-                f"p = {format_pvalue(self.pvalue)}"
+                f"joint Wald statistic = {self.statistic:.3f} on {self.df} contrasts, "
+                f"covariance df = {self.reference_df:.1f}, p = {format_pvalue(self.pvalue)}"
             )
         else:
             tail = f"no test is reported: {self.reason}"
@@ -2003,6 +2068,17 @@ class StructuralNestedMeanResult:
         two different splits estimates the first-order part, free of each curve's own split
         noise.  An in-sample fit has no split, and its check reads the curves of the fit.
 
+        The covariance is itself an estimate.  Under weak positivity a few rows carry large
+        inverse weights and most of the variance, so the covariance has few effective degrees
+        of freedom, and a chi-squared reference rejects a correct model too often.  The check
+        computes the Welch-Satterthwaite degrees of freedom ``nu`` of each diagonal entry and
+        takes the smallest.  It reads ``T (nu - k + 1) / (nu k)`` against ``F(k, nu - k + 1)``,
+        the Hotelling law of a Wald statistic whose covariance has ``nu`` degrees of freedom.
+        With ``nu`` at most ``k - 1`` it reports no test.  For large ``nu`` this is the
+        chi-squared law.  The correction concerns the reference law only.  When the
+        nonparametric estimator under-covers at this sample size, a non-rejection carries
+        less information, and ``reference_df`` says how much.
+
         Parameters
         ----------
         q_bounds : tuple of float or None, default=None
@@ -2132,7 +2208,7 @@ class StructuralNestedMeanResult:
         )
         eigenvalues = np.linalg.eigvalsh(covariance)
         reason: str | None = None
-        statistic = pvalue = float("nan")
+        statistic = pvalue = reference_df = float("nan")
         if not eigenvalues[0] > rank_floor * scale:
             reason = (
                 f"the difference covariance has the smallest eigenvalue {eigenvalues[0]:.3g}, "
@@ -2148,7 +2224,22 @@ class StructuralNestedMeanResult:
         else:
             gap = structural - nonparametric
             statistic = float(gap @ np.linalg.solve(covariance, gap))
-            pvalue = float(stats.chi2.sf(statistic, df=len(names)))
+            k = len(names)
+            reference_df = _satterthwaite_df(
+                np.asarray(structural_rows) - np.asarray(nonparametric_rows),
+                curves,
+                cluster,
+                covariance,
+            )
+            pvalue = _wald_pvalue(statistic, k, reference_df)
+            if np.isnan(pvalue):
+                statistic = float("nan")
+                reason = (
+                    f"the difference covariance has {reference_df:.2f} Satterthwaite degrees "
+                    f"of freedom, not more than {k - 1}, so the Wald statistic over {k} "
+                    "contrasts has no reference law. A few rows carry most of the variance, "
+                    "which weak positivity of a regimen causes"
+                )
         return StructuralModelCheck(
             names=names,
             structural=structural,
@@ -2160,6 +2251,7 @@ class StructuralNestedMeanResult:
             reason=reason,
             ltmle=first,
             n_splits=len(splits),
+            reference_df=reference_df,
         )
 
     def _refit(self, folds: Folds) -> StructuralNestedMeanResult:

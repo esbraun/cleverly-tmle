@@ -228,12 +228,50 @@ the covariance. At two folds and `n=1,000` that check rejected a correct model i
 draws. With five splits it rejected in 2.2% of 500 draws. `tests/unit/test_structural_model_check.py`
 holds the size checks. An in-sample check uses one fit.
 
+The covariance is an estimate, and the p-value accounts for its error. The check computes the
+Welch-Satterthwaite degrees of freedom `reference_df` of each diagonal entry (Satterthwaite 1946).
+The first-order part uses the empirical variance of its per-unit terms. The between-split part has
+`n_splits - 1` degrees of freedom.
+
+The check takes the smallest value `nu` over the `k` contrasts.
+It reads `T (nu - k + 1) / (nu k)` against `F(k, nu - k + 1)`, the Hotelling law. When `nu` is at
+most `k - 1`, the check reports no test. Bell and McCaffrey (2002) and Imbens and Kolesar (2016)
+apply the same correction to a robust variance with high-leverage rows.
+
+Under weak positivity a few rows carry large inverse weights and most of the covariance. The
+table gives the rejection rate at the 5% level on the law `SP` of the X44 study. The fits use
+five splits, and the model is correct. The `r01` regimen has the cumulative probability
+0.009 in the history `W = 1, L2 = 0`.
+
+| n | folds | draws | chi-squared reference | Hotelling reference | median `nu` | `LTMLE` coverage of `r01` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 500 | 10 | 294 | 18.4% | 2.7% | 5.5 | not recorded |
+| 2,000 | 2 | 600 | 16.0% | 4.8% | 8.6 | 0.857 |
+| 2,000 | 10 | 400 | 16.3% | 6.2% | 7.8 | 0.862 |
+| 8,000 | 2 | 400 | 11.0% | 5.5% | 21.4 | 0.880 |
+| 8,000 | 10 | 150 | 7.3% | 3.3% | 21.2 | not recorded |
+
+At good positivity the Hotelling reference is more conservative. On `S2` and `H` at `n = 1,000` and two folds, the
+Hotelling reference rejected 2.0% of 400 and 1.0% of 300 draws. The chi-squared reference rejected
+3.0% and 3.7%. On the negative control `LU` at `n = 2,000` both references rejected every draw
+at two folds (200) and at ten folds (150).
+
+The excess of the chi-squared reference comes from the `LTMLE` side. Its `r01` interval
+under-covers in every recorded row, and its Monte Carlo SD is 1.18 and 1.20 times its mean standard error.
+The mean covariance entry of the `r01` difference is 0.65 of its Monte Carlo variance at both
+sizes and two folds. The structural `r01` interval covers 0.95 and 0.93.
+
+The Hotelling reference corrects the
+reference law of the check. It does not correct the `LTMLE` interval. At few effective degrees of
+freedom the check has little power, and `reference_df` reports how few.
+
 | item | rule |
 | --- | --- |
 | scope | discrete static regimens. The fit must have the `influence_curve` status |
 | continuous node | refused with `invalid_declaration`. A static dose has no nonparametric counterpart |
 | feature that reads a covariate | refused with `implementation_gap` and X72 |
 | rank | when the smallest eigenvalue of the difference covariance is below `rank_floor` times the largest eigenvalue of the two contrast covariances, the check reports no test and names the reason |
+| degrees of freedom | when `reference_df` is at most the number of contrasts less one, the check reports no test and names the reason |
 | reading | a rejection says the model fails for these contrasts. A non-rejection does not confirm the model |
 
 ## Refusals
@@ -330,3 +368,5 @@ evidence and no comparator replicates. The model check has no size or power cell
 | the normal limit, with a linear blip | Lewis and Syrgkanis (2021), supplement, Theorem 8 |
 | the variance estimator and product rates | Lewis and Syrgkanis (2021), arXiv version, Theorem 4 and Theorem 8 |
 | the policy value inference for a covariate feature | Lewis and Syrgkanis (2021), arXiv version, Corollary 9 |
+| the degrees of freedom of the model-check covariance | Satterthwaite (1946), *Biometrics Bulletin* 2(6), 110-114 |
+| the correction of a robust variance with high-leverage rows | Bell and McCaffrey (2002), *Survey Methodology* 28(2), 169-181; Imbens and Kolesar (2016), *Review of Economics and Statistics* 98(4), 701-712 |
