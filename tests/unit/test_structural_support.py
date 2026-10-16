@@ -1,13 +1,13 @@
 """The support label of ``StructuralNestedMean`` (RM42b).
 
-The rows ``G39`` of :mod:`cleverly._support_rows` name the engine ``snmm``. Each covers one key
+The rows ``G42`` of :mod:`cleverly._support_rows` name the engine ``snmm``. Each covers one key
 that the registered study ``structural-nested-mean`` (X44) fits: cross-fitted, with the point
 estimate and the Wald interval. Each class below names a component that can vanish and a
 witness that fails when it does.
 
 * ``TestTheStudyRowsCoverTheFit`` pins that a cross-fitted ``GLM`` fit of two binary nodes reads
-  ``supported`` on ``G39.two_nodes``, that its band stays ``experimental``, and that the fit
-  reads ``experimental`` once the ``G39`` rows are removed.
+  ``supported`` on ``G42.two_nodes``, that its band stays ``experimental``, and that the fit
+  reads ``experimental`` once the ``G42`` rows are removed.
 * ``TestAnUncoveredFitReadsExperimental`` pins the label, the reason and the nearest row of an
   in-sample fit, which no row covers, at every surface a reader meets: the estimate, the frame,
   the summary, the bands and a saved result.
@@ -64,7 +64,7 @@ def result() -> Any:
 
 @pytest.fixture(scope="module")
 def uncovered() -> Any:
-    """An in-sample ``GLM`` fit. The ``G39`` rows are cross-fitted, so no row covers it."""
+    """An in-sample ``GLM`` fit. The ``G42`` rows are cross-fitted, so no row covers it."""
     return fit(n_folds=1)
 
 
@@ -73,7 +73,7 @@ class TestTheStudyRowsCoverTheFit:
         assert result.estimates
         for name, estimate in result.estimates.items():
             assert estimate.support.label == "supported", name
-            assert estimate.support.row == "G39.two_nodes", name
+            assert estimate.support.row == "G42.two_nodes", name
             assert estimate.support.evidence == ("structural-nested-mean",), name
         assert set(result.to_frame()["support"]) == {"supported"}
 
@@ -81,12 +81,12 @@ class TestTheStudyRowsCoverTheFit:
         assert result.simultaneous is not None
         support = result.simultaneous.support
         assert support.label == "experimental"
-        assert "G39.two_nodes licenses no simultaneous band" in support.reason
+        assert "G42.two_nodes licenses no simultaneous band" in support.reason
 
     def test_removing_the_study_rows_leaves_the_fit_experimental(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        rows = tuple(row for row in _support.registered_rows() if not row.id.startswith("G39"))
+        rows = tuple(row for row in _support.registered_rows() if not row.id.startswith("G42"))
         monkeypatch.setattr(_support, "registered_rows", lambda: rows)
         estimate = fit()["ey_regimen[always]"]
         assert estimate.support.label == "experimental"
@@ -101,7 +101,7 @@ class TestAnUncoveredFitReadsExperimental:
             assert support.label == "experimental", name
             assert support.row is None
             assert support.reason.startswith(NO_STUDY), name
-            assert "Nearest row: G39.two_nodes" in support.reason, name
+            assert "Nearest row: G42.two_nodes" in support.reason, name
             assert "differing on splitting" in support.reason, name
             assert support is not UNCLASSIFIED
 

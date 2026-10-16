@@ -219,20 +219,20 @@ Every estimate carries `.support`, as the estimates of the other estimators do. 
 `structural_key` reads the key before the first nuisance fit. The engine is `("snmm",)`, and the
 family holds `end_of_study`, `blips` and, with a declared regimen, `regimens` and `static`.
 
-The rows `G39` name this engine. Each row covers one key that the
+The rows `G42` name this engine. Each row covers one key that the
 [structural nested mean study](method-evidence/structural-nested-mean.md) fits. Every row is
 cross-fitted, with a Gaussian outcome and no declared bounds. Each row licenses the point estimate
 and the Wald interval. The study fits no simultaneous band, so a band reads `experimental`.
 
 | row | key | learners |
 | --- | --- | --- |
-| `G39.two_nodes` | two binary nodes, with static regimens. Laws `S2`, `H`, `P` and `M` | `GLM` |
-| `G39.three_nodes` | three binary nodes. Law `S3` | `GLM` |
-| `G39.categorical` | two nodes of three levels. Law `K` | `GLM` |
-| `G39.dose` | two dose nodes. Law `C` | `GLM` |
-| `G39.covariate_feature` | a feature that reads a time-varying covariate, with no regimen. Law `L` | `GLM` |
-| `G39.weighted` | two binary nodes with known weights. Law `S2W` | `GLM` |
-| `G39.clustered` | two binary nodes with 40 or more clusters. Law `S2C` | `GLM` |
+| `G42.two_nodes` | two binary nodes, with static regimens. Laws `S2`, `H`, `P` and `M` | `GLM` |
+| `G42.three_nodes` | three binary nodes. Law `S3` | `GLM` |
+| `G42.categorical` | two nodes of three levels. Law `K` | `GLM` |
+| `G42.dose` | two dose nodes. Law `C` | `GLM` |
+| `G42.covariate_feature` | a feature that reads a time-varying covariate, with no regimen. Law `L` | `GLM` |
+| `G42.weighted` | two binary nodes with known weights. Law `S2W` | `GLM` |
+| `G42.clustered` | two binary nodes with 40 or more clusters. Law `S2C` | `GLM` |
 
 A fit outside these rows reads `experimental`. Examples are an in-sample fit, a learner other
 than `GLM`, estimated weights and fewer than 40 clusters. Law `N` of the study has no row. A row
@@ -247,7 +247,7 @@ survives `save()` and `load()`, and so does the key in `config.support_key`.
 
 The label is separate from the status. A status that shows its interval adds its own reason to the
 label. A status that withholds its interval raises on `ci`, as for the other estimators.
-`tests/unit/test_structural_support.py` checks that a fit inside a `G39` row reads `supported`.
+`tests/unit/test_structural_support.py` checks that a fit inside a `G42` row reads `supported`.
 A fit that differs on one axis reads `experimental`.
 
 ## The model check
@@ -348,7 +348,7 @@ that returns a misleading number. The last column classifies each refusal of thi
 No refusal of this estimator is a composition that the code computes and no study covers, so the
 classification of a fit collects no condition. The `Preflight` of the other estimators has no
 counterpart here. Known weights, clusters, an in-sample fit, a dose node and a declared
-regimen all run. A fit that no `G39` row covers reads `experimental`, and the
+regimen all run. A fit that no `G42` row covers reads `experimental`, and the
 [support label](#support-label) says so.
 
 `tests/unit/test_structural_nested_mean.py` (W7) pins the code of each refusal.
@@ -405,7 +405,7 @@ repeated-sampling evidence, and the tests below give the exact-law evidence.
 | W8 | each standard error and the simultaneous bands sum the curve within a cluster. The data share a cluster effect, so a variance that ignores the clusters differs from the hand calculation | `test_w8_the_variance_sums_the_curve_within_a_cluster`, `test_w8_the_bands_and_the_joint_covariance_read_the_clusters`. A control that drops `cluster=` fails both: `test_w8_dropping_the_cluster_from_the_variance_fails_the_witness` |
 | W9 | `check_model` reports the closed-form gap between the structural and the nonparametric contrasts on law L, and its covariance, degrees of freedom and p-value follow from the curves, at the cluster level | `test_check_model_statistic_on_exact_law_l`, `test_check_model_covariance_degrees_of_freedom_and_clusters` |
 | W10 | the share of rows with an extreme class probability equals the mass of the extreme cell | `test_the_extreme_share_is_the_mass_of_the_cells_near_zero_or_one` |
-| W11 | a fit inside `G39.two_nodes` reads `supported` and its band reads `experimental`. A fit that no row covers and the model check read `experimental`. The key covers a fit when a row names it, and the shown and withheld statuses keep their intervals | `tests/unit/test_structural_support.py` |
+| W11 | a fit inside `G42.two_nodes` reads `supported` and its band reads `experimental`. A fit that no row covers and the model check read `experimental`. The key covers a fit when a row names it, and the shown and withheld statuses keep their intervals | `tests/unit/test_structural_support.py` |
 | M1 | dropping the adjustment for later blips fails W1 on S3 | `test_m1_dropping_the_later_blip_adjustment_misses_the_truth_by_its_limit` |
 | M2 | residualizing on the period state fails W5 | `test_m2_a_period_state_treatment_nuisance_misses_by_the_limit` |
 | M3 | a wrong reference level fails W1 on law K | `test_m3_the_wrong_reference_moves_the_level_blips_and_the_reference_mean` |
@@ -421,7 +421,7 @@ The truths come from an independent g-formula in `tests/discrete_law_structural.
 The [structural nested mean study](method-evidence/structural-nested-mean.md) is registered.
 All 61 primary tests and all 237 gated property cells pass. The model check has size cells on
 `S2`, `H` and `SP` and power cells on `LU`. The EconML `DynamicDML` runs are pending, so the
-method has no comparator replicates. The `G39` support rows cover the keys that the study fits.
+method has no comparator replicates. The `G42` support rows cover the keys that the study fits.
 
 The X44 law `N` fits its nuisances with a gradient booster. The booster stops early on a validation
 split. No general proof gives its rate. The claim that the rate suffices rests on a probe of this law.

@@ -1708,13 +1708,13 @@ def _long_cases() -> tuple[RowCase, ...]:
 
     # The structural nested mean study (X44): one primary scenario for each key it fits.
     for row, scenario in (
-        ("G39.two_nodes", "s2"),
-        ("G39.three_nodes", "s3"),
-        ("G39.categorical", "k"),
-        ("G39.dose", "c"),
-        ("G39.covariate_feature", "l"),
-        ("G39.weighted", "s2w"),
-        ("G39.clustered", "s2c"),
+        ("G42.two_nodes", "s2"),
+        ("G42.three_nodes", "s3"),
+        ("G42.categorical", "k"),
+        ("G42.dose", "c"),
+        ("G42.covariate_feature", "l"),
+        ("G42.weighted", "s2w"),
+        ("G42.clustered", "s2c"),
     ):
         seeded(
             row,

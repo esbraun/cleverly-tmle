@@ -30,7 +30,7 @@ policy, censoring, survival and repeated outcomes. It refuses a static contrast 
 reads a time-varying covariate.
 [Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
 every refusal. Its evidence label is "Python property evidence, with comparator runs pending". A cross-fitted
-fit that a `G39` row covers reads `supported`, and any other fit reads `experimental`
+fit that a `G42` row covers reads `supported`, and any other fit reads `experimental`
 ([support label](../technical-reference/structural-dynamic-effects.md#support-label)).
 
 ## Why a request can be refused

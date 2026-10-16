@@ -2399,7 +2399,7 @@ def _structural_cells(*setups: str) -> list[str]:
 
 
 def _structural_rows() -> list[SupportRow]:
-    """The rows of the structural nested mean model (``G39``): one per key the study fits.
+    """The rows of the structural nested mean model (``G42``): one per key the study fits.
 
     Every fit of ``structural-nested-mean`` is cross-fitted, with a Gaussian outcome and no
     declared bounds, complete data and the Rademacher multiplier. The keys follow the support
@@ -2450,12 +2450,12 @@ def _structural_rows() -> list[SupportRow]:
         )
 
     return [
-        row("G39.two_nodes", _structural_cells("s2", "h", "p", "m")),
-        row("G39.three_nodes", _structural_cells("s3"), treatment=("2", "2", "2")),
-        row("G39.categorical", _structural_cells("k"), treatment=("3", "3")),
-        row("G39.dose", _structural_cells("c"), treatment=("continuous", "continuous")),
+        row("G42.two_nodes", _structural_cells("s2", "h", "p", "m")),
+        row("G42.three_nodes", _structural_cells("s3"), treatment=("2", "2", "2")),
+        row("G42.categorical", _structural_cells("k"), treatment=("3", "3")),
+        row("G42.dose", _structural_cells("c"), treatment=("continuous", "continuous")),
         row(
-            "G39.covariate_feature",
+            "G42.covariate_feature",
             _structural_cells("l"),
             regimens=False,
             covariate_features=True,
@@ -2464,8 +2464,8 @@ def _structural_rows() -> list[SupportRow]:
                 "reference mean only. A static level or contrast is refused (X72).",
             ),
         ),
-        row("G39.weighted", _structural_cells("s2w"), weighting="fixed"),
-        row("G39.clustered", _structural_cells("s2c"), dependence="clustered"),
+        row("G42.weighted", _structural_cells("s2w"), weighting="fixed"),
+        row("G42.clustered", _structural_cells("s2c"), dependence="clustered"),
     ]
 
 
@@ -2482,7 +2482,7 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
 
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
-#: ``IPSI`` (``G37``) and the structural nested mean model (``G39``).
+#: ``IPSI`` (``G37``) and the structural nested mean model (``G42``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
 
 
