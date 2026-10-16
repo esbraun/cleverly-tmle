@@ -535,6 +535,9 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_MAR_NATURAL_COURSE_CVTMLE,
     )
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
+    from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
+    from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
+    from tests.studies.canonical_mtp_tuning import STUDY as MTP_TUNING
     from tests.studies.canonical_multi_arm_ctmle_oat import (
         STUDY as CANONICAL_MULTI_ARM_CTMLE_OAT,
     )
@@ -644,6 +647,9 @@ def registered() -> tuple[StudyRecord, ...]:
         STOCHASTIC_CATEGORICAL_LTMLE,
         LONGITUDINAL_MTP,
         VECTOR_MTP,
+        MTP_BOUNDARIES,
+        MTP_PRICING,
+        MTP_TUNING,
         LONGITUDINAL_SDR,
         LONGITUDINAL_IPSI,
         LONGITUDINAL_IPSI_DROPOUT,

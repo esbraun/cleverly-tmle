@@ -29,6 +29,10 @@ from .. import discrete_law_longitudinal_multivalue as multivalue
 from .. import longitudinal_mtp as mtp
 from ..studies.canonical_ltmle import QuasiBinomialGLM
 
+# The exact grid laws have recorded point masses at every dose, which R-b4 of X40 refuses;
+# the fixture turns that refusal off and leaves the ratio code as shipped.
+pytestmark = pytest.mark.usefixtures("exact_grid_law")
+
 COLUMNS: dict[str, Any] = {
     "outcome": "Y",
     "treatment": ["A1", "A2"],

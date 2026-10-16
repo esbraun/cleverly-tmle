@@ -30,6 +30,10 @@ from .. import discrete_law_longitudinal_policy as policy
 from .. import discrete_law_survival as survival
 from .. import longitudinal_mtp as mtp
 
+# The exact grid laws have recorded point masses at every dose, which R-b4 of X40 refuses;
+# the fixture turns that refusal off and leaves the ratio code as shipped.
+pytestmark = pytest.mark.usefixtures("exact_grid_law")
+
 CAUGHT = 1e-4
 NO_TRUNCATION = (1e-8, 1.0)
 

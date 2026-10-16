@@ -40,7 +40,12 @@ from cleverly.targets import TARGETS
 from tests.discrete_law_longitudinal import CellMeans
 from tests.discrete_law_longitudinal_multivalue import CellProbabilities
 
-pytestmark = pytest.mark.xdist_group("point_vector_treatment")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("point_vector_treatment"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 #: What every one-column reader says at a vector treatment with a continuous component.
 ONE_COLUMN = "reads a treatment of one column. Such a treatment has no arms"
@@ -649,6 +654,7 @@ def _observed_dose(result: Any) -> np.ndarray:
     return np.asarray(result.data.treatment_components, dtype=float)[:, 0]
 
 
+@pytest.mark.usefixtures("exact_grid_law")
 @pytest.mark.parametrize("ratio", ["classifier", "density"])
 def test_h1_every_reader_of_a_vector_result_equals_its_scalar_reading(
     ratio: str, tmp_path: Path

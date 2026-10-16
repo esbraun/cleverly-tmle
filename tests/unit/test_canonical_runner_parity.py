@@ -54,6 +54,8 @@ ROOT_RUNNERS = tuple(
         "categorical_ltmle_runner.R",
         "longitudinal_mtp_runner.R",
         "longitudinal_sdr_runner.R",
+        "mtp_boundaries_runner.R",
+        "mtp_pricing_runner.R",
         "point_survival_hazard_runner.R",
         "point_survival_policies_runner.R",
         "point_survival_runner.R",

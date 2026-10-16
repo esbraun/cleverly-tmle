@@ -1969,6 +1969,8 @@ def policy_means(
     weights: FloatArray,
     observed: BoolArray | None = None,
     mixing: FloatArray | None = None,
+    rows: BoolArray | None = None,
+    terms: FloatArray | None = None,
 ) -> dict[float, ArmMean]:
     r"""Each policy's mean and influence curve, keyed by policy code.
 
@@ -2021,18 +2023,52 @@ def policy_means(
     and ``targeted.arms[r]`` already holds :math:`\bar Q^*` at the shifted dose.  The
     bracket below is summed in the same association for the same reason the comment there
     gives.
+
+    **Data-tuned caps (X40 part (e)).**  ``rows`` restricts component ``c`` to the rows
+    ``rows[:, c]``: a fold-average policy's component ``k`` is the map fitted on fold
+    ``k``'s training rows, and its mean :math:`\hat\psi_k` is the weighted mean over fold
+    ``k``'s held-out rows.  Row ``i`` of fold ``k`` carries
+    :math:`(W / W_k) w_i (D_i - \hat\psi_k)`, with :math:`W` the total and :math:`W_k`
+    the fold's weight mass, so the policy's ``mixing`` row of :math:`1/V` gives Hubbard,
+    Kherad-Pajouh and van der Laan's (2016) Theorem 1 variance.  ``terms`` adds, to policy
+    ``s``'s curve, the chain-rule term :math:`\partial\Phi_n' \mathrm{IF}` of a
+    population target (``(n, S)``, zero for every other policy).
     """
     _expect(submodel, "mtp")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
 
     out: dict[float, ArmMean] = {}
-    for code in targeted.levels:
+    for index, code in enumerate(targeted.levels):
         prediction = targeted.arms[code]
-        psi = float(np.average(prediction, weights=w))
-        out[code] = ArmMean(psi, w * (submodel.column_for(code) * residual + prediction - psi))
-    if mixing is None:
+        if rows is None or bool(np.all(rows[:, index])):
+            psi = float(np.average(prediction, weights=w))
+            curve = w * (submodel.column_for(code) * residual + prediction - psi)
+        else:
+            held = np.asarray(rows[:, index], dtype=bool)
+            psi = float(np.average(prediction[held], weights=w[held]))
+            scale = float(np.sum(w)) / float(np.sum(w[held]))
+            curve = np.where(
+                held,
+                scale * w * (submodel.column_for(code) * residual + prediction - psi),
+                0.0,
+            )
+        out[code] = ArmMean(psi, np.asarray(curve, dtype=float))
+    if mixing is not None:
+        out = _mixed_policy_means(out, mixing)
+    if terms is None:
         return out
+    return {
+        code: ArmMean(
+            part.psi,
+            np.asarray(part.influence_curve, dtype=float) + np.asarray(terms[:, int(code)]),
+        )
+        for code, part in out.items()
+    }
+
+
+def _mixed_policy_means(out: dict[float, ArmMean], mixing: FloatArray) -> dict[float, ArmMean]:
+    """Each policy's mean and curve as the known-weight sum of its components'."""
     # A randomized policy's mean is the known-weight sum of its components' means, and so
     # is its curve: the randomizer law does not depend on P, so integrating it out is
     # linearity of expectation and adds no term (Diaz et al. 2023, Section 2).

@@ -177,6 +177,7 @@ from ..interventions import RiskRatioTilt
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
+from ..interventions.policy import Support as DeclaredSupport
 from ..learners._fitting import supports_sample_weight
 from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
 from ..learners.glm import GLM
@@ -199,6 +200,7 @@ from ..targets.base import parameter_name
 from ..utils.bounds import (
     DEFAULT_LTMLE_G_BOUNDS,
     OutcomeScaler,
+    policy_scale_refusal,
     resolve_cumulative_g_bounds,
 )
 from ..utils.phases import PhaseProfile, phase, profile_phases
@@ -246,10 +248,12 @@ from .regimen import (
     Plan,
     RegimenSpec,
     attach_policy_numerators,
+    declares_tuned,
     describe_plan,
     refuse_regimen_rules,
     resolve_plans,
     resolve_regimens,
+    resolve_tuned_plans,
     tilt_mix_refusal,
 )
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
@@ -262,6 +266,7 @@ from .sequential import (
     fit_regimen,
     known_product_refusal,
     node_ratios,
+    preflight_declared_doses,
     preflight_known_mechanisms,
     preflight_mechanism_support,
     preflight_terminal_outcomes,
@@ -4145,6 +4150,8 @@ class _SequentialEstimator:
     #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
     #: regimen this estimator fits.  Only a model-based estimator accepts one.
     _allow_set_dose: ClassVar[bool] = False
+    #: Whether the fit reads a density ratio at a continuous node, which R-b4 of X40 guards.
+    _reads_density_ratio: ClassVar[bool] = True
 
     #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
     _record_support: bool = True
@@ -4533,9 +4540,10 @@ class _SequentialEstimator:
         weights_type: str = "probability",
         weights_estimated: bool = False,
         family: str = "auto",
-        continuous_treatment: Sequence[str] = (),
+        continuous_treatment: Sequence[str] | Mapping[str, DeclaredSupport | None] = (),
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
+        dose_atoms: Mapping[str, Sequence[float]] | None = None,
         **refused: Any,
     ) -> LongitudinalResult:
         """Fit on a wide dataframe, or on an already-built :class:`LongitudinalData`.
@@ -4591,10 +4599,12 @@ class _SequentialEstimator:
             Declare that the weights came out of a fitted model.  It changes no number.
         family : {"auto", "binomial", "gaussian"}
             The outcome family.  ``"auto"`` infers it from the outcome.
-        continuous_treatment : sequence of str
+        continuous_treatment : sequence of str or mapping
             The treatment columns that hold a continuous dose, as for
             :meth:`LongitudinalData.from_frame`.  Each such node takes a modified treatment
-            policy.
+            policy.  The mapping form ``{name: Support(lower, upper) or None}`` also
+            declares each dose's conditional support, which the fit checks before any
+            learner.
         treatment_probabilities : array-like, mapping, or None
             The known treatment mechanism of a sequentially randomized design, as for
             :meth:`LongitudinalData.from_frame`.  A declared node fits no treatment learner,
@@ -4607,6 +4617,9 @@ class _SequentialEstimator:
         censoring_probabilities : array-like, mapping, or None
             The known retention probabilities, as for
             :meth:`LongitudinalData.from_frame`.  A declared node fits no censoring learner.
+        dose_atoms : mapping of str to sequence of float, or None
+            The declared atoms of each continuous dose, as for
+            :meth:`LongitudinalData.from_frame`: the doses with a recorded point mass.
         **refused : Any
             A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
             reason that a longitudinal fit does not support it.
@@ -4642,6 +4655,7 @@ class _SequentialEstimator:
             continuous_treatment=continuous_treatment,
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
+            dose_atoms=dose_atoms,
         )
         if prepared.is_repeated:
             refuse_repeated_outcome(getattr(self, "_estimator", "tmle"), type(self).__name__)
@@ -4673,9 +4687,35 @@ class _SequentialEstimator:
             prepared, regimens, survival_model=self.survival_model, isotonic=self.isotonic
         )
         reference = self._reference(regimens)
+        # The declared support and the declared atoms of each continuous dose, and the
+        # undeclared-atom check, before any plan or learner (X40 parts (a) and (b)).
+        preflight_declared_doses(
+            prepared,
+            regimens,
+            ratio=self.ratio,
+            density_bins=self.density_bins,
+            undeclared_atoms=self._reads_density_ratio,
+        )
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
-        plans = resolve_plans(regimens, prepared, allow_set_dose=self._allow_set_dose)
+        tuned_folds: Folds | None = None
+        if declares_tuned(regimens):
+            # A tuned cap is fitted before any learner, on each outer fold's training rows as
+            # well as on every row at risk, so the split is drawn first (X40 part (e)).
+            tuned_folds = self._folds(prepared)
+            plans = resolve_tuned_plans(regimens, prepared, tuned_folds)
+            # A fold-average plan reports under its own label; a reference that is one is
+            # read under that label too.
+            for declared, plan in zip(regimens, plans, strict=True):
+                if plan.fold_average and declared.label == reference.label:
+                    reference = plan.regimen
+            regimens = tuple(
+                plan.regimen if plan.fold_average else declared
+                for declared, plan in zip(regimens, plans, strict=True)
+            )
+            self._refuse_fold_average_compositions(plans)
+        else:
+            plans = resolve_plans(regimens, prepared, allow_set_dose=self._allow_set_dose)
         # An odds tilt node reads the mechanism, so each estimator decides here, before any
         # learner, whether it fits one.
         plans = self._resolve_tilts(prepared, plans)
@@ -4683,12 +4723,13 @@ class _SequentialEstimator:
         # Every declared factor is checked against the bounds before any learner.
         preflight_known_mechanisms(prepared, plans, resolve_cumulative_g_bounds(self.g_bounds))
 
+        self._refuse_undeclared_policy_scale(prepared, plans)
         self._refuse_unbounded_cross_fitted_scale(prepared)
         if self.n_bootstrap and self.bootstrap_resampling == "cluster" and prepared.cluster is None:
             # The refusal ``run_bootstrap`` would raise after the fit, raised before any
             # learner.
             raise ValueError("resampling='cluster' requires the data to carry cluster ids")
-        folds = self._folds(prepared)
+        folds = self._folds(prepared) if tuned_folds is None else tuned_folds
         # Checked at the call site rather than inside ``_folds``, so that a subclass that
         # draws its own split is held to the same rule: a cluster split across folds puts a
         # unit's own cluster in the training fold of the rows it predicts.  A no-op without
@@ -5246,9 +5287,10 @@ class _SequentialEstimator:
         weights_type: str,
         weights_estimated: bool,
         family: str,
-        continuous_treatment: Sequence[str] = (),
+        continuous_treatment: Sequence[str] | Mapping[str, Any] = (),
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
+        dose_atoms: Mapping[str, Sequence[float]] | None = None,
     ) -> LongitudinalData:
         if isinstance(data, LongitudinalData):
             declared = {
@@ -5272,6 +5314,8 @@ class _SequentialEstimator:
                 named.append("weights_estimated")
             if continuous_treatment:
                 named.append("continuous_treatment")
+            if dose_atoms:
+                named.append("dose_atoms")
             if named:
                 raise ValueError(
                     f"{named} cannot be combined with a LongitudinalData input; the node "
@@ -5305,6 +5349,7 @@ class _SequentialEstimator:
             continuous_treatment=continuous_treatment,
             treatment_probabilities=treatment_probabilities,
             censoring_probabilities=censoring_probabilities,
+            dose_atoms=dose_atoms,
         )
 
     def _horizons(self, data: LongitudinalData) -> tuple[int, ...]:
@@ -5544,6 +5589,82 @@ class _SequentialEstimator:
             f"reference={self.reference!r} is not one of the declared regimens "
             f"{[regimen.label for regimen in regimens]}"
         )
+
+    def _refuse_fold_average_compositions(self, plans: Sequence[Plan]) -> None:
+        """Refuse a fold-average target with a working model, the bootstrap, or a targeting option.
+
+        Each outer fold's map is fitted on that fold's training rows, so the target depends
+        on the split.  A working model would project
+        split-dependent targets, and each bootstrap resample refits every fold's map.
+        """
+        if not any(plan.fold_average for plan in plans):
+            return
+        if self.msm is not None:
+            raise CapabilityError(
+                "target='fold_average' is not combined with msm=: each fold's map is fitted "
+                "on that fold's training rows, so a working model would project targets that "
+                "depend on the split.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Fit the fold-average target without msm=, or tune the map with a "
+                    "finite-dimensional tuner and declare target='population'."
+                ),
+            )
+        if self.n_bootstrap:
+            raise CapabilityError(
+                "target='fold_average' refuses the full-refit bootstrap (n_bootstrap=0). Each "
+                "resample refits every fold's map, so each draw has a different target.",
+                reason=RefusalReason.INFERENCE_GAP,
+                alternative=(
+                    "The fit reports the fold-average variance of Hubbard, Kherad-Pajouh and "
+                    "van der Laan (2016), Theorem 1."
+                ),
+            )
+        options = {
+            "stopping": getattr(self, "stopping", "relative") != "relative",
+            "step_bound": getattr(self, "step_bound", None) is not None,
+            "iterate": getattr(self, "iterate", "last") != "last",
+        }
+        declared = [name for name, set_ in options.items() if set_]
+        if declared:
+            raise CapabilityError(
+                f"target='fold_average' is not combined with {', '.join(declared)}=: each "
+                "fold's map is targeted by its own intercept fluctuation, and that solve runs "
+                "the shipped rule only.",
+                reason=RefusalReason.IMPLEMENTATION_GAP,
+                roadmap="X75",
+                alternative=(
+                    "Fit the fold-average target with the default stopping rule, no step "
+                    "bound and the last iterate, or declare target='population'."
+                ),
+            )
+
+    def _refuse_undeclared_policy_scale(
+        self, data: LongitudinalData, plans: Sequence[Plan]
+    ) -> None:
+        """Refuse a continuous outcome under a modified treatment policy with no ``q_bounds``.
+
+        R-f1 of X40, in sample as well as cross-fitted.  It runs before the cross-fitted
+        scale refusal, so a policy fit reads the reason that applies to it.  A static or
+        dynamic regimen with no policy node keeps the padded in-sample scale.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : sequence of Plan
+            The resolved plans.
+
+        Raises
+        ------
+        LongitudinalError
+            If some plan holds a modified treatment policy, the outcome is not binary and
+            ``q_bounds`` is ``None``.
+        """
+        if data.family == "binomial" or self.q_bounds is not None:
+            return
+        if any(plan.has_mtp for plan in plans):
+            raise LongitudinalError(policy_scale_refusal(str(data.outcome_name)))
 
     def _refuse_unbounded_cross_fitted_scale(self, data: LongitudinalData) -> None:
         """Refuse a cross-fitted continuous outcome without a declared ``q_bounds``.
@@ -7145,6 +7266,8 @@ class ParametricGFormula(_Baseline):
 
     _estimator: ClassVar[str] = "parametric_gformula"
     _allow_set_dose: ClassVar[bool] = True
+    #: The simulation draws the natural dose from its fitted law and reads no ratio.
+    _reads_density_ratio: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -7278,6 +7401,23 @@ class ParametricGFormula(_Baseline):
             and self._declared_outcome.family != "gaussian"
         ):
             raise CapabilityError(refusal=GCOMP_SCALE_REFUSAL)
+
+    def _refuse_undeclared_policy_scale(
+        self, data: LongitudinalData, plans: Sequence[Plan]
+    ) -> None:
+        """Keep a continuous outcome under a modified treatment policy without ``q_bounds``.
+
+        R-f1 of X40 protects the [0, 1] outcome map of the sequential regressions.  The
+        simulation fits the outcome law on its own scale and maps nothing, so the refusal
+        does not apply here; :meth:`_refuse_design` keeps the scale refusal that does.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : sequence of Plan
+            The resolved plans.
+        """
 
     def _fit_mechanism(
         self,

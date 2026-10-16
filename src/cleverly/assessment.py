@@ -2567,6 +2567,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                 check_policy_support,
                 check_support,
             )
+            from .interventions.policy import declared_support_bounds
             from .sensitivity.positivity import positivity_report
 
             def score_arguments(group: str) -> dict[str, Any]:
@@ -2613,6 +2614,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                     propensity=(nuisance.propensity.values if self._result.data.has_arms else None),
                     mechanisms=mechanisms,
                     folds=nuisance.folds,
+                    declared_support=declared_support_bounds(self._result.data),
                     **score_arguments("mtp"),
                 )
             if nuisance.incremental is not None:

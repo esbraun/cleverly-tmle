@@ -536,12 +536,33 @@ refusals. The registered study is
 mechanism-only cells read oracle bins that grow as $n^{2/3}$, 320 at n = 2,000, for the reason
 above. So they test the targeting with a nearly exact ratio and not the default density.
 
+### Limits of the continuous-policy evidence
+
+The registered studies [`mtp-boundaries`](method-evidence/mtp-boundaries.md),
+[`mtp-pricing`](method-evidence/mtp-pricing.md) and [`mtp-tuning`](method-evidence/mtp-tuning.md)
+test the continuous policies of this section. Each row below states a limit that the studies publish.
+
+| limit | what it means for use |
+| --- | --- |
+| a continuous outcome needs `Targeting(q_bounds=(lower, upper))` | a longitudinal fit with a modified treatment policy refuses a continuous outcome with `q_bounds=None`. A revenue outcome is unbounded and positive, so declare its known support. The fit never clips an outcome |
+| the learned-density ratio arms of `mtp-pricing` publish as `reporting` | the screen read SE ratios above 1.05: 1.052, 1.105 and 1.079 at tau 2, 3 and 5 |
+| the screened ratio learner is the quadratic logistic classifier | the study uses it at every tau, with `ratio="classifier"` |
+| the cross-fold leak pair `classifier_split` is not registered | the pilot read a necessity power of 0.0002, so the pair cannot discriminate. The fast tier shows the effect of the leak only. In `tests/unit/test_classifier_ratio_controls.py`, `test_t_c1_no_unit_trains_the_model_that_predicts_it` shows no leak under unit folds. `test_m_c1_folds_over_stacked_rows_leak` shows a leak under row folds |
+
 ### Vector nodes with a continuous component
 
 A node can hold several treatment columns. A list of columns is one entry of `treatment=`, and
 `continuous_treatment=` names the columns that hold a dose. A node with a dose and a categorical
 column is a *mixed node*. Díaz, Williams, Hoffman and Schenck (2023), Section 2, let the
-treatment at a node be a vector $A_t = (C_t, D_t)$, and Theorem 1 identifies the mean for it.
+treatment at a node be a vector $A_t = (C_t, D_t)$. Their Theorem 1 gives the mean two readings
+for a vector node. Each reading needs its own exchangeability assumption at every node.
+
+| reading | the history at each node holds every common cause of | source |
+| --- | --- | --- |
+| modified treatment policy effect | the vector, the outcome, and the later covariates and treatments | Theorem 1 (ii) and Assumption 3; Williams & Díaz (2025) |
+| stochastic intervention (LMTP-SI) | the vector and the next covariates, which at the last node are the outcome | Theorem 1 (i) and Assumption 2 |
+
+`Identification.interpretations` records both readings (`tests/unit/test_mtp_interpretations.py`).
 
 ```text
 LTMLE(regimens, ratio="classifier", ...).fit(
@@ -578,6 +599,7 @@ table of that section states.
 | `SDR` | supported on both routes, in sample and with folds that are each an exact copy of the law |
 | a known randomizer on the `JointPolicy` or on one component | supported (W11, `tests/unit/test_vector_component_randomizer.py`) |
 | `RiskRatioTilt` on a binary component | supported. It joins the product randomizer |
+| a declared support for a dose, `continuous_treatment={name: Support}` | supported. The support is given the history, the categorical components and the earlier doses of the node. The fit checks each branch at the components it assigns (`tests/unit/test_mtp_vector_support.py`) |
 
 [Scope and refusals](scope-and-refusals.md#vector-treatments) lists what a vector refuses and
 gives the reason for each refusal.
@@ -1438,6 +1460,17 @@ in-fold transform's regression open. Theorem 4 assumes that rate, as the LTMLE c
 its own. `tests/unit/test_sdr_construction.py` carries two mutation controls. The stitched Step 2
 moves the estimate by more than `1e-4`, and so does a training row that reads the out-of-fold
 mechanism.
+
+### The interval under heavy cumulative density ratios
+
+The `SDR` interval runs short of nominal when the cumulative density ratios are heavy. The study
+cell `p4_sdr` of `mtp-boundaries` reads a standard-error ratio of 0.9408 at n = 4,000, with a 99%
+interval of 0.9060 to 0.9775, and a coverage of 0.9357. The `LTMLE` cell of the same plan reads a
+standard-error ratio of 0.9572. The cell uses a pseudo-outcome learner that projects onto [0, 1].
+
+Treat this interval as experimental under the measured-shortfall standard. The study publishes the
+cell as `reporting`, and the red-cell owner `X40-sdr-heavy-ratios` records the measured numbers.
+The fit support key does not read the plan, so a fit carries no label of its own for this cell.
 
 ### Choices that differ from LTMLE
 

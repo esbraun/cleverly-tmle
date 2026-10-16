@@ -335,6 +335,8 @@ def test_r10_a_container_built_with_another_grid_cause_map_or_dose() -> None:
         CausalStudy(_build(_frame()), design=TimeToEvent(**roles, continuous_treatment=True))
 
 
+# A dose on a grid of four values, which R-b4 of X40 refuses; the fixture turns it off.
+@pytest.mark.usefixtures("exact_grid_law")
 def test_a_continuous_dose_on_the_long_path_equals_the_wide_held_fit() -> None:
     """``continuous_treatment=True`` holds a dose over the grid, as ``treatment="D"`` does."""
 

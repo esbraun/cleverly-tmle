@@ -269,6 +269,60 @@ ARMS: dict[str, str] = {
         "the ordered two-dose node contrast, its ratio a classifier on the true log ratio"
     ),
     "flag_scaled": "the two-node contrast of the flag-scaled plan against the natural course",
+    "p1": "the two-node contrast of the nonbinding 0.9 scale against the natural course",
+    "p2": (
+        "the two-node contrast of the shift held at the history-dependent support boundary "
+        "against the natural course"
+    ),
+    "p3": "the two-node contrast of the warped map against the natural course",
+    "p4": "the two-node contrast of the two-branch map against the natural course",
+    "p5": (
+        "the two-node contrast of the map that sends an interval to the declared atom against "
+        "the natural course"
+    ),
+    "p4_sdr": "the two-branch contrast read by the sequentially doubly robust estimator",
+    "p5_sdr": "the declared-atom contrast read by the sequentially doubly robust estimator",
+    **{
+        f"up_oracle_tau{t}": f"the mean purchase under the 12% price rise at {t} nodes, exact ratio"
+        for t in (2, 3, 5)
+    },
+    **{
+        f"up_learned_density_tau{t}": (
+            f"the mean purchase under the 12% price rise at {t} nodes, learned density"
+        )
+        for t in (2, 3, 5)
+    },
+    **{
+        f"up_learned_classifier_tau{t}": (
+            f"the mean purchase under the 12% price rise at {t} nodes, learned classifier"
+        )
+        for t in (2, 3, 5)
+    },
+    "revenue_learned_classifier_tau3": (
+        "the mean revenue under the 12% price rise at 3 nodes, learned classifier"
+    ),
+    "crossfit_ltmle_learned_classifier_tau3": (
+        "the mean purchase under the 12% price rise at 3 nodes, LTMLE cross-fitted over five folds"
+    ),
+    "crossfit_sdr_learned_classifier_tau3": (
+        "the mean purchase under the 12% price rise at 3 nodes, SDR cross-fitted over five folds"
+    ),
+    "up_tau3": "the mean purchase under the 12% price rise at 3 nodes",
+    "up_tau5": "the mean purchase under the 12% price rise at 5 nodes",
+    "population_dose_quantile_tau2": "the population target of the dose-quantile cap, one fold",
+    "population_quantile_regression_tau2": (
+        "the population target of the quantile-regression cap, one fold"
+    ),
+    "population_dose_quantile_crossfit_tau2": (
+        "the population target of the dose-quantile cap, five folds, density route"
+    ),
+    "population_dose_quantile_crossfit_classifier_tau2": (
+        "the population target of the dose-quantile cap, five folds, classifier route"
+    ),
+    "fold_average_dose_quantile_tau2": "the fold-average target of the dose-quantile cap",
+    "fold_average_quantile_regression_tau2": (
+        "the fold-average target of the quantile-regression cap"
+    ),
     "ordered_full": "the ordered-law node contrast of the full plan against the natural course",
     "ordered_crossed": (
         "the ordered-law node contrast of the crossed plan against the natural course"
@@ -628,6 +682,14 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-vector-mtp": (
         "`cleverly` point TMLE and LTMLE under modified treatment policies on a vector treatment"
     ),
+    "cleverly-mtp-boundaries": (
+        "`cleverly` LTMLE and SDR under modified treatment policies with declared supports and "
+        "atoms"
+    ),
+    "cleverly-mtp-pricing": (
+        "`cleverly` LTMLE and SDR under price policies that bind at a declared support"
+    ),
+    "cleverly-mtp-tuning": "`cleverly` LTMLE and SDR under a shift with a tuned cap",
     "cleverly-stochastic-categorical-ltmle": (
         "`cleverly` ordinary LTMLE under known stochastic categorical policies"
     ),
@@ -832,6 +894,24 @@ SCENARIOS: dict[str, str] = {
         "one node of a binary flag and two ordered doses, its ratio a fitted stacked classifier"
     ),
     "mtp_continuous_crossfit": ("the two-node continuous-dose law, cross-fitted over five folds"),
+    "boundaries_ltmle": (
+        "two-node law with a truncated-normal dose on a history-dependent support, LTMLE"
+    ),
+    "boundaries_sdr": (
+        "two-node law with a truncated-normal dose on a history-dependent support, SDR"
+    ),
+    "atom_ltmle": "the same law with a declared atom at the second dose, LTMLE",
+    "atom_sdr": "the same law with a declared atom at the second dose, SDR",
+    **{
+        f"pricing_{estimator}_tau{t}": (
+            f"{t}-node pricing law with engagement feedback on the declared price support, "
+            f"{estimator.upper()}"
+        )
+        for t in (2, 3, 5)
+        for estimator in ("ltmle", "sdr")
+    },
+    "population_quantile_ltmle": "two-node law Q with a dose-quantile cap, LTMLE",
+    "population_quantile_sdr": "two-node law Q with a dose-quantile cap, SDR",
     "mtp_categorical": "two-node law with six integer treatment levels at both nodes",
     "rr_tilt": "two-node law with a binary treatment at both nodes",
     "categorical_policy_end_of_study": (
@@ -1039,6 +1119,25 @@ REGIMENS: dict[str, str] = {
     ),
     "a2 off": "set the second component to zero where the first is one",
     "a1 on": "set the first component to one",
+    "p1": "multiply the dose by 0.9 at both times",
+    "p2": "add 1 to the dose at both times, holding doses within 1 of the support's upper end",
+    "p3": (
+        "map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from "
+        "0.4 to 1.6, u the support's upper end"
+    ),
+    "p4": "add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times",
+    "p5": "set the second dose to the larger of 3 and 0.65 times the dose",
+    "natural_prices": "leave every observed price unchanged",
+    "price_up": (
+        "multiply each price by 1.12, holding a price within 12% of the support's upper end"
+    ),
+    "price_down": (
+        "multiply each price by 0.85, holding a price within 15% of the support's lower end"
+    ),
+    "tuned_cap": "add 1 to the dose at both times where the result stays below the tuned cap",
+    "tuned_cap, fold average": (
+        "add 1 to the dose at both times below each fold's tuned cap, averaged over the folds"
+    ),
 }
 
 #: How a point-treatment study reads a plan label whose ordinary reading counts treatment
@@ -1167,6 +1266,15 @@ PROPERTIES: dict[str, str] = {
     ),
     "preimage_necessity": (
         "every categorical preimage of a vector value enters the joint induced density"
+    ),
+    "branch_necessity": (
+        "every inverse branch of a policy enters the density ratio of Equation (3)"
+    ),
+    "classifier_split": (
+        "the outer folds of the stacked classifier hold out units, not stacked rows"
+    ),
+    "atom_necessity": (
+        "the mass of every interval a policy sends to a declared atom enters the ratio at the atom"
     ),
     "jacobian_necessity": (
         "the inverse derivative of every non-unit dose map, the D1 scale, enters the joint "
@@ -2106,6 +2214,66 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
     ),
     ("ratio_necessity", "reversed_control"): (
         "the density probabilities are deliberately inverted before the pooled-hazard ratio is formed",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("ratio_necessity", "unit_ratio_control"): (
+        "the same fit replaces the density ratio with one, with the outcome misspecified",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("ratio_necessity", "learned_classifier"): (
+        "the declared classifier estimates the density ratio, with the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("double_robustness", "outcome_wrong_learned_classifier"): (
+        "the outcome is misspecified and the declared classifier estimates the density ratio",
+        "bias interval inside the equivalence margin, with the reported standard error on the "
+        "scale of the empirical spread",
+    ),
+    ("double_robustness", "both_wrong_control"): (
+        "the outcome is misspecified and the density ratio is one",
+        "bias interval must fall entirely outside the margin, with the reported standard "
+        "error still on the scale of the empirical spread",
+    ),
+    ("classifier_split", "unit_folds"): (
+        "each unit's natural and assigned rows share an outer fold, with the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("classifier_split", "row_folds_control"): (
+        "the outer folds are drawn over stacked rows, so a unit's copy trains its own classifier",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("interval_calibration", "term_dropped_control"): (
+        "the reported standard error omits the tuning term of the curve",
+        "the SE-ratio interval must fall below the calibration band",
+    ),
+    ("interval_calibration", "population_truth_control"): (
+        "the fold-average rows are scored on the population target",
+        "the SE-ratio interval must fall below the calibration band",
+    ),
+    ("jacobian_necessity", "declared"): (
+        "the density ratio reads each piece's inverse slope, with an outcome model blind to "
+        "the second dose",
+        "bias interval inside the equivalence margin",
+    ),
+    ("jacobian_necessity", "jacobian_dropped_control"): (
+        "the same fit replaces each inverse slope with one",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("branch_necessity", "declared"): (
+        "the density ratio sums over both inverse branches, with the outcome misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("branch_necessity", "one_branch_control"): (
+        "the same fit sums over the first branch only",
+        "bias interval must fall entirely outside the margin",
+    ),
+    ("atom_necessity", "declared"): (
+        "the ratio at the atom adds the mass of the interval sent to it, with the outcome "
+        "misspecified",
+        "bias interval inside the equivalence margin",
+    ),
+    ("atom_necessity", "mass_dropped_control"): (
+        "the same fit drops that mass, so the ratio at the atom is one",
         "bias interval must fall entirely outside the margin",
     ),
     ("cap_necessity", "declared_cap"): (
