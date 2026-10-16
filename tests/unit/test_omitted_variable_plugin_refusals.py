@@ -42,7 +42,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 
 import cleverly
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS, supplies_inference
 from cleverly.datasets import make_linear_ate, make_nonlinear_ate
 from cleverly.estimators import TMLE
 from cleverly.estimators._mechanism_fit import MechanismFit, ScalerStep, describe_mechanism
@@ -1098,7 +1098,8 @@ class TestTheInferenceStatusAnswersFirst:
     @staticmethod
     def withheld(bound: Any) -> Any:
         copied = copy.copy(bound)
-        object.__setattr__(copied, "inference", next(iter(NON_INFERENTIAL)))
+        withheld = next(s for s in STATUS_RECORDS if not supplies_inference(s))
+        object.__setattr__(copied, "inference", withheld)
         return copied
 
     @pytest.mark.parametrize("accessor", INFERENTIAL)

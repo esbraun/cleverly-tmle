@@ -35,6 +35,7 @@ import numpy as np
 from .._inference_status import (
     FEW_CLUSTER_THRESHOLD,
     MINIMUM_INTERVAL_CLUSTERS,
+    MINIMUM_T_REFERENCE_CLUSTERS,
     InferenceStatus,
 )
 from .._typing import BoolArray, FloatArray, IntArray
@@ -573,13 +574,15 @@ def cluster_inference_status(
 ) -> InferenceStatus:
     r"""The inference status the fit's cluster labels, strata, and weights determine.
 
-    ``"few_cluster_plugin"`` when one reported estimate reads fewer distinct clusters with
-    positive weight mass than
-    :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`. That is the whole fit,
-    or, with baseline strata, any one stratum: :func:`fewest_clusters` gives the count.
-    The fit takes one status, so a stratum with too few clusters withholds the interval of
-    every estimate. Otherwise ``"influence_curve"``, in sample or cross-fitted, at equal or
-    unequal cluster sizes. Below
+    ``"no_cluster_variance_plugin"`` when one reported estimate reads fewer distinct clusters
+    with positive weight mass than
+    :data:`~cleverly._inference_status.MINIMUM_T_REFERENCE_CLUSTERS`: a Student t reference
+    with :math:`J - 2` degrees of freedom has none left. ``"few_cluster_plugin"`` from that
+    count to one below :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`: the fit
+    shows a labelled interval on the t reference. That is the whole fit, or, with baseline
+    strata, any one stratum: :func:`fewest_clusters` gives the count. The fit takes one status,
+    so the stratum with the fewest clusters decides it for every estimate. Otherwise
+    ``"influence_curve"``, in sample or cross-fitted, at equal or unequal cluster sizes. Below
     :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters an estimate takes a
     Student t reference, which :func:`cluster_reference_df` gives.
 
@@ -614,14 +617,21 @@ def cluster_inference_status(
     'influence_curve'
     >>> cluster_inference_status(np.repeat(np.arange(9), 3))
     'few_cluster_plugin'
+    >>> cluster_inference_status(np.repeat(np.arange(2), 3))
+    'no_cluster_variance_plugin'
     >>> equal = np.repeat(np.arange(40), 10)
     >>> cluster_inference_status(equal, strata=(equal < 3).astype(int))
     'few_cluster_plugin'
+    >>> cluster_inference_status(equal, strata=(equal < 2).astype(int))
+    'no_cluster_variance_plugin'
     """
     if cluster is None:
         return "influence_curve"
     floor = MINIMUM_INTERVAL_CLUSTERS if minimum is None else minimum
-    if fewest_clusters(cluster, strata, weights) < floor:
+    fewest = fewest_clusters(cluster, strata, weights)
+    if fewest < MINIMUM_T_REFERENCE_CLUSTERS:
+        return "no_cluster_variance_plugin"
+    if fewest < floor:
         return "few_cluster_plugin"
     return "influence_curve"
 
@@ -636,9 +646,9 @@ def cluster_reference_df(
     ``J - 2``, where ``J`` counts the clusters with positive weight mass among ``rows``,
     when ``J`` is below :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD`.
     ``None``, the normal reference, at that count and above. Nugent et al. (2024),
-    Section 2.2, last paragraph, give the rule. Only an inferential fit reads it, and its
-    status guarantees ``J`` of at least
-    :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`.
+    Section 2.2, last paragraph, give the rule. Only a fit that shows an interval reads it,
+    and its status guarantees ``J`` of at least
+    :data:`~cleverly._inference_status.MINIMUM_T_REFERENCE_CLUSTERS`.
 
     Parameters
     ----------
@@ -663,6 +673,8 @@ def cluster_reference_df(
     10
     >>> cluster_reference_df(cluster, rows=cluster < 10)
     8
+    >>> cluster_reference_df(np.repeat(np.arange(5), 3))
+    3
     >>> cluster_reference_df(np.repeat(np.arange(40), 3)) is None
     True
     """
@@ -673,10 +685,10 @@ def cluster_reference_df(
     count = int(np.unique(labels[keep]).size)
     if count >= FEW_CLUSTER_THRESHOLD:
         return None
-    if count < MINIMUM_INTERVAL_CLUSTERS:
+    if count < MINIMUM_T_REFERENCE_CLUSTERS:
         raise ValueError(
-            f"a Student t reference needs at least {MINIMUM_INTERVAL_CLUSTERS} clusters with "
-            f"positive weight mass; these rows hold {count}. Only a fit whose status supplies "
-            "inference reads the reference"
+            f"a Student t reference needs at least {MINIMUM_T_REFERENCE_CLUSTERS} clusters with "
+            f"positive weight mass; these rows hold {count}. Only a fit whose status shows an "
+            "interval reads the reference"
         )
     return count - 2

@@ -40,7 +40,7 @@ import pytest
 from sklearn.linear_model import LinearRegression
 
 from cleverly import CausalStudy, NaturalCourseMean, PointTreatment
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import (
     make_binary_outcome,
@@ -1097,7 +1097,7 @@ class TestThePluginLimitsRefuse:
     def test_the_status_refuses_first_and_the_estimator_second(self, exact_fit: Any) -> None:
         """A non-inferential status answers the inferential names; F26 answers the others."""
         bound = copy.copy(omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin"))
-        status = next(iter(NON_INFERENTIAL))
+        status = next(iter(STATUS_RECORDS))
         object.__setattr__(bound, "inference", status)
         with pytest.raises(CapabilityError) as by_status:
             _ = bound.ci_lower
@@ -1188,7 +1188,7 @@ class TestReplaceKeepsTheStoredLimits:
     def bounds(self, exact_fit: Any) -> dict[str, SensitivityBounds]:
         derived = omitted_variable_bounds(exact_fit, "att", **STRONG)
         withheld = copy.copy(derived)
-        object.__setattr__(withheld, "inference", next(iter(NON_INFERENTIAL)))
+        object.__setattr__(withheld, "inference", next(iter(STATUS_RECORDS)))
         return {
             "derived": derived,
             "plugin": omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin", **STRONG),
