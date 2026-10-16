@@ -78,6 +78,46 @@ class CellFrequencies(ClassifierMixin, BaseEstimator):
         return out
 
 
+#: The first-order error of the ``mechanism_targeting`` mechanism, :math:`\lambda\sqrt n`.
+MECHANISM_TILT = 2.0
+
+
+class TiltedFrequencies(CellFrequencies):
+    r"""The saturated frequencies tilted along the gated contrast's mechanism score.
+
+    :math:`\hat g_\lambda(a \mid w) \propto \hat g(a \mid w)\exp\{\lambda c(w, a)\}`,
+    with :math:`c` the mechanism coefficient of ``ate_ipsi[T_a vs natural course]`` on law
+    ``P``.  The mechanism stays consistent, but at :math:`\lambda = 2/\sqrt n` its error
+    moves the plug-in by a first-order amount that only the mechanism fluctuation removes.
+    The first covariate column is ``W``.
+
+    Parameters
+    ----------
+    lam : float
+        The tilt :math:`\lambda`.
+    """
+
+    def __init__(self, lam: float = 0.0) -> None:
+        self.lam = lam
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        coefficient = point.mechanism_coefficients(point.LAW_P, point.T_A) - (
+            point.mechanism_coefficients(point.LAW_P, point.NATURAL)
+        )
+        w = np.rint(np.asarray(X, dtype=float)[:, 0]).astype(int)
+        g = super().predict_proba(X) * np.exp(self.lam * coefficient[w])
+        return np.asarray(g / g.sum(axis=1, keepdims=True))
+
+
+def tilted_mechanism(lam: float, law: point.PointLaw = point.LAW_P) -> np.ndarray:
+    """The population mechanism :class:`TiltedFrequencies` reaches on ``law``."""
+    coefficient = point.mechanism_coefficients(point.LAW_P, point.T_A) - (
+        point.mechanism_coefficients(point.LAW_P, point.NATURAL)
+    )
+    g = law.g * np.exp(lam * coefficient)
+    return np.asarray(g / g.sum(axis=1, keepdims=True))
+
+
 def incrementals(tilts: Mapping[str, Mapping[str, float]] = point.TILTS) -> list[Incremental]:
     """The library tilts of ``tilts``, in order, each named by its key."""
     return [Incremental(dict(factors), name=name) for name, factors in tilts.items()]

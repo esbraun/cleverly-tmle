@@ -125,12 +125,18 @@ def scenario_truth(scenario: str) -> dict[str, float]:
 
 
 TRUTH = {scenario: scenario_truth(scenario) for scenario in SCENARIOS}
-#: The efficiency bound of each estimand.  The two point scenarios share their law, and the
-#: longitudinal names are read on law ``L`` (the dropout law; ``L0`` has the same values and a
-#: smaller bound, which the properties module reads where a cell is on ``L0``).
+#: The efficiency bound of each estimand.  The two point scenarios share law ``P``, so a point
+#: name stands alone.  The two longitudinal scenarios read laws ``L`` and ``L0``, which share
+#: their truths and not their bounds, so each longitudinal name is qualified by its scenario:
+#: ``<scenario>/<estimand>``.
 EFFICIENCY_SD: dict[str, float] = {
     **{name: point.eif_sd(point.LAW_P, name) for name in POINT_ESTIMANDS},
-    **{name: longitudinal_eif_sd(long_law.LAW_L, name) for name in LONGITUDINAL_ESTIMANDS},
+    **{
+        f"{scenario}/{name}": longitudinal_eif_sd(target, name)
+        for scenario, (family, target, _) in SCENARIOS.items()
+        if family == "L"
+        for name in LONGITUDINAL_ESTIMANDS
+    },
 }
 
 #: Every published property cell, by family (see the properties module).
@@ -149,6 +155,11 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     ),
     "type_i_error": ("point_contrast_t_a__sharp_null",),
     "power": ("point_contrast_t_a__alternative",),
+    "mechanism_targeting": (
+        "point_contrast_t_a__mechanism_targeted",
+        "point_contrast_t_a__outcome_targeted_only",
+        "point_stratified_t_a_v1__mechanism_targeted",
+    ),
     "mechanism_term_necessity": (
         "point_contrast_t_a__full_eif",
         "point_contrast_t_a__mechanism_term_dropped",

@@ -2030,13 +2030,13 @@ def _categorical_incremental_cases() -> tuple[RowCase, ...]:
         )
 
     return (
-        primary("T35.in_sample", "point_in_sample", 218),
-        primary("T35.cross_fitted", "point_crossfit", 218),
+        primary("T35.in_sample", "point_in_sample", 235),
+        primary("T35.cross_fitted", "point_crossfit", 235),
         _observed(
             "T35.known",
             slug,
             "point_known_t_a",
-            f"{properties}.py:425",
+            f"{properties}.py:465",
             properties,
             point_draw,
             lambda m, f: m.common.fit_point(f.drop(columns="V"), cross_fit=True, known=True),
@@ -2045,7 +2045,7 @@ def _categorical_incremental_cases() -> tuple[RowCase, ...]:
             "T35.strata",
             slug,
             "point_stratified_t_a_v1",
-            f"{properties}.py:426",
+            f"{properties}.py:466",
             properties,
             point_draw,
             lambda m, f: m.common.fit_point(f, cross_fit=True, strata=True),
@@ -2054,7 +2054,7 @@ def _categorical_incremental_cases() -> tuple[RowCase, ...]:
             "G39.cross_fitted",
             slug,
             "longitudinal_dropout_contrast_t_a",
-            f"{properties}.py:439",
+            f"{properties}.py:494",
             properties,
             long_draw("law_l"),
             lambda m, f: m.common.fit_longitudinal(f, m.long_law.LAW_L, n_folds=m.common.N_FOLDS),
@@ -2063,7 +2063,7 @@ def _categorical_incremental_cases() -> tuple[RowCase, ...]:
             "G39.complete",
             slug,
             "longitudinal_contrast_t_a",
-            f"{properties}.py:457",
+            f"{properties}.py:512",
             properties,
             long_draw("law_l0"),
             lambda m, f: m.common.fit_longitudinal(f, m.long_law.LAW_L0, n_folds=m.common.N_FOLDS),

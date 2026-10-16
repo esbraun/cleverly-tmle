@@ -39,6 +39,7 @@ import pytest
 from scipy.stats import binom, chi2, norm
 from scipy.stats import t as student
 
+import cleverly.fluctuation.mechanism as mechanism_module
 from cleverly._support import classify_key
 from cleverly._support_rows import PENDING_ROWS
 from tests import discrete_law_categorical_ipsi_longitudinal as long_law
@@ -50,7 +51,9 @@ from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probab
 from tests.studies.evidence.inference import clopper_pearson
 from tests.studies.evidence.property_verdicts import design_power, power_cell_pass_probability
 from tests.studies.evidence.registry import Margins, registered
+from tests.studies.intervention_study_helpers import incremental_estimates
 from tests.studies.support_cases import PENDING_CASES
+from tests.unit._source_mutation import mutate
 
 pytestmark = pytest.mark.xdist_group("categorical_incremental_design")
 
@@ -336,13 +339,13 @@ def test_each_case_lands_on_its_pending_row_only(case: Any) -> None:
 
 #: Family P's rung pilot, 400 draws per rung (``pilot_p.py``, ``pilot_p_summary.csv``): the
 #: largest absolute standardized bias over the two primary contrasts, in sample and
-#: cross-fitted, and the median mechanism movement of the cross-fitted and in-sample fits.
-RUNG_PILOT: dict[int, tuple[float, float, float]] = {
-    1_000: (0.1643, 0.0074, 0.0),
-    2_000: (0.1357, 0.0037, 0.0),
-    4_000: (0.1033, 0.0019, 0.0),
-    8_000: (0.1176, 0.0009, 0.0),
-    16_000: (0.0538, 0.0004, 0.0),
+#: cross-fitted.
+RUNG_PILOT: dict[int, float] = {
+    1_000: 0.1643,
+    2_000: 0.1357,
+    4_000: 0.1033,
+    8_000: 0.1176,
+    16_000: 0.0538,
 }
 #: The calibration pilot at :data:`~tests.studies.canonical_categorical_incremental.
 #: POINT_CALIBRATION_N` (``pilot_cal_p.py``): per cell, the draws, the SE ratio, the relative
@@ -370,15 +373,29 @@ POWER_PILOT = (400, 0.8625)
 
 def test_the_primary_size_is_the_smallest_unbiased_rung() -> None:
     """``X43-plan.md`` 5.3: the smallest rung with every primary contrast's bias <= 0.25."""
-    unbiased = [n for n, (bias, _, _) in RUNG_PILOT.items() if bias <= SIZING_BIAS]
+    unbiased = [n for n, bias in RUNG_PILOT.items() if bias <= SIZING_BIAS]
     assert min(unbiased) == study.POINT_PILOT_N
     assert study.PRIMARY_N >= study.POINT_PILOT_N
 
 
-def test_the_softmax_witness_moves_out_of_fold_only() -> None:
-    """Finding 1: the cross-fitted fits move the mechanism; the in-sample fits cannot."""
-    for crossfit, in_sample in ((c, i) for _, c, i in RUNG_PILOT.values()):
-        assert crossfit > 0.0 and in_sample == 0.0
+def test_the_softmax_moves_the_mechanism_out_of_fold_only() -> None:
+    """Plan rev 2 finding 1, read live: the cross-fitted softmax moves the mechanism in every
+    stratum; the in-sample fit, whose saturated mechanism already solves the score, cannot."""
+    frame = point.sample(point.LAW_P, 4_000, 4345, strata=True)
+    plain = frame.drop(columns="V")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        crossfit = common.fit_point(plain, cross_fit=True)
+        in_sample = common.fit_point(plain, cross_fit=False)
+        stratified = common.fit_point(frame, cross_fit=True, strata=True)
+    assert common.mechanism_movement(crossfit) > 1e-4
+    assert common.mechanism_movement(in_sample) < 1e-12
+    targeted = np.asarray(stratified.fluctuations["ipsi"].mechanism.propensity, dtype=float)
+    initial = np.asarray(stratified.nuisance.propensity.values, dtype=float)
+    stratum = frame["V"].to_numpy()
+    for value in (0, 1):
+        rows = stratum == value
+        assert np.max(np.abs(targeted[rows] - initial[rows])) > 1e-4, value
 
 
 def _pass(replicates: int, ratio: float, noise: float, bias: float = 0.0) -> float:
@@ -570,55 +587,167 @@ def test_the_five_fold_fit_reads_its_truth() -> None:
     )
 
 
-#: The rung pilots' standardized bias of every primary row (``pilot_p_summary.csv``, 400 draws at
-#: 1k, 2k, 4k, 8k and 16k; ``pilot_l_summary.csv``, 400 draws at 2k, 4k, 8k and 16k).
-POINT_BIAS: dict[tuple[str, str], tuple[float, ...]] = {
-    ("crossfit", "ate_ipsi[T_a vs natural course]"): (-0.1643, -0.0560, -0.1033, 0.0260, -0.0538),
-    ("crossfit", "ate_ipsi[T_b vs natural course]"): (0.0881, 0.0511, 0.0538, -0.0277, 0.0368),
-    ("crossfit", "ey_ipsi[T_a]"): (-0.0122, -0.0047, -0.0084, 0.0168, -0.0208),
-    ("crossfit", "ey_ipsi[T_b]"): (0.0978, 0.0405, 0.0612, -0.0055, 0.0197),
-    ("crossfit", "ey_ipsi[natural course]"): (0.0530, 0.0173, 0.0352, 0.0062, 0.0012),
-    ("in_sample", "ate_ipsi[T_a vs natural course]"): (0.0839, 0.1357, 0.0289, 0.1176, 0.0127),
-    ("in_sample", "ate_ipsi[T_b vs natural course]"): (-0.0699, -0.0793, -0.0380, -0.0887, -0.0068),
-    ("in_sample", "ey_ipsi[T_a]"): (0.0845, 0.0706, 0.0475, 0.0532, 0.0063),
-    ("in_sample", "ey_ipsi[T_b]"): (0.0236, -0.0158, 0.0189, -0.0316, -0.0021),
-    ("in_sample", "ey_ipsi[natural course]"): (0.0530, 0.0173, 0.0352, 0.0062, 0.0012),
+#: The standardized bias of every primary row in every pilot: ``(n, draws, bias)``.  Family P
+#: reads its 400-draw rungs (``pilot_p_summary.csv``).  Family L reads the 400-draw rungs at
+#: 2k and 4k, the 2,400-draw pilot at 8k (``pilot_l_cal_summary.csv``) and the 1,600-draw
+#: pilot at 16k (``pilot_l_16k_summary.csv``).
+POINT_BIAS: dict[tuple[str, str], tuple[tuple[int, int, float], ...]] = {
+    ("crossfit", "ate_ipsi[T_a vs natural course]"): (
+        (1000, 400, -0.1643),
+        (2000, 400, -0.0560),
+        (4000, 400, -0.1033),
+        (8000, 400, 0.0260),
+        (16000, 400, -0.0538),
+    ),
+    ("crossfit", "ate_ipsi[T_b vs natural course]"): (
+        (1000, 400, 0.0881),
+        (2000, 400, 0.0511),
+        (4000, 400, 0.0538),
+        (8000, 400, -0.0277),
+        (16000, 400, 0.0368),
+    ),
+    ("crossfit", "ey_ipsi[T_a]"): (
+        (1000, 400, -0.0122),
+        (2000, 400, -0.0047),
+        (4000, 400, -0.0084),
+        (8000, 400, 0.0168),
+        (16000, 400, -0.0208),
+    ),
+    ("crossfit", "ey_ipsi[T_b]"): (
+        (1000, 400, 0.0978),
+        (2000, 400, 0.0405),
+        (4000, 400, 0.0612),
+        (8000, 400, -0.0055),
+        (16000, 400, 0.0197),
+    ),
+    ("crossfit", "ey_ipsi[natural course]"): (
+        (1000, 400, 0.0530),
+        (2000, 400, 0.0173),
+        (4000, 400, 0.0352),
+        (8000, 400, 0.0062),
+        (16000, 400, 0.0012),
+    ),
+    ("in_sample", "ate_ipsi[T_a vs natural course]"): (
+        (1000, 400, 0.0839),
+        (2000, 400, 0.1357),
+        (4000, 400, 0.0289),
+        (8000, 400, 0.1176),
+        (16000, 400, 0.0127),
+    ),
+    ("in_sample", "ate_ipsi[T_b vs natural course]"): (
+        (1000, 400, -0.0699),
+        (2000, 400, -0.0793),
+        (4000, 400, -0.0380),
+        (8000, 400, -0.0887),
+        (16000, 400, -0.0068),
+    ),
+    ("in_sample", "ey_ipsi[T_a]"): (
+        (1000, 400, 0.0845),
+        (2000, 400, 0.0706),
+        (4000, 400, 0.0475),
+        (8000, 400, 0.0532),
+        (16000, 400, 0.0063),
+    ),
+    ("in_sample", "ey_ipsi[T_b]"): (
+        (1000, 400, 0.0236),
+        (2000, 400, -0.0158),
+        (4000, 400, 0.0189),
+        (8000, 400, -0.0316),
+        (16000, 400, -0.0021),
+    ),
+    ("in_sample", "ey_ipsi[natural course]"): (
+        (1000, 400, 0.0530),
+        (2000, 400, 0.0173),
+        (4000, 400, 0.0352),
+        (8000, 400, 0.0062),
+        (16000, 400, 0.0012),
+    ),
 }
-LONGITUDINAL_BIAS: dict[tuple[str, str], tuple[float, ...]] = {
-    ("crossfit_L", "ate_regimen[T_a vs natural course]"): (0.1353, 0.0441, 0.0729, 0.0462),
-    ("crossfit_L", "ate_regimen[T_b vs natural course]"): (-0.0752, -0.0493, -0.0698, -0.1297),
-    ("crossfit_L", "ey_regimen[T_a]"): (0.0501, 0.0445, 0.0502, 0.0741),
-    ("crossfit_L", "ey_regimen[T_b]"): (-0.0609, -0.0073, -0.0278, -0.0231),
-    ("crossfit_L", "ey_regimen[natural course]"): (-0.0177, 0.0248, 0.0165, 0.0582),
-    ("crossfit_L0", "ate_regimen[T_a vs natural course]"): (0.1292, 0.1105, 0.0095, 0.0499),
-    ("crossfit_L0", "ate_regimen[T_b vs natural course]"): (-0.1538, -0.1211, 0.0050, -0.0610),
-    ("crossfit_L0", "ey_regimen[T_a]"): (0.0833, -0.0115, -0.1017, 0.0418),
-    ("crossfit_L0", "ey_regimen[T_b]"): (-0.0786, -0.1464, -0.1238, -0.0192),
-    ("crossfit_L0", "ey_regimen[natural course]"): (0.0214, -0.0686, -0.1173, 0.0199),
+LONGITUDINAL_BIAS: dict[tuple[str, str], tuple[tuple[int, int, float], ...]] = {
+    ("crossfit_L", "ate_regimen[T_a vs natural course]"): (
+        (2000, 400, 0.1353),
+        (4000, 400, 0.0441),
+        (8000, 2400, 0.0768),
+        (16000, 1600, 0.0144),
+    ),
+    ("crossfit_L", "ate_regimen[T_b vs natural course]"): (
+        (2000, 400, -0.0752),
+        (4000, 400, -0.0493),
+        (8000, 2400, -0.0671),
+        (16000, 1600, -0.0312),
+    ),
+    ("crossfit_L", "ey_regimen[T_a]"): (
+        (2000, 400, 0.0501),
+        (4000, 400, 0.0445),
+        (8000, 2400, 0.0286),
+        (16000, 1600, 0.0237),
+    ),
+    ("crossfit_L", "ey_regimen[T_b]"): (
+        (2000, 400, -0.0609),
+        (4000, 400, -0.0073),
+        (8000, 2400, -0.0530),
+        (16000, 1600, -0.0016),
+    ),
+    ("crossfit_L", "ey_regimen[natural course]"): (
+        (2000, 400, -0.0177),
+        (4000, 400, 0.0248),
+        (8000, 2400, -0.0099),
+        (16000, 1600, 0.0180),
+    ),
+    ("crossfit_L0", "ate_regimen[T_a vs natural course]"): (
+        (2000, 400, 0.1292),
+        (4000, 400, 0.1105),
+        (8000, 2400, 0.0738),
+        (16000, 1600, 0.0357),
+    ),
+    ("crossfit_L0", "ate_regimen[T_b vs natural course]"): (
+        (2000, 400, -0.1538),
+        (4000, 400, -0.1211),
+        (8000, 2400, -0.0550),
+        (16000, 1600, -0.0512),
+    ),
+    ("crossfit_L0", "ey_regimen[T_a]"): (
+        (2000, 400, 0.0833),
+        (4000, 400, -0.0115),
+        (8000, 2400, 0.0169),
+        (16000, 1600, 0.0597),
+    ),
+    ("crossfit_L0", "ey_regimen[T_b]"): (
+        (2000, 400, -0.0786),
+        (4000, 400, -0.1464),
+        (8000, 2400, -0.0598),
+        (16000, 1600, 0.0168),
+    ),
+    ("crossfit_L0", "ey_regimen[natural course]"): (
+        (2000, 400, 0.0214),
+        (4000, 400, -0.0686),
+        (8000, 2400, -0.0221),
+        (16000, 1600, 0.0471),
+    ),
 }
-POINT_RUNGS = (1_000, 2_000, 4_000, 8_000, 16_000)
-LONGITUDINAL_RUNGS = (2_000, 4_000, 8_000, 16_000)
 
 
 def _primary_pass(
-    table: dict[tuple[str, str], tuple[float, ...]], rungs: tuple[int, ...], n: int
+    table: dict[tuple[str, str], tuple[tuple[int, int, float], ...]], n: int
 ) -> float:
-    """The joint predictive chance that every primary row passes the bias gate at ``n``.
+    r"""The joint predictive chance that every primary row passes the bias gate at ``n``.
 
-    Each row's standardized bias decays as :math:`c\\sqrt{n_0/n}` (a second-order remainder),
-    with :math:`c` the least-squares fit over the rungs, each pilot bias of variance 1/400.
+    Each row's standardized bias decays as :math:`c/\sqrt{n}` (a second-order remainder),
+    with :math:`c` the least-squares fit over the pilots, each pilot bias weighted by its draws.
     A row passes when the 99% t interval of its mean error over ``PRIMARY_REPLICATES`` lies
     inside the margin.
     """
     replicates = study.PRIMARY_REPLICATES
     margin = Margins().standardized_bias
     half = float(student.ppf(0.995, replicates - 1)) / math.sqrt(replicates)
-    x = np.sqrt(rungs[0] / np.asarray(rungs, dtype=float))
     joint = 1.0
-    for biases in table.values():
-        c = float(x @ np.asarray(biases)) / float(x @ x)
-        se = 1.0 / math.sqrt(400.0 * float(x @ x))
-        f = math.sqrt(rungs[0] / n)
+    for pilots in table.values():
+        x = np.array([1.0 / math.sqrt(size) for size, _, _ in pilots])
+        k = np.array([float(draws) for _, draws, _ in pilots])
+        y = np.array([bias for _, _, bias in pilots])
+        c = float((k * x * y).sum() / (k * x * x).sum())
+        se = 1.0 / math.sqrt(float((k * x * x).sum()))
+        f = 1.0 / math.sqrt(n)
         spread = math.sqrt((se * f) ** 2 + 1.0 / replicates)
         joint *= float(
             norm.cdf((margin - half - c * f) / spread) - norm.cdf((-margin + half - c * f) / spread)
@@ -629,24 +758,275 @@ def _primary_pass(
 def test_the_primary_size_passes_the_bias_gate() -> None:
     """``PRIMARY_N`` is the smallest rung with joint primary pass chance >= 0.95.
 
-    The plan's rung rule (bias <= 0.25 at 400 draws) passes at every rung, 1,000 for P and
-    2,000 for L, but there the gate's joint chance is far below 0.95.
+    The plan's rung rule (bias <= 0.25 in a pilot) passes at every rung, 1,000 for P and 2,000
+    for L, but there the gate's joint chance is far below 0.95.
     """
-    for table, rungs, pilot in (
-        (POINT_BIAS, POINT_RUNGS, study.POINT_PILOT_N),
-        (LONGITUDINAL_BIAS, LONGITUDINAL_RUNGS, study.LONGITUDINAL_PILOT_N),
+    for table, pilot in (
+        (POINT_BIAS, study.POINT_PILOT_N),
+        (LONGITUDINAL_BIAS, study.LONGITUDINAL_PILOT_N),
     ):
         assert len(table) == 10
-        assert pilot == min(
-            n for i, n in enumerate(rungs) if max(abs(b[i]) for b in table.values()) <= SIZING_BIAS
-        )
-        assert _primary_pass(table, rungs, pilot) < PRIMARY_PASS
+        rungs = sorted({size for pilots in table.values() for size, _, _ in pilots})
+        worst = {
+            size: max(abs(b) for pilots in table.values() for s, _, b in pilots if s == size)
+            for size in rungs
+        }
+        assert pilot == min(size for size in rungs if worst[size] <= SIZING_BIAS)
+        assert _primary_pass(table, pilot) < PRIMARY_PASS
 
     def joint(n: int) -> float:
-        return _primary_pass(POINT_BIAS, POINT_RUNGS, n) * _primary_pass(
-            LONGITUDINAL_BIAS, LONGITUDINAL_RUNGS, n
-        )
+        return _primary_pass(POINT_BIAS, n) * _primary_pass(LONGITUDINAL_BIAS, n)
 
     assert joint(study.PRIMARY_N) >= PRIMARY_PASS
-    smaller = [n for n in LONGITUDINAL_RUNGS if n < study.PRIMARY_N]
-    assert all(joint(n) < PRIMARY_PASS for n in smaller)
+    rungs = sorted({size for pilots in LONGITUDINAL_BIAS.values() for size, _, _ in pilots})
+    assert all(joint(n) < PRIMARY_PASS for n in rungs if n < study.PRIMARY_N)
+
+
+# --------------------------------------------------------- law L by a second route
+
+
+def _longhand_joint(stay: bool) -> dict[tuple[int, int, int, int], float]:
+    """``P(W, A1, L2, A2)`` of law ``L`` from its conditionals, in loops.
+
+    ``stay=False`` prevents dropout (the target law).  ``stay=True`` keeps only the rows that
+    never drop out and renormalises: the law a complete-case fit sees.
+    """
+    out: dict[tuple[int, int, int, int], float] = {}
+    for w in (0, 1):
+        for a1 in range(3):
+            for l2 in (0, 1):
+                for a2 in range(3):
+                    v = {"W": w, "A1": a1, "C1": 1, "L2": l2, "A2": a2, "C2": 1}
+                    mass = 0.5
+                    mass *= long_law._conditional(long_law.LAW_L.axes[1], v)[a1]
+                    mass *= long_law._conditional(long_law.LAW_L.axes[3], v)[l2]
+                    mass *= long_law._conditional(long_law.LAW_L.axes[4], v)[a2]
+                    if stay:
+                        mass *= long_law._conditional(long_law.LAW_L.axes[2], v)[1]
+                        mass *= long_law._conditional(long_law.LAW_L.axes[5], v)[1]
+                    out[(w, a1, l2, a2)] = mass
+    total = sum(out.values())
+    return {key: value / total for key, value in out.items()}
+
+
+def _longhand_gformula(joint: dict[tuple[int, int, int, int], float], plan: Any) -> float:
+    """The tilted g-formula of ``plan`` read off ``joint`` by sums over its cells."""
+    f1, f2 = plan[0][1], plan[1][1]
+
+    def mass(**fixed: int) -> float:
+        names = ("w", "a1", "l2", "a2")
+        return sum(
+            p
+            for key, p in joint.items()
+            if all(key[names.index(name)] == value for name, value in fixed.items())
+        )
+
+    def tilt(g: list[float], factors: tuple[float, ...]) -> list[float]:
+        total = sum(f * p for f, p in zip(factors, g, strict=True))
+        return [f * p / total for f, p in zip(factors, g, strict=True)]
+
+    value = 0.0
+    for w in (0, 1):
+        pw = mass(w=w)
+        q1 = tilt([mass(w=w, a1=a) / pw for a in range(3)], f1)
+        for a1 in range(3):
+            pa = mass(w=w, a1=a1)
+            for l2 in (0, 1):
+                pl = mass(w=w, a1=a1, l2=l2)
+                q2 = tilt([mass(w=w, a1=a1, l2=l2, a2=a) / pl for a in range(3)], f2)
+                for a2 in range(3):
+                    v = {"W": w, "A1": a1, "L2": l2, "A2": a2}
+                    value += pw * q1[a1] * (pl / pa) * q2[a2] * long_law._mean(v)
+    return value
+
+
+def test_the_longitudinal_truths_by_a_second_route() -> None:
+    """Finding 4: the plan values and the complete-case limit, longhand from the law's
+    conditionals, against :func:`functional` on both laws."""
+    target = _longhand_joint(stay=False)
+    for plan in long_law.PLANS.values():
+        expected = _longhand_gformula(target, plan)
+        for law_ in (long_law.LAW_L, long_law.LAW_L0):
+            assert long_law.truth(law_, plan) == pytest.approx(expected, abs=1e-12)
+    complete = _longhand_gformula(_longhand_joint(stay=True), long_law.PLANS["T_a"])
+    assert pytest.approx(complete, abs=1e-12) == properties.COMPLETE_CASE_LIMIT
+    assert properties.TRUTH["longitudinal_contrast_t_a"] == pytest.approx(
+        _longhand_gformula(target, long_law.PLANS["T_a"])
+        - _longhand_gformula(target, long_law.PLANS[long_law.REFERENCE]),
+        abs=1e-12,
+    )
+
+
+@pytest.mark.parametrize("target", [long_law.LAW_L, long_law.LAW_L0], ids=["L", "L0"])
+def test_the_longitudinal_mechanism_term_carries_its_share(target: Any) -> None:
+    """Finding 5: the curve without its mechanism terms (the treatment conditionals frozen at
+    the truth) falls below the calibration band, so the L calibration cells see an omission."""
+    plan, other = long_law.PLANS["T_a"], long_law.PLANS[long_law.REFERENCE]
+    full = long_law.eif_sd(target, plan, other=other)
+    frozen = long_law.eif_sd(target, plan, other=other, frozen_treatment=True)
+    assert frozen / full < Margins().calibration_se_ratio[0] - 0.1
+    assert 1.0 - (frozen / full) ** 2 >= 0.30
+
+
+def test_each_longitudinal_scenario_publishes_its_own_bound() -> None:
+    """Finding 7: laws L and L0 share their truths and not their bounds."""
+    for scenario, (family, target, _) in study.SCENARIOS.items():
+        if family != "L":
+            continue
+        for name in study.LONGITUDINAL_ESTIMANDS:
+            assert study.EFFICIENCY_SD[f"{scenario}/{name}"] == pytest.approx(
+                study.longitudinal_eif_sd(target, name), abs=1e-12
+            )
+    name = properties.LONG_CONTRAST
+    assert study.EFFICIENCY_SD[f"longitudinal_folds_5/{name}"] == pytest.approx(
+        properties.EFFICIENCY_SD["longitudinal_contrast_t_a"], abs=1e-12
+    )
+
+
+# ------------------------------------------------------------ mechanism targeting
+
+#: The ``mechanism_targeting`` pilot at n = 4,000 (``pilot_mt.py``, 4,000 draws): per positive
+#: cell the draws, the SE ratio, the SE's relative spread and the standardized bias; for the
+#: control the draws and the standardized bias.
+TARGETING_PILOT: dict[str, tuple[int, float, float, float]] = {
+    "point_contrast_t_a__mechanism_targeted": (4_000, 1.0020, 0.0170, -0.0524),
+    "point_stratified_t_a_v1__mechanism_targeted": (4_000, 0.9947, 0.0309, -0.0191),
+}
+CONTROL_PILOT = (4_000, 1.2694)
+
+
+def _exact_frame(*, strata: bool = False) -> pd.DataFrame:
+    """Law ``P`` itself as weighted rows: each cell twice, at ``mu - 1`` and ``mu + 1``."""
+    rows = []
+    for w in range(len(point.P_W)):
+        for a, label in enumerate(point.LABELS):
+            for sign in (-1.0, 1.0):
+                rows.append(
+                    {
+                        "W": float(w),
+                        "A": label,
+                        "Y": point.MU[w, a] + sign,
+                        "weight": point.P_W[w] * point.G[w, a] / 2.0,
+                        "V": float(point.STRATA_OF_W[w]),
+                    }
+                )
+    frame = pd.DataFrame(rows)
+    return frame if strata else frame.drop(columns="V")
+
+
+def _exact_fit(*, strata: bool = False) -> Any:
+    """The in-sample TMLE on the exact law, with the tilted mechanism of the family."""
+    from cleverly.estimators import TMLE
+
+    estimator = TMLE(
+        incremental=common.incrementals(),
+        outcome_learner=common.CellMeans(),
+        treatment_learner=common.TiltedFrequencies(properties.TARGETING_LAMBDA),
+        cross_fit=False,
+        q_bounds=common.Q_BOUNDS,
+        simultaneous=False,
+        max_iter=common.MAX_ITER,
+        tol=common.TOL,
+        random_state=0,
+    )
+    roles: dict[str, Any] = {"covariates": ["W", "V"] if strata else ["W"], "weights": "weight"}
+    if strata:
+        roles["strata"] = ["V"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return estimator.fit(
+            _exact_frame(strata=strata), outcome="Y", treatment="A", **roles
+        ).single()
+
+
+def _scale() -> float:
+    return point.eif_sd(point.LAW_P, point.GATED) / math.sqrt(study.POINT_CALIBRATION_N)
+
+
+def test_the_tilted_mechanism_is_a_first_order_error() -> None:
+    """The control's exact limit is 1.18 SD at n = 4,000 and linear in the tilt."""
+    truth = properties.CONTRAST_TRUTH
+    assert (properties.OUTCOME_ONLY_LIMIT - truth) / _scale() == pytest.approx(1.18045, abs=1e-4)
+    half = point.truth(
+        point.PointLaw(
+            "half", point.P_W, common.tilted_mechanism(properties.TARGETING_LAMBDA / 2), point.MU
+        ),
+        point.GATED,
+    )
+    assert (half - truth) / (properties.OUTCOME_ONLY_LIMIT - truth) == pytest.approx(0.5, abs=0.01)
+    assert pytest.approx(2.0 / math.sqrt(4_000), abs=1e-15) == properties.TARGETING_LAMBDA
+
+
+def test_only_the_mechanism_fluctuation_removes_the_error_on_the_exact_law() -> None:
+    """On the exact law the TMLE reaches the truth, and the outcome-only plug-in stays at the
+    control's exact limit.  The stratified softmax reaches the stratum truth."""
+    result = _exact_fit()
+    assert abs(float(result[point.GATED].psi) - properties.CONTRAST_TRUTH) / _scale() < 1e-3
+    outcome_only = incremental_estimates(result, targeted_outcome=True)[point.GATED]
+    assert outcome_only == pytest.approx(properties.OUTCOME_ONLY_LIMIT, abs=1e-9)
+    stratified = _exact_fit(strata=True)
+    assert float(stratified[properties.STRATIFIED].psi) == pytest.approx(
+        properties.TRUTH["point_stratified_t_a_v1"], abs=1e-6
+    )
+
+
+def test_an_uncentred_mechanism_covariate_fails_the_positive_cell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M6 on the exact law moves the TMLE past the bias margin of the positive cell.
+
+    M5 (one-versus-rest update) leaves the estimate within 2e-4 SD here; it is read by the
+    simplex witness of ``tests/unit/test_categorical_incremental_mutations.py``.
+    """
+    mutate(
+        monkeypatch,
+        mechanism_module,
+        mechanism_module,
+        "_covariate_general",
+        [("predictions[:, :, None] - mixture[:, None, :]", "predictions[:, :, None]")],
+    )
+    result = _exact_fit()
+    bias = (float(result[point.GATED].psi) - properties.CONTRAST_TRUTH) / _scale()
+    assert abs(bias) > Margins().standardized_bias + 0.1
+
+
+def _targeting_pass(replicates: int) -> float:
+    """Each positive cell passes bias equivalence and the efficiency band, and the control's
+    bias interval lies beyond the margin: the joint predictive chance at ``replicates``."""
+    margin = Margins().standardized_bias
+    half = float(student.ppf(0.995, replicates - 1)) / math.sqrt(replicates)
+    z = float(norm.ppf(0.995))
+    low, high = properties.EFFICIENCY_RATIO_BAND
+    joint = 1.0
+    for draws, ratio, noise, bias in TARGETING_PILOT.values():
+        spread = math.sqrt(1.0 / draws + 1.0 / replicates)
+        unbiased = norm.cdf((margin - half - bias) / spread) - norm.cdf(
+            (-margin + half - bias) / spread
+        )
+        width = ratio * math.sqrt(1.0 / (2.0 * (replicates - 1)) + noise**2 / replicates)
+        known = ratio * math.sqrt(1.0 / (2.0 * (draws - 1)) + noise**2 / draws)
+        total = math.hypot(width, known)
+        banded = norm.cdf((high - z * width - ratio) / total) - norm.cdf(
+            (low + z * width - ratio) / total
+        )
+        joint *= float(unbiased * banded)
+    draws, bias = CONTROL_PILOT
+    spread = math.sqrt(1.0 / draws + 1.0 / replicates)
+    joint *= float(norm.cdf((bias - margin - half) / spread))
+    return joint
+
+
+def test_the_mechanism_targeting_replicates_follow_the_sizing_rule() -> None:
+    """``R`` is the smallest multiple of 400 with family pass chance >= 0.95, and at least 2,000."""
+    replicates = properties.TARGETING_REPLICATES
+    assert replicates % REPLICATE_GRAIN == 0
+    assert _targeting_pass(replicates) >= PRIMARY_PASS
+    assert replicates == 2_000 or _targeting_pass(replicates - REPLICATE_GRAIN) < PRIMARY_PASS
+
+
+@pytest.mark.parametrize("case", PENDING_CASES, ids=lambda case: case.row)
+def test_each_pending_case_cites_the_line_of_its_fit(case: Any) -> None:
+    """Finding 9: a case's ``file:line`` is the line that fits, not merely a line in range."""
+    path, _, line = case.source.rpartition(":")
+    text = (study.ROOT / path).read_text().splitlines()[int(line) - 1]
+    assert "common.fit_point(" in text or "common.fit_longitudinal(" in text, case.source

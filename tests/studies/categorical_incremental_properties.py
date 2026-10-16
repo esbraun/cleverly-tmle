@@ -13,6 +13,11 @@ family                          cells
 ``type_i_error``                ``contrast_t_a`` on law ``P0``, where every tilt has one mean
 ``power``                       ``contrast_t_a`` on law ``Pw`` (arm effects scaled by
                                 :data:`~tests.discrete_law_categorical_ipsi_point.POWER_SCALE`)
+``mechanism_targeting``         ``contrast_t_a`` and the stratum ``V = 1`` contrast on law ``P``
+                                with the mechanism tilted along the contrast's mechanism score
+                                by :math:`\lambda = 2/\sqrt n` (a first-order error): the TMLE
+                                (positive, two cells) and the plug-in after the outcome
+                                fluctuation alone (control)
 ``mechanism_term_necessity``    ``contrast_t_a`` on its own draws of law ``P``: the full curve;
                                 the curve without the mechanism term (control); and the curve
                                 whose mechanism term reads the first two levels only, the
@@ -47,7 +52,12 @@ with :data:`EFFICIENCY_RATIO_BAND` around the exact influence-function SD.
 ``mechanism_term_necessity`` passes when the full curve's SE-ratio interval lies inside
 :data:`EFFICIENCY_RATIO_BAND` and each control's lies wholly below the calibration band: the
 design test computes the exact SD ratios, 0.61 and 0.78.  ``single_robustness``'s positive
-pair passes when both sizes pass the shared bias-equivalence rule.  With the mechanism
+pair passes when both sizes pass the shared bias-equivalence rule.  ``mechanism_targeting``
+passes when each positive cell passes the bias equivalence and its SE-ratio interval lies
+inside :data:`EFFICIENCY_RATIO_BAND`, and the control's bias interval lies wholly beyond the
+margin.  The control's exact limit is the plug-in at the tilted mechanism,
+:data:`OUTCOME_ONLY_LIMIT`: 1.18 SD at n = 4,000.  Only the softmax mechanism fluctuation
+removes that bias, so this family is the study-scale evidence for it.  With the mechanism
 correct the remainder ``E[(m - m_0)(D - D_0)/D]`` is second order whatever the outcome
 regression is (``X43-plan.md`` 2.2).  The diagnostic cell publishes its bias beside the
 exact limit of
@@ -98,6 +108,7 @@ from tests.studies.evidence.property_verdicts import (
 )
 from tests.studies.evidence.replication import fit_properties
 from tests.studies.evidence.seeds import stream_seed
+from tests.studies.intervention_study_helpers import incremental_estimates
 
 #: The replicates of every calibration cell and of the necessity family, by the arm-pooled
 #: predictive rule (``tests/unit/test_categorical_incremental_design.py``).
@@ -110,6 +121,8 @@ LONGITUDINAL_N = 16_000
 NULL_N = 4_000
 NULL_REPLICATES = 2_000
 REQUIREMENT_REPLICATES = 2_000
+#: The replicates of ``mechanism_targeting`` (``tests/unit/test_categorical_incremental_design.py``).
+TARGETING_REPLICATES = 2_000
 EFFICIENCY_RATIO_BAND = (0.90, 1.10)
 SHRUNKEN_SE_FACTOR = 0.70
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
@@ -163,6 +176,14 @@ CONTRAST_TRUTH = TRUTH["point_contrast_t_a"]
 ONE_FOLD_TRUTH = TRUTH["longitudinal_dropout_contrast_t_a"]
 COMPLETE_CASE_TRUTH = longitudinal_truth(long_law.LAW_L, LONG_MEAN)
 COMPLETE_CASE_LIMIT = long_law.complete_case_limit(long_law.LAW_L, long_law.PLANS["T_a"])
+#: The tilt of ``mechanism_targeting`` at its size.
+TARGETING_LAMBDA = common.MECHANISM_TILT / float(np.sqrt(POINT_CALIBRATION_N))
+#: The exact limit of the control: the plug-in at the tilted mechanism, the true outcome
+#: regression and the true covariate law.
+OUTCOME_ONLY_LIMIT = point.truth(
+    point.PointLaw("P tilted", point.P_W, common.tilted_mechanism(TARGETING_LAMBDA), point.MU),
+    GATED,
+)
 _CONSTANT = point.constant_mechanism_limit(point.LAW_P)
 CONSTANT_MECHANISM_LIMIT = _CONSTANT["T_a"] - _CONSTANT[REFERENCE]
 
@@ -208,6 +229,7 @@ FIT_SETS: tuple[tuple[str, str, str, int, int], ...] = (
     ("interval_calibration", "law_p", "calibration", POINT_CALIBRATION_N, CALIBRATION_REPLICATES),
     ("interval_calibration", "law_l", "calibration", LONGITUDINAL_N, CALIBRATION_REPLICATES),
     ("interval_calibration", "law_l0", "calibration", LONGITUDINAL_N, CALIBRATION_REPLICATES),
+    ("mechanism_targeting", "law_p", "tilted", POINT_CALIBRATION_N, TARGETING_REPLICATES),
     (
         "mechanism_term_necessity",
         "law_p",
@@ -315,6 +337,21 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             n=POINT_CALIBRATION_N,
             replicates=CALIBRATION_REPLICATES,
         )
+    for cell, role, estimand in (
+        ("point_contrast_t_a__mechanism_targeted", "positive", GATED),
+        ("point_contrast_t_a__outcome_targeted_only", "control", GATED),
+        ("point_stratified_t_a_v1__mechanism_targeted", "positive", STRATIFIED),
+    ):
+        add(
+            "mechanism_targeting",
+            cell,
+            role,
+            "law_p",
+            estimand,
+            _seed("mechanism_targeting", "law_p", 0),
+            n=POINT_CALIBRATION_N,
+            replicates=TARGETING_REPLICATES,
+        )
     add(
         "type_i_error",
         "point_contrast_t_a__sharp_null",
@@ -391,7 +428,8 @@ def _draw_fit_set(payload: _Payload) -> pd.DataFrame:
     if stream == "law_l0":
         return long_law.sample(long_law.LAW_L0, n, seed)
     law = {"law_p": point.LAW_P, "law_p0": point.LAW_P0, "law_pw": point.LAW_PW}[stream]
-    return point.sample(law, n, seed, strata=family == "interval_calibration")
+    strata = family in {"interval_calibration", "mechanism_targeting"}
+    return point.sample(law, n, seed, strata=strata)
 
 
 def complete_cases(frame: pd.DataFrame) -> pd.DataFrame:
@@ -479,6 +517,35 @@ def _fit_set_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any
                 TRUTH["longitudinal_contrast_t_a"],
                 result[LONG_CONTRAST],
             )
+        ]
+    if family == "mechanism_targeting":
+        learner = common.TiltedFrequencies(TARGETING_LAMBDA)
+        plain = frame.drop(columns="V")
+        result = common.fit_point(plain, cross_fit=True, treatment_learner=learner)
+        stratified = common.fit_point(frame, cross_fit=True, strata=True, treatment_learner=learner)
+        outcome_only = incremental_estimates(result, targeted_outcome=True)[GATED]
+        return [
+            row(
+                "point_contrast_t_a__mechanism_targeted",
+                "positive",
+                CONTRAST_TRUTH,
+                result[GATED],
+            ),
+            control_row(
+                property_name=family,
+                cell="point_contrast_t_a__outcome_targeted_only",
+                truth=CONTRAST_TRUTH,
+                estimate=float(outcome_only),
+                standard_error=float(result[GATED].std_error),
+                critical=CRITICAL,
+                **common_row,
+            ),
+            row(
+                "point_stratified_t_a_v1__mechanism_targeted",
+                "positive",
+                TRUTH["point_stratified_t_a_v1"],
+                stratified[STRATIFIED],
+            ),
         ]
     if family == "mechanism_term_necessity":
         result = common.fit_point(frame, cross_fit=True)
@@ -580,6 +647,15 @@ def _cells_of(key: _Key) -> list[str]:
         if stream == "law_l":
             names.append("in_sample_fit/longitudinal_dropout_contrast_t_a__one_fold")
         return names
+    if family == "mechanism_targeting":
+        return [
+            f"{family}/{cell}"
+            for cell in (
+                "point_contrast_t_a__mechanism_targeted",
+                "point_contrast_t_a__outcome_targeted_only",
+                "point_stratified_t_a_v1__mechanism_targeted",
+            )
+        ]
     if family == "mechanism_term_necessity":
         return [
             f"{family}/point_contrast_t_a__{cell}"
@@ -681,6 +757,36 @@ def mechanism_term_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     summary.loc[family, "property_passed"] = bool(passes) and all(passes)
 
 
+def mechanism_targeting_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
+    """Each TMLE cell unbiased and calibrated; the outcome-only control biased beyond the margin."""
+    margins = STUDY.margins
+    family = summary["property"] == "mechanism_targeting"
+    passes: list[bool] = []
+    for index in summary.index[family]:
+        cell = str(summary.loc[index, "cell"])
+        if summary.loc[index, "role"] == "control":
+            summary.loc[index, LIMIT_COLUMN] = OUTCOME_ONLY_LIMIT
+            passed = bool(summary.loc[index, "bias_discriminated"]) and bool(
+                summary.loc[index, "bias_ci_lower"] > 0.0
+            )
+        else:
+            group = rows.loc[(rows["property"] == "mechanism_targeting") & (rows["cell"] == cell)]
+            interval = ratio_intervals(
+                group,
+                replicates=margins.bootstrap_replicates,
+                confidence_level=margins.confidence_level,
+                seed=stream_seed(STUDY, "mechanism_targeting", cell),
+            )["se_ratio"]
+            summary.loc[index, "se_ratio_ci_lower"] = interval.low
+            summary.loc[index, "se_ratio_ci_upper"] = interval.high
+            passed = bool(summary.loc[index, "bias_equivalent"]) and bool(
+                interval.within(*EFFICIENCY_RATIO_BAND)
+            )
+        summary.loc[index, "passed"] = passed
+        passes.append(passed)
+    summary.loc[family, "property_passed"] = bool(passes) and all(passes)
+
+
 def single_robustness_verdicts(summary: pd.DataFrame) -> None:
     """Bias equivalence at both sizes, and the published limit of the diagnostic cell."""
     family = summary["property"] == "single_robustness"
@@ -717,6 +823,7 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     )
     calibration_verdicts(summary, margins=STUDY.margins, efficiency_band=EFFICIENCY_RATIO_BAND)
     mechanism_term_verdicts(summary, rows)
+    mechanism_targeting_verdicts(summary, rows)
     single_robustness_verdicts(summary)
     reported_families(summary)
     return finish(summary, rates)
@@ -747,6 +854,39 @@ def _single_robustness_rule() -> property_failures.FamilyRule:
     )
 
 
+def _mechanism_targeting_rule() -> property_failures.FamilyRule:
+    """``mechanism_targeting``: S1 equivalence and the S5 SE-ratio band on each positive
+    cell, and S1 beyond the margin, above the truth, on the control; joint over the family."""
+
+    def seed(ctx: Any, row: pd.Series) -> int:
+        return stream_seed(ctx.record, "mechanism_targeting", str(row["cell"]))
+
+    return property_failures.FamilyRule(
+        families=frozenset({"mechanism_targeting"}),
+        shared="mechanism_targeting_verdicts",
+        clauses=(
+            property_failures.bias_clause(
+                "bias equivalent", kind="equivalent", applies=property_failures.roles("positive")
+            ),
+            property_failures.se_interval_clause(
+                "SE ratio in efficiency band",
+                which="se_ratio",
+                judge=property_failures.band_judge(lambda ctx: EFFICIENCY_RATIO_BAND),
+                seed=seed,
+                applies=property_failures.roles("positive"),
+                truth_varies=lambda ctx: False,
+            ),
+            property_failures.bias_clause(
+                "control bias beyond the margin",
+                kind="beyond",
+                side=lambda ctx, row: 1,
+                applies=property_failures.roles("control"),
+            ),
+        ),
+        group="family",
+    )
+
+
 #: The failure accounting's declared rules (RM39b2 rev 3, D3'a).
 PROPERTY_RULES = (
     property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
@@ -756,4 +896,5 @@ PROPERTY_RULES = (
         shared="mechanism_term_verdicts",
     ),
     _single_robustness_rule(),
+    _mechanism_targeting_rule(),
 )

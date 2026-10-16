@@ -153,11 +153,14 @@ def functional(
     *,
     mu: Any = None,
     weights: Any = None,
+    frozen_treatment: bool = False,
 ) -> Any:
     r"""The g-formula of ``plan`` on the law with cell masses ``probs``, dropout prevented.
 
     ``probs`` has the law's shape, optionally with a trailing batch axis.  ``weights`` is a
     weight per cell: the value is then read on the law :math:`w\,dP / E_P(w)`.
+    ``frozen_treatment`` reads every treatment conditional from the law itself, not from
+    ``probs``, so the derivative drops the mechanism terms.
     """
     p = np.asarray(probs)
     batched = p.ndim == len(law.shape) + 1
@@ -190,6 +193,11 @@ def functional(
         elif axis.kind == "censoring":
             value = pieces[1]
         else:
+            if frozen_treatment:
+                held = base_margins[j][..., None]
+                seen = held > 0
+                fixed = np.where(seen, base_margins[j + 1] / np.where(seen, held, 1.0), 0.0)
+                masses = [np.take(fixed[..., None], level, axis=j) for level in range(axis.levels)]
             _, factors = plan[axis.node - 1]
             normaliser = sum(f * m for f, m in zip(factors, masses, strict=True))
             value = sum(
@@ -218,6 +226,7 @@ def eif(
     *,
     other: Sequence[Node] | None = None,
     weights: Any = None,
+    frozen_treatment: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     r"""The cell part of the influence function and the outcome coefficient, at each cell.
 
@@ -234,9 +243,10 @@ def eif(
     batch = batch.reshape((*law.shape, positive.size))
 
     def contrast(argument: Any, **extra: Any) -> Any:
-        value = functional(law, argument, plan, weights=weights, **extra)
+        options = {"weights": weights, "frozen_treatment": frozen_treatment, **extra}
+        value = functional(law, argument, plan, **options)
         if other is not None:
-            value = value - functional(law, argument, other, weights=weights, **extra)
+            value = value - functional(law, argument, other, **options)
         return value
 
     cells = np.full(flat.size, np.nan)
