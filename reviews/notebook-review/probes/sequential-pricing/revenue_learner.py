@@ -3,7 +3,10 @@
 The sweep shows a bias of the revenue contrast of the price rise with the linear outcome learner
 that the page uses. This probe refits the revenue contrast on the first 60 seeds of the sweep with
 a quadratic outcome learner (degree-2 terms, scaled, then least squares) and nothing else changed.
-If the bias goes away, the misspecified linear regression carries it.
+If the bias goes away, the misspecified linear regression carries it.  Both learners fit the same
+draws, so the two estimates are paired.  The probe reports the paired difference of the estimates
+per plan with its paired Monte Carlo standard error, because the standard error of each bias does
+not bound the standard error of their difference.
 
 Usage: ``python revenue_learner.py <workers> > revenue_learner.log``.
 """
@@ -106,3 +109,9 @@ if __name__ == "__main__":
                 f"bias {psi.mean() - exact:+.4f} (MC SE {psi.std(ddof=1) / np.sqrt(n):.4f}); "
                 f"coverage {int(frame[f'{name}_{plan}_cover'].sum())} of {n}"
             )
+    for plan in PLANS:
+        difference = frame[f"linear_{plan}_psi"] - frame[f"quadratic_{plan}_psi"]
+        print(
+            f"  revenue {plan:11s} linear minus quadratic: "
+            f"mean {difference.mean():+.4f} (paired MC SE {difference.std(ddof=1) / np.sqrt(n):.4f})"
+        )
