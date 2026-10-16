@@ -285,6 +285,9 @@ def test_the_evaluation_companion_of_a_drtmle_fit_reads_wg() -> None:
 
 
 def test_the_screen_reports_only_covariates_of_wg() -> None:
+    # Reset first: `Spy.seen` is class state, and a design an earlier test on this worker
+    # recorded would otherwise enter `roles()`.
+    Spy.reset()
     result = spied(screen_treatment=True, treatment_learner=SpyClassifier("g")).fit(
         make_frame(),
         outcome="Y",

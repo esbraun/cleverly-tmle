@@ -92,7 +92,7 @@ The scripts were written against the package sources, not run. The first run may
 
 | item | note |
 | --- | --- |
-| first step | `tmle3_Update$update` takes a step before it first tests the rule. `solve_fluctuation` tests first. The comparison covers a fit whose initial score meets the rule with one forced step. |
+| first step | `tmle3_Update$update` takes a step before it first tests the rule. The bounded walk of `solve_fluctuation` tests first. The comparison covers a fit whose initial score meets the rule with one forced step. |
 | unconstrained updater | `tmle3` takes one maximum-likelihood step. The comparison uses the Newton solution of `solve_fluctuation`, not a walk. |
 | pooled formula | `drtmle(stratify = FALSE)` runs with `glm_Q = "A + W1 + W2"`. The formula `"W1 + W2"` would drop the treatment from the pooled fit. |
 | `ctmle` ties | `ctmle` takes the last tied minimum (D7), and scores the rest of its batch after the counter fires (D7b). With `preOrder = TRUE` a batch is one covariate, so neither shows in these fixtures. |

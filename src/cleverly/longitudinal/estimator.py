@@ -2884,7 +2884,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # One line per regimen, from the fit that runs to the last node: "throughout"
         # means through the study, and a horizon-k fit stops at k, where the same
         # sentence would be false.  Per-horizon leverage is what diagnostics() is for.
+        # A competing-risks fit holds one fit per regimen per cause.  The followers and the
+        # weights come from the regimen's treatment and censoring mechanism, which every
+        # cause shares, so the causes give one line; a cause is named only where its
+        # line differs from another cause's.
         deepest = max(fit.horizon for fit in self.fits.values())
+        followers: dict[str, list[tuple[str | None, str]]] = {}
         for fit in self.fits.values():
             if fit.horizon != deepest:
                 continue
@@ -2895,12 +2900,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 if isinstance(fit.regimen, DynamicRegimen) and fit.regimen.has_tilt
                 else "followed it throughout"
             )
-            lines.append(
-                f"  {fit.regimen.label}: {int(fit.scored_nodes[-1].trained_on.sum())} of "
-                f"{self.n} units {kept}; max weight {fit.max_weight:.1f}, "
-                f"effective n {fit.effective_n:.0f}; max truncated share "
-                f"{truncated:.1%} at t={truncated_time}"
+            followers.setdefault(fit.regimen.label, []).append(
+                (
+                    fit.cause,
+                    f"{int(fit.scored_nodes[-1].trained_on.sum())} of "
+                    f"{self.n} units {kept}; max weight {fit.max_weight:.1f}, "
+                    f"effective n {fit.effective_n:.0f}; max truncated share "
+                    f"{truncated:.1%} at t={truncated_time}",
+                )
             )
+        for label, entries in followers.items():
+            if len({text for _, text in entries}) == 1:
+                lines.append(f"  {label}: {entries[0][1]}")
+                continue
+            lines.extend(f"  {label} ({cause}): {text}" for cause, text in entries)
         lines.extend(f"  {line}" for line in self._targeting_lines())
         if self.simultaneous is None and record is not None and len(self.estimates) > 1:
             # Stated rather than left blank, as on a point-treatment fit: the bands are on

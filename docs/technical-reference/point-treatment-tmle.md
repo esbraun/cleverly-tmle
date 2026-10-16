@@ -674,7 +674,8 @@ $\sum_j \lvert g_j\rvert\, \mathrm{se}_j / \mathrm{se}_{\text{contrast}}$ can be
 The witness is the law $W \sim N(0,1)$, $A \sim \text{Bern}(0.5)$, $Y = W + A + 0.1\varepsilon$.
 `TestTheRuleBound` in `tests/unit/test_stopping_rule_report.py` fits it with seed 3 and
 $n = 2{,}000$. The ratio is 9.95, so the `ate` row has a `rule_bound_se` of 1.31 against
-$\sqrt{2}\,c = 0.19$. At $c = 0.1$, a residual of $b = 1.009$ standard errors gives a coverage bound of 0.8277, which the same file pins.
+$\sqrt{2}\,c = 0.19$. The same file pins `wald_coverage_bound(1.009, 0.05)` at 0.8277. At the
+ratio 9.95 and $c = 0.1$, the residual is $b = 0.995$ standard errors and the bound is about 0.831.
 Marginal structural model columns are contrasts in this sense.
 
 The coverage bound is $\Phi(z - b) - \Phi(-z - b)$ at a residual of $b$ standard errors.
@@ -704,7 +705,8 @@ value on every fit.
 | --- | --- |
 | `res.summary()` | one pinned line: "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. At that residual a {level:.0%} Wald interval keeps at least {bound:.4f} coverage." |
 | `res.summary()`, rule missed | the pinned line "the targeting did not meet the {rule} stopping rule; {detail}" |
-| `score_check()`, fluctuation rows | the bar is `Fluctuation.thresholds`. A row passes when the rule ratio is at most one |
+| `score_check()`, fluctuation rows | the bar is `Fluctuation.thresholds`. A row passes when the rule ratio is at most one. The rule also judges the `(strata)` row of a stratified working model and the `(reduced)` row of a `DRTMLE` fit, because the rule stops those outcome solves too. A `(mechanism)` row keeps the default bar |
+| `score_check()`, `DRTMLE` correction rows | under a declared rule, a `D*_Q` or `D*_Y` row is a `"diagnostic"`, because it restates the outcome columns that the `(reduced)` row judges. A `D*_g`, `D*_A` or `D*_M` row and every identity row keep their bars |
 | `score_check()`, estimand rows | kind `"diagnostic"`. They cannot fail. They carry `residual_se`, `coverage_bound` and, under `scaled_var`, `rule_bound_se` |
 | `score_check().to_frame()` | the columns `stopping`, `residual_se`, `coverage_bound` and `rule_bound_se`, only under a declared rule |
 
@@ -721,7 +723,16 @@ standard error of the threshold's own column. It equals the package variance for
 | `att`, `atc` | about $c$ |
 | `ate` and other contrasts | $c \sum_j \lvert g_j\rvert\, \mathrm{se}_j / \mathrm{se}$, with no a priori value |
 | weighted arm row | computed by hand in the test, and not asserted at most $c$ |
+| stratified fit, marginal row | $\sum_s w_s\, \mathrm{threshold}_s / \mathrm{se}$ over the stratum blocks. $w_s$ is $P_n(S=s)$ for an arm mean or a difference, times $P_n(A=a \mid S=s) / P_n(A=a)$ for `att` or `atc` |
+| stratified fit, stratum row | the thresholds of that stratum's block over the stratum standard error |
 | `DRTMLE`, and a fit with several draws | `nan`. The corrected curve carries terms that the outcome columns do not |
+| incremental tilt | `nan`. The curve also carries the treatment-mechanism equation, which the rule does not govern |
+| working-model coefficient | `nan`. The curve is the score columns times the inverse normalising matrix, which the result does not carry |
+| shift, policy, regime, ratio | `nan`. The result does not map these estimates to score columns |
+
+A stratified block uses the score column as its contribution (declared difference D4), so its
+marginal row is not $c$. `TestTheRuleBound` computes the stratified rows by hand. It also checks
+that the weights reproduce the mean of each reported curve to $10^{-10}$ on a one-step walk.
 
 For a fit that met its rule, `residual_se` is at most `rule_bound_se`. An unconverged fit can
 exceed it. `TestTheRuleBound` asserts the inequality only on fits that met the rule. It also holds two
@@ -762,7 +773,7 @@ the rule does not change them.
 | `TMLE`, every point group | yes | the clusters among the solver's rows, else the rows |
 | point IPSI, `DRTMLE`, `CTMLE` | yes | as `TMLE`. A C-TMLE candidate counts the units of its training rows |
 | CV-TMLE, pooled, fold-targeted or repeated | yes | the units of the rows each solve receives. A fold-targeted fit counts its fold's units, so the bound is per fold |
-| `LTMLE`, per node | yes | the clusters among the node's rows, else the rows. See [longitudinal targeting options](longitudinal-tmle.md#targeting-options-at-each-node) |
+| `LTMLE`, per node | yes | the clusters of the panel, else the rows of the panel. The node solver receives every row. See [longitudinal targeting options](longitudinal-tmle.md#targeting-options-at-each-node) |
 | `SDR`, longitudinal `IPSI`, the sequential baselines | refused | none. They fit no fluctuation |
 
 The estimator builds the context once, in `_retarget_detailed`. So `TMLE.retarget`, the truncation
@@ -791,9 +802,10 @@ from the unweighted score of the same equation.
 un-normalised $Hs$, a reversed direction, `xatol=1e-3`, an upper bound of $2\delta$, the Newton
 direction and an unweighted loss.
 
-A walk whose initial fit already meets its rule takes no step. Under a loose declared rule this can
-mean no targeting at all. In `tests/unit/test_step_bound.py`, `scaled_var` on a point TMLE with
-seed 2 gives `n_iter=0`. A step that moves nothing also ends the walk.
+A bounded walk whose initial fit already meets its rule takes no step. Under a loose declared
+rule this can mean no targeting at all. In `tests/unit/test_step_bound.py`, `scaled_var` on a
+point TMLE with seed 2 gives `n_iter=0`. A step that moves nothing also ends the walk. The Newton
+path under a declared rule takes one step before it tests the rule, as `tmle3` does.
 
 **Is `relative` reachable under a step bound?** With `stopping="relative"` the walk reaches
 `tol=1e-10` only under conditions. `TestRelativeReachability` measured it on arm-mean fits with
@@ -841,7 +853,7 @@ statistic, include iterate 0, or take the first of ties on the one-step path.
 | difference | what `cleverly` does |
 | --- | --- |
 | D4 | a column that is not one unit-weight arm mean uses the score column as its contribution, not the full curve |
-| first step | `tmle3_Update$update` takes a step before it first tests the rule. `solve_fluctuation` tests first, so a fit whose initial score meets the rule takes no step |
+| first step | `tmle3_Update$update` takes a step before it first tests the rule. The Newton path of `solve_fluctuation` under a declared rule also steps first. The bounded walk (`step_bound=`) and the one-step walk test first, so a fit whose initial score meets the rule takes no step there |
 | unconstrained update | `tmle3` takes one maximum-likelihood step. `cleverly` solves the Newton equation, not a walk |
 | ranking | `use_best` ranks by the raw score vector. The relative statistic of the default test is not used |
 | weights | a weighted fit uses the weighted loss in the line search, which `tmle3` does not define |

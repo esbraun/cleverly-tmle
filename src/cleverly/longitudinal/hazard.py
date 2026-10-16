@@ -74,7 +74,6 @@ from scipy.special import xlogy
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..estimators._nuisance import cross_fit_predictions
 from ..exceptions import (
-    NO_ALTERNATIVE,
     CapabilityError,
     ConvergenceWarning,
     Refusal,
@@ -1273,14 +1272,18 @@ def hazard_rules_refusal(names: Sequence[str]) -> Refusal:
     Returns
     -------
     Refusal
-        An implementation gap tracked by :data:`HAZARD_RULES_ROADMAP`, with no alternative.
+        An implementation gap tracked by :data:`HAZARD_RULES_ROADMAP`.  The alternative is
+        the iterated-mean survival fit, which applies each of these settings at every node.
     """
     listed = ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0]
     return Refusal(
         RefusalReason.IMPLEMENTATION_GAP,
         f"survival_model='hazard' walks its own path in steps of step_size, so {listed} do not "
         "apply to it.",
-        alternative=NO_ALTERNATIVE,
+        alternative=(
+            f"survival_model='iterated_mean' with targeting='iterative' applies {listed} at "
+            "each node."
+        ),
         roadmap=HAZARD_RULES_ROADMAP,
     )
 

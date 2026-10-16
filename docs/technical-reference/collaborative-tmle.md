@@ -179,10 +179,15 @@ another. This matches the counter in `functions_discrete.R` of R `ctmle`.
 
 The path is lazy under `patience`. The fit builds each fold's path one position at a time, in step
 over the folds. So the stop is a function of the summed fold risk. No position after the stop is
-fitted or scored, and one stop position applies to the full-sample path too. Every stored array
+scored, and one stop position applies to the full-sample path too. Every stored array
 ends at the stop. `CTMLESelection.patience` records the setting. `CTMLESelection.stopped_at`
 records the index where the counter fired. The summary prints one line that states which case
 occurred.
+
+Under `greedy`, `ordered` and `discrete`, no position after the stop is fitted. Under `lasso` and
+`learners` the later positions are fitted. `lasso` fits its whole penalty grid before the path
+starts, and an indexed pass fluctuates every remaining candidate before it yields. The summary
+line says which case applies.
 
 Two differences from R are declared.
 

@@ -10,6 +10,7 @@ function that the targeting options changed, and the fit is bit-identical with t
 from __future__ import annotations
 
 import re
+import warnings
 from typing import Any
 
 import numpy as np
@@ -29,13 +30,19 @@ from tests.discrete_law_point_survival import CellMeans, CellProbabilities, Poin
 LAW = PointLaw("survival", 2)
 REGIMENS = {"a0": 0, "a1": 1}
 
-TAIL = " X33 in docs/roadmap.md tracks this. " + NO_ALTERNATIVE
+TAIL = " X33 in docs/roadmap.md tracks this. "
+
+
+def _alternative(names: str) -> str:
+    return (
+        f"survival_model='iterated_mean' with targeting='iterative' applies {names} at each node."
+    )
 
 
 def _message(names: str) -> str:
     return (
         "survival_model='hazard' walks its own path in steps of step_size, so "
-        f"{names} do not apply to it." + TAIL
+        f"{names} do not apply to it." + TAIL + _alternative(names)
     )
 
 
@@ -95,7 +102,27 @@ def test_r_abc4_a_declared_rule_beside_the_hazard_walk_is_refused(
     refusal = raised.value.refusal
     assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
     assert refusal.roadmap == "X33"
-    assert refusal.alternative == NO_ALTERNATIVE
+    assert refusal.alternative == _alternative(names)
+    assert refusal.alternative != NO_ALTERNATIVE
+
+
+@pytest.mark.parametrize(("settings", "names"), CASES, ids=[names for _, names in CASES])
+def test_r_abc4_the_named_alternative_accepts_the_refused_settings(
+    settings: dict[str, Any], names: str
+) -> None:
+    # The alternative is true: the iterated-mean survival fit takes each refused setting.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = LTMLE(
+            REGIMENS,
+            n_folds=1,
+            survival_model="iterated_mean",
+            outcome_learner=CellMeans(),
+            treatment_learner=CellProbabilities(),
+            censoring_learner=CellMeans(),
+            **settings,
+        ).fit(LAW.frame(), **LAW.fit_columns())
+    assert all(np.isfinite(estimate.psi) for estimate in result.estimates.values())
 
 
 def test_r_abc4_the_refusal_precedes_the_data_and_every_learner() -> None:

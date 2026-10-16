@@ -1250,9 +1250,16 @@ class CTMLESelection:
                 f"patience = {self.patience}: the counter never triggered, so the search read "
                 "every candidate"
             )
+        # An indexed path (lasso, learners) fits every candidate of a pass before it scores
+        # them, so after the stop its later candidates are fitted but not scored.
+        later = (
+            "were fitted but not scored"
+            if self.strategy in _INDEXED_STRATEGIES
+            else "were not fitted or scored"
+        )
         return (
             f"patience = {self.patience}: the counter stopped the search after candidate "
-            f"{self.stopped_at + 1}, and later candidates were not fitted or scored"
+            f"{self.stopped_at + 1}, and later candidates {later}"
         )
 
     def describe(self) -> str:

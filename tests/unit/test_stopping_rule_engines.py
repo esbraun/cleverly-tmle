@@ -911,14 +911,19 @@ def missing_problems(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             problems.append(
                 f"round {k + 1}: the trace holds a solver ratio the solver did not report"
             )
-    # The reported outcome record covers the standard block at the final pair.
+    # The reported outcome record holds the stacked ratio at the final pair, the ratio its
+    # verdict reads; the reduction record holds the drift block's part of it, at the stacked
+    # thresholds.  So the outcome row and the record agree (review finding F3).
     last = rounds[-1]
     current = _missing_outcome_state(nuisance, last["q"], last["g"], last["m"])
     standard = build_submodel(data, current, group, bounds=bounds, nuisance_bound=nuisance_bound)
-    _, standard_ratio = hand_state(
+    drift = missing_outcome_outcome_submodel(
+        data.treatment, last["reduced"], g_bounds=bounds, missingness_bound=nuisance_bound
+    )
+    stacked_thresholds, stacked_ratio = hand_state(
         scaled,
         last["q"].observed,
-        standard.observed,
+        np.hstack([standard.observed, drift.observed]),
         weights,
         mask,
         units=data.cluster,
@@ -926,8 +931,17 @@ def missing_problems(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         rule="sample_size",
         arm_curves={j: last["q"].arms[level] for j, level in enumerate(nuisance.arms)},
     )
-    if not np.isclose(fluctuation.rule_ratio, standard_ratio, rtol=1e-9):
-        problems.append("the reported standard-block ratio is not the hand ratio")
+    width = standard.observed.shape[1]
+    drift_score = np.abs(np.asarray(record.score)) * span
+    drift_ratio = float(np.max(drift_score / stacked_thresholds[width:]))
+    if not np.isclose(fluctuation.rule_ratio, stacked_ratio, rtol=1e-9):
+        problems.append("the reported outcome ratio is not the hand stacked ratio")
+    if not np.allclose(fluctuation.thresholds, stacked_thresholds[:width], rtol=1e-12):
+        problems.append("the reported outcome thresholds are not the stacked ones")
+    if record.rule_ratio is None or not np.isclose(record.rule_ratio, drift_ratio, rtol=1e-9):
+        problems.append("the reduction record does not hold the drift block's stacked ratio")
+    if (record.failure is None) and not fluctuation.rule_ratio <= 1.0:
+        problems.append("the record reports no failure where the stacked ratio exceeds one")
     if record.converged and not ratios[-1] <= 1.0:
         problems.append("converged=True where the hand ratio of the last round exceeds one")
     if np.isclose(max(abs(r - s) for r, s in record.rule_trace), 0.0, atol=1e-2):

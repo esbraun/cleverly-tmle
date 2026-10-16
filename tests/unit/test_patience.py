@@ -21,6 +21,7 @@ stop is fitted, and the selection is the smallest risk among the scored position
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import re
 import types
@@ -403,6 +404,21 @@ def test_at_least_one_strategy_stops_early_at_patience_one() -> None:
         for name, settings in STRATEGIES.items()
     }
     assert any(stop is not None for stop in stops.values()), stops
+
+
+@pytest.mark.parametrize("name", list(STRATEGIES))
+def test_the_stopped_line_says_fitted_only_where_the_later_candidates_were_not(name: str) -> None:
+    # An indexed path (lasso, learners) fits every candidate before it scores the pass, so
+    # after the stop its later candidates are fitted but not scored.
+    selection = fit(patience=1, **STRATEGIES[name]).extra["ctmle"]
+    if selection.stopped_at is None:
+        # Not every strategy stops on this law; the line reads the strategy alone.
+        selection = dataclasses.replace(selection, stopped_at=0)
+    line = selection._patience_line()
+    if name in ("lasso", "learners"):
+        assert line.endswith("later candidates were fitted but not scored")
+    else:
+        assert line.endswith("later candidates were not fitted or scored")
 
 
 #: The law of the witness: ``c4`` is noise, ``c1`` drives the treatment so strongly that every

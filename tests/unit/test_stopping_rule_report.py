@@ -421,6 +421,81 @@ class TestTheRuleBound:
         ) / result.estimates["ate"].plugin_std_error
         assert row.rule_bound_se != pytest.approx(c * ratio, rel=1e-3)
 
+    @staticmethod
+    @functools.cache
+    def stratified(walk: bool = False) -> Any:
+        frame, columns, settings, _ = engines.KINDS["strata"]()
+        extra = {"targeting": "one_step", "step_size": 0.01} if walk else {}
+        return engines._fit("scaled_var", frame, columns=columns, **settings, **extra)
+
+    def test_a_stratified_row_sums_the_blocks_of_its_strata(self) -> None:
+        # Review finding F2: a stratified group holds one block per stratum and no marginal
+        # column.  A marginal row weights each stratum's block by P_n(S = s), times the arm
+        # share ratio for a conditional effect; a stratum row reads its own block.
+        result = self.stratified()
+        data = result.data
+        p = [float(np.mean(data.strata == code)) for code in range(data.n_strata)]
+        labels = [data.stratum_label(code) for code in range(data.n_strata)]
+        rows = {r.name: r for r in score_check(result).rows if r.kind == "diagnostic"}
+
+        def threshold(group: str, column: str) -> float:
+            fluctuation = result.fluctuations[group]
+            return float(fluctuation.thresholds[fluctuation.names.index(column)])
+
+        def se(name: str) -> float:
+            return float(result.estimates[name].plugin_std_error)
+
+        a = np.asarray(data.treatment)
+        for name, columns in (("ey1", ("h1",)), ("ey0", ("h0",)), ("ate", ("h1", "h0"))):
+            hand = sum(
+                p[s] * threshold("mean", f"{c} | {labels[s]}") for s in range(2) for c in columns
+            )
+            assert rows[name].rule_bound_se == pytest.approx(hand / se(name), rel=1e-12)
+            for s in range(2):
+                stratum = f"{name}[{labels[s]}]"
+                own = sum(threshold("mean", f"{c} | {labels[s]}") for c in columns)
+                assert rows[stratum].rule_bound_se == pytest.approx(own / se(stratum), rel=1e-12)
+        for name, arm in (("att", 1.0), ("atc", 0.0)):
+            share = float(np.mean(a == arm))
+            hand = sum(
+                p[s]
+                * float(np.mean(a[data.strata == s] == arm))
+                / share
+                * threshold(name, f"h_{name} | {labels[s]}")
+                for s in range(2)
+            )
+            assert rows[name].rule_bound_se == pytest.approx(hand / se(name), rel=1e-12)
+        # Mutation: the positional reading of the unstratified fit reads the first stratum's
+        # blocks for a marginal row.
+        positional = threshold("mean", f"h1 | {labels[0]}") / se("ey1")
+        assert rows["ey1"].rule_bound_se != pytest.approx(positional, rel=1e-3)
+
+    def test_the_stratified_weights_reproduce_each_curve_mean(self) -> None:
+        # The weights are exact: on a walk that leaves a residual, sum_j g_j P_n S_j equals the
+        # mean of each reported curve, marginal and stratum rows alike.
+        result = self.stratified(walk=True)
+        span = result.nuisance.scaler.range
+        checked = 0
+        for name, estimate in result.estimates.items():
+            mapped = score_module._column_weights(result, name)
+            if mapped is None:
+                continue
+            group, weights = mapped
+            score = result.fluctuations[group].score
+            implied = span * sum(g * float(score[column]) for column, g in weights.items())
+            assert implied == pytest.approx(float(np.mean(estimate.influence_curve)), abs=1e-10)
+            checked += 1
+        assert checked == len(result.estimates)
+        # Witness: the residuals are not at roundoff, so the identity is not vacuous.
+        assert max(abs(float(np.mean(e.influence_curve))) for e in result.estimates.values()) > 1e-6
+
+    @pytest.mark.parametrize("kind", ["msm-identity", "msm-logit-strata", "ipsi", "shift"])
+    def test_the_rows_without_a_computed_bound_are_nan(self, kind: str) -> None:
+        frame, columns, settings, _ = engines.KINDS[kind]()
+        result = engines._fit("scaled_var", frame, columns=columns, **settings)
+        rows = [r for r in score_check(result).rows if r.kind == "diagnostic"]
+        assert rows and all(np.isnan(r.rule_bound_se) for r in rows)
+
     @pytest.mark.parametrize("name", ["ey1", "ey0", "ate", "att", "atc"])
     def test_the_residual_is_inside_the_bound_for_a_fit_that_met_the_rule(self, name: str) -> None:
         result = one_step("scaled_var")
@@ -509,21 +584,25 @@ class TestEveryPointGroupReports:
         result = engines._fit(rule, frame, columns=columns, **settings)
         check = score_check(result)
         assert check.declared and check.stopping == rule
+        # Every one of these fits met its rule, so the check passes (review finding F1).
+        assert check.passed, [r.name for r in check.rows if not r.passed]
         for row in check.rows:
             if row.kind == "diagnostic":
                 assert row.passed and np.isfinite(row.residual_se)
                 assert 0.0 <= row.coverage_bound <= 1.0
             if row.kind == "fluctuation":
-                # The outcome equation reads the rule.  A mechanism or strata equation of the
-                # same fit keeps the default bar, which the rule does not govern.
-                assert row.stopping in (rule, "relative")
+                # An outcome equation reads the rule, the nested strata solve included.  A
+                # mechanism equation of the same fit keeps the default bar, which the rule does
+                # not govern.
+                expected = "relative" if row.name.endswith("(mechanism)") else rule
+                assert row.stopping == expected, row.name
         assert any(r.stopping == rule for r in check.rows if r.kind == "fluctuation")
         line = check.rule_line()
         assert line.startswith(f"stopping rule {rule}: the largest score residual is ")
         assert line in result.summary()
 
     @pytest.mark.parametrize("rule", RULES)
-    def test_a_doubly_robust_fit_keeps_its_default_bar_rows(self, rule: str) -> None:
+    def test_a_doubly_robust_fit_judges_its_outcome_rows_by_the_rule(self, rule: str) -> None:
         estimator = DRTMLE(
             **linear_drtmle(
                 stopping=rule,
@@ -535,11 +614,167 @@ class TestEveryPointGroupReports:
         )
         result = estimator.fit(engines._lin(), outcome="Y", treatment="A").single()
         check = score_check(result)
-        assert check.declared
+        assert check.declared and check.passed
         assert {r.kind for r in check.rows} >= {"fluctuation", "diagnostic"}
         assert check.rule_line() in result.summary()
+        rows = {r.name: r for r in check.rows}
+        assert rows["mean (reduced)"].stopping == rule
+        assert rows["mean (mechanism)"].stopping == "relative"
         # The bound is the outcome-column bound of an arm row, which a corrected curve changes.
         assert all(np.isnan(r.rule_bound_se) for r in check.rows if r.kind == "diagnostic")
+
+
+# ------------------------------------------- rows whose equations the rule governs (F1)
+
+
+def ruled_drtmle(order: str, rule: str) -> Any:
+    """A complete-data DRTMLE whose one-step walk stops at ``rule``, both extra equations on."""
+    return (
+        engines._drtmle(order, ("Q", "g"), rule)
+        .fit(engines._complete(), outcome="Y", treatment="A")
+        .single()
+    )
+
+
+def ruled_missing(rule: str) -> Any:
+    """The missing-outcome DRTMLE of the engine audits, under ``rule``."""
+    return (
+        engines._missing_drtmle(rule)
+        .fit(engines._trial(), outcome="Y", treatment="A", delta="Delta")
+        .single()
+    )
+
+
+def ruled_strata(rule: str) -> Any:
+    """A stratified logit MSM whose bounded walks stop at ``rule``."""
+    frame, columns, settings, _ = engines.KINDS["msm-logit-strata"]()
+    return engines._fit(rule, frame, columns=columns, step_bound=0.01, max_iter=300, **settings)
+
+
+RULED_FITS: dict[str, Any] = {
+    "drtmle": functools.cache(lambda rule: ruled_drtmle("drtmle", rule)),
+    "benkeser": functools.cache(lambda rule: ruled_drtmle("benkeser", rule)),
+    "missing": functools.cache(ruled_missing),
+    "strata": functools.cache(ruled_strata),
+}
+
+#: The row each fit's default bar used to fail, and the source edit that restores that bar.
+RULED_ROW = {
+    "drtmle": ("mean (reduced)", 'if rule != "relative" and reduction.rule_ratio is not None:'),
+    "benkeser": ("mean (reduced)", 'if rule != "relative" and reduction.rule_ratio is not None:'),
+    "missing": ("mean (reduced)", 'if rule != "relative" and reduction.rule_ratio is not None:'),
+    "strata": ("msm (strata)", "if _judged_by_rule(nested):"),
+}
+
+
+class TestRuleGovernedRows:
+    """Rows whose equations a declared rule stopped are judged by the rule.
+
+    The ``(reduced)`` row of a doubly-robust fit, its ``D*_Q`` and ``D*_Y`` correction rows,
+    and the ``(strata)`` row of a stratified working model.  Each fit below met its rule, and
+    the default bar fails each of those rows (the witnesses), so the check reads the rule.
+    """
+
+    @pytest.mark.parametrize("rule", RULES)
+    @pytest.mark.parametrize("kind", list(RULED_FITS))
+    def test_a_fit_that_met_its_rule_passes(self, kind: str, rule: str) -> None:
+        result = RULED_FITS[kind](rule)
+        check = score_check(result)
+        assert check.passed, [r.name for r in check.rows if not r.passed]
+        name, _ = RULED_ROW[kind]
+        row = next(r for r in check.rows if r.name == name)
+        assert row.stopping == rule and row.passed and row.ratio <= 1.0
+        # Witness: the row's own score in the solver's units is above the default bar.
+        default = score_threshold(
+            (e.plugin_std_error for e in result.estimates.values()), result.data.n
+        )
+        fluctuation = result.fluctuations[name.split(" ")[0]]
+        nested = fluctuation.stratified if kind == "strata" else fluctuation.reduction
+        assert nested is not None
+        assert float(np.max(np.abs(nested.score))) > default
+        assert "worst score" in check.one_line() and "not solved" not in check.one_line()
+
+    @pytest.mark.parametrize("kind", ["drtmle", "missing"])
+    def test_the_outcome_corrections_are_diagnostics_and_the_mechanism_ones_are_not(
+        self, kind: str
+    ) -> None:
+        check = score_check(RULED_FITS[kind]("scaled_var"))
+        outcome = [
+            r
+            for r in check.rows
+            if ("(D*_Q)" in r.name or "(D*_Y)" in r.name) and r.kind != "identity"
+        ]
+        mechanism = [
+            r
+            for r in check.rows
+            if ("(D*_g)" in r.name or "(D*_A)" in r.name or "(D*_M)" in r.name)
+            and "identity" not in r.name
+        ]
+        assert outcome and mechanism
+        assert all(r.kind == "diagnostic" and r.passed for r in outcome)
+        assert all(r.kind == "correction" for r in mechanism)
+        # The identity rows of the outcome corrections are still checked.
+        identities = [r for r in check.rows if r.kind == "identity"]
+        assert any("(D*_Q)" in r.name or "(D*_Y)" in r.name for r in identities)
+        assert all(r.passed and np.isfinite(r.threshold) for r in identities)
+
+    @pytest.mark.parametrize("kind", list(RULED_FITS))
+    def test_the_mutation_that_restores_the_default_bar_fails_the_fit(
+        self, kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = RULED_FITS[kind]("sample_size")
+        name, guard = RULED_ROW[kind]
+        mutate(monkeypatch, score_module, score_module, "score_check", [(guard, "if False:")])
+        check = score_module.score_check(result)
+        assert not check.passed
+        assert name in [r.name for r in check.rows if not r.passed]
+
+    @pytest.mark.parametrize("kind", ["drtmle", "missing"])
+    def test_the_mutation_that_holds_the_corrections_to_the_default_bar_fails(
+        self, kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = RULED_FITS[kind]("sample_size")
+        monkeypatch.setattr(score_module, "_ruled_reduction", lambda result: False)
+        check = score_module.score_check(result)
+        failed = [r.name for r in check.rows if not r.passed]
+        assert failed and all("(D*_Q)" in n or "(D*_Y)" in n for n in failed)
+
+    @pytest.mark.parametrize("kind", ["drtmle", "missing"])
+    def test_a_reduced_ratio_above_one_fails_the_fit(self, kind: str) -> None:
+        result = RULED_FITS[kind]("scaled_var")
+        reduction = result.fluctuations["mean"].reduction
+        assert reduction is not None and reduction.rule_ratio is not None
+        missed = with_fluctuation(result, "mean", reduction=replace(reduction, rule_ratio=1.5))
+        check = score_check(missed)
+        row = next(r for r in check.rows if r.name == "mean (reduced)")
+        assert not row.passed and not check.passed
+        assert row in check.rule_failures
+
+    def test_a_strata_ratio_above_one_fails_the_fit(self) -> None:
+        result = RULED_FITS["strata"]("scaled_var")
+        nested = result.fluctuations["msm"].stratified
+        missed = with_fluctuation(
+            result, "msm", stratified=replace(nested, rule_ratio=1.5, converged=False)
+        )
+        check = score_check(missed)
+        row = next(r for r in check.rows if r.name == "msm (strata)")
+        assert not row.passed and not check.passed
+
+    def test_the_missing_outcome_row_reads_the_ratio_its_verdict_reads(self) -> None:
+        # Review finding F3: the outcome row reads the stacked ratio of the standard and
+        # drift blocks, the ratio the record's verdict reads.
+        for rule in RULES:
+            result = RULED_FITS["missing"](rule)
+            fluctuation = result.fluctuations["mean"]
+            reduction = fluctuation.reduction
+            span = result.nuisance.scaler.range
+            standard = float(np.max(np.abs(fluctuation.score) * span / fluctuation.thresholds))
+            assert fluctuation.rule_ratio == pytest.approx(
+                max(standard, reduction.rule_ratio), rel=1e-12
+            )
+            row = next(r for r in score_check(result).rows if r.name == "mean")
+            assert row.ratio == pytest.approx(fluctuation.rule_ratio, rel=1e-9)
+            assert row.passed == (fluctuation.rule_ratio <= 1.0)
 
 
 # ------------------------------------------------------------------------------ longitudinal

@@ -809,6 +809,17 @@ class TestRelativeReachability:
             assert fit.converged and fit.n_iter <= 5
             assert fit.rule_ratio is not None and fit.rule_ratio <= 1.0
 
+    def test_the_bounded_walk_tests_first_and_the_newton_path_steps_first(self) -> None:
+        # The first-step row of the declared differences in `point-treatment-tmle.md`.  The
+        # initial fit of this frame already meets `scaled_var`: the bounded walk takes no step
+        # and the Newton path takes one, as `tmle3_Update$update` does.
+        frame = make_linear_ate(n=400, seed=2)[0]
+        bounded = self.fit(frame, step_bound=0.05, stopping="scaled_var")
+        newton = self.fit(frame, stopping="scaled_var")
+        assert bounded.n_iter == 0 and bounded.converged
+        np.testing.assert_array_equal(bounded.epsilon, np.zeros_like(bounded.epsilon))
+        assert newton.n_iter == 1 and newton.converged
+
 
 # ------------------------------------------------------------------------------ the warnings
 

@@ -251,6 +251,21 @@ def _outcome_ruler(spec: TargetingSpec, relative: float, rule_ratio: float | Non
     return spec.tol * rule_ratio
 
 
+def _extra_met(
+    rule_ratio: float | None, equation: tuple[float, float], tol: float, negligible: float
+) -> bool:
+    """Whether equation (10) is solved: by its rule ratio where it has one, else by both rulers.
+
+    Under a declared rule the closing joint solve stops by the rule over equation (10)'s
+    columns as well as equation (8)'s, so the record judges it by the same ratio that
+    :func:`~cleverly.validation.score_check` reads.  A record without that ratio (no closing
+    joint solve, or ``stopping="relative"``) keeps :func:`_solved`.
+    """
+    if rule_ratio is not None:
+        return rule_ratio <= 1.0
+    return _solved(*equation, tol, negligible)
+
+
 def _largest(score: FloatArray) -> float:
     """The largest absolute component of one equation's score, or zero when it has none.
 
@@ -1251,6 +1266,15 @@ class ReductionFluctuation:
     #: pair it solved at.  They differ where the round moved the fit after the solve.  The
     #: closing row holds the ratio of the closing record.  Empty under ``"relative"``.
     rule_trace: tuple[tuple[float, float], ...] = ()
+    #: Under a declared stopping rule, the thresholds of :attr:`score`'s columns, in the
+    #: outcome's units, at the pair the record holds.  The closing joint solve (complete data)
+    #: and the stacked outcome solve (missing outcome) stop by the rule over these columns
+    #: too, so :func:`~cleverly.validation.score_check` judges the ``(reduced)`` row by
+    #: :attr:`rule_ratio`.  ``None`` under ``"relative"``.
+    thresholds: FloatArray | None = None
+    #: The largest of :attr:`score`'s columns over its threshold, beside :attr:`thresholds`.
+    #: ``None`` under ``"relative"``.
+    rule_ratio: float | None = None
 
     @property
     def relative_score(self) -> float:
@@ -2299,17 +2323,18 @@ def solve_with_reduction(
         )
         else "max_iter_reached"
     )
+    extra_ratio = None if extra is None else extra.rule_ratio
     if spec.stopping != "relative":
         # Equation (8) is judged by the rule ratio of the closing record, computed at the
-        # pair that record holds; equations (10) and (9) keep their own rulers.
+        # pair that record holds.  Equation (10) is judged by its own columns' rule ratio
+        # where the closing joint solve stopped by the rule over them, and equation (9)
+        # keeps its own ruler: the rule does not govern a mechanism equation.
         assert fluctuation.rule_ratio is not None
         unsolved = (
             None
             if fluctuation.rule_ratio <= 1.0
-            and all(
-                _solved(relative, absolute, _UNSOLVED, negligible)
-                for relative, absolute in equations[1:]
-            )
+            and _extra_met(extra_ratio, equations[1], _UNSOLVED, negligible)
+            and _solved(*equations[2], _UNSOLVED, negligible)
             else "max_iter_reached"
         )
     failure = unsolved
@@ -2346,10 +2371,8 @@ def solve_with_reduction(
             else (
                 fluctuation.rule_ratio is not None
                 and fluctuation.rule_ratio <= 1.0
-                and all(
-                    _solved(relative, absolute, spec.tol, negligible)
-                    for relative, absolute in equations[1:]
-                )
+                and _extra_met(extra_ratio, equations[1], spec.tol, negligible)
+                and _solved(*equations[2], spec.tol, negligible)
             )
         ),
         failure=failure,
@@ -2359,6 +2382,8 @@ def solve_with_reduction(
         closing_capped=closing.capped,
         evaluation=None if companion is None else companion.record(),
         rule_trace=tuple(rule_rows),
+        thresholds=None if extra is None else extra.thresholds,
+        rule_ratio=extra_ratio,
     )
     return submodel, replace(fluctuation, mechanism=mechanism, reduction=record)
 
@@ -2611,12 +2636,15 @@ def _solve_missing_outcome_reduction(
         else "max_iter_reached"
     )
     standard_thresholds: FloatArray | None = None
-    standard_ratio: float | None = None
+    extra_thresholds: FloatArray | None = None
+    extra_ratio: float | None = None
     if spec.stopping != "relative":
         # The outcome blocks (standard and drift) are judged by the ratio at the pair the
-        # loop leaves, which is the pair the last round restated its scores at.
+        # loop leaves, which is the pair the last round restated its scores at.  The stacked
+        # thresholds are split between the two records, so each row reads the thresholds its
+        # verdict used, and the outcome fluctuation carries the stacked ratio itself.
         assert stop is not None
-        _, outcome_ratio = _rule_state(
+        stacked_thresholds, outcome_ratio = _rule_state(
             scaled,
             targeted_q,
             _stacked(standard_blocks, extra_blocks),
@@ -2626,8 +2654,13 @@ def _solve_missing_outcome_reduction(
             stop,
             spec.stopping,
         )
-        standard_thresholds, standard_ratio = _rule_state(
-            scaled, targeted_q, standard_blocks, weights, mask, standard_score, stop, spec.stopping
+        split = standard_blocks.dim
+        standard_thresholds = stacked_thresholds[:split]
+        extra_thresholds = stacked_thresholds[split:]
+        extra_ratio = (
+            float(np.max(np.abs(extra_score) * stop.span / np.maximum(extra_thresholds, 1e-300)))
+            if extra_score.size
+            else 0.0
         )
         unsolved = (
             None
@@ -2670,6 +2703,8 @@ def _solve_missing_outcome_reduction(
         observation=replace(observation_fit, failure=observation_fit.failure or unsolved),
         missingness_bound=float(nuisance_bound),
         rule_trace=tuple(rule_rows),
+        thresholds=extra_thresholds,
+        rule_ratio=extra_ratio,
     )
     treatment_fit = replace(treatment_fit, failure=treatment_fit.failure or unsolved)
     return standard, replace(
@@ -2687,7 +2722,7 @@ def _solve_missing_outcome_reduction(
         thresholds=standard_thresholds
         if standard_thresholds is not None
         else outcome_fit.thresholds,
-        rule_ratio=standard_ratio if standard_ratio is not None else outcome_fit.rule_ratio,
+        rule_ratio=outcome_ratio if spec.stopping != "relative" else outcome_fit.rule_ratio,
     )
 
 
@@ -3394,11 +3429,14 @@ def _column_block(
 def _stacked(first: Submodel, second: Submodel) -> Submodel:
     """The two outcome covariates side by side, for one Newton solve over both equations.
 
-    Used only inside :func:`_close_at_frozen_reductions` and never returned: it has four
-    columns, and :attr:`~cleverly.fluctuation.submodel.Submodel.arm_columns` on a wider
-    submodel would say something ``sensitivity/omitted_variable.py``'s Riesz representer
-    does not expect.  The arm mapping is carried over from ``first`` so the object is
-    well formed; nothing reads it here.
+    Used only inside :func:`_close_at_frozen_reductions` and the missing-outcome loop, and
+    never returned: it has four columns, and
+    :attr:`~cleverly.fluctuation.submodel.Submodel.arm_columns` on a wider submodel would say
+    something ``sensitivity/omitted_variable.py``'s Riesz representer does not expect.  The
+    arm mapping is carried over from ``first``.  Under a declared stopping rule,
+    :func:`~cleverly.fluctuation.iterative._rule_state` reads it to give the arm columns of
+    ``first`` the full arm curve as their contribution, and the columns of ``second`` the
+    score column.
     """
     return Submodel(
         np.hstack([first.observed, second.observed]),
