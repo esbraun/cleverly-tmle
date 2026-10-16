@@ -429,18 +429,19 @@ A deliberate mutation shows that the comparison can fail. With the mechanism ter
 dropped, both comparators leave the tolerance by more than a factor of $10^{3}$
 (`tests/unit/test_x26_red_cells_reading.py`).
 
-**Rule 8: the reading.** Both cells clear both bands from below. The lower endpoints of the SE-ratio
-intervals are 1.0332 and 1.0288, against 0.93. The lower endpoints of the coverage intervals are
-0.9556 and 0.9568, against 0.92. The SE ratios are at least 1 and the coverages are at least 0.95.
-Rule 2 found agreement, so the cells read "conservative". Their owner is `X26-plugin-conservative`
-in the [red-cell ledger](red-cells.md).
+**Rule 8: the reading of the ATE cell.** Both cells clear both bands from below. The lower
+endpoints of the SE-ratio intervals are 1.0332 and 1.0288, against 0.93. The lower endpoints of the
+coverage intervals are 0.9556 and 0.9568, against 0.92. The SE ratios are at least 1 and the coverages are at least 0.95.
+Rule 2 found agreement, so the ATE cell reads "conservative". Its owner is
+`X26-plugin-conservative` in the [red-cell ledger](red-cells.md).
 
 The plain influence variance omits the second-order variance term that the owner dropped on
 2026-10-16. That omission is consistent with a ratio above 1 in cross-fitted cells. The run does
 not test that cause.
 
-**Rule 7 also applies to the ATT cell.** Its complete case is inside the band, and it is red only
-through the worst case. The table gives the facts that rule 7 asks for.
+**Rule 7: the reading of the ATT cell.** Its complete case is inside the band, and it is red only
+through the worst case. The cell reads "refusal-limited". The table gives the facts that rule 7
+asks for.
 
 | quantity | value |
 | --- | --- |
@@ -449,14 +450,15 @@ through the worst case. The table gives the facts that rule 7 asks for.
 | SE-ratio interval, complete case | 1.0288 to 1.0683, inside the band |
 | SE-ratio leg, complete case and worst case | 0.0017 and -0.0048, where a negative value fails |
 
-The ledger gives the cell one owner, and this page follows rule 8 for both cells. The roadmap row of
-`X26-refusal-limited` names the ATT cell as a second reading.
+The ledger gives the ATT cell the owner `X26-refusal-limited`. Rule 4 does not make it a defect
+suspect.
 
 **Rule 3: the rerun.** The rerun at $n = 4000$ with 5,000 replicates has not run. It decides
 between "conservative, contracting" and "conservative, not contracting at n=4000". The
 `tests/diagnostics/x26_red_cells/rerun.py` script keeps a checkpoint for each replicate, draws from
-a dedicated seed stream and writes `rerun-rows.csv.gz` and `rerun-reading.csv`. Until it runs,
-the reading of both cells stays open.
+a dedicated seed stream and writes `rerun-rows.csv.gz` and `rerun-reading.csv`. The rerun
+covers both cells. Until it runs, the contraction of both cells stays open. The rule 7 reading of
+the ATT cell stands on the declared run.
 
 ## Red-cell policy
 
@@ -576,7 +578,7 @@ from the committed results and checked at the precision printed.
 | The corrected $\nu^2$ is not judged | At $n = 1000$ its standard error over-reads the sampling spread. The [reading](#the-corrected-nu2-reading) states the size. The bound intervals read near 1.0 to 1.04 in the diagnostic |
 | $\hat B$ is a package value | The study rebuilds the curve and the bias curve of each bound. The exact-law witnesses in `tests/unit/test_omitted_variable_plugin_second_order.py` check $\hat B$ |
 | Refusals are failed replicates | A refusal fails the cells of one parameter. A cell that loses more than 1 percent of its replicates ends with the verdict `bound exceeded`. No cell did: the largest loss is 32 of 10,000 replicates |
-| Two cells read conservative | The lower bounds of the ATE and the ATT of arm 2 against arm 0 on `multinomial_logistic_crossfit` have SE ratios of 1.05, and their 99% intervals end at 1.07. A user of the cross-fitted three-arm limits at $n = 1000$ should expect a reported standard error up to 7 percent above the sampling spread. The rerun at $n = 4000$ has not run |
+| One cell reads conservative and one reads refusal-limited | The lower bounds of the ATE and the ATT of arm 2 against arm 0 on `multinomial_logistic_crossfit` have SE ratios of 1.05, and their 99% intervals end at 1.07. The ATT cell is red only through the worst-case fill of 32 lost replicates. A user of the cross-fitted three-arm limits at $n = 1000$ should expect a reported standard error up to 7 percent above the sampling spread. The rerun at $n = 4000$ has not run |
 | Three scenarios declare wide truncation bounds | `multinomial_logistic`, `multinomial_logistic_crossfit` and `binary_unbalanced` declare `g_bounds=(0.005, 0.995)`. The automatic bounds refuse 27 to 52 percent of draws on those laws. The study does not test an active clip. The exact-law witness covers it |
 | There is no cross-implementation evidence | No maintained implementation reports limits for the plug-in $\nu^2$ |
 | Correctly specified mechanisms only | Each logistic model is correct for its law. A misspecified model covers $\nu^2$ of its own limit, which the study does not test |

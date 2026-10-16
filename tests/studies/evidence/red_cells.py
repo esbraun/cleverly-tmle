@@ -596,15 +596,23 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "X40-sdr-heavy-ratios": (
         *_keys("mtp-boundaries", "property", "interval_calibration/p4_sdr__correctly_specified"),
     ),
-    # The lower bounds of the ATE and the ATT of arm 2 against arm 0 on the cross-fitted
-    # three-arm fit.  Rule 8 of the study's red-cell policy reads both as conservative, after
-    # rule 2 found the package curve in agreement with a jackknife and a sandwich.  The ATT cell
-    # is red through the failure accounting alone, so rule 7 reads it as well.
+    # The lower bound of the ATE of arm 2 against arm 0 on the cross-fitted three-arm fit.  Rule 8
+    # of the study's red-cell policy reads it as conservative, after rule 2 found the package
+    # curve in agreement with a jackknife and a sandwich.
     "X26-plugin-conservative": (
         *_keys(
             "omitted-variable-bound-plugin-se",
             "property",
             "interval_calibration/multinomial_logistic_crossfit_ate_2v0_lower__correctly_specified",
+        ),
+    ),
+    # The lower bound of the ATT of arm 2 against arm 0 on the same fit.  Its endpoints are in
+    # band, and only the worst-case clause of the failure accounting turns it red, so rule 7
+    # reads it as refusal-limited.
+    "X26-refusal-limited": (
+        *_keys(
+            "omitted-variable-bound-plugin-se",
+            "property",
             "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
         ),
     ),
