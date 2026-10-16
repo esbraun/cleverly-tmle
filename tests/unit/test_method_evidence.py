@@ -3314,6 +3314,14 @@ class TestPropertyDifferential:
         assert "timeout-minutes:" in job
         assert '="$(git diff' in job and "|| git diff" not in job
 
+    def test_the_ci_job_runs_these_checks_on_one_interpreter(self) -> None:
+        """The ``tests`` matrix may skip this file on 3.11 and 3.13, never on all three."""
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        job = workflow.split("\n  tests:", 1)[1].split("\n  # ", 1)[0]
+        assert "matrix.python-version != '3.12'" in job
+        assert "--ignore=tests/unit/test_method_evidence.py" in job
+        assert '"3.12"' in job.split("python-version:", 1)[1].split("\n", 1)[0]
+
     def test_each_binding_witness_names_what_exists(self) -> None:
         job = self._job()
         table = job.read_bindings()
