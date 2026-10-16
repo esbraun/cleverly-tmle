@@ -1836,6 +1836,25 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, frame, law=law, engine=engine: study.fit(engine, law.upper(), frame),
         )
 
+    # The parametric g-formula: the study's own fit of each law, at the size that keeps its
+    # structure. ``G2`` and ``G5`` share one row.
+    gformula = "canonical_parametric_gformula.py:285"
+    for row, law in (
+        ("G29.g1", "G1"),
+        ("G29.g2_g5", "G2"),
+        ("G29.g2_g5", "G5"),
+        ("G29.g3", "G3"),
+        ("G29.g4", "G4"),
+    ):
+        observed(
+            row,
+            "parametric-gformula",
+            f"nice_{law.lower()}",
+            gformula,
+            lambda study, law=law: study.law_of(law).sample(400, 0),
+            lambda study, frame, law=law: study.fit("nice", law, frame),
+        )
+
     # The full-refit bootstrap study fits one sample per group, with its own folds and bootstrap.
     boot = "full_refit_bootstrap_properties.py:277"
     for row, label in (
