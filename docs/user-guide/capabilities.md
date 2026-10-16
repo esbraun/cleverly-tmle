@@ -9,7 +9,7 @@ direct effects, C-TMLE, DR-TMLE, cross-fitting, influence-curve inference, sensi
 and post-fit diagnostics in the combinations documented there. The longitudinal
 family also includes Kennedy's incremental estimator `IPSI`. An incremental intervention takes
 one odds factor for each level of a treatment with three or more levels, at a point treatment and
-at a node of `IPSI`. The registered study [categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md) covers the support rows `T35` at a point treatment and `G42` over time. Any other such fit, for example with weights, clusters or a `delta=` argument, is labelled `experimental`.
+at a node of `IPSI`. The registered study [categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md) covers the support rows `T35` at a point treatment and `G43` over time. Any other such fit, for example with weights, clusters or a `delta=` argument, is labelled `experimental`.
 
 | longitudinal estimator | reads | interval |
 | --- | --- | --- |
@@ -18,6 +18,7 @@ at a node of `IPSI`. The registered study [categorical incremental policies](../
 | `IPSI` | the treatment mechanism | the influence curve of the incremental estimator |
 | `SequentialGComputation` | the outcome and pseudo-outcome regressions | the stacked curve when every regression is a `GLM`. Otherwise the point only |
 | `SequentialIPW` | the treatment and censoring mechanisms | the stacked curve when every mechanism is a `GLM`. Otherwise the point only |
+| `StructuralNestedMean` | the outcome and treatment regressions on the full history, with a linear blip model | the influence curve, valid under the linear structural nested mean model with the declared blip features |
 | `ParametricGFormula` | a model of each time-varying covariate, and the outcome or hazard models | the stacked curve with the simulation error when every model is a `GLM`. Otherwise the point only |
 
 The two sequential baselines are reference estimators. They refuse `n_folds > 1` and `msm=`.
@@ -25,6 +26,14 @@ The two sequential baselines are reference estimators. They refuse `n_folds > 1`
 every refusal. `ParametricGFormula` refuses the same two requests, and it accepts a fixed
 or rule-set continuous dose with a stated model reliance. [Parametric g-formula](../technical-reference/parametric-gformula.md#refusals)
 lists its refusals.
+
+`StructuralNestedMean` reports blip coefficients and static regimen contrasts. It refuses a rule, a
+policy, censoring, survival and repeated outcomes. It refuses a static contrast when a feature
+reads a time-varying covariate.
+[Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
+every refusal. Its evidence label is "Python property evidence, with comparator runs pending". A cross-fitted
+fit that a `G42` row covers reads `supported`, and any other fit reads `experimental`
+([support label](../technical-reference/structural-dynamic-effects.md#support-label)).
 
 ## Why a request can be refused
 

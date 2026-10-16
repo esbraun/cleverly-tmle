@@ -40,6 +40,7 @@ from cleverly._support import (
     classify_key,
     longitudinal_key,
     point_key,
+    structural_key,
 )
 from cleverly.data.causal_data import CausalData
 from cleverly.estimators import CTMLE, DRTMLE, TMLE
@@ -162,12 +163,17 @@ def capture(run: Callable[[], Any]) -> Observed:
         When the call returns without reaching a classifier.
     """
     longitudinal = importlib.import_module("cleverly.longitudinal.estimator")
+    structural = importlib.import_module("cleverly.longitudinal.structural")
     point = importlib.import_module("cleverly.estimators.tmle")
 
     def at_longitudinal(estimator: Any, data: Any, **settings: Any) -> None:
         settings.pop("source", None)
         settings.pop("conditions", None)
         raise _Reached(Observed(*longitudinal_key(estimator, data, **settings)))
+
+    def at_structural(estimator: Any, data: Any, **settings: Any) -> None:
+        settings.pop("source", None)
+        raise _Reached(Observed(*structural_key(estimator, data, **settings)))
 
     def at_point(
         estimator: Any, data: Any, estimands: Any, *, source: str = "", conditions: Any = ()
@@ -178,6 +184,7 @@ def capture(run: Callable[[], Any]) -> Observed:
         warnings.simplefilter("ignore")
         with (
             mock.patch.object(longitudinal, "classify_longitudinal_fit", at_longitudinal),
+            mock.patch.object(structural, "classify_structural_fit", at_structural),
             mock.patch.object(point, "classify_point_fit", at_point),
         ):
             try:
@@ -1761,6 +1768,26 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, frame, configuration=configuration: study.fit(frame, configuration),
         )
 
+    # The structural nested mean study (X44): one primary scenario for each key it fits.
+    for row, scenario in (
+        ("G42.two_nodes", "s2"),
+        ("G42.three_nodes", "s3"),
+        ("G42.categorical", "k"),
+        ("G42.dose", "c"),
+        ("G42.covariate_feature", "l"),
+        ("G42.weighted", "s2w"),
+        ("G42.clustered", "s2c"),
+    ):
+        seeded(
+            row,
+            "structural-nested-mean",
+            scenario,
+            "canonical_structural_nested_mean.py:320",
+            scenario,
+            2000,
+            lambda study, frame, scenario=scenario: study.fit(study.SETUP_OF[scenario], frame),
+        )
+
     # The IS and cross-fitted fits of ``SDR``: the runner's scenarios and the property cells.
     sdr = "canonical_longitudinal_sdr.py:362"
     sdr_slug = "longitudinal-sdr"
@@ -2120,7 +2147,7 @@ def _categorical_incremental_cases() -> tuple[RowCase, ...]:
             lambda m, f: m.common.fit_point(f, cross_fit=True, strata=True),
         ),
         _observed(
-            "G42.cross_fitted",
+            "G43.cross_fitted",
             slug,
             "longitudinal_dropout_contrast_t_a",
             f"{properties}.py:497",
@@ -2129,7 +2156,7 @@ def _categorical_incremental_cases() -> tuple[RowCase, ...]:
             lambda m, f: m.common.fit_longitudinal(f, m.long_law.LAW_L, n_folds=m.common.N_FOLDS),
         ),
         _observed(
-            "G42.complete",
+            "G43.complete",
             slug,
             "longitudinal_contrast_t_a",
             f"{properties}.py:517",

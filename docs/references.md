@@ -1520,6 +1520,14 @@ sizes only the cluster sum is the delta-method variance of the row mean
   p. 969, steps 1 to 5, gives the causal form. `SequentialGComputation` cites it for the ICE
   recursion. The paper states the causal form for a marginal structural model parameter. The
   plain g-formula is a special case.
+- Lewis & Syrgkanis (2021), *Double/debiased machine learning for dynamic treatment effects via
+  g-estimation*, in *Advances in Neural Information Processing Systems* 34, with the arXiv version
+  (v5). `StructuralNestedMean` cites the supplement, Appendix A: Assumption 1 and Assumption 2
+  (the linear structural nested mean model), Lemma 6 (the policy value from the blips), and
+  Theorem 8 (the normal limit with a linear blip). It cites the arXiv version for Theorem 4 and
+  Theorem 8 (the variance estimator and product rates) and Corollary 9 (the inference for a
+  policy value). The roadmap item X72 cites Lemma 6 and Corollary 9. The proceedings version has
+  no policy-value inference.
 - Robins, Hernán & Brumback (2000), *Marginal structural models and causal inference in
   epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
   eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek

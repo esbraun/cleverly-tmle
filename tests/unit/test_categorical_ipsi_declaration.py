@@ -15,7 +15,7 @@ C12    a declared mechanism at a three-level tilt node: ``LTMLE`` equals the han
        ``Stochastic`` regimen, and the fit has no mechanism term there
 C13    an all-categorical vector node is one categorical node over its observed tuples
 -----  ------------------------------------------------------------------------------------------
-label  a three-level tilt fit is experimental unless a ``G42`` row of the categorical-incremental
+label  a three-level tilt fit is experimental unless a ``G43`` row of the categorical-incremental
        study matches it
 =====  ==========================================================================================
 """
@@ -177,7 +177,7 @@ class TestTheSupportLabel:
         wider = [row for row in rows if set(row.key.treatment) != {"2"}]
         assert wider, "the categorical-incremental study registers three-level rows"
         for row in wider:
-            assert row.id.startswith("G42."), row.id
+            assert row.id.startswith("G43."), row.id
             assert set(row.key.treatment) == {"3"}, row.id
 
 

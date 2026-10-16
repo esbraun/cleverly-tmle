@@ -605,7 +605,7 @@ changed: `IncrementalSupport.min_propensity` is the minimum over both columns of
 
 `tests/unit/test_incremental_binary_surface.py` and
 `tests/unit/test_ipsi_binary_surface.py` replay the committed studies to check it. A three-level
-fit on a configuration of the rows `T35` and `G42` carries the label of the registered study
+fit on a configuration of the rows `T35` and `G43` carries the label of the registered study
 [categorical incremental policies](technical-reference/method-evidence/categorical-incremental.md).
 Any other three-level fit is `experimental`, and no binary support row covers it.
 `tests/unit/test_categorical_ipsi_declaration.py` holds that check for nodes.

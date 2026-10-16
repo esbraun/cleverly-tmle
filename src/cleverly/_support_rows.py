@@ -2450,6 +2450,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
         rows[-2] = replace(rows[-2], cells=(f"{law}_hajek",))
         rows[-1] = replace(rows[-1], cells=(f"{law}_ht",))
     rows += _gformula_rows()
+    rows += _structural_rows()
     # X31: a mixed node of one categorical and one or two dose components. G35 has two such
     # nodes; G36 has one node whose second dose reads the first (an ordered map).
     for row_id, treatment, ratio, cells in (
@@ -2739,6 +2740,140 @@ def _gformula_rows() -> list[SupportRow]:
     ]
 
 
+#: The calibration labels of ``structural-nested-mean`` that license each key, by setup.
+_STRUCTURAL_LABELS: Final[Mapping[str, tuple[str, ...]]] = {
+    "s2": ("ate_r11", "blip_a1_l1", "blip_a2_l1", "ey0", "ey_r10", "ey_r11"),
+    "h": (
+        "ate_r10",
+        "ate_r11",
+        "blip_a1_l1",
+        "blip_a1_l1_w",
+        "blip_a2_l1",
+        "blip_a2_l1_a1",
+        "blip_a2_l1_w",
+        "ey0",
+        "ey_r11",
+    ),
+    "p": ("ate_r11", "blip_a1_l1", "blip_a2_l1", "blip_a2_l1_a1", "ey0", "ey_r01"),
+    "m": ("ate_r11", "blip_a1_l1", "blip_a2_l1", "ey0"),
+    "s3": ("ate_r101", "ate_r111", "blip_a1_l1", "blip_a2_l1", "blip_a3_l1", "ey0"),
+    "k": (
+        "ate_r12",
+        "ate_r21",
+        "blip_a1_l1",
+        "blip_a1_l2",
+        "blip_a2_l1",
+        "blip_a2_l2",
+        "ey0",
+        "ey_r12",
+    ),
+    "c": ("ate_dose_high", "ate_dose_mid", "blip_a1", "blip_a2", "ey0", "ey_dose_mid"),
+    "l": ("blip_a1_l1", "blip_a2_l1", "blip_a2_l1_s2", "ey0"),
+    "s2w": ("ate_r11", "blip_a1_l1", "ey0", "ey_r11"),
+    "s2c": ("ate_r11", "blip_a1_l1", "ey0", "ey_r11"),
+}
+
+#: The size-ladder labels of ``structural-nested-mean`` and their three sizes, by setup.
+_STRUCTURAL_LADDERS: Final[Mapping[str, tuple[tuple[str, ...], tuple[int, ...]]]] = {
+    "s2": (("ate_r11",), (500, 2000, 8000)),
+    "h": (("ate_r11",), (500, 2000, 8000)),
+    "k": (("ate_r12",), (1000, 4000, 16000)),
+    "c": (("ate_dose_high",), (500, 2000, 8000)),
+}
+
+
+def _structural_cells(*setups: str) -> list[str]:
+    """The gated positive cells of ``structural-nested-mean`` that license the given setups.
+
+    The calibration controls, the negative controls ``LU`` and ``VB``, the weak-positivity
+    report ``SP`` and the model-check cells carry no row: none of them licenses an estimate.
+    """
+    cells: list[str] = []
+    for setup in setups:
+        cells += [
+            f"interval_calibration/{setup}_{label}__correctly_specified"
+            for label in _STRUCTURAL_LABELS[setup]
+        ]
+        labels, sizes = _STRUCTURAL_LADDERS.get(setup, ((), ()))
+        for label in labels:
+            cells += [f"root_n_and_efficiency/{setup}_{label}__n_{n}" for n in sizes]
+            cells += [
+                f"root_n_rate/{setup}_{label}__{leg}" for leg in ("empirical_sd", "reported_se")
+            ]
+    return cells
+
+
+def _structural_rows() -> list[SupportRow]:
+    """The rows of the structural nested mean model (``G42``): one per key the study fits.
+
+    Every fit of ``structural-nested-mean`` is cross-fitted, with a Gaussian outcome and no
+    declared bounds, complete data and the Rademacher multiplier. The keys follow the support
+    records of the declared run. ``S2``, ``H``, ``P`` and ``M`` share one key. The study fits
+    no simultaneous band and no derived contrast, so each row licenses the point and the Wald
+    interval only.
+
+    Law ``N`` has no row. A row names a learner class and not its settings. The study measures
+    one early-stopped booster, and a booster of fixed size has a bias that does not vanish at
+    n = 512,000, so a row for the class would license a configuration the study refutes.
+    """
+    study = ("structural-nested-mean",)
+    glm: dict[str, type | None] = {"outcome": GLM, "treatment": GLM, "regression": None}
+    limits = (
+        "The intervals are valid under the linear structural nested mean model with the "
+        "declared blip features. The study laws satisfy that model.",
+        "The EconML DynamicDML comparator runs are pending.",
+    )
+
+    def row(
+        row_id: str,
+        cells: list[str],
+        *,
+        treatment: tuple[str, ...] = _TWO,
+        weighting: str = "none",
+        dependence: str = "iid",
+        regimens: bool = True,
+        covariate_features: bool = False,
+        extra: tuple[str, ...] = (),
+    ) -> SupportRow:
+        key = SupportKey(
+            kind="longitudinal",
+            engine=("snmm",),
+            family=frozenset(
+                ("end_of_study", "blips", *(("regimens", "static") if regimens else ()))
+            ),
+            outcome=CONTINUOUS,
+            missing=("complete",),
+            treatment=treatment,
+            weighting=weighting,
+            splitting=("cross_fitted",),
+            dependence=dependence,
+            qualifiers=frozenset(),
+            options=(("covariate_features", covariate_features), ("multiplier_kind", "rademacher")),
+        )
+        return SupportRow(
+            row_id, key, _LONG_WALD, study, tuple(cells), dict(glm), (*limits, *extra)
+        )
+
+    return [
+        row("G42.two_nodes", _structural_cells("s2", "h", "p", "m")),
+        row("G42.three_nodes", _structural_cells("s3"), treatment=("2", "2", "2")),
+        row("G42.categorical", _structural_cells("k"), treatment=("3", "3")),
+        row("G42.dose", _structural_cells("c"), treatment=("continuous", "continuous")),
+        row(
+            "G42.covariate_feature",
+            _structural_cells("l"),
+            regimens=False,
+            covariate_features=True,
+            extra=(
+                "A feature that reads a time-varying covariate reports the blips and the "
+                "reference mean only. A static level or contrast is refused (X72).",
+            ),
+        ),
+        row("G42.weighted", _structural_cells("s2w"), weighting="fixed"),
+        row("G42.clustered", _structural_cells("s2c"), dependence="clustered"),
+    ]
+
+
 def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
     return (
         ("multiplier_kind", "rademacher"),
@@ -2751,7 +2886,7 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
 
 
 def _categorical_long_rows() -> tuple[SupportRow, ...]:
-    """The longitudinal rows of the study ``categorical-incremental`` (X43): ``G42``."""
+    """The longitudinal rows of the study ``categorical-incremental`` (X43): ``G43``."""
     slug = ["categorical-incremental"]
     ipsi: dict[str, Any] = {
         "engine": "ipsi",
@@ -2762,13 +2897,13 @@ def _categorical_long_rows() -> tuple[SupportRow, ...]:
     }
     return (
         long_row(
-            "G42.cross_fitted",
+            "G43.cross_fitted",
             slug,
             **ipsi,
             cells=["longitudinal_dropout_folds_5", "longitudinal_dropout_contrast_t_a"],
         ),
         long_row(
-            "G42.complete",
+            "G43.complete",
             slug,
             **ipsi,
             missing=("complete",),
@@ -2779,8 +2914,8 @@ def _categorical_long_rows() -> tuple[SupportRow, ...]:
 
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``), repeated-outcome
-#: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``) and the
-#: categorical tilt (``G42``).
+#: ``IPSI`` (``G37``), the continuous-dose price and tuned-cap rows (``G39`` to ``G41``), the
+#: structural nested mean model (``G42``) and the categorical tilt (``G43``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(
     (*_long_rows(), *_categorical_long_rows())
 )
@@ -2869,6 +3004,11 @@ FAMILY_THEORY: Final[Mapping[str, TheoryAnchor]] = {
     ),
     "P10": _anchor("`msm`", "tests/discrete_law.py", "tests/unit/test_influence_gateaux_msm.py"),
     "P11": _anchor("`ey_learned_rule`", "tests/discrete_law.py"),
+    "blips": _anchor(
+        "structural nested mean model (`StructuralNestedMean`)",
+        "tests/discrete_law_structural.py",
+        "tests/unit/test_structural_nested_mean.py",
+    ),
     "end_of_study": _anchor(
         "end-of-study, static and dynamic regimens",
         "tests/discrete_law_longitudinal.py",
