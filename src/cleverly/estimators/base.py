@@ -1732,6 +1732,36 @@ class TMLEResult:
             )
             for name, (low, high) in self.simultaneous.bands.items():
                 parts.append(f"  {name:<5s} [{low:.5g}, {high:.5g}]")
+            outside = {
+                name: estimate.inference
+                for name, estimate in self.estimates.items()
+                if name not in self.simultaneous.bands
+            }
+            if outside:
+                parts.append(
+                    "  the band is joint over the rows above only; it leaves out "
+                    + ", ".join(f"{name} ({status})" for name, status in outside.items())
+                    + ", which supply no interval"
+                )
+        elif (
+            not diagnostic
+            and not t_reference
+            and len(self.estimates) > 1
+            and bool(getattr(self.estimator, "simultaneous", False))
+            and any(not estimate.supplies_inference for estimate in self.estimates.values())
+        ):
+            # The fit asked for a band, and fewer than two of its estimates supply an
+            # interval, so it built none. Named rather than left blank.
+            left_out = ", ".join(
+                f"{name} ({estimate.inference})"
+                for name, estimate in self.estimates.items()
+                if not estimate.supplies_inference
+            )
+            parts.append("")
+            parts.append(
+                "no simultaneous band: fewer than two estimates supply an interval. "
+                f"Left out: {left_out}"
+            )
         if self.bootstrap is not None:
             parts.append("")
             # Named by what each replicate does: it refits the whole estimator on the

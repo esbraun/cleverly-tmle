@@ -336,22 +336,27 @@ class TestTheNamedRefusals:
 
 
 class TestTheDefaultBand:
-    """``simultaneous=True`` builds no band on an admitted fit, so repeats do not refuse it."""
+    """n4: an admitted fit builds the band, so ``simultaneous=True`` with repeats refuses.
 
-    def test_three_repeats_keep_the_intervals_and_build_no_band(self) -> None:
+    The band reads the stacked curves (X58 plan, 13.2), and a band over median-combined
+    repeats is the point-treatment refusal (13.5, n4). The repeated study cells pass
+    ``simultaneous=False``.
+    """
+
+    def test_three_repeats_with_the_default_band_raise(self) -> None:
         assert _verdict(repeats=3, simultaneous=True).admitted
-        result = _fit(repeats=3, simultaneous=True)
-        assert {estimate.inference for estimate in result.estimates.values()} == {"influence_curve"}
-        assert result.simultaneous is None
-        assert "No simultaneous band" in result.summary()
-
-    def test_a_hook_that_builds_the_band_hits_the_repeat_refusal(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The control: a band over median-combined repeats is refused, not built."""
-        monkeypatch.setattr(CTMLE, "_builds_default_band", lambda self, data: True)
         with pytest.raises(CapabilityError, match="median-combined repeats"):
             _fit(repeats=3, simultaneous=True)
+
+    def test_three_repeats_without_the_band_keep_the_intervals(self) -> None:
+        result = _fit(repeats=3, simultaneous=False)
+        assert {estimate.inference for estimate in result.estimates.values()} == {"influence_curve"}
+        assert result.simultaneous is None
+
+    def test_one_draw_builds_the_band(self) -> None:
+        result = _fit(simultaneous=True)
+        assert result.simultaneous is not None
+        assert set(result.simultaneous.bands) == set(ESTIMANDS)
 
 
 class TestTheEngineRefusalsComeFirst:

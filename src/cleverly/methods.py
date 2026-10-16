@@ -984,7 +984,8 @@ default="greedy"
         the reason. ``"oat"`` reports no interval, for the reason F19 holds, except on a
         per-arm fit with ``ParametricOutcome`` and ``ParametricMechanism`` that
         ``cleverly.estimators.ctmle.per_arm_parametric_support`` admits (X58), in sample or
-        cross-fitted. That fit reports pointwise intervals. ``"derivative"`` is C-TMLE0. It
+        cross-fitted, with any number of arms and with observation weights. That fit reports
+        pointwise intervals and a simultaneous band. ``"derivative"`` is C-TMLE0. It
         selects nothing and reports the ordinary TMLE interval.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
