@@ -178,7 +178,8 @@ PROPERTY_WITNESS = property_verdicts.SAMPLE_WITNESS
 
 
 #: The columns of :data:`REFUSAL_READING`, one row per scenario, parameter and key.  ``key`` is a
-#: refusal key of the package, ``other`` (a failed fit) or ``all``.
+#: refusal key of the package, ``other`` (a failure that is no refusal of the bound, such as a
+#: failed fit) or ``all``.
 REFUSAL_READING_COLUMNS = (
     "scenario",
     "parameter",
@@ -194,8 +195,10 @@ def refusal_reading(failures: pd.DataFrame | None, replicates: int) -> pd.DataFr
 
     A failure record names the cells that its key writes, so one record is one lost replicate of
     one parameter.  ``key`` is the refusal key of the package, ``other`` for a failure that is
-    no refusal of the bound, and ``all`` for their sum.  The rate is a reading, not a verdict: the
-    failure accounting judges the cells.
+    no refusal of the bound, and ``all`` for their sum.  The rows name the keys of
+    :data:`REFUSAL_KEYS`, ``other`` and every other key that a record names, so a key of the
+    package outside the three expected ones keeps its own row.  The rate is a reading, not a
+    verdict: the failure accounting judges the cells.
 
     Parameters
     ----------
@@ -217,10 +220,11 @@ def refusal_reading(failures: pd.DataFrame | None, replicates: int) -> pd.DataFr
             key = refusal_key(str(record.message))
             lost.setdefault((scenario, token, key), set()).add(str(record.group_id))
             lost.setdefault((scenario, token, "all"), set()).add(str(record.group_id))
+    observed = sorted({key for _, _, key in lost} - {*REFUSAL_KEYS, "other", "all"})
     out = []
     for scenario, parameters in PARAMETERS.items():
         for token in parameters:
-            for key in (*REFUSAL_KEYS, "other", "all"):
+            for key in (*REFUSAL_KEYS, "other", *observed, "all"):
                 count = len(lost.get((scenario, token, key), ()))
                 out.append(
                     {

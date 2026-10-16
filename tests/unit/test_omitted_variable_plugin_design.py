@@ -830,27 +830,30 @@ def test_the_refusal_reading_counts_each_key_of_each_parameter() -> None:
             record(2, "corrected_nonpositive"),
             record(3, "truncation_active"),
             {**record(4, "x"), "message": "DataError: the fit failed"},
+            record(5, "score_not_zero"),
         ]
     )
     reading = properties.refusal_reading(failures, 100)
     assert list(reading.columns) == list(properties.REFUSAL_READING_COLUMNS)
-    assert len(reading) == 24 * (len(study.REFUSAL_KEYS) + 2)
+    assert len(reading) == 24 * (len(study.REFUSAL_KEYS) + 3)
     lost = reading.loc[reading["lost"] > 0].set_index("key")
     assert lost["lost"].to_dict() == {
         "corrected_nonpositive": 2,
         "truncation_active": 1,
+        "score_not_zero": 1,
         "other": 1,
-        "all": 4,
+        "all": 5,
     }
     assert set(lost["parameter"]) == {"att_2v0"}
-    assert lost.loc["all", "rate"] == pytest.approx(0.04)
+    assert lost.loc["all", "rate"] == pytest.approx(0.05)
     quiet = properties.refusal_reading(None, 100)
+    assert len(quiet) == 24 * (len(study.REFUSAL_KEYS) + 2)
     assert quiet["lost"].sum() == 0
 
 
 def test_the_refusal_keys_are_read_from_the_study_messages() -> None:
-    """``refusal_key`` reads the three package keys and calls anything else ``other``."""
-    for key in study.REFUSAL_KEYS:
+    """``refusal_key`` reads every key the message names and calls a non-refusal ``other``."""
+    for key in (*study.REFUSAL_KEYS, "score_not_zero", "missing_arm", "known_truncated"):
         assert study.refusal_key(f"DataError: the plug-in bound of 'att' refused: {key}") == key
     assert study.refusal_key("DataError: GLM: the information matrix is singular") == "other"
 
@@ -925,17 +928,24 @@ def test_a_refusal_of_the_bound_is_recorded_and_a_capability_error_stops_the_run
 
 
 def test_the_red_cell_policy_declares_no_red_before_the_run() -> None:
-    """The policy names the finite-sample and refusal-limited readings, and no declared red.
+    """The policy names the finite-sample, conservative and refusal-limited readings, and no red.
 
-    The variance of the bound changed after the first pilot, so the new design is judged by a
-    new pilot.  No cell, scenario or control is declared red or underpowered here.
+    The variance of the bound changed after the first pilot, and the second pilot added the
+    conservative reading.  No cell, scenario or control is declared red or underpowered here.
     """
     assert properties.FAILURE_BOUND == 0.01
     assert study.STUDY.failure_bound == {study.STUDY.implementation: 0.01}
     policy = " ".join(study.RED_CELL_POLICY)
-    for owner in (study.RED_CELL_OWNER, study.REFUSAL_LIMITED_OWNER):
+    owners = (study.RED_CELL_OWNER, study.CONSERVATIVE_OWNER, study.REFUSAL_LIMITED_OWNER)
+    assert study.CONFIGURATION["red_cell_owners"] == {
+        "finite_sample": study.RED_CELL_OWNER,
+        "conservative": study.CONSERVATIVE_OWNER,
+        "refusal_limited": study.REFUSAL_LIMITED_OWNER,
+    }
+    for owner in owners:
         assert owner in policy
     assert "refusal-limited" in policy
+    assert "conservative" in policy
     for gone in ("bound exceeded", "variance-correction", "declared so before the run"):
         assert gone not in policy
     assert not hasattr(study, "EXPECTED_BOUND_EXCEEDED")

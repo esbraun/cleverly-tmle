@@ -88,6 +88,7 @@ its margins, its budget and its red-cell route before any run.
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -350,24 +351,28 @@ CONFIGURATION: dict[str, Any] = {
 #:
 #: Owner ids.  Each names the roadmap row ("Red-cell owners") that closes the cells it reads.
 RED_CELL_OWNER = "X26-plugin-finite-sample"
+CONSERVATIVE_OWNER = "X26-plugin-conservative"
 REFUSAL_LIMITED_OWNER = "X26-refusal-limited"
 
-#: The key a refusal of the package names.  The study raises :class:`DataError` for these three
-#: and for no other reason.
+#: The keys of a refusal that the study expects.  The study raises :class:`DataError` for any
+#: refusal of the package that ``elements.limit_refusal`` records, and for no other reason.  The
+#: package has other keys, and :func:`refusal_key` reads each of them.
 REFUSAL_KEYS = ("truncation_active", "correction_unstable", "corrected_nonpositive")
+
+_REFUSED = re.compile(r"refused: (\w+)$")
 
 
 def refusal_key(message: str) -> str:
     """The refusal key a failure record's message names, or ``other``.
 
-    The study raises ``DataError("the plug-in bound of 'name' refused: key")`` for the three
-    refusals of the package (:data:`REFUSAL_KEYS`).  Any other recorded failure, such as a
-    failure of the fit itself, reads ``other``.
+    The study raises ``DataError("the plug-in bound of 'name' refused: key")`` for a refusal of
+    the package, and ``key`` is the key the package records.  The function returns the text
+    after ``refused: `` when the message has that form, so a key outside :data:`REFUSAL_KEYS`
+    keeps its own name.  Any other recorded failure, such as a failure of the fit itself, reads
+    ``other``.
     """
-    for key in REFUSAL_KEYS:
-        if message.endswith(f"refused: {key}"):
-            return key
-    return "other"
+    found = _REFUSED.search(message.strip())
+    return found.group(1) if found else "other"
 
 
 def cell_parameter(cell: str) -> tuple[str, str]:
@@ -393,7 +398,7 @@ RED_CELL_POLICY = (
     "a red positive cell reads as finite-sample only when its 99% SE-ratio interval contains "
     "1, its coverage is consistent with 0.95, and the diagnosis finds no defect; any other "
     "red positive cell is a defect suspect and never ends as an owner row unfixed, except a "
-    "red cell that rule 7 reads",
+    "red cell that rule 7 or rule 8 reads",
     "a control that does not leave the band is reported as 'control underpowered', with its ratio",
     "the corrected nu2 rows are measured, not claimed: their reading is never a verdict, and a "
     "shortfall in it opens no red cell",
@@ -401,11 +406,20 @@ RED_CELL_POLICY = (
     f"reads 'refusal-limited' with owner {REFUSAL_LIMITED_OWNER}. It publishes the number of "
     "lost replicates, the complete-case value and the worst-case value, with the refusal rate "
     f"of each key in {REFUSAL_READING}. It is not a defect suspect under rule 4",
+    "a red positive cell that clears both bands from below reads 'conservative' with owner "
+    f"{CONSERVATIVE_OWNER}: its 99% SE-ratio interval's lower endpoint is at least 0.93, its 99% "
+    "coverage interval's lower endpoint is at least 0.92, its SE ratio is at least 1 and its "
+    "coverage is at least 0.95. Rule 2's diagnosis runs first, and a mismatch is a defect. With "
+    "agreement, the n = 4000 rerun of rule 3 gives the reading 'conservative, contracting' or "
+    "'conservative, not contracting at n=4000'. The plain influence variance omits the "
+    "second-order variance term that the owner dropped on 2026-10-16, so the study expects this "
+    "reading for cross-fitted cells. It is not a defect suspect under rule 4",
 )
 
 CONFIGURATION["red_cell_policy"] = list(RED_CELL_POLICY)
 CONFIGURATION["red_cell_owners"] = {
     "finite_sample": RED_CELL_OWNER,
+    "conservative": CONSERVATIVE_OWNER,
     "refusal_limited": REFUSAL_LIMITED_OWNER,
 }
 

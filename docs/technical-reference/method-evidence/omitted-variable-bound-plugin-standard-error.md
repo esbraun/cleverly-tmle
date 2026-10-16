@@ -18,7 +18,7 @@ equivalence artifact records the absence of a comparator.
 
 **Status: declared, not yet run.** The X26 plan fixed the laws, the replicate counts, the seeds,
 the margins and the red-cell route before any run. The generated tables stay empty until the
-run. The [pilot](#pilot) section states which pilot judges this design.
+run. The [pilot](#pilot) section states what the two pilots measured and what they changed.
 
 **What is claimed and what is measured.** The claim cells are the lower and the upper bound of
 each parameter. The corrected $\nu^2$ is measured and not judged, because no accessor of the
@@ -94,10 +94,12 @@ Three scenarios therefore declare `g_bounds=(0.005, 0.995)`: `multinomial_logist
 `multinomial_logistic_crossfit` and `binary_unbalanced`.
 
 At those bounds the probe refused no
-draw in 300 fits of each scenario. The study covers the untruncated regime of these laws. It does not test the check, which the exact-law
-witnesses cover. The design test predicts the
+draw in 300 fits of each scenario. The pilot on `x26_pilot2_sample` refused 0.1 to 0.4 percent of
+the draws on the three scenarios (see [Pilot](#pilot)), and the design test predicted none. The
+study covers the untruncated regime of these laws. It does not test the check, which the
+exact-law witnesses cover. The design test predicts the
 refusal share from the population mechanism and the sandwich of the logistic fit. The
-prediction is a statement of order of magnitude only.
+prediction is a statement of order of magnitude only, and the pilot rate is higher.
 
 | quantity | value |
 | --- | --- |
@@ -144,9 +146,10 @@ the population variances of the laws. No pilot number enters it.
 
 A replicate is one parameter of one draw.
 
-The package may refuse the limits of a parameter
-(`truncation_active`, `correction_unstable` or `corrected_nonpositive`). The study reads the
-refusal from the elements of the bound and raises `DataError` for it and for no other reason.
+The package may refuse the limits of a parameter. The expected keys are `truncation_active`,
+`correction_unstable` and `corrected_nonpositive`, and the package has other keys. The study
+reads the refusal from the elements of the bound and raises `DataError` for any refusal of the
+package and for no other reason.
 The bound itself raises no refusal for a variance, so the study converts no `CapabilityError`. A
 `CapabilityError` of the bound, and a rebuilt standard error that departs from the reported one,
 are defects of the study and stop the run.
@@ -168,12 +171,16 @@ Each of the four refusals has the key `truncation_active`. No draw gave `correct
 `corrected_nonpositive`.
 
 The study publishes the refusals of each parameter by key in `refusal-reading.csv`. The columns are
-`scenario`, `parameter`, `key`, `requested`, `lost` and `rate`. The key is one of the three
-package keys, `other` for a failed fit, or `all`. The file has no verdict column. The failure
-accounting judges the cells.
+`scenario`, `parameter`, `key`, `requested`, `lost` and `rate`. The key is the text that the
+package names after `refused:`. Each parameter has a row for the three expected keys, for `other`
+and for `all`, and one more row for each other package key that the run records. `other` is a
+failure that is no refusal of the bound, such as a failed fit. The file has no verdict column. The
+failure accounting judges the cells.
 
 At a rate of 0.05 percent, the chance of more than 100 losses in 10,000 replicates is below
-$10^{-12}$. The 99% upper endpoint of the rate is 0.2 percent. The run reads the rate again.
+$10^{-12}$. The 99% upper endpoint of the rate is 0.2 percent. The balanced law gave that rate.
+The pilot on the multinomial cross-fitted scenario refused up to 0.4 percent, which is about 40
+losses in 10,000 replicates. The run reads the rates again.
 
 ## The corrected nu2 reading
 
@@ -208,18 +215,42 @@ draws of each fit. The over-reading contracts with $n$. The study covers $n = 10
 
 ## Pilot
 
-An earlier design of the study kept a second-order correction of the variance of $\hat\nu^2$.
-Its pilot, on the seed stream `x26_pilot_sample`, led the owner to drop that correction on
-2026-10-16. At $n = 1000$ the correction took about 60 percent of the cross-fitted variance, so
-its expansion was not trusted. It also made the package refuse 1.7 to 4.2 percent of the
-cross-fitted three-arm draws with the key `corrected_nonpositive`. The owner reports that the
-influence variance gave SE ratios of 0.97 to 1.08 and coverages of 0.933 to 0.971 with at most
-0.3 percent refusals. That pilot is not committed, and no claim of this page rests on it.
+Two pilots read the design before the run. Neither pilot is evidence for a claim of this page.
+Pilot numbers do not count as study evidence, and the generated tables below hold the only
+evidence.
 
-The design on this page is judged by a new pilot on the seed stream `x26_pilot2_sample`. The
-declared run does not use that stream, and the design test checks that no declared seed does. The
-pilot has not run. The study declares no red cell, no expected refusal rate and no
-underpowered control before that pilot reads the design.
+**The first pilot is superseded.** An earlier design of the study kept a second-order correction
+of the variance of $\hat\nu^2$. The first pilot, on the seed stream `x26_pilot_sample`, measured
+that design. It led the owner to drop the correction on 2026-10-16. At $n = 1000$ the correction
+took about 60 percent of the cross-fitted variance, so its expansion was not trusted. It also
+made the package refuse 1.7 to 4.2 percent of the cross-fitted three-arm draws with the key
+`corrected_nonpositive`.
+
+The figures without the correction came from the same draws, read again
+with the correction removed. They are not a fresh pilot, and no draw of that pilot ran the new
+design. Those figures were SE ratios of 0.97 to 1.08 (cross-fitted positive cells 1.067 to
+1.078), coverages of 0.933 to 0.971 and at most 0.3 percent refusals. That pilot is not
+committed, and no claim of this page rests on it.
+
+**The second pilot read the design on fresh draws.** It used the seed stream `x26_pilot2_sample`
+with 1,000 draws per scenario. The declared run does not use that stream, and the design test
+checks that no declared seed does. The pilot is a planning record, not evidence. Its data are in
+the repository `esbraun/cleverly-beta-plans`, under `_x26/pilot/no_vc_fresh`. The design that it
+read is the one at commit `f352be8e`. The planning record does not store the commit that the
+pilot ran at.
+
+| quantity | pilot reading |
+| --- | --- |
+| refusals | 22 in all, each with the key `truncation_active`. The most for one parameter is 0.4 percent |
+| refusals on the three wide-bound scenarios | 0.1 to 0.4 percent on each of the three |
+| SE ratio of the positive cells | 0.965 to 1.063 |
+| coverage of the positive cells | 0.933 to 0.970 |
+| SE ratio of the inflated controls | at least 1.135 |
+| SE ratio of the shrunken controls | at most 0.885 |
+
+The pilot changed only the reading rules. It added rule 8 of the [red-cell policy](#red-cell-policy)
+and the reading of every refusal key. It retuned no seed, size, margin, law, learner or scenario.
+The study still declares no red cell, no expected refusal rate and no underpowered control.
 
 <!-- generated: accuracy -->
 <!-- /generated -->
@@ -237,18 +268,20 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 | 1 | always | the study publishes under `reporting`. No replicate count, margin, law, learner or strength changes after a verdict is seen |
 | 2 | a red positive cell | the infinitesimal jackknife (unit witness W5) and the numerical sandwich are compared with the package curve on 20 replicates of the scenario. A mismatch of the curve is a defect. The defect is fixed, and the study is regenerated under a fresh declaration commit |
 | 3 | rule 2 finds agreement | the cell is rerun at $n = 4000$ with 5,000 replicates. It is published red with owner `X26-plugin-finite-sample` and the reading "finite-sample, contracting" or "finite-sample, not contracting at n=4000" |
-| 4 | the reading of a red positive cell | the cell is finite-sample only when its 99% SE-ratio interval contains 1, its coverage is consistent with 0.95, and the diagnosis finds no defect. Any other red positive cell is a defect suspect, except a cell that rule 7 reads |
+| 4 | the reading of a red positive cell | the cell is finite-sample only when its 99% SE-ratio interval contains 1, its coverage is consistent with 0.95, and the diagnosis finds no defect. Any other red positive cell is a defect suspect, except a red cell that rule 7 or rule 8 reads |
 | 5 | a control that does not leave the band | the control is reported as "control underpowered", with its ratio |
 | 6 | the corrected $\nu^2$ rows | the rows are measured and not claimed. A shortfall in them opens no red cell |
 | 7 | a cell that is green on the complete case and red only through `worst case fails` | the cell reads "refusal-limited" with owner `X26-refusal-limited`. It publishes the number of lost replicates, the complete-case value, the worst-case value and the refusal rate of each key in `refusal-reading.csv`. It is not a defect suspect under rule 4 |
+| 8 | a red positive cell that clears both bands from below | the cell reads "conservative" with owner `X26-plugin-conservative`. Its 99% SE-ratio interval has a lower endpoint of at least 0.93. Its 99% coverage interval has a lower endpoint of at least 0.92. Its SE ratio is at least 1 and its coverage is at least 0.95. Rule 2 runs first, and a mismatch is a defect. With agreement, the $n = 4000$ rerun of rule 3 gives the reading "conservative, contracting" or "conservative, not contracting at n=4000". The plain influence variance omits the second-order variance term that the owner dropped on 2026-10-16, so the study expects this reading for cross-fitted cells. It is not a defect suspect under rule 4 |
 
 The study declares no red cell before the run. The failure bound stays at 0.01 and the margins
 stay as declared. A cell that loses more than 1 percent of its replicates ends with the verdict
 `bound exceeded`, and the run reads that verdict like any other. The new pilot reads the design
-first, and the declaration changes only under a fresh declaration commit.
+first, and the declaration changes only under a fresh declaration commit. Rule 8 is a reading
+rule. It changes no law, learner, margin, replicate count or cell.
 
-The owner rows of the roadmap name the ids `X26-plugin-finite-sample` and `X26-refusal-limited`
-before the documentation pull request.
+The owner rows of the roadmap name the ids `X26-plugin-finite-sample`, `X26-plugin-conservative`
+and `X26-refusal-limited`.
 
 ## Limitations
 
@@ -265,7 +298,7 @@ before the documentation pull request.
 | One sample size and one strength | The row covers $n = 1000$ and $c_Y = c_D = 0.5$, $\rho = 1$. The registered property loop has one sample size. The diagnostic `tests/diagnostics/x26_crossfit_bias` covers $n = 4000$ for the balanced law, in sample and cross-fitted. This study has no $n = 4000$ arm |
 | The ridge scenarios use $C = 1$ only | The predicted first-order shrinkage of $\nu^2$ is at most 0.05 of its standard error on the binary law |
 | Point treatment only | The bound refuses longitudinal fits, so the row covers none |
-| Run cost | The declared run costs about 68 CPU hours at 10,000 replicates. The fit of a parameter takes 0.1 s in sample and 1 s cross-fitted, and the bound engine dominates |
+| Run cost | The declared run costs about 15 to 17 CPU hours at 10,000 replicates in both phases. The cost comes from the second pilot, which took 530 s on 4 workers for 1,000 draws of the 8 scenarios. The multinomial cross-fitted scenario is about 40 percent of it. The $n = 4000$ reruns of rule 3 add about 3 to 5 CPU hours |
 
 ## Reproduction
 
