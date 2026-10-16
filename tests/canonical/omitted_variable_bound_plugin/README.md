@@ -9,13 +9,12 @@ upper bound with the standard error read back off the reported limit.
 | scenario | law and fit |
 | --- | --- |
 | `binary_logistic` | `make_linear_ate(n=1000)`, in-sample TMLE, `LogisticRegression(C=numpy.inf)` |
-| `binary_logistic_crossfit` | the same with five folds and `q_bounds=(-40.0, 45.0)` |
 | `binary_logistic_ridge` | the same as `binary_logistic` with `LogisticRegression(max_iter=1000)`, so `C = 1` |
 | `multinomial_logistic` | the three-arm law of the study module, in-sample, `LogisticRegression(C=numpy.inf)` |
 | `binary_known` | `make_linear_ate(n=1000)` with its own mechanism declared through `treatment_probabilities=` |
 
 The strength is `cf_y = 0.5`, `cf_d = 0.5` and `rho = 1`. The property study holds one
-`interval_calibration` family with 45 positive cells, 24 `inflated_se_control` cells and 6
+`interval_calibration` family with 36 positive cells, 18 `inflated_se_control` cells and 6
 `shrunken_se_control` cells. No canonical implementation is compared, so `equivalence.csv` is
 empty and schema-valid.
 

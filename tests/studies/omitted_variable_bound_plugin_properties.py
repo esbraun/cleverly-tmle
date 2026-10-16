@@ -1,7 +1,7 @@
 """Interval calibration of the plug-in omitted-variable bound's standard error (X26).
 
 One family, ``interval_calibration``.  Each scenario has a positive cell for each row
-(``nu2``, ``lower``, ``upper``) of each parameter: 5 scenarios x 3 parameters x 3 rows = 45
+(``nu2``, ``lower``, ``upper``) of each parameter: 4 scenarios x 3 parameters x 3 rows = 36
 cells.  Every cell of a scenario reads the same draws, and one fit per draw gives all of its
 rows, so a control and its positive cell differ only in the curve their standard error
 comes from.
@@ -10,7 +10,7 @@ The controls are on the ATT and the ATC.  At a correct model the ATE's mechanism
 reflects its second-moment term and keeps the variance (plan section 3.4), so an ATE control
 could not fail.
 
-* ``inflated_se_control`` (24 cells, the four estimated-mechanism scenarios): the package
+* ``inflated_se_control`` (18 cells, the three estimated-mechanism scenarios): the package
   curve minus the mechanism term this study rebuilt.  The predicted ratios are about 2.6 for
   ``nu2`` and 1.17 to 1.24 for the bounds, so the interval must rise above the band.
 * ``shrunken_se_control`` (6 cells, ``binary_known``): the package curve plus the mechanism

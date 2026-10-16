@@ -476,14 +476,12 @@ ARMS.update(
 #: cell resolves.
 _PLUGIN_SCENARIOS = {
     "binary_logistic": "in-sample logistic mechanism",
-    "binary_logistic_crossfit": "cross-fitted logistic mechanism",
     "binary_logistic_ridge": "logistic mechanism with a fixed L2 penalty, C = 1",
     "multinomial_logistic": "three-arm multinomial logistic mechanism",
     "binary_known": "declared known mechanism",
 }
 _PLUGIN_PARAMETERS = {
     "binary_logistic": ("ate", "att", "atc"),
-    "binary_logistic_crossfit": ("ate", "att", "atc"),
     "binary_logistic_ridge": ("ate", "att", "atc"),
     "multinomial_logistic": ("ate_2v0", "att_2v0", "atc_1v0"),
     "binary_known": ("ate", "att", "atc"),
@@ -759,10 +757,6 @@ SCENARIOS: dict[str, str] = {
     "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
     "binary_logistic": (
         "`make_linear_ate`, in-sample TMLE with an unpenalized logistic treatment model"
-    ),
-    "binary_logistic_crossfit": (
-        "`make_linear_ate`, five-fold cross-fitted TMLE with an unpenalized logistic treatment "
-        "model"
     ),
     "binary_logistic_ridge": (
         "`make_linear_ate`, in-sample TMLE with a logistic treatment model under a fixed L2 "

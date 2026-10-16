@@ -35,15 +35,9 @@ run.
 | scenario | fit | parameters |
 | --- | --- | --- |
 | `binary_logistic` | in-sample TMLE, `LogisticRegression(C=numpy.inf, max_iter=2000)` | ATE, ATT, ATC |
-| `binary_logistic_crossfit` | the same with `cross_fit=True`, `n_folds=5` and `q_bounds=(-40.0, 45.0)` | ATE, ATT, ATC |
 | `binary_logistic_ridge` | in-sample TMLE, `LogisticRegression(max_iter=1000)`, so $C = 1$ | ATE, ATT, ATC |
 | `multinomial_logistic` | in-sample TMLE, `LogisticRegression(C=numpy.inf, max_iter=2000)`, reference arm 0 | ATE and ATT of arm 2 versus 0, ATC of arm 1 versus 0 |
 | `binary_known` | in-sample TMLE with the law's own mechanism declared through `treatment_probabilities=` | ATE, ATT, ATC |
-
-A cross-fitted continuous outcome needs a declared outcome support. The outcome of
-`make_linear_ate` has arm means 2 and 3.5 and a normal spread with standard deviation 1.746.
-Each declared bound lies more than 23 standard deviations from both arm means, so no draw
-reaches it.
 
 The study does not use `make_multi_arm`. On that law $E[1/g^3]$ is about $e^{14}$, and the
 curve of $\nu^2$ has a standard deviation of about 709.
@@ -62,8 +56,8 @@ same draws, and one fit per draw gives every row of the scenario.
 
 | cell kind | cells | what the standard error reads | what must hold |
 | --- | --- | --- | --- |
-| `correctly_specified` | 45 | the package curve | the SE-ratio interval and the coverage interval lie inside their calibration bands |
-| `inflated_se_control` | 24 | the package curve minus the mechanism term that the study rebuilt, for the ATT and the ATC of the four estimated-mechanism scenarios | the SE-ratio interval lies above the band |
+| `correctly_specified` | 36 | the package curve | the SE-ratio interval and the coverage interval lie inside their calibration bands |
+| `inflated_se_control` | 18 | the package curve minus the mechanism term that the study rebuilt, for the ATT and the ATC of the three estimated-mechanism scenarios | the SE-ratio interval lies above the band |
 | `shrunken_se_control` | 6 | the known-mechanism curve plus the mechanism term of a study-side `LogisticRegression(C=numpy.inf)` fit, for the ATT and the ATC of `binary_known` | the SE-ratio interval lies below the band |
 
 The ATE has no control. At a correct model its mechanism term reflects the second-moment term,
@@ -74,7 +68,7 @@ which keeps the variance. The exact-law tests carry the ATE term.
 | design quantity | value |
 | --- | --- |
 | property replicates per cell | 10,000. The smallest multiple of 400 that reaches a family-wise pass probability of 0.95 under perfect calibration is 3,600 |
-| that pass probability | above 0.999 at 10,000, also at true SE ratios of 0.98 and 1.02. At 3,600 it is 0.964, and 0.07 to 0.15 at those ratios |
+| that pass probability | above 0.999 at 10,000, also at true SE ratios of 0.98 and 1.02. At 3,600 it is 0.971, and 0.12 to 0.22 at those ratios |
 | predicted control ratios | 2.24 to 2.62 for $\nu^2$ and 1.17 to 1.24 for a bound (inflated), 0.38 for $\nu^2$ and 0.85 for a bound (shrunken) |
 | primary replicates per scenario | 10,000 |
 
@@ -102,6 +96,7 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 | limitation | what it means for use |
 | --- | --- |
 | The row publishes under the reporting policy, not gated | The fast tier recomputes each verdict and does not fail on a red one |
+| Cross-fitted fits refuse the limits | The package refuses the plug-in limits on a cross-fitted mechanism (reason `cross_fit`). The diagnostic `tests/diagnostics/x26_crossfit_bias` fitted the removed cross-fitted scenario on the binary law. At $n = 1000$ the ATE $\nu^2$ interval covered 0.8845 (99% interval 0.865 to 0.902) and the estimate sat 1.44 empirical standard deviations above the truth. The in-sample fit on the same draws covered 0.969 with a bias of 0.43 standard deviations. At $n = 4000$ the cross-fitted coverage was 0.914 and the bias 0.84 standard deviations. Use `nu2_estimator="doubly_robust"` on a cross-fitted fit |
 | There is no cross-implementation evidence | No maintained implementation reports limits for the plug-in $\nu^2$ |
 | Correctly specified mechanisms only | Each logistic model is correct for its law. A misspecified model covers $\nu^2$ of its own limit, which the study does not test |
 | No truncation is active | The binary law moves a cell with probability below $10^{-21}$ per row. The three-arm law moves one with probability $7 \times 10^{-7}$ per row. The exact-law witness covers an active clip |

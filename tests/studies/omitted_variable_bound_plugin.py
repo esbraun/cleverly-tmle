@@ -16,12 +16,6 @@ bound, with the standard error read back off the reported limit as in the RM22 s
 ``binary_logistic``
     :func:`cleverly.datasets.make_linear_ate` at ``n = 1000``.  In-sample TMLE, a
     ``LinearRegression`` outcome and ``LogisticRegression(C=numpy.inf, max_iter=2000)``.
-``binary_logistic_crossfit``
-    The same with ``cross_fit=True, n_folds=5``.  A cross-fitted continuous outcome needs a
-    declared outcome support, so the fit passes ``q_bounds=(-40.0, 45.0)``.  The outcome is
-    ``2 + 1.5 A`` plus a normal term with standard deviation ``sqrt(3.05)``, about 1.746, so
-    each bound lies more than 23 standard deviations from both arm means.  No draw reaches it,
-    and the bounds only fix the scale of the logistic fluctuation.
 ``binary_logistic_ridge``
     The same as ``binary_logistic`` with ``LogisticRegression(max_iter=1000)``: a fixed L2
     penalty with ``C = 1``, the idiom of the documentation.
@@ -37,6 +31,10 @@ bound, with the standard error read back off the reported limit as in the RM22 s
     ``make_linear_ate`` with its own mechanism,
     ``cleverly.datasets.synthetic.linear_dgp().propensity``, declared through
     ``treatment_probabilities=``.  The plug-in then has no mechanism term.
+
+No scenario cross-fits.  The package refuses the plug-in limits on a cross-fitted mechanism,
+because out-of-fold :math:`E_n[\hat\alpha^2]` carries a second-order bias that the curve does
+not cover.  ``tests/diagnostics/x26_crossfit_bias`` holds the evidence.
 
 **The truths.**  ``sigma^2 = 1`` on every law.  On ``make_linear_ate`` the closed forms of the
 RM22 study hold: :math:`\nu^2 = 2 + 2e^{0.07}` for the ATE and :math:`4e^{0.07}` for the ATT
@@ -107,7 +105,6 @@ MULTINOMIAL_PARAMETERS: dict[str, tuple[str, str, float, float]] = {
 }
 PARAMETERS: dict[str, dict[str, tuple[str, str, float, float]]] = {
     "binary_logistic": BINARY_PARAMETERS,
-    "binary_logistic_crossfit": BINARY_PARAMETERS,
     "binary_logistic_ridge": BINARY_PARAMETERS,
     "multinomial_logistic": MULTINOMIAL_PARAMETERS,
     "binary_known": BINARY_PARAMETERS,
@@ -116,7 +113,6 @@ PARAMETERS: dict[str, dict[str, tuple[str, str, float, float]]] = {
 #: The scenarios whose mechanism is fitted, so the curve carries a mechanism term.
 ESTIMATED = (
     "binary_logistic",
-    "binary_logistic_crossfit",
     "binary_logistic_ridge",
     "multinomial_logistic",
 )
@@ -192,9 +188,6 @@ STUDY = StudyRecord(
     publication_policy="reporting",
 )
 
-#: The declared outcome support of the cross-fitted scenario.  See the module docstring.
-CROSSFIT_Q_BOUNDS = (-40.0, 45.0)
-
 CONFIGURATION = {
     "laws": {
         "binary": "make_linear_ate(n=1000): W ~ N(0, I_4), g = expit(0.3 W1 - 0.2 W2 + 0.1 W3), "
@@ -205,8 +198,6 @@ CONFIGURATION = {
     "fits": {
         "binary_logistic": "in-sample TMLE, LinearRegression outcome, "
         "LogisticRegression(C=inf, max_iter=2000)",
-        "binary_logistic_crossfit": "the same with cross_fit=True, n_folds=5, "
-        "q_bounds=(-40.0, 45.0)",
         "binary_logistic_ridge": "the same as binary_logistic with "
         "LogisticRegression(max_iter=1000), so C = 1",
         "multinomial_logistic": "in-sample TMLE, LinearRegression outcome, "
@@ -408,18 +399,14 @@ def fit(frame: pd.DataFrame, scenario: str) -> Any:
             )
             .single()
         )
-    crossfit = scenario == "binary_logistic_crossfit"
-    options: dict[str, Any] = {"cross_fit": crossfit}
-    if crossfit:
-        options.update(n_folds=5, q_bounds=CROSSFIT_Q_BOUNDS)
     return (
         TMLE(
             outcome_learner=LinearRegression(),
             treatment_learner=_treatment_learner(scenario),
+            cross_fit=False,
             simultaneous=False,
             estimands=estimands,
             random_state=0,
-            **options,
         )
         .fit(frame, outcome="Y", treatment="A")
         .single()

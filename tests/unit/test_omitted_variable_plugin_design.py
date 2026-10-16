@@ -5,8 +5,7 @@ seconds.  Nothing reads a study replicate, and nothing calls the package's curve
 population curve of :math:`\hat\nu^2` is built here from the law: the second-moment term
 :math:`\alpha^2 - \nu^2`, the share term of the ATT and the ATC, and the mechanism term
 :math:`D J^{-1} s` of a correctly specified logistic model, with :math:`s` the score,
-:math:`J` the information and :math:`D = E[2 \alpha\, \partial_\theta \alpha]`.  A cross-fitted
-fit has the same population curve as an in-sample one.  Each bound's curve is
+:math:`J` the information and :math:`D = E[2 \alpha\, \partial_\theta \alpha]`.  Each bound's curve is
 :math:`\alpha \varepsilon \mp \kappa (\psi_{\nu^2} + \nu^2 (\varepsilon^2 - 1)) / (2 \nu)` at
 :math:`\sigma^2 = 1`, with :math:`\kappa` the strength.
 
@@ -302,11 +301,11 @@ def family_pass_probability(replicates: int, ratio: float = 1.0) -> float:
 
 
 def test_the_declared_cells_are_the_design() -> None:
-    """45 positive cells, 24 inflated controls and 6 shrunken controls, all described."""
+    """36 positive cells, 18 inflated controls and 6 shrunken controls, all described."""
     declared = study.PROPERTY_CELLS["interval_calibration"]
     kinds = [cell.rsplit("__", 1)[1] for cell in declared]
-    assert kinds.count("correctly_specified") == 45
-    assert kinds.count("inflated_se_control") == 24
+    assert kinds.count("correctly_specified") == 36
+    assert kinds.count("inflated_se_control") == 18
     assert kinds.count("shrunken_se_control") == 6
     positives, controls = cells()
     assert {cell.name for cell in (*positives, *controls)} == set(declared)
@@ -422,7 +421,7 @@ def test_no_law_truncates_a_cell() -> None:
 def test_the_controls_leave_the_band_with_power() -> None:
     """(c) Every control leaves the band with power of at least 0.9 at the declared R."""
     _, controls = cells()
-    assert len(controls) == 30
+    assert len(controls) == 24
     for cell in controls:
         assert control_power(properties.PROPERTY_REPLICATES, cell) >= CONTROL_POWER_FLOOR, cell
     inflated = [c.ratio for c in controls if c.name.endswith("inflated_se_control")]
@@ -490,9 +489,9 @@ def test_the_ridge_shrinkage_is_below_the_gate() -> None:
 def test_the_property_replicates_follow_the_sizing_rule() -> None:
     """(f) R reaches family-wise pass probability 0.95, and exceeds the minimal R.
 
-    The minimal multiple of 400 is 3,600 (0.964), and 3,200 gives 0.889.  The study declares
+    The minimal multiple of 400 is 3,600 (0.971), and 3,200 gives 0.909.  The study declares
     the plan's 10,000 instead.  A miscalibration of 2 % drops the chance at 3,600 to between
-    0.07 and 0.15, and at 10,000 it stays above 0.999.  The run costs about one CPU-hour.
+    0.12 and 0.22, and at 10,000 it stays above 0.999.  The run costs about one CPU-hour.
     """
     replicates = properties.PROPERTY_REPLICATES
     assert replicates % REPLICATE_GRAIN == 0
