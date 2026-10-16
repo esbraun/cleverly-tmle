@@ -287,6 +287,12 @@ The Hotelling reference corrects the
 reference law of the check. It does not correct the `LTMLE` interval. At few effective degrees of
 freedom the check has little power, and `reference_df` reports how few.
 
+| item on `SP` | value |
+| --- | --- |
+| model-check fit order | order 2 for the outcome and the treatment. The node-2 outcome regression is therefore inexact. The size null still holds by double robustness, because the treatment regression is exact |
+| difference standard error | about 11% above its sampling SD. The ratio is 1.114 (SE 0.039) with outcome order 3 and 1.127 (SE 0.040) with outcome order 2. Each reading uses 400 draws at `n = 2,000` and two folds |
+| reading | a non-rejection on `SP` carries less information than the nominal level suggests |
+
 | item | rule |
 | --- | --- |
 | scope | discrete static regimens. The fit and the nonparametric fit must show an interval |
@@ -396,6 +402,11 @@ No registered study exists yet. Until the container phase runs, the method has n
 evidence and no comparator replicates. The model check has no size or power cell.
 The fits read experimental until the X44 study is registered. The study registration then adds
 support rows for the cells it covers, and only those fits read `supported`.
+
+The X44 law `N` fits its nuisances with a gradient booster. The booster stops early on a validation
+split. No general proof gives its rate. The claim that the rate suffices rests on a probe of this law.
+At `n = 128,000` and `n = 512,000`, with 24 draws each, the bias over the standard error of each `N`
+estimand is consistent with 0.
 
 ## Sources
 

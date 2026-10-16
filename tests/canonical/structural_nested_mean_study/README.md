@@ -33,6 +33,9 @@ with 24 draws at each size. At both sizes, the bias of each `N` estimand is less
 reported SE, and each 99% interval contains zero. The fixed booster of an earlier draft fails
 this check at n = 512,000.
 
+No general proof gives the rate of this booster. The claim that the rate suffices rests on this
+probe of law `N`, and it holds for this law only.
+
 The calibration cells run 8,000 replicates each. A sizing rule gives this count. The rule takes
 the smallest multiple of 400 at which all 61 cells pass with a chance of at least 0.95. The
 rule takes the true SE ratio of each cell from its own pilot, shrunk toward the mean of its setup.
@@ -42,6 +45,11 @@ At 8,000 replicates, the family passes with a chance of 0.952.
 The `positivity_reporting` fits of `SP` use outcome order 3 and treatment order 2. At these
 orders, each nuisance regression is exact. The model-check fits use order 2 for both roles.
 A pilot of 1,000 draws at n = 2,000 shows no fit failure.
+
+Order 2 leaves the node-2 outcome regression of `SP` inexact. The size null still holds by double
+robustness, because the treatment regression is exact. On `SP` the standard error of the
+model-check difference reads about 11% above its sampling SD, with outcome order 2 or 3. A
+non-rejection on `SP` therefore carries less information.
 
 ## Run
 
