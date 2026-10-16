@@ -1961,6 +1961,33 @@ def _gap_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+def _plugin_limit_cases() -> tuple[RowCase, ...]:
+    """The cases of ``omitted-variable-bound-plugin-se`` (X26): each scenario runs the study's fit."""
+    where = "omitted_variable_bound_plugin.py:612"
+    module = "omitted_variable_bound_plugin"
+    return tuple(
+        _observed(
+            row,
+            "omitted-variable-bound-plugin-se",
+            scenario,
+            where,
+            module,
+            lambda study, scenario=scenario: study.draw_from_seed(scenario, 400, 0)[0],
+            lambda study, frame, scenario=scenario: study.fit(frame, scenario),
+        )
+        for row, scenario in (
+            ("T01.continuous", "binary_logistic"),
+            ("T01.continuous", "binary_logistic_ridge"),
+            ("T01.continuous", "binary_unbalanced"),
+            ("T02.continuous", "binary_logistic_crossfit"),
+            ("T02.continuous", "binary_logistic_ridge_crossfit"),
+            ("T36.three_arm", "multinomial_logistic"),
+            ("T36.three_arm_stacked", "multinomial_logistic_crossfit"),
+            ("T36.known", "binary_known"),
+        )
+    )
+
+
 def _vector_cases() -> tuple[RowCase, ...]:
     """The ``vector-mtp`` cases: a primary scenario fit, or a calibration cell's fit (X31)."""
     slug = "vector-mtp"
@@ -2119,6 +2146,7 @@ CASES: tuple[RowCase, ...] = (
     *_d_cases(),
     *_c_cases(),
     *_gap_cases(),
+    *_plugin_limit_cases(),
     *_long_cases(),
     *_vector_cases(),
     *_continuous_dose_cases(),

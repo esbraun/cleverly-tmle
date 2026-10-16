@@ -278,6 +278,88 @@ def _guard(*names: str) -> dict[str, Any]:
     return {"guard": tuple(names)}
 
 
+_PLUGIN_STUDY = "omitted-variable-bound-plugin-se"
+_PLUGIN_LIMIT = (
+    "The cells calibrate the interval of the plug-in omitted-variable limits, for a treatment "
+    "mechanism that is a LogisticRegression or is declared known (X26). They do not calibrate "
+    "the Wald interval of the effect."
+)
+
+
+def _plugin_cells(scenario: str, parameters: Sequence[str]) -> list[str]:
+    """The positive calibration cells of one scenario of ``omitted-variable-bound-plugin-se``."""
+    return [
+        f"interval_calibration/{scenario}_{parameter}_{bound}__correctly_specified"
+        for parameter in parameters
+        for bound in ("lower", "upper")
+    ]
+
+
+def _plugin_limit_rows() -> list[SupportRow]:
+    """The rows of the plug-in omitted-variable limit study (X26), one per key it fits.
+
+    The study fits an ordinary TMLE with a ``LinearRegression`` outcome and the ATE, the ATT and
+    the ATC, in sample and cross-fitted, at two arms and at three. The treatment mechanism is a
+    ``LogisticRegression`` or a declared known mechanism. The ridge, the unbalanced and the
+    cross-fitted ridge scenarios share the key of a balanced logistic scenario. The two-arm
+    in-sample and cross-fitted keys therefore add the study to ``T01.continuous`` and
+    ``T02.continuous`` (:func:`_plugin_evidence`), and the three keys that no earlier row covers
+    are the rows below. The key reads neither the learner class, the penalty nor the truncation
+    bounds of the treatment mechanism, so ``_PLUGIN_LIMIT`` states what the cells cover.
+    """
+    families = ("P1", "P3")
+    three = ("ate_2v0", "att_2v0", "atc_1v0")
+    return [
+        point_row(
+            "T36.three_arm",
+            [_PLUGIN_STUDY],
+            families=families,
+            outcome=CONTINUOUS,
+            treatment=("arms3",),
+            cells=_plugin_cells("multinomial_logistic", three),
+            limits=[_PLUGIN_LIMIT],
+        ),
+        point_row(
+            "T36.three_arm_stacked",
+            [_PLUGIN_STUDY],
+            families=families,
+            outcome=BOUNDED,
+            treatment=("arms3",),
+            splitting=("stacked",),
+            cells=_plugin_cells("multinomial_logistic_crossfit", three),
+            limits=[_PLUGIN_LIMIT],
+        ),
+        point_row(
+            "T36.known",
+            [_PLUGIN_STUDY],
+            families=families,
+            outcome=CONTINUOUS,
+            qualifiers=["known_mechanism"],
+            cells=_plugin_cells("binary_known", ("ate", "att", "atc")),
+            limits=[_PLUGIN_LIMIT],
+        ),
+    ]
+
+
+def _plugin_evidence(rows: Iterable[SupportRow]) -> list[SupportRow]:
+    """Add ``omitted-variable-bound-plugin-se`` to the two-arm rows that its fits land on."""
+    scenarios = {
+        "T01.continuous": ("binary_logistic", "binary_logistic_ridge", "binary_unbalanced"),
+        "T02.continuous": ("binary_logistic_crossfit", "binary_logistic_ridge_crossfit"),
+    }
+    out = []
+    for row in rows:
+        if row.id in scenarios:
+            cells = [
+                cell
+                for scenario in scenarios[row.id]
+                for cell in _plugin_cells(scenario, ("ate", "att", "atc"))
+            ]
+            row = replace(row, evidence=(*row.evidence, _PLUGIN_STUDY), cells=(*row.cells, *cells))
+        out.append(row)
+    return out
+
+
 def _t_rows() -> tuple[SupportRow, ...]:
     """Ordinary TMLE (``T`` rows)."""
     boot: frozenset[Kind] = frozenset({"point", "wald", "bootstrap", "derived"})
@@ -706,6 +788,8 @@ def _t_rows() -> tuple[SupportRow, ...]:
             cells=["point_vector_categorical"],
         )
     )
+    rows += _plugin_limit_rows()
+    rows = _plugin_evidence(rows)
     return _merged(
         rows,
         {
@@ -1238,6 +1322,12 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
 #: (``tests/studies/evidence/support_dispositions.py`` holds the decision of each cell). The
 #: row note prints each sentence after the limits of the row itself.
 MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
+    "T36.three_arm_stacked": (
+        "X26-plugin-conservative: coverage 0.9556 to 0.9657, SE ratio 1.0332 to 1.0723, "
+        "failures 32 of 10000 (complete case fails)",
+        "X26-refusal-limited: coverage 0.9568 to 0.9667, SE ratio 1.0288 to 1.0683, "
+        "failures 32 of 10000 (worst case fails)",
+    ),
     "C02.greedy": ("RM18-boundary: bias 0.0010, coverage 0.8965 to 0.9627, SE ratio 0.9892",),
     "D01": ("RM18-boundary: coverage 0.8864 to 0.9385, bias 0.0115",),
     "D02": (
