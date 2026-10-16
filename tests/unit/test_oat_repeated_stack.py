@@ -3,7 +3,8 @@
 A fit with ``repeats=3`` reports the median of three cross-fitted draws with the
 split-adjusted variance. Each draw keeps its own status, standard error, curve and shipped
 standard error in ``RepeatFit.inference``. A parameter status of one draw passes to the
-median; different fit statuses across draws still raise. Each witness has a
+median; different fit statuses across draws still raise, also beside a parameter status
+(GUARD_STATUSES). Each witness has a
 deliberate-mutation control that fails when its term is wrong.
 """
 
@@ -17,6 +18,7 @@ import numpy as np
 import pytest
 
 import cleverly
+from cleverly._inference_status import PARAMETER_STATUSES
 from cleverly.estimators import CTMLE, _oat_stack
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators._oat_stack import corrected_curves, fitted_stack
@@ -102,6 +104,18 @@ class TestRW1PerDrawIdentity:
             assert repeated[name].psi == pytest.approx(combined[name].psi, rel=1e-12)
             assert repeated[name].std_error == pytest.approx(combined[name].std_error, rel=1e-12)
 
+    @pytest.mark.parametrize("draw", [0, 1, 2])
+    def test_fitted_stack_reads_the_requested_draw(
+        self, repeated: Any, singles: list[Any], draw: int
+    ) -> None:
+        """m3: ``fitted_stack(result, draw=r)`` is the stack of the single fit at draw r's seed."""
+        np.testing.assert_allclose(
+            fitted_stack(repeated, draw=draw).theta,
+            fitted_stack(singles[draw]).theta,
+            rtol=1e-12,
+            atol=1e-15,
+        )
+
     def test_mutation_every_draw_reads_draw_zero(self, repeated: Any, singles: list[Any]) -> None:
         stack = fitted_stack(repeated, draw=0)
         curves = corrected_curves(stack.problem, stack.theta).curves * stack.scale
@@ -182,35 +196,107 @@ class TestRW2StatusPrecedence:
         assert [draw["ey1"].status for draw in mutant] != _draw_statuses(failed, "ey1")
 
 
-def _second_draw_status(monkeypatch: pytest.MonkeyPatch, status: str) -> None:
-    """Stamp ``status`` on every estimate of the second draw's targeting."""
+def _draw_status(
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    draw: int = 1,
+    names: tuple[str, ...] | None = None,
+) -> None:
+    """Stamp ``status`` on draw ``draw``'s estimates (0-based), on ``names`` or on every one."""
     original = CTMLE._retarget_detailed
     calls: list[int] = []
 
     def stamping(self: CTMLE, *args: Any, **kwargs: Any) -> Any:
         estimates, fluctuations, detail = original(self, *args, **kwargs)
-        if not ctmle_module._SHIPPED.get():
-            calls.append(1)
-            if len(calls) == 2:
-                estimates = {
-                    name: replace(estimate, inference=status)
-                    for name, estimate in estimates.items()
-                }
+        calls.append(1)
+        if len(calls) == draw + 1:
+            estimates = {
+                name: replace(estimate, inference=status)
+                if names is None or name in names
+                else estimate
+                for name, estimate in estimates.items()
+            }
         return estimates, fluctuations, detail
 
     monkeypatch.setattr(CTMLE, "_retarget_detailed", stamping)
+
+
+#: The draw statuses that reach the fit-status guard of the restamp (M1): one draw holds a
+#: parameter status, and another draw holds a fit status other than ``"influence_curve"``.
+GUARD_STATUSES = ("influence_curve", "stack_failure_plugin", "generated_design_plugin")
+#: The estimates that read arm 1, whose stack ``_fail_second_draw`` fails.
+FAILED = ("ey1", "ate")
+
+
+def _guard_draws(repeated: Any) -> list[dict[str, Any]]:
+    """Three draws of ``repeated``'s estimates whose ``ate`` carries :data:`GUARD_STATUSES`."""
+    return [
+        {
+            **repeated.estimates,
+            "ate": replace(repeated.estimates["ate"], inference=status),
+        }
+        for status in GUARD_STATUSES
+    ]
+
+
+def _restamp_without_guard(per_repeat: Any) -> list[dict[str, Any]]:
+    """Mutation [15]: the restamp without its fit-status guard."""
+    out = [dict(report) for report in per_repeat]
+    for name in out[0]:
+        statuses = [report[name].inference for report in out]
+        if not any(status in PARAMETER_STATUSES for status in statuses):
+            continue
+        status = influence_module.precedent_status(statuses)
+        for report in out:
+            report[name] = replace(report[name], inference=status)
+    return out
 
 
 class TestRW3FitStatusGuard:
     """RW3: draws with different fit statuses still raise in the median."""
 
     def test_different_fit_statuses_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _second_draw_status(monkeypatch, "generated_design_plugin")
+        _draw_status(monkeypatch, "generated_design_plugin")
         with pytest.raises(ValueError, match="different inference statuses"):
             _fit(laws.BINARY_ACTIVE.sample(1500, 71)[0], repeats=3)
 
+    def test_the_guard_keeps_every_status(self, repeated: Any) -> None:
+        """M1, function level: a parameter status beside another fit status is not restamped."""
+        out = influence_module.restamp_parameter_statuses(_guard_draws(repeated))
+        assert [report["ate"].inference for report in out] == list(GUARD_STATUSES)
+        with pytest.raises(ValueError, match="different inference statuses"):
+            median_estimates(out)
+
+    def test_mutation_the_guard_dropped(self, repeated: Any) -> None:
+        """Mutation [15] restamps the three draws to one status, so the median returns."""
+        out = _restamp_without_guard(_guard_draws(repeated))
+        assert len({report["ate"].inference for report in out}) == 1
+        median_estimates(out)
+
+    def test_a_failed_draw_beside_another_fit_status_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """M1, fit level: draw 2 fails arm 1's stack, and draw 3 stamps another fit status.
+
+        Draw 3 stamps only the estimates that read arm 1, so ``ey0`` agrees over the draws
+        and the median reaches the guard on ``ey1`` and ``ate``.
+        """
+        _fail_second_draw(monkeypatch)
+        _draw_status(monkeypatch, "generated_design_plugin", draw=2, names=FAILED)
+        with pytest.raises(ValueError, match="different inference statuses"):
+            _fit(laws.BINARY_ACTIVE.sample(1500, 71)[0], repeats=3)
+
+    def test_mutation_the_guard_dropped_in_the_fit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _fail_second_draw(monkeypatch)
+        _draw_status(monkeypatch, "generated_design_plugin", draw=2, names=FAILED)
+        monkeypatch.setattr(influence_module, "restamp_parameter_statuses", _restamp_without_guard)
+        result = _fit(laws.BINARY_ACTIVE.sample(1500, 71)[0], repeats=3)
+        expected = influence_module.precedent_status(list(GUARD_STATUSES))
+        assert result["ate"].inference == expected
+        assert result["ey1"].inference == expected
+
     def test_mutation_restamp_over_every_status(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        _second_draw_status(monkeypatch, "generated_design_plugin")
+        _draw_status(monkeypatch, "generated_design_plugin")
 
         def over_every(per_repeat: Any) -> list[dict[str, Any]]:
             out = [dict(report) for report in per_repeat]

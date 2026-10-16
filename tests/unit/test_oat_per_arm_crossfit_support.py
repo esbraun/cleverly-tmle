@@ -110,12 +110,12 @@ class TestTheAdmittedValues:
     def test_three_repeats(self) -> None:
         verdict = _verdict(repeats=3)
         assert verdict.admitted
-        assert "with 3 repeats" in verdict.detail
+        assert "the per-arm fit, cross-fitted over 5 folds with 3 repeats, with" in verdict.detail
 
     def test_in_sample_is_unchanged(self) -> None:
         verdict = _verdict(cross_fit=False, n_folds=7)
         assert verdict.admitted
-        assert verdict.detail.startswith("the in-sample per-arm fit")
+        assert verdict.detail.startswith("the per-arm fit, in sample, with")
 
     def test_every_estimate_supplies_inference(self, crossfit: Any, repeated: Any) -> None:
         for result in (crossfit, repeated):
@@ -278,8 +278,37 @@ class TestTheEstimandResolution:
     def test_the_binary_default_is_refused_by_the_estimator_first(self) -> None:
         verdict = _verdict(estimands=None)
         assert verdict.axis == "estimands"
+        # m6: the detail names the estimands that fail, and no X58 part holds att or atc.
+        assert verdict.detail.endswith("got atc, att")
+        assert "part (b)" not in verdict.detail
         with pytest.raises(Exception, match="att"):
             _fit(estimands=None)
+
+
+class TestTheCaughtErrors:
+    """m7: only a record error of the stack becomes a failed arm; any other error propagates."""
+
+    def test_a_missing_record_fails_every_arm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from cleverly.estimators import ctmle as ctmle_module
+
+        def missing(*args: Any, **kwargs: Any) -> Any:
+            raise _oat_stack.StackRecordError("the nuisances carry no stack record")
+
+        monkeypatch.setattr(ctmle_module, "stack_from_fit", missing)
+        result = _fit(estimands=("ey0", "ey1", "ate"))
+        assert {result[name].inference for name in ("ey0", "ey1", "ate")} == {
+            "stack_failure_plugin"
+        }
+
+    def test_a_defect_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from cleverly.estimators import ctmle as ctmle_module
+
+        def defect(*args: Any, **kwargs: Any) -> Any:
+            raise ValueError("a shape defect")
+
+        monkeypatch.setattr(ctmle_module, "stack_from_fit", defect)
+        with pytest.raises(ValueError, match="a shape defect"):
+            _fit(estimands=("ey0", "ey1", "ate"))
 
 
 def _separated_frame(seed: int) -> pd.DataFrame:

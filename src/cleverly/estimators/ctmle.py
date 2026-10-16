@@ -330,7 +330,7 @@ from __future__ import annotations
 import copy
 import inspect
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -381,7 +381,13 @@ from ._nuisance import (
     cross_fit_predictions,
     fit_on_rows,
 )
-from ._oat_stack import FoldCoefficients, StackReport, stack_from_fit, stack_report
+from ._oat_stack import (
+    FoldCoefficients,
+    StackRecordError,
+    StackReport,
+    stack_from_fit,
+    stack_report,
+)
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
 from .tmle import TMLE
@@ -779,8 +785,11 @@ _PER_ARM_PARAMETRIC_DATA: Final[tuple[tuple[str, Callable[[CausalData], bool], s
 )
 
 
-#: The estimands the stacked per-arm interval covers. X58 part (b) holds the others.
+#: The estimands the stacked per-arm interval covers.
 STACKED_ESTIMANDS: Final[frozenset[str]] = frozenset({"ate", "rr", "or", "ey", "ey0", "ey1"})
+
+#: The estimands that X58 part (b) holds for the stacked interval.
+_PART_B_ESTIMANDS: Final[frozenset[str]] = frozenset({"ey_obs", "par", "paf"})
 
 #: The estimands of the :meth:`CTMLE._estimates_for` call in progress, so that
 #: :meth:`CTMLE._corrections` reads the stack only for a call the stack covers. A
@@ -791,9 +800,15 @@ _REQUESTED: ContextVar[tuple[str, ...] | None] = ContextVar("_REQUESTED", defaul
 #: call in progress, so the call reads one solve of the stack.
 _REPORT: ContextVar[list[StackReport | None] | None] = ContextVar("_REPORT", default=None)
 
-#: Set while :meth:`CTMLE._draw_inference` rebuilds a draw's uncorrected estimates: no fit
-#: reads the stack, so each estimate carries the shipped adaptive-propensity curve.
+#: Set while :meth:`CTMLE._estimates_for` builds a draw's uncorrected estimates from the same
+#: fluctuation: no call reads the stack, so each estimate carries the shipped
+#: adaptive-propensity curve.
 _SHIPPED: ContextVar[bool] = ContextVar("_SHIPPED", default=False)
+
+#: The shipped standard error of each estimand of the draw in progress. :meth:`CTMLE._targeted_draw`
+#: sets it for an admitted fit, and :meth:`CTMLE._estimates_for` fills it. A context variable
+#: is local to its thread, so a fit under ``n_jobs`` threads reads only its own draw.
+_SHIPPED_SE: ContextVar[dict[str, float] | None] = ContextVar("_SHIPPED_SE", default=None)
 
 
 def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdict:
@@ -862,6 +877,8 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
         )
     if estimator.cross_fit:
         folds = int(estimator.n_folds)
+        # ``n // folds`` is the smallest held-out fold of a balanced partition. The engine
+        # cross-fits only with stratify_folds="none", whose folds are balanced.
         smallest = data.n // folds if folds > 0 else 0
         if folds > MAX_STACK_FOLDS or smallest < MIN_STACK_FOLD_ROWS:
             return SupportVerdict(
@@ -894,23 +911,27 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
         return SupportVerdict(
             False, "estimands", f"the stacked interval needs estimands that resolve ({exc})"
         )
-    if not set(resolved) <= STACKED_ESTIMANDS:
+    outside = sorted(set(resolved) - STACKED_ESTIMANDS)
+    if outside:
+        held = [name for name in outside if name in _PART_B_ESTIMANDS]
         return SupportVerdict(
             False,
             "estimands",
-            "the stacked interval needs estimands among ate, rr, or and the arm means; "
-            "X58 part (b) holds ey_obs, par and paf",
+            "the stacked interval needs estimands among ate, rr, or and the arm means; got "
+            + ", ".join(outside)
+            + (f". X58 part (b) holds {', '.join(held)}" if held else ""),
         )
     splitting = (
-        f"cross-fitted over {estimator.n_folds} folds"
+        f", cross-fitted over {estimator.n_folds} folds"
         + (f" with {estimator.repeats} repeats" if estimator.repeats > 1 else "")
+        + ","
         if estimator.cross_fit
-        else "in-sample"
+        else ", in sample,"
     )
     return SupportVerdict(
         True,
         None,
-        f"the {splitting} per-arm fit with ParametricOutcome and ParametricMechanism on a "
+        f"the per-arm fit{splitting} with ParametricOutcome and ParametricMechanism on a "
         "binary treatment",
     )
 
@@ -1783,8 +1804,8 @@ default="greedy"
 
         An admitted fit whose nuisances do not carry the parametric coefficients, such as a
         retarget that perturbed them, fails on every arm rather than reading a curve built
-        from other arrays. While :meth:`_draw_inference` rebuilds a draw's uncorrected
-        estimates, no fit reads the stack.
+        from other arrays. While :meth:`_estimates_for` builds a draw's uncorrected
+        estimates, no call reads the stack.
         """
         if _SHIPPED.get() or not per_arm_parametric_support(self, data).admitted:
             return None
@@ -1804,7 +1825,7 @@ default="greedy"
                 (float(bounds[0]), float(bounds[1])),
                 float(self.alpha),
             )
-        except (KeyError, IndexError, ValueError, TypeError) as exc:
+        except StackRecordError as exc:
             reason = f"the fit does not carry the parametric coefficients the stack reads ({exc})"
             zeros = np.zeros(data.n)
             return StackReport(
@@ -1894,6 +1915,28 @@ default="greedy"
             report = (
                 reports[0] if reports else self._stack_report(data, nuisance, fluctuation, submodel)
             )
+            sink = _SHIPPED_SE.get()
+            if sink is not None and report is not None:
+                # The uncorrected estimates of the same fluctuation: one more estimate build,
+                # and no second targeting solve.
+                shipped_token = _SHIPPED.set(True)
+                try:
+                    shipped = super()._estimates_for(
+                        data,
+                        nuisance,
+                        group,
+                        submodel,
+                        fluctuation,
+                        requested,
+                        alpha_sig,
+                        reference,
+                        natural_course=natural_course,
+                    )
+                finally:
+                    _SHIPPED.reset(shipped_token)
+                sink.update(
+                    {name: float(np.sqrt(estimate.variance)) for name, estimate in shipped.items()}
+                )
         finally:
             _REPORT.reset(held_token)
             _REQUESTED.reset(token)
@@ -1927,52 +1970,49 @@ default="greedy"
             for name, estimate in estimates.items()
         }
 
-    def _draw_inference(
+    def _targeted_draw(
         self,
         data: CausalData,
-        estimates: Mapping[str, Any],
-        rebuild: Callable[[], Mapping[str, Any]],
-    ) -> dict[str, DrawInference]:
-        """One draw's record, with its stacked curve and its shipped standard error.
+        retarget: Callable[[], tuple[dict[str, Any], Any, Any]],
+    ) -> tuple[dict[str, Any], Any, Any, dict[str, DrawInference]]:
+        """Run one draw's targeting, and record its stacked curve and its shipped standard error.
 
-        On a fit that :func:`per_arm_parametric_support` admits, the draw's targeting runs
-        again with the stack switched off, so each rebuilt estimate carries the shipped
-        adaptive-propensity curve of that draw. Its standard error is the record's
-        ``shipped_se``. Every other fit keeps the ordinary record.
+        On a fit that :func:`per_arm_parametric_support` admits, :meth:`_estimates_for`
+        also builds each estimate without the stack correction, from the same fluctuation.
+        That estimate carries the shipped adaptive-propensity curve of the draw, and its
+        standard error is the record's ``shipped_se``. Every other fit keeps the ordinary
+        record.
 
         Parameters
         ----------
         data : CausalData
             The prepared data.
-        estimates : mapping of str to ParameterEstimate
-            The draw's reported estimates.
-        rebuild : callable
-            Reruns the draw's targeting and returns its estimates.
+        retarget : callable
+            Runs the draw's targeting once. It returns the estimates, the fluctuations and
+            the fold-level report.
 
         Returns
         -------
-        dict of str to DrawInference
-            One record per estimand.
+        tuple
+            The three values of ``retarget``, then one :class:`DrawInference` per estimand.
         """
-        records = super()._draw_inference(data, estimates, rebuild)
         if not per_arm_parametric_support(self, data).admitted:
-            return records
-        token = _SHIPPED.set(True)
+            return super()._targeted_draw(data, retarget)
+        shipped: dict[str, float] = {}
+        token = _SHIPPED_SE.set(shipped)
         try:
-            # The same targeting ran once already, and raised whatever warning it raises.
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                shipped = rebuild()
+            estimates, fluctuations, detail, records = super()._targeted_draw(data, retarget)
         finally:
-            _SHIPPED.reset(token)
-        return {
+            _SHIPPED_SE.reset(token)
+        record = {
             name: replace(
-                record,
+                entry,
                 curve=np.array(estimates[name].influence_curve, dtype=float),
-                shipped_se=(float(np.sqrt(shipped[name].variance)) if name in shipped else None),
+                shipped_se=shipped.get(name),
             )
-            for name, record in records.items()
+            for name, entry in records.items()
         }
+        return estimates, fluctuations, detail, record
 
     def _bootstrap_inferential(self, data: CausalData) -> bool:
         """Whether the full-refit bootstrap interval is published as inference.

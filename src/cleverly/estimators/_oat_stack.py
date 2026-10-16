@@ -622,6 +622,15 @@ MIN_BLOCK_RCOND = 1e-12
 MAX_TARGETED_GAP = 1e-10
 
 
+class StackRecordError(ValueError):
+    """The fit's stack record cannot be read: it is missing, of another type, or of another
+    fold count than the fit.
+
+    ``CTMLE._stack_report`` catches this error alone and reports every
+    arm as failed. Any other error of the stack is a defect, and it propagates.
+    """
+
+
 @dataclass(frozen=True)
 class FoldCoefficients:
     """The fitted coefficients of each fold's outcome model and each arm's mechanisms.
@@ -697,6 +706,9 @@ class FoldCoefficients:
         for k in range(folds):
             entry = outcome.get(k)
             if entry is None:
+                # An integrity check of the record, like the mechanism check below, and no
+                # refusal of a capability: the fit writes the record only for ParametricOutcome
+                # and ParametricMechanism, which record coefficients on every fold they fit.
                 raise ValueError(
                     f"fold {k} of {folds} lacks an outcome fit; the stack reads one "
                     "ParametricOutcome fit per fold"
@@ -738,8 +750,10 @@ class FittedStack:
     converged : bool
         Whether the fluctuation met its convergence test.
     shipped : ndarray or None
-        ``(n, K)``, the fit's own uncorrected curve per arm on the fitted scale, before the
-        data weights: ``h_a (Y - Q*) + Q*_a - psi_a`` with the fit's clever covariate. It is
+        ``(n, K)``, the fit's own uncorrected curve per arm on the fitted scale:
+        ``h_a (Y - Q*) + Q*_a - psi_a`` with the fit's clever covariate. ``psi_a`` is the
+        mean of ``Q*_a`` weighted by the data weights, and the curve is not multiplied by
+        the weights. It is
         read from the fit's arrays, so it equals the curve
         :func:`~cleverly.inference.influence.counterfactual_means` subtracts the correction
         from. ``None`` on a stack built without a fit.
@@ -766,7 +780,10 @@ class StackReport:
     failures : dict of float to str
         Per failed arm code, the condition that failed.
     shipped_std_error : dict of float to float
-        Per arm code, the standard error of the shipped curve on the fitted scale.
+        Per arm code, the standard error of the shipped curve on the fitted scale. The fit
+        reports the shipped standard error through
+        ``DrawInference.shipped_se``, on
+        each estimand's own scale. This field is the per-arm cross-check of that value.
     curves : StackCurves or None
         The solve's record; ``None`` when the stack could not be read.
     """
@@ -822,18 +839,21 @@ def stack_from_fit(
 
     Raises
     ------
-    KeyError
-        If the nuisances carry no fold coefficient record.
-    ValueError
-        If the record's fold count differs from the fit's folds.
+    StackRecordError
+        If the nuisances carry no fold coefficient record, if the record is not a
+        :class:`FoldCoefficients`, or if its fold count differs from the fit's folds.
     """
     arms = tuple(float(arm) for arm in data.arm_codes)
-    record = nuisance.diagnostics["stack"]
+    record = nuisance.diagnostics.get("stack")
+    if record is None:
+        raise StackRecordError("the nuisances carry no stack record")
     if not isinstance(record, FoldCoefficients):
-        raise TypeError(f"the stack record is a {type(record).__name__}, not FoldCoefficients")
+        raise StackRecordError(
+            f"the stack record is a {type(record).__name__}, not FoldCoefficients"
+        )
     folds = nuisance.folds
     if record.folds != folds.n_folds:
-        raise ValueError(
+        raise StackRecordError(
             f"the coefficient record holds {record.folds} folds and the fit {folds.n_folds}"
         )
     epsilons = [float(value) for value in fluctuation.epsilon]

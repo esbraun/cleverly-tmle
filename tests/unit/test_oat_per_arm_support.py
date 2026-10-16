@@ -222,6 +222,7 @@ class TestTheDataAxes:
         estimator = CTMLE(**_options(estimands=("ate", "ey_obs")))
         verdict = per_arm_parametric_support(estimator, _prepared(estimator))
         assert verdict.axis == "estimands"
+        assert verdict.detail.endswith("got ey_obs. X58 part (b) holds ey_obs")
 
 
 class TestTheAdmittedFit:

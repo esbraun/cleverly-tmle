@@ -1909,7 +1909,8 @@ class TMLE:
                 g_bounds=config.g_bounds,
                 g_bounds_conditional=config.g_bounds_conditional,
             )
-            estimates, fluctuations, detail = retarget()
+            # The record is read before the median, so each draw keeps its own status.
+            estimates, fluctuations, detail, draw_record = self._targeted_draw(data, retarget)
             per_repeat.append(estimates)
             repeats.append(
                 RepeatFit(
@@ -1917,10 +1918,7 @@ class TMLE:
                     fluctuations=fluctuations,
                     psi={name: value.psi for name, value in estimates.items()},
                     seed=seed,
-                    # Read before the median, so each draw keeps its own status.
-                    inference=self._draw_inference(
-                        data, estimates, partial(_estimates_of, retarget)
-                    ),
+                    inference=draw_record,
                 )
             )
             details.append(detail)
@@ -2006,34 +2004,35 @@ class TMLE:
 
         return result
 
-    def _draw_inference(
+    def _targeted_draw(
         self,
         data: CausalData,
-        estimates: Mapping[str, ParameterEstimate],
-        rebuild: Callable[[], Mapping[str, ParameterEstimate]],
-    ) -> dict[str, DrawInference]:
-        """One draw's own status and standard error per estimand, before the median.
+        retarget: Callable[[], tuple[dict[str, ParameterEstimate], Any, Any]],
+    ) -> tuple[dict[str, ParameterEstimate], Any, Any, dict[str, DrawInference]]:
+        """Run one draw's targeting, and record its own status and standard error per estimand.
 
         Parameters
         ----------
         data : CausalData
-            The prepared data.
-        estimates : mapping of str to ParameterEstimate
-            The draw's reported estimates.
-        rebuild : callable
-            Reruns the draw's targeting and returns its estimates. This hook does not call
-            it; the per-arm :class:`~cleverly.CTMLE` rebuilds the uncorrected estimates.
+            The prepared data. This hook does not read it; the per-arm
+            :class:`~cleverly.CTMLE` reads it to decide whether the draw has a stack.
+        retarget : callable
+            Runs the draw's targeting once. It returns the estimates, the fluctuations and
+            the fold-level report.
 
         Returns
         -------
-        dict of str to DrawInference
-            One record per estimand, without a curve or a shipped standard error.
+        tuple
+            The three values of ``retarget``, then one :class:`DrawInference` per estimand,
+            without a curve or a shipped standard error.
         """
-        del data, rebuild
-        return {
+        del data
+        estimates, fluctuations, detail = retarget()
+        record = {
             name: DrawInference(status=estimate.inference, se=float(np.sqrt(estimate.variance)))
             for name, estimate in estimates.items()
         }
+        return estimates, fluctuations, detail, record
 
     def _cv_detail(
         self, details: Sequence[CVTargeting | None], *, cluster: IntArray | None
@@ -5305,13 +5304,6 @@ def correction_parts(
 def _slice_fit(fit: InitialFit, index: IntArray) -> InitialFit:
     """The targeted (or initial) predictions for one subset of rows."""
     return fit.map_arms(lambda values: values[index])
-
-
-def _estimates_of(
-    retarget: Callable[[], tuple[dict[str, ParameterEstimate], Any, Any]],
-) -> dict[str, ParameterEstimate]:
-    """The estimates of one call of a draw's targeting, which also returns its fluctuations."""
-    return retarget()[0]
 
 
 def _in_report_order(
