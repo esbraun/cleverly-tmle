@@ -26,11 +26,14 @@ computed between them.  ``support_loss``, ``learned_mechanism`` and the 4,000-un
 ``sequential_double_robustness`` rows are reporting rows (role ``diagnostic``): they publish the
 summary statistics and state no verdict.
 
-**The band** (plan rev 4.3).  The ``simultaneous_coverage`` fit runs the refit bootstrap
-(``n_bootstrap=B_GATE``) and writes three cells from one fit: ``k5__simultaneous_band`` (the
-gated studentized bootstrap sup-t band), ``k5__ic_band`` (today's Wald-curve Rademacher band, a
-reporting row with no verdict) and ``k5__pointwise_joint_control`` (must fail).  The SDR study
-has no band cell: its bootstrap band stays experimental.
+**The band** (plan rev 4.4).  The two studies that declare a band gate different constructions.
+S1 (``read="band"``) fits without a bootstrap and gates the Wald-curve Rademacher band of the
+influence curves: ``k5__simultaneous_band`` is that band and ``k5__pointwise_joint_control`` must
+fail.  S2 (``read="boot_band"``) runs the refit bootstrap (``n_bootstrap=B_GATE``, 199) and
+writes three cells from one fit: ``k5__simultaneous_band`` (the gated studentized bootstrap sup-t
+band), ``k5__ic_band`` (the Rademacher band, a reporting row with no verdict) and
+``k5__pointwise_joint_control`` (must fail).  The SDR study has no band cell: its bootstrap band
+stays experimental.
 
 **Parts.**  :mod:`tests.long_horizon_property_parts` splits the property phase into parts of
 replicate blocks, so that two machines can share it; the regeneration then refits nothing that a
@@ -103,6 +106,8 @@ PATTERN_REPORTING_N = 4_000
 LEARNED_N = {2: 40_000, 3: 48_000}
 #: The band's law and n, and its plans, per arm count.
 BAND = D.BAND
+#: The ``Arm.read`` values that write joint cells.
+JOINT_READS = ("band", "boot_band")
 #: The overfitting cell names, positive then control.
 CROSS_FITTED = D.CROSS_FITTED
 IN_SAMPLE = D.IN_SAMPLE
@@ -155,7 +160,9 @@ class Arm:
         The estimator.
     read : str
         ``estimate`` (one fit), ``plugin`` (an untargeted number with a unit placeholder
-        standard error) or ``band`` (the simultaneous band over ``plans``).
+        standard error), ``band`` (the Wald-curve simultaneous band over ``plans``) or
+        ``boot_band`` (the studentized bootstrap sup-t band over ``plans``, with the Wald-curve
+        band beside it as a reporting cell).
     bounds : tuple of float or None
         ``g_bounds`` through the learner route for treatment (``support_loss``); ``None`` keeps
         the law's columns and the gated bound.
@@ -175,6 +182,16 @@ class Arm:
     learned: bool = False
     inflated: str = ""
     plans: tuple[str, ...] = ()
+
+    @property
+    def joint(self) -> bool:
+        """Whether the arm writes the joint cells of a simultaneous band."""
+        return self.read in JOINT_READS
+
+    @property
+    def bootstrapped(self) -> bool:
+        """Whether the arm's band is the bootstrap sup-t band (it fits ``B_GATE`` refits)."""
+        return self.read == "boot_band"
 
 
 @dataclass(frozen=True)
@@ -214,10 +231,9 @@ class FitSet:
         """Every ``property/cell`` the stream's rows fill, derived controls excluded."""
         out = []
         for arm in self.arms:
-            if arm.read == "band":
-                out += [
-                    f"{JOINT}/{cell}" for cell in (*joint_cells(arm.cell), ic_band_cell(arm.cell))
-                ]
+            if arm.joint:
+                reporting = (ic_band_cell(arm.cell),) if arm.bootstrapped else ()
+                out += [f"{JOINT}/{cell}" for cell in (*joint_cells(arm.cell), *reporting)]
                 continue
             out.append(f"{self.family}/{arm.cell}")
             if arm.inflated:
@@ -228,10 +244,11 @@ class FitSet:
         """CPU seconds of one replicate, by the design's cost model."""
         total = 0.0
         for arm in self.arms:
-            if arm.read == "band":
-                study = "S1" if self.m == 2 else "S2"
+            if arm.joint:
                 total += D.fit_cost(self.K, self.m, arm.plans, self.n)
-                total += D.B_GATE * D.resample_cost(f"band:{study}")
+                if arm.bootstrapped:
+                    study = "S1" if self.m == 2 else "S2"
+                    total += D.B_GATE * D.resample_cost(f"band:{study}")
                 continue
             try:
                 total += D.config_cost(arm.config, self.n)
@@ -344,7 +361,8 @@ def _band(tag: str) -> list[FitSet]:
     if tag == "S3":
         return []
     config, plans, n = D.band_config(tag)
-    arm = Arm("k5", "positive", config, read="band", plans=plans)
+    read = "boot_band" if tag in D.BOOT_BAND_STUDIES else "band"
+    arm = Arm("k5", "positive", config, read=read, plans=plans)
     return [FitSet(JOINT, f"{JOINT}:k5", (arm,), n)]
 
 
@@ -474,13 +492,11 @@ def declared_cells(tag: str, replicates: Mapping[str, int]) -> tuple[PropertyCel
     out = []
     for fit_set in fit_sets(tag):
         for arm in fit_set.arms:
-            if arm.read == "band":
+            if arm.joint:
                 band, control = joint_cells(arm.cell)
-                pairs = [
-                    (JOINT, band, "positive"),
-                    (JOINT, control, "control"),
-                    (JOINT, ic_band_cell(arm.cell), DIAGNOSTIC_ROLE),
-                ]
+                pairs = [(JOINT, band, "positive"), (JOINT, control, "control")]
+                if arm.bootstrapped:
+                    pairs.append((JOINT, ic_band_cell(arm.cell), DIAGNOSTIC_ROLE))
             else:
                 pairs = [(fit_set.family, arm.cell, arm.role)]
                 if arm.inflated:
@@ -736,7 +752,21 @@ def fit_key(key: Key, sample: pd.DataFrame) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for arm in fit_set.arms:
         config = arm.config
-        if arm.read == "band":
+        if arm.joint and not arm.bootstrapped:
+            result = _call(arm, sample, arm.plans, simultaneous=True, reference=None)
+            names = sorted(result.simultaneous.bands)
+            rows += joint_coverage_rows(
+                result,
+                _band_truths(config.K, config.m, config.law, names),
+                names,
+                label=arm.cell,
+                replicate=key[2],
+                n=key[4],
+                requested=key[3],
+                pointwise_critical=CRITICAL,
+            )
+            continue
+        if arm.joint:
             result = _call(
                 arm, sample, arm.plans, simultaneous=True, reference=None, n_bootstrap=D.B_GATE
             )

@@ -79,3 +79,45 @@ def test_the_property_modules_share_the_designs_declarations() -> None:
         for study, family, cell in D.GATED_CELLS:
             if study == tag and family == "root_n_and_efficiency":
                 assert f"root_n:{cell.split('__n_')[0]}:{cell.split('__n_')[1]}" in names
+
+
+# ----------------------------------------------------------------------------- rev 4.4: the band
+def _band_arm(study: str) -> L.Arm:
+    (fit_set,) = [f for f in L.fit_sets(study) if f.family == "simultaneous_coverage"]
+    (arm,) = fit_set.arms
+    return arm
+
+
+def test_s1_gates_the_wald_curve_band_and_s2_the_bootstrap_band() -> None:
+    """Plan rev 4.4: S1 has no bootstrap band cell or fit; S2 gates it and reports the IC band."""
+    s1, s2 = _band_arm("S1"), _band_arm("S2")
+    assert (s1.read, s1.bootstrapped) == ("band", False)
+    assert (s2.read, s2.bootstrapped) == ("boot_band", True)
+    (s1_set,) = [f for f in L.fit_sets("S1") if f.family == "simultaneous_coverage"]
+    (s2_set,) = [f for f in L.fit_sets("S2") if f.family == "simultaneous_coverage"]
+    assert s1_set.cells() == [
+        "simultaneous_coverage/k5__simultaneous_band",
+        "simultaneous_coverage/k5__pointwise_joint_control",
+    ]
+    assert "simultaneous_coverage/k5__ic_band" in s2_set.cells()
+    assert "simultaneous_coverage/k5__ic_band" not in D.GATED_CELLS
+    assert ("S1", "simultaneous_coverage", "k5__simultaneous_band") in D.GATED_CELLS
+    assert ("S2", "simultaneous_coverage", "k5__simultaneous_band") in D.GATED_CELLS
+    assert ("S2", "simultaneous_coverage", "k5__ic_band") not in D.GATED_CELLS
+    # S1 pays no resamples; S2 pays B = 199 of them (a mutation of either changes the cost).
+    assert s2_set.cost() - D.fit_cost(5, 3, s2.plans, s2_set.n) == pytest.approx(
+        D.B_GATE * D.resample_cost("band:S2")
+    )
+    assert s1_set.cost() == pytest.approx(D.fit_cost(5, 2, s1.plans, s1_set.n))
+    assert D.B_GATE == 199
+
+
+def test_the_declared_s1_band_cells_carry_no_diagnostic_row() -> None:
+    cells = L.declared_cells("S1", dict.fromkeys(L.FAMILIES, 10))
+    band = [c.cell for c in cells if c.property == "simultaneous_coverage"]
+    assert band == ["k5__simultaneous_band", "k5__pointwise_joint_control"]
+
+
+def test_an_s1_band_fit_writes_the_wald_curve_band_without_a_bootstrap() -> None:
+    rows = _fit_rows("S1", "simultaneous_coverage")
+    assert set(rows["cell"]) == {"k5__simultaneous_band", "k5__pointwise_joint_control"}

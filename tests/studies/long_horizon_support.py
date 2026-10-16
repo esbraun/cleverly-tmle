@@ -1,4 +1,4 @@
-"""The support rows and cases of the three long-horizon studies (plan rev 4.3).
+"""The support rows and cases of the three long-horizon studies (plan rev 4.4).
 
 A support row of :mod:`cleverly._support_rows` names a registered study as its evidence, and a
 registered study commits its summaries.  The three long-horizon studies commit none until the
@@ -11,18 +11,21 @@ rows cannot enter ``_support_rows`` yet.  This module holds them as prepared dat
 * :data:`MEMBERS` names, for each row, the scenarios whose fits the row covers, and :data:`META`
   its estimator setting.  The test derives the licensed kinds from the committed gate lists
   (:func:`licensed_kinds`) and requires them to equal the kinds declared here.
-* :data:`CASES` is one case for each member scenario, and one for each of the two bands.  A case
+* :data:`CASES` is one case for each member scenario, and one for each of the two gated bands.  A case
   runs the study's own fit (:func:`tests.studies.long_horizon_primary.fit`, and the band fit of
   :mod:`tests.studies.long_horizon_properties`) up to the support classifier and holds the key it
   reads.
 
 **Kinds.**  Every row licenses ``point``.  It licenses ``wald`` when the study gates a Wald row
 of a member scenario or an ``interval_calibration`` cell of the row's setting.  It licenses
-``bootstrap_bca`` when the study gates a BCa row of a member scenario.  The cross-fitted rows and
-every SDR row license no bootstrap band: the cross-fitted bootstrap is experimental (X20), and the
-SDR bootstrap band is experimental (plan rev 4.3).  A row licenses ``bootstrap_band`` when the
-study gates the studentized sup-t band of its setting (S1 and S2, K = 5).  No row lists the
-``band`` kind, because the Wald-curve band is the reporting cell ``k5__ic_band``.
+``bootstrap_bca`` when the study gates a BCa row of a member scenario.  Plan rev 4.4 gates BCa
+only where the Wald row is not gated (``n < 2 n_kappa``), so BCa stays experimental on every
+quantity the study does not gate it on.  The cross-fitted rows and every SDR row license no
+bootstrap band: the cross-fitted bootstrap is experimental (X20), and the SDR bootstrap band is
+experimental.  A row licenses ``band`` when the study gates the Wald-curve (Rademacher) band of
+its setting (S1, K = 5), and ``bootstrap_band`` when it gates the studentized sup-t band at
+B = 199 (S2, K = 5).  S2 lists no ``band`` kind, because its Wald-curve band is the reporting
+cell ``k5__ic_band``.
 
 **Registration.**  Once a study registers, move its rows into ``_support_rows.py`` and its cases
 into ``support_cases.py``, delete this module, and let ``tests/unit/test_support_rows.py`` carry
@@ -52,7 +55,8 @@ CASE_N: Final = 4_000
 
 _BASE: Final[frozenset[Kind]] = frozenset({"point", "wald"})
 _BCA: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca"})
-_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca", "bootstrap_band"})
+_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca", "band"})
+_BOOT_BAND: Final[frozenset[Kind]] = frozenset({"point", "wald", "bootstrap_bca", "bootstrap_band"})
 
 
 @dataclass(frozen=True)
@@ -115,7 +119,8 @@ def _row(
 
 _WALD_NOTE = (
     "The Wald interval is gated for a quantity only where n is at least twice its n_kappa; below "
-    "that it is a reporting row (plan rev 4.3, decision C1)."
+    "that the BCa interval at B = 199 is gated instead, and the BCa row of a Wald-gated quantity "
+    "reports (plan rev 4.4)."
 )
 _CROSSFIT_NOTE = (
     "The cross-fitted bootstrap interval is experimental: the full-refit bootstrap reads an SE "
@@ -123,8 +128,8 @@ _CROSSFIT_NOTE = (
     "n_kappa."
 )
 _MSM_NOTE = (
-    "Only the duration coefficient has a gated calibration cell.  The intercept needs n of "
-    "94,226 for the Wald regime, and the study fits n = 48,000."
+    "Both coefficients are gated at n = 96,000, which is at least twice the n_kappa of the "
+    "intercept (94,226) and of the duration (50,908).  The MSM fit runs no bootstrap."
 )
 _SDR_BAND_NOTE = "The SDR bootstrap band is experimental and gates no row."
 _NO_PRIMARY_NOTE = (
@@ -177,7 +182,7 @@ _DECLARED: Final = (
         "categorical_k5",
         Setting("S2", 5, 3),
         LTMLE_CATEGORICAL,
-        _BAND,
+        _BOOT_BAND,
         True,
         (
             "categorical_k5",
@@ -289,7 +294,7 @@ def licensed_kinds(row_id: str) -> frozenset[Kind]:
         and setting.K == 5
         and D.band_config(setting.study)[0].m == setting.m
     ):
-        kinds.add("bootstrap_band")
+        kinds.add("bootstrap_band" if setting.study in D.BOOT_BAND_STUDIES else "band")
     return frozenset(kinds)
 
 
@@ -313,15 +318,17 @@ def _primary_case(row: SupportRow, study: str, name: str) -> RowCase:
 
 def _band_case(row: SupportRow, study: str) -> RowCase:
     config, plans, _ = D.band_config(study)
-    arm = properties.Arm("k5", "positive", config, read="band", plans=plans)
+    boot = study in D.BOOT_BAND_STUDIES
+    arm = properties.Arm(
+        "k5", "positive", config, read="boot_band" if boot else "band", plans=plans
+    )
     line = inspect.getsourcelines(properties._call)[1]
+    extra = {"n_bootstrap": D.B_GATE} if boot else {}
 
     def build() -> Observed:
         drawn = law_.draw(config.K, config.m, CASE_N, 0, config.law)
         return capture(
-            lambda: properties._call(
-                arm, drawn, plans, simultaneous=True, reference=None, n_bootstrap=D.B_GATE
-            )
+            lambda: properties._call(arm, drawn, plans, simultaneous=True, reference=None, **extra)
         )
 
     return RowCase(
@@ -354,7 +361,7 @@ def _cell_cases() -> list[RowCase]:
         seen: set[tuple[str, str]] = set()
         for fit_set in properties.fit_sets(study):
             for arm in fit_set.arms:
-                if arm.read == "band" or arm.config.estimator not in ("LTMLE", "SDR"):
+                if arm.joint or arm.config.estimator not in ("LTMLE", "SDR"):
                     continue
                 row_id = _row_of(study, arm.config)
                 family = (row_id or "", fit_set.family)
@@ -380,10 +387,10 @@ def _cases() -> tuple[RowCase, ...]:
     out: list[RowCase] = []
     for row in ROWS:
         out += [_primary_case(row, study, name) for study, name in MEMBERS[row.id]]
-        if "bootstrap_band" in row.kinds:
+        if row.kinds & {"band", "bootstrap_band"}:
             out.append(_band_case(row, META[row.id].study))
     return tuple(out + _cell_cases())
 
 
-#: One case for each member scenario, and one for each of the S1 and S2 bands.
+#: One case for each member scenario, and one for each gated band (S1 Wald-curve, S2 bootstrap).
 CASES: Final[tuple[RowCase, ...]] = _cases()

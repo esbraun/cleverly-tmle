@@ -35,7 +35,7 @@ def test_every_row_has_a_case_for_each_scenario_and_each_band() -> None:
         by_row.setdefault(case.row, []).append(case.cell)
     for row in ROWS:
         expected = [name for _, name in MEMBERS[row.id]]
-        if "bootstrap_band" in row.kinds:
+        if row.kinds & {"band", "bootstrap_band"}:
             expected.append("k5__simultaneous_band")
         assert by_row[row.id][: len(expected)] == expected, row.id
         # A row that no primary scenario covers stands on property-cell cases.
@@ -54,23 +54,27 @@ def test_a_case_classifies_to_its_own_row(case: RowCase) -> None:
 def test_the_declared_kinds_are_the_kinds_the_gates_license() -> None:
     for row in ROWS:
         assert row.kinds == licensed_kinds(row.id), row.id
-        assert "band" not in row.kinds, row.id
+        # S2 gates the bootstrap band and reports the Wald-curve band; S1 gates the Wald-curve one.
+        assert ("band" in row.kinds) == (row.id == "X39.tmle.binary_k5"), row.id
 
 
 def test_the_kind_rule_has_a_nonzero_witness_for_each_kind() -> None:
     """Each licensed kind is absent from some row, so a wrong rule changes a row."""
     kinds = [licensed_kinds(row.id) for row in ROWS]
-    for kind in ("wald", "bootstrap_bca", "bootstrap_band"):
+    for kind in ("wald", "bootstrap_bca", "band", "bootstrap_band"):
         assert any(kind in k for k in kinds), kind
     assert any("bootstrap_bca" not in k for k in kinds)
     assert any("bootstrap_band" not in k for k in kinds)
-    bands = {row.id for row in ROWS if "bootstrap_band" in row.kinds}
-    assert bands == {"X39.tmle.binary_k5", "X39.tmle.categorical_k5"}
+    assert any("band" not in k for k in kinds)
+    assert {row.id for row in ROWS if "band" in row.kinds} == {"X39.tmle.binary_k5"}
+    assert {row.id for row in ROWS if "bootstrap_band" in row.kinds} == {"X39.tmle.categorical_k5"}
     # The cross-fitted fits and the MSM fit run no bootstrap, so they license none.
     for row in ROWS:
         setting = META[row.id]
         if setting.folds > 1 or setting.msm:
             assert not {"bootstrap_bca", "bootstrap_band"} & row.kinds, row.id
+    # The MSM row now gates both Wald coefficients (n = 96,000).
+    assert "wald" in licensed_kinds("X39.tmle.binary_k5_msm")
 
 
 def test_no_two_prepared_rows_match_one_fit() -> None:
