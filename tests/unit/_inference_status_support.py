@@ -29,7 +29,11 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import variable_importance
-from cleverly._inference_status import MINIMUM_INTERVAL_CLUSTERS, NON_INFERENTIAL
+from cleverly._inference_status import (
+    MINIMUM_INTERVAL_CLUSTERS,
+    STATUS_RECORDS,
+    supplies_inference,
+)
 from cleverly.assessment import AssessmentStatus
 from cleverly.estimators import TMLE
 from cleverly.estimators.serialize import dumps, loads
@@ -121,7 +125,7 @@ def assert_no_inferential_text(text: str) -> None:
 
 def assert_refused_by(status: str, raised: pytest.ExceptionInfo[CapabilityError]) -> None:
     """The raise ends with the reason of ``status``."""
-    assert NON_INFERENTIAL[status].reason in str(raised.value)
+    assert STATUS_RECORDS[status].reason in str(raised.value)
 
 
 def assert_withholds(result: Any, status: str) -> None:
@@ -146,13 +150,13 @@ def assert_withholds(result: Any, status: str) -> None:
     assert columns >= DIAGNOSTIC_COLUMNS
     text = result.summary()
     # The note names the diagnostic column's label and carries the status reason.
-    assert NON_INFERENTIAL[status].summary_note() in text
+    assert STATUS_RECORDS[status].summary_note() in text
     assert "95% CI" not in text
 
 
 def assert_assessment_note(result: Any, status: str) -> None:
     """The nuisance report and the assessment's nuisance-model item carry the status note."""
-    note = NON_INFERENTIAL[status].assessment_note
+    note = STATUS_RECORDS[status].assessment_note
     assert note in result.diagnostics.run_all()["nuisance_models"].detail
     # The assessment summary prints a warning row by name only, so the note is read off
     # the assessment's own nuisance-model item.
@@ -170,7 +174,7 @@ def assert_evalue_unavailable(result: Any, status: str) -> None:
     capability = result.sensitivity.capability("evalue")
     assert capability.status is AssessmentStatus.UNAVAILABLE
     assert str(capability.reason).startswith(
-        _EVALUE_NEEDS_INFERENCE + NON_INFERENTIAL[status].reason
+        _EVALUE_NEEDS_INFERENCE + STATUS_RECORDS[status].reason
     )
     assert capability.refusal is not None
     assert capability.refusal.reason is RefusalReason.INFERENCE_GAP
@@ -207,6 +211,43 @@ def assert_keeps_inference(result: Any) -> None:
         assert 0.0 <= estimate.pvalue <= 1.0
         assert estimate.std_error == estimate.plugin_std_error
     assert set(result.to_frame().columns) >= INFERENTIAL_COLUMNS
+
+
+def assert_shows_interval(result: Any, status: str, reference_df: int | None) -> None:
+    """The witness for a shown status: its interval is the plug-in Wald interval.
+
+    Every estimate of a level or a difference answers ``ci`` with
+    ``psi +- q * plugin_std_error``, where ``q`` is the normal quantile for ``reference_df``
+    ``None`` and the Student quantile otherwise. The label is experimental, and the frame
+    carries the inferential columns and the status.
+    """
+    from scipy import stats
+
+    assert result.inference_status == status
+    seen = 0
+    for estimate in result.estimates.values():
+        if not estimate.supplies_inference:
+            continue
+        assert estimate.inference == status
+        assert estimate.reference_df == reference_df
+        assert estimate.support.label == "experimental"
+        assert estimate.std_error == estimate.plugin_std_error
+        if estimate.log_psi is not None or estimate.transform is not None:
+            continue
+        level = 1.0 - estimate.alpha / 2.0
+        quantile = (
+            stats.norm.ppf(level) if reference_df is None else stats.t.ppf(level, reference_df)
+        )
+        low, high = estimate.ci
+        assert low == pytest.approx(estimate.psi - quantile * estimate.plugin_std_error, rel=1e-9)
+        assert high == pytest.approx(estimate.psi + quantile * estimate.plugin_std_error, rel=1e-9)
+        assert 0.0 <= estimate.pvalue <= 1.0
+        seen += 1
+    assert seen, "no estimate was checked"
+    frame = result.to_frame()
+    assert set(frame.columns) >= INFERENTIAL_COLUMNS
+    assert set(frame["inference"]) == {status}
+    assert set(frame["support"]) == {"experimental"}
 
 
 def assert_fold_report_withholds(result: Any, status: str) -> None:
@@ -277,6 +318,24 @@ def restore(artifact: Any, route: str) -> Any:
     return pickle.loads(pickle.dumps(artifact))
 
 
+def assert_support_round_trips(result: Any, restored: Any) -> None:
+    """The support of every estimate, bootstrap summary and band, and the key, load as saved.
+
+    Equality of a frozen ``Support`` compares the label, reason, evidence, row and limits, so
+    a load that re-derived any of them from the loading version's rows would differ here.
+    """
+    assert restored.config.support_key == result.config.support_key
+    for name, estimate in result.estimates.items():
+        copy = restored.estimates[name]
+        assert copy.support == estimate.support
+        if estimate.bootstrap is not None:
+            assert copy.bootstrap is not None
+            assert copy.bootstrap.support == estimate.bootstrap.support
+            assert copy.bootstrap.diagnostic == estimate.bootstrap.diagnostic
+    if result.simultaneous is not None:
+        assert restored.simultaneous.support == result.simultaneous.support
+
+
 def assert_round_trips(result: Any, status: str, route: str) -> Any:
     """``result`` loads by ``route`` with ``status`` and every report as it was saved.
 
@@ -294,11 +353,16 @@ def assert_round_trips(result: Any, status: str, route: str) -> Any:
         assert estimate.inference == status
         assert estimate.plugin_std_error == result.estimates[name].plugin_std_error
         assert estimate.plugin_interval == result.estimates[name].plugin_interval
-        if status != "influence_curve":
+        if not supplies_inference(status):
             with pytest.raises(CapabilityError) as raised:
                 _ = estimate.ci
             assert_refused_by(status, raised)
+        else:
+            # A status that shows its interval loads with the interval it was saved with.
+            assert estimate.ci == result.estimates[name].ci
+            assert estimate.reference_df == result.estimates[name].reference_df
     assert (restored.simultaneous is None) == (result.simultaneous is None)
+    assert_support_round_trips(result, restored)
     assert restored.assessment_cache.keys() == result.assessment_cache.keys()
     detail = getattr(result, "cv_targeting", None)
     if detail is not None:

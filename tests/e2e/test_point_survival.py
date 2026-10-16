@@ -23,7 +23,7 @@ from cleverly import (
 from cleverly.datasets import make_point_survival
 from cleverly.exceptions import CapabilityError, DataWarning
 from cleverly.longitudinal import LTMLE, LongitudinalData
-from cleverly.longitudinal.estimator import bootstrap_design_kind, longitudinal_truncation_curve
+from cleverly.longitudinal.estimator import longitudinal_truncation_curve
 from cleverly.msm import MSM
 from cleverly.validation.longitudinal import (
     LONGITUDINAL_HELD_DECISION,
@@ -140,7 +140,6 @@ def test_the_truncation_replay_and_the_bootstrap_diagnostic() -> None:
     fit = LTMLE({"arm1": 1, "arm0": 0}, n_folds=1, n_bootstrap=5, random_state=2, **LEARNERS).fit(
         data
     )
-    assert bootstrap_design_kind(fit.data, fit.folds, fit.config.regimens, None) is None
     assert fit.bootstrap is not None
     curve = longitudinal_truncation_curve(fit, [(0.01, 1.0), (0.05, 1.0)])
     fitted = curve.set_index("is_fitted_bound").loc[True, "delta_from_fitted"]

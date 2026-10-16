@@ -281,8 +281,17 @@ class TestInheritance:
         assert ratio.std_error == pytest.approx(float(np.sqrt(variance[0, 0])), rel=1e-12)
         assert ratio.n_clusters == result["ey1"].n_clusters
 
-    def test_a_few_cluster_ratio_refuses_its_interval(self) -> None:
-        # Three clusters, below the floor of four.
+    def test_a_few_cluster_ratio_shows_its_t_interval(self) -> None:
+        """Three clusters take ``few_cluster_plugin``, which shows a t(J - 2) interval.
+
+        The ratio inherits the status and the reference of its parents. Its interval is the
+        log-scale Wald interval on the t reference with one degree of freedom, so the ratio of
+        its half-width to the normal one is the ratio of the two quantiles.
+        """
+        from dataclasses import replace
+
+        from scipy import stats
+
         frame, _ = make_clustered(n=120, seed=6, cluster_size=40)
         result = (
             TMLE(
@@ -297,10 +306,16 @@ class TestInheritance:
         )
         ratio = result.ratio("ey1", "ey0")
         assert ratio.inference == "few_cluster_plugin"
-        with pytest.raises(CapabilityError):
-            _ = ratio.ci
-        with pytest.raises(CapabilityError):
-            ratio.wald_test(null=2.0)
+        assert ratio.reference_df == 1
+        assert ratio.support.label == "experimental"
+        low, high = ratio.ci
+        normal_low, normal_high = replace(ratio, reference_df=None).ci
+        half = np.log(high / low) / 2
+        normal_half = np.log(normal_high / normal_low) / 2
+        assert half / normal_half == pytest.approx(
+            stats.t.ppf(0.975, 1) / stats.norm.ppf(0.975), rel=1e-9
+        )
+        assert np.isfinite(ratio.wald_test(null=2.0).pvalue)
 
     def test_a_selector_ctmle_ratio_keeps_its_status(self) -> None:
         from cleverly.datasets import make_binary_outcome

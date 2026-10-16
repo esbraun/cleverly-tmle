@@ -69,6 +69,7 @@ code that the raise site assigns, so a section can hold rows of several codes.
 | section | what it lists |
 | --- | --- |
 | [Not written yet](#not-written-yet) | refusals of the request, mostly `implementation_gap` and `inference_gap` |
+| [Experimental compositions](#experimental-compositions) | requests that run and carry the experimental label, and the ones that stay refused |
 | [Replay-only unavailability](#replay-only-unavailability) | the omission codes of a result that cannot replay, all `invalid_declaration` |
 | [A different question](#a-different-question) | requests that ask for another estimand, mostly `different_estimand` |
 | [Wrong by construction](#wrong-by-construction) | mistakes that would run and return a wrong number |
@@ -169,48 +170,89 @@ boundaries.
 The remaining shift gap is narrower than it was. The tilt itself is written. The missing derivation
 must establish whether the tilted parameter is still the shift parameter.
 
+### Experimental compositions
+
+A composition that no study covers, and whose code computes the requested quantity, runs. The
+fit returns its estimates under the experimental label. The old refusal text becomes the reason of
+the label, and the roadmap id becomes its evidence. `result.summary()` prints the reason, and
+`estimate.support` holds it as data.
+
+The preflight collects each such condition and goes on. A later refusal therefore still fires, and
+no condition masks it. The fit reads no learner before the preflight ends.
+
+`tests/unit/test_group_a_experimental_fits.py` checks each site below on four points.
+
+1. The preflight collects the condition before any learner.
+2. The fit carries the label, the reason, and the roadmap id.
+3. The point lies within three standard errors of the truth, where the complete-case answer does not.
+4. A deliberate mutation moves the point.
+
+| contract | settings that run as experimental | roadmap |
+| --- | --- | --- |
+| arm-indexed, stacked | linear fluctuation, one-step update, weighted fluctuation | X60 |
+| arm-indexed, stacked | `att` and `atc`, observation weights, clusters | X60 |
+| arm-indexed, stacked | fold evaluation, `split_plan=`, `repeats` above 1, baseline strata | X53 |
+| arm-indexed, stacked | `n_bootstrap > 0` | F2 |
+| natural course, in sample | a linear fluctuation, one-step targeting, weighted targeting, `n_bootstrap > 0` | X60, X55 |
+| natural course, stacked | the same settings, and `repeats` above 1, `split_plan=`, weights, clusters, a continuous outcome | X53, X60, F2 |
+| `DRTMLE` with missing outcomes | `weights=` that tilt the target law | X62 |
+
+These requests stay refused, because the code returns a misleading number or has no path:
+
+| refused | why |
+| --- | --- |
+| a cross-fitted missing-outcome fit outside the two contracts (`tmle.off_contract_axes`) | the interval is misleading |
+| `targeting_scheme="fold"` under either contract | the interval is misleading |
+| a clustered `CTMLE` fit with missing outcomes | the interval is misleading |
+| fold evaluation of the stacked natural-course mean | the fold-evaluated report has no natural-course mean to read |
+| a continuous outcome without `q_bounds`, `intermediate=`, a selector-based `CTMLE`, `DRTMLE` on the natural-course target | an invalid declaration, or an estimator with no written result |
+
 ### Missing-outcome natural-course contracts
 
 `NaturalCourseMean()`, `PopulationAttributableRisk()` and `PopulationAttributableFraction()` with
 `missingness=` and at least one missing outcome have two TMLE contracts. A request that reads the
 natural course beside arm targets meets the same contracts.
-`CrossFitting(enabled=...)` selects the contract. The table gives each requirement and the
-compositions that each contract refuses.
+`CrossFitting(enabled=...)` selects the contract. The table gives each requirement, the
+compositions that each contract refuses, and the compositions that it runs with the
+[experimental label](#experimental-compositions).
 
 | requirement | ordinary TMLE, `enabled=False` | stacked CV-TMLE, `enabled=True` |
 | --- | --- | --- |
-| target | `ey_obs`, `par`, `paf`, or `ey_obs` beside arm means, contrasts, ATT and ATC. `estimands="all"` keeps its arm-only list | the same, without ATT and ATC, which the arm-indexed contract refuses |
+| target | `ey_obs`, `par`, `paf`, or `ey_obs` beside arm means, contrasts, ATT and ATC. `estimands="all"` keeps its arm-only list | the same. ATT and ATC run as experimental under the arm-indexed contract |
 | estimator | `TMLE`. `CTMLE` and `DRTMLE` are refused. `DRTMLE(guard=())` is the ordinary TMLE, and the message names `TMLE` | the same |
 | treatment | two or more arms | two or more arms. With three or more, the scalar `ey_obs` also needs two respondents in each arm |
-| outcome | binary, or continuous with declared `q_bounds`. A continuous outcome without `q_bounds` is refused | binary. A continuous outcome is refused |
-| outer folds | one fold | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2. One fold, stratified folds, and `split_plan=` are refused |
-| repeats | `repeats=1`. A larger value fails when `CrossFitting` is constructed, because no split exists to repeat | `repeats=1`. A larger value is refused when the fit starts |
-| targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`. A linear fluctuation, one-step targeting, and weighted targeting are refused | the same, with `targeting_scheme="pooled"` and `fold_evaluation=False`. Fold targeting and fold evaluation are refused |
-| inference | influence-curve Wald interval. `n_bootstrap > 0` is refused ([X55](../roadmap.md#x55-bootstrap-extensions) part (a)) | influence-curve Wald interval. `n_bootstrap > 0` is refused ([F2](../roadmap.md#f2-targeted-bootstrap-inference) holds the bootstrap of the stacked fit) |
-| rows | fixed `weights=`, `id=` and baseline strata are admitted. `intermediate=` is refused | unweighted iid rows. Weights, clusters, and `intermediate=` are refused. The scalar `ey_obs` admits baseline strata. PAR, PAF, and a joint fit meet the arm-indexed contract, which refuses them ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)) |
+| outcome | binary, or continuous with declared `q_bounds`. A continuous outcome without `q_bounds` is refused | binary. A continuous outcome runs as experimental |
+| outer folds | one fold | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2. One fold and stratified folds are refused. `split_plan=` runs as experimental |
+| repeats | `repeats=1`. A larger value fails when `CrossFitting` is constructed, because no split exists to repeat | `repeats=1`. A larger value runs as experimental ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants)) |
+| targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`. A linear fluctuation, one-step targeting, and weighted targeting run as experimental ([X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts)) | the same, with `targeting_scheme="pooled"` and `fold_evaluation=False`. Fold targeting and fold evaluation are refused |
+| inference | influence-curve Wald interval. `n_bootstrap > 0` runs as experimental ([X55](../roadmap.md#x55-bootstrap-extensions) part (a)) | influence-curve Wald interval. `n_bootstrap > 0` runs as experimental ([F2](../roadmap.md#f2-targeted-bootstrap-inference) holds the bootstrap of the stacked fit) |
+| rows | fixed `weights=`, `id=` and baseline strata are admitted. `intermediate=` is refused | unweighted iid rows. Weights and clusters run as experimental. `intermediate=` is refused. The scalar `ey_obs` admits baseline strata. PAR, PAF, and a joint fit meet the arm-indexed contract ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)) |
 | response support | no added check | at least two respondents and two nonrespondents in the sample, and one of each in every training complement |
 
 Three checks enforce the two contracts. Each check runs at a different time and raises a different
-error.
+error. A composition that runs as experimental raises nothing. The preflight collects its
+condition, and the fit carries the condition as the reason of the label.
 
 | check | error | code | when it runs |
 | --- | --- | --- | --- |
 | a cross-fitting declaration that is invalid by itself | `MethodConfigurationError`. The engine raises `ValueError` with the same reason | `invalid_declaration`, and `implementation_gap` for a stratified fold policy | when `CrossFitting` or `TMLEMethod` is constructed |
-| a composition this target does not support | `CapabilityError` | `implementation_gap`, `inference_gap` or `invalid_declaration`, by requirement | when the fit starts, before any learner is fitted |
+| a composition this target does not support | `CapabilityError` | `implementation_gap` or `invalid_declaration`, by requirement | when the fit starts, before any learner is fitted |
 | response support | `DataError` | `invalid_declaration` | after fold generation, before either learner receives data |
 
-The composition check refuses most requirements as an `implementation_gap`. The message names
-[X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) for a `CTMLE` fit and
-[X50](../roadmap.md#x50-further-dr-tmle-compositions) for a `DRTMLE` fit. On the stacked fit it names
-[X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) for fold targeting, fold evaluation,
-`split_plan=`, `repeats` above 1, and a continuous outcome. It names
-[X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts) for a linear
-fluctuation, one-step or weighted targeting, `att`, `atc`, observation weights, clusters, and
-`intermediate=`.
+The composition check refuses a `CTMLE` fit and a `DRTMLE` fit as an `implementation_gap`. The
+message names [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) for `CTMLE` and
+[X50](../roadmap.md#x50-further-dr-tmle-compositions) for `DRTMLE`. On the stacked fit it also
+refuses fold targeting and fold evaluation ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants)),
+and `intermediate=`
+([X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts)). It refuses a
+continuous outcome without `q_bounds` as an `invalid_declaration`. Fold targeting and the
+cross-fitted off-contract regimes stay refused because the code returns a misleading interval
+there. Fold evaluation stays refused because the fold-evaluated report has no natural-course mean
+to read.
 
-The check refuses `n_bootstrap` above 0 as an `inference_gap`. The message names X55 in sample and
-[F2](../roadmap.md#f2-targeted-bootstrap-inference) on the stacked fit. It refuses a continuous
-outcome without `q_bounds` as an `invalid_declaration`.
+Every other row of the table above runs. The condition text of the old refusal becomes the reason of
+the label, and the roadmap id becomes its evidence. The check collects the condition and
+continues, so a condition never hides a later refusal.
 
 The declaration check is not specific to this target. One function runs its steps in a fixed order,
 and it returns the first reason it finds. The declaration and the engine therefore give one reason
@@ -270,14 +312,14 @@ defines the estimator, its preflight, and its evidence.
 | requirement | admitted | refused |
 | --- | --- | --- |
 | estimator | `TMLE` or `TMLEMethod` | `CTMLE` or `CollaborativeTMLEMethod`, other than the per-arm `oat` design. `DRTMLE` raises its own refusal at every `guard`, including `guard=()` |
-| targets | `ey`, `ey0`, `ey1`, and `ate`. `rr` and `or` for a binary outcome | `att` and `atc`, also when the default list or `"all"` includes them. The message lists the admitted estimands. A continuous `rr` or `or` stays refused, as for every fit |
+| targets | `ey`, `ey0`, `ey1`, and `ate`. `rr` and `or` for a binary outcome | `att` and `atc` run as experimental, also when the default list or `"all"` includes them. A continuous `rr` or `or` stays refused, as for every fit |
 | treatment | two or more arms | none |
 | outcome | binary, or continuous with a fixed `q_bounds` equal to the known support | continuous with `q_bounds=None` |
-| outer folds | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2 | `split_plan=`. A stratified policy and one fold are refused earlier, by the declaration check |
-| repeats and targeting | `repeats=1` and `targeting_scheme="pooled"` | `repeats` above 1 and `targeting_scheme="fold"` |
-| fluctuation | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)` and `fold_evaluation=False` | a linear fluctuation, one-step targeting, weighted targeting, and fold evaluation |
-| rows | unweighted iid rows | observation weights, clusters, and baseline strata |
-| inference | pointwise influence-curve Wald intervals and the simultaneous band | `n_bootstrap > 0` |
+| outer folds | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2 | `split_plan=` runs as experimental. A stratified policy and one fold are refused earlier, by the declaration check |
+| repeats and targeting | `repeats=1` and `targeting_scheme="pooled"` | `repeats` above 1 runs as experimental. `targeting_scheme="fold"` is refused |
+| fluctuation | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)` and `fold_evaluation=False` | a linear fluctuation, one-step targeting, weighted targeting, and fold evaluation run as experimental |
+| rows | unweighted iid rows | observation weights, clusters, and baseline strata run as experimental |
+| inference | pointwise influence-curve Wald intervals and the simultaneous band | `n_bootstrap > 0` runs as experimental |
 | content | at least the minimum in the [preflight table](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) | a sample or a training complement below that minimum. A sample below its minimum is refused with a remedy that does not repartition, because no partition can succeed |
 
 Three checks enforce the contract. The table gives the error of each check and the time at
@@ -285,7 +327,7 @@ which it runs.
 
 | check | error | code | when it runs |
 | --- | --- | --- | --- |
-| a composition outside the contract | `CapabilityError` | `implementation_gap`, `inference_gap` or `invalid_declaration`, by requirement | when the fit starts, before fold generation and before any learner is fitted |
+| a composition outside the contract that stays refused | `CapabilityError` | `implementation_gap` or `invalid_declaration`, by requirement | when the fit starts, before fold generation and before any learner is fitted |
 | `DRTMLE` with `delta=` and `cross_fit=True` | `CapabilityError` | `implementation_gap` | when the fit starts, before any learner is fitted |
 | minimum content | `DataError` | `invalid_declaration` | after fold generation, before any learner is fitted |
 
@@ -293,27 +335,30 @@ A `DRTMLE` fit with missing outcomes and `cross_fit=True` raises the second `Cap
 the table at every `guard`, including `guard=()`, and under every fold policy.
 `tests/unit/test_drtmle_missing.py` checks the `guard=()` case with zero learner calls.
 
-The composition check runs its steps in a fixed order. A fit that breaks several rules receives
-the first one. Each message names the missing result and the setting that the contract admits.
-A setting message gives both the engine keyword and the public spelling. `tests/unit/test_arm_indexed_stacked_mar.py` checks each step through the engine and
-through `TMLEMethod`, with zero learner calls.
+The composition check runs its steps in a fixed order. A fit that breaks several rules meets the
+first refusal. Each message names the missing result and the setting that the contract admits.
+A setting message gives both the engine keyword and the public spelling. A step marked
+*experimental* does not stop the fit. It adds a condition to the label and the check goes on, so a
+later refusal still fires.
+`tests/unit/test_arm_indexed_stacked_mar.py` checks each step through the engine and through
+`TMLEMethod`, with zero learner calls.
 
-| order | the composition check refuses | code | roadmap item |
-| ---: | --- | --- | --- |
-| 1 | C-TMLE | `implementation_gap` | [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) |
-| 2 | `fluctuation="linear"` | `implementation_gap` | [X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts) |
-| 3 | `algorithm="one_step"` | `implementation_gap` | X60 |
-| 4 | `target_weights=True` | `implementation_gap` | X60 |
-| 5 | `fold_evaluation=True` | `implementation_gap` | [X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) |
-| 6 | `att` or `atc` | `implementation_gap` | X60 |
-| 7 | a continuous outcome with `q_bounds=None` | `invalid_declaration` | none |
-| 8 | `split_plan=` | `implementation_gap` | X53 |
-| 9 | `repeats` above 1 | `implementation_gap` | X53 |
-| 10 | `targeting_scheme="fold"` | `implementation_gap` | X53 |
-| 11 | observation weights | `implementation_gap` | X60 |
-| 12 | clusters | `implementation_gap` | X60 |
-| 13 | baseline strata | `implementation_gap` | X53 |
-| 14 | `n_bootstrap > 0` | `inference_gap` | [F2](../roadmap.md#f2-targeted-bootstrap-inference) |
+| order | the composition check meets | outcome | code | roadmap item |
+| ---: | --- | --- | --- | --- |
+| 1 | C-TMLE | refused | `implementation_gap` | [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) |
+| 2 | `fluctuation="linear"` | experimental | `implementation_gap` | [X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts) |
+| 3 | `algorithm="one_step"` | experimental | `implementation_gap` | X60 |
+| 4 | `target_weights=True` | experimental | `implementation_gap` | X60 |
+| 5 | `fold_evaluation=True` | experimental | `implementation_gap` | [X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) |
+| 6 | `att` or `atc` | experimental | `implementation_gap` | X60 |
+| 7 | a continuous outcome with `q_bounds=None` | refused | `invalid_declaration` | none |
+| 8 | `split_plan=` | experimental | `implementation_gap` | X53 |
+| 9 | `repeats` above 1 | experimental | `implementation_gap` | X53 |
+| 10 | `targeting_scheme="fold"` | refused | `implementation_gap` | X53 |
+| 11 | observation weights | experimental | `implementation_gap` | X60 |
+| 12 | clusters | experimental | `implementation_gap` | X60 |
+| 13 | baseline strata | experimental | `implementation_gap` | X53 |
+| 14 | `n_bootstrap > 0` | experimental | `inference_gap` | [F2](../roadmap.md#f2-targeted-bootstrap-inference) |
 
 The list once held a stratified fold policy and a fold count below two. The declaration check
 refuses both, so neither step can run. A copied or modified estimator can still carry the refused
