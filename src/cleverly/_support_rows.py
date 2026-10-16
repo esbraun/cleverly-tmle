@@ -1262,9 +1262,7 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         ),
         "band-finite-sample: joint coverage 0.9085 to 0.9394",
     ),
-    "G29.g1": (
-        "X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",
-    ),
+    "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
     "G34.competing": (
         (
             "X19-competing-calibration: coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, "
