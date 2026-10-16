@@ -11,11 +11,9 @@ import re
 from typing import Any
 
 import numpy as np
-import pandas as pd
 
 from cleverly.datasets import navigation_protocol
 from tests.studies.oat_per_arm_laws import BINARY_ACTIVE
-from tests.studies.oat_per_arm_laws import G_BOUNDS as BINARY_ACTIVE_BOUNDS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     ROOT,
@@ -29,11 +27,9 @@ NOTEBOOK = EXAMPLES / "collaborative-tmle.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/collaborative-tmle-oat/summary.log"
 _TRUTH = "reviews/notebook-review/probes/collaborative-tmle-oat/truth.log"
-_STUDY = "tests/canonical/ctmle_oat_per_arm_parametric/properties.csv"
 
 # Integer counts the readings quote, which the decimal gate does not read:
-# 1,857, 1,881 and 1,963 of 2,000 draws come from _PROBE; 9,200 and 17,200 replications are the
-# `replicates` of the auto_bounds and shipped-curve cells in _STUDY.
+# 1,857, 1,881 and 1,963 of 2,000 draws come from _PROBE.
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
@@ -46,23 +42,11 @@ UNPRINTED_DECIMALS = {
     "0.0134": f"median |OAT - TMLE| (0.0134), 2,000 draws: {_PROBE}",
     "0.0381": f"95th percentile of |OAT - TMLE| (0.0381), 2,000 draws: {_PROBE}",
     "0.0016": f"twice the Monte Carlo SE of the mean error (2 x 0.0358 / sqrt(2000)): {_PROBE}",
-    "+0.0009": f"mean error of tmle_main and oat_main (+0.00090, +0.00086): {_PROBE}",
     "10.14": f"population nu2 of the full set (10.136): {_TRUTH}",
     "9.14": f"population nu2 of the full set, g clipped at the page bounds (9.142): {_TRUTH}",
     "4.12": f"population nu2 without staffing (4.122): {_TRUTH}",
-    "0.99": "upper declared g_bounds of the binary_active group (G_BOUNDS = (0.01, 0.99)), "
-    "tests/studies/oat_per_arm_laws.py",
     "0.193": f"ordinary TMLE mean share of g outside (0.1, 0.9) (0.1933): {_PROBE}",
     "0.0002": f"OAT C-TMLE mean share of g outside (0.1, 0.9) (0.0002): {_PROBE}",
-    "0.951": f"coverage of interval_calibration/auto_bounds__ate__corrected (0.95065): {_STUDY}",
-    "1.002": f"se_ratio of interval_calibration/auto_bounds__ate__corrected (1.00239): {_STUDY}",
-    "0.900": "coverage of interval_calibration/binary_active__ate__shipped_curve__shrunken_se_"
-    f"control (0.90047): {_STUDY}",
-    "0.848": "se_ratio of interval_calibration/binary_active__ate__shipped_curve__shrunken_se_"
-    f"control (0.84756): {_STUDY}",
-    "0.192": f"truth (psi*) of interval_calibration/pseudo_true__ate__corrected (0.19183): {_STUDY}",
-    "0.948": f"coverage of interval_calibration/pseudo_true__ate__corrected (0.94803): {_STUDY}",
-    "0.305": f"psi0_coverage of interval_calibration/pseudo_true__ate__corrected (0.30526): {_STUDY}",
 }
 
 
@@ -87,8 +71,6 @@ def _check_committed_sources() -> None:
         assert round(bias, 4) == 0.0006 and round(empirical, 4) == sd
         assert round(mean_ratio, 2) == ratio and count == covered
     assert round(_probe(r"^gcomp\s+bias [+-][\d.]+\s+empirical sd ([\d.]+)")[0], 4) == 0.0297
-    for name in ("tmle_main", "oat_main"):
-        assert round(_probe(rf"^{name}\s+bias ([+-][\d.]+)")[0], 4) == 0.0009
     assert _probe(r"^oat se below tmle se on (\d+) of 2000 draws$") == [1963.0]
     tails = (
         _probe(rf"^{name}\s+mean share of g outside \(0\.1, 0\.9\) ([\d.]+);")[0]
@@ -104,21 +86,6 @@ def _check_committed_sources() -> None:
         (r"without staffing", 4.12),
     ):
         assert round(_probe(rf"^{label}: nu2 = ([\d.]+)$", _TRUTH)[0], 2) == value
-    assert BINARY_ACTIVE_BOUNDS[1] == 0.99
-
-    cells = pd.read_csv(ROOT / _STUDY).set_index(["property", "cell"])
-    auto = cells.loc[("interval_calibration", "auto_bounds__ate__corrected")]
-    assert (round(auto["coverage"], 3), round(auto["se_ratio"], 3)) == (0.951, 1.002)
-    assert auto["replicates"] == 9200
-    shipped = cells.loc[
-        ("interval_calibration", "binary_active__ate__shipped_curve__shrunken_se_control")
-    ]
-    assert (round(shipped["coverage"], 3), round(shipped["se_ratio"], 3)) == (0.900, 0.848)
-    assert shipped["replicates"] == 17200
-    pseudo = cells.loc[("interval_calibration", "pseudo_true__ate__corrected")]
-    assert round(pseudo["truth"], 3) == 0.192
-    assert round(pseudo["coverage"], 3) == 0.948
-    assert round(pseudo["psi0_coverage"], 3) == 0.305
 
 
 def check(namespace: dict[str, Any]) -> None:
@@ -200,8 +167,8 @@ def check(namespace: dict[str, Any]) -> None:
     assert tuple(assessment.attention) == ()
     nuisance = namespace["nuisance"]
     assert nuisance.treatment_role == "collaborative_working_model"
-    for arm in (0, 1):
-        assert 0.5 < nuisance[f"propensity[{arm}]"].metrics["auc"] < 0.6
+    for index in (0, 1):
+        assert 0.5 < nuisance[f"propensity[{index}]"].metrics["auc"] < 0.6
     ordinary_auc = tmle.diagnostics.nuisance_models()["propensity"].metrics["auc"]
     assert ordinary_auc > 0.8
     ledger = assessment.to_frame().set_index(["surface", "check"])["status"]

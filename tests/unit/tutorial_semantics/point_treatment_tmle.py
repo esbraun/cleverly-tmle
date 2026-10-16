@@ -11,12 +11,10 @@ import re
 from typing import Any
 
 import numpy as np
-import pandas as pd
 
 from cleverly.datasets import navigation_protocol
 from cleverly.datasets.synthetic import nonlinear_bounded_dgp
 from tests.documents import ROOT
-from tests.studies.canonical_cvtmle import G_BOUNDS
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -43,7 +41,6 @@ def _law_moments(n: int = 400_000) -> dict[str, float]:
 
 
 _PROBE = "reviews/notebook-review/probes/point-treatment-tmle-final"
-_STUDY = "tests/canonical/tmle3_cvtmle/properties.csv"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
@@ -57,15 +54,11 @@ UNPRINTED_DECIMALS = {
     "0.05": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
     "0.95": "the law's propensity bounds: cleverly.datasets.synthetic.nonlinear_dgp",
     "0.431": f"RV of the shown draw at the law's nu^2, by summarize.py: {_PROBE}/summary.log",
-    "0.025": "the study's propensity bounds: tests/studies/canonical_cvtmle.py G_BOUNDS",
-    "0.975": "the study's propensity bounds: tests/studies/canonical_cvtmle.py G_BOUNDS",
-    "0.945": f"coverage of crossfit_overfitting/stacked_cvtmle: {_STUDY}",
-    "0.5225": f"coverage of crossfit_overfitting/in_sample_control: {_STUDY}",
 }
 
 
 def _assert_committed_numbers() -> None:
-    """Each probe and study number of ``UNPRINTED_DECIMALS`` matches its committed file."""
+    """Each probe number of ``UNPRINTED_DECIMALS`` matches its committed file."""
     probe = ROOT / _PROBE
     summary = (probe / "summary.log").read_text(encoding="utf-8")
     truth = (probe / "truth.log").read_text(encoding="utf-8")
@@ -92,14 +85,6 @@ def _assert_committed_numbers() -> None:
     assert number(truth, r"max g +(\S+)") <= 0.95
     assert round(number(plugin, r"bias (\S+)"), 3) == -0.018
     assert "seeds 6000 to 6199, 200 draws" in plugin
-
-    study = pd.read_csv(ROOT / _STUDY, float_precision="round_trip")
-    cells = study[study["property"] == "crossfit_overfitting"].set_index("cell")
-    assert cells.loc["stacked_cvtmle", "coverage"] == 0.945
-    assert cells.loc["in_sample_control", "coverage"] == 0.5225
-    assert set(cells["n"]) == {500}
-    assert set(cells["replicates"]) == {400}
-    assert G_BOUNDS == (0.025, 0.975)
 
 
 def check(namespace: dict[str, Any]) -> None:
