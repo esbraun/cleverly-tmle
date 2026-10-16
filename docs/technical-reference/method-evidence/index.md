@@ -103,6 +103,7 @@ known-mechanism-dr-tmle
 dr-tmle-one-inconsistent-nuisance
 known-node-mechanisms-ltmle
 sequential-baselines
+parametric-gformula
 repeated-outcome-longitudinal-tmle
 repeated-outcome-ipsi
 omitted-variable-bound-standard-error

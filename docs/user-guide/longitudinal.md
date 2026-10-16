@@ -680,6 +680,62 @@ the estimators, the stacked influence curve, the settings, and the refusals. The
 [sequential offers tutorial](../examples/sequential-offers.ipynb) fits g-computation and `LTMLE`
 with the same misspecified outcome model on one campaign.
 
+## Simulate the parametric g-formula
+
+`ParametricGFormula` estimates the same regimen levels and contrasts as `LTMLE`. It fits a model for
+each time-varying covariate and for the outcome. It then simulates each unit forward under each
+regimen and averages the simulated outcomes. `SequentialGComputation` reaches the same target by
+regression backward through the nodes.
+
+| reason | choose |
+| --- | --- |
+| you need the forward-simulation form that `gfoRmula` and `pygformula` report, with an analytic interval | `ParametricGFormula` |
+| a plan fixes a continuous dose at a node, or sets it by a known rule | `ParametricGFormula`. `LTMLE` and `SequentialGComputation` refuse both |
+| you doubt the law of a time-varying covariate | `SequentialGComputation`, `LTMLE` or `SDR`. They model no covariate law |
+| you want a fit that a misspecified model of one kind cannot bias | `LTMLE` or `SDR` |
+
+The parametric g-formula needs a correct model for every covariate and for the outcome. It reads
+more models than the backward form, and each one must be right.
+
+```python
+from cleverly.datasets import make_longitudinal
+from cleverly.longitudinal import ParametricGFormula
+
+frame, _ = make_longitudinal(n=300, seed=0)
+result = ParametricGFormula(
+    {"always": 1, "never": 0},
+    reference="never",
+    covariate_types={"L2": "normal"},
+    n_draws=20,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+print(result.summary())
+print(result.simulation.monte_carlo_share)
+```
+
+`gformula()` is the one-call form. The fit refuses an undeclared time-varying column that is not
+coded 0/1, before any learner. Declare it in `covariate_types=` as `"binary"`, `"categorical"` or
+`"normal"`.
+
+The interval includes the simulation error. `result.simulation.monte_carlo_share` gives the share
+of each variance that the simulation contributes, and the fit warns above 10%. Raise `n_draws=` to
+lower it. A fit with the same `random_state=` repeats exactly.
+
+A data-adaptive learner for any model that the estimate reads gives the status
+`adaptive_baseline_plugin`: the point estimate only. A fixed number at a continuous treatment node
+is a fixed dose, and a `DynamicRegimen` rule with `rule_kind="known"` there sets the dose from the
+simulated history. The result then states its model reliance and reports a support diagnostic. No
+published analytic variance exists for the simulation form, so the interval is a natural
+extension. [Parametric g-formula](../technical-reference/parametric-gformula.md) gives the
+estimator, the argument, the settings, the refusals and the validation.
+
 ## Estimate an incremental intervention over time
 
 Pass `IncrementalEffect` to `identify()` and `method="ipsi"` to `estimate()`. Each

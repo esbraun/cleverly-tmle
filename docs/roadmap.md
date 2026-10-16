@@ -136,7 +136,6 @@ not change the package version.
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (o); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
 | B5 | Structural dynamic treatment effects | source audit | X41 | [X44](#x44-structural-dynamic-treatment-effects) |
-| B5 | Parametric forward-simulation g-formula | source audit | X41 | [X45](#x45-parametric-forward-simulation-g-formula) |
 | B5 | Longitudinal simulated-confounding replay with a time-fixed latent | natural extension | the shipped point-treatment replay | [X48](#x48-longitudinal-simulated-confounding-replay-with-a-time-fixed-latent) |
 | after beta | Replicate-weight designs | source audit | weighted-law variance construction | [X2](#x2-replicate-weight-designs) |
 | after beta | Efficient known-score ATT and ATC | published support; pending source read | the shipped known treatment mechanism | [X35](#x35-efficient-known-score-att-and-atc) |
@@ -166,6 +165,7 @@ not change the package version.
 | after beta | Simulated confounding beyond X47 and X48 | natural extension | X47; X57 for part (c); X50, X51 and X62 for part (h); F5 for a continuous fit in part (f) | [X66](#x66-simulated-confounding-beyond-x47-and-x48) |
 | after beta | Refutation and assessment adapters | no new theory | the shipped `refute` catalog | [X67](#x67-refutation-and-assessment-adapters) |
 | after beta | Repeated outcomes for the sequential baselines | no new theory | the shipped `LTMLE` repeated outcome; X41 | [X71](#x71-repeated-outcomes-for-the-sequential-baselines) |
+| after beta | Pooled-over-time parametric g-formula models | no new theory; the stacked equations of the shipped `ParametricGFormula`, with unit-summed scores | the shipped `ParametricGFormula` | [X73](#x73-pooled-over-time-parametric-g-formula-models) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -481,6 +481,10 @@ closes these cells.
 The `X4-finite-sample` owner holds one coverage cell of the SDR study at n = 2,000. `LTMLE`
 shares its shortfall on the same draws, so the diagnosis finds no defect in `SDR`.
 
+The `X45-finite-sample` owner holds one calibration cell of the `parametric-gformula` study.
+The study declares the reading before its run, and the diagnosis finds no defect in
+`ParametricGFormula`.
+
 The `X8-logit-small-stratum` and `X8-identity-small-stratum` owners hold cells of the two
 stratified MSM studies in their smallest stratum. Each is a standing record of a reading, and
 neither gates the beta release. The `X8-drtmle-one-sided-bias` and `X8-drtmle-small-stratum`
@@ -509,8 +513,9 @@ owners do the same for the stratified DR-TMLE study.
 | `F1-power-design` | the `power/mix__alternative` cell of `stochastic-categorical-ltmle` | reading `underpowered at its declared size`. Its n = 4,000 was copied from `canonical-categorical-ltmle`, where the contrast is 0.125. Here the contrast is -0.0488, so the exact power of a two-sided 5% test is 0.5365, and exact power 0.80 needs n = 7,460. The cell rejects at 0.5575 (99% interval 0.511 to 0.603) against a floor of 0.80, and that interval contains the exact power ([`tests/unit/test_stochastic_categorical_ltmle_design.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_stochastic_categorical_ltmle_design.py)). Its bias is inside the margin and its coverage is 0.9475. The `type_i_error` cell, on the null variant of the law, passes. The owner closes when a re-declared power cell, with its law or size declared before its run, passes. Until then the cell stays published red under `reporting` |
 | `mtp-longitudinal-limits` | the `interval_calibration/categorical_mtp__correctly_specified` cell of `longitudinal-mtp` | reading `finite-sample, sparse cells`: the efficiency ratios read 1.120 and 1.098 against a band of 0.9 to 1.1, and coverage 0.9435 and the SE ratio pass. The cell fits saturated cell probabilities for the six-level mechanism. A diagnostic refitted it on fresh draws. The in-sample fit reads a reported efficiency ratio of 1.103 at n = 2,000 and 1.023 at n = 8,000, and the five-fold fit 1.389 and 1.048, on 300 fresh draws per size. The reported ratio's excess falls about four times as n grows four times, the order of the cost of estimating sparse cell probabilities, and reads 1.003 at n = 128,000. A wrong bound or an inefficient curve would keep its excess. Both outcome regressions are misspecified, and the saturated mechanism makes the fit the NPMLE whatever the outcome learner, so the estimate is unaffected ([`tests/diagnostics/longitudinal_mtp_categorical_efficiency/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/longitudinal_mtp_categorical_efficiency), [`tests/unit/test_longitudinal_mtp_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_longitudinal_mtp_reading.py)). The cell read the same in runs 2 and 3. The owner closes when a re-declared cell, with its size declared before its run, passes. Until then the cell stays published red under `reporting` |
 | `mtp-point-calibration` | the `interval_calibration/halve__correctly_specified` cell of `policy-point-mtp` | reading `Monte Carlo excursion`. The SE ratio is 1.0429, with a 99% interval of 1.0011 to 1.0881 against an upper bound of 1.07. It was 1.0430 at 160 bins, so the bin count does not move it. Coverage is 0.9605, and the reported standard error matches the efficiency bound (ratio 1.0018). The influence curve with the binned ratio predicts a ratio of 0.9998. A diagnostic refitted the same configuration on 2,000 fresh draws and read 0.999, with a bootstrap 99% interval of 0.959 to 1.043. Fewer than 1% of its bootstrap ratios reach 1.0429 ([`tests/diagnostics/mtp_point_halve_excursion/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/mtp_point_halve_excursion)). The diagnostic cannot change the verdict. The owner closes when a re-declared calibration cell for this policy passes, with a budget of no more than 2,000 replications fixed before its run. Until then the cell stays published red under `reporting` |
-| `X19-competing-calibration` | the `interval_calibration/competing_contrast_x2_h3__correctly_specified` cell of `longitudinal-incremental-dropout` | reading `finite-sample or Monte Carlo, conservative`. At n = 96,000 and 3,000 replications the SE ratio is 1.047, with an interval of 1.012 to 1.083 against an upper bound of 1.07. Coverage is 0.959. The reported standard error matches the exact efficient influence-function standard deviation (ratio 1.0006), and the empirical spread sits 4.4% below it. The design probes on other draws read 0.948 at n = 32,000 and 0.980 at n = 64,000 (`tests/diagnostics/x19_sizing/reading.csv`). The owner closes when a re-declared competing-risk calibration cell passes its band at a budget fixed before its run. Until then the cell stays published red under `reporting` |
+| `X19-competing-calibration` | the `interval_calibration/competing_contrast_x2_h3__correctly_specified` cell of `longitudinal-incremental-dropout` | reading `finite-sample, conservative`. At n = 96,000 and 3,000 replications the SE ratio is 1.047, with an interval of 1.012 to 1.083 against an upper bound of 1.07. Coverage is 0.959. The reported standard error matches the exact efficient influence-function standard deviation (ratio 1.0006), and the empirical spread sits 4.4% below it. The design probes on other draws read 0.948 at n = 32,000 and 0.980 at n = 64,000 (`tests/diagnostics/x19_sizing/reading.csv`). The owner closes when a re-declared competing-risk calibration cell passes its band at a budget fixed before its run. Until then the cell stays published red under `reporting` |
 | `X13-finite-sample` | the `interval_calibration/weighted_t5__correctly_specified` cell of `point-treatment-survival` and the `interval_calibration/three_arm_t3__correctly_specified` cell of `point-treatment-survival-crossfit` | reading `finite-sample`. The weighted cell's SE ratio is 1.027, with a 99% interval of 0.981 to 1.076 against an upper bound of 1.07. Its reported standard error equals the weighted efficiency bound (ratio 1.0007), and the interval of its empirical efficiency ratio, 0.930 to 1.020, contains one. A diagnostic on 1,000 fresh draws ([`tests/diagnostics/x13_weighted_calibration/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_weighted_calibration)) reads an SE ratio of 1.022 and a coverage of 0.957. The cross-fitted three-arm cell's empirical efficiency interval is 1.010 to 1.108 against 1.10, with an SE ratio of 1.008. A diagnostic on fresh draws ([`tests/diagnostics/x13_crossfit_three_arm/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_crossfit_three_arm)) put its reported standard error over the bound at 1.0003 in sample, 1.082 at five folds and 1.055 at ten folds at n = 2,000, and 1.0085 at five folds at n = 8,000, so the excess is the finite-sample cost of cross-fitting saturated cell means. The owner closes when a cell is re-declared with its size and replication count chosen before its run by a stated sizing rule, such as a pass probability of at least 0.90 under exact calibration, and that cell passes. A larger run that happens to pass does not close it. Until then each cell stays published red under `reporting` |
+| `X45-finite-sample` | the `interval_calibration/nice_g1_treat_all__correctly_specified` cell of `parametric-gformula` | reading `finite-sample` under the reading that `tests/studies/canonical_parametric_gformula.py` declares before the run. The cell (n = 2,000, R = 2,400) has an SE ratio of 0.9619, with a 99% interval of 0.9259 to 1.0000 against a lower bound of 0.93. Its coverage is 0.9413, with a 99% interval of 0.9278 to 0.9529 inside the band 0.92 to 0.98. Its bias is 0.000158 with a standard error of 0.000393. The same law, plan and size in two independent draws give SE ratios of 1.0022 (`shared_target`, R = 1,192) and 0.9701 (`ice_reported`, R = 1,198). The other `G1` calibration cells read 0.972 to 0.993, and the `G1` contrast ladder reads 1.021, 0.986 and 1.006 at n = 2,000, 4,000 and 8,000. The study declares an expected 1.26 finite-sample reds over 114 gated cells, and a chance of 0.72 of at least one. The owner closes when a cell is re-declared with its size chosen before its run and that cell passes. Until then the cell stays published red under `reporting` |
 | `F28` | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) parts (d), (f) and (g), for the finite-sample limits of clustered intervals: the fold-evaluated covariate pair of `clustered-unequal-cvtmle`, and the fold-evaluated bias cells and cross-fitted `DRTMLE` IID controls of `clustered-few-cluster-tmle` | each group closes on its own registered study that passes. The fold-evaluated pair of `clustered-unequal-cvtmle` at 40 clusters in 10 folds: a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more. The three `tmle_cv_evaluation__unequal_informative` cells: a cluster-size-weighted fold average or another fold-evaluated point whose bias stays inside the margin. The stacked report is the remedy today. The four `drtmle_crossfit` `iid_t_control` cells: a calibrated cross-fitted `DRTMLE` cluster variance, or an IID control that compares the two SEs and not the IID SE with the empirical SD ([X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes)) |
 | `X20-bootstrap` | the `interval_calibration` cells `boot_ey_crossfit__correctly_specified`, `boot_ate_crossfit__correctly_specified` and `boot_ate_clustered__correctly_specified` of `full-refit-bootstrap-and-derived-contrasts` | the declared rule 3 keeps the `end_of_study/cross_fit` and `end_of_study/cluster` kinds without a support row that lists the `bootstrap` kind, so their percentile interval carries the label `experimental`. A diagnostic reading, not a registered result: on this cell the cross-fitted estimator is heavy-tailed. Its 4,000 committed estimates have excess kurtosis 6.7, and about 5% of them lie at the probability boundary, because `g_bounds=(1e-8, 1)` with saturated cell means leaves sparse training cells unbounded. A bootstrap resample holds about 63% unique units, so more replicates reach the boundary and the replicate spread exceeds the sampling spread (SE ratios 1.23 and 1.27). A probe that kept each unit's copies in one fold raised the SE ratio to about 1.65, so the split of copies across folds is not the cause. The cluster contrast covers 0.924 with a calibrated SE ratio (0.977), a finite-sample shortfall of the percentile interval at 60 clusters. The owner closes when a re-declared cell for the kind, with its law, size, nuisance bounds or resampling scheme declared before its run, passes a registered cell |
 | `X41-negative-control` | the three `misspecification_control/*_x_contrast__main_terms` cells of `sequential-baselines` (Hajek, Horvitz-Thompson and ICE) | none. The study declares the cells red before the run (`EXPECTED_RED` in `tests/studies/canonical_sequential_baselines.py`). A law whose nuisances are all wrong must fail the calibration rule, and `tests/unit/test_sequential_baselines_design.py` computes the power of that failure. The cells read a standardized bias of 1.7 to 2.0 and a coverage of 0.48 to 0.61, with an SE ratio near 1. A pass would mean the rule cannot detect a misspecified fit |
@@ -647,18 +652,6 @@ shared target only where the structural model makes the targets equal, and do no
 structural coefficient as an unrestricted policy value.
 
 Acceptance: a written map of the targets and the assumptions, and the decision whether to ship.
-
-### X45. Parametric forward-simulation g-formula
-
-The NICE Monte Carlo g-formula models and simulates covariate trajectories. It differs from
-backward sequential regression. McGrath et al. (2020), *Patterns*, describe `gfoRmula`, and
-`pygformula` implements it in Python.
-
-Keep it as an optional integration. Compare a shared target
-under correctly specified laws, and account for the simulation error. A model-based fixed
-continuous path states its model reliance and its extrapolation assumptions.
-
-Acceptance: a registered study on a shared target, with the Monte Carlo error declared.
 
 ### X46. Repeated cross-fitting for longitudinal fits
 
@@ -1621,8 +1614,8 @@ for each request that stays refused.
 
 ### X71. Repeated outcomes for the sequential baselines
 
-`SequentialGComputation` and `SequentialIPW` refuse a repeated outcome, declared with
-`outcome=Repeated([...])`, before any learner. `LTMLE` fits one: each horizon is the
+`SequentialGComputation`, `SequentialIPW` and `ParametricGFormula` refuse a repeated outcome,
+declared with `outcome=Repeated([...])`, before any learner. `LTMLE` fits one: each horizon is the
 end-of-study fit of the panel truncated after it
 ([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). The same
 reduction applies to each baseline, and its stacked estimating equation covers several horizons
@@ -1631,9 +1624,35 @@ as it covers several plans.
 | part | what to add | evidence |
 | --- | --- | --- |
 | (a) | `gcomp` and `ipw` in `REPEATED_OUTCOME_KINDS`, with the per-horizon fit of the truncated panel | `tests/unit/test_repeated_outcome_subclasses.py` requires each horizon's estimate and curve to equal the end-of-study fit of the truncated panel |
+| (b) | `parametric_gformula` in `REPEATED_OUTCOME_KINDS`, with one simulation of the truncated panel per horizon. Each horizon fits the covariate and outcome models of its own truncated panel | the same reduction test, which exempts `ParametricGFormula` until this part ships |
 
-Acceptance: the exact reduction test for both baselines, and a registered property study of the
+Acceptance: the exact reduction test for all three estimators, and a registered property study of the
 repeated-outcome cells.
+
+### X73. Pooled-over-time parametric g-formula models
+
+This row has two parts. Part (a) adds pooled models. Part (b) adds a vector treatment node
+with a dose component.
+
+`ParametricGFormula` fits one model per node and covariate. `gfoRmula` and `pygformula` fit one
+pooled model per covariate over all time rows, with lag and cumulative-average terms of the
+history. A pooled model restricts the node-specific models, so it needs fewer parameters and it
+extrapolates over time. This row adds the pooled form to the shipped estimator.
+
+| what to add | evidence |
+| --- | --- |
+| a pooled `GLM` for each covariate and for the outcome or hazard, fitted on long rows. Each row carries the time, the lag and the cumulative-average terms of the history that the caller declares. The score of a unit is the sum over its rows, and the information is the sum over all rows. The stacked equations, the score-function derivative and the simulation error stay as in [the shipped page](technical-reference/parametric-gformula.md) | exact laws on which the pooled model is correct, with the complex-step Gateaux check of the curve, and a mutation control that scores each row as a unit. A nonzero witness for each history term |
+
+Acceptance: the exact-law witnesses of the pooled model, the mutation controls, and a registered study
+cell for a law with a lag term.
+
+`ParametricGFormula` refuses a mixed treatment node today (`GFORMULA_MIXED_NODE_REFUSAL`). A
+mixed node holds a categorical component and a dose, and the simulation draws one natural
+treatment column per node.
+
+| what to add | evidence |
+| --- | --- |
+| (b) a joint natural-treatment model of a mixed node: the categorical component first, then each dose given the component, with the score of each factor in the stacked equations. The draw of a `JointPolicy` reads the drawn components | exact laws with a mixed node, the complex-step Gateaux check of the curve, and a mutation control that drops the dose factor's score |
 
 ### P1. EP learner
 
