@@ -657,7 +657,9 @@ rule at node $t$ reads the columns of nodes 1 to $t$ through `each_node`. The re
 the data can show: a unit-level column that varies, a covariate that copies the outcome, and a
 time-varying column that stops being recorded.
 The [scope and refusals](scope-and-refusals.md) page lists them. The registered evidence uses two
-decision nodes. [X39](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) plans three to five.
+decision nodes.
+
+[X39](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) ships the bootstrap options for three to five decisions as experimental. Its studies are pending.
 
 `tests/unit/test_long_panel.py` checks the round trip on irregular censoring and unsorted input,
 one refusal per row of the table, and the equality of `LTMLE` and `SDR` fits on the adapted panel
@@ -1074,7 +1076,7 @@ sums no risk curve.
 | random draws | `run_bootstrap` spawns the stream from `random_state`. The stream draws nothing the fit uses, so every analytic field of the fit is unchanged. `tests/unit/test_ltmle_bootstrap.py` pins a committed `canonical-ltmle` row at `n_bootstrap=0` and at `n_bootstrap=2` |
 | parallel layers | the replicates run in parallel over `n_jobs`, and each replicate fit runs with one worker |
 | licensing scope | The `bootstrap` kind of a support row decides the label. A fit is covered when it has an end-of-study or single-cause survival outcome, is fitted in sample, uses static regimens, one treatment decision per node, a binary outcome, no weights and no working model. Any other fit, such as a held baseline treatment, matches no such row. The rows `G01` and `G11.nodes4` list it, and the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) measured them. A cross-fitted fit, a clustered fit and a clustered cross-fitted fit have no such row, so their percentile interval carries the label `experimental`. Owner `X20-bootstrap` holds the red cells. A fit with fewer than 20 clusters prints `bootstrap sd` and a percentile range, whatever its status. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
-| BCa and band scope | A BCa interval needs the `bootstrap_bca` kind, and the bootstrap band needs the `bootstrap_band` kind. No support row lists either kind, so both carry the label `experimental` on every fit. The X39 studies are to add the rows |
+| BCa and band scope | A BCa interval needs the `bootstrap_bca` kind, and the bootstrap band needs the `bootstrap_band` kind. No support row lists either kind, so both carry the label `experimental` on every fit. The X39 code ships in that state. The long-horizon Python studies are pending as a follow-up, and they are to add the rows. The R comparators (`ltmle`, `lmtp`) are deferred to [X59](../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr). `SparseInfluenceWarning` fires on a fit without a bootstrap when the relative standard deviation of the variance estimate exceeds 0.125. The X39 work set that threshold after it read the pilots |
 | derived estimates | `ratio`, `rmst`, `rmtl` and `contrast` apply the same function to each replicate's estimates, and attach the percentile interval of those values. The derived interval is licensed only when every input's interval is |
 
 ## Variations
