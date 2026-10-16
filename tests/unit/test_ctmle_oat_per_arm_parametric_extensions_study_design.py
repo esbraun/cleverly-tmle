@@ -993,26 +993,47 @@ def test_every_cell_has_a_description() -> None:
     assert descriptions.implementation(runner.IMPLEMENTATION)
 
 
-def test_the_clause_bindings_name_this_slug_and_leave_the_binding_search_to_the_run() -> None:
+#: The perturbation the binding search chose for each clause of this study
+#: (``python -m tests.canonical.property_differential --bindings <dir> --subjects
+#: ctmle-oat-per-arm-parametric-extensions``, 1,876 seconds, 11 of 11 clauses bound, no targeted
+#: kind).  The plan copied ``bias`` for ``interval_calibration, coverage in calibration band`` and
+#: ``affine`` for ``generated_design, coverage in calibration band``; the search found ``affine``
+#: and ``shift/0.7``.  Both ``simultaneous_coverage`` clauses bind to ``se_low``.
+SEARCHED_BINDINGS = {
+    ("generated_design", "coverage in calibration band"): "shift/0.7",
+    ("generated_design", "se ratio in calibration band"): "se/0.05",
+    ("interval_calibration", "coverage in calibration band"): "affine",
+    ("interval_calibration", "noise se ratio below band"): "se_high",
+    ("interval_calibration", "se ratio above band"): "se_low",
+    ("interval_calibration", "se ratio below band"): "se_high",
+    ("interval_calibration", "se ratio in calibration band"): "affine",
+    ("simultaneous_coverage", "joint coverage below nominal"): "se_low",
+    ("simultaneous_coverage", "joint coverage in calibration band"): "se_low",
+    ("type_i_error", "coverage floor"): "coverage/0.5",
+    ("type_i_error", "rejection ceiling"): "rejection/0.1",
+}
+
+
+def test_the_clause_bindings_record_the_binding_search() -> None:
     import pandas as pd
 
     table = pd.read_csv(
         ROOT / "tests" / "canonical" / "clause-bindings.csv", dtype=str, keep_default_na=False
     )
     own = table.loc[table["subject"] == runner.STUDY.slug]
-    pairs = set(zip(own["property"], own["clause"], strict=True))
-    assert len(own) == len(pairs) == 11
-    assert ("interval_calibration", "se ratio above band") in pairs
-    assert {prop for prop, _ in pairs} == FAMILIES
-    # The two joint rows carry a precedent until the binding search runs.
-    joint = own.loc[own["property"] == "simultaneous_coverage"]
-    assert set(joint["perturbation"]) == {"se_low"}
-    assert (
-        "TODO(binding search)"
-        in (
-            ROOT / "tests" / "studies" / "canonical_ctmle_oat_per_arm_parametric_extensions.py"
-        ).read_text()
-    )
+    rows = {
+        (prop, clause): kind
+        for prop, clause, kind in zip(
+            own["property"], own["clause"], own["perturbation"], strict=True
+        )
+    }
+    assert len(own) == len(rows) == 11
+    assert {prop for prop, _ in rows} == FAMILIES
+    assert rows == SEARCHED_BINDINGS
+    source = (
+        ROOT / "tests" / "studies" / "canonical_ctmle_oat_per_arm_parametric_extensions.py"
+    ).read_text()
+    assert "TODO(binding search)" not in source
 
 
 # ------------------------------------------------------------------------------ the pilot

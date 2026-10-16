@@ -2610,6 +2610,7 @@ class TestThePublishedTestTables:
                     cell,
                     role=role,
                     nuisance_count=study.nuisance_count,
+                    slug=study.slug,
                 )
             except descriptions.Undescribed as absent:
                 undescribed.append(str(absent))

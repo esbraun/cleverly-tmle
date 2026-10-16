@@ -636,19 +636,6 @@ def cells_of(group: str) -> tuple[Cell, ...]:
     return tuple(cell for cell in CELLS if cell.group == group)
 
 
-# TODO(binding search): after the declared run, the clause bindings of this slug in
-# ``tests/canonical/clause-bindings.csv`` are placeholders until the binding search runs on the
-# declared rows.  Three rows are open.  ``interval_calibration, coverage in calibration band``
-# carries ``bias``, which did not bind on the X58b1 rows.  ``simultaneous_coverage, joint coverage
-# below nominal`` carries ``se_low``, which cannot decide it: the clause applies to controls only,
-# and ``se_low`` lowers a red control further.  ``ctmle-oat-per-arm`` uses ``se_high``, which may
-# flip two clauses together and may need a role kind (``se_role/...``).  ``simultaneous_coverage,
-# joint coverage in calibration band`` carries ``se_low``.  Run
-# ``python -m tests.canonical.property_differential --bindings <dir> --subjects
-# ctmle-oat-per-arm-parametric-extensions`` after the declared run, write the three rows from the
-# search, then drop the ``se_low`` pin in the design test and this TODO.  The search moves no
-# result.  ``test_each_binding_witness_decides_its_clause`` is red until then.
-
 STUDY = StudyRecord(
     name="K-arm, weighted and population-target outcome-adaptive per-arm C-TMLE with a parametric outcome",
     slug="ctmle-oat-per-arm-parametric-extensions",
