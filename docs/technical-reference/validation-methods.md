@@ -1119,7 +1119,7 @@ omission for an ATE or an `ey`. The exact-law witnesses carry that term.
 | `TestTheNumericalSandwich` | the standard error equals the numerical stacked sandwich of Saul and Hudgens (2020), Equation (2), on a binary, a multinomial and a ridge fit |
 | `TestTheWitnessHasTeeth` | thirteen mutations, M0 to M12, each fail the witnesses that name them. M0 changes nothing and passes |
 | `tests/unit/test_omitted_variable_plugin_refusals.py` | each key has a full-string test with its reason, roadmap item and remedy, a qualifying twin of each learner key, and a test of the capture |
-| [omitted-variable bound plug-in standard error](method-evidence/omitted-variable-bound-plugin-standard-error.md) | the registered study `omitted-variable-bound-plugin-se`. It compares the reported standard error with the sampling spread of $\nu^2$ and of each bound in five scenarios. The page states the declaration and the status of the run |
+| [omitted-variable bound plug-in standard error](method-evidence/omitted-variable-bound-plugin-standard-error.md) | the registered study `omitted-variable-bound-plugin-se`. It compares the reported standard error with the sampling spread of $\nu^2$ and of each bound in four in-sample scenarios. The page states the declaration and the status of the run |
 
 ### Simulated common-cause stress surface
 

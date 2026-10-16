@@ -78,9 +78,10 @@ MISMATCH_TOLERANCE = 1e-8
 PENALTY_BIAS_FRACTION = 0.1
 
 #: Whether a cross-fitted mechanism refuses the limits.  Out of fold, E_n[alpha_hat^2] carries
-#: a second-order bias that the stacked curve does not cover; a pilot of the registered study
-#: measured it at 1.44 standard deviations of the estimate at n = 1000.  The stack itself
-#: handles folds, and the witnesses lift this to test that curve.
+#: a second-order bias that the stacked curve does not cover.  ``tests/diagnostics/
+#: x26_crossfit_bias`` measured the ATE estimate 1.44 standard deviations above the truth at
+#: n = 1000, with coverage 0.8845.  The stack itself handles folds, and the witnesses lift this
+#: to test that curve.
 OUT_OF_FOLD_REFUSED = True
 
 #: Relative eigenvalue cutoff below which a direction counts as outside the design's range.
