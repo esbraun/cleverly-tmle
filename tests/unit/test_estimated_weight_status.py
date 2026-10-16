@@ -9,7 +9,8 @@ uniform on [0.5, 2]. Three controls keep their interval on the same frame and we
 weights declared fixed, ``guard=()``, which fits the ordinary TMLE, and the ordinary TMLE
 itself. Two mutations must fail: a DR-TMLE hook that is the ordinary one, and a hook that
 ignores the guard. A per-arm outcome-adaptive ``CTMLE`` fit with estimated weights takes
-``"generated_design_plugin"``, so the status text names F19 for it and X50 for ``DRTMLE``.
+``"generated_design_plugin"`` when ``per_arm_parametric_support`` does not admit it, and the
+status text names the admitted per-arm fit and the sequential fits beside ``DRTMLE``.
 """
 
 from __future__ import annotations
@@ -207,13 +208,13 @@ class TestASavedResultLoadsAsSaved:
         assert_round_trips(result, STATUS, route)
 
 
-class TestAPerArmCTMLEFitTakesTheGeneratedDesignStatus:
-    """The per-arm C-TMLE half of the status text cannot be reached on a shipped fit.
+class TestAPerArmCTMLEFitThatIsNotAdmittedTakesTheGeneratedDesignStatus:
+    """A per-arm C-TMLE fit that ``per_arm_parametric_support`` does not admit keeps its status.
 
-    :func:`~cleverly.estimators.ctmle.per_arm_parametric_support` refuses observation weights,
-    so a weighted ``"oat"`` fit takes ``"generated_design_plugin"`` before the weight
-    declaration is read. F19 holds that interval, and X50 reopens the status for ``DRTMLE``
-    only.
+    A weighted ``"oat"`` fit with sklearn learners is not admitted, so it takes
+    ``"generated_design_plugin"`` and F19 holds that interval. An admitted per-arm
+    parametric fit with estimated weights takes ``"estimated_weight_plugin"``, as do the
+    sequential fits. X50 reopens the status for ``DRTMLE`` only.
     """
 
     def test_estimated_weights_report_the_generated_design_status(self, frame: Any) -> None:
@@ -230,6 +231,8 @@ class TestAPerArmCTMLEFitTakesTheGeneratedDesignStatus:
     def test_the_status_text_names_each_row_for_its_estimator(self) -> None:
         assert RECORD.reopened_by == "X50"
         assert "X50 in docs/roadmap.md reopens this for DRTMLE" in RECORD.reason
-        assert "generated_design_plugin status, because per_arm_parametric_support" in RECORD.reason
-        assert "F19 in docs/roadmap.md holds its interval" in RECORD.reason
+        assert "A sequential g-computation or IPW fit" in RECORD.reason
+        assert "per-arm outcome-adaptive C-TMLE fit" in RECORD.reason
+        assert "per_arm_parametric_support admits" in RECORD.reason
+        assert "each one's stacked estimating-equation curve conditions on" in RECORD.reason
         assert RECORD.assessment_note.endswith("reopens it for DRTMLE")

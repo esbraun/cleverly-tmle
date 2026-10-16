@@ -758,6 +758,10 @@ IMPLEMENTATIONS: dict[str, str] = {
         "`cleverly` cross-fitted per-arm outcome-adaptive C-TMLE with a parametric outcome and "
         "mechanism"
     ),
+    "cleverly-ctmle-oat-per-arm-parametric-extensions": (
+        "`cleverly` per-arm outcome-adaptive C-TMLE with a parametric outcome and mechanism, "
+        "at three arms, with known weights and for the population targets"
+    ),
     "drtmle-r-oat-per-arm": "R `drtmle` with `adapt_g`, by a binary recode per arm",
     "drtmle-r-oat-per-arm-strata-missing": (
         "R `drtmle` with `adapt_g`, by a binary recode per arm, with `DeltaY`, `DeltaA` and"
@@ -3068,6 +3072,195 @@ CELLS[("interval_calibration", "repeats__ate__shipped_curve__shrunken_se_control
     "adaptive-propensity standard error, with the split-adjusted variance",
     "the SE-ratio interval must fall below the calibration band",
 )
+
+#: The ``ctmle-oat-per-arm-parametric-extensions`` cells (X58b2).  Each calibration label names one
+#: fit of the stacked curve; a cell reads one estimate of it.  The names follow
+#: ``tests.studies.canonical_ctmle_oat_per_arm_parametric_extensions.slug``: ``ate[0 vs 1]`` is
+#: ``ate_0_vs_1`` and ``par[1]`` is ``par_1``.
+_EXTENSION_SLUG = "ctmle-oat-per-arm-parametric-extensions"
+#: The label ``weighted`` is an :data:`ARMS` key of other studies, so the cell lookup strips it
+#: as an arm prefix.  Its cells are therefore keyed by study in :data:`STUDY_ARM_CELLS`, and the
+#: fit description is the study's reading of the arm.
+_EXTENSION_ARM_LABELS = ("weighted",)
+
+
+def _extension_put(family: str, name: str, tested: str, required: str) -> None:
+    """Register one cell of the extensions study under :data:`CELLS` or its study-keyed arm."""
+    label, _, rest = name.partition("__")
+    if label in _EXTENSION_ARM_LABELS:
+        STUDY_ARM_CELLS[(_EXTENSION_SLUG, family, label, rest)] = (tested, required)
+    else:
+        CELLS[(family, name)] = (tested, required)
+
+
+_EXTENSION_FITS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "three_arm": (
+        "the stacked curve on the three-arm law, in sample, reference arm 1",
+        (
+            "ey_0",
+            "ey_1",
+            "ey_2",
+            "ate_0_vs_1",
+            "ate_2_vs_1",
+            "log_rr_0_vs_1",
+            "log_rr_2_vs_1",
+            "log_or_0_vs_1",
+            "log_or_2_vs_1",
+            "par_1",
+            "paf_1",
+            "ey_obs",
+        ),
+    ),
+    "three_arm_shared": (
+        "the stacked curve on a three-arm law whose arms share W1 and W2 in their outcome index, "
+        "in sample, reference arm 1",
+        ("ey_0", "ey_1", "ey_2", "ate_0_vs_1", "ate_2_vs_1"),
+    ),
+    "binary_population": (
+        "the stacked curve of the population targets on the two-arm law, in sample",
+        ("par", "paf", "ey_obs"),
+    ),
+    "three_arm_crossfit": (
+        "the cross-fitted stacked curve on the three-arm law, five folds, reference arm 0",
+        ("ey_0", "ey_1", "ey_2", "ate_1_vs_0", "ate_2_vs_0"),
+    ),
+    "weighted": (
+        "the stacked curve on the two-arm law under the known weight 0.5 + 1{W1 > 0}, in sample",
+        ("ey0", "ey1", "ate", "log_rr", "log_or", "par", "paf", "ey_obs"),
+    ),
+    "weighted_crossfit": (
+        "the cross-fitted stacked curve on the two-arm law under the known weight, five folds",
+        ("ey0", "ey1", "ate"),
+    ),
+    "composition": (
+        "the cross-fitted stacked curve on the three-arm law under the known weight, five folds, "
+        "reference arm 1",
+        ("ey_0", "ey_1", "ey_2", "ate_0_vs_1", "ate_2_vs_1"),
+    ),
+}
+_EXTENSION_ESTIMATES = {
+    "ey0": "arm-0 mean",
+    "ey1": "arm-1 mean",
+    "ate": "ATE",
+    "ey_obs": "observed mean of the outcome",
+    "log_rr": "log risk ratio",
+    "log_or": "log odds ratio",
+    "par": "population attributable risk against reference arm 0",
+    "paf": "population attributable fraction against reference arm 0",
+}
+
+
+def _extension_estimate(token: str) -> str:
+    """The reader-facing name of an estimate slug of the extensions study."""
+    if token in _EXTENSION_ESTIMATES:
+        return _EXTENSION_ESTIMATES[token]
+    for prefix, words in (
+        ("ey_", "mean of arm {0}"),
+        ("par_", "population attributable risk against reference arm {0}"),
+        ("paf_", "population attributable fraction against reference arm {0}"),
+    ):
+        if token.startswith(prefix):
+            return words.format(token[len(prefix) :])
+    for prefix, words in (
+        ("ate_", "ATE, arm {0} versus arm {1}"),
+        ("log_rr_", "log risk ratio, arm {0} versus arm {1}"),
+        ("log_or_", "log odds ratio, arm {0} versus arm {1}"),
+    ):
+        if token.startswith(prefix):
+            first, second = token[len(prefix) :].split("_vs_")
+            return words.format(first, second)
+    raise KeyError(token)
+
+
+for _label, (_fit, _tokens) in _EXTENSION_FITS.items():
+    for _token in _tokens:
+        _extension_put(
+            "interval_calibration",
+            f"{_label}__{_token}__corrected",
+            _extension_estimate(_token)
+            if _label in _EXTENSION_ARM_LABELS
+            else f"{_fit}: {_extension_estimate(_token)}",
+            *_PARAMETRIC_CALIBRATION,
+        )
+for _label, _contrast in (
+    ("three_arm", "ate_0_vs_1"),
+    ("three_arm_shared", "ate_0_vs_1"),
+    ("binary_population", "par"),
+    ("three_arm_crossfit", "ate_1_vs_0"),
+    ("weighted", "ate"),
+    ("weighted_crossfit", "ate"),
+    ("composition", "ate_0_vs_1"),
+):
+    _extension_put(
+        "interval_calibration",
+        f"{_label}__{_contrast}__shrunken_se_control",
+        "the standard errors of this contrast are multiplied by a declared factor below one",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+    _extension_put(
+        "interval_calibration",
+        f"{_label}__{_contrast}__noise_control",
+        "a declared scale of independent noise is added to each estimate of this contrast",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+for _label, _token in (
+    ("three_arm", "ey_1"),
+    ("three_arm_crossfit", "ey_1"),
+    ("binary_population", "par"),
+    ("weighted", "ey0"),
+):
+    _extension_put(
+        "interval_calibration",
+        f"{_label}__{_token}__shipped_curve__shrunken_se_control",
+        f"the standard errors of {_extension_estimate(_token)} come from the shipped "
+        "adaptive-propensity curve of the same fits, which omits the generated-design term",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+CELLS[
+    (
+        "interval_calibration",
+        "three_arm_shared__ate_0_vs_1__cross_term_dropped__inflated_se_control",
+    )
+] = (
+    "the standard errors of the contrast are built from the two arm variances without the "
+    "cross-arm covariance, on a law whose arm estimates correlate",
+    "the SE-ratio interval must fall above the calibration band",
+)
+for _label in ("three_arm", "three_arm_crossfit", "binary_population"):
+    CELLS[("simultaneous_coverage", f"{_label}__simultaneous_band")] = (
+        "the max-t multiplier band over the declared set of stacked estimates, from the "
+        "same-row stacked influence curves",
+        "joint coverage interval inside the calibration coverage band",
+    )
+for _label in ("three_arm", "binary_population"):
+    CELLS[("simultaneous_coverage", f"{_label}__pointwise_joint_control")] = (
+        "the pointwise 95% intervals of the same fits, read jointly",
+        "joint coverage upper endpoint must fall below the nominal rate",
+    )
+    CELLS[("simultaneous_coverage", f"{_label}__shipped_curve_band_control")] = (
+        "the max-t band built from the shipped adaptive-propensity curves of the same estimates",
+        "joint coverage upper endpoint must fall below the nominal rate",
+    )
+for _contrast in ("ate_1_vs_0", "ate_2_vs_0"):
+    ARM_CELLS[("generated_design", "three_arm_active", f"oracle_design__{_contrast}")] = (
+        "the outcome-adaptive design is supplied rather than estimated, cross-fitted, "
+        f"{_extension_estimate(_contrast)}",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    )
+    ARM_CELLS[("generated_design", "three_arm_active", f"estimated__{_contrast}")] = (
+        "the same design is estimated from the data, as a real fit does, cross-fitted, "
+        f"{_extension_estimate(_contrast)}",
+        "SE ratio and coverage intervals both inside their calibration bands; the paired "
+        "deficit is reported only",
+    )
+for _contrast in ("ate_0_vs_1", "ate_2_vs_1"):
+    CELLS[("type_i_error", f"three_arm_null__{_contrast}")] = (
+        "the three-arm law whose arms share one outcome index, so every contrast is zero: "
+        f"{_extension_estimate(_contrast)}",
+        "one-sided rejection bound stays under the declared type-I ceiling",
+    )
+
+STUDY_ARMS[(_EXTENSION_SLUG, "weighted")] = _EXTENSION_FITS["weighted"][0]
 
 
 def implementation(key: str) -> str:

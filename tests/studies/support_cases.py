@@ -1362,6 +1362,68 @@ def _c_cases() -> tuple[RowCase, ...]:
                 names,
             )
         )
+    extensions = "canonical_ctmle_oat_per_arm_parametric_extensions"
+    where = _ST + "canonical_ctmle_oat_per_arm_parametric_extensions.py:895"
+    # The configurations of X58b2. A case needs no reference arm: the key reads structure only,
+    # and the generator labels the arms by number.
+    for row, cell, fit, data, names in (
+        (
+            "C11.binary",
+            "binary_population__par__corrected",
+            {"estimands": ("ey0", "ey1", "ate", "ey_obs", "par", "paf"), "simultaneous": True},
+            {},
+            ("ey0", "ey1", "ate", "ey_obs", "par", "paf"),
+        ),
+        (
+            "C11.k_arms",
+            "three_arm__ey_0__corrected",
+            {"estimands": ("ey", "ate", "rr", "or", "ey_obs", "par", "paf"), "k": 3},
+            {"arms": 3},
+            ("ey", "ate", "rr", "or", "ey_obs", "par", "paf"),
+        ),
+        (
+            "C11.weighted",
+            "weighted__ate__corrected",
+            {
+                "estimands": ("ey0", "ey1", "ate", "rr", "or", "ey_obs", "par", "paf"),
+                "weighted": True,
+            },
+            {"weights": True},
+            ("ey0", "ey1", "ate", "rr", "or", "ey_obs", "par", "paf"),
+        ),
+        (
+            "C11.weighted_stacked",
+            "weighted_crossfit__ate__corrected",
+            {"estimands": ATE, "cross_fit": True, "weighted": True},
+            {"weights": True},
+            ATE,
+        ),
+        (
+            "C11.stacked_k_arms",
+            "three_arm_crossfit__ate_1_vs_0__corrected",
+            {"estimands": ("ey", "ate"), "k": 3, "cross_fit": True, "simultaneous": True},
+            {"arms": 3},
+            ("ey", "ate"),
+        ),
+        (
+            "C11.stacked_k_arms_weighted",
+            "composition__ate_0_vs_1__corrected",
+            {"estimands": ("ey", "ate"), "k": 3, "cross_fit": True, "weighted": True},
+            {"arms": 3, "weights": True},
+            ("ey", "ate"),
+        ),
+    ):
+        add(
+            _case(
+                row,
+                "ctmle-oat-per-arm-parametric-extensions",
+                cell,
+                where,
+                lambda fit=fit: _study(extensions).estimator(_study(extensions).Fit("main", **fit)),
+                data,
+                names,
+            )
+        )
     return tuple(cases)
 
 
