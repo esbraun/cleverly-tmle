@@ -159,10 +159,10 @@ def absent_arm_error(
 def refuse_absent_tilt_arms(data: CausalData) -> None:
     """Refuse an incremental fit with a stratum that lacks a treatment arm.
 
-    In a stratum where every row has ``A = 0``, the stratum's mechanism equation
-    ``P_n[I(S = s) H_g (0 - g*)] = 0`` has no finite root wherever the blip keeps one sign:
-    the logistic tilt separates.  The check reads the data only, so it runs before any
-    learner.
+    In a stratum where no row has level ``a``, the stratum's mechanism equation
+    ``P_n[I(S = s) {H_g(A) - E_g* H_g}] = 0`` has no finite root wherever the coefficient
+    of level ``a`` keeps one sign: the logistic tilt of two levels and the softmax tilt of
+    more both separate.  The check reads the data only, so it runs before any learner.
 
     Parameters
     ----------

@@ -591,7 +591,7 @@ class NuisanceEstimates:
     companion: CompanionEstimates | None = None
 
     def retilted(self, mechanism: FloatArray) -> NuisanceEstimates:
-        """The same nuisances with every tilt re-evaluated at ``mechanism``.
+        """The same nuisances with every tilt re-evaluated at the ``(n, K)`` ``mechanism``.
 
         Named for the invariant rather than for its one caller: nothing derived from
         ``g`` may be left stale when ``g`` moves.  The mechanism fluctuation calls this

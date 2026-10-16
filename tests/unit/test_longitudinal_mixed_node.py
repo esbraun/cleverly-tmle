@@ -532,6 +532,7 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/regimen.py", "DynamicRegimen.policy_density"): "categorical policy node",
     ("longitudinal/regimen.py", "_categorical_carry"): "categorical policy node",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
+    ("longitudinal/regimen.py", "_resolve_plan"): "a tilt at a mixed node is refused first",
     ("longitudinal/regimen.py", "refuse_multi_arm_tilt_node"): "a tilt at a mixed node is refused",
     ("longitudinal/sequential.py", "_categorical_node"): "categorical node",
     ("longitudinal/sequential.py", "_check_policy_arm_support"): "categorical node guard",
@@ -541,6 +542,10 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("study.py", "BackdoorMeanContrast.expression"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.reference_arm"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.selected_arm"): "a point design's own levels",
+    (
+        "validation/longitudinal.py",
+        "_ipsi_node_row",
+    ): "a tilt node of a fitted plan; a mixed one is refused",
     ("validation/longitudinal.py", "_longitudinal_stagewise"): "skips a mixed node",
 }
 

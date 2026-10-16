@@ -55,7 +55,8 @@ where :math:`h` is the *clever covariate*.  Its form depends on the target:
 ``ipsi``
     One column per *tilt of the mechanism*,
     :math:`h_r(A, W) = q_{\delta_r}(A \mid W) / (g(A \mid W)\,\pi(A, W))`, where
-    :math:`q_\delta` multiplies the odds of treatment by :math:`\delta`.  Entry for entry
+    :math:`q_\delta` multiplies the odds of treatment level :math:`a` by the factor
+    :math:`\delta_a` (one factor per level, so one scalar on two levels).  Entry for entry
     this is what ``regime`` builds at the density :math:`q_\delta`, and the two are
     nonetheless separate groups: :math:`q_\delta` is a functional of :math:`P`, so the
     influence curve carries a further term and the estimator must fluctuate the mechanism
@@ -681,7 +682,10 @@ def ipsi_submodel(
     .. math::
 
         h_r(A, W) = \frac{q_{\delta_r}(A \mid W)}{g(A \mid W)\,\pi(A, W)}
-                  = \frac{\delta_r A + 1 - A}{\bigl(\delta_r g(W) + 1 - g(W)\bigr)\,\pi(A, W)}
+                  = \frac{\delta_{r,A}}{\bigl(\sum_b \delta_{r,b}\, g(b \mid W)\bigr)\,\pi(A, W)}
+
+    On two levels :math:`\delta_r = \delta_{r,1}/\delta_{r,0}` gives Kennedy's
+    :math:`(\delta_r A + 1 - A)/\{(\delta_r g + 1 - g)\,\pi\}`.
 
     with :math:`\pi(A, W) = P(\Delta = 1 \mid A, W)`, one where no outcome is missing.
 
@@ -697,15 +701,17 @@ def ipsi_submodel(
     **This is only half of the targeting.** Fluctuating :math:`\bar Q` along these columns
     solves the first of two score equations; the second lives in the tangent space of the
     treatment mechanism and is solved by
-    :func:`~cleverly.fluctuation.mechanism.fit_mechanism`, whose covariate is the blip
-    weighted by :attr:`~cleverly.interventions.IPSISet.derivative`.  See
-    :func:`~cleverly.fluctuation.mechanism.solve_ipsi` for the alternation between them.
+    :func:`~cleverly.fluctuation.mechanism.ipsi_mechanism_covariate`: the blip weighted by
+    :attr:`~cleverly.interventions.IPSISet.binary_derivative` on two levels, and
+    :math:`h_r(a)\{\bar Q(a) - m_r\}` on three or more.  The alternation between the two
+    equations is :func:`~cleverly.estimators.targeting.solve_with_mechanism`.
 
     Parameters
     ----------
     incremental:
         ``(n, K, R)``: ``incremental[i, j, r]`` is
         :math:`q_{\delta_r}(\text{arms}[j] \mid W_i) / g(\text{arms}[j] \mid W_i)`,
+        :attr:`~cleverly.interventions.IPSISet.weights`,
         precomputed by :class:`~cleverly.interventions.IPSISet` in the form where the
         mechanism has cancelled.
     propensity:
@@ -1554,13 +1560,19 @@ def stratify_columns(
     with a row-wise covariate takes its stratum form through this function: the outcome
     blocks of :func:`stratify`, the treatment-mechanism blocks of the incremental tilt, and
     the blocks of the DR-TMLE equations.
+
+    A ``(n, K, R)`` matrix is the covariate of the softmax mechanism equation, with one
+    ``(n, K)`` slab per score column.  It stratifies along the last axis and gives
+    ``(n, K, R S)`` with the same stratum-major layout, so each stratum owns ``R`` score
+    columns.
     """
     values = np.asarray(matrix, dtype=float)
+    multipliers = stratum_multipliers(strata, probabilities)
+    if values.ndim == 3:
+        return np.concatenate([values * m[:, None, None] for m in multipliers], axis=2)
     if values.ndim == 1:
         values = values[:, None]
-    return np.hstack(
-        [values * multiplier[:, None] for multiplier in stratum_multipliers(strata, probabilities)]
-    )
+    return np.hstack([values * multiplier[:, None] for multiplier in multipliers])
 
 
 def stratify(

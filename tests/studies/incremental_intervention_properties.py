@@ -95,11 +95,12 @@ def _score_control_standard_error(result: Any) -> float:
     fluctuation = result.fluctuations["ipsi"]
     if fluctuation.mechanism is None:  # pragma: no cover - a study contract guard
         raise AssertionError("an incremental fit did not retain mechanism targeting")
-    tilts = result.nuisance.incremental.at(fluctuation.mechanism.propensity)
+    treated = np.asarray(fluctuation.mechanism.propensity, dtype=float)
+    tilts = result.nuisance.incremental.at(np.column_stack([1.0 - treated, treated]))
     code = float(tilts.names.index("odds x2"))
     blip = fluctuation.targeted.arms[1.0] - fluctuation.targeted.arms[0.0]
     treatment = np.asarray(result.data.treatment, dtype=float)
-    extra = tilts.derivative[:, int(code)] * blip * (treatment - fluctuation.mechanism.propensity)
+    extra = tilts.binary_derivative[:, int(code)] * blip * (treatment - treated)
     control_curve = np.asarray(result[SCORE_TARGET].influence_curve, dtype=float) - extra
     return float(np.std(control_curve, ddof=1) / np.sqrt(result.data.n))
 

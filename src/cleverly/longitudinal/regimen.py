@@ -1014,7 +1014,11 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
             policy.append(None)
             targets.append(None)
             assignments.append(None)
-            deltas.append(float(node.delta))
+            # Two levels only, until the longitudinal layer reads the whole factor vector.
+            odds = node.factors(
+                data.treatment_levels[time - 1], subject=f"node {data.treatment_names[time - 1]!r}"
+            )
+            deltas.append(float(odds[1] / odds[0]))
             continue
         deltas.append(None)
         if regimen.is_mtp(time):
@@ -1053,6 +1057,9 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
 def refuse_multi_arm_tilt_node(data: LongitudinalData, time: int) -> None:
     """Refuse an odds tilt at a node with other than two treatment levels.
 
+    The longitudinal layer reads one odds multiplier per node, so a node with three or more
+    levels has no estimator here yet.  The point-treatment fit reads a factor per level.
+
     Parameters
     ----------
     data : LongitudinalData
@@ -1065,17 +1072,20 @@ def refuse_multi_arm_tilt_node(data: LongitudinalData, time: int) -> None:
     DataError
         If the node does not have exactly two levels.
     """
-    from ..interventions.incremental import multi_arm_tilt_refusal
-
     levels = list(data.treatment_levels[time - 1])
     if len(levels) == 2:
         return
     raise DataError.from_refusal(
-        multi_arm_tilt_refusal(
-            f"node {data.treatment_names[time - 1]!r}",
-            len(levels),
-            levels,
+        Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            f"an incremental propensity-score intervention tilts the *odds* of treatment, "
+            f"which names two arms; node {data.treatment_names[time - 1]!r} has {len(levels)} "
+            f"({levels}). Kennedy's binary odds multiplier alone does not "
+            "select a multinomial policy. This API has no declared multi-arm tilt; "
+            "one odds per contrast or a cost-based reference policy defines a different "
+            "intervention with its own influence function.",
             alternative="A Stochastic node with density_kind='known' sets this node.",
+            roadmap="X43",
         )
     )
 

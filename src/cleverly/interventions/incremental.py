@@ -3,14 +3,22 @@ r"""Incremental propensity-score interventions: tilting the mechanism that was t
 A :mod:`regime <cleverly.interventions.base>` assigns an arm from :math:`W`, and a
 :mod:`shift <cleverly.interventions.policy>` moves the dose a unit received.  An
 **incremental propensity-score intervention** does neither.  It leaves the treatment
-decision where it was and multiplies its *odds* by :math:`\delta` (Kennedy 2019):
+decision where it was and multiplies the *odds* of each level by a declared factor
+(Kennedy 2019 for two levels):
 
 .. math::
 
-    q_\delta(1 \mid W) = \frac{\delta\, g(W)}{\delta\, g(W) + 1 - g(W)},
-    \qquad D_\delta(W) = \delta\, g(W) + 1 - g(W),
+    q_\delta(a \mid W) = \frac{\delta_a\, g(a \mid W)}{D_\delta(W)},
+    \qquad D_\delta(W) = \sum_b \delta_b\, g(b \mid W),
 
-so that :math:`\operatorname{odds} q_\delta = \delta \cdot \operatorname{odds} g`.
+so that :math:`q_\delta(a)/q_\delta(b) = (\delta_a/\delta_b)\, g(a)/g(b)`.  The family is
+scale free.  With two levels and :math:`(\delta_0, \delta_1) = (1, \delta)` it is Kennedy's
+Equation (1),
+
+.. math::
+
+    q_\delta(1 \mid W) = \frac{\delta\, g(W)}{\delta\, g(W) + 1 - g(W)}.
+
 "Make everyone :math:`\delta` times as likely to be treated as they already were."
 Its mean is
 
@@ -18,25 +26,30 @@ Its mean is
 
     \Psi(\delta) = E\bigl[m(W)\bigr],
     \qquad
-    m(W) = \frac{\delta\, g\, \bar Q(1, W) + (1 - g)\, \bar Q(0, W)}{D_\delta}.
+    m(W) = \sum_a q_\delta(a \mid W)\, \bar Q(a, W).
 
 **Why this is a fourth axis and not a** :class:`~cleverly.interventions.Stochastic`
 **regime.**  :math:`q_\delta` is built out of :math:`g`, so it is a functional of the
 observed-data law rather than a known design.  The efficient influence function therefore
-carries a further term for the pathwise derivative through :math:`g`:
+carries a further term for the pathwise derivative through :math:`g`.  The mechanism score
+of level :math:`b` is :math:`1\{A=b\} - g_b` and
+:math:`\partial m/\partial g_b = \delta_b\{\bar Q_b - m\}/D_\delta`, so
 
 .. math::
 
-    \varphi(O) = \underbrace{\frac{\delta A + 1 - A}{D_\delta}
+    \varphi(O) = \underbrace{\frac{\delta_A}{D_\delta}
                     \bigl\{Y - \bar Q(A, W)\bigr\}}_{\text{the } \bar Q \text{ score}}
-               + \underbrace{\frac{\delta\,\{\bar Q(1,W) - \bar Q(0,W)\}}{D_\delta^2}
-                    \bigl(A - g\bigr)}_{\partial m / \partial g}
-               + m(W) - \Psi(\delta).
+               + \underbrace{\frac{\delta_A}{D_\delta}
+                    \bigl\{\bar Q(A, W) - m(W)\bigr\}}_{\text{mechanism term}}
+               + m(W) - \Psi(\delta)
+             = \frac{\delta_A}{D_\delta}\{Y - m(W)\} + m(W) - \Psi(\delta).
 
-A `Stochastic` regime evaluated at the very same density :math:`q_\delta` has the same
-mean and the same clever covariate, entry for entry, and a *different* influence curve --
-it is missing the middle term.  Reporting one for the other would report a standard error
-for a different functional.  That is why the regime path refuses an Incremental
+For two levels the mechanism term is
+:math:`\delta\{\bar Q(1,W) - \bar Q(0,W)\}(A - g)/D_\delta^2`.  A `Stochastic` regime
+evaluated at the very same density :math:`q_\delta` has the same mean and the same clever
+covariate, entry for entry, and a *different* influence curve -- it is missing the
+mechanism term.  Reporting one for the other would report a standard error for a different
+functional.  That is why the regime path refuses an Incremental
 (:func:`~cleverly.interventions.refuse_mixed_interventions`), and why
 :func:`~cleverly.inference.influence.ipsi_means` does not delegate to
 :func:`~cleverly.inference.influence.regime_means`.
@@ -48,17 +61,23 @@ not.  Its clever covariate is
 
 .. math::
 
-    h_\delta(1, W) = \frac{\delta}{D_\delta}, \qquad h_\delta(0, W) = \frac{1}{D_\delta},
+    h_\delta(a, W) = \frac{\delta_a}{D_\delta},
 
-and since :math:`D_\delta` lies between :math:`\min(1, \delta)` and :math:`\max(1, \delta)`
-for :math:`g \in [0, 1]`, both are bounded by :math:`\delta` and :math:`1/\delta` *whatever
-the mechanism does*.  Neither is computed as a ratio here -- the :math:`g` in numerator and
-denominator cancels algebraically, so the code divides only by :math:`D_\delta`, which is
-bounded away from zero for any :math:`\delta > 0`.  There is no truncation to apply and
-none is applied; see :meth:`IPSISet.evaluate`.
+and since :math:`D_\delta` lies between :math:`\min_b \delta_b` and :math:`\max_b \delta_b`
+for any mechanism on the simplex, :math:`h` lies between :math:`\min\delta/\max\delta`
+and :math:`\max\delta/\min\delta` *whatever the mechanism does*.  Neither is computed
+as a ratio here -- the :math:`g` in numerator and denominator cancels algebraically, so the
+code divides only by :math:`D_\delta`, which is bounded away from zero for any positive
+factors.  There is no truncation to apply and none is applied; see
+:meth:`IPSISet.evaluate`.
 
 **What it costs: the mechanism must be right.**  :math:`g` appears in the estimand itself,
-so the second-order remainder carries :math:`(\hat g - g_0)` as a factor in *every* term.
+so the second-order remainder carries :math:`(\hat g - g_0)` as a factor in *every* term:
+
+.. math::
+
+    R = E_0\!\left[(\hat m - m_0)\,\frac{\sum_b \delta_b(\hat g_b - g_{0b})}{\hat D}\right].
+
 It vanishes identically when the mechanism is consistent, whatever the outcome regression
 does -- but no accuracy in :math:`\bar Q` rescues an inconsistent :math:`\hat g`.  This
 estimand is **not doubly robust**, and it is the only one here that is not; see
@@ -75,133 +94,198 @@ strictest condition on any axis here, and the one place where the guarantee abov
 necessary rather than sufficient.  ``tests/unit/test_remainder_ipsi_mar.py`` states it as
 an equality; note in particular that the two mechanisms cannot trade off against each
 other the way they can on the arm-indexed path, because :math:`\hat g` is in the estimand.
+
+**Two levels dispatch to the binary arithmetic.**  On two levels every array is computed
+with Kennedy's form, :math:`\delta = \delta_1/\delta_0` and :math:`D = \delta g_1 + g_0`,
+so the binary surface is bit-identical to the one it had before the factor form existed.
+The general form runs on three or more levels.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
+from .._refusal import Refusal, RefusalReason
 from .._typing import FloatArray
 from ..data.causal_data import CausalData
 from ..data.weighting import effective_sample_size, format_score_load
-from ..exceptions import DataError, Refusal, RefusalReason
+from ..exceptions import DataError
 from .support import _intervention_loads, _InterventionLoadRow
 
 __all__ = ["IPSISet", "Incremental", "IncrementalSupport", "check_incremental_support"]
 
 
-def refuse_multi_arm_tilt(data: CausalData) -> None:
-    """Refuse an odds tilt on a treatment with more than two arms.
+def refuse_continuous_tilt(data: CausalData) -> None:
+    """Refuse an odds tilt on a continuous treatment.
 
-    Shared rather than exported: :class:`~cleverly.estimators.TMLE` imports it directly
-    and it is deliberately absent from ``__all__``, since it is a guard two modules agree
-    on rather than a capability a user reaches for.
-
-    Asked in two places -- once by the estimator while validating the request, and once
-    here while evaluating the tilts -- because the two guard different things: the
-    estimator refuses before any nuisance is fitted, and this refuses anything reaching
-    the evaluator by another route.  The *message* is one string in one place so the two
-    cannot drift into saying different things about the same refusal.
-
-    The binary odds multiplier names two arms, and a multinomial mechanism has no single
-    odds to multiply. A multi-arm policy needs further structure, such as selected
-    contrasts or a reference policy and costs. This API declares none of those policies.
-    """
-    if data.n_arms == 2:
-        return
-    raise DataError.from_refusal(
-        multi_arm_tilt_refusal(
-            data.treatment_name,
-            data.n_arms,
-            list(data.treatment_levels),
-            alternative=(
-                "TMLE(interventions=[Stochastic(..., density_kind='known')]) fits a known "
-                "stochastic intervention on this treatment."
-            ),
-        )
-    )
-
-
-def multi_arm_tilt_refusal(
-    subject: str, n_levels: int, levels: list[Any], *, alternative: str
-) -> Refusal:
-    """The refusal of an odds tilt on a treatment with other than two arms.
-
-    One record for the point treatment and for a node of a longitudinal fit, so the two
-    refusals cannot drift apart.
+    Shared rather than exported: :class:`~cleverly.estimators.TMLE` imports it directly and
+    it is deliberately absent from ``__all__``.  Asked twice, once by the estimator while it
+    validates the request and once by :meth:`IPSISet.evaluate`, for the reason the old
+    two-arm guard was: the estimator refuses before any nuisance is fitted, and this refuses
+    anything that reaches the evaluator by another route.  A vector treatment with a dose
+    component raises its own refusal when the property is read.
 
     Parameters
     ----------
-    subject : str
-        The treatment the tilt names: a column at a point fit, ``node 'A2'`` over time.
-    n_levels : int
-        The number of levels the treatment has.
-    levels : list
-        The levels.
+    data : CausalData
+        The validated study data.
 
-    alternative : str
-        The sentence that names the working call for this subject.
-
-    Returns
-    -------
-    Refusal
-        An :attr:`~cleverly._refusal.RefusalReason.IMPLEMENTATION_GAP` record tracked by
-        roadmap item ``X43``.
+    Raises
+    ------
+    DataError
+        If the treatment is continuous.
     """
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        f"an incremental propensity-score intervention tilts the *odds* of treatment, "
-        f"which names two arms; {subject} has {n_levels} "
-        f"({levels}). Kennedy's binary odds multiplier alone does not "
-        "select a multinomial policy. This API has no declared multi-arm tilt; one odds "
-        "per contrast or a cost-based reference policy defines a different intervention "
-        "with its own influence function.",
-        alternative=alternative,
-        roadmap="X43",
+    if not data.is_continuous_treatment:
+        return
+    raise DataError(
+        f"an incremental propensity-score intervention multiplies the odds of treatment "
+        f"levels; {data.treatment_name} is continuous and has no levels.",
+        reason=RefusalReason.DIFFERENT_ESTIMAND,
+        alternative=(
+            "policies=[Shift(0.5, cap=None)] is the mean outcome when every received dose "
+            "rises by 0.5, and Shift(0.0, cap=None) is the natural course."
+        ),
     )
+
+
+#: What ``Incremental(delta=...)`` accepts.  The normalised form is the tuple of pairs.
+Declared = float | Mapping[Hashable, float] | tuple[tuple[Hashable, float], ...]
 
 
 @dataclass(frozen=True)
 class Incremental:
-    """Multiply everyone's odds of treatment by ``delta``.
+    """Multiply the odds of treatment levels by declared factors.
 
     Parameters
     ----------
-    delta : float
-        The odds multiplier, strictly positive.  ``1.0`` is the *natural course* -- the
-        intervention that changes nothing, since :math:`q_1 = g` exactly -- whose mean is
-        :math:`E[Y]` and which is the usual reference.  Above one shifts the population
-        toward treatment, below one away from it.
+    delta : float or mapping
+        On a treatment with two levels, the odds multiplier of the second sorted level,
+        strictly positive.  ``1.0`` is the *natural course* -- the intervention that changes
+        nothing, since :math:`q = g` exactly -- whose mean is :math:`E[Y]` and which is the
+        usual reference.  Above one shifts the population toward the second level, below
+        one away from it.
+
+        On a treatment with more than two levels, and optionally on two, a mapping from a
+        treatment label (as the data reports it) to its strictly positive factor
+        :math:`\\delta_a`.  The odds of level :math:`a` against level :math:`b` are
+        multiplied by :math:`\\delta_a/\\delta_b`.  A level the mapping does not name keeps
+        the factor ``1``.  The family is scale free: multiplying every factor by one constant
+        changes nothing.  ``{level1: d}`` equals ``d`` on two levels.  The labels of an
+        all-categorical vector treatment are the tuples of its observed levels.
 
         Unlike a :class:`~cleverly.interventions.Shift`'s ``cap``, nothing here has to be
         declared to keep the parameter well defined: :math:`q_\\delta` is a probability for
-        any :math:`\\delta > 0` and any :math:`g`, which is the whole appeal.
+        any positive factors and any :math:`g`, which is the whole appeal.
     name : str
         What this intervention is called in reported parameter names.  Defaults to
-        ``"odds x2.5"`` style, with ``"natural course"`` for ``delta=1``.
+        ``"odds x2.5"`` style for a scalar, ``"odds high x2, low x0.5"`` for a mapping, and
+        ``"natural course"`` when every declared factor is ``1``.
+
+    Examples
+    --------
+    >>> from cleverly.interventions import Incremental
+    >>> Incremental(2.0).name
+    'odds x2'
+    >>> Incremental({"high": 2.0, "low": 0.5}).name
+    'odds high x2, low x0.5'
+    >>> Incremental({"high": 2.0, "low": 0.5}).factors(("high", "low", "mid")).tolist()
+    [2.0, 0.5, 1.0]
     """
 
-    delta: float
+    delta: Declared
     name: str = ""
 
     def __post_init__(self) -> None:
-        if not np.isfinite(self.delta):
-            raise DataError(
-                f"an incremental intervention's delta must be finite; got {self.delta!r}"
-            )
-        if self.delta <= 0.0:
-            raise DataError(
-                f"an incremental intervention's delta must be strictly positive; got "
-                f"{self.delta!r}. delta multiplies the odds of treatment, so delta=0 would "
-                "assign nobody -- which is Static(0), a regime, not a tilt of the mechanism."
-            )
+        delta = self.delta
+        if isinstance(delta, (Mapping, tuple)):
+            pairs = tuple(delta.items()) if isinstance(delta, Mapping) else delta
+            if not pairs or any(len(pair) != 2 for pair in pairs):
+                raise DataError(
+                    "an incremental intervention given a mapping needs at least one "
+                    "(label, factor) pair"
+                )
+            if len({key for key, _ in pairs}) != len(pairs):
+                raise DataError(
+                    f"an incremental intervention names a level twice: {[k for k, _ in pairs]}"
+                )
+            for key, value in pairs:
+                self._check_factor(value, f"the factor of {key!r}")
+            object.__setattr__(self, "delta", tuple((key, float(value)) for key, value in pairs))
+            declared = [float(value) for _, value in pairs]
+            natural = all(value == 1.0 for value in declared)
+            label = ", ".join(f"{key} x{float(value):g}" for key, value in pairs)
+            default = "natural course" if natural else f"odds {label}"
+        else:
+            self._check_factor(delta, "delta")
+            default = "natural course" if delta == 1.0 else f"odds x{delta:g}"
         if not self.name:
-            default = "natural course" if self.delta == 1.0 else f"odds x{self.delta:g}"
             object.__setattr__(self, "name", default)
+
+    @staticmethod
+    def _check_factor(value: Any, what: str) -> None:
+        if not np.isfinite(value):
+            raise DataError(f"an incremental intervention's {what} must be finite; got {value!r}")
+        if value <= 0.0:
+            raise DataError(
+                f"an incremental intervention's {what} must be strictly positive; got "
+                f"{value!r}. A factor multiplies the odds of treatment, so a factor of 0 "
+                "would assign nobody to the level, which is a regime, not a tilt of the "
+                "mechanism."
+            )
+
+    def factors(self, levels: Sequence[Any], *, subject: str = "the treatment") -> FloatArray:
+        """The factor of every level, in the order of ``levels``.
+
+        Parameters
+        ----------
+        levels : sequence
+            The treatment labels in arm-code order, as
+            :attr:`~cleverly.data.CausalData.treatment_levels` reports them.
+        subject : str
+            What the refusals call the treatment.
+
+        Returns
+        -------
+        ndarray
+            ``(K,)``, strictly positive.  A scalar on two levels gives ``(1, delta)``.
+
+        Raises
+        ------
+        DataError
+            If a scalar names a treatment with other than two levels, or a mapping key is
+            not a level.
+        """
+        labels = tuple(levels)
+        if not isinstance(self.delta, tuple):
+            if len(labels) != 2:
+                example = labels[0] if labels else "level"
+                raise DataError.from_refusal(
+                    Refusal(
+                        RefusalReason.INVALID_DECLARATION,
+                        f"a scalar odds multiplier names two arms; {subject} has {len(labels)} "
+                        f"levels ({list(labels)}). Declare one factor per level, for example "
+                        f"Incremental({{{example!r}: 2.0}}), which multiplies the odds of "
+                        f"{example!r} against every unnamed level.",
+                    )
+                )
+            return np.array([1.0, float(cast(float, self.delta))])
+        position = {label: index for index, label in reversed(list(enumerate(labels)))}
+        out = np.ones(len(labels))
+        for key, value in self.delta:
+            if key not in position:
+                raise DataError.from_refusal(
+                    Refusal(
+                        RefusalReason.INVALID_DECLARATION,
+                        f"Incremental names {key!r}, which is not a level of {subject}; "
+                        f"its levels are {list(labels)}.",
+                    )
+                )
+            out[position[key]] = float(value)
+        return out
 
 
 @dataclass(frozen=True)
@@ -218,28 +302,29 @@ class IPSISet:
     ----------
     names : tuple of str
         One per tilt, in declaration order.  Report labels.
-    deltas : tuple of float
-        The odds multipliers, in declaration order.  Not the keys of the per-parameter
+    factors : tuple of tuple of float
+        One ``(K,)`` tuple per tilt, in declaration order and arm-code order: the resolved
+        factor :math:`\\delta_{r,a}` of every level.  Not the keys of the per-parameter
         arrays: those are the **codes** ``0.0 .. R-1.0``, exactly as
-        :class:`~cleverly.interventions.PolicySet` keys by ordinal rather than by delta.
+        :class:`~cleverly.interventions.PolicySet` keys by ordinal rather than by factor.
     values : ndarray
         ``(n, K, R)``, :math:`q_{\\delta_r}(a \\mid W_i)` -- the tilted density, columns in
         arm-code order.  Rows sum to one by construction.
     weights : ndarray
         ``(n, K, R)``, :math:`h_{\\delta_r}(a, W_i) = q_{\\delta_r}(a \\mid W_i) /
         g(a \\mid W_i)` -- the clever covariate arm by arm.  Computed in the cancelled
-        form :math:`\\delta / D` and :math:`1 / D` rather than as a ratio, so it never
-        divides by a small mechanism; see the module docstring.
-    derivative : ndarray
-        ``(n, R)``, :math:`\\delta_r / D_{\\delta_r}^2` -- the factor multiplying
-        :math:`\\{\\bar Q(1, W) - \\bar Q(0, W)\\}(A - g)` in the influence curve, and the
-        clever covariate of the *mechanism* fluctuation once the blip is folded in.
+        form :math:`\\delta_a / D` rather than as a ratio, so it never divides by a small
+        mechanism; see the module docstring.
+    normaliser : ndarray
+        ``(n, R)``, :math:`D_{\\delta_r}(W_i) = \\sum_b \\delta_{r,b}\\, g(b \\mid W_i)`.  On
+        two levels it is computed in Kennedy's form :math:`\\delta g_1 + g_0` with
+        :math:`\\delta = \\delta_1/\\delta_0`, which is :math:`D` divided by :math:`\\delta_0`.
+        The tilt is scale free, so :math:`q` and :math:`h` do not depend on that choice.
     propensity : ndarray
-        ``(n,)``, the :math:`g(1 \\mid W)` these arrays were built from, **untruncated**.
-        Carried because both the influence curve's :math:`(A - g)` and the mechanism
+        ``(n, K)``, the :math:`g(a \\mid W)` these arrays were built from, **untruncated**.
+        Carried because both the influence curve's mechanism term and the mechanism
         fluctuation's offset need it, and because an :class:`IPSISet` recomputed at a
         fluctuated mechanism must be able to say which one it describes.
-
     reference : float
         Code of the tilt contrasts are taken against.
     mechanism_known : bool
@@ -247,24 +332,24 @@ class IPSISet:
         (:attr:`~cleverly.data.CausalData.known_treatment`) rather than an estimate.  Then
         :math:`q_\\delta(g_0)` is a known stochastic regime: the model has no mechanism
         scores, so the targeting step solves no mechanism equation and the influence curve
-        has no :math:`(A - g)` term.  That curve is the curve of the
+        has no mechanism term.  That curve is the curve of the
         :class:`~cleverly.interventions.Stochastic` regime at the same density (Kennedy 2019,
         the incremental curve projected off the mechanism tangent space).
     """
 
     names: tuple[str, ...]
-    deltas: tuple[float, ...]
+    factors: tuple[tuple[float, ...], ...]
     values: FloatArray
     weights: FloatArray
-    derivative: FloatArray
+    normaliser: FloatArray
     propensity: FloatArray
     reference: float = 0.0
     mechanism_known: bool = False
 
     def __post_init__(self) -> None:
         r = len(self.names)
-        if len(self.deltas) != r:
-            raise ValueError(f"{r} tilt names but {len(self.deltas)} deltas")
+        if len(self.factors) != r:
+            raise ValueError(f"{r} tilt names but {len(self.factors)} factor tuples")
         if len(set(self.names)) != r:
             raise ValueError(f"tilt names must be distinct; got {list(self.names)}")
         values = np.asarray(self.values, dtype=float)
@@ -274,10 +359,12 @@ class IPSISet:
                 f"got shape {values.shape}"
             )
         n, k = values.shape[0], values.shape[1]
+        if any(len(entry) != k for entry in self.factors):
+            raise ValueError(f"every tilt needs {k} factors, one per level; got {self.factors}")
         for name, array, shape in (
             ("weights", self.weights, (n, k, r)),
-            ("derivative", self.derivative, (n, r)),
-            ("propensity", self.propensity, (n,)),
+            ("normaliser", self.normaliser, (n, r)),
+            ("propensity", self.propensity, (n, k)),
         ):
             if np.asarray(array).shape != shape:
                 raise ValueError(
@@ -313,7 +400,7 @@ class IPSISet:
         incrementals : sequence of Incremental
             The tilts to evaluate, in the order their codes will follow.
         data : CausalData
-            Validated study data, which supplies the arm order.
+            Validated study data, which supplies the arm order and the labels.
         propensity : ndarray
             ``(n, K)`` estimated mechanism, columns in arm-code order, untruncated.
         reference : str or None
@@ -326,11 +413,15 @@ class IPSISet:
         """
         if not incrementals:
             raise DataError("at least one incremental intervention is required")
-        refuse_multi_arm_tilt(data)
+        refuse_continuous_tilt(data)
         names = tuple(str(item.name) for item in incrementals)
         if len(set(names)) != len(names):
             raise DataError(f"incremental intervention names must be distinct; got {list(names)}")
-        deltas = tuple(float(item.delta) for item in incrementals)
+        subject = repr(data.treatment_name)
+        factors = tuple(
+            tuple(float(value) for value in item.factors(data.treatment_levels, subject=subject))
+            for item in incrementals
+        )
 
         arms = data.arm_codes
         g = np.asarray(propensity, dtype=float)
@@ -339,13 +430,6 @@ class IPSISet:
                 f"propensity must be (n, {len(arms)}) with columns in arm-code order; "
                 f"got shape {g.shape}"
             )
-        # The control column is taken as the complement rather than read off, so that the
-        # tilted density sums to one exactly. This is the same choice `Propensity.bounded`
-        # makes for the binary path, and for the same reason: the generalized path must
-        # preserve the binary regression surface recorded in
-        # ``docs/architecture-invariants.md``.
-        one = g[:, arms.index(1.0)]
-
         code = 0.0
         if reference is not None:
             if reference not in names:
@@ -354,10 +438,10 @@ class IPSISet:
                     f"{list(names)}"
                 )
             code = float(names.index(reference))
-        return cls(*_tilt(names, deltas, one), reference=code)
+        return cls(*_tilt(names, factors, g), reference=code)
 
     def at(self, propensity: FloatArray) -> IPSISet:
-        """The same tilts recomputed at a different ``(n,)`` mechanism :math:`g(1 \\mid W)`.
+        """The same tilts recomputed at a different ``(n, K)`` mechanism.
 
         What the mechanism fluctuation calls after each update.  The declared tilts are
         unchanged -- a tilt is a statement about odds, not about a particular :math:`g` --
@@ -366,18 +450,18 @@ class IPSISet:
         Parameters
         ----------
         propensity : ndarray
-            ``(n,)`` mechanism :math:`g(1 \\mid W)` to recompute the tilts at.
+            ``(n, K)`` mechanism :math:`g(a \\mid W)` to recompute the tilts at.
 
         Returns
         -------
         IPSISet
             The same declared tilts, evaluated at the new mechanism.
         """
-        one = np.asarray(propensity, dtype=float).reshape(-1)
-        if one.shape[0] != self.n:
-            raise ValueError(f"expected {self.n} propensities, got {one.shape[0]}")
+        g = np.asarray(propensity, dtype=float)
+        if g.shape != (self.n, self.n_arms):
+            raise ValueError(f"expected a ({self.n}, {self.n_arms}) mechanism, got {g.shape}")
         return type(self)(
-            *_tilt(self.names, self.deltas, one),
+            *_tilt(self.names, self.factors, g),
             reference=self.reference,
             mechanism_known=self.mechanism_known,
         )
@@ -441,20 +525,28 @@ class IPSISet:
         indicator = np.column_stack([(a == arm) for arm in range(self.n_arms)]).astype(float)
         return np.asarray(np.einsum("ij,ijr->ir", indicator, self.weights), dtype=float)
 
-    def blip_weight(self, code: float) -> FloatArray:
-        """``(n,)`` -- :math:`\\delta / D_\\delta^2` for one tilt, by code.
+    @property
+    def binary_derivative(self) -> FloatArray:
+        """``(n, R)`` -- :math:`\\delta_r / D_{\\delta_r}^2` for a treatment with two levels.
 
-        Parameters
-        ----------
-        code : float
-            Tilt code.
+        The factor that multiplies :math:`\\{\\bar Q(1, W) - \\bar Q(0, W)\\}(A - g)` in the
+        binary influence curve, with :math:`\\delta_r = \\delta_{r,1}/\\delta_{r,0}`.  The
+        three-level and larger forms read :attr:`weights` instead.
 
         Returns
         -------
         ndarray
-            ``(n,)`` factor :math:`\\delta / D_\\delta^2` for that tilt.
+            ``(n, R)`` factor for each tilt.
+
+        Raises
+        ------
+        ValueError
+            If the treatment does not have two levels.
         """
-        return np.asarray(self.derivative, dtype=float)[:, int(code)]
+        if self.n_arms != 2:
+            raise ValueError(f"binary_derivative needs two levels; the tilt has {self.n_arms}")
+        delta = np.array([entry[1] / entry[0] for entry in self.factors])
+        return np.asarray(delta[None, :] / np.asarray(self.normaliser, dtype=float) ** 2)
 
     def subset(self, index: Any) -> IPSISet:
         """The same tilts on a row subset -- a fold, a bootstrap resample.
@@ -480,25 +572,47 @@ class IPSISet:
             self,
             values=self.values[idx],
             weights=self.weights[idx],
-            derivative=self.derivative[idx],
+            normaliser=self.normaliser[idx],
             propensity=self.propensity[idx],
         )
 
 
 def _tilt(
-    names: tuple[str, ...], deltas: tuple[float, ...], one: FloatArray
-) -> tuple[tuple[str, ...], tuple[float, ...], FloatArray, FloatArray, FloatArray, FloatArray]:
-    """The whole arithmetic of the tilt, for a binary mechanism ``g(1 | W)``.
+    names: tuple[str, ...], factors: tuple[tuple[float, ...], ...], g: FloatArray
+) -> tuple[
+    tuple[str, ...],
+    tuple[tuple[float, ...], ...],
+    FloatArray,
+    FloatArray,
+    FloatArray,
+    FloatArray,
+]:
+    """The whole arithmetic of the tilt, for an ``(n, K)`` mechanism.
 
     Factored out because :meth:`IPSISet.evaluate` and :meth:`IPSISet.at` must produce the
     same arrays from the same mechanism -- the alternating fluctuation calls the second
     once per iteration, and a drift between the two would be invisible until the score
     stopped closing.
+
+    Two levels dispatch to :func:`_tilt_binary`, which keeps Kennedy's arithmetic on
+    :math:`g_1` with :math:`g_0 = 1 - g_1`, the complement, so the tilted density sums to one
+    exactly and the binary arrays are bit-identical to the ones the binary path produced
+    before factors existed.  Three or more levels take :func:`_tilt_general`.
     """
-    g1 = np.asarray(one, dtype=float).reshape(-1)
+    build = _tilt_binary if g.shape[1] == 2 else _tilt_general
+    values, weights, normaliser = build(factors, g)
+    return names, factors, values, weights, normaliser, g
+
+
+def _tilt_binary(
+    factors: tuple[tuple[float, ...], ...], g: FloatArray
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """``(values, weights, normaliser)`` of the tilts of a two-level mechanism."""
+    values, weights, normaliser = [], [], []
+    g1 = g[:, 1]
     g0 = 1.0 - g1
-    values, weights, derivative = [], [], []
-    for delta in deltas:
+    for entry in factors:
+        delta = entry[1] / entry[0]
         d = delta * g1 + g0
         # q_1 = delta*g1/D and q_0 = g0/D, which sum to one exactly.
         values.append(np.column_stack([g0 / d, delta * g1 / d]))
@@ -506,15 +620,22 @@ def _tilt(
         # Written this way there is no division by a small propensity anywhere, which is
         # the arithmetic content of "this estimand needs no positivity assumption".
         weights.append(np.column_stack([1.0 / d, np.full_like(d, delta) / d]))
-        derivative.append(delta / d**2)
-    return (
-        names,
-        deltas,
-        np.stack(values, axis=2),
-        np.stack(weights, axis=2),
-        np.column_stack(derivative),
-        g1,
-    )
+        normaliser.append(d)
+    return np.stack(values, axis=2), np.stack(weights, axis=2), np.column_stack(normaliser)
+
+
+def _tilt_general(
+    factors: tuple[tuple[float, ...], ...], g: FloatArray
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    """``(values, weights, normaliser)`` of the tilts of a mechanism with any ``K`` levels."""
+    values, weights, normaliser = [], [], []
+    for entry in factors:
+        f = np.asarray(entry, dtype=float)
+        d = g @ f
+        values.append(g * f[None, :] / d[:, None])
+        weights.append(np.broadcast_to(f[None, :], g.shape) / d[:, None])
+        normaliser.append(d)
+    return np.stack(values, axis=2), np.stack(weights, axis=2), np.column_stack(normaliser)
 
 
 # ------------------------------------------------------------------ diagnostics
@@ -524,11 +645,12 @@ def _tilt(
 class IncrementalSupport:
     """Overlap for one tilt -- which for this estimand is a statement, not a warning.
 
-    The clever covariate is bounded by :math:`\\delta` and :math:`1/\\delta` however small
-    the mechanism gets, so ``guaranteed`` is what the tilt promises before seeing any data
-    and ``max_ratio`` is what it delivered.  The two agreeing is the normal case; the
-    report exists so that a reader can see the effective sample size stay near :math:`n`
-    where an arm-indexed fit's would have collapsed.
+    The clever covariate is bounded by :math:`\\min\\delta/\\max\\delta` and
+    :math:`\\max\\delta/\\min\\delta` however small the mechanism gets, so ``guaranteed`` is
+    what the tilt promises before seeing any data and ``max_ratio`` is what it delivered.
+    The two agreeing is the normal case; the report exists so that a reader can see the
+    effective sample size stay near :math:`n` where an arm-indexed fit's would have
+    collapsed.
 
     This row is hashable and its two siblings are not, and that difference is deliberate.
     :class:`~cleverly.interventions.RegimeSupport` and
@@ -546,13 +668,15 @@ class IncrementalSupport:
     ----------
     name : str
         Report label of the tilt.
-    delta : float
-        The odds multiplier this row describes.
+    delta : tuple of tuple
+        ``(label, factor)`` for every level, in arm-code order: the resolved factors this
+        row describes.
     guaranteed : tuple of float
-        ``(1 / delta, delta)``: the bounds the clever covariate cannot leave,
-        whatever the mechanism does.
+        ``(min factor / max factor, max factor / min factor)``: the bounds the clever
+        covariate cannot leave, whatever the mechanism does.  A property of the declared
+        tilt alone: no data went into it.
     min_propensity : float
-        Smallest estimated :math:`g(1 \\mid W)`, for comparison with an
+        Smallest estimated :math:`g(a \\mid W)` over rows and levels, for comparison with an
         arm-indexed fit rather than because this estimand divides by it.
     max_ratio : float
         Largest clever covariate the data produced.
@@ -571,11 +695,7 @@ class IncrementalSupport:
     """
 
     name: str
-    delta: float
-    #: ``(min, max)`` of :math:`\\delta` and :math:`1/\\delta` -- the interval the clever
-    #: covariate cannot leave.  :math:`D_\\delta` lies between :math:`\\min(1, \\delta)` and
-    #: :math:`\\max(1, \\delta)`, so :math:`1/D` and :math:`\\delta/D` together span exactly
-    #: this.  It is a property of the declared tilt alone: no data went into it.
+    delta: tuple[tuple[str, float], ...]
     guaranteed: tuple[float, float]
     min_propensity: float
     max_ratio: float
@@ -598,7 +718,7 @@ class IncrementalSupport:
         low, high = self.guaranteed
         score = format_score_load(self.score_load, style="inline")
         return (
-            f"{self.name}: min g(1|W)={self.min_propensity:.3g}, "
+            f"{self.name}: min g={self.min_propensity:.3g}, "
             f"covariate in [{low:.3g}, {high:.3g}] by construction, "
             f"max={self.max_ratio:.3g}, "
             f"ESS={self.effective_sample_size:.0f} ({self.ess_ratio:.1%} of n), {score}"
@@ -609,6 +729,7 @@ def check_incremental_support(
     tilts: IPSISet,
     treatment: FloatArray,
     *,
+    levels: Sequence[Any],
     absolute_score_weights: FloatArray | None = None,
     equations: tuple[str, ...] = (),
     n_repeats: int = 1,
@@ -626,6 +747,8 @@ def check_incremental_support(
         The evaluated tilts to report on.
     treatment : ndarray
         ``(n,)`` observed treatment, in arm codes.
+    levels : sequence
+        The treatment labels in arm-code order, which key the reported factors.
     absolute_score_weights : ndarray or None
         Fitted ``abs(w_i * H_ij)`` columns, in tilt order. ``None`` records an omission.
     equations : tuple of str
@@ -646,13 +769,13 @@ def check_incremental_support(
     )
     out: dict[str, IncrementalSupport] = {}
     for index, name in enumerate(tilts.names):
-        delta = tilts.deltas[index]
+        factors = tilts.factors[index]
         column = observed[:, index]
         ess = effective_sample_size(column, on_degenerate=0.0)
         out[name] = IncrementalSupport(
             name=name,
-            delta=delta,
-            guaranteed=(min(delta, 1.0 / delta), max(delta, 1.0 / delta)),
+            delta=tuple((str(level), float(f)) for level, f in zip(levels, factors, strict=True)),
+            guaranteed=(min(factors) / max(factors), max(factors) / min(factors)),
             min_propensity=float(np.min(tilts.propensity)) if n else 0.0,
             max_ratio=float(column.max()) if column.size else 0.0,
             effective_sample_size=ess,

@@ -51,8 +51,12 @@ def natural_incremental_means(result: Any) -> set[str]:
     identified = getattr(result, "identified_effect", None)
     functional = getattr(identified, "functional", None)
     declarations = getattr(functional, "interventions", ()) or ()
+    levels = result.data.treatment_levels
     natural = {
-        item.name for item in declarations if type(item) is Incremental and item.delta == 1.0
+        item.name
+        for item in declarations
+        if type(item) is Incremental
+        and bool(np.all(item.factors(levels) == item.factors(levels)[0]))
     }
     return {
         alias
@@ -124,11 +128,11 @@ def validate_incremental_replay(result: Any, estimand: str, key: Any) -> Any:
         )
         if (
             state.names != expected.names
-            or state.deltas != expected.deltas
+            or state.factors != expected.factors
             or state.reference != expected.reference
             or any(
                 not np.array_equal(getattr(state, slot), getattr(expected, slot))
-                for slot in ("values", "weights", "derivative", "propensity")
+                for slot in ("values", "weights", "normaliser", "propensity")
             )
         ):
             raise CapabilityError(error, reason=RefusalReason.INVALID_DECLARATION)

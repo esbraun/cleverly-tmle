@@ -704,7 +704,8 @@ def _ipsi_node_row(result: Any, fit: Any, step: Any) -> IPSINodeRow | None:
     regimen = fit.regimen
     if not (hasattr(regimen, "is_tilt") and regimen.is_tilt(step.time)):
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
-    delta = float(regimen.plan[step.time - 1].delta)
+    odds = regimen.plan[step.time - 1].factors(result.data.treatment_levels[step.time - 1])
+    delta = float(odds[1] / odds[0])
     q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk, 1]
     # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
     pi = q / (delta * (1.0 - q) + q)
