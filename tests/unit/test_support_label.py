@@ -189,7 +189,9 @@ class TestTheLabelAtEverySurface:
             },
         )
         assert set(probe.incidence_total()["support"]) == {"experimental"}
-        monkeypatch.setattr(longitudinal_estimator, "combine_support", lambda supports, **_: supports[0])
+        monkeypatch.setattr(
+            longitudinal_estimator, "combine_support", lambda supports, **_: supports[0]
+        )
         assert set(probe.incidence_total()["support"]) == {"supported"}
 
 
