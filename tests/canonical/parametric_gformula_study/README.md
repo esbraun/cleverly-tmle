@@ -19,7 +19,7 @@ python tests/canonical/parametric_gformula_study/regenerate.py
 python -m tests.studies.evidence.document --slug parametric-gformula
 ```
 
-Do not start the declared run before the design review of the pilot has closed.
+The declared run is committed. The artifacts in this directory are its results.
 
 ## Red-cell reading
 
@@ -31,6 +31,42 @@ includes the 42 derived-control cells. Two reds read as expected. A red
 calibration row is a finite-sample red only when its 99% SE-ratio interval contains 1, its
 coverage is consistent with 0.95, and the diagnosis finds no defect. Any other red row is a
 defect suspect. The `mc_removed` cells report and carry no verdict.
+
+### Result of the declared run
+
+The run has 119 property cells, and 118 pass. One cell is red:
+`interval_calibration/nice_g1_treat_all__correctly_specified` (n = 2,000, 2,400 replications).
+
+| quantity | value |
+| --- | --- |
+| SE ratio | 0.9619, with a 99% interval of 0.9259 to 1.0000. The band is 0.93 to 1.07 |
+| coverage | 0.9413, with a 99% interval of 0.9278 to 0.9529. The band is 0.92 to 0.98 |
+| bias | 0.000158, with a standard error of 0.000393 |
+
+The cell reads as finite-sample under the declared reading. The SE-ratio interval contains 1, the
+coverage lies inside its band, and no defect shows. These witnesses support the last condition.
+
+| witness | SE ratio |
+| --- | --- |
+| the same law, plan and size, independent draws in `shared_target/target_g1_treat_all__nice` (R = 1,192) | 1.0022 |
+| the same law, plan and size, independent draws in `ice_reported/pair_g1_treat_all__nice` (R = 1,198) | 0.9701 |
+| the other `G1` calibration cells | 0.972 to 0.993 |
+| the `G1` contrast ladder at n = 2,000, 4,000 and 8,000 | 1.021, 0.986 and 1.006 |
+
+The count agrees with the declaration. The run expected 1.26 reds over 114 gated cells and found
+one. The roadmap owner `X45-finite-sample` holds the cell.
+
+### Recorded fitting failures
+
+The property phase recorded 10 fitting failures in `property-failures.csv`. Two of 1,200
+replicates failed in `paired_g1`, and eight of 1,200 in `shared_g1`. Each is a GLM with a
+singular information matrix. Both rates are under `FAILURE_BOUND` (0.01).
+
+The failing fit is not the `ParametricGFormula` fit. Replicate `paired_g1/293` and replicate
+`shared_g1/248` fit `ParametricGFormula` without error when run alone. The fit that fails is the
+sequential outcome GLM of the comparator in the same fit set. It is `SequentialGComputation`
+with `method="ice"` in `paired_g1`, and `LTMLE` in `shared_g1`. The cells of both fit sets carry
+no verdict, so no gate reads the lost replicates.
 
 ## Pending comparator
 

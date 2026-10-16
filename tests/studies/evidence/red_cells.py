@@ -525,6 +525,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "mtp-point-calibration": (
         *_keys("policy-point-mtp", "property", "interval_calibration/halve__correctly_specified"),
     ),
+    # The one calibration cell of ``parametric-gformula`` whose SE ratio interval leaves the
+    # band, read as finite-sample under the study's declared reading.
+    "X45-finite-sample": _keys(
+        "parametric-gformula",
+        "property",
+        "interval_calibration/nice_g1_treat_all__correctly_specified",
+    ),
     "X13-finite-sample": (
         *_keys(
             "point-treatment-survival",

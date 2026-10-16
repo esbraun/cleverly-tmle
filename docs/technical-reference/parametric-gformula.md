@@ -48,7 +48,7 @@ study method.
 | item | state | evidence |
 | --- | --- | --- |
 | point estimates and stacked interval, `GLM` models | shipped, status `influence_curve` | the unit witnesses [below](#validation) |
-| repeated-sampling evidence | registered study `parametric-gformula`. The method-evidence page `docs/technical-reference/method-evidence/parametric-gformula.md` lists the cells | Python property evidence |
+| repeated-sampling evidence | registered study `parametric-gformula`. The [method-evidence page](method-evidence/parametric-gformula.md) lists the cells | Python property evidence |
 | the `pygformula` comparator run | pending. The packages fit different models ([below](#how-it-differs-from-gformula-and-pygformula)) | none |
 | a published analytic variance for the simulation form | none exists | [Inference](#inference) |
 | pooled-over-time models | not shipped. [X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks it | none |
@@ -188,7 +188,7 @@ variance for the iterated conditional expectation form only.
 The interval of this page is therefore a natural extension. It combines a stacked estimating
 equation, the chain rule, and the simulated-estimator step above. Its repeated-sampling evidence is
 the registered study `parametric-gformula`, which includes cells at `n_draws = 1`. See the
-method-evidence page `docs/technical-reference/method-evidence/parametric-gformula.md`.
+[method-evidence page](method-evidence/parametric-gformula.md).
 
 ### Status
 
