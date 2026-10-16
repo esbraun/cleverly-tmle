@@ -17,10 +17,13 @@ family also includes Kennedy's incremental estimator `IPSI`.
 | `SequentialGComputation` | the outcome and pseudo-outcome regressions | the stacked curve when every regression is a `GLM`. Otherwise the point only |
 | `SequentialIPW` | the treatment and censoring mechanisms | the stacked curve when every mechanism is a `GLM`. Otherwise the point only |
 | `StructuralNestedMean` | the outcome and treatment regressions on the full history, with a linear blip model | the influence curve, valid under the linear structural nested mean model with the declared blip features |
+| `ParametricGFormula` | a model of each time-varying covariate, and the outcome or hazard models | the stacked curve with the simulation error when every model is a `GLM`. Otherwise the point only |
 
 The two sequential baselines are reference estimators. They refuse `n_folds > 1` and `msm=`.
 [Sequential g-computation and IPW](../technical-reference/sequential-baselines.md#refusals) lists
-every refusal.
+every refusal. `ParametricGFormula` refuses the same two requests, and it accepts a fixed
+or rule-set continuous dose with a stated model reliance. [Parametric g-formula](../technical-reference/parametric-gformula.md#refusals)
+lists its refusals.
 
 `StructuralNestedMean` reports blip coefficients and static regimen contrasts. It refuses a rule, a
 policy, censoring, survival and repeated outcomes. It refuses a static contrast when a feature

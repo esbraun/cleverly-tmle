@@ -235,6 +235,20 @@ print(model.outside_span(np.array([[0.0, 1.0], [1.0, 1.0]])))
 The first column is constant on the fit rows, so the fit aliases it with the intercept. The row
 `[0.0, 1.0]` departs from that relation.
 
+## Use GLM for the parametric g-formula
+
+`ParametricGFormula` fits a `GLM` for every covariate, outcome and hazard model by default. The
+fit chooses the family of each model from its response: binomial for a binary column, multinomial
+for a categorical one and Gaussian for a normal one. A `GLM` with another family is refused.
+The forward draw of a Gaussian column needs the residual variance of the fit, so a Gaussian
+covariate accepts a `GLM` only. A data-adaptive learner for any other model gives the status
+`adaptive_baseline_plugin`. See
+[Simulate the parametric g-formula](longitudinal.md#simulate-the-parametric-g-formula).
+
+Choose `ParametricGFormula` over `SequentialGComputation` when the plan fixes a continuous dose,
+or when you need the forward-simulation form. Choose `SequentialGComputation` when you doubt a
+covariate law, because it models no covariate.
+
 ## Two fold layers
 
 - `n_folds` defines the outer cross-fitting split used to keep each observation out of the nuisance

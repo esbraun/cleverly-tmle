@@ -232,6 +232,7 @@ PRELUDES: dict[str, str] = {
     "docs/getting-started/quickstart.md": "",
     "docs/technical-reference/dr-tmle/supported-estimands.md": "",
     "docs/technical-reference/longitudinal-tmle.md": "",
+    "docs/technical-reference/parametric-gformula.md": "",
     "docs/technical-reference/sequential-baselines.md": "",
     "docs/technical-reference/structural-dynamic-effects.md": "",
     "docs/technical-reference/validation-methods.md": "",

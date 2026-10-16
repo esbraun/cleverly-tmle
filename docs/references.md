@@ -1545,6 +1545,34 @@ sizes only the cluster sum is the delta-method variance of the row mean
   based on the highly adaptive lasso*, *Biometrics* 79(2):1029–1041. Section 3, Theorem 1,
   gives asymptotic linearity of IPW with an undersmoothed HAL propensity at one time point, for a
   binary treatment. F35 in the roadmap cites it as the starting point for a longitudinal result.
+- Robins (1986), *A new approach to causal inference in mortality studies with a sustained
+  exposure period: application to control of the healthy worker survivor effect*, *Mathematical
+  Modelling* 7:1393–1512. Section 3D, p. 1412, states the g-computation algorithm in words.
+  Equation (4.7), Section 4E, p. 1423 (Corollary 4.1), gives the formula. Section 4I,
+  pp. 1426–1427, gives the Monte Carlo evaluation, which averages predicted survival products and
+  draws no deaths. Section 5A, p. 1430, proposes a bootstrap variance. `ParametricGFormula` cites
+  it for the formula and the evaluation.
+- McGrath, Lin, Zhang, Petito, Logan, Hernán & Young (2020), *gfoRmula: an R package for
+  estimating the effects of sustained treatment strategies via the parametric g-formula*,
+  *Patterns* 1(3):100008, DOI [10.1016/j.patter.2020.100008](https://doi.org/10.1016/j.patter.2020.100008).
+  Supplement 1 (mmc1), p. 6, step 2a: the observed time-0 row is used as is, and only the time-0
+  treatment is overwritten. Page 8, eq. (10): the outcome is a predicted value. Page 9, C.2:
+  normal covariates are clamped to the observed range. Pages 7 and 12: the interval is the
+  nonparametric bootstrap. Neither the paper nor `gfoRmula` 1.1.1 gives an analytic variance or an
+  account of the Monte Carlo error. The title and the author list are not checked against the
+  publisher page.
+- Pakes & Pollard (1989), *Simulation and the asymptotics of optimization estimators*,
+  *Econometrica* 57(5):1027–1057. Lemma 2.16, p. 1036, gives stochastic equicontinuity for a
+  Euclidean class with a square-integrable envelope. Lemma 2.17, p. 1037, gives the parametric
+  form that is continuous in $L_2(P)$ at $\theta_0$. Theorem 3.3, p. 1040, gives asymptotic
+  normality, with the proof on pp. 1041–1043. Section 4, from p. 1046, treats simulation
+  estimators. The simulated-estimator step of `ParametricGFormula` cites Lemma 2.17 and
+  Theorem 3.3. The paper does not state the result for this estimator.
+- Newey & McFadden (1994), *Large sample estimation and hypothesis testing*, *Handbook of
+  Econometrics* IV, chapter 36. Theorem 7.2, p. 2186, covers nonsmooth or simulated GMM under
+  stochastic equicontinuity, condition (v). Theorem 7.3, p. 2188, does not cover a discontinuous
+  simulator, so the primitive conditions come from Pakes & Pollard. Pages 2111–2112 and the
+  proofs of Section 7 are not read.
 - van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
   multiple time point interventions*, DOI
   [10.1515/1557-4679.1370](https://doi.org/10.1515/1557-4679.1370). The intervention-specific

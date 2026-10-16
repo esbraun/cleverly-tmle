@@ -69,6 +69,7 @@ LIMIT_OWNERS = frozenset(
         "X16-plugin-variance",
         "RM18-comparator-density",
         "X19-competing-calibration",
+        "X45-finite-sample",
     }
 )
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
@@ -1365,6 +1366,16 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         ("bootstrap",),
         EXPERIMENTAL,
         "",
+        "",
+    ),
+    (
+        "parametric-gformula",
+        "property",
+        "interval_calibration/nice_g1_treat_all__correctly_specified",
+        "G29.g1",
+        ("wald",),
+        LIMIT,
+        "X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",
         "",
     ),
     (

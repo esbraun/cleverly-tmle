@@ -456,6 +456,16 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family in {"ice_necessity", "ice_reported", "shared_target", "extrapolation_report"}:
+        # Accuracy of one fit on one plan.  The necessity pairs print the bias margin beside the
+        # interval, because the NICE arm answers to it and the ICE control must exceed it.
+        measured = f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
+        if family == "ice_necessity":
+            measured += f", margin {render(float(row.bias_margin))}"
+        return (
+            f"{measured}, coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     if family == "bootstrap_coverage":
         return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
     if family == "variance_direction":
