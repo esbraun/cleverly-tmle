@@ -74,7 +74,9 @@ def test_the_seed_stream_is_not_the_registered_study() -> None:
     ours = {diagnostic.seed_of(n, k) for n in diagnostic.ARMS for k in range(50)}
     assert len(ours) == 100
     registered = {
-        replicate_seed(study.STUDY, scenario, k) for scenario in study.PARAMETERS for k in range(50)
+        replicate_seed(study.STUDY, scenario, k)
+        for scenario in study.STUDY.scenarios
+        for k in range(50)
     }
     assert not ours & registered
 

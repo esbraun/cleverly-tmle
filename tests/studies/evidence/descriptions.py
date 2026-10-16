@@ -478,15 +478,27 @@ ARMS.update(
 #: cell resolves.
 _PLUGIN_SCENARIOS = {
     "binary_logistic": "in-sample logistic mechanism",
+    "binary_logistic_crossfit": "five-fold cross-fitted logistic mechanism",
     "binary_logistic_ridge": "logistic mechanism with a fixed L2 penalty, C = 1",
+    "binary_logistic_ridge_crossfit": (
+        "five-fold cross-fitted logistic mechanism with a fixed L2 penalty, C = 1"
+    ),
     "multinomial_logistic": "three-arm multinomial logistic mechanism",
+    "multinomial_logistic_crossfit": (
+        "five-fold cross-fitted three-arm multinomial logistic mechanism"
+    ),
     "binary_known": "declared known mechanism",
+    "binary_unbalanced": "in-sample logistic mechanism, treated share about 0.19",
 }
 _PLUGIN_PARAMETERS = {
     "binary_logistic": ("ate", "att", "atc"),
+    "binary_logistic_crossfit": ("ate", "att", "atc"),
     "binary_logistic_ridge": ("ate", "att", "atc"),
+    "binary_logistic_ridge_crossfit": ("ate", "att", "atc"),
     "multinomial_logistic": ("ate_2v0", "att_2v0", "atc_1v0"),
+    "multinomial_logistic_crossfit": ("ate_2v0", "att_2v0", "atc_1v0"),
     "binary_known": ("ate", "att", "atc"),
+    "binary_unbalanced": ("ate", "att", "atc"),
 }
 _PLUGIN_TOKENS = {
     "ate": "the ATE",
@@ -497,7 +509,6 @@ _PLUGIN_TOKENS = {
     "atc_1v0": "the ATC of arm 1 versus arm 0",
 }
 _PLUGIN_ROWS = {
-    "nu2": "plug-in nu^2 of",
     "lower": "lower plug-in omitted-variable bound on",
     "upper": "upper plug-in omitted-variable bound on",
 }
@@ -509,6 +520,40 @@ ARMS.update(
         for row, row_words in _PLUGIN_ROWS.items()
     }
 )
+
+#: The laws of the primary scenarios of the plug-in study (X26): one per scenario and parameter,
+#: because a refusal of one parameter must lose that parameter's rows only.  Mirrored from
+#: ``tests.studies.omitted_variable_bound_plugin.PRIMARY``.
+_PLUGIN_LAWS = {
+    "binary_logistic": (
+        "`make_linear_ate`, in-sample TMLE with an unpenalized logistic treatment model"
+    ),
+    "binary_logistic_crossfit": (
+        "`make_linear_ate`, five-fold cross-fitted TMLE with an unpenalized logistic treatment "
+        "model"
+    ),
+    "binary_logistic_ridge": (
+        "`make_linear_ate`, in-sample TMLE with a logistic treatment model under a fixed L2 "
+        "penalty, C = 1"
+    ),
+    "binary_logistic_ridge_crossfit": (
+        "`make_linear_ate`, five-fold cross-fitted TMLE with a logistic treatment model under a "
+        "fixed L2 penalty, C = 1"
+    ),
+    "multinomial_logistic": (
+        "three-arm law with a multinomial logistic mechanism, in-sample TMLE with an "
+        "unpenalized multinomial logistic treatment model"
+    ),
+    "multinomial_logistic_crossfit": (
+        "three-arm law with a multinomial logistic mechanism, five-fold cross-fitted TMLE with "
+        "an unpenalized multinomial logistic treatment model"
+    ),
+    "binary_known": "`make_linear_ate`, in-sample TMLE with its own mechanism declared known",
+    "binary_unbalanced": (
+        "`make_linear_ate` with the treatment intercept moved to -1.5 (about 19 percent "
+        "treated), in-sample TMLE with an unpenalized logistic treatment model"
+    ),
+}
 
 #: The labels of ``parametric-gformula``: a method, a law and a target.  Mirrored from
 #: ``tests.studies.parametric_gformula_properties``, which this module cannot import;
@@ -819,18 +864,11 @@ SCENARIOS: dict[str, str] = {
     ),
     "end_of_study_ratio": "two-node end-of-study law, saturated cell-mean learners",
     "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
-    "binary_logistic": (
-        "`make_linear_ate`, in-sample TMLE with an unpenalized logistic treatment model"
-    ),
-    "binary_logistic_ridge": (
-        "`make_linear_ate`, in-sample TMLE with a logistic treatment model under a fixed L2 "
-        "penalty, C = 1"
-    ),
-    "multinomial_logistic": (
-        "three-arm law with a multinomial logistic mechanism, in-sample TMLE with an "
-        "unpenalized multinomial logistic treatment model"
-    ),
-    "binary_known": "`make_linear_ate`, in-sample TMLE with its own mechanism declared known",
+    **{
+        f"{scenario}_{token}": law
+        for scenario, law in _PLUGIN_LAWS.items()
+        for token in _PLUGIN_PARAMETERS[scenario]
+    },
     "calibrated_weak": "known propensity, logit g0 = 0.15 W1",
     # The four learned-rule laws of RM30, by their blip b(W) on the logit scale.
     "non_exceptional": "learned-rule law with the blip 0.1 + W1, correctly specified learners",

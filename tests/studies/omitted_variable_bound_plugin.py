@@ -1,56 +1,87 @@
 r"""Registered evidence for the plug-in omitted-variable bound's standard error (X26).
 
-The subject is the curve of the plug-in :math:`\hat\nu^2 = E_n[\hat\alpha^2]` that X26 stacks
-with the score of a declared parametric treatment mechanism, and the one-sided limits of the
-bias-adjusted bounds that the curve gives (Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis
-2026, Theorem 4).  The mechanism term comes from the stacked estimating equation of the
-logistic score and the second moment (Saul and Hudgens 2020, *J. Stat. Softw.* 92(2),
-Section 2, Equations (1) and (2)).  A declared known mechanism has no mechanism term.
+The subject is the one-sided limits of the bias-adjusted bound (Chernozhukov, Cinelli, Newey,
+Sharma and Syrgkanis 2026, Theorem 4) under ``nu2_estimator="plugin"``.  The package reports
+the second-order corrected plug-in :math:`\hat\nu^2 = E_n[\hat\alpha^2] - \hat B`, with a
+corrected variance, and refuses a fit on which the correction does not hold
+(``truncation_active``, ``correction_unstable``, ``corrected_nonpositive``).  The curve of
+:math:`\hat\nu^2` stacks the score of a declared parametric mechanism with the second moment
+(Saul and Hudgens 2020, *J. Stat. Softw.* 92(2), Section 2, Equations (1) and (2)).  A declared
+known mechanism has no mechanism term.
 
-Each primary row reads one of three quantities as an estimate of a known population value:
-:math:`\hat\nu^2` itself, with the standard error of its own curve, and the lower and upper
-bound, with the standard error read back off the reported limit as in the RM22 study.
+**What the study claims, and what it only measures.**  The claim cells are the lower and the
+upper bound of each parameter.  Each reads the bound as an estimate of a known population value,
+with the standard error read back off the reported limit as in the RM22 study.  The corrected
+:math:`\nu^2` rows are not claims.  At ``n = 1000`` the corrected :math:`\nu^2` interval
+under-covers (``tests/diagnostics/x26_crossfit_bias`` measures a standard-error ratio of 0.73 to
+0.75 cross-fitted and 0.90 to 0.92 in sample), and no accessor of the package publishes it.  The
+study records each draw's corrected :math:`\nu^2`, its corrected standard error, the raw
+:math:`E_n[\hat\alpha^2]` and :math:`\hat B` in the primary rows' extra columns, and
+:func:`extra_artifacts` publishes them as an unjudged reading (:data:`NU2_ROWS`,
+:data:`NU2_READING`).  Nothing gates that reading.
 
-**The scenarios.**
+**The scenarios.**  Every scenario fits ``n = 1000`` rows with a ``LinearRegression`` outcome
+and ``estimands=("ate", "att", "atc")``.
 
 ``binary_logistic``
-    :func:`cleverly.datasets.make_linear_ate` at ``n = 1000``.  In-sample TMLE, a
-    ``LinearRegression`` outcome and ``LogisticRegression(C=numpy.inf, max_iter=2000)``.
-``binary_logistic_ridge``
-    The same as ``binary_logistic`` with ``LogisticRegression(max_iter=1000)``: a fixed L2
-    penalty with ``C = 1``, the idiom of the documentation.
-``multinomial_logistic``
+    :func:`cleverly.datasets.make_linear_ate`, an in-sample TMLE and
+    ``LogisticRegression(C=numpy.inf, max_iter=2000)``.
+``binary_logistic_crossfit``
+    The same with ``cross_fit=True, n_folds=5``.  A cross-fitted continuous outcome needs a
+    declared outcome support, so every cross-fitted scenario passes
+    ``q_bounds=(-40.0, 45.0)``, the support of ``tests/diagnostics/x26_crossfit_bias``.  The
+    binary outcome is ``2 + 1.5 A`` plus a normal term with standard deviation about 1.746, so
+    each bound lies more than 23 standard deviations from both arm means.  No draw reaches it,
+    and the bounds only fix the scale of the logistic fluctuation.
+``binary_logistic_ridge`` and ``binary_logistic_ridge_crossfit``
+    The same with ``LogisticRegression(max_iter=1000)``: a fixed L2 penalty with ``C = 1``,
+    the idiom of the documentation.
+``multinomial_logistic`` and ``multinomial_logistic_crossfit``
     The three-arm law :func:`draw_multinomial`.  :math:`W \sim N(0, I_3)`, the logits
     :math:`(0, 0.3 W_1 - 0.2 W_2, -0.2 W_1 + 0.3 W_2)`, and
     :math:`Y = 0.6\,\mathrm{step}[A] + W_1 - 0.5 W_2 + 0.2 W_3 + N(0, 1)` with steps
-    ``(0, 1, 2.4)``.  In-sample, ``LogisticRegression(C=numpy.inf, max_iter=2000)``.  The
-    package's three-arm law :func:`cleverly.datasets.make_multi_arm` is not used: its
-    :math:`E[1/g^3]` is about :math:`e^{14}`, so the curve of :math:`\hat\nu^2` has a standard
-    deviation of about 709 and no calibration cell could resolve it.
+    ``(0, 1, 2.4)``.  ``LogisticRegression(C=numpy.inf, max_iter=2000)``.  The package's
+    three-arm law :func:`cleverly.datasets.make_multi_arm` is not used: its :math:`E[1/g^3]` is
+    about :math:`e^{14}`, so the curve of :math:`\hat\nu^2` has a standard deviation of about
+    709 and no calibration cell could resolve it.
 ``binary_known``
     ``make_linear_ate`` with its own mechanism,
     ``cleverly.datasets.synthetic.linear_dgp().propensity``, declared through
-    ``treatment_probabilities=``.  The plug-in then has no mechanism term.
-
-No scenario cross-fits.  The package refuses the plug-in limits on a cross-fitted mechanism,
-because out-of-fold :math:`E_n[\hat\alpha^2]` carries a second-order bias that the curve does
-not cover.  ``tests/diagnostics/x26_crossfit_bias`` holds the evidence.
+    ``treatment_probabilities=``.  The mechanism term is zero.
+``binary_unbalanced``
+    The ``make_linear_ate`` outcome law and covariates with the treatment intercept moved to
+    :math:`-1.5` (:func:`draw_unbalanced`), so about 19 percent of rows are treated.  In sample,
+    ``LogisticRegression(C=numpy.inf, max_iter=2000)``.  The lower arm of the mechanism sits
+    nearer the truncation bound, where the package's ``truncation_active`` check acts
+    (``tests/unit/test_omitted_variable_plugin_design.py``, design check (b)).
 
 **The truths.**  ``sigma^2 = 1`` on every law.  On ``make_linear_ate`` the closed forms of the
 RM22 study hold: :math:`\nu^2 = 2 + 2e^{0.07}` for the ATE and :math:`4e^{0.07}` for the ATT
-and the ATC, and the effect is 1.5.  On the three-arm law a two-dimensional Gauss-Hermite rule
-with 80 nodes per axis gives :math:`p_a = E[g_a]`, :math:`E[1/g_a + 1/g_r]`,
-:math:`(p_a + E[g_a^2/g_r]) / p_a^2` and :math:`(p_r + E[g_r^2/g_a]) / p_r^2`; the effects are
-1.44, 1.44 and 0.6.
+and the ATC, and the effect is 1.5.  The unbalanced law has the same effect and covariate
+variance; its :math:`\nu^2` is a one-dimensional Gauss-Hermite rule over the logit-normal
+index.  On the three-arm law a two-dimensional rule with 80 nodes per axis gives
+:math:`p_a = E[g_a]`, :math:`E[1/g_a + 1/g_r]`, :math:`(p_a + E[g_a^2/g_r]) / p_a^2` and
+:math:`(p_r + E[g_r^2/g_a]) / p_r^2`; the effects are 1.44, 1.44 and 0.6.
 
 **The independent rebuild.**  Each replicate rebuilds the curve of :math:`\hat\nu^2` from the
 captured coefficients, the folds and the data, and refuses the replicate unless it equals the
 package's curve within :data:`REBUILD_TOLERANCE`.  It reads no package curve and imports no
-package code of the stack.  Each control is the package's curve minus (inflated) or plus
-(shrunken) a mechanism term that this module computed.
+package code of the stack.  The bound's reported standard error is the root of the curve's
+variance less the package's variance correction, times the delta-method coefficient of the
+bound, and the study rebuilds the first and the coefficient.  :math:`\hat B` and the variance
+correction themselves are package values.  The exact-law witnesses of
+``tests/unit/test_omitted_variable_plugin_second_order.py`` check them, and this study does not
+rebuild them.  Each control is the package's curve minus (inflated) or plus (shrunken) a
+mechanism term that this module computed, and it subtracts the same package variance correction.
 
-The X26 plan (rev 3.1, section 3.5 and section 8) declared this study, its margins, its
-budget and its red-cell route before any run.
+**The failure accounting.**  A replicate is one parameter of one draw.  A refusal of one
+parameter raises :class:`~cleverly.exceptions.DataError`, which the driver records as a failed
+replicate of that parameter's cells and of no other parameter's.  The primary phase therefore
+registers one scenario for each parameter (:func:`primary_name`), and the three parameters of a
+scenario read one sample through ``scenario_seed_owners``.
+
+The X26 plan (rev 3.1, section 3.5 and section 8; rev 4.2, section 9.10) declared this study,
+its margins, its budget and its red-cell route before any run.
 """
 
 from __future__ import annotations
@@ -63,15 +94,17 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 from scipy import stats
+from scipy.special import expit
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.datasets import make_linear_ate
 from cleverly.datasets.synthetic import linear_dgp
 from cleverly.estimators import TMLE
-from cleverly.exceptions import DataError
+from cleverly.exceptions import CapabilityError, DataError
 from cleverly.inference.cluster import influence_variance
 from cleverly.sensitivity import omitted_variable as omitted_variable_module
 from tests.parallel import STUDY_JOBS
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -88,8 +121,10 @@ CF_Y = 0.5
 CF_D = 0.5
 RHO = 1.0
 
-#: The three quantities each parameter reports.
+#: The quantities each parameter reports.  ``lower`` and ``upper`` are the claim rows.
+#: ``nu2`` is a measured, unjudged reading.
 ROWS = ("nu2", "lower", "upper")
+CLAIM_ROWS = ("lower", "upper")
 
 #: The parameters of each law: the study's token and the package's name, and the
 #: representer's group, arm and the arm it is contrasted with.
@@ -103,39 +138,97 @@ MULTINOMIAL_PARAMETERS: dict[str, tuple[str, str, float, float]] = {
     "att_2v0": ("att[2.0 vs 0.0]", "att", 2.0, 0.0),
     "atc_1v0": ("atc[1.0 vs 0.0]", "atc", 1.0, 0.0),
 }
+
+#: Each scenario's law, its treatment mechanism (``logistic``, ``ridge`` or ``known``) and
+#: whether the fit cross-fits.
+TRAITS: dict[str, tuple[str, str, bool]] = {
+    "binary_logistic": ("balanced", "logistic", False),
+    "binary_logistic_crossfit": ("balanced", "logistic", True),
+    "binary_logistic_ridge": ("balanced", "ridge", False),
+    "binary_logistic_ridge_crossfit": ("balanced", "ridge", True),
+    "multinomial_logistic": ("multinomial", "logistic", False),
+    "multinomial_logistic_crossfit": ("multinomial", "logistic", True),
+    "binary_known": ("balanced", "known", False),
+    "binary_unbalanced": ("unbalanced", "logistic", False),
+}
 PARAMETERS: dict[str, dict[str, tuple[str, str, float, float]]] = {
-    "binary_logistic": BINARY_PARAMETERS,
-    "binary_logistic_ridge": BINARY_PARAMETERS,
-    "multinomial_logistic": MULTINOMIAL_PARAMETERS,
-    "binary_known": BINARY_PARAMETERS,
+    scenario: MULTINOMIAL_PARAMETERS if law == "multinomial" else BINARY_PARAMETERS
+    for scenario, (law, _, _) in TRAITS.items()
 }
 
 #: The scenarios whose mechanism is fitted, so the curve carries a mechanism term.
-ESTIMATED = (
-    "binary_logistic",
-    "binary_logistic_ridge",
-    "multinomial_logistic",
-)
+ESTIMATED = tuple(scenario for scenario, (_, kind, _) in TRAITS.items() if kind != "known")
 
 #: The parameters with a control.  The ATE has none: at a correct model its mechanism term is
 #: a reflection of the second-moment term, which keeps the variance (plan section 3.4).
 CONTROLLED = ("att", "atc", "att_2v0", "atc_1v0")
 
+#: The truncation bounds that the multinomial and the unbalanced scenarios declare.  The package
+#: refuses the plug-in limits (``truncation_active``) when a fitted logit lies within three
+#: standard errors of a truncation bound.  The automatic bounds, 0.0229 to 0.025 at ``n = 1000``,
+#: sit that close to the extreme rows of the three-arm law and of the unbalanced law in 20 to 55
+#: percent of draws, and a refusal rate above the failure bound of 0.01 would make every cell of
+#: those scenarios red by construction.  These bounds lie far from every fitted logit, so no
+#: cell is truncated and the check does not act, as in the balanced scenarios.  The study covers
+#: the untruncated regime only.
+WIDE_G_BOUNDS = (0.005, 0.995)
+WIDE_G_SCENARIOS = (
+    "multinomial_logistic",
+    "multinomial_logistic_crossfit",
+    "binary_unbalanced",
+)
+
+#: The folds and the declared outcome support of every cross-fitted scenario.
+CROSSFIT_FOLDS = 5
+CROSSFIT_Q_BOUNDS = (-40.0, 45.0)
+
+#: The treatment intercept of ``binary_unbalanced``.
+UNBALANCED_INTERCEPT = -1.5
+
 
 def estimand_key(token: str, row: str) -> str:
-    """The primary estimand of one parameter's row: ``plugin_att_nu2`` ... ."""
+    """The primary estimand of one parameter's row: ``plugin_att_lower`` ... ."""
     return f"plugin_{token}_{row}"
 
 
 def cell_label(scenario: str, token: str, row: str) -> str:
-    """The calibration label of one row of one scenario: ``binary_logistic_att_nu2`` ... ."""
+    """The calibration label of one row of one scenario: ``binary_logistic_att_lower`` ... ."""
     return f"{scenario}_{token}_{row}"
 
 
-SCENARIOS: dict[str, tuple[str, ...]] = {
-    scenario: tuple(estimand_key(token, row) for token in parameters for row in ROWS)
+def primary_name(scenario: str, token: str) -> str:
+    """The primary scenario of one parameter: ``binary_logistic_att`` ... .
+
+    The failure accounting costs every estimand of a failed scenario, so a refusal of one
+    parameter loses only that parameter's primary rows when each parameter is its own scenario.
+    """
+    return f"{scenario}_{token}"
+
+
+#: Primary scenario name -> (scenario, token).
+PRIMARY: dict[str, tuple[str, str]] = {
+    primary_name(scenario, token): (scenario, token)
     for scenario, parameters in PARAMETERS.items()
+    for token in parameters
 }
+
+#: The primary scenarios and their claim estimands.
+SCENARIOS: dict[str, tuple[str, ...]] = {
+    name: tuple(estimand_key(token, row) for row in CLAIM_ROWS)
+    for name, (_, token) in PRIMARY.items()
+}
+
+#: The three parameters of a scenario read the sample of the first.
+SEED_OWNERS: dict[str, str] = {
+    name: primary_name(scenario, next(iter(PARAMETERS[scenario])))
+    for name, (scenario, _) in PRIMARY.items()
+    if name != primary_name(scenario, next(iter(PARAMETERS[scenario])))
+}
+
+
+def scenario_of(name: str) -> str:
+    """The scenario of a primary scenario name, or ``name`` itself when it is a scenario."""
+    return PRIMARY[name][0] if name in PRIMARY else name
 
 
 def control_kind(scenario: str) -> str:
@@ -147,7 +240,7 @@ def _cells() -> tuple[str, ...]:
     cells: list[str] = []
     for scenario, parameters in PARAMETERS.items():
         for token in parameters:
-            for row in ROWS:
+            for row in CLAIM_ROWS:
                 label = cell_label(scenario, token, row)
                 cells.append(f"{label}__correctly_specified")
                 if token in CONTROLLED:
@@ -156,6 +249,11 @@ def _cells() -> tuple[str, ...]:
 
 
 PROPERTY_CELLS = {"interval_calibration": _cells()}
+
+#: The unjudged reading of the corrected nu^2: one row for each draw and one for each
+#: scenario and parameter.
+NU2_ROWS = "nu2-replicates.csv.gz"
+NU2_READING = "nu2-reading.csv"
 
 STUDY = StudyRecord(
     name="omitted-variable bound plug-in standard error",
@@ -166,6 +264,7 @@ STUDY = StudyRecord(
     ),
     anchor="omitted-variable-bound-plug-in-standard-error",
     scenarios=SCENARIOS,
+    scenario_seed_owners=SEED_OWNERS,
     replicates=PRIMARY_REPLICATES,
     n=PRIMARY_N,
     seed=SEED,
@@ -185,40 +284,58 @@ STUDY = StudyRecord(
     runner_module="tests.studies.omitted_variable_bound_plugin",
     properties_module="tests.studies.omitted_variable_bound_plugin_properties",
     property_cells=PROPERTY_CELLS,
+    extra_artifacts=(NU2_ROWS, NU2_READING),
     publication_policy="reporting",
 )
 
 CONFIGURATION = {
     "laws": {
-        "binary": "make_linear_ate(n=1000): W ~ N(0, I_4), g = expit(0.3 W1 - 0.2 W2 + 0.1 W3), "
+        "balanced": "make_linear_ate(n=1000): W ~ N(0, I_4), g = expit(0.3 W1 - 0.2 W2 + 0.1 W3), "
         "Y = 2 + 1.5 A + W1 + 0.5 W2 - 0.8 W3 + 0.4 W4 + N(0, 1)",
+        "unbalanced": "the balanced law with g = expit(-1.5 + 0.3 W1 - 0.2 W2 + 0.1 W3), "
+        "treated share about 0.19",
         "multinomial": "W ~ N(0, I_3); logits (0, 0.3 W1 - 0.2 W2, -0.2 W1 + 0.3 W2); "
         "Y = 0.6 step[A] + W1 - 0.5 W2 + 0.2 W3 + N(0, 1), steps (0, 1, 2.4)",
     },
     "fits": {
         "binary_logistic": "in-sample TMLE, LinearRegression outcome, "
         "LogisticRegression(C=inf, max_iter=2000)",
+        "binary_logistic_crossfit": "the same with cross_fit=True, n_folds=5, "
+        "q_bounds=(-40.0, 45.0)",
         "binary_logistic_ridge": "the same as binary_logistic with "
         "LogisticRegression(max_iter=1000), so C = 1",
+        "binary_logistic_ridge_crossfit": "the same as binary_logistic_ridge with "
+        "cross_fit=True, n_folds=5, q_bounds=(-40.0, 45.0)",
         "multinomial_logistic": "in-sample TMLE, LinearRegression outcome, "
         "LogisticRegression(C=inf, max_iter=2000), reference arm 0",
+        "multinomial_logistic_crossfit": "the same with cross_fit=True, n_folds=5, "
+        "q_bounds=(-40.0, 45.0)",
         "binary_known": "in-sample TMLE, LinearRegression outcome, the law's own mechanism "
         "linear_dgp().propensity declared through treatment_probabilities=",
+        "binary_unbalanced": "in-sample TMLE, LinearRegression outcome, "
+        "LogisticRegression(C=inf, max_iter=2000), treatment intercept -1.5",
     },
-    "nu2_estimator": "plugin",
+    "nu2_estimator": "plugin, second-order corrected by the package (nu2_correction and "
+    "nu2_variance_correction are package values)",
     "strength": {"cf_y": CF_Y, "cf_d": CF_D, "rho": RHO},
-    "primary_rows": "nu2: estimate = nu2, std_error = sqrt(influence_variance(psi_nu2)); "
-    "lower and upper: estimate = the bound, std_error = (lower - ci_lower) / z_0.95 and "
-    "(ci_upper - upper) / z_0.95, each checked against the rebuilt curve; "
-    "interval = estimate +/- 1.959964 std_error",
+    "primary_rows": "lower and upper: estimate = the bound, std_error = (lower - ci_lower) / "
+    "z_0.95 and (ci_upper - upper) / z_0.95, each checked against the rebuilt curve less the "
+    "package variance correction; interval = estimate +/- 1.959964 std_error. One primary "
+    "scenario for each parameter, so a refusal of one parameter loses only its rows",
+    "nu2_reading": "the corrected nu2, its corrected standard error, the raw "
+    "E_n[alpha_hat^2], B_hat and the variance correction of every draw, published unjudged in "
+    "nu2-replicates.csv.gz and nu2-reading.csv",
     "controls": {
-        "inflated_se_control": "the estimated-mechanism scenarios' ATT and ATC rows, with the "
-        "package curve minus the independently rebuilt mechanism term",
-        "shrunken_se_control": "binary_known's ATT and ATC rows, with the package curve plus "
-        "the mechanism term of a study-side LogisticRegression(C=inf) fit",
+        "inflated_se_control": "the estimated-mechanism scenarios' ATT and ATC bound rows, with "
+        "the package curve minus the independently rebuilt mechanism term and the package "
+        "variance correction",
+        "shrunken_se_control": "binary_known's ATT and ATC bound rows, with the package curve "
+        "plus the mechanism term of a study-side LogisticRegression(C=inf) fit and the package "
+        "variance correction",
     },
-    "truth": "sigma2 = 1. binary: nu2 = 2 + 2 exp(0.07) for ate, 4 exp(0.07) for att and atc, "
-    "effect 1.5. multinomial: 80 x 80 Gauss-Hermite quadrature, effects 1.44, 1.44, 0.6",
+    "truth": "sigma2 = 1. balanced: nu2 = 2 + 2 exp(0.07) for ate, 4 exp(0.07) for att and atc, "
+    "effect 1.5. unbalanced: 1-D Gauss-Hermite quadrature, effect 1.5. multinomial: 80 x 80 "
+    "Gauss-Hermite quadrature, effects 1.44, 1.44, 0.6",
 }
 
 #: The red-cell route, declared before any run (X26 plan section 3.5 and review F10).
@@ -237,6 +354,8 @@ RED_CELL_POLICY = (
     "1, its coverage is consistent with 0.95, and the diagnosis finds no defect; any other "
     "red positive cell is a defect suspect and never ends as an owner row unfixed",
     "a control that does not leave the band is reported as 'control underpowered', with its ratio",
+    "the corrected nu2 rows are measured, not claimed: their reading is never a verdict, and a "
+    "shortfall in it opens no red cell",
 )
 
 CONFIGURATION["red_cell_policy"] = list(RED_CELL_POLICY)
@@ -253,7 +372,7 @@ INDEX_VARIANCE = 0.14
 MULTINOMIAL_STEPS = (0.0, 1.0, 2.4)
 MULTINOMIAL_EFFECT_SCALE = 0.6
 
-#: The nodes per axis of the quadrature behind the three-arm truths.
+#: The nodes per axis of the quadrature behind the truths that have no closed form.
 QUADRATURE_NODES = 80
 
 
@@ -296,19 +415,45 @@ def multinomial_second_moments(nodes: int = QUADRATURE_NODES) -> dict[str, float
     }
 
 
-def _binary_second_moments() -> dict[str, float]:
+def binary_second_moments(
+    intercept: float, nodes: int = QUADRATURE_NODES
+) -> tuple[dict[str, float], float]:
+    r"""The binary ``nu^2`` of each parameter and the treated share, by quadrature over the index.
+
+    The index :math:`\eta = b + 0.3 W_1 - 0.2 W_2 + 0.1 W_3` is normal with mean ``intercept``
+    and variance :data:`INDEX_VARIANCE`, so a one-dimensional Gauss-Hermite rule integrates
+    every function of :math:`g = \mathrm{expit}(\eta)`.
+    """
+    x, weights = np.polynomial.hermite_e.hermegauss(nodes)
+    weights = weights / weights.sum()
+    g = expit(intercept + math.sqrt(INDEX_VARIANCE) * x)
+    share = float(weights @ g)
+    return (
+        {
+            "ate": float(weights @ (1.0 / g + 1.0 / (1.0 - g))),
+            "att": float((share + weights @ (g**2 / (1.0 - g))) / share**2),
+            "atc": float(((1.0 - share) + weights @ ((1.0 - g) ** 2 / g)) / (1.0 - share) ** 2),
+        },
+        share,
+    )
+
+
+def _balanced_second_moments() -> dict[str, float]:
     odds = math.exp(INDEX_VARIANCE / 2.0)
     return {"ate": 2.0 + 2.0 * odds, "att": 4.0 * odds, "atc": 4.0 * odds}
 
 
 _MULTINOMIAL_NU2 = multinomial_second_moments()
+_UNBALANCED_NU2 = binary_second_moments(UNBALANCED_INTERCEPT)[0]
 
 
 def truths(scenario: str) -> dict[str, float]:
     """The population ``nu^2`` and both bounds of each parameter of ``scenario``."""
+    scenario = scenario_of(scenario)
     if scenario not in PARAMETERS:
         raise KeyError(f"{STUDY.slug} has no scenario {scenario!r}")
-    if scenario == "multinomial_logistic":
+    law = TRAITS[scenario][0]
+    if law == "multinomial":
         nu2 = _MULTINOMIAL_NU2
         effects = {
             "ate_2v0": MULTINOMIAL_EFFECT_SCALE * MULTINOMIAL_STEPS[2],
@@ -316,7 +461,7 @@ def truths(scenario: str) -> dict[str, float]:
             "atc_1v0": MULTINOMIAL_EFFECT_SCALE * MULTINOMIAL_STEPS[1],
         }
     else:
-        nu2 = _binary_second_moments()
+        nu2 = _UNBALANCED_NU2 if law == "unbalanced" else _balanced_second_moments()
         effects = dict.fromkeys(BINARY_PARAMETERS, 1.5)
     sigma2 = 1.0
     values: dict[str, float] = {}
@@ -349,11 +494,37 @@ def draw_multinomial(n: int, seed: int) -> pd.DataFrame:
     return frame
 
 
+def draw_unbalanced(n: int, seed: int) -> pd.DataFrame:
+    """One sample of the unbalanced binary law, columns ``Y, A, W1, W2, W3, W4``.
+
+    The law of :func:`cleverly.datasets.make_linear_ate` with the treatment intercept moved to
+    :data:`UNBALANCED_INTERCEPT`.  The draws follow that generator's order: the covariates, the
+    treatment, then the outcome noise.
+    """
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=(n, 4))
+    g = expit(UNBALANCED_INTERCEPT + 0.3 * w[:, 0] - 0.2 * w[:, 1] + 0.1 * w[:, 2])
+    a = rng.binomial(1, g).astype(float)
+    y = 2.0 + 1.5 * a + w[:, 0] + 0.5 * w[:, 1] - 0.8 * w[:, 2] + 0.4 * w[:, 3]
+    y = y + rng.normal(size=n)
+    frame = pd.DataFrame(w, columns=["W1", "W2", "W3", "W4"])
+    frame.insert(0, "A", a)
+    frame.insert(0, "Y", y)
+    return frame
+
+
 def draw_from_seed(scenario: str, n: int, seed: int) -> tuple[pd.DataFrame, dict[str, float]]:
-    """Draw one sample from an explicit seed for the published-seed audit."""
+    """Draw one sample from an explicit seed for the published-seed audit.
+
+    ``scenario`` is a scenario or a primary scenario name.
+    """
+    scenario = scenario_of(scenario)
     truth = truths(scenario)
-    if scenario == "multinomial_logistic":
+    law = TRAITS[scenario][0]
+    if law == "multinomial":
         return draw_multinomial(n, seed), truth
+    if law == "unbalanced":
+        return draw_unbalanced(n, seed), truth
     frame, _ = make_linear_ate(n=n, seed=seed)
     return frame, truth
 
@@ -370,7 +541,7 @@ def known_mechanism(frame: pd.DataFrame) -> np.ndarray:
 
 
 def _treatment_learner(scenario: str) -> LogisticRegression:
-    if scenario == "binary_logistic_ridge":
+    if TRAITS[scenario][1] == "ridge":
         return LogisticRegression(max_iter=1000)
     return LogisticRegression(C=np.inf, max_iter=2000)
 
@@ -381,8 +552,9 @@ def fit(frame: pd.DataFrame, scenario: str) -> Any:
     No warning is suppressed.  The declared fits raise none on these laws, so a warning that a
     later package raises reaches the regeneration log instead of vanishing.
     """
+    scenario = scenario_of(scenario)
     estimands: tuple[Literal["ate", "att", "atc"], ...] = ("ate", "att", "atc")
-    if scenario == "binary_known":
+    if TRAITS[scenario][1] == "known":
         return (
             TMLE(
                 outcome_learner=LinearRegression(),
@@ -399,14 +571,20 @@ def fit(frame: pd.DataFrame, scenario: str) -> Any:
             )
             .single()
         )
+    crossfit = TRAITS[scenario][2]
+    options: dict[str, Any] = {"cross_fit": crossfit}
+    if crossfit:
+        options.update(n_folds=CROSSFIT_FOLDS, q_bounds=CROSSFIT_Q_BOUNDS)
+    if scenario in WIDE_G_SCENARIOS:
+        options["g_bounds"] = WIDE_G_BOUNDS
     return (
         TMLE(
             outcome_learner=LinearRegression(),
             treatment_learner=_treatment_learner(scenario),
-            cross_fit=False,
             simultaneous=False,
             estimands=estimands,
             random_state=0,
+            **options,
         )
         .fit(frame, outcome="Y", treatment="A")
         .single()
@@ -628,7 +806,7 @@ class Rebuilt:
     Parameters
     ----------
     nu2 : float
-        The plug-in estimate.
+        The uncorrected plug-in :math:`E_n[\\hat\\alpha^2]`.
     second_moment : ndarray
         ``w (alpha^2 - nu^2)``.
     share_term : ndarray
@@ -651,9 +829,12 @@ def rebuild(result: Any, scenario: str, token: str, elements: Any) -> Rebuilt:
     """Rebuild the plug-in curve of one parameter and check it against the package's.
 
     The mechanism comes from the captured coefficients (an estimated mechanism) or from the
-    law (a known one).  The representer, ``nu^2``, the share term and the mechanism term are
-    this module's.  Any departure beyond :data:`REBUILD_TOLERANCE` raises ``RuntimeError``
-    from this module, which stops the run: a departure is a defect, not a property of a sample.
+    law (a known one).  The representer, the uncorrected ``nu^2``, the share term and the
+    mechanism term are this module's.  The package reports ``nu^2`` less its second-order
+    correction, so the rebuilt value is compared with the reported value plus that correction.
+    The correction itself is not rebuilt.  Any departure beyond :data:`REBUILD_TOLERANCE`
+    raises ``RuntimeError`` from this module, which stops the run: a departure is a defect, not
+    a property of a sample.
     """
     _, group, arm_code, versus_code = PARAMETERS[scenario][token]
     nuisance = result.repeats[0].nuisance
@@ -665,7 +846,7 @@ def rebuild(result: Any, scenario: str, token: str, elements: Any) -> Rebuilt:
     treatment_index = np.searchsorted(np.asarray(arms), np.asarray(data.treatment, dtype=float))
     stored = np.asarray(nuisance.propensity.values, dtype=float)
     folds: list[Logistic] = []
-    if scenario == "binary_known":
+    if TRAITS[scenario][1] == "known":
         one = known_mechanism(_frame_of(result))
         g = np.column_stack([1.0 - one, one])
     else:
@@ -689,7 +870,8 @@ def rebuild(result: Any, scenario: str, token: str, elements: Any) -> Rebuilt:
     if not _close(alpha, np.asarray(elements.riesz_representer, dtype=float)):
         raise RuntimeError(f"the rebuilt representer of {token!r} is not the package's")
     nu2 = float(np.average(alpha**2, weights=weights))
-    if abs(nu2 - elements.nu2) > REBUILD_TOLERANCE * max(1.0, abs(elements.nu2)):
+    reported_raw = float(elements.nu2) + float(elements.nu2_correction)
+    if abs(nu2 - reported_raw) > REBUILD_TOLERANCE * max(1.0, abs(reported_raw)):
         raise RuntimeError(f"the rebuilt nu^2 of {token!r} is not the package's")
     share_term = np.zeros(n)
     if share is not None:
@@ -745,7 +927,10 @@ def study_mechanism_term(result: Any, scenario: str, token: str) -> np.ndarray:
 
 
 def _bias_curve(elements: Any, psi_nu2: np.ndarray) -> np.ndarray:
-    """Theorem 4's curve of the maximal bias, from a curve of ``nu^2``."""
+    """Theorem 4's curve of the maximal bias, from a curve of ``nu^2``.
+
+    ``elements.nu2`` and ``elements.max_bias`` are the corrected values the package reports.
+    """
     return np.asarray(
         (elements.sigma2 * psi_nu2 + elements.nu2 * np.asarray(elements.psi_sigma2))
         / (2.0 * elements.max_bias),
@@ -753,125 +938,471 @@ def _bias_curve(elements: Any, psi_nu2: np.ndarray) -> np.ndarray:
     )
 
 
-def _standard_errors(
+def _variance(curve: np.ndarray, cluster: Any, correction: float, what: str) -> float:
+    """The variance of a curve less a package variance correction, which must stay positive."""
+    value = float(influence_variance(curve, cluster)) - correction
+    if not value > 0.0:
+        raise DataError(f"the corrected variance of {what} is {value:.6g}")
+    return value
+
+
+def _nu2_standard_error(result: Any, elements: Any, psi_nu2: np.ndarray) -> float:
+    """The corrected standard error of ``nu^2`` from one curve of ``nu^2``."""
+    correction = float(elements.nu2_variance_correction)
+    return math.sqrt(_variance(psi_nu2, result.data.cluster, correction, "nu^2"))
+
+
+def _bound_standard_errors(
     result: Any, name: str, elements: Any, psi_nu2: np.ndarray, strength_value: float
 ) -> dict[str, float]:
-    """The standard error of ``nu^2`` and of each bound end, from one curve of ``nu^2``."""
+    r"""The standard error of each bound end, from one curve of ``nu^2``.
+
+    The variance is that of the combined curve less :math:`c^2 v`, with :math:`v` the package's
+    variance correction of :math:`\hat\nu^2` and
+    :math:`c = \kappa \sigma^2 / (2 \sqrt{\sigma^2 \nu^2})` the delta-method coefficient of the
+    bound in :math:`\nu^2`.  The coefficient is this module's.
+    """
     cluster = result.data.cluster
     curve = np.asarray(result[name].influence_curve, dtype=float)
     bias = _bias_curve(elements, psi_nu2)
+    coefficient = strength_value * float(elements.sigma2) / (2.0 * float(elements.max_bias))
+    correction = coefficient**2 * float(elements.nu2_variance_correction)
     return {
-        "nu2": float(np.sqrt(influence_variance(psi_nu2, cluster))),
-        "lower": float(np.sqrt(influence_variance(curve - strength_value * bias, cluster))),
-        "upper": float(np.sqrt(influence_variance(curve + strength_value * bias, cluster))),
+        "lower": math.sqrt(
+            _variance(curve - strength_value * bias, cluster, correction, f"{name} lower")
+        ),
+        "upper": math.sqrt(
+            _variance(curve + strength_value * bias, cluster, correction, f"{name} upper")
+        ),
     }
 
 
-def parameter_rows(
-    result: Any, scenario: str, token: str
-) -> dict[str, tuple[float, float, float | None]]:
+@dataclass(frozen=True)
+class Bound:
+    """One bound end of one draw.
+
+    Parameters
+    ----------
+    estimate : float
+        The reported limit.
+    std_error : float
+        The standard error read back off the reported confidence limit.
+    control : float or None
+        The control's standard error, or ``None`` for a parameter without one.
+    """
+
+    estimate: float
+    std_error: float
+    control: float | None
+
+
+@dataclass(frozen=True)
+class Nu2:
+    """The corrected ``nu^2`` of one draw, and what it was corrected from.
+
+    Parameters
+    ----------
+    estimate : float
+        The reported ``nu^2``, :math:`E_n[\\hat\\alpha^2] - \\hat B`.
+    std_error : float
+        The corrected standard error.
+    raw_estimate : float
+        :math:`E_n[\\hat\\alpha^2]`.
+    raw_std_error : float
+        The standard error of the uncorrected curve.
+    correction : float
+        :math:`\\hat B`, a package value.
+    variance_correction : float
+        The package's second-order bias of the variance of :math:`\\hat\\nu^2`.
+    """
+
+    estimate: float
+    std_error: float
+    raw_estimate: float
+    raw_std_error: float
+    correction: float
+    variance_correction: float
+
+
+@dataclass(frozen=True)
+class ParameterValues:
+    """Everything one fit gives for one parameter.
+
+    Parameters
+    ----------
+    bounds : dict
+        The :class:`Bound` of ``lower`` and of ``upper``.
+    nu2 : Nu2
+        The unjudged reading.
+    """
+
+    bounds: dict[str, Bound]
+    nu2: Nu2
+
+
+def parameter_rows(result: Any, scenario: str, token: str) -> ParameterValues:
     """Each row's estimate, reported standard error and control standard error.
 
     The reported standard error of a bound end is read back off its limit, and it must equal
-    the standard error of the rebuilt curve.  The control is ``None`` for a parameter without
-    one.
+    the standard error of the rebuilt curve less the package's variance correction.  The
+    control is ``None`` for a parameter without one.
+
+    Raises
+    ------
+    DataError
+        If the package refuses the limits of this fit (``truncation_active``,
+        ``correction_unstable`` or ``corrected_nonpositive``).  The driver records it as a
+        failed replicate of this parameter, and of no other.
     """
     ov = omitted_variable_module
+    scenario = scenario_of(scenario)
     name = PARAMETERS[scenario][token][0]
-    bounds = ov.omitted_variable_bounds(
-        result, name, cf_y=CF_Y, cf_d=CF_D, rho=RHO, nu2_estimator="plugin"
-    )
     elements = ov.sensitivity_elements(result, name, nu2_estimator="plugin")
-    expected = "known" if scenario == "binary_known" else "logistic"
+    expected = "known" if TRAITS[scenario][1] == "known" else "logistic"
     if elements.limit_refusal is not None:
-        # A sample on which the package withholds the limits (for example the
-        # penalty_bias gate) is a failed replicate, counted against FAILURE_BOUND.
         raise DataError(f"the plug-in bound of {name!r} refused: {elements.limit_refusal.key}")
-    if elements.plugin_mechanism != expected or elements.psi_nu2 is None:
+    if (
+        elements.plugin_mechanism != expected
+        or elements.psi_nu2 is None
+        or elements.nu2_correction is None
+        or elements.nu2_variance_correction is None
+    ):
         raise RuntimeError(f"the plug-in bound of {name!r} did not stack the {expected} mechanism")
+    try:
+        bounds = ov.omitted_variable_bounds(
+            result, name, cf_y=CF_Y, cf_d=CF_D, rho=RHO, nu2_estimator="plugin"
+        )
+    except CapabilityError as refusal:
+        # The corrected variance of a bound end is not positive.  CapabilityError stops a run,
+        # so the study states the refusal as the recordable error it is for one replicate.
+        raise DataError(f"the plug-in bound of {name!r} refused: {refusal}") from refusal
+    if bounds.ci_lower is None or bounds.ci_upper is None:
+        raise RuntimeError(f"the plug-in bound of {name!r} reported no limit")
     rebuilt = rebuild(result, scenario, token, elements)
     strength_value = bounds.confounding_strength
+    psi = np.asarray(elements.psi_nu2, dtype=float)
     reported = {
-        "nu2": float(np.sqrt(influence_variance(elements.psi_nu2, result.data.cluster))),
+        "nu2": _nu2_standard_error(result, elements, psi),
         "lower": (bounds.lower - bounds.ci_lower) / ONE_SIDED,
         "upper": (bounds.ci_upper - bounds.upper) / ONE_SIDED,
     }
-    own = _standard_errors(result, name, elements, rebuilt.curve, strength_value)
-    for row in ("lower", "upper"):
+    own = _bound_standard_errors(result, name, elements, rebuilt.curve, strength_value)
+    own["nu2"] = _nu2_standard_error(result, elements, rebuilt.curve)
+    for row in ("nu2", "lower", "upper"):
         if abs(own[row] - reported[row]) > REBUILD_TOLERANCE * max(1.0, own[row]):
             raise RuntimeError(f"the rebuilt {row} standard error of {name!r} is not reported")
-    estimates = {"nu2": float(elements.nu2), "lower": bounds.lower, "upper": bounds.upper}
+    estimates = {"lower": bounds.lower, "upper": bounds.upper}
     control: dict[str, float] | None = None
     if token in CONTROLLED:
-        psi = np.asarray(elements.psi_nu2, dtype=float)
         if scenario in ESTIMATED:
             changed = psi - rebuilt.mechanism_term
         else:
             changed = psi + study_mechanism_term(result, scenario, token)
-        control = _standard_errors(result, name, elements, changed, strength_value)
-    return {
-        row: (
-            float(estimates[row]),
-            float(reported[row]),
-            None if control is None else float(control[row]),
-        )
-        for row in ROWS
-    }
+        control = _bound_standard_errors(result, name, elements, changed, strength_value)
+    cluster = result.data.cluster
+    return ParameterValues(
+        bounds={
+            row: Bound(
+                estimate=float(estimates[row]),
+                std_error=float(reported[row]),
+                control=None if control is None else float(control[row]),
+            )
+            for row in CLAIM_ROWS
+        },
+        nu2=Nu2(
+            estimate=float(elements.nu2),
+            std_error=float(reported["nu2"]),
+            raw_estimate=float(elements.nu2) + float(elements.nu2_correction),
+            raw_std_error=math.sqrt(float(influence_variance(psi, cluster))),
+            correction=float(elements.nu2_correction),
+            variance_correction=float(elements.nu2_variance_correction),
+        ),
+    )
+
+
+#: The extra columns of a primary row that carry the unjudged ``nu^2`` reading.
+NU2_COLUMNS = (
+    "requested_replicates",
+    "nu2_truth",
+    "nu2_estimate",
+    "nu2_std_error",
+    "nu2_raw_estimate",
+    "nu2_raw_std_error",
+    "nu2_correction",
+    "nu2_variance_correction",
+)
 
 
 def cleverly_rows(
-    frame: pd.DataFrame, truth: Mapping[str, float], scenario: str, replicate: int
+    frame: pd.DataFrame,
+    truth: Mapping[str, float],
+    primary: str,
+    replicate: int,
+    requested: int = PRIMARY_REPLICATES,
 ) -> list[dict[str, Any]]:
-    """Convert one fit to the shared replication schema, one row per quantity."""
+    """Convert one fit to the shared replication schema, one row per bound end.
+
+    Each row also carries the draw's unjudged ``nu^2`` reading in :data:`NU2_COLUMNS`;
+    :func:`extra_artifacts` reads them, and the replicate file drops them.
+    """
+    scenario, token = PRIMARY[primary]
     result = fit(frame, scenario)
+    values = parameter_rows(result, scenario, token)
+    nu2 = values.nu2
     rows: list[dict[str, Any]] = []
-    for token in PARAMETERS[scenario]:
-        values = parameter_rows(result, scenario, token)
-        for row in ROWS:
-            estimate, std_error, _ = values[row]
-            key = estimand_key(token, row)
-            reference = float(truth[key])
-            low = estimate - TWO_SIDED * std_error
-            high = estimate + TWO_SIDED * std_error
-            rows.append(
-                {
-                    "implementation": STUDY.implementation,
-                    "scenario": scenario,
-                    "replicate": replicate,
-                    "n": result.n,
-                    "estimand": key,
-                    "truth": reference,
-                    "estimate": estimate,
-                    "inference_estimate": estimate,
-                    "std_error": std_error,
-                    "ci_lower": float(low),
-                    "ci_upper": float(high),
-                    "inference_scale": "identity",
-                    "covered": int(low <= reference <= high),
-                    "initial_estimate": math.nan,
-                }
-            )
+    for row in CLAIM_ROWS:
+        bound = values.bounds[row]
+        key = estimand_key(token, row)
+        reference = float(truth[key])
+        low = bound.estimate - TWO_SIDED * bound.std_error
+        high = bound.estimate + TWO_SIDED * bound.std_error
+        rows.append(
+            {
+                "implementation": STUDY.implementation,
+                "scenario": primary,
+                "replicate": replicate,
+                "n": result.n,
+                "estimand": key,
+                "truth": reference,
+                "estimate": bound.estimate,
+                "inference_estimate": bound.estimate,
+                "std_error": bound.std_error,
+                "ci_lower": float(low),
+                "ci_upper": float(high),
+                "inference_scale": "identity",
+                "covered": int(low <= reference <= high),
+                "initial_estimate": math.nan,
+                "requested_replicates": requested,
+                "nu2_truth": float(truth[estimand_key(token, "nu2")]),
+                "nu2_estimate": nu2.estimate,
+                "nu2_std_error": nu2.std_error,
+                "nu2_raw_estimate": nu2.raw_estimate,
+                "nu2_raw_std_error": nu2.raw_std_error,
+                "nu2_correction": nu2.correction,
+                "nu2_variance_correction": nu2.variance_correction,
+            }
+        )
     return rows
 
 
+# ---------------------------------------------------------------- the unjudged nu^2 reading
+
+#: The columns of :data:`NU2_ROWS`.
+NU2_ROW_COLUMNS = (
+    "scenario",
+    "parameter",
+    "replicate",
+    "n",
+    "truth",
+    "estimate",
+    "std_error",
+    "raw_estimate",
+    "raw_std_error",
+    "correction",
+    "variance_correction",
+)
+
+#: The columns of :data:`NU2_READING`.
+NU2_READING_COLUMNS = (
+    "scenario",
+    "parameter",
+    "requested",
+    "replicates",
+    "refused",
+    "coverage",
+    "coverage_lower99",
+    "coverage_upper99",
+    "bias_sd",
+    "se_ratio",
+    "raw_coverage",
+    "raw_bias_sd",
+    "raw_se_ratio",
+    "mean_correction",
+)
+
+
+def _wilson(covered: int, total: int, level: float = 0.99) -> tuple[float, float]:
+    """The Wilson score interval of a proportion."""
+    z = float(stats.norm.ppf(0.5 + level / 2.0))
+    p = covered / total
+    centre = (p + z * z / (2 * total)) / (1 + z * z / total)
+    half = z * math.sqrt(p * (1 - p) / total + z * z / (4 * total * total)) / (1 + z * z / total)
+    return centre - half, centre + half
+
+
+def _read(truth: float, estimate: np.ndarray, std_error: np.ndarray) -> tuple[float, float, float]:
+    """Coverage, bias in standard deviations, and SE ratio of one set of draws."""
+    covered = int(np.sum(np.abs(estimate - truth) <= TWO_SIDED * std_error))
+    spread = float(estimate.std(ddof=1))
+    return (
+        covered / len(estimate),
+        (float(estimate.mean()) - truth) / spread,
+        (float(std_error.mean()) / spread),
+    )
+
+
+def nu2_reading(rows: pd.DataFrame, requested: Mapping[tuple[str, str], int]) -> pd.DataFrame:
+    """The measured reading of the corrected ``nu^2``, one row per scenario and parameter.
+
+    ``coverage`` is the share of draws whose corrected interval holds the truth, with its 99%
+    Wilson interval.  ``bias_sd`` is the mean estimate minus the truth over the standard
+    deviation of the estimate, and ``se_ratio`` is the mean reported standard error over that
+    deviation.  The ``raw_`` columns read the uncorrected :math:`E_n[\\hat\\alpha^2]` on the
+    same draws.  Every column reads the draws the package did not refuse, and ``refused`` is
+    ``requested`` less those.  Nothing here is a verdict.
+
+    Parameters
+    ----------
+    rows : pandas.DataFrame
+        The :data:`NU2_ROWS` frame.
+    requested : Mapping
+        The requested replicates of each ``(scenario, parameter)``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The reading, in :data:`NU2_READING_COLUMNS`.
+    """
+    out = []
+    for (scenario, token), count in requested.items():
+        cell = rows.loc[(rows["scenario"] == scenario) & (rows["parameter"] == token)]
+        if cell.empty:
+            raise ValueError(f"no surviving draw for {scenario}/{token}")
+        truth = float(cell["truth"].iloc[0])
+        estimate, error = cell["estimate"].to_numpy(), cell["std_error"].to_numpy()
+        coverage, bias, ratio = _read(truth, estimate, error)
+        raw_coverage, raw_bias, raw_ratio = _read(
+            truth, cell["raw_estimate"].to_numpy(), cell["raw_std_error"].to_numpy()
+        )
+        low, high = _wilson(round(coverage * len(cell)), len(cell))
+        out.append(
+            {
+                "scenario": scenario,
+                "parameter": token,
+                "requested": count,
+                "replicates": len(cell),
+                "refused": count - len(cell),
+                "coverage": coverage,
+                "coverage_lower99": low,
+                "coverage_upper99": high,
+                "bias_sd": bias,
+                "se_ratio": ratio,
+                "raw_coverage": raw_coverage,
+                "raw_bias_sd": raw_bias,
+                "raw_se_ratio": raw_ratio,
+                "mean_correction": float(cell["correction"].mean()),
+            }
+        )
+    return pd.DataFrame(out, columns=list(NU2_READING_COLUMNS))
+
+
+def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """The unjudged ``nu^2`` reading, from the extra columns of the primary rows.
+
+    :data:`NU2_ROWS` holds one row for each surviving draw, and :data:`NU2_READING` one row for
+    each scenario and parameter.  The replicate file drops these columns, so the reading is the
+    only place the corrected ``nu^2`` is published.  No verdict reads it.
+    """
+    lower = rows.loc[rows["estimand"].str.endswith("_lower")]
+    scenarios = [scenario for scenario in PARAMETERS if scenario in set(_scenario_column(lower))]
+    frame = pd.DataFrame(
+        {
+            "scenario": _scenario_column(lower),
+            "parameter": [PRIMARY[name][1] for name in lower["scenario"]],
+            "replicate": lower["replicate"].to_numpy(),
+            "n": lower["n"].to_numpy(),
+            "truth": lower["nu2_truth"].to_numpy(),
+            "estimate": lower["nu2_estimate"].to_numpy(),
+            "std_error": lower["nu2_std_error"].to_numpy(),
+            "raw_estimate": lower["nu2_raw_estimate"].to_numpy(),
+            "raw_std_error": lower["nu2_raw_std_error"].to_numpy(),
+            "correction": lower["nu2_correction"].to_numpy(),
+            "variance_correction": lower["nu2_variance_correction"].to_numpy(),
+        }
+    )
+    order = {scenario: index for index, scenario in enumerate(PARAMETERS)}
+    tokens = {
+        scenario: {token: index for index, token in enumerate(PARAMETERS[scenario])}
+        for scenario in PARAMETERS
+    }
+    frame = frame.assign(
+        _s=frame["scenario"].map(order),
+        _t=[tokens[s][t] for s, t in zip(frame["scenario"], frame["parameter"], strict=True)],
+    )
+    frame = frame.sort_values(["_s", "_t", "replicate"], ignore_index=True)
+    frame = frame.loc[:, list(NU2_ROW_COLUMNS)]
+    requested = {
+        (PRIMARY[name][0], PRIMARY[name][1]): int(group["requested_replicates"].iloc[0])
+        for name, group in lower.groupby("scenario", sort=False)
+    }
+    ordered = {
+        (scenario, token): requested[(scenario, token)]
+        for scenario in scenarios
+        for token in PARAMETERS[scenario]
+        if (scenario, token) in requested
+    }
+    return {NU2_ROWS: frame, NU2_READING: nu2_reading(frame, ordered)}
+
+
+def _scenario_column(frame: pd.DataFrame) -> list[str]:
+    return [PRIMARY[name][0] for name in frame["scenario"]]
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """Check that the unjudged reading accounts for every fit the driver recorded as lost.
+
+    The reading is a measurement and gates no claim, so this audit judges bookkeeping only.  For
+    each scenario and parameter, ``refused`` in :data:`NU2_READING` must equal the replicates
+    that the failure records lost.  A cell that disagrees is a failing row, and so is a lost
+    cell with no reading row.
+    """
+    reading = artifacts[NU2_READING]
+    lost = evidence_failures.expand(failures, STUDY)
+    counts = lost.drop_duplicates(["scenario", "replicate"]).groupby("scenario").size().to_dict()
+    refused = {
+        primary_name(str(row.scenario), str(row.parameter)): int(row.refused)
+        for row in reading.itertuples(index=False)
+    }
+    wrong = [
+        {"scenario": name, "lost": counts.get(name, 0), "refused": refused.get(name, 0)}
+        for name in sorted(set(counts) | set(refused))
+        if counts.get(name, 0) != refused.get(name, 0)
+    ]
+    return evidence_failures.audits(
+        {"nu2 reading refused counts equal the lost fits": pd.DataFrame(wrong)},
+        missing={},
+    )
+
+
 def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
-    scenario, index, n = key
-    return draw_scenario(scenario, n, index)
+    primary, index, n = key
+    return draw_scenario(primary, n, index)
 
 
-def _replicate(
-    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
-) -> list[dict[str, Any]]:
-    scenario, index, _ = key
-    frame, truth = drawn
-    return cleverly_rows(frame, truth, scenario, index)
+@dataclass(frozen=True)
+class _Replicate:
+    """The fit of one primary key, closed over the run's requested replicate count."""
+
+    requested: int
+
+    def __call__(
+        self, key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+    ) -> list[dict[str, Any]]:
+        primary, index, _ = key
+        frame, truth = drawn
+        return cleverly_rows(frame, truth, primary, index, self.requested)
 
 
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
-    """Draw and fit every declared primary replication."""
+    """Draw and fit every declared primary replication.
+
+    A key is one parameter of one draw.  A refusal of the package fails that key alone.  The
+    rows keep the extra columns that :func:`extra_artifacts` reads, and the driver drops them
+    from the replicate file after the hook has run.
+    """
     outcomes = replication.fit_primary(
-        [(scenario, index, n) for scenario in STUDY.scenarios for index in range(replicates)],
-        _replicate,
+        [(primary, index, n) for primary in STUDY.scenarios for index in range(replicates)],
+        _Replicate(replicates),
         draw=_draw,
         rows_at=None,
         n_jobs=n_jobs,
@@ -879,4 +1410,4 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
     )
     built = pd.DataFrame([row for records in outcomes.kept for row in records])
-    return replication.result(outcomes, built.loc[:, list(REPLICATE_COLUMNS)])
+    return replication.result(outcomes, built.loc[:, [*REPLICATE_COLUMNS, *NU2_COLUMNS]])

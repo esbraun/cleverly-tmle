@@ -76,7 +76,7 @@ HERE = Path(__file__).resolve().parent
 SCENARIO = "binary_logistic"
 #: The replicates at each sample size: the n ladder.
 ARMS: dict[int, int] = {1_000: 2_000, 4_000: 1_000}
-#: The declared outcome support of the cross-fitted fit, as the removed scenario declared it.
+#: The declared outcome support of the cross-fitted fit, as the registered cross-fit scenarios declare it.
 Q_BOUNDS = (-40.0, 45.0)
 FITTINGS = ("crossfit", "insample")
 PARAMETERS = tuple(study.BINARY_PARAMETERS)
