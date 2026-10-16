@@ -25,7 +25,12 @@ pytestmark = pytest.mark.xdist_group("categorical_ipsi_longhand")
 
 EXACT = 1e-12
 CAUGHT = 1e-4
-MEAN_FLOOR = 1e-5
+#: The floor on the mean of the mechanism term of a plan, in absolute value.  The measured means
+#: are 4.0e-4 (natural) and 9.8e-4 (per_node), eight orders above ``EXACT``.  The ``T_a`` mean
+#: is 3.9e-5, below its own standard error of 5.3e-3, so a seed or a learner change can move it
+#: either side of a floor, and the plan is not held to one.  The longhand comparison covers it.
+MEAN_FLOOR = 1e-4
+FLOORED_PLANS = ("natural", "per_node")
 LOGISTIC = LogisticRegression(max_iter=1000)
 LINEAR = LinearRegression()
 #: The tilts of the plans the test fits: the natural course and one tilt per node.
@@ -115,4 +120,4 @@ def test_the_mechanism_term_moves_the_cross_fitted_estimate(frame: Any) -> None:
     means = {
         label: abs(float(np.mean(fit.fits[label].mechanism_term.sum(axis=1)))) for label in PLANS
     }
-    assert all(value > MEAN_FLOOR for value in means.values()), means
+    assert all(means[label] > MEAN_FLOOR for label in FLOORED_PLANS), means

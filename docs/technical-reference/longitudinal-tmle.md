@@ -1403,9 +1403,9 @@ the plan, so the estimand needs no treatment positivity at a tilt node. A static
 
 `IPSI` in `cleverly.longitudinal` fits this estimand on a `LongitudinalData` panel. A node with
 two levels takes a scalar $\delta$, which multiplies the odds of the larger of the node's two
-sorted codes. A node with more levels takes one factor per level. It implements the one-step estimator of Kennedy (2019), Algorithm 1. It
-adds the dropout weights of Kim, Kennedy and Naimi (2021), Appendix A, Algorithm 1. It is not a
-TMLE, and it fits no fluctuation.
+sorted codes. A node with more levels takes one factor per level. `IPSI` implements the one-step
+estimator of Kennedy (2019), Algorithm 1. It adds the dropout weights of Kim, Kennedy and Naimi
+(2021), Appendix A, Algorithm 1. It is not a TMLE, and it fits no fluctuation.
 
 | your situation | what `IPSI` gives | what it costs |
 | --- | --- | --- |
@@ -1518,6 +1518,12 @@ $\lVert \hat\omega_t - \omega_t \rVert\, \lVert \hat m_t - m_t \rVert$ (Kim et a
 Theorem 5.1). The mechanism term carries $W_{t-1}$, which holds the censoring factors, so a
 fit that drops them from $W_{t-1}$ changes the curve.
 
+The rate condition has the form of Kennedy (2019), Theorem 3, with the norm taken over the
+levels of each node:
+$\lVert \hat\pi_t - \pi_t \rVert\,(\lVert \hat m_s - m_s \rVert + \lVert \hat\pi_s - \pi_s \rVert) = o_P(n^{-1/2})$
+for every $s \ge t$. Under dropout, the Kim et al. (2021) Theorem 5.1 products must also be
+$o_P(n^{-1/2})$. The point-treatment page gives the one-node form in its verdict row (ae).
+
 The estimate is the weighted mean $\hat\psi = \sum_i w_i \varphi_i / \sum_i w_i$. The influence
 curve is $w_i(\varphi_i - \hat\psi)$, summed within a cluster under `id=`. The standard error is
 the empirical standard deviation of that curve, as in Kennedy (2019), Theorem 3.
@@ -1534,7 +1540,11 @@ competing-risk laws. The complete-case functional differs from the parameter by 
 `tests/unit/test_categorical_ipsi_longhand.py` matches the cross-fitted engine to an independent
 numpy longhand to $10^{-12}$, with a non-saturated multinomial logistic mechanism.
 `tests/unit/test_categorical_ipsi_mutations.py` breaks one line at a time and requires a witness
-to fail. This is Python property evidence. No registered study covers a three-level node yet.
+to fail by more than $10^{-4}$ in a value. A mutation that raises an error does not count.
+`tests/unit/test_categorical_ipsi_exact.py` also checks that integer weights equal row
+duplication, that `id=` changes only the variance, that five exact copies as five folds give the
+exact cross-fitted fit, and that a bootstrap replicate equals the fit on the resampled rows.
+This is Python property evidence. No registered study covers a three-level node yet.
 
 `tests/unit/test_ipsi_exact_laws.py` compares each estimate with the g-formula of
 `tests/discrete_law_longitudinal_ipsi.py` to $10^{-12}$. It compares each curve with the

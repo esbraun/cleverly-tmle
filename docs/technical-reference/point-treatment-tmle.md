@@ -546,7 +546,7 @@ These requests with `strata=` refuse before any learner:
 | --- | --- |
 | `targeting_scheme="fold"` | fold targeting fits the fluctuation on the validation rows. Montoya et al. (2023), Section 3.2, Step 2(c), publish that update, and the package does not implement it with strata. [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b) holds this composition |
 | `cv_evaluation=True` | the fold-evaluated estimate needs stratum shares and a stratum-indexed fold average in each validation fold ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)) |
-| an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation has no finite root |
+| an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation may have no finite root. It has none only if some direction of the covariate separates, which depends on the fitted outcome regression, so the guard reads the data alone |
 | an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |
 | a `DRTMLE` stratum with no trainable rows of an arm in some training complement | its reduced regressions cannot be fitted inside the stratum |
 | a stacked PAR, PAF, or `ey_obs` beside arm targets | the arm-indexed stacked contract refuses strata. The step qualifies, and it needs a witness and a registered cell ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)) |
@@ -1214,6 +1214,13 @@ the estimate, the curve and the remainder, and deliberate-mutation controls. No 
 covers a categorical fit yet, so the support label of such a fit is `experimental`. No external
 comparator exists for the categorical tilt.
 
+`tests/unit/test_categorical_incremental_compositions.py` checks four compositions against
+identities. Integer weights equal row duplication. Singleton clusters equal the iid fit, and
+clusters of four give the cluster standard error written longhand. Five exact copies of the sample
+as five folds give the exact cross-fitted fit. A bootstrap replicate equals the fit on the
+resampled rows. The mutation controls clear a margin of $10^{-4}$, except one that rescales the
+rows of $g^*$, which clears $10^{-5}$ because it leaves the estimate unchanged.
+
 **This is the one axis that targets the treatment mechanism.** The intervention is a functional of
 $P$, so the efficient influence function carries a term for the pathwise derivative through $g$.
 For binary treatment it is:
@@ -1243,7 +1250,12 @@ everything else.
 
 With `strata=`, the outcome and mechanism equations each take one block per stratum, so each
 stratum's mechanism is tilted along its own covariate. A stratum that holds no row of some arm
-refuses before any learner, because its mechanism equation then has no finite root. Kennedy (2019),
+refuses before any learner, because its mechanism equation may then have no finite root. The root is
+missing only if some direction separates: every observed level maximises the covariate in its row.
+That condition depends on the fitted outcome regression, so the guard reads the data alone and is
+conservative, as the binary guard was.
+
+Kennedy (2019),
 arXiv v3, Section 6, lists "how mean outcomes under different interventions vary with covariates" as future
 work. That is a conditional curve in the covariates. A fixed finite partition is the marginal
 result applied inside each stratum, so the passage records no objection to it.
