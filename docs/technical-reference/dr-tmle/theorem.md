@@ -539,6 +539,11 @@ arms each row applies arm by arm.
 | `g` wrong, `Q̄` a correctly specified parametric model | `O_P(n^(−1/2))` | not established. An extra first-order term of no fixed sign remains, because the target depends on the parameters of `Q̄` | the derivation only |
 | `g` wrong, `Q̄` with a bias along `h` of order larger than `n^(−1/2)` | linear | **not established** | the identity, and the registered study: a constructed error gave an ATE bias of −0.88, −1.07 and −1.35 SD, with coverage 0.825, 0.789 and 0.687, at the same sizes |
 
+`PointTreatment(treatment_adjustment=...)` is a source of the mechanism-wrong rows. The treatment
+mechanism then reads a subset of the adjustment set, and it is inconsistent when the restriction
+fails. [Treatment-mechanism covariates](../point-treatment-tmle.md#treatment-mechanism-covariates)
+gives the restriction text and the pinned summary line.
+
 No fit can tell which row it is in, except a declared known mechanism. The registered study
 publishes a verdict for each measured row, and its page gives the rules. The earlier project
 probe, `reviews/rm40/drdr_sim.py` with its log `reviews/rm40/drdr_summary.log`, agrees with it.

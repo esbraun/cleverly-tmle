@@ -123,7 +123,7 @@ not change the package version.
 | --- | --- | --- | --- | --- |
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
-| B1 | Targeting and fitting options | no new theory; each option keeps its default bit-identical | none | [X22](#x22-targeting-and-fitting-options) |
+| B1 | Longitudinal fitting options | no new theory; each option keeps its default bit-identical | none | [X33](#x33-longitudinal-fitting-options) |
 | B2 | Continuous-policy validation and support checks | published support | shipped longitudinal modified treatment policies | [X40](#x40-continuous-policy-validation-and-support-checks) |
 | B3 | Applied tutorials for offers and pricing | no new theory | X40; the shipped `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
@@ -166,6 +166,7 @@ not change the package version.
 | after beta | Simulated confounding beyond X47 and X48 | natural extension | X47; X57 for part (c); X50, X51 and X62 for part (h); F5 for a continuous fit in part (f) | [X66](#x66-simulated-confounding-beyond-x47-and-x48) |
 | after beta | Refutation and assessment adapters | no new theory | the shipped `refute` catalog | [X67](#x67-refutation-and-assessment-adapters) |
 | after beta | Repeated outcomes for the sequential baselines | no new theory | the shipped `LTMLE` repeated outcome; X41 | [X71](#x71-repeated-outcomes-for-the-sequential-baselines) |
+| after beta | Studies of the targeting and fitting options | no new theory | the shipped `stopping=`, `outcome_by_arm=`, `patience=` and `treatment_adjustment=` | [X76](#x76-studies-of-the-targeting-and-fitting-options) |
 | after beta | Pooled-over-time parametric g-formula models | no new theory; the stacked equations of the shipped `ParametricGFormula`, with unit-summed scores | the shipped `ParametricGFormula` | [X73](#x73-pooled-over-time-parametric-g-formula-models) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
@@ -684,35 +685,38 @@ Acceptance: a witness that each draw reproduces a single-draw fit, a mutation co
 one draw, and a registered study of the median and its variance.
 
 
-### X22. Targeting and fitting options
+### X33. Longitudinal fitting options
 
-One pull request delivers these options. Each comparator ships the option, and none needs new
-theory. Each option keeps every default fit bit-identical, and each changes a fit when it binds.
+These options belong to the longitudinal fit. They compose with the shipped targeting options of
+`TMLE`: `iterate=`, `stopping=` and `step_bound=`, described under
+[stopping rules, step bound and best iterate](technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate).
+Each comparator ships the option, and none needs new theory. Each option keeps every default fit
+bit-identical, and each changes a fit when it binds.
 
 | part | option | what it does | comparator |
 | --- | --- | --- | --- |
-| (a) best iterate | report the targeting iterate with the smallest score norm over the loop | a fit that stops at `max_iter` reports its best iterate, and its record says which one | `tmle3` `use_best` |
-| (b) stopping rule | choose the score threshold: the shipped variance-scaled rule, or a threshold of $1/n$ | the two rules that `tmle3` names `scaled_var` and `sample_size` | `tmle3` `convergence_type` |
-| (c) step bound | bound the fluctuation step in each iteration | a damped update for a fit whose first step overshoots | `tmle3` `constrain_step` and `delta_epsilon` |
-| (d) quantile trimming | trim the cumulative density ratio at a declared quantile, beside the shipped bound `g_bounds` | the trimming rule of `lmtp`. The fit records the trimmed share, as it records truncation now. `SDR` reads the same per-node ratio | `lmtp` `.trim` |
-| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | an assumption about the data. The identification summary states it. `SDR` reads the same per-node ratio and regressions | `lmtp` `k` |
-| (f) per-arm outcome fit | fit the outcome regression separately in each arm | a nuisance choice for `TMLE` and `DRTMLE` | `drtmle` `stratify` |
-| (g) early stop on a C-TMLE path | stop the greedy search after a declared number of steps without a risk improvement | a cheaper path. The fit keeps its `working_mechanism_plugin` status | `ctmle` `patience` |
-| (h) hazard and outcome bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the hazard or the iterated mean | `survtmle` `bounds` |
-| (i) separate treatment covariates | fit the treatment mechanism on a declared subset of the adjustment set | a smaller propensity model. A strict subset changes the remainder, so the item states its interval contract before it ships | `ctmle` `Wg` |
-| (j) pooled-over-time regressions | fit one hazard regression and one censoring regression over every node, with the node as a covariate, in place of one regression per node | a fit with fewer events per node. A pooled fit is a nuisance choice for `survival_model="hazard"` | `survtmle`, MOSS and `tmle3` `tmle_survival` |
+| (d) ratio trim | trim the per-node density ratio at one pooled quantile `q` of all `n x T` entries, zeros included, then form the cumulative product | the trimming rule of `lmtp`: it trims the per-node ratio matrix and not the cumulative ratio. The fit records the trimmed share, as it records truncation now, and takes `trimmed_ratio_plugin` when the share is above zero. `SDR` reads the same per-node ratio | `lmtp` `.trim` |
+| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | a restriction on the observed-data model. The identification summary states it, and the estimand does not change. `SDR` reads the same per-node ratio and regressions | `lmtp` `k` |
+| (i) node bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the iterated mean or of the cause-specific hazard of `survival_model="hazard"` | `survtmle` `bounds` |
+| (j) pooled hazards | fit one hazard regression and one censoring regression over every node, with the node as a covariate, in place of one regression per node | a fit with fewer events per node. A pooled fit is a nuisance choice for `survival_model="hazard"`, which today fits one hazard regression per node and cause and one censoring regression per node | `survtmle`, MOSS and `tmle3` `tmle_survival` |
 
 At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
 node's density ratio, which the fit stores as `RegimenFit.node_ratio`.
 
-Part (h) covers `survtmle` `method = "hazard"` as well as `method = "mean"`. On a fit with
-`survival_model="hazard"`, it bounds each node's cause-specific hazard. Part (j) applies to a fit
-with `survival_model="hazard"`, which today fits one hazard regression per node and cause and one censoring regression per
-node.
+Part (i) covers `survtmle` `method = "hazard"` as well as `method = "mean"`. On a fit with
+`survival_model="hazard"`, it bounds each node's cause-specific hazard. Part (j) applies only to a
+fit with `survival_model="hazard"`.
+
+The hazard walk of `survival_model="hazard"` steps along its own path in steps of `step_size`. It
+does not read the shipped settings `iterate=`, `stopping=` and `step_bound=`, so `LTMLE` refuses
+them beside that model. This item lifts the refusal for the bounded hazard walk.
 
 Acceptance: for each part, a test that the default fit is bit-identical to the fit before the
-option, and a witness on a law where the option binds. Parts (d) and (e) also name their
-assumption in the identification summary, and a test pins that text.
+option, an exact test on a finite law, a witness on a law where the option binds, and a mutation
+control that fails when the option is wrong. Parts (d) and (e) also name their assumption in the
+identification summary, and a test pins that text. Part (d) pins the `trimmed_ratio_plugin` record.
+A registered study covers the parts, with its red cells reported. The R fixtures can stay pending
+and do not block the merge.
 
 ### X21. Adaptive-propensity IPTW
 
@@ -747,6 +751,10 @@ as part (h).
 | objection search | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) records no curve for an arbitrary learner, and that case stays refused. DoubleML calls the plug-in "non-orthogonal", which describes the arbitrary-learner case and not the parametric stack |
 | inherited conditions | a correctly specified mechanism model, because otherwise the plug-in estimates $\nu^2(\gamma^*) \neq \nu^2_0$; smoothness; an invertible Jacobian. `g_bounds` makes $\alpha$ differentiable almost everywhere only, so the contract either requires no active clip at the fit or states that the derivative is zero on clipped rows |
 | learner rule | the bound reads the fit's own $\hat g$. So the stack is valid only when the fit's own treatment learner is the declared unpenalized logistic or multinomial model, or a declared known mechanism. A Super Learner whose library contains that model is refused |
+
+A fit with `treatment_adjustment=` different from `adjustment` fits its mechanism on the declared
+subset $W_g$. The first inherited condition then has two parts: the restriction that the treatment
+mechanism depends on `adjustment` only through $W_g$, and a correct parametric model on $W_g$.
 
 A declared known mechanism is the degenerate case of the stack. The fit reads
 $\hat\alpha = \alpha(g_0)$, so $E_n[\alpha(g_0)^2]$ is a sample mean of a known function with curve
@@ -1668,6 +1676,26 @@ as it covers several plans.
 
 Acceptance: the exact reduction test for all three estimators, and a registered property study of the
 repeated-outcome cells.
+
+
+### X76. Studies of the targeting and fitting options
+
+These options run, and each fit that declares one carries the experimental label. No registered
+study measures a fit that uses them. `src/cleverly/estimators/_option_support.py` writes each
+condition.
+
+| part | option | what a study measures |
+| --- | --- | --- |
+| (a) | `stopping="scaled_var"` and `"sample_size"`, point and longitudinal | interval coverage at the residual the rule leaves, beside the coverage bound the summary prints |
+| (b) | `outcome_by_arm=True` | bias and coverage with one outcome regression per arm |
+| (c) | `patience=` on the cross-validated C-TMLE path | bias and coverage when the counter stops the path early |
+| (d) | `treatment_adjustment=` | bias and coverage under the declared restriction, with a correct mechanism model on the subset, and with a dropped covariate that affects only the treatment |
+
+`iterate="best"` and `step_bound=` under `stopping="relative"` keep the support of the fit. That
+walk stops only at the solution of the score equation, to `tol`.
+
+Acceptance: a registered study per part, with its red cells reported, and a support row that
+names the option.
 
 ### X73. Pooled-over-time parametric g-formula models
 
