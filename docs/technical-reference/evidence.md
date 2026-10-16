@@ -114,6 +114,10 @@ which measures its interval in sample. The cross-fitted and repeated forms of th
 fourth record,
 [per-arm C-TMLE with a parametric outcome, cross-fitted](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md).
 
+Three arms, known observation weights, the targets `ey_obs`, `par` and `paf`, and the simultaneous
+band of that fit have a fifth record,
+[per-arm C-TMLE with a parametric outcome, extensions](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-extensions.md).
+
 The C-TMLE0 strategy has its own record,
 [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md), with R `ctmle` type 3 as its
 declared comparator, whose runs are pending. Binary compatibility

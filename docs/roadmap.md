@@ -131,7 +131,7 @@ not change the package version.
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
-| BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome, parts (b) to (d) | [natural extension](technical-reference/hard-stop-review.md) candidate; part (a) shipped | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
+| BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
 | B5 | Learned-policy follow-ups | published support for parts (g) and (h); natural extension for parts (i) and (k) to (o); published support; pending source read for parts (a), (b), (e) and (f); source audit for parts (c), (d) and (j) | the shipped learned-rule value | [X11](#x11-learned-policy-follow-ups) |
@@ -746,8 +746,20 @@ states the contract.
 **Part (c) is implemented.** A cross-fitted fit reads the exact V-fold stack, and `repeats` above 1
 reports the median of the draws. Its study `ctmle-oat-per-arm-parametric-crossfit` is registered, and
 its [evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md)
-reports the declared run. Every gated cell passes. Parts (b) and (d) stay open. The text below keeps the part (a)
-scope for reference and states what each open part still needs.
+reports the declared run. Every gated cell passes.
+
+**Parts (b) and (d) are implemented.** A fit admits three or more arms, known fixed observation
+weights, the targets `ey_obs`, `par` and `paf`, and the simultaneous band, in sample and
+cross-fitted. Its study `ctmle-oat-per-arm-parametric-extensions` is registered, and its
+[evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-extensions.md)
+reports the declared run. Every gated cell passes.
+
+An admitted fit with the default
+`simultaneous=True` builds a band labelled by the support rows. A fit with `repeats` above 1, at
+least two estimates and the default `simultaneous=True` raises `CapabilityError`. Four or more
+arms, estimated weights, a weighted in-sample three-arm fit and repeats with weights have no
+support row, so they report the `experimental` label. The text below keeps the part (a) scope for
+reference and states what each part needed.
 
 **What is known.** [The applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)
 and the [per-arm evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle.md)
@@ -813,12 +825,14 @@ This item must confirm that every step is in the standard-step table of
 | (c) | cross-fitting with parametric learners, and `repeats` above 1 | an explicit map of the fold-specific coefficient contributions, and a written expansion. Without one, the claim stays in F19 |
 | (d) | fixed known weights | the weight-tilted law of the shipped per-arm contract, with its own witness and cell |
 
-The `ctmle-oat-per-arm` revert cells split by part. Part (a) took the in-sample binary primary
+The `ctmle-oat-per-arm` revert cells split by study. Part (a) took the in-sample binary primary
 rows. The cross-fitted cells `interval_calibration/binary_active__correctly_specified` and the
-binary `generated_design` pair belong to part (c), because those cells cross-fit. Part (b) takes
-the other primary rows, the three-arm cells and the simultaneous band. Part (c) also takes
-`binary_repeats__correctly_specified`, and part (d) takes `binary_weighted__correctly_specified`.
-A cell stays with F19 until its part passes.
+binary `generated_design` pair belong to part (c), because those cells cross-fit. Part (c) also
+takes `binary_repeats__correctly_specified`. The in-sample three-arm primary rows, the cross-fitted
+three-arm cells, the three-arm `generated_design` pair, the simultaneous band and
+`binary_weighted__correctly_specified` also cross-fit, so they run on the V-fold stack of part (c).
+
+The study of parts (b) and (d) re-measures them. A cell stays with F19 until its study passes.
 
 **Routes compared in part (a).** Part (a) evaluated each route, then implemented the smallest
 justified route. It chose the joint estimating equation. The full-mechanism route is dominated and
@@ -835,7 +849,7 @@ mechanism is a further objective, and F19 keeps it. A correct outcome model alon
 establish calibrated uncertainty. This item claims no superefficiency and no efficiency gain over
 ordinary TMLE without a separate argument.
 
-**Implementation sequence.** Part (a) completed steps 1 to 7. Step 8 remains.
+**Implementation sequence.** Part (a) completed steps 1 to 7. Parts (b) to (d) completed step 8.
 
 1. Derive the complete first-order expansion for the fitted estimator and the learner contract.
 2. Name each oracle quantity, and specify an estimable or declared replacement.
@@ -859,7 +873,7 @@ The corrected status, the covariance and the method declaration survive `result.
 part (c) supplies the support rows. `plugin_std_error`, `plugin_interval` and the bootstrap spread
 stay diagnostics. Ordinary TMLE stays the inference alternative under its own assumptions.
 
-**Acceptance for each open part.**
+**Acceptance for each part.**
 
 | criterion | evidence |
 | --- | --- |

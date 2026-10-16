@@ -225,6 +225,7 @@ from ..learners.crossfit import (
     missing_training_support,
 )
 from ..learners.library import _validate_learner
+from ..learners.parametric import parametric_outcomes
 from ..learners.super_learner import SuperLearner, resolve_learner
 from ..msm import MSM, MSMSet, refuse_continuous_msm_mechanisms, refuse_msm_functions
 from ..provenance import data_fingerprint
@@ -237,7 +238,7 @@ from ..targets import (
     parameter_stem,
     targets_for,
 )
-from ..targets.base import stratum_alias
+from ..targets.base import READS_SINK, stratum_alias
 from ..targets.population_intervention import (
     NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
@@ -905,25 +906,56 @@ class TMLE:
         del data
         return False
 
-    def _builds_default_band(self, data: CausalData) -> bool:
-        """Whether ``simultaneous=True`` builds a band on a fit that supplies inference.
+    def _refuse_mismatched_arm_columns(self, data: CausalData) -> None:
+        """Refuse a :class:`~cleverly.learners.ParametricOutcome` whose arm columns misread
+        the treatment block.
 
-        A hook beside :meth:`_inference_status`. :class:`~cleverly.CTMLE` returns ``False``
-        on a per-arm fit that :func:`~cleverly.estimators.ctmle.per_arm_parametric_support`
-        admits, because no registered study measures a band over the stacked curves.
+        The outcome design leads with the treatment block: one column for a binary or a
+        continuous treatment, ``K - 1`` arm indicators for ``K`` arms, and each component's
+        block for a vector with a continuous component. An all-categorical vector is a discrete
+        treatment over its joint levels, so it has ``K - 1`` columns for ``K`` joint levels. A
+        ``ParametricOutcome`` whose ``arm_columns`` differs reads a
+        covariate as an arm, or an arm as a covariate, and fits a model that nobody declared.
+        The check reads the outcome learner as :meth:`_resolve_learner` resolves it, and
+        :func:`~cleverly.learners.parametric.parametric_outcomes` finds the learner in a
+        library or inside a wrapper too (X58 plan, 13.2, Q8).
 
         Parameters
         ----------
         data : CausalData
-            The prepared data the estimates are fitted on.
+            The prepared data.
 
-        Returns
-        -------
-        bool
-            ``True``.
+        Raises
+        ------
+        MethodConfigurationError
+            With code ``invalid_declaration``, when a ``ParametricOutcome`` declares another
+            number of arm columns than the treatment block has.
         """
-        del data
-        return True
+        if self.outcome_learner is None:
+            return
+        task: Task = "classification" if data.family == "binomial" else "regression"
+        found = parametric_outcomes(self._resolve_learner(self.outcome_learner, task=task))
+        if not found:
+            return
+        if data.treatment_kind == "vector":
+            width = sum(1 if not levels else len(levels) - 1 for levels in data.component_levels)
+        elif data.is_continuous_treatment:
+            width = 1
+        else:
+            width = data.n_arms - 1
+        for learner in found:
+            if learner.arm_columns != width:
+                raise MethodConfigurationError(
+                    f"ParametricOutcome(arm_columns={learner.arm_columns!r}) does not match "
+                    f"the treatment block of the data, which has {width} column(s). The "
+                    "outcome design leads with that block, so the model would read a "
+                    "covariate as an arm column, or an arm column as a covariate.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        f"Declare ParametricOutcome(..., arm_columns={width}): one column for a "
+                        "binary treatment, K - 1 for K arms."
+                    ),
+                )
 
     def _refuse_undeclared_functions(self) -> None:
         """Raise unless every function of the configuration is declared known.
@@ -1679,6 +1711,7 @@ class TMLE:
         """
         self._refuse_vector_compositions(data)
         self._refuse_known_compositions(data)
+        self._refuse_mismatched_arm_columns(data)
         if self.outcome_by_arm:
             _refuse_by_arm_dose(data)
         if data.has_missing_treatment:
@@ -1718,13 +1751,12 @@ class TMLE:
                 alternative="Use cv_evaluation=False.",
                 roadmap="X28",
             )
-        if self.simultaneous and len(estimands) > 1 and self._builds_default_band(data):
+        if self.simultaneous and len(estimands) > 1:
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
             # refusing on the flag would refuse every single-estimand repeated fit over a
-            # band the fit would never build.  The same holds for a fit whose
-            # ``_builds_default_band`` declines the band.  One estimand can still expand into
-            # several estimates, so the construction site refuses again once the count is known.
+            # band the fit would never build.  One estimand can still expand into several
+            # estimates, so the construction site refuses again once the count is known.
             refuse_after_repeats(
                 self.repeats,
                 operation="simultaneous=True",
@@ -2067,12 +2099,18 @@ class TMLE:
         # refuses, because that is an explicit request.
         # A band over an estimate with a Student t reference is skipped for the same
         # reason: no source gives a t-calibrated joint band, and ``summary()`` says so.
+        # An estimate whose parameter status withholds its interval stays out of the band,
+        # which is then a joint statement over the others, and below two of them no band is
+        # built. This is the rule of ``LTMLE._bands`` (docs/architecture-invariants.md, row
+        # "a band"), and ``summary()`` names the estimates left out.
+        banded = {
+            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
+        }
         if (
             self.simultaneous
-            and len(estimates) > 1
-            and self._builds_default_band(data)
+            and len(banded) > 1
             and supplies_inference(result.inference_status)
-            and not has_t_reference(estimates)
+            and not has_t_reference(banded)
         ):
             refuse_after_repeats(
                 self.repeats,
@@ -2082,7 +2120,7 @@ class TMLE:
                 alternative=_REPEATED_BANDS_ALTERNATIVE,
             )
             bands = simultaneous_bands(
-                estimates,
+                banded,
                 alpha=self.alpha_sig,
                 n_replicates=self.n_multiplier,
                 kind=self.multiplier_kind,
@@ -2096,7 +2134,7 @@ class TMLE:
                     support=band_support(
                         classification,
                         result.inference_status,
-                        (estimate.support for estimate in estimates.values()),
+                        (estimate.support for estimate in banded.values()),
                     ),
                 ),
             )
@@ -5398,6 +5436,9 @@ class TMLE:
                 # subsample; anything else failing is a bug and must not be swallowed.
                 if not (drop_undefined and target.undefined_when):
                     raise
+        sink = READS_SINK.get()
+        if sink is not None:
+            sink.update(context.reads)
         return out
 
     def _stratum_estimates(
