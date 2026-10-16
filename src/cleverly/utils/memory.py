@@ -8,6 +8,8 @@ caller that guards an allocation then skips its guard.
 Linux reads ``MemAvailable`` and not the free-page count because the kernel reclaims the page
 cache on demand.  After a long run much of the memory can sit in that cache, and the free-page
 count then understates what an allocation can use.
+
+Neither count reads a container's cgroup limit. Both report the memory of the host.
 """
 
 from __future__ import annotations
@@ -17,10 +19,11 @@ import sys
 
 __all__ = ["available_memory"]
 
+#: The Linux file that :func:`available_memory` reads ``MemAvailable`` from.
 MEMINFO = "/proc/meminfo"
 
 
-def _meminfo_available(path: str = MEMINFO) -> int | None:
+def _meminfo_available(path: str) -> int | None:
     """``MemAvailable`` from a ``/proc/meminfo`` file, in bytes, or ``None`` without one."""
     try:
         with open(path, encoding="ascii") as handle:
@@ -65,7 +68,7 @@ def available_memory() -> int | None:
             return None
         return int(status.ullAvailPhys)
     if sys.platform.startswith("linux"):
-        reclaimable = _meminfo_available()
+        reclaimable = _meminfo_available(MEMINFO)
         if reclaimable is not None:
             return reclaimable
     try:

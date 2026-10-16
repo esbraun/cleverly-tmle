@@ -54,7 +54,9 @@ def test_linux_answers_with_mem_available_not_the_free_pages(
     path.write_text(MEMINFO, encoding="ascii")
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(memory, "MEMINFO", str(path))
-    monkeypatch.setattr(memory._meminfo_available, "__defaults__", (str(path),))
+    monkeypatch.setattr(
+        memory.os, "sysconf", lambda name: {"SC_AVPHYS_PAGES": 3, "SC_PAGE_SIZE": 4096}[name]
+    )
     assert memory.available_memory() == 9437184 * 1024
 
 
@@ -64,7 +66,7 @@ def test_linux_falls_back_to_the_free_pages_without_meminfo(
     if not hasattr(memory.os, "sysconf"):
         pytest.skip("this platform has no sysconf")
     monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(memory._meminfo_available, "__defaults__", (str(tmp_path / "absent"),))
+    monkeypatch.setattr(memory, "MEMINFO", str(tmp_path / "absent"))
     monkeypatch.setattr(
         memory.os, "sysconf", lambda name: {"SC_AVPHYS_PAGES": 3, "SC_PAGE_SIZE": 4096}[name]
     )
