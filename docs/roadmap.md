@@ -143,6 +143,7 @@ not change the package version.
 | after beta | Hazard targeting beyond a held baseline treatment | published support; pending source read | the shipped hazard targeting on a held baseline treatment | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) |
 | after beta | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | after beta | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
+| after beta | Registered study run for the plug-in omitted-variable limits | no new theory; the [second-order correction](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule) ships | the shipped plug-in limits and the declared study | [X26](#x26-registered-study-run-for-the-plug-in-omitted-variable-limits) |
 | after beta | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
 | after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | after beta | Simulated-confounding laws for point-treatment fits | [natural extension](technical-reference/hard-stop-review.md); no new theory for part (d) | the shipped point-treatment replay | [X47](#x47-simulated-confounding-laws-for-point-treatment-fits) |
@@ -241,7 +242,7 @@ It moved each part that an established method or a natural extension carries to 
 | Missing-outcome simulated-confounding replay | a replay of the stored estimator when the response or treatment-observation mechanism reads the treatment | identification | complete outcomes only. [X47](#x47-simulated-confounding-laws-for-point-treatment-fits) holds a response mechanism that reads the covariates only | [F12](#f12-missing-outcome-simulated-confounding-replay) |
 | Longitudinal simulated-confounding replay | censoring or survival outcomes; a time-varying covariate after the first treatment node; a time-varying latent with treatment feedback | identification | point-treatment results only. [X48](#x48-longitudinal-simulated-confounding-replay-with-a-time-fixed-latent) holds one time-fixed latent on uncensored terminal-outcome fits | [F13](#f13-longitudinal-simulated-confounding-replay) |
 | Controlled-direct-effect simulated-confounding replay | the treatment axis on a fit with an intermediate | identification | fits without an intermediate only. [X47](#x47-simulated-confounding-laws-for-point-treatment-fits) holds the outcome axis and an intermediate axis that holds the treatment | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
-| Plug-in omitted-variable confidence limits | confidence limits of the plug-in $E_n[\hat\alpha^2]$ for a learned mechanism other than the admitted set: a declared known mechanism, or a `LogisticRegression` with no penalty or a fixed L2 penalty, bare or after `StandardScaler`, fitted in sample | regularity | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour()`. The one-sided limits and `rva` open for the [admitted set](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule) and refuse for every other learner under `nu2_estimator="plugin"`. `nu2_estimator="doubly_robust"` gives them for any mechanism learner | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
+| Plug-in omitted-variable confidence limits | confidence limits of the plug-in $E_n[\hat\alpha^2]$ for a learned mechanism other than the admitted set: a declared known mechanism, or a `LogisticRegression` with no penalty or a fixed L2 penalty, bare or after `StandardScaler`, fitted in sample or cross-fitted | regularity | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour()`. The one-sided limits and `rva` open for the [admitted set](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule) and refuse for every other learner under `nu2_estimator="plugin"`. `nu2_estimator="doubly_robust"` gives them for any mechanism learner | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
 | Targeted bootstrap inference | full-refit bootstrap consistency with data-adaptive or cross-fitted nuisances; a row-resampling (nonparametric) targeted bootstrap for learners other than HAL | asymptotic | the in-sample point-treatment `TMLE` bootstrap publishes its percentile interval, with a data-adaptive learner too, although the registered study measured only correctly specified nuisances. A cross-fitted point bootstrap, and every `DRTMLE` and `CTMLE` bootstrap, prints as a diagnostic. [X55](#x55-bootstrap-extensions) holds the extensions that published support carries | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | (a) a sample estimate of the bounds of Tan (2025); (b) its interval; (c) an omitted-variable bound or an E-value on a longitudinal fit | (a) asymptotic; (b) regularity; (c) identification | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Other refused C-TMLE and DR-TMLE compositions | C-TMLE ATT, ATC, incremental, modified treatment policies, the risk-ratio tilt, controlled direct effects, continuous doses and longitudinal functionals; DR-TMLE ATT, ATC, modified treatment policies, the risk-ratio tilt, incremental, controlled direct effects, longitudinal functionals, continuous doses, a partial guard with missing outcomes, fold targeting and fold evaluation; DR-TMLE combined with C-TMLE | regularity for the C-TMLE targets; asymptotic for the DR-TMLE targets | named pre-fit refusals. [X50](#x50-further-dr-tmle-compositions) and [X51](#x51-c-tmle-point-estimates-for-further-targets) hold the compositions that moved, and [X62](#x62-other-dr-tmle-and-c-tmle-compositions) holds the others | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
@@ -1042,6 +1043,19 @@ intermediate representer. DR-TMLE and
 C-TMLE fits stay in [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions), and longitudinal fits
 stay in [F16](#f16-longitudinal-sensitivity-bound-estimation). The `ipsi` axis stays refused,
 because its functional depends on the treatment mechanism.
+
+### X26. Registered study run for the plug-in omitted-variable limits
+
+The package ships the plug-in limits for a declared known mechanism and for a `LogisticRegression`
+in sample and cross-fitted. The bound subtracts a second-order estimate of the bias of $\nu^2$ and
+corrects the variance. The registered study `omitted-variable-bound-plugin-se` has a declared
+design and a pilot, and it has not run. The
+[study page](technical-reference/method-evidence/omitted-variable-bound-plugin-standard-error.md)
+states the declaration.
+
+Acceptance: run the registered study at its declared replicate counts, seeds and margins, publish
+the generated tables on the study page, and diagnose every red cell by the
+[red-cell rule](development/method-benchmarking.md#red-cells).
 
 ### X10. Continuous-dose MSM with a second mechanism
 
@@ -1869,8 +1883,7 @@ arXiv:1608.00060v7, Section 1.1, record that bias for a non-orthogonal plug-in. 
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |
-| confidence limits of the plug-in bound for a learned mechanism other than the admitted set: a declared known mechanism, or a `LogisticRegression` with no penalty or a fixed L2 penalty, bare or after `StandardScaler`, fitted in sample | regularity | a learner-specific argument, such as an undersmoothing rule, that removes the first-order term. No standard step carries it |
-| confidence limits of the plug-in bound for an admitted `LogisticRegression` fitted out of fold | asymptotic | a correction of the second-order bias of the out-of-fold $E_n[\hat\alpha^2]$, with its own study. [`tests/diagnostics/x26_crossfit_bias/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x26_crossfit_bias) measures the bias |
+| confidence limits of the plug-in bound for a learned mechanism other than the admitted set: a declared known mechanism, or a `LogisticRegression` with no penalty or a fixed L2 penalty, bare or after `StandardScaler`, fitted in sample or cross-fitted | regularity | a learner-specific argument, such as an undersmoothing rule, that removes the first-order term. No standard step carries it |
 
 The orthogonal estimator is the alternative. `nu2_estimator="doubly_robust"` estimates $\nu^2$
 through the orthogonal score of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis,
@@ -1878,7 +1891,7 @@ arXiv:2112.13398v5, Section 4, Lemma 2. The repository's earlier citation of ver
 any mechanism learner at its rates. The refusal names this alternative.
 
 The [learner rule](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
-opens the limits for the declared known mechanism and for the admitted `LogisticRegression`, fitted in sample. A
+opens the limits for the declared known mechanism and for the admitted `LogisticRegression`, fitted in sample or cross-fitted. A
 Super Learner that contains that model stays here, because the bound reads the fit's own $\hat g$.
 So do `LogisticRegressionCV`, an L1 or elastic-net penalty, and every other learner.
 

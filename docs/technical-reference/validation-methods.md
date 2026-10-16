@@ -967,10 +967,11 @@ The curve $w(\hat\alpha^2 - \nu^2)$ alone has no term for that fit. The doubly r
 $\nu^2$ is insensitive to the fitted mechanism at first order, so it needs no such term.
 
 **What it tells you.** The limits open when the fit's own treatment mechanism is declared known,
-or is a qualifying scikit-learn `LogisticRegression` fitted in sample. Every other fit keeps the
-point bounds and refuses the limits. The table gives both outcomes.
+or is a qualifying scikit-learn `LogisticRegression`, fitted in sample or cross-fitted. Every
+other fit keeps the point bounds and refuses the limits. A qualifying fit on which the
+second-order correction does not hold refuses them too. The table gives both outcomes.
 
-| quantity | qualifying mechanism | any other fit |
+| quantity | qualifying mechanism, correction holds | any other fit, or correction fails |
 | --- | --- | --- |
 | `lower`, `upper`, `max_bias`, `bias`, `robustness_value` | reported | reported |
 | `benchmark()`, `contour()`, and `nu2` and `sigma2` of `elements()` | reported | reported |
@@ -981,6 +982,7 @@ point bounds and refuses the limits. The table gives both outcomes.
 | `summary()` | names the mechanism whose score the curve carries | prints the clause that refused |
 
 **How.** The curve of the plug-in $\nu^2$ adds the score of the mechanism to the sample mean.
+The reported $\nu^2$ subtracts a second-order bias, as the paragraph on the second-order correction states.
 The curve comes from a stacked estimating equation. It holds the mechanism score and the
 second-moment equation $w\{\alpha(O; \gamma)^2 - \nu^2\} = 0$ (Saul and Hudgens 2020, Section 2,
 Equations (1) and (2)). The mechanism score does not involve $\nu^2$ or $p$, so the stacked Jacobian is
@@ -1005,7 +1007,7 @@ table defines the symbols of $\psi^\gamma$ for fold $k$.
 | $D_k$ | $n^{-1} \sum_{j \in \mathrm{test}_k} w_j\, \partial_\theta \alpha_j^2 |_{\theta_k}$, the derivative of the fold's contribution to $\nu^2$ |
 
 An in-sample fit is one fold with train and test equal to all rows. A cross-fitted fit stacks $K$
-fold scores for a fixed $K$, but the limits refuse it (see the key `cross_fit`). Saul and Hudgens
+fold scores for a fixed $K$. Saul and Hudgens
 (2020), Section 2, cover independent rows that are not identically distributed, which a fixed
 partition produces. A cluster is the unit of the
 variance, as in Section 3.4 of the same paper. Section 3.5, Equation (4), stacks a
@@ -1023,8 +1025,10 @@ $\nu_0^2$ only when the truncation is asymptotically inactive.
 
 With `g_bounds="auto"` the bound of the mean family,
 $5/(\sqrt{n_{\mathrm{eff}}} \log n_{\mathrm{eff}})$, moves with $n$. The bound of the ATT and the
-ATC is fixed at 0.025. The package does not refuse on an active clip, as the doubly robust path
-does not. [Truncation stability](#truncation-stability) reports the units that the bounds move.
+ATC is fixed at 0.025. The second-order correction is a smooth expansion, and a clip puts a kink
+in $\alpha(g)^2$. The limits therefore refuse on an active clip, with the key `truncation_active`.
+The doubly robust path does not refuse so.
+[Truncation stability](#truncation-stability) reports the units that the bounds move.
 
 **The learner rule.** The bound reads the fit's own $\hat g$. Only the fit's own fitted models
 supply the score. The rule reads the fitted fold models that the fit recorded. A record survives
@@ -1037,7 +1041,6 @@ a pickle round trip and `save`. The table compares the two classes of fit.
 | penalty | none (`C=numpy.inf` or `penalty=None`), or L2 with a fixed C | L1 or elastic net |
 | solver and weights | any solver except `liblinear`; `class_weight=None` | `solver="liblinear"`; any `class_weight` |
 | pipeline | none, or `StandardScaler` and `"passthrough"` steps before the model | any other step; `screen_treatment=True` |
-| fitting | in sample | cross-fitted |
 
 The bound checks the fit in this order. The fit-wide rules come first, then a declared known
 mechanism, then the keys in the table below. The reason of a learner key is `inference_gap`, and
@@ -1059,26 +1062,38 @@ qualify". The remedy of a key without its own remedy is `nu2_estimator="doubly_r
 | `liblinear` | `solver="liblinear"`, which penalizes the intercept | use another solver |
 | `class_weight` | `class_weight` is not `None`, which changes the score | declare observation weights with `weights=` |
 
-The fit-level keys read the record of the first fold. The key `cross_fit` follows them, with the
-reason `inference_gap` and the roadmap item F26. A numerical check then runs on each fold in fold
-order. The numerical keys carry the reason `inference_gap` and no roadmap item, because F26 does
-not track a declared model that failed a check.
+The fit-level keys read the record of the first fold. A numerical check then runs on each fold in
+fold order. The numerical keys carry the reason `inference_gap` and no roadmap item, because F26
+does not track a declared model that failed a check. The three correction keys follow them.
 
 | key | the refusal fires when | remedy |
 | --- | --- | --- |
-| `cross_fit` | the fit is cross-fitted. Out-of-fold fitting adds a second-order bias to $E_n[\hat\alpha^2]$ that the limits do not cover. [`tests/diagnostics/x26_crossfit_bias/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x26_crossfit_bias) measures it | fit in sample, or use `nu2_estimator="doubly_robust"` |
 | `missing_arm` | the model of a fold has classes that differ from the fit's arms, for example because the training rows of the fold hold no unit of an arm | `nu2_estimator="doubly_robust"` |
 | `score_not_zero` | the Newton step from the captured coefficients to the root of the penalized score exceeds `ROOT_TOLERANCE`, 0.05 standard errors of a coefficient. The clause adds a note when the solver stopped at `max_iter` | lower `tol`, raise `max_iter`, or use `solver="newton-cholesky"` |
 | `singular` | the information $H_k + P/C$ loses rank against the design, or its condition number on the design's range exceeds `CONDITION_LIMIT`, $10^{10}$ | remove the covariates that separate the arms, or use a fixed C |
 | `mismatch` | the softmax of the recomputed linear predictor differs from the stored mechanism by more than `MISMATCH_TOLERANCE`, $10^{-8}$, or the fit holds a different number of records than folds | `nu2_estimator="doubly_robust"` |
-| `penalty_bias` | see the next paragraph | raise C |
+| `truncation_active` | a bound clips a cell that the representer reads, or a fitted logit lies within `TRUNCATION_MARGIN`, 3, standard errors of a bound | pass `g_bounds` that the fitted mechanism does not approach, or use `nu2_estimator="doubly_robust"` |
+| `correction_unstable` | the predicted remainder $\hat B^2/\hat\nu^2$ exceeds `CORRECTION_STABILITY`, 0.25, of the standard error of $\nu^2$ | collect more rows, or use `nu2_estimator="doubly_robust"` |
+| `corrected_nonpositive` | the corrected $\nu^2$ or its corrected variance is not positive | `nu2_estimator="doubly_robust"` |
 
-**The penalty gate.** A fixed L2 penalty shrinks $\nu^2$ by $\sum_k D_k J_k^{+} P\theta_k/C$ at
-first order. That shrinkage is an $O(1/n)$ bias, and the limits do not cover it. The bound refuses
-its limits with the key `penalty_bias` when the shrinkage exceeds `PENALTY_BIAS_FRACTION`, 0.1,
-of the standard error of $\nu^2$. On `make_linear_ate` with `seed=1`, the ATE ratio under the
-default `C=1` is 0.106 at $n = 300$ and 0.039 at $n = 1000$. The first fit refuses, and the second
-does not. A fit with `C=numpy.inf` has no shrinkage and no gate.
+**The second-order correction.** The plug-in $E_n[\hat\alpha^2]$ has a bias of order $1/n$. Its
+constant is large, because $\alpha^2$ grows like $g^{-2}$. Out of fold the bias reached 1.44
+standard deviations at $n = 1000$
+([`tests/diagnostics/x26_crossfit_bias/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x26_crossfit_bias)).
+A fixed L2 penalty adds to it.
+
+The root of the stacked estimating equation has the bias
+$\beta = Q\{\sum_c \nabla Z_c\, Q Z_c + \tfrac12 \sum_c \nabla^2 Z_c[V] + \mathrm{pen}(\eta)\}$,
+with $Q = -(\sum_c \nabla Z_c)^{-1}$ and $V = Q S Q^\top$ (Rilstone, Srivastava and Ullah 1996,
+Proposition 3.2; Newey and Smith 2004, Theorem 4.1). The $\nu$ coordinate of $\beta$ is $\hat B$.
+The variance estimate is the root of two more blocks, so the same formula gives its bias.
+
+The bound reports $\hat\nu^2 - \hat B$ and the corrected variance. The curve is unchanged. The
+correction assumes a smooth mechanism, a small remainder and a positive result. The three
+correction keys refuse the limits when one assumption fails. The point bounds remain.
+
+The property study of the corrected limits is pending. The
+[study page](method-evidence/omitted-variable-bound-plugin-standard-error.md) states the status.
 
 **Conditions.** The limits inherit the conditions of Theorem 4, and add the conditions in the
 table. The first two conditions have no check.
@@ -1086,12 +1101,13 @@ table. The first two conditions have no check.
 | condition | how the package treats it |
 | --- | --- |
 | a correctly specified mechanism model | no check. Otherwise the plug-in estimates $\nu^2(\gamma^*) \neq \nu_0^2$, and the curve stays the curve of that functional |
-| truncation asymptotically inactive | no check. Otherwise the limits cover $E[\alpha_b^2]$, as the clip paragraph states |
+| truncation asymptotically inactive | checked at the fit, key `truncation_active`. The check reads the fitted logits, not the limit |
 | $E[\alpha^4] < \infty$ | no check. The curve of $\nu^2$ then has a finite variance |
 | a score root at the captured coefficients | checked on each fold, key `score_not_zero` |
 | a well-conditioned information matrix | checked on each fold, key `singular` |
 | the TMLE conditions of the bounded estimate | unchanged |
-| a small ridge shrinkage | checked, key `penalty_bias` |
+| a smooth mechanism and a small remainder | checked, keys `truncation_active` and `correction_unstable` |
+| a positive corrected $\nu^2$ and variance | checked, key `corrected_nonpositive` |
 
 **The ATE and `ey` identity.** For $\alpha = \sum_a c_a 1\{A = a\}/g_a$, the derivative of the
 square is $\partial_\theta \alpha^2 = -2\alpha^2 \partial_\theta \log g_A$. Here
@@ -1103,6 +1119,8 @@ $h$.
 The standard error of a limit of an ATE or of an `ey` then equals the standard error without
 the mechanism term. This is projection geometry and not Neyman orthogonality, because
 $D \neq 0$.
+
+The identity concerns the curve. The bound subtracts the variance correction from the variance of that curve.
 
 The identity holds under four conditions: a correct model, constant weights, independent and
 identically distributed rows, and no active clip. The ATT and the ATC lack the form. The identity
@@ -1118,6 +1136,7 @@ omission for an ATE or an `ey`. The exact-law witnesses carry that term.
 | `TestTheDesignInvariances` and `TestTheReflectionIdentity` | a duplicated column and a scaler before an unpenalized model leave the curve unchanged. The reflection identity holds on a saturated model and fails on a misspecified one |
 | `TestTheNumericalSandwich` | the standard error equals the numerical stacked sandwich of Saul and Hudgens (2020), Equation (2), on a binary, a multinomial and a ridge fit |
 | `TestTheWitnessHasTeeth` | thirteen mutations, M0 to M12, each fail the witnesses that name them. M0 changes nothing and passes |
+| `tests/unit/test_omitted_variable_plugin_second_order.py` | the closed forms against central differences, the Cox and Snell bias of a saturated model, and $n\hat B$ against an exact binomial enumeration, in sample and cross-fitted. `TestTheCorrectionRefuses` checks the three correction keys. Eight mutations, M13 to M20, each fail the witnesses that name them |
 | `tests/unit/test_omitted_variable_plugin_refusals.py` | each key has a full-string test with its reason, roadmap item and remedy, a qualifying twin of each learner key, and a test of the capture |
 | [omitted-variable bound plug-in standard error](method-evidence/omitted-variable-bound-plugin-standard-error.md) | the registered study `omitted-variable-bound-plugin-se`. It compares the reported standard error of each bound with its sampling spread in eight scenarios, in sample and cross-fitted. The corrected $\nu^2$ is measured and not judged. The page states the declaration and the status of the run |
 

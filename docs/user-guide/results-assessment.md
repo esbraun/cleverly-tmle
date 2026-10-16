@@ -607,8 +607,8 @@ simulated surface needs an explicit strength grid, so `run_all()` never starts i
 
 The omitted-variable bound has two estimators of $\nu^2$. The default is doubly robust, and its
 one-sided limits hold for any treatment learner. The plug-in estimator gives the limits for a
-declared known mechanism and for an in-sample fit with a scikit-learn `LogisticRegression`, with no
-penalty or a fixed L2 penalty. A cross-fitted fit refuses the limits. The example fits one, with the default `C=1`, and reads the limits.
+declared known mechanism and for a scikit-learn `LogisticRegression`, with no penalty or a fixed L2
+penalty, fitted in sample or cross-fitted. The example fits one, with the default `C=1`, and reads the limits.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -640,9 +640,15 @@ outside the admitted set, such as a random forest, makes `ci_lower`, `ci_upper`,
 `robustness_value_ci` raise `CapabilityError` with the roadmap item F26, and `robustness_value`
 omits `rva`. The bounds and the rest of `robustness_value` stay available.
 
-A fixed L2 penalty shrinks $\nu^2$ by an amount of order $1/n$. The bound refuses its limits with
-the key `penalty_bias` when that shrinkage exceeds a tenth of the standard error of $\nu^2$. A
-larger `C`, or more rows, clears the gate. The
+The plug-in $\nu^2$ has a bias of order $1/n$, and its constant grows with $g^{-2}$. The bound
+subtracts a second-order estimate of that bias, and it corrects the variance. A fixed L2 penalty
+adds to the bias, and the same correction covers it. The correction needs a smooth mechanism.
+
+The bound refuses its limits in three cases. A truncation bound clips a cell or lies within three
+standard errors of a fitted logit (`truncation_active`). The predicted remainder exceeds a quarter
+of the standard error of $\nu^2$ (`correction_unstable`). The corrected $\nu^2$ or its variance is
+not positive (`corrected_nonpositive`). More rows, or a `g_bounds` that the fitted mechanism does
+not approach, can clear the refusal. The
 [learner rule](../technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
 lists every key.
 
