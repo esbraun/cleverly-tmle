@@ -1304,6 +1304,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "preimage_necessity",
         "image_necessity",
         "jacobian_necessity",
+        # X45's paired NICE and ICE fits: the parametric fit's bias inside the margin, the
+        # ICE control's outside it.
+        "ice_necessity",
         "projection_necessity",
         "randomizer_projection",
         "ratio_necessity",
@@ -1321,6 +1324,9 @@ BIAS_GATED_PROPERTIES = frozenset(
 #: classified here before its verdicts count.
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # X45's positive cells answer to the calibration rule at one simulated history per
+        # unit; its removed-share rows carry the diagnostic role.
+        "monte_carlo_accounting",
         "clustered_inference",
         "crossfit_overfitting",
         "corrected_mar_inference",
@@ -1415,6 +1421,11 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
+        # X45's parametric g-formula beside ICE, LTMLE or IPSI on the same draws, and its
+        # extrapolation share, each reported with no verdict.
+        "ice_reported",
+        "shared_target",
+        "extrapolation_report",
     }
 )
 
