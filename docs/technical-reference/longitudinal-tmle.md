@@ -1396,13 +1396,14 @@ runs each one end to end.
 ## Incremental interventions over time
 
 An incremental intervention multiplies each unit's odds of treatment by a fixed $\delta$ at each
-node. It shifts the treatment mechanism and does not assign an arm. Every unit at risk stays in
+node. With more than two levels at a node it multiplies the odds of each level by that level's
+factor. It shifts the treatment mechanism and does not assign an arm. Every unit at risk stays in
 the plan, so the estimand needs no treatment positivity at a tilt node. A static plan such as
 "always treat" needs positivity wherever it puts mass.
 
-`IPSI` in `cleverly.longitudinal` fits this estimand on a `LongitudinalData` panel with a binary
-treatment at each node. "Treatment" is the larger of the node's two sorted codes, so the
-odds are those of that code. It implements the one-step estimator of Kennedy (2019), Algorithm 1. It
+`IPSI` in `cleverly.longitudinal` fits this estimand on a `LongitudinalData` panel. A node with
+two levels takes a scalar $\delta$, which multiplies the odds of the larger of the node's two
+sorted codes. A node with more levels takes one factor per level. It implements the one-step estimator of Kennedy (2019), Algorithm 1. It
 adds the dropout weights of Kim, Kennedy and Naimi (2021), Appendix A, Algorithm 1. It is not a
 TMLE, and it fits no fluctuation.
 
@@ -1423,16 +1424,24 @@ holds the recursion, and the `IPSI` class is in
 
 ### The incremental estimand
 
-Write $\pi_t(H_t) = P(A_t = 1 \mid H_t)$ for the treatment mechanism at node $t$ among the units
-at risk. A tilt node draws the arm from Equation (1) of Kennedy (2019):
+Write $\pi_t(a \mid H_t) = P(A_t = a \mid H_t)$ for the treatment mechanism at node $t$ among
+the units at risk. A tilt node with levels $a = 1, \ldots, K_t$ and factors $\delta_{t,a} > 0$
+draws the arm from the exponential tilt
 
 $$
-q_t(1 \mid H_t) = \frac{\delta_t \pi_t(H_t)}{\delta_t \pi_t(H_t) + 1 - \pi_t(H_t)}.
+q_t(a \mid H_t) = \frac{\delta_{t,a}\, \pi_t(a \mid H_t)}{D_t(H_t)},
+\qquad D_t(H_t) = \sum_b \delta_{t,b}\, \pi_t(b \mid H_t).
 $$
+
+Multiplying every factor of a node by one constant changes nothing, so a node has $K_t - 1$ free
+parameters. With two levels and $(\delta_{t,0}, \delta_{t,1}) = (1, \delta_t)$ the formula is
+Equation (1) of Kennedy (2019):
+$q_t(1 \mid H_t) = \delta_t \pi_t / (\delta_t \pi_t + 1 - \pi_t)$.
 
 The target $\psi$ is the mean outcome when every node follows its plan. Theorem 1 of Kennedy
 (2019) identifies it under consistency and sequential exchangeability (Assumptions 1 and 2). It
-needs no positivity, for each $\delta_t$ in a compact subset of $(0, \infty)$.
+needs no positivity, for each $\delta_{t,a}$ in a compact subset of $(0, \infty)$. The
+finite partition of the treatment into $K_t$ levels changes no step of the proof.
 
 Under dropout, Theorem 3.1 of Kim et al. (2021) adds missing at random given the history
 (Assumption A2-M). It also adds dropout positivity (Assumption A3). Then $\psi$ is the plan mean
@@ -1442,8 +1451,15 @@ with dropout prevented. At $\delta = 1$ it is the natural course with dropout pr
 | --- | --- |
 | one $\delta$ at every node | `IPSI([Incremental(0.5), Incremental(1.0), Incremental(2.0)])`. Each `Incremental` is one plan, and its `name` is the label |
 | one $\delta_t$ per node | `DynamicRegimen("ramp", (Incremental(1.5), Incremental(2.0)))` |
+| one factor per level at a node with three or more levels | `Incremental({"high": 2.0, "low": 0.5})`. A level that the mapping does not name keeps the factor 1 |
 | a tilt beside label, rule or known-policy nodes | `DynamicRegimen("tilt then stop", (Incremental(2.0), 0))` |
 | a plan with no tilt node | a static or dynamic plan, so a tilt can be contrasted with it on one fit |
+
+One `Incremental` applies to every node of its plan. The fit resolves its keys against the levels
+of each node in turn. A key that is not a level of some node meets the key refusal at that node.
+A scalar declaration at a node with other than two levels meets the scalar refusal at that node.
+Both refusals run before any learner. A vector node whose components are all categorical is one
+categorical node over its observed tuples, and its keys are the tuples.
 
 `reference=` must name one of the declared plans. List `Incremental(1.0)` to contrast each plan
 with the natural course. The parameter names are the longitudinal ones, such as
@@ -1466,7 +1482,7 @@ recursion runs from the horizon $h$ back to node 1.
 | --- | --- |
 | $Z_{h+1}$ | the outcome, or the event indicator at a survival horizon |
 | $Z_{t+1}$, survival | $Y_t + (1 - Y_t)\,\bar m_{t+1}$. A competing-risk fit uses one cause's indicator and the all-cause survival factor |
-| tilt factor $r_t$ | $(\delta_t A_t + 1 - A_t)/(\delta_t \pi_t + 1 - \pi_t)$. The fit never computes it as $q_t / \pi_t$ |
+| tilt factor $r_t$ | $\delta_{t,A_t} / D_t$. With two levels it is $(\delta_t A_t + 1 - A_t)/(\delta_t \pi_t + 1 - \pi_t)$. The fit never computes it as $q_t / \pi_t$ |
 | label, rule or policy factor | the plan's density at the observed arm over the treatment mechanism |
 | censoring factor | $1\{C_t = 1\}/\omega_t$, with $\omega_t$ the probability of remaining under observation |
 | weight $W_t$ | the product of every node factor through $t$, and 0 off the rows that follow the plan through $t$. $W_0 = 1$ |
@@ -1475,17 +1491,50 @@ The uncentred efficient influence function at the fitted nuisances is
 
 $$
 \varphi = \bar m_1(H_1) + \sum_{t=1}^{h} W_t \{Z_{t+1} - m_t(H_t, A_t)\}
-  + \sum_{t \in \text{tilt}} W_{t-1}
-    \frac{\delta_t \{m_t(H_t, 1) - m_t(H_t, 0)\}(A_t - \pi_t)}{(\delta_t \pi_t + 1 - \pi_t)^2}.
+  + \sum_{t \in \text{tilt}} W_{t-1}\, \frac{\delta_{t,A_t}}{D_t}\,
+    \{m_t(H_t, A_t) - \bar m_t(H_t)\}.
 $$
 
 The form follows Kennedy (2019), Theorem 2 and Appendix Lemmas 2 to 4. Kim et al. (2021),
 Theorem 4.1, adds the censoring factors. The last sum is the *mechanism term*. It exists because
 $q_t$ reads $\pi_t$. A known policy has no such term, and a label or rule node has none.
 
+Only Lemma 4 changes with the number of levels. The chain rule through $\pi_t$ gives the
+influence function of $q_t(a \mid h)$ as
+$\{1\{H_t = h\}/p(h)\}(\delta_{t,A_t}/D_t)(1\{A_t = a\} - q_t(a \mid h))$.
+The sum of this function against $m_t(H_t, a)$ is the mechanism term above. With two levels the term
+is $\delta_t \{m_t(H_t, 1) - m_t(H_t, 0)\}(A_t - \pi_t)/(\delta_t \pi_t + 1 - \pi_t)^2$, which is
+Kennedy's Lemma 4. A node with two levels runs this binary arithmetic with
+$\delta_t = \delta_{t,1}/\delta_{t,0}$, so its results are bit-identical to the results before the
+categorical change. The factor $\delta_{t,A_t}/D_t$ and the term are unchanged when every
+$\delta_{t,a}$ is multiplied by one constant.
+
+**The remainder is a product.** Kennedy's telescoped sum has one term per node. Each term carries
+$(\hat\pi_t - \pi_t)$ through $\hat D_t - D_t = \sum_b \delta_{t,b}(\hat\pi_{t,b} - \pi_{t,b})$, as in the
+[point-treatment remainder](point-treatment-tmle.md#incremental-propensity-score-interventions).
+No term is linear in one nuisance's error, so the construction exposes no linear remainder. Under
+dropout the remainder also holds products of the form
+$\lVert \hat\omega_t - \omega_t \rVert\, \lVert \hat m_t - m_t \rVert$ (Kim et al. 2021,
+Theorem 5.1). The mechanism term carries $W_{t-1}$, which holds the censoring factors, so a
+fit that drops them from $W_{t-1}$ changes the curve.
+
 The estimate is the weighted mean $\hat\psi = \sum_i w_i \varphi_i / \sum_i w_i$. The influence
 curve is $w_i(\varphi_i - \hat\psi)$, summed within a cluster under `id=`. The standard error is
 the empirical standard deviation of that curve, as in Kennedy (2019), Theorem 3.
+
+`tests/unit/test_categorical_ipsi_exact.py` makes the same comparison on three-level nodes, on the
+law of `tests/discrete_law_longitudinal_categorical_incremental.py`. The cases are the censored
+law, the same law without dropout, a survival law and a competing-risk law. Each law has a tilt at
+one node, at both nodes with different factors, and beside a label node.
+
+The module asserts at import that no term can vanish unnoticed. Each mechanism term holds at least
+a twentieth of the curve's variance on the censored laws and a fiftieth on the survival and
+competing-risk laws. The complete-case functional differs from the parameter by more than $0.01$.
+
+`tests/unit/test_categorical_ipsi_longhand.py` matches the cross-fitted engine to an independent
+numpy longhand to $10^{-12}$, with a non-saturated multinomial logistic mechanism.
+`tests/unit/test_categorical_ipsi_mutations.py` breaks one line at a time and requires a witness
+to fail. This is Python property evidence. No registered study covers a three-level node yet.
 
 `tests/unit/test_ipsi_exact_laws.py` compares each estimate with the g-formula of
 `tests/discrete_law_longitudinal_ipsi.py` to $10^{-12}$. It compares each curve with the
@@ -1549,11 +1598,13 @@ stays exact to $10^{-12}$. The Taylor remainder along a path is second order and
 | clusters, `id=` | whole-cluster folds and a cluster-summed curve. The few-cluster rules of `LTMLE` apply: below 20 clusters the fit reports no interval | `tests/unit/test_ipsi_e2e.py` at 19 and 20 clusters |
 | contrasts and bands | a fixed-dimension stack of the plan and horizon curves. The multiplier band covers the declared plans and horizons | `tests/unit/test_ipsi_e2e.py` |
 | `msm=` | each cell's $\varphi$ is projected onto the working model. The identity link is supported. A logit or log link is accepted only when its projection converges | the exact-law projection linear in $\log\delta$; the logit refusal in `tests/unit/test_ipsi_e2e.py` |
-| known treatment mechanism | `treatment_probabilities=` on `fit` declares $\pi_t$. The tilt is then a known policy, and the curve has no mechanism term (Kennedy 2019, Section 3.3) | the known-mechanism exact law |
+| known treatment mechanism | `treatment_probabilities=` on `fit` declares $\pi_t$ for every level of the node. The tilt is then a known policy, and the curve has no mechanism term (Kennedy 2019, Section 3.3) | the known-mechanism exact law; for three levels, `tests/unit/test_categorical_ipsi_declaration.py` |
 | `CausalStudy` | `IncrementalMean` and `IncrementalEffect` on a `LongitudinalTreatment` design list `ipsi` as available. `tmle` and `sdr` list the reasons below | `tests/unit/test_ipsi_e2e.py` |
 
 `LTMLE` also fits a tilt when every tilt node has a declared treatment mechanism. It translates
-each tilt node to a known stochastic policy, which divides by the bounded mechanism. Where
+each tilt node to a known stochastic policy, which divides by the bounded mechanism. It reads the
+whole declared matrix, one column per level, so a node with three levels is translated too and
+equals the hand-built known `Stochastic` regimen to $10^{-12}$. Where
 `g_bounds` moves that mechanism, `LTMLE` refuses the fit before any learner. `IPSI` keeps the
 cancelled tilt factor and needs no such bound.
 
@@ -1562,14 +1613,14 @@ cancelled tilt factor and needs no such bound.
 | choice | `IPSI` | reason |
 | --- | --- | --- |
 | fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `targeting=` and `fluctuation=` raise `MethodConfigurationError` with code `invalid_declaration` | the estimator averages the influence function at the fitted nuisances |
-| `g_bounds=` | bounds the cumulative censoring, label, rule and policy product. The tilt product multiplies in after the bound | the tilt factor lies in $[\min(\delta, 1/\delta), \max(\delta, 1/\delta)]$ and divides by no mechanism |
+| `g_bounds=` | bounds the cumulative censoring, label, rule and policy product. The tilt product multiplies in after the bound | the tilt factor lies in $[\min_a \delta_{t,a} / \max_a \delta_{t,a},\ \max_a \delta_{t,a} / \min_a \delta_{t,a}]$ and divides by no mechanism. With two levels this is $[\min(\delta, 1/\delta), \max(\delta, 1/\delta)]$ |
 | regression clip | none. The default `pseudo_learner` is a regression Super Learner with `clip=None` | `npcausal` predicts the targets unbounded |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of $\varphi$ can leave $[0, 1]$, or the `q_bounds` range of a continuous outcome |
 | `ratio()` of such a level | `CapabilityError` on the log scale at or below 0, and on the odds or logit scale outside $(0, 1)$ | the scale is undefined there. The difference scale stays available |
 | full-refit bootstrap | runs, and reports `bootstrap sd` with no percentile inference | no registered study measures it |
 | `truncation_curve()` | replays the bounded factors only | the tilt factor has no bound to sweep |
 | score equations | `diagnostics.score_equations()` is `not_applicable` | no node fits a fluctuation |
-| diagnostics | `diagnostics.support()` reports each tilt node's factor range, the mechanism term's share of the curve variance, and the share of $\hat\pi_t$ at exactly 0 or 1 | a tilt needs no positivity, so a degenerate $\hat\pi_t$ is reported and not warned |
+| diagnostics | `diagnostics.support()` reports each tilt node's factor range, the mechanism term's share of the curve variance, and the share of rows where some level has $\hat\pi_t$ at exactly 0 | a tilt needs no positivity, so a degenerate $\hat\pi_t$ is reported and not warned. With two levels the share counts $\hat\pi_t$ at exactly 0 or 1 |
 
 A survival risk curve from this estimator can be non-monotone across horizons. Each horizon is its
 own one-step average. The hazard model and the isotonic projection are `LTMLE` settings, and
@@ -1581,12 +1632,14 @@ own one-step average. The hazard model and the isotonic projection are `LTMLE` s
 | --- | --- |
 | `LTMLE` with an estimated mechanism at a tilt node, or `LTMLE(incremental=...)` | `LTMLE_TILT_REFUSAL` in `cleverly.methods` |
 | `SDR` with a tilt node | `SDR_TILT_REFUSAL` in `cleverly.methods` |
-| a tilt node with other than two levels | the shared point-treatment text, which names the node |
+| a scalar `Incremental` at a node with other than two levels | the scalar refusal of `Incremental.factors`, which names the node and shows a mapping. Reason `invalid_declaration` |
+| an `Incremental` key that is not a level of a node | the key refusal of `Incremental.factors`, which names the key, the node and its levels. Reason `invalid_declaration` |
 | an `IPSI` plan with a modified treatment policy or a `RiskRatioTilt` node | `tilt_mix_message` in `longitudinal/regimen.py` |
 | an odds tilt at a continuous node, on `IPSI`, `LTMLE` or `SDR` | `tilt_continuous_message` in `longitudinal/regimen.py` |
 | a fluctuation setting on `IPSI` or `IPSIMethod` | `IPSI_NO_FLUCTUATION` in `cleverly.methods` |
 | a point-treatment container, or `IPSIMethod` on a point functional | `IPSI_POINT_REFUSAL` in `cleverly.methods` |
 | a design that holds one baseline decision over every node | `IPSI` names `TMLE(incremental=[...])` on the baseline row |
+| an odds tilt at a vector node with a continuous component | `tilt_mixed_refusal` in `longitudinal/regimen.py`. It runs before the node's levels are read |
 
 [Scope and refusals](scope-and-refusals.md#not-written-yet) quotes the first, second and fourth
 messages. `tests/unit/test_ipsi_e2e.py` pins each refusal before any learner runs.
@@ -1597,6 +1650,7 @@ messages. `tests/unit/test_ipsi_e2e.py` pins each refusal before any learner run
 | --- | --- |
 | finite-sample bias at one fold | on the declared study laws, a one-fold fit carries a plug-in-order bias of about 0.2 standardized units at $n$ = 8,000. The design probe reads -0.18 on law `A` and -0.19 on law `C`. Source: `tests/diagnostics/x19_sizing/reading.csv`. Kennedy (2019), Algorithm 2 (Appendix 8.3), gives the one-fold interval under Donsker conditions. Saturated cell means on a finite history set form a Donsker class. Kim et al. (2021), Theorem 5.1, states the dropout result with sample splitting only, and the same Donsker argument extends it to one fold. Both studies gate the one-fold fits at sizes where this bias is small |
 | finite-sample bias at five folds | the cross-fitted contrasts carry a second-order bias of order $1/n$. At $n$ = 8,000 the design probe reads 0.25 to 0.27 standardized units on law `A` at five folds, 0.35 at two folds, and 0.28 to 0.31 on law `C`. A sizing rule sets each gated cell before its run. A primary or rate cell passes with a probability of at least 0.95 at the projected bias, and a calibration cell with at least 0.90. The primary studies run at $n$ = 96,000 and 80,000 for this reason. Source: `tests/unit/test_longitudinal_incremental_design.py` |
+| support label of a three-level node | `experimental`. The registered `IPSI` rows cover two levels at every node, and no row covers a node with other than two levels. The label reads `.support` on each estimate |
 | a band over the continuum of $\delta$ | not offered. Theorem 4 of Kennedy (2019) gives a band over a compact set of $\delta$, and the API represents a finite grid only |
 | the no-effect test | not offered. Kennedy (2019), Section 4.4, gives it, and `npcausal` does not return it |
 | a TMLE for the tilt over time | not offered. The package ships Kennedy's own estimator, which Theorem 3 covers with no extension |

@@ -1,7 +1,7 @@
 r"""T6, T12, T13, T15 and T17: what an IPSI fit refuses, and how it composes.
 
 T13 pins each refusal whole, before any learner runs: R1 (``LTMLE`` with an estimated
-mechanism at a tilt node), R2 (``SDR`` with a tilt), R3 (a tilt node with three levels), R4
+mechanism at a tilt node), R2 (``SDR`` with a tilt), R3 (a scalar tilt at a node with three levels), R4
 (a tilt beside a modified treatment policy), R5 (a fluctuation setting), R6 (a ratio of a
 level outside its scale's domain), R7 (a link projection that does not converge) and R8 (a
 point-treatment container).  Each refusal has a control that the same surface answers when
@@ -204,18 +204,16 @@ def _three_level_panel(panel: Any) -> Any:
     return frame.assign(A2=a2)
 
 
-def test_r3_refuses_a_tilt_node_with_three_levels(panel: Any) -> None:
+def test_r3_refuses_a_scalar_tilt_at_a_node_with_three_levels(panel: Any) -> None:
+    """A scalar odds multiplier names two arms, so a three-level node needs one factor per level."""
     with pytest.raises(DataError) as raised:
         IPSI(TILTS, **_never()).fit(_three_level_panel(panel), outcome="Y", **LONGITUDINAL_NODES)
-    assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-    assert raised.value.refusal.roadmap == "X43"
+    assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    assert raised.value.refusal.roadmap is None
     assert str(raised.value) == (
-        "an incremental propensity-score intervention tilts the *odds* of treatment, which "
-        "names two arms; node 'A2' has 3 ([0.0, 1.0, 2.0]). Kennedy's binary odds multiplier "
-        "alone does not select a multinomial policy. This API has no declared multi-arm tilt; "
-        "one odds per contrast or a cost-based reference policy defines a different "
-        "intervention with its own influence function. X43 in docs/roadmap.md tracks this. "
-        "A Stochastic node with density_kind='known' sets this node."
+        "a scalar odds multiplier names two arms; node 'A2' has 3 levels "
+        "([0.0, 1.0, 2.0]). Declare one factor per level, for example "
+        "Incremental({0.0: 2.0}), which multiplies the odds of 0.0 against every unnamed level."
     )
 
 

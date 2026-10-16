@@ -353,6 +353,14 @@ GFORMULA_RR_TILT_REFUSAL = Refusal(
         "for a risk-ratio tilt."
     ),
 )
+#: Why a parametric g-formula fit refuses an odds tilt at a node with other than two levels.
+GFORMULA_CATEGORICAL_TILT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the parametric g-formula simulates an odds tilt of a node with two levels only. Its "
+    "draw and its score term are those of a binary natural-treatment model, and it has no "
+    "draw for a categorical odds tilt.",
+    alternative="Fit IPSI, which reads an Incremental with one factor per level of a node.",
+)
 #: Why the parametric g-formula refuses a vector treatment node with a dose component.
 GFORMULA_MIXED_NODE_REFUSAL = Refusal(
     RefusalReason.IMPLEMENTATION_GAP,
@@ -4145,8 +4153,8 @@ class _SequentialEstimator:
             nodes = [time for time in range(1, data.n_times + 1) if plan.is_tilt_node(time)]
             if known is None or any(known.treatment_at(time) is None for time in nodes):
                 raise CapabilityError.from_refusal(LTMLE_TILT_REFUSAL)
-            propensity = {time: _filled_matrix(known.treatment_at(time))[:, 1] for time in nodes}
-            out.append(replace(plan.with_tilts(propensity), tilt_deltas=()))
+            propensity = {time: _filled_matrix(known.treatment_at(time)) for time in nodes}
+            out.append(replace(plan.with_tilts(propensity), node_factors=()))
         return tuple(out)
 
     def _targeting(self) -> dict[str, Any]:
@@ -5674,8 +5682,10 @@ class IPSI(_SequentialEstimator):
     r"""Incremental propensity-score interventions over time, by Kennedy's estimator.
 
     An odds tilt multiplies each unit's odds of treatment at a node by :math:`\delta_t`
-    (Kennedy 2019, Equation (1)).  The plan is identified without treatment positivity at
-    its tilt nodes (Theorem 1).  The estimator is Algorithm 1 of Kennedy (2019), with the
+    (Kennedy 2019, Equation (1)).  A node with three or more levels takes one factor per
+    level, :math:`q_t(a \mid H_t) \propto \delta_{t,a}\pi_t(a \mid H_t)`, declared as
+    ``Incremental({level: factor})``.  The plan is identified without treatment positivity
+    at its tilt nodes (Theorem 1).  The estimator is Algorithm 1 of Kennedy (2019), with the
     dropout weights of Kim, Kennedy and Naimi (2021, Algorithm 1): the mean of the efficient
     influence function at nuisances fitted by the training-fold recursion.  It fits no
     fluctuation.  The influence function has a mechanism term at each tilt node, so the
@@ -5691,7 +5701,9 @@ class IPSI(_SequentialEstimator):
     ----------
     regimens : mapping, sequence of Incremental, or sequence of regimens
         The plans.  A sequence of :class:`~cleverly.interventions.Incremental` objects is
-        shorthand: each one tilts every node, and its ``name`` is the label.  A mapping
+        shorthand: each one tilts every node, and its ``name`` is the label.  One
+        ``Incremental`` applies to every node, so a scalar needs two levels at each node and
+        a mapping key must be a level of each node.  A mapping
         value ``Incremental(2.0)`` tilts every node.  A
         :class:`~cleverly.longitudinal.DynamicRegimen` can hold a different tilt per node,
         and label, rule and known-policy nodes beside the tilts.  A plan with no tilt node
@@ -6761,7 +6773,8 @@ class ParametricGFormula(_Baseline):
         Raises
         ------
         CapabilityError
-            When a plan holds a risk-ratio tilt, a covariate is untyped, a learner is declared
+            When a plan holds a risk-ratio tilt or an odds tilt at a node with other than two
+            levels, a covariate is untyped, a learner is declared
             that nothing reads, a learner carries a family the fit overrides, a Gaussian
             covariate has a learner that is not a GLM, a binomial GLM meets a continuous
             outcome with no declared scale, or a declared treatment mechanism is missing for a
@@ -6773,6 +6786,12 @@ class ParametricGFormula(_Baseline):
                 kind, spec = plan_node(plan.regimen, node)
                 if kind == "mtp" and isinstance(spec, RiskRatioTilt):
                     raise CapabilityError(refusal=GFORMULA_RR_TILT_REFUSAL)
+                if (
+                    kind == "tilt"
+                    and not data.is_held_node(node)
+                    and len(data.treatment_levels[node - 1]) != 2
+                ):
+                    raise CapabilityError(refusal=GFORMULA_CATEGORICAL_TILT_REFUSAL)
         variables = resolve_covariates(data, self.covariate_types)
         for argument, learner in (
             ("covariate_learner", self.covariate_learner),

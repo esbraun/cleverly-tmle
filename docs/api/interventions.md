@@ -6,6 +6,11 @@ treatment policy is a `Shift`, a `Scale`, a `Piecewise` map, a `ModifiedPolicy` 
 pieces, or a `RiskRatioTilt`. Pass a policy to `TMLE(policies=...)` or as a node of a longitudinal
 plan. A vector treatment takes a `JointPolicy`, which declares one policy for each component.
 
+`Incremental` tilts the odds of the treatment. A scalar multiplies the odds of the second of two
+levels. A mapping from level label to factor tilts a treatment with three or more levels, and a
+level that it does not name keeps the factor 1. `Incremental.factors` resolves a declaration
+against the levels of one treatment or one node.
+
 `DynamicRegimen` defines a plan across the treatment nodes of a longitudinal fit. A node of that
 plan can be a rule. It can also be a `Stochastic` node that draws its arm from a known policy.
 `each_node` writes one rule for every node of a long panel, and it returns one `NodeRule` per node.
