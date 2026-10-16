@@ -106,7 +106,10 @@ FREQUENCY_EXACT_ATTRIBUTE = "frequency_exact"
 def frequency_exact(learner: Learner) -> bool:
     """Whether ``learner`` is declared exact under frequency weights.
 
-    The declaration is the class attribute :data:`FREQUENCY_EXACT_ATTRIBUTE`.  Scikit-learn's
+    The declaration is the class attribute :data:`FREQUENCY_EXACT_ATTRIBUTE`, read from the
+    learner's own class and not from its bases.  A subclass that adds a penalty would
+    inherit a base declaration that no longer holds, so every class opts in by setting the
+    attribute itself.  Scikit-learn's
     unpenalized :class:`~sklearn.linear_model.LinearRegression` is the one class outside the
     package that is accepted without it: its weighted least squares solve the replicated
     normal equations.
@@ -121,7 +124,7 @@ def frequency_exact(learner: Learner) -> bool:
     bool
         ``True`` when the frequency-weighted fit equals the replicated fit.
     """
-    if getattr(type(learner), FREQUENCY_EXACT_ATTRIBUTE, False) is True:
+    if vars(type(learner)).get(FREQUENCY_EXACT_ATTRIBUTE, False) is True:
         return True
     from sklearn.linear_model import LinearRegression
 

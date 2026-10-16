@@ -53,11 +53,11 @@ def _estimator(name: str, m: int, **settings: Any) -> Any:
     cls = {"LTMLE": LTMLE, "SDR": SDR}[name]
     settings.setdefault("n_folds", 1)
     settings.setdefault("n_bootstrap", 2)
+    settings.setdefault("outcome_learner", GLM())
+    settings.setdefault("pseudo_learner", GLM() if name == "LTMLE" else LinearRegression())
     return cls(
         plans_.regimens(PLANS, K, m),
         reference="low",
-        outcome_learner=GLM(),
-        pseudo_learner=GLM() if name == "LTMLE" else LinearRegression(),
         g_bounds=(1e-8, 1.0),
         random_state=7,
         **settings,
@@ -65,7 +65,13 @@ def _estimator(name: str, m: int, **settings: Any) -> Any:
 
 
 def _fit(
-    monkeypatch: pytest.MonkeyPatch, name: str, m: int, *, fast: bool = True, **settings: Any
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    m: int,
+    *,
+    fast: bool = True,
+    frame: pd.DataFrame | None = None,
+    **settings: Any,
 ) -> Fitted:
     """Fit with the replicate captured, or with the fast path switched off."""
     original = longitudinal_estimator._SequentialEstimator._frequency_replicate
@@ -81,7 +87,11 @@ def _fit(
         patch.setattr(longitudinal_estimator._SequentialEstimator, "_frequency_replicate", spy)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            result = model.fit(_frame(m), **law_.roles(K, m), **law_.probability_columns(K, m))
+            result = model.fit(
+                _frame(m) if frame is None else frame,
+                **law_.roles(K, m),
+                **law_.probability_columns(K, m),
+            )
     return Fitted(result, model, captured.get("replicate"))
 
 
@@ -312,7 +322,104 @@ class TestEachCase:
         assert _largest_gap(_fast(fitted, index), expected) > 1e-6
 
 
+def _continuous_outcome(m: int) -> pd.DataFrame:
+    """The binary-outcome law with Gaussian noise added to every observed outcome."""
+    frame = _frame(m).copy()
+    noise = np.random.default_rng(1).normal(size=len(frame)) * 0.5
+    frame["Y"] = frame["Y"] + noise * frame["Y"].notna()
+    return frame
+
+
+class TestADataDependentScaler:
+    """Case 5: a continuous outcome is rescaled by the rows the resample holds."""
+
+    @pytest.mark.parametrize("name", ["LTMLE", "SDR"])
+    def test_a_resample_without_the_largest_outcomes_agrees(
+        self, monkeypatch: pytest.MonkeyPatch, name: str
+    ) -> None:
+        fitted = _fit(monkeypatch, name, 2, frame=_continuous_outcome(2))
+        assert fitted.replicate is not None, "a continuous outcome took the materialized refit"
+        data = fitted.result.data
+        outcome = np.asarray(data.outcome, dtype=float).reshape(data.n, -1)[:, -1]
+        order = np.argsort(np.nan_to_num(outcome, nan=-np.inf))[::-1]
+        dropped = set(order[:3].tolist())
+        index, _ = _bootstrap_draw(data.n, None, np.random.default_rng(5))
+        index = np.array([i if i not in dropped else order[10] for i in index])
+        assert not dropped & set(index.tolist())
+        expected = _materialized(fitted, index)
+        assert _largest_gap(_fast(fitted, index), expected) < EXACT
+
+        # Mutation: the scaler read from every distinct row, not from the rows present.
+        original = FrequencyReplicate._scaler
+        monkeypatch.setattr(
+            FrequencyReplicate,
+            "_scaler",
+            lambda self, present: original(self, np.ones_like(present)),
+        )
+        assert _largest_gap(_fast(fitted, index), expected) > 1e-6
+
+
 class TestEligibility:
+    def test_a_continuous_or_mixed_treatment_node_takes_the_materialized_refit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = longitudinal_estimator._SequentialEstimator._frequency_replicate
+
+        def kinds(kind: str) -> list[Any]:
+            seen: list[Any] = []
+
+            def spy(self: Any, prepared: Any, *args: Any, **kwargs: Any) -> Any:
+                with monkeypatch.context() as inner:
+                    if kind != "categorical":
+                        inner.setattr(type(prepared), "node_kind", lambda _self, _time: kind)
+                    seen.append(original(self, prepared, *args, **kwargs))
+                return seen[-1]
+
+            with monkeypatch.context() as patch:
+                patch.setattr(
+                    longitudinal_estimator._SequentialEstimator, "_frequency_replicate", spy
+                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    _estimator("LTMLE", 2).fit(
+                        _frame(2), **law_.roles(K, 2), **law_.probability_columns(K, 2)
+                    )
+            return seen
+
+        (control,) = kinds("categorical")
+        assert control is not None
+        assert kinds("continuous") == [None]
+        assert kinds("mixed") == [None]
+
+    def test_a_penalized_subclass_does_not_inherit_the_declaration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class Ridge(GLM):
+            """A penalized fit would break frequency exactness; the base class declares it."""
+
+        class DeclaredRidge(Ridge):
+            frequency_exact = True
+
+        assert frequency.frequency_exact(GLM())
+        assert not frequency.frequency_exact(Ridge())
+        assert frequency.frequency_exact(DeclaredRidge())
+
+        original = longitudinal_estimator._SequentialEstimator._frequency_replicate
+        seen: list[Any] = []
+
+        def spy(self: Any, *args: Any, **kwargs: Any) -> Any:
+            seen.append(original(self, *args, **kwargs))
+            return seen[-1]
+
+        monkeypatch.setattr(
+            longitudinal_estimator._SequentialEstimator, "_frequency_replicate", spy
+        )
+        model = _estimator("LTMLE", 2, outcome_learner=Ridge(), pseudo_learner=Ridge())
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            model.fit(_frame(2), **law_.roles(K, 2), **law_.probability_columns(K, 2))
+        assert seen == [None]
+
     def test_a_cross_fitted_fit_takes_the_materialized_refit(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
