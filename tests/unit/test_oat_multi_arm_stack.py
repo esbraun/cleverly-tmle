@@ -173,6 +173,9 @@ class _CoupledJacobian:
 
     The control of the cross-arm structure: arm 0's fluctuation Jacobian is built with the
     indicator ``R_0 + R_1``, as a defect that mixed the arms' rows into one score would build it.
+    The finite difference sees only a Jacobian that disagrees with the rows. A coupling made
+    consistently in the rows and the Jacobian is invisible to KW1, and KW0 catches it: the fit
+    solves the uncoupled score, so the coupled rows do not average to zero at ``theta_n``.
     """
 
     def __init__(self, problem: StackProblem) -> None:
@@ -198,7 +201,11 @@ def steep_numeric(steep_grid: mq.PopulationFit) -> np.ndarray:
 
 
 class TestKW1Jacobian:
-    """KW1: at ``K = 3`` the analytic Jacobian equals a finite difference, block by block."""
+    """KW1: at ``K = 3`` the analytic Jacobian equals a finite difference, block by block.
+
+    KW1 checks the Jacobian against the rows. KW0 is the witness for a coupling made
+    consistently in both.
+    """
 
     def test_the_grid_has_eps_and_a_binding_bound(self, steep_grid: mq.PopulationFit) -> None:
         assert np.max(np.abs(steep_grid.epsilons)) > 0.01

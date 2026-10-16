@@ -758,6 +758,10 @@ class FittedStack:
         read from the fit's arrays, so it equals the curve
         :func:`~cleverly.inference.influence.counterfactual_means` subtracts the correction
         from. ``None`` on a stack built without a fit.
+    weighted : bool
+        Whether the data carry observation weights. An unweighted fit reports the shipped
+        standard error of the curve itself, with no factor of ``mass * n``, which is not
+        exactly one for every ``n``.
     """
 
     problem: FoldStackProblem
@@ -767,6 +771,7 @@ class FittedStack:
     arm_mismatch: tuple[float, ...] = ()
     converged: bool = True
     shipped: FloatArray | None = None
+    weighted: bool = False
 
 
 @dataclass(frozen=True)
@@ -782,10 +787,9 @@ class StackReport:
         Per failed arm code, the condition that failed.
     shipped_std_error : dict of float to float
         Per arm code, the standard error of the shipped curve times the data weights, on
-        the fitted scale. The fit
-        reports the shipped standard error through
-        ``DrawInference.shipped_se``, on
-        each estimand's own scale. This field is the per-arm cross-check of that value.
+        the fitted scale. The fit reports the shipped standard error through
+        ``DrawInference.shipped_se``, on each estimand's own scale. This field is the per-arm
+        cross-check of that value.
     curves : StackCurves or None
         The solve's record; ``None`` when the stack could not be read.
     """
@@ -914,6 +918,7 @@ def stack_from_fit(
         arm_mismatch=tuple(float(gap) for gap in gaps),
         converged=bool(fluctuation.converged),
         shipped=shipped,
+        weighted=bool(data.is_weighted),
     )
 
 
@@ -951,8 +956,9 @@ def stack_report(stack: FittedStack, arms: Sequence[float]) -> StackReport:
     failures: dict[float, str] = {}
     shipped_se: dict[float, float] = {}
     n = problem.n
-    # The mean-one row weights: the masses are the normalized weights.
-    weights = problem.mass * n
+    # The mean-one row weights: the masses are the normalized weights. An unweighted fit
+    # keeps the curve itself, because ``mass * n`` is not exactly one for every ``n``.
+    weights = problem.mass * n if stack.weighted else np.ones(n)
     for j, arm in enumerate(arms):
         shipped = stack.shipped[:, j]
         shipped_se[arm] = float(np.std(weights * shipped, ddof=1) / np.sqrt(n))

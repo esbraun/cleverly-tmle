@@ -254,6 +254,68 @@ class TestTheArmColumnPreflight:
         assert len(result.single().estimates) == 3
 
 
+def _vector_frame(*, dose: bool, n: int = 600, seed: int = 7) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    w = rng.normal(size=n)
+    a1 = rng.integers(0, 2, n)
+    a2 = rng.normal(size=n) if dose else rng.integers(0, 2, n)
+    logit = 0.3 * a1 - 0.2 * a2 + 0.5 * w
+    y = (rng.uniform(size=n) < 1 / (1 + np.exp(-logit))).astype(int)
+    second = a2 if dose else a2.astype(str)
+    return pd.DataFrame({"W1": w, "A1": a1.astype(str), "A2": second, "Y": y})
+
+
+def _vector_tmle(frame: pd.DataFrame, arm_columns: int) -> Any:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return TMLE(
+            outcome_learner=ParametricOutcome(arm_columns=arm_columns),
+            treatment_learner=LogisticRegression(),
+            estimands=("ey",),
+            simultaneous=False,
+            cross_fit=False,
+            random_state=0,
+        ).fit(frame, outcome="Y", treatment=["A1", "A2"], covariates=["W1"])
+
+
+class TestTheVectorTreatmentWidth:
+    """The width is the treatment block the outcome design really has."""
+
+    def test_a_two_by_two_categorical_vector_has_three_joint_columns(self) -> None:
+        frame = _vector_frame(dose=False)
+        result = _vector_tmle(frame, 3)
+        assert len(result.single().estimates) == 4
+
+    def test_a_two_by_two_categorical_vector_refuses_two_columns(self) -> None:
+        with pytest.raises(MethodConfigurationError, match=r"which has 3 column") as raised:
+            _vector_tmle(_vector_frame(dose=False), 2)
+        assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+        assert "arm_columns=3" in str(raised.value.refusal.alternative)
+
+    def test_a_dose_vector_has_one_column_per_component(self) -> None:
+        """A vector with a dose reads its component blocks: 1 label column and 1 dose."""
+        estimator = TMLE(
+            outcome_learner=ParametricOutcome(arm_columns=2), treatment_learner=LogisticRegression()
+        )
+        data = estimator._prepare(
+            _vector_frame(dose=True),
+            outcome="Y",
+            treatment=["A1", "A2"],
+            covariates=["W1"],
+            continuous_treatment=["A2"],
+            delta=None,
+            weights=None,
+            id=None,
+            intermediate=None,
+            strata=None,
+        )
+        assert data.treatment_kind == "vector"
+        estimator._refuse_mismatched_arm_columns(data)
+        estimator.outcome_learner = ParametricOutcome(arm_columns=3)
+        with pytest.raises(MethodConfigurationError, match=r"which has 2 column"):
+            estimator._refuse_mismatched_arm_columns(data)
+
+
 # --------------------------------------------------------------------------- the targets
 
 

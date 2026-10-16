@@ -863,7 +863,9 @@ class TMLE:
 
         The outcome design leads with the treatment block: one column for a binary or a
         continuous treatment, ``K - 1`` arm indicators for ``K`` arms, and each component's
-        block for a vector. A ``ParametricOutcome`` whose ``arm_columns`` differs reads a
+        block for a vector with a continuous component. An all-categorical vector is a discrete
+        treatment over its joint levels, so it has ``K - 1`` columns for ``K`` joint levels. A
+        ``ParametricOutcome`` whose ``arm_columns`` differs reads a
         covariate as an arm, or an arm as a covariate, and fits a model that nobody declared.
         The check reads the outcome learner as :meth:`_resolve_learner` resolves it, and
         :func:`~cleverly.learners.parametric.parametric_outcomes` finds the learner in a
@@ -886,7 +888,7 @@ class TMLE:
         found = parametric_outcomes(self._resolve_learner(self.outcome_learner, task=task))
         if not found:
             return
-        if data.is_vector_treatment:
+        if data.treatment_kind == "vector":
             width = sum(1 if not levels else len(levels) - 1 for levels in data.component_levels)
         elif data.is_continuous_treatment:
             width = 1

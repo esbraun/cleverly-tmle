@@ -24,6 +24,7 @@ from cleverly.estimators._oat_stack import (
     StackProblem,
     corrected_curves,
     fitted_stack,
+    stack_report,
 )
 from cleverly.estimators.ctmle import per_arm_parametric_support
 from cleverly.inference.influence import counterfactual_means
@@ -235,6 +236,66 @@ class TestDW0WeightedSystem:
         for j in range(2):
             theta[problem.slices[f"psi[{j}]"]] = np.mean(targeted[:, j])
         assert _block_means(problem, theta)["psi[0]"] > 1e-4
+
+
+class TestDW5ReportedCurvesOfAWeightedFit:
+    """DW5: each reported curve is ``w * scale * (corrected stacked curve)``, to ``1e-12``.
+
+    The shipped column is centered at the weighted mean of ``Q*``, so the correction
+    ``shipped - stacked`` removes it exactly. A column centered at the unweighted mean leaves
+    the constant ``psi_unweighted - psi_weighted`` in the curve. The control for that line of
+    ``stack_from_fit`` is a source mutation: switch the shipped column's ``np.average`` to
+    ``np.mean`` and these two tests fail.
+    """
+
+    def test_the_arm_and_contrast_curves(self, weighted: Any) -> None:
+        stacked = _stacked(weighted)
+        np.testing.assert_allclose(weighted["ey0"].influence_curve, stacked[:, 0], atol=1e-12)
+        np.testing.assert_allclose(weighted["ey1"].influence_curve, stacked[:, 1], atol=1e-12)
+        np.testing.assert_allclose(
+            weighted["ate"].influence_curve, stacked[:, 1] - stacked[:, 0], atol=1e-12
+        )
+
+    def test_the_population_curves(self, weighted: Any) -> None:
+        weights = np.asarray(weighted.data.weights, dtype=float)
+        y = np.asarray(weighted.data.outcome, dtype=float)
+        observed = weights * (y - np.average(y, weights=weights))
+        np.testing.assert_allclose(weighted["ey_obs"].influence_curve, observed, atol=1e-12)
+        np.testing.assert_allclose(
+            weighted["par"].influence_curve, observed - _stacked(weighted)[:, 0], atol=1e-12
+        )
+
+    def test_the_control_constant_is_material(self, weighted: Any) -> None:
+        """The unweighted and weighted means of ``Q*`` differ, so the mutation is visible."""
+        stack = fitted_stack(weighted)
+        targeted = stack.problem.targeted(stack.theta)[:, 0]
+        weights = np.asarray(weighted.data.weights, dtype=float)
+        assert abs(np.average(targeted, weights=weights) - np.mean(targeted)) > 1e-3 * stack.scale
+
+
+class TestDW6ShippedStandardErrorOfAWeightedFit:
+    """DW6: the report's shipped standard error carries the data weight, as the fit's does."""
+
+    def test_it_equals_the_fit_s_shipped_se(self, weighted: Any) -> None:
+        stack = fitted_stack(weighted)
+        assert stack.weighted
+        report = stack_report(stack, (0.0, 1.0))
+        for j, name in enumerate(("ey0", "ey1")):
+            expected = weighted.repeats[0].inference[name].shipped_se
+            assert report.shipped_std_error[float(j)] * stack.scale == pytest.approx(
+                expected, rel=1e-12
+            )
+
+    def test_it_is_the_weighted_curve_s_error(self, weighted: Any) -> None:
+        stack = fitted_stack(weighted)
+        assert stack.shipped is not None
+        weights = np.asarray(weighted.data.weights, dtype=float)
+        weights = weights / weights.mean()
+        report = stack_report(stack, (0.0, 1.0))
+        expected = np.std(weights * stack.shipped[:, 0], ddof=1) / np.sqrt(stack.problem.n)
+        assert report.shipped_std_error[0.0] == pytest.approx(expected, rel=1e-12)
+        unweighted = np.std(stack.shipped[:, 0], ddof=1) / np.sqrt(stack.problem.n)
+        assert abs(expected / unweighted - 1.0) > 1e-3
 
 
 # --------------------------------------------------------------------------- DW1

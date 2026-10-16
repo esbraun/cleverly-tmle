@@ -460,7 +460,8 @@ def parametric_outcomes(learner: Any) -> tuple[ParametricOutcome, ...]:
     The walk reads the learner itself, the members of a sequence or a mapping (a
     :class:`~cleverly.learners.SuperLearner` library, a pipeline's steps), and the
     constructor parameters of an estimator (``get_params(deep=False)``), so a wrapper such as
-    a pipeline or a calibration estimator is searched too.
+    a pipeline or a calibration estimator is searched too. A wrapper without ``get_params`` is
+    not searched.
 
     Parameters
     ----------
