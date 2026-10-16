@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -81,6 +82,11 @@ FINGERPRINT = "93155a20f93c3c25"
 PLANS = ("price_up", "price_down")
 RENEWAL = "ate_regimen"
 REVENUE = "ate_revenue"
+
+
+def _policies(regimen: DynamicRegimen) -> list[Any]:
+    """The node policies of a plan, each a ``ModifiedPolicy`` or a ``Shift``."""
+    return list(regimen.plan)
 
 
 def _key(plan: str) -> str:
@@ -309,13 +315,13 @@ def _check_design(namespace: dict[str, Any]) -> None:
     design = namespace["pricing_design"]("renewed")
     assert isinstance(design, LongitudinalTreatment)
     assert list(design.treatment) == ["price_1", "price_2", "price_3"]
-    assert dict(design.continuous_treatment) == PRICE_BANDS
+    assert dict(cast(Mapping[str, Any], design.continuous_treatment)) == PRICE_BANDS
     assert list(PRICE_PLANS) == ["natural_prices", "price_up", "price_down"]
     for label in ("price_up", "price_down"):
-        assert all(policy.policy_kind == "known" for policy in PRICE_PLANS[label].plan)
+        assert all(policy.policy_kind == "known" for policy in _policies(PRICE_PLANS[label]))
     # The 12% rise and the 15% cut of the plan.
     frame = namespace["frame"]
-    for month, policy in enumerate(PRICE_PLANS["price_up"].plan, start=1):
+    for month, policy in enumerate(_policies(PRICE_PLANS["price_up"]), start=1):
         price = frame[f"price_{month}"].to_numpy()
         moved = np.where(price < (8 + 2 * frame[f"engaged_{month}"]) / 1.12, 1.12 * price, price)
         assert (moved <= 8 + 2 * frame[f"engaged_{month}"] + 1e-12).all()
@@ -556,7 +562,7 @@ def _check_support(namespace: dict[str, Any]) -> None:
     assert "exact effect of up_25 over up_6: 2.19; a linear response gives 4.17" in printed
     # The ladder plans hold prices at the band edge: the plan label of each factor.
     assert price_rise(1.06).label == "up_6" and price_rise(1.25).label == "up_25"
-    for node, policy in enumerate(namespace["rises"]["up_25"].plan, start=1):
+    for node, policy in enumerate(_policies(namespace["rises"]["up_25"]), start=1):
         assert policy.policy_kind == "known" and policy.name == f"up_25 at {node}"
 
 

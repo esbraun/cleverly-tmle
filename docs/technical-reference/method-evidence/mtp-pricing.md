@@ -4,7 +4,9 @@ This study validates a longitudinal modified treatment policy on a price at 2, 3
 declared support of each price depends on the node's engagement. `LTMLE` and `SDR` read each plan on
 the classifier route with an exact ratio, and the property cells read learned ratios. The
 [modified treatment policies at a node](../longitudinal-tmle.md#modified-treatment-policies-at-a-node)
-section states the estimator and its conditions.
+section states the estimator and its conditions. The
+[sequential pricing tutorial](../../examples/sequential-pricing.ipynb) fits law P at 3 nodes with
+`LTMLE` on one draw.
 
 **Status of this page.** The study is registered, and its Python phases have run. The evidence
 label is "Python property evidence, with comparator runs pending". The study record sets

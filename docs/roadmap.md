@@ -108,7 +108,7 @@ scope, not dates.
 | B0 | the acceptance policy, the status and refusal contract, and accurate refusals | none | the foundation for each beta claim |
 | B1 | the trajectory contract, the panel adapter, and evidence over longer horizons | B0 | a reliable sequential core |
 | B2 | validated continuous longitudinal modified treatment policies | B1 | required for the pricing beta |
-| B3 | sequential baselines and the two applied tutorials | B1; B2 for the continuous examples | completes the first beta |
+| B3 | sequential baselines and the two applied tutorials | B1; B2 for the continuous examples | completes the first beta. Closed: the [sequential offers](examples/sequential-offers.ipynb) and [sequential pricing](examples/sequential-pricing.ipynb) tutorials ship. The pricing tutorial reads the support step in one sentence in place of the truncation curve that the former X42 row asked for. The owner accepts that sentence |
 | B4 | categorical incremental policies and repeated longitudinal cross-fitting | the relevant B1 to B3 engine | the prioritized beta expansion |
 | BP | the beta parity group: the former priority-1 rows that this reorganization does not place in B0 to B4 | their own dependencies | required for the first beta |
 | BD | the worked examples and the documentation, reviewed against the methods that ship at that time | every row of milestones B0 to B4 and BP, merged | the last work before the first beta |
@@ -124,7 +124,6 @@ not change the package version.
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Longitudinal fitting options | no new theory; each option keeps its default bit-identical | none | [X33](#x33-longitudinal-fitting-options) |
-| B3 | Applied tutorials for offers and pricing | no new theory | the shipped longitudinal modified treatment policies, `SequentialGComputation` and `SequentialIPW` | [X42](#x42-applied-tutorials-for-offers-and-pricing) |
 | B4 | Categorical incremental policies | natural extension candidate; source audit | the shipped binary `IPSI` estimator | [X43](#x43-categorical-incremental-policies) |
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
@@ -595,27 +594,6 @@ The R comparators named above are deferred to
 [X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr), so the studies carry Python property
 evidence only. Do not remove this row until the studies land.
 
-### X42. Applied tutorials for offers and pricing
-
-Publish one tutorial that runs through the public API. The
-[sequential offers tutorial](examples/sequential-offers.ipynb) covers categorical and dynamic
-rules, randomized offers with declared probabilities, treatment-confounder feedback, censoring, a
-contrast of LTMLE and g-computation under a wrong outcome model, and paired policy comparisons. The
-pricing tutorial remains.
-
-| tutorial | required content |
-| --- | --- |
-| sequential pricing | continuous modified treatment policies, support boundaries, price-induced engagement changes, and contrasts against a declared reference policy |
-
-The tutorial states time zero, eligibility, treatment versions, available history, confounders,
-outcome horizon, and interference assumptions. Use synthetic laws with known truth, and a held-out
-applied pilot where data access permits. The offers tutorial states when g-computation, IPW, and
-LTMLE are consistent, and it reads the stagewise support and one truncated weight. The pricing
-tutorial explains when TMLE, `SDR`, g-computation, or IPW is appropriate, and why their answers can
-differ. It keeps the stagewise support diagnostics, covers positivity and truncation, and labels a truncation curve as a descriptive estimator change.
-
-Acceptance: the notebook executes in the documentation build.
-
 ### X43. Categorical incremental policies
 
 `IPSI` fits Kennedy's odds-multiplier target at binary nodes, and its odds tilt names two arms. A
@@ -917,7 +895,7 @@ A method here means one implementation family of the
 | --- | --- |
 | inventory | a table that maps each implementation family to the example page or section that shows it, or records that no example shows it |
 | update | each notebook runs on the current API. Replace removed and renamed calls, refresh the stored output, and correct each claim that the current code no longer supports |
-| add | an example for each family that the inventory shows without one. The [X42](#x42-applied-tutorials-for-offers-and-pricing) tutorials count as coverage |
+| add | an example for each family that the inventory shows without one. The [sequential offers](examples/sequential-offers.ipynb) and [sequential pricing](examples/sequential-pricing.ipynb) tutorials count as coverage. After the deletion of the health longitudinal tutorial, no example shows a cluster-robust longitudinal variance (`cluster=` on `LongitudinalTreatment`) |
 | index | each new page has a row in the [examples index](examples/index.md), with its evaluation question, its method entry, and the failure mode it shows. The page and its method entry link to each other, as the examples contract in `docs/README.md` requires |
 
 Use the shared program and study design of the [examples index](examples/index.md) when the method
