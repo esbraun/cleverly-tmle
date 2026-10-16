@@ -532,6 +532,13 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
         "property",
         "interval_calibration/nice_g1_treat_all__correctly_specified",
     ),
+    "X19-competing-calibration": (
+        *_keys(
+            "longitudinal-incremental-dropout",
+            "property",
+            "interval_calibration/competing_contrast_x2_h3__correctly_specified",
+        ),
+    ),
     "X13-finite-sample": (
         *_keys(
             "point-treatment-survival",

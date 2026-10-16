@@ -1,0 +1,87 @@
+set,cell,n,replicates,standardized_bias,mcse,se_ratio,coverage,covered,rejected,bias,bias_se
+s1:alternative,power/contrast_x1_5__alternative,4000,1000,0.0135157,0.0316228,0.969817,0.949,0.949,0.855,8.13395e-05,0.00019031
+s1:band,simultaneous_coverage/nine_tilts__pointwise_joint_control,5000,1000,2.27221,0.0316228,3.09059,0.999,0.794,0.206,1.44097,0.0200543
+s1:band,simultaneous_coverage/nine_tilts__simultaneous_band,5000,1000,2.27221,0.0316228,4.02329,1,0.951,0.049,1.44097,0.0200543
+s1:ipsi_folds_2,ate_regimen[odds x0.5 vs natural course],8000,600,-0.347275,0.0408248,0.970636,0.931667,,,-0.00356053,0.000418567
+s1:ipsi_folds_2,ate_regimen[odds x2 vs natural course],8000,600,0.299487,0.0408248,0.967301,0.941667,,,0.00325243,0.000443358
+s1:ipsi_folds_2,ey_regimen[natural course],8000,600,0.0146517,0.0408248,0.994921,0.945,,,0.000391034,0.00108956
+s1:ipsi_folds_2,ey_regimen[odds x0.5],8000,600,-0.124129,0.0408248,1.01864,0.963333,,,-0.00316949,0.00104242
+s1:ipsi_folds_2,ey_regimen[odds x2],8000,600,0.134774,0.0408248,0.975663,0.945,,,0.00364347,0.00110366
+s1:ipsi_folds_5,ate_regimen[odds x0.5 vs natural course],8000,600,-0.253267,0.0408248,0.97297,0.936667,,,-0.00258549,0.000416762
+s1:ipsi_folds_5,ate_regimen[odds x2 vs natural course],8000,600,0.266441,0.0408248,0.947092,0.935,,,0.00294552,0.000451319
+s1:ipsi_folds_5,ey_regimen[natural course],8000,600,0.025982,0.0408248,1.01044,0.963333,,,0.000682921,0.00107306
+s1:ipsi_folds_5,ey_regimen[odds x0.5],8000,600,-0.074345,0.0408248,1.01533,0.958333,,,-0.00190256,0.00104475
+s1:ipsi_folds_5,ey_regimen[odds x2],8000,600,0.135746,0.0408248,0.986138,0.943333,,,0.00362844,0.00109123
+s1:law_a,interval_calibration/contrast_x2__correctly_specified,8000,600,0.202973,0.0408248,0.968824,0.928333,0.928333,1,0.00219637,0.000441765
+s1:law_a,interval_calibration/contrast_x2_in_sample__correctly_specified,8000,600,-0.177477,0.0408248,0.963987,0.94,0.94,1,-0.00192332,0.000442419
+s1:law_a,interval_calibration/known_x2__correctly_specified,8000,600,0.010376,0.0408248,0.972135,0.931667,0.931667,1,0.000192162,0.000756071
+s1:law_a,interval_calibration/mean_x2__correctly_specified,8000,600,0.0736709,0.0408248,0.979863,0.94,0.94,1,0.00198165,0.00109813
+s1:law_a,mechanism_term_necessity/contrast_x2__full_eif,8000,600,0.202973,0.0408248,0.968824,0.928333,0.928333,1,0.00219637,0.000441765
+s1:law_a,mechanism_term_necessity/contrast_x2__mechanism_term_dropped,8000,600,0.202973,0.0408248,0.75852,0.86,0.86,1,0.00219637,0.000441765
+s1:law_a_mixed,interval_calibration/per_node__correctly_specified,8000,600,0.00229242,0.0408248,0.984716,0.945,,,6.79075e-05,0.00120934
+s1:law_a_mixed,interval_calibration/tilt_then_static__correctly_specified,8000,600,0.00179581,0.0408248,0.97237,0.93,,,4.45161e-05,0.001012
+s1:law_ax,interval_calibration/no_positivity__correctly_specified,8000,600,0.0547639,0.0408248,0.987575,0.945,,,0.000222418,0.000165806
+s1:outcome_linear__n_24000,single_robustness/contrast_x2__mechanism_correct__n_24000,24000,1000,0.106441,0.0316228,1.01729,0.955,0.955,1,0.00063072,0.000187383
+s1:outcome_linear__n_24000,targeting_necessity/contrast_x2__one_step,24000,1000,0.106441,0.0316228,1.01729,0.955,0.955,1,0.00063072,0.000187383
+s1:outcome_linear__n_24000,targeting_necessity/contrast_x2__plug_in,24000,1000,-0.367447,0.0316228,1.04814,0.949,0.949,1,-0.00211325,0.000181867
+s1:outcome_linear__n_6000,single_robustness/contrast_x2__mechanism_correct__n_6000,6000,1000,0.200392,0.0316228,0.99531,0.938,0.938,1,0.00243829,0.000384774
+s1:sharp_null,type_i_error/contrast_x2__sharp_null,4000,1000,0.0416983,0.0316228,1.00366,0.954,0.954,0.046,0.000421152,0.000319389
+s2:band,interval_calibration/survival_contrast_x2_h3__correctly_specified,16000,1000,-0.0443509,0.0316228,0.983446,0.949,0.949,0.991,-9.73239e-05,6.93932e-05
+s2:band,interval_calibration/survival_contrast_x2_h3_in_sample__correctly_specified,16000,1000,-0.0285449,0.0316228,0.98249,0.954,0.954,0.991,-6.24027e-05,6.91313e-05
+s2:band,simultaneous_coverage/survival_grid__pointwise_joint_control,16000,1000,3.00783,0.0316228,3.4471,0.999,0.712,0.288,1.7102,0.0179802
+s2:band,simultaneous_coverage/survival_grid__simultaneous_band,16000,1000,3.00783,0.0316228,4.82084,1,0.948,0.052,1.7102,0.0179802
+s2:dropout_folds_1,ate_regimen[odds x0.5 vs natural course],8000,600,0.175521,0.0408248,0.968599,0.931667,,,0.0019264,0.000448064
+s2:dropout_folds_1,ate_regimen[odds x2 vs natural course],8000,600,-0.152157,0.0408248,0.958465,0.935,,,-0.00178177,0.000478062
+s2:dropout_folds_1,ey_regimen[natural course],8000,600,-0.0489842,0.0408248,0.953686,0.946667,,,-0.00144898,0.00120762
+s2:dropout_folds_1,ey_regimen[odds x0.5],8000,600,0.0164634,0.0408248,0.962233,0.96,,,0.000477421,0.00118388
+s2:dropout_folds_1,ey_regimen[odds x2],8000,600,-0.110494,0.0408248,0.952071,0.936667,,,-0.00323074,0.00119368
+s2:dropout_folds_5,ate_regimen[odds x0.5 vs natural course],8000,400,-0.309029,0.05,0.973604,0.92,,,-0.0033857,0.000547796
+s2:dropout_folds_5,ate_regimen[odds x2 vs natural course],8000,400,0.279193,0.05,0.991359,0.9325,,,0.00317593,0.000568769
+s2:dropout_folds_5,ey_regimen[natural course],8000,400,0.0014623,0.05,0.978367,0.945,,,4.21746e-05,0.00144206
+s2:dropout_folds_5,ey_regimen[odds x0.5],8000,400,-0.11725,0.05,0.980167,0.945,,,-0.00334352,0.0014258
+s2:dropout_folds_5,ey_regimen[odds x2],8000,400,0.114512,0.05,0.991763,0.9575,,,0.0032181,0.00140514
+s2:law_c,censoring_complete_case/mean_x2__complete_case,8000,400,2.52073,0.05,0.99987,0.285,,,0.0723811,0.00143572
+s2:law_c,in_sample_fit/dropout_contrast_x2__one_fold,8000,400,-0.191779,0.05,1.03064,0.94,,,-0.00208927,0.000544707
+s2:law_c,interval_calibration/dropout_contrast_x2__correctly_specified,8000,400,0.230154,0.05,1.03671,0.96,,,0.00250553,0.000544317
+s2:law_c,interval_calibration/msm_log_delta__correctly_specified,8000,400,0.247323,0.05,1.02352,0.9425,,,0.00359015,0.000725803
+s2:law_c,interval_calibration/weighted_contrast_x0_5__correctly_specified,8000,400,-0.228383,0.05,1.02268,0.9375,,,-0.00253956,0.000555987
+s2:law_c@16000,censoring_complete_case/mean_x2__complete_case,16000,600,3.41431,0.0408248,0.973409,0.0683333,0.0683333,1,0.0711366,0.000850579
+s2:law_c@16000,interval_calibration/dropout_contrast_x2__correctly_specified,16000,600,0.160068,0.0408248,1.0023,0.95,0.95,1,0.00126994,0.000323895
+s2:law_c@16000,interval_calibration/dropout_contrast_x2_in_sample__correctly_specified,16000,600,-0.12927,0.0408248,1.00363,0.951667,0.951667,1,-0.00102171,0.000322666
+s2:law_c@16000,interval_calibration/msm_log_delta__correctly_specified,16000,600,0.168207,0.0408248,0.990422,0.943333,0.943333,1,0.00177865,0.000431689
+s2:law_c@16000,interval_calibration/weighted_contrast_x0_5__correctly_specified,16000,600,-0.151199,0.0408248,0.974048,0.946667,0.946667,1,-0.00124508,0.000336181
+s2:law_ck,clustered_inference/mean_x2__cluster_robust,8000,1000,0.0487489,0.0316228,0.998995,0.95,0.95,1,0.00245051,0.00158961
+s2:law_ck,clustered_inference/mean_x2__iid_control,8000,1000,0.0487489,0.0316228,0.632293,0.786,0.786,1,0.00245051,0.00158961
+s2:law_dc,interval_calibration/competing_contrast_x2_h3__correctly_specified,8000,400,-0.022733,0.05,0.881656,0.9625,,,-7.99053e-05,0.000175748
+s2:law_dc@32000,interval_calibration/competing_contrast_x2_h3__correctly_specified,32000,1000,-0.015098,0.0316228,0.947676,0.943,,,-2.29786e-05,4.81288e-05
+s2:law_dc@64000,interval_calibration/competing_contrast_x2_h3__correctly_specified,64000,1000,-0.0223151,0.0316228,0.980394,0.947,0.947,1,-2.31891e-05,3.28614e-05
+s2:survival_folds_1,ate_regimen[odds x0.5 vs natural course @ t=1],8000,600,0.0712503,0.0408248,0.961337,0.93,,,8.41639e-05,4.8224e-05
+s2:survival_folds_1,ate_regimen[odds x0.5 vs natural course @ t=2],8000,600,0.0268118,0.0408248,1.00718,0.958333,,,5.67793e-05,8.64548e-05
+s2:survival_folds_1,ate_regimen[odds x0.5 vs natural course @ t=3],8000,600,0.00698972,0.0408248,0.98511,0.943333,,,2.01717e-05,0.000117817
+s2:survival_folds_1,ate_regimen[odds x2 vs natural course @ t=1],8000,600,-0.0715465,0.0408248,0.96231,0.931667,,,-0.000105883,6.04172e-05
+s2:survival_folds_1,ate_regimen[odds x2 vs natural course @ t=2],8000,600,-0.0188627,0.0408248,1.02511,0.961667,,,-4.4318e-05,9.5918e-05
+s2:survival_folds_1,ate_regimen[odds x2 vs natural course @ t=3],8000,600,0.00405319,0.0408248,0.989107,0.951667,,,1.24318e-05,0.000125217
+s2:survival_folds_1,risk_regimen[natural course @ t=1],8000,600,0.0363208,0.0408248,1.05065,0.955,,,0.000148826,0.000167281
+s2:survival_folds_1,risk_regimen[natural course @ t=2],8000,600,0.030283,0.0408248,1.02265,0.958333,,,0.000167569,0.000225902
+s2:survival_folds_1,risk_regimen[natural course @ t=3],8000,600,-0.0211131,0.0408248,1.02987,0.953333,,,-0.000123993,0.000239755
+s2:survival_folds_1,risk_regimen[odds x0.5 @ t=1],8000,600,0.0535287,0.0408248,1.05728,0.956667,,,0.000232989,0.000177694
+s2:survival_folds_1,risk_regimen[odds x0.5 @ t=2],8000,600,0.0370912,0.0408248,1.01976,0.955,,,0.000224348,0.000246931
+s2:survival_folds_1,risk_regimen[odds x0.5 @ t=3],8000,600,-0.0151357,0.0408248,0.986339,0.948333,,,-0.000103821,0.000280032
+s2:survival_folds_1,risk_regimen[odds x2 @ t=1],8000,600,0.0101052,0.0408248,1.02167,0.953333,,,4.2943e-05,0.000173488
+s2:survival_folds_1,risk_regimen[odds x2 @ t=2],8000,600,0.020999,0.0408248,1.02435,0.965,,,0.000123251,0.000239617
+s2:survival_folds_1,risk_regimen[odds x2 @ t=3],8000,600,-0.0178751,0.0408248,1.06899,0.968333,,,-0.000111561,0.000254793
+s2:survival_folds_5,ate_regimen[odds x0.5 vs natural course @ t=1],8000,400,-0.0197091,0.05,0.957167,0.93,,,-2.34191e-05,5.94117e-05
+s2:survival_folds_5,ate_regimen[odds x0.5 vs natural course @ t=2],8000,400,0.0855054,0.05,0.986249,0.9475,,,0.000185299,0.000108355
+s2:survival_folds_5,ate_regimen[odds x0.5 vs natural course @ t=3],8000,400,0.0771191,0.05,1.03507,0.9575,,,0.000214622,0.00013915
+s2:survival_folds_5,ate_regimen[odds x2 vs natural course @ t=1],8000,400,0.0217188,0.05,0.957883,0.9275,,,3.23406e-05,7.44532e-05
+s2:survival_folds_5,ate_regimen[odds x2 vs natural course @ t=2],8000,400,-0.0926556,0.05,0.96618,0.93,,,-0.000231311,0.000124823
+s2:survival_folds_5,ate_regimen[odds x2 vs natural course @ t=3],8000,400,-0.102745,0.05,1.037,0.955,,,-0.000307561,0.000149671
+s2:survival_folds_5,risk_regimen[natural course @ t=1],8000,400,0.00470865,0.05,0.941971,0.94,,,2.15166e-05,0.000228479
+s2:survival_folds_5,risk_regimen[natural course @ t=2],8000,400,0.00464821,0.05,1.01299,0.96,,,2.59723e-05,0.000279379
+s2:survival_folds_5,risk_regimen[natural course @ t=3],8000,400,0.0186821,0.05,0.904582,0.9425,,,0.000125519,0.000335934
+s2:survival_folds_5,risk_regimen[odds x0.5 @ t=1],8000,400,-0.000386419,0.05,0.934345,0.9375,,,-1.90251e-06,0.000246171
+s2:survival_folds_5,risk_regimen[odds x0.5 @ t=2],8000,400,0.0347933,0.05,1.01676,0.9425,,,0.000211271,0.000303609
+s2:survival_folds_5,risk_regimen[odds x0.5 @ t=3],8000,400,0.04596,0.05,0.918024,0.9425,,,0.000340142,0.000370041
+s2:survival_folds_5,risk_regimen[odds x2 @ t=1],8000,400,0.0118467,0.05,0.955646,0.9325,,,5.38572e-05,0.000227309
+s2:survival_folds_5,risk_regimen[odds x2 @ t=2],8000,400,-0.034242,0.05,1.00281,0.955,,,-0.000205339,0.000299835
+s2:survival_folds_5,risk_regimen[odds x2 @ t=3],8000,400,-0.025265,0.05,0.938674,0.9375,,,-0.000182041,0.000360264

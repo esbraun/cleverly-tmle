@@ -69,6 +69,7 @@ code that the raise site assigns, so a section can hold rows of several codes.
 | section | what it lists |
 | --- | --- |
 | [Not written yet](#not-written-yet) | refusals of the request, mostly `implementation_gap` and `inference_gap` |
+| [Experimental compositions](#experimental-compositions) | requests that run and carry the experimental label, and the ones that stay refused |
 | [Replay-only unavailability](#replay-only-unavailability) | the omission codes of a result that cannot replay, all `invalid_declaration` |
 | [A different question](#a-different-question) | requests that ask for another estimand, mostly `different_estimand` |
 | [Wrong by construction](#wrong-by-construction) | mistakes that would run and return a wrong number |
@@ -91,7 +92,7 @@ roadmap item when one tracks the gap. A row marked `invalid_declaration` or
 | `DRTMLE` with cross-fitted missing outcomes at every `guard` including `guard=()`, `intermediate=`, fold-wise targeting, composition with `CTMLE`, `reduction="bivariate"` composed with `randomized=True`, `evaluation=` or `reduced_crossfit="nested"` on the composite indicator, or `targeting="one_step"` with `reduced_crossfit="nested"` at a non-empty `guard` | `implementation_gap`. `api_redirection` for `reduction="bivariate"` with `randomized=True`, and for `targeting="one_step"` with `reduced_crossfit="nested"` | [method presets](../user-guide/methods-learners.md#method-presets), and the [DR-TMLE refusals](dr-tmle/supported-estimands.md#refused-by-name) |
 | a declared missing treatment (`treatment_delta=`) with `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=`, `policies=`, `learned_rule=`, `intermediate=`, `cross_fit=True`, `randomized=True`, a declared known mechanism, a selector-based `CTMLE`, or a shared-design `oat` fit | `invalid_declaration` for `att`, `atc`, `ey_obs`, `par`, `paf`, `incremental=`, `policies=`, `randomized=True`, and a declared known mechanism. `implementation_gap` for the rest | [the composite indicator](dr-tmle/theorem.md#observational-missing-data-the-composite-indicator). The recording may depend on the treatment, so `P(A = a \| W)` is not identified, and the first seven read it. No composite derivation is written for a learned rule ([F27](../roadmap.md#f27-learned-policy-value-outside-the-published-conditions)) or a controlled direct effect. One gate in the shared preflight refuses each one by name before any learner. `CausalData` refuses `treatment_delta=` beside a continuous treatment as `invalid_declaration` for the same reason. `tests/unit/test_refusals_before_the_nuisance_fit.py` pins each refusal and a mutation that removes the gate. A cross-fitted `TMLE` waits on [X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (c), and a cross-fitted `DRTMLE` on [F21](../roadmap.md#f21-other-missing-outcome-cv-tmle-variants). A selector-based `CTMLE` waits on [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) part (d). A cross-fitted per-arm `oat` fit waits on [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference), which holds the cross-fitted outcome-adaptive construction. An in-sample per-arm `oat` fit reports a point estimate under [the per-arm contract](collaborative-tmle.md#baseline-strata-and-missing-data-in-the-per-arm-design) |
 | an undeclared missing treatment value | `invalid_declaration` | the package does not infer a missing treatment from a missing value. `CausalData` raises `DataError` before any learner and names the declaration |
-| a declared known treatment mechanism beside a continuous treatment or `policies=` with `ratio="classifier"`, and a declared `LTMLE` design that leaves a regimen unidentified | `implementation_gap` for a known density. `api_redirection` for `ratio="classifier"`. `invalid_declaration` for a regimen that no unit follows | [known treatment mechanism](point-treatment-tmle.md#known-treatment-mechanism). A known density is not supported, and the classifier learns the ratio that the declaration fixes. A declared zero on the arm a regimen needs leaves no unit able to follow it. Each refuses before any learner. `tests/unit/test_known_treatment_mechanism.py` and `tests/unit/test_known_node_mechanisms.py` pin the texts |
+| a declared known treatment mechanism beside a continuous treatment, a vector treatment with a dose, or `policies=` with `ratio="classifier"`, and a declared `LTMLE` design that leaves a regimen unidentified | `implementation_gap` for a known density. `api_redirection` for `ratio="classifier"`. `invalid_declaration` for a regimen that no unit follows | [known treatment mechanism](point-treatment-tmle.md#known-treatment-mechanism). A known density is not supported, and the classifier learns the ratio that the declaration fixes. A declared zero on the arm a regimen needs leaves no unit able to follow it. Each refuses before any learner. `tests/unit/test_known_treatment_mechanism.py` and `tests/unit/test_known_node_mechanisms.py` pin the texts |
 | baseline strata (`strata=`) with `targeting_scheme="fold"` or `cv_evaluation=True`, an incremental target with a stratum that lacks a treatment arm, an MSM whose design is singular inside a stratum, or a `DRTMLE` stratum with no trainable rows in some training complement | `implementation_gap` for fold targeting and fold evaluation. `invalid_declaration` for the three data conditions | [weights, strata, and clusters](point-treatment-tmle.md#weights-strata-and-clusters). Fold targeting fits the fluctuation on the validation rows. Montoya et al. (2023), Section 3.2, Step 2(c), publish that update, and the package does not implement it with strata ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) and [X11](../roadmap.md#x11-learned-policy-follow-ups) part (h) hold its other compositions). [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b) holds fold targeting with strata. Fold evaluation needs stratum shares and a stratum-indexed fold average in each validation fold ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)). The other three are data conditions with no finite root or no fittable regression. Each refuses before any learner. `tests/unit/test_refusals_before_the_nuisance_fit.py`, `tests/unit/test_stratified_incremental_exact.py` and `tests/unit/test_stratified_msm_exact.py` check them |
 | the MNAR tilt, `missingness_tilt()` and `tipping_gamma()`, on a shift, incremental, regime, MSM, ratio-only, or PAR-and-PAF-only fit with missing outcomes | `implementation_gap` | [missingness tilt and tipping gamma](validation-methods.md#missingness-tilt-and-tipping-gamma). The tilt re-mixes the arm-indexed means and their linear contrasts. No derivation here covers the tilt of these parameters. Both entry points raise the sentence of `fit_wide_tilt_refusal`. Both capability rows read `unavailable` with that sentence before any call. `TestTheTiltRowsReadTheCallsPredicate` in `tests/unit/test_capability_row_predicates.py` checks each kind |
 | a learned-rule value from an in-sample or one-fold fit, the stacked report, fold-specific targeting, a categorical treatment, or a contrast with a known regime or an arm, `reference=` included | `implementation_gap` | [learned rules](point-treatment-tmle.md#learned-rules). Each request has a published source and no implementation here. `TMLE` raises `CapabilityError` before any learner. `CausalStudy.identify` raises it for a categorical treatment, and `IdentifiedEffect.estimate` for a setting. `CrossFitting(n_folds=1)` raises `MethodConfigurationError` at construction, before the estimand is known. [The refusals a caller can meet](cv-tmle.md#the-refusals-a-caller-can-meet) quotes each remedy. [X11](../roadmap.md#x11-learned-policy-follow-ups) reopens them |
@@ -103,7 +104,7 @@ roadmap item when one tracks the gap. A row marked `invalid_declaration` or
 | an `IPSI` plan that sets a node by a modified treatment policy or a `RiskRatioTilt` | `implementation_gap` | [incremental interventions over time](longitudinal-tmle.md#ipsi-refusals). `IPSI` raises `CapabilityError` before any learner. For a `Shift` at node `A2` the message reads: "regimen 'tilt then shift' sets node 'A2' by a modified treatment policy (Shift). IPSI estimates no density ratio for a modified treatment policy or a risk-ratio tilt, so it has no estimator for a plan with such a node. F33 in docs/roadmap.md tracks this. Fit that plan without an odds tilt by LTMLE or SDR". `tests/unit/test_ipsi_e2e.py` pins the text. [F33](../roadmap.md#f33-other-intervention-and-design-compositions) holds the request |
 | `alpha=`, `max_iter=`, `tol=`, `targeting=` or `fluctuation=` on `IPSI`, or a non-default `submodel_alpha`, `max_iter` or `tol` on `IPSIMethod` | `invalid_declaration` | [incremental interventions over time](longitudinal-tmle.md#ipsi-choices-that-differ-from-ltmle). The estimator fits no fluctuation. `IPSI` and `IPSIMethod` raise `MethodConfigurationError` with code `invalid_declaration`, `IPSI` at construction. `tests/unit/test_ipsi_e2e.py` pins both |
 | `ratio()` of an `IPSI` level at or below 0 on the log scale, or outside $(0, 1)$ on the odds scale, and an `IPSI` working model under a logit or log link whose projection does not converge | `invalid_declaration` | [incremental interventions over time](longitudinal-tmle.md#ipsi-choices-that-differ-from-ltmle). An average of influence-function values can leave the outcome range. `CapabilityError` names the level or the link. The difference scale and the identity link stay available |
-| a vector treatment node with a continuous component, and a vector point treatment | `implementation_gap` | [modified treatment policies at a node](longitudinal-tmle.md#modified-treatment-policies-at-a-node). The ratio of a joint policy needs a joint density or the classifier route over the joint policy. `LongitudinalData.from_frame` raises `CapabilityError` before any learner. [X31](../roadmap.md#x31-continuous-vector-components-at-a-node) owns it |
+| `baseline=` with no column on `LongitudinalTreatment`, `LongPanel` or `TimeToEvent` | `implementation_gap` | [what the reader refuses](../user-guide/longitudinal.md#what-the-reader-refuses). The package fits no intercept-only nuisance design. The three layouts share one container, so `LongitudinalData` raises `DataError` before any learner, and the point-treatment covariate check refuses the same way. `tests/unit/test_empty_baseline_refusal.py` pins the code on all three layouts. [X63](../roadmap.md#x63-missing-data-intermediates-and-designs) part (c) reopens it |
 | `SDR` or `IPSI` on a repeated outcome | `implementation_gap` | [repeated outcomes](longitudinal-tmle.md#repeated-outcomes). Each estimator needs its own per-horizon reduction and evidence. The allowlist `REPEATED_OUTCOME_KINDS` names the estimator kinds that fit a repeated outcome. It holds `tmle` only. `LTMLE.fit` raises `CapabilityError` before any learner for every other kind. `available_methods()` lists that kind as unavailable with the same reason. For `SDR` the message reads: "SDR has no per-horizon reduction for a repeated outcome (outcome=Repeated([...])). X32b in docs/roadmap.md tracks this. LTMLE fits one. Each horizon is the end-of-study fit of the panel truncated after it.". `tests/unit/test_repeated_outcome_subclasses.py` and `tests/unit/test_repeated_outcome_study_route.py` pin the text. [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) owns the reductions |
 | `n_folds` above 1 on `SequentialGComputation` or `SequentialIPW` | `implementation_gap` | [sequential g-computation and IPW](sequential-baselines.md#refusals). Neither baseline has a root-n result with a data-adaptive learner, in sample or cross-fitted. The fit raises `CapabilityError` before any learner. [F35](../roadmap.md#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) tracks the missing result |
 | `msm=`, or an odds tilt with an estimated mechanism, on `SequentialGComputation` or `SequentialIPW`; and a modified treatment policy on `SequentialIPW` | `api_redirection` | [sequential g-computation and IPW](sequential-baselines.md#refusals). The fit raises `CapabilityError` before any learner and names `LTMLE`, `SDR`, `IPSI` or `SequentialGComputation`. `tests/unit/test_sequential_baselines.py` pins each text |
@@ -172,48 +173,89 @@ boundaries.
 The remaining shift gap is narrower than it was. The tilt itself is written. The missing derivation
 must establish whether the tilted parameter is still the shift parameter.
 
+### Experimental compositions
+
+A composition that no study covers, and whose code computes the requested quantity, runs. The
+fit returns its estimates under the experimental label. The old refusal text becomes the reason of
+the label, and the roadmap id becomes its evidence. `result.summary()` prints the reason, and
+`estimate.support` holds it as data.
+
+The preflight collects each such condition and goes on. A later refusal therefore still fires, and
+no condition masks it. The fit reads no learner before the preflight ends.
+
+`tests/unit/test_group_a_experimental_fits.py` checks each site below on four points.
+
+1. The preflight collects the condition before any learner.
+2. The fit carries the label, the reason, and the roadmap id.
+3. The point lies within three standard errors of the truth, where the complete-case answer does not.
+4. A deliberate mutation moves the point.
+
+| contract | settings that run as experimental | roadmap |
+| --- | --- | --- |
+| arm-indexed, stacked | linear fluctuation, one-step update, weighted fluctuation | X60 |
+| arm-indexed, stacked | `att` and `atc`, observation weights, clusters | X60 |
+| arm-indexed, stacked | fold evaluation, `split_plan=`, `repeats` above 1, baseline strata | X53 |
+| arm-indexed, stacked | `n_bootstrap > 0` | F2 |
+| natural course, in sample | a linear fluctuation, one-step targeting, weighted targeting, `n_bootstrap > 0` | X60, X55 |
+| natural course, stacked | the same settings, and `repeats` above 1, `split_plan=`, weights, clusters, a continuous outcome | X53, X60, F2 |
+| `DRTMLE` with missing outcomes | `weights=` that tilt the target law | X62 |
+
+These requests stay refused, because the code returns a misleading number or has no path:
+
+| refused | why |
+| --- | --- |
+| a cross-fitted missing-outcome fit outside the two contracts (`tmle.off_contract_axes`) | the interval is misleading |
+| `targeting_scheme="fold"` under either contract | the interval is misleading |
+| a clustered `CTMLE` fit with missing outcomes | the interval is misleading |
+| fold evaluation of the stacked natural-course mean | the fold-evaluated report has no natural-course mean to read |
+| a continuous outcome without `q_bounds`, `intermediate=`, a selector-based `CTMLE`, `DRTMLE` on the natural-course target | an invalid declaration, or an estimator with no written result |
+
 ### Missing-outcome natural-course contracts
 
 `NaturalCourseMean()`, `PopulationAttributableRisk()` and `PopulationAttributableFraction()` with
 `missingness=` and at least one missing outcome have two TMLE contracts. A request that reads the
 natural course beside arm targets meets the same contracts.
-`CrossFitting(enabled=...)` selects the contract. The table gives each requirement and the
-compositions that each contract refuses.
+`CrossFitting(enabled=...)` selects the contract. The table gives each requirement, the
+compositions that each contract refuses, and the compositions that it runs with the
+[experimental label](#experimental-compositions).
 
 | requirement | ordinary TMLE, `enabled=False` | stacked CV-TMLE, `enabled=True` |
 | --- | --- | --- |
-| target | `ey_obs`, `par`, `paf`, or `ey_obs` beside arm means, contrasts, ATT and ATC. `estimands="all"` keeps its arm-only list | the same, without ATT and ATC, which the arm-indexed contract refuses |
+| target | `ey_obs`, `par`, `paf`, or `ey_obs` beside arm means, contrasts, ATT and ATC. `estimands="all"` keeps its arm-only list | the same. ATT and ATC run as experimental under the arm-indexed contract |
 | estimator | `TMLE`. `CTMLE` and `DRTMLE` are refused. `DRTMLE(guard=())` is the ordinary TMLE, and the message names `TMLE` | the same |
 | treatment | two or more arms | two or more arms. With three or more, the scalar `ey_obs` also needs two respondents in each arm |
-| outcome | binary, or continuous with declared `q_bounds`. A continuous outcome without `q_bounds` is refused | binary. A continuous outcome is refused |
-| outer folds | one fold | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2. One fold, stratified folds, and `split_plan=` are refused |
-| repeats | `repeats=1`. A larger value fails when `CrossFitting` is constructed, because no split exists to repeat | `repeats=1`. A larger value is refused when the fit starts |
-| targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`. A linear fluctuation, one-step targeting, and weighted targeting are refused | the same, with `targeting_scheme="pooled"` and `fold_evaluation=False`. Fold targeting and fold evaluation are refused |
-| inference | influence-curve Wald interval. `n_bootstrap > 0` is refused ([X55](../roadmap.md#x55-bootstrap-extensions) part (a)) | influence-curve Wald interval. `n_bootstrap > 0` is refused ([F2](../roadmap.md#f2-targeted-bootstrap-inference) holds the bootstrap of the stacked fit) |
-| rows | fixed `weights=`, `id=` and baseline strata are admitted. `intermediate=` is refused | unweighted iid rows. Weights, clusters, and `intermediate=` are refused. The scalar `ey_obs` admits baseline strata. PAR, PAF, and a joint fit meet the arm-indexed contract, which refuses them ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)) |
+| outcome | binary, or continuous with declared `q_bounds`. A continuous outcome without `q_bounds` is refused | binary. A continuous outcome runs as experimental |
+| outer folds | one fold | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2. One fold and stratified folds are refused. `split_plan=` runs as experimental |
+| repeats | `repeats=1`. A larger value fails when `CrossFitting` is constructed, because no split exists to repeat | `repeats=1`. A larger value runs as experimental ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants)) |
+| targeting | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)`. A linear fluctuation, one-step targeting, and weighted targeting run as experimental ([X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts)) | the same, with `targeting_scheme="pooled"` and `fold_evaluation=False`. Fold targeting and fold evaluation are refused |
+| inference | influence-curve Wald interval. `n_bootstrap > 0` runs as experimental ([X55](../roadmap.md#x55-bootstrap-extensions) part (a)) | influence-curve Wald interval. `n_bootstrap > 0` runs as experimental ([F2](../roadmap.md#f2-targeted-bootstrap-inference) holds the bootstrap of the stacked fit) |
+| rows | fixed `weights=`, `id=` and baseline strata are admitted. `intermediate=` is refused | unweighted iid rows. Weights and clusters run as experimental. `intermediate=` is refused. The scalar `ey_obs` admits baseline strata. PAR, PAF, and a joint fit meet the arm-indexed contract ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)) |
 | response support | no added check | at least two respondents and two nonrespondents in the sample, and one of each in every training complement |
 
 Three checks enforce the two contracts. Each check runs at a different time and raises a different
-error.
+error. A composition that runs as experimental raises nothing. The preflight collects its
+condition, and the fit carries the condition as the reason of the label.
 
 | check | error | code | when it runs |
 | --- | --- | --- | --- |
 | a cross-fitting declaration that is invalid by itself | `MethodConfigurationError`. The engine raises `ValueError` with the same reason | `invalid_declaration`, and `implementation_gap` for a stratified fold policy | when `CrossFitting` or `TMLEMethod` is constructed |
-| a composition this target does not support | `CapabilityError` | `implementation_gap`, `inference_gap` or `invalid_declaration`, by requirement | when the fit starts, before any learner is fitted |
+| a composition this target does not support | `CapabilityError` | `implementation_gap` or `invalid_declaration`, by requirement | when the fit starts, before any learner is fitted |
 | response support | `DataError` | `invalid_declaration` | after fold generation, before either learner receives data |
 
-The composition check refuses most requirements as an `implementation_gap`. The message names
-[X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) for a `CTMLE` fit and
-[X50](../roadmap.md#x50-further-dr-tmle-compositions) for a `DRTMLE` fit. On the stacked fit it names
-[X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) for fold targeting, fold evaluation,
-`split_plan=`, `repeats` above 1, and a continuous outcome. It names
-[X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts) for a linear
-fluctuation, one-step or weighted targeting, `att`, `atc`, observation weights, clusters, and
-`intermediate=`.
+The composition check refuses a `CTMLE` fit and a `DRTMLE` fit as an `implementation_gap`. The
+message names [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) for `CTMLE` and
+[X50](../roadmap.md#x50-further-dr-tmle-compositions) for `DRTMLE`. On the stacked fit it also
+refuses fold targeting and fold evaluation ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants)),
+and `intermediate=`
+([X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts)). It refuses a
+continuous outcome without `q_bounds` as an `invalid_declaration`. Fold targeting and the
+cross-fitted off-contract regimes stay refused because the code returns a misleading interval
+there. Fold evaluation stays refused because the fold-evaluated report has no natural-course mean
+to read.
 
-The check refuses `n_bootstrap` above 0 as an `inference_gap`. The message names X55 in sample and
-[F2](../roadmap.md#f2-targeted-bootstrap-inference) on the stacked fit. It refuses a continuous
-outcome without `q_bounds` as an `invalid_declaration`.
+Every other row of the table above runs. The condition text of the old refusal becomes the reason of
+the label, and the roadmap id becomes its evidence. The check collects the condition and
+continues, so a condition never hides a later refusal.
 
 The declaration check is not specific to this target. One function runs its steps in a fixed order,
 and it returns the first reason it finds. The declaration and the engine therefore give one reason
@@ -273,14 +315,14 @@ defines the estimator, its preflight, and its evidence.
 | requirement | admitted | refused |
 | --- | --- | --- |
 | estimator | `TMLE` or `TMLEMethod` | `CTMLE` or `CollaborativeTMLEMethod`, other than the per-arm `oat` design. `DRTMLE` raises its own refusal at every `guard`, including `guard=()` |
-| targets | `ey`, `ey0`, `ey1`, and `ate`. `rr` and `or` for a binary outcome | `att` and `atc`, also when the default list or `"all"` includes them. The message lists the admitted estimands. A continuous `rr` or `or` stays refused, as for every fit |
+| targets | `ey`, `ey0`, `ey1`, and `ate`. `rr` and `or` for a binary outcome | `att` and `atc` run as experimental, also when the default list or `"all"` includes them. A continuous `rr` or `or` stays refused, as for every fit |
 | treatment | two or more arms | none |
 | outcome | binary, or continuous with a fixed `q_bounds` equal to the known support | continuous with `q_bounds=None` |
-| outer folds | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2 | `split_plan=`. A stratified policy and one fold are refused earlier, by the declaration check |
-| repeats and targeting | `repeats=1` and `targeting_scheme="pooled"` | `repeats` above 1 and `targeting_scheme="fold"` |
-| fluctuation | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)` and `fold_evaluation=False` | a linear fluctuation, one-step targeting, weighted targeting, and fold evaluation |
-| rows | unweighted iid rows | observation weights, clusters, and baseline strata |
-| inference | pointwise influence-curve Wald intervals and the simultaneous band | `n_bootstrap > 0` |
+| outer folds | package-generated folds with `stratify_by="none"` and `n_folds` of at least 2 | `split_plan=` runs as experimental. A stratified policy and one fold are refused earlier, by the declaration check |
+| repeats and targeting | `repeats=1` and `targeting_scheme="pooled"` | `repeats` above 1 runs as experimental. `targeting_scheme="fold"` is refused |
+| fluctuation | `Targeting(fluctuation="logistic", algorithm="iterative", target_weights=False)` and `fold_evaluation=False` | a linear fluctuation, one-step targeting, weighted targeting, and fold evaluation run as experimental |
+| rows | unweighted iid rows | observation weights, clusters, and baseline strata run as experimental |
+| inference | pointwise influence-curve Wald intervals and the simultaneous band | `n_bootstrap > 0` runs as experimental |
 | content | at least the minimum in the [preflight table](point-treatment-tmle.md#stacked-cv-tmle-for-arm-indexed-targets) | a sample or a training complement below that minimum. A sample below its minimum is refused with a remedy that does not repartition, because no partition can succeed |
 
 Three checks enforce the contract. The table gives the error of each check and the time at
@@ -288,7 +330,7 @@ which it runs.
 
 | check | error | code | when it runs |
 | --- | --- | --- | --- |
-| a composition outside the contract | `CapabilityError` | `implementation_gap`, `inference_gap` or `invalid_declaration`, by requirement | when the fit starts, before fold generation and before any learner is fitted |
+| a composition outside the contract that stays refused | `CapabilityError` | `implementation_gap` or `invalid_declaration`, by requirement | when the fit starts, before fold generation and before any learner is fitted |
 | `DRTMLE` with `delta=` and `cross_fit=True` | `CapabilityError` | `implementation_gap` | when the fit starts, before any learner is fitted |
 | minimum content | `DataError` | `invalid_declaration` | after fold generation, before any learner is fitted |
 
@@ -296,27 +338,30 @@ A `DRTMLE` fit with missing outcomes and `cross_fit=True` raises the second `Cap
 the table at every `guard`, including `guard=()`, and under every fold policy.
 `tests/unit/test_drtmle_missing.py` checks the `guard=()` case with zero learner calls.
 
-The composition check runs its steps in a fixed order. A fit that breaks several rules receives
-the first one. Each message names the missing result and the setting that the contract admits.
-A setting message gives both the engine keyword and the public spelling. `tests/unit/test_arm_indexed_stacked_mar.py` checks each step through the engine and
-through `TMLEMethod`, with zero learner calls.
+The composition check runs its steps in a fixed order. A fit that breaks several rules meets the
+first refusal. Each message names the missing result and the setting that the contract admits.
+A setting message gives both the engine keyword and the public spelling. A step marked
+*experimental* does not stop the fit. It adds a condition to the label and the check goes on, so a
+later refusal still fires.
+`tests/unit/test_arm_indexed_stacked_mar.py` checks each step through the engine and through
+`TMLEMethod`, with zero learner calls.
 
-| order | the composition check refuses | code | roadmap item |
-| ---: | --- | --- | --- |
-| 1 | C-TMLE | `implementation_gap` | [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) |
-| 2 | `fluctuation="linear"` | `implementation_gap` | [X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts) |
-| 3 | `algorithm="one_step"` | `implementation_gap` | X60 |
-| 4 | `target_weights=True` | `implementation_gap` | X60 |
-| 5 | `fold_evaluation=True` | `implementation_gap` | [X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) |
-| 6 | `att` or `atc` | `implementation_gap` | X60 |
-| 7 | a continuous outcome with `q_bounds=None` | `invalid_declaration` | none |
-| 8 | `split_plan=` | `implementation_gap` | X53 |
-| 9 | `repeats` above 1 | `implementation_gap` | X53 |
-| 10 | `targeting_scheme="fold"` | `implementation_gap` | X53 |
-| 11 | observation weights | `implementation_gap` | X60 |
-| 12 | clusters | `implementation_gap` | X60 |
-| 13 | baseline strata | `implementation_gap` | X53 |
-| 14 | `n_bootstrap > 0` | `inference_gap` | [F2](../roadmap.md#f2-targeted-bootstrap-inference) |
+| order | the composition check meets | outcome | code | roadmap item |
+| ---: | --- | --- | --- | --- |
+| 1 | C-TMLE | refused | `implementation_gap` | [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) |
+| 2 | `fluctuation="linear"` | experimental | `implementation_gap` | [X60](../roadmap.md#x60-settings-of-the-stacked-and-natural-course-contracts) |
+| 3 | `algorithm="one_step"` | experimental | `implementation_gap` | X60 |
+| 4 | `target_weights=True` | experimental | `implementation_gap` | X60 |
+| 5 | `fold_evaluation=True` | experimental | `implementation_gap` | [X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) |
+| 6 | `att` or `atc` | experimental | `implementation_gap` | X60 |
+| 7 | a continuous outcome with `q_bounds=None` | refused | `invalid_declaration` | none |
+| 8 | `split_plan=` | experimental | `implementation_gap` | X53 |
+| 9 | `repeats` above 1 | experimental | `implementation_gap` | X53 |
+| 10 | `targeting_scheme="fold"` | refused | `implementation_gap` | X53 |
+| 11 | observation weights | experimental | `implementation_gap` | X60 |
+| 12 | clusters | experimental | `implementation_gap` | X60 |
+| 13 | baseline strata | experimental | `implementation_gap` | X53 |
+| 14 | `n_bootstrap > 0` | experimental | `inference_gap` | [F2](../roadmap.md#f2-targeted-bootstrap-inference) |
 
 The list once held a stratified fold policy and a fold count below two. The declaration check
 refuses both, so neither step can run. A copied or modified estimator can still carry the refused
@@ -398,7 +443,7 @@ the type and the message of each one, with learners that raise if they are fitte
 | H8 | an unknown `targeting`, `survival_model` or `isotonic` value, or a `step_size` that is not positive and finite | construction | `ValueError` | "targeting must be 'iterative' or 'one_step'; got {v!r}", "survival_model must be 'iterated_mean' or 'hazard'; got {v!r}", "isotonic must be True or False; got {v!r}", and "step_size must be a positive finite number; got {v!r}". A `step_size` under `targeting="iterative"` is accepted and unused |
 | H9 | `q_bounds=` with `survival_model="hazard"` | `fit` | `ValueError` | the binary-outcome refusal, "q_bounds does not apply to a binary outcome" |
 | H10 | `survival_model="hazard"` or `isotonic=True` on a point-treatment functional | method configuration | `MethodConfigurationError` | "survival_model= and isotonic= apply to a survival curve over time nodes, and a point-treatment functional has no curve. Remove them, or declare a longitudinal or TimeToEvent design" |
-| H11 | `survival_model="hazard"` with a continuous baseline treatment | `fit` | `CapabilityError`, `implementation_gap` | "survival_model='hazard' needs a categorical baseline treatment, and treatment {name!r} is continuous. The hazard plug-in would need the treatment density at every dose, and that construction is not built. X70 in docs/roadmap.md tracks this. Use survival_model='iterated_mean'." |
+| H11 | `survival_model="hazard"` with a continuous baseline treatment, or a vector with a dose | `fit` | `CapabilityError`, `implementation_gap` | "survival_model='hazard' needs a categorical baseline treatment, and treatment {name!r} is continuous. The hazard plug-in would need the treatment density at every dose, and that construction is not built. X70 in docs/roadmap.md tracks this. Use survival_model='iterated_mean'." A vector with a dose reads "is a vector with a dose" in place of "is continuous" |
 | H12 | a non-default `survival_model`, `targeting`, `step_size` or `isotonic` on `SDRMethod`, `IPSIMethod`, `GComputationMethod` or `IPWMethod` | method configuration | `MethodConfigurationError` | "survival_model=, a hazard targeting= algorithm, step_size= and isotonic= are settings of the targeted fit, method='tmle'. The {method} estimator fits no hazard, and no registered study measures its projected curve. Fit method='tmle', or remove them". The `SDR`, `IPSI`, `SequentialGComputation` and `SequentialIPW` engines do not take these keywords, and raise `TypeError` |
 
 The fit checks H3 first, then H1, H2, H11 and H7. So a continuous treatment meets H11 before a
@@ -554,7 +599,9 @@ theory` from the [roadmap's eligibility rules](../roadmap.md#eligibility).
 | `ey1` / `ey0` and the incremental estimands, on a multi-arm fit | `invalid_declaration` | they *name* one of exactly two arms, so on five arms they would report a contrast of arms `0` and `1` under the name of a parameter about all of them. Declared by `requires_binary_treatment`. The multi-arm path reports per-arm `ey` instead |
 | `incremental=` itself, or an `IPSI` tilt node, above two arms | `implementation_gap` | an odds multiplier names two arms. One odds per contrast is well posed, and it is a *different intervention* with a different influence function rather than a generalisation of this one. [X43](../roadmap.md#x43-categorical-incremental-policies) tracks it |
 | `LTMLE`: known stochastic categorical policies at a node | supported | [known stochastic policies](longitudinal-tmle.md#known-stochastic-policies). A node holds a policy density fixed before the fit. The recursion carries the policy mean of the per-level predictions, and the clever covariate is the ratio of the policy to the bounded mechanism. Exact-law tests and the [registered study](method-evidence/stochastic-categorical-longitudinal-tmle.md) cover it |
-| `LTMLE`: modified treatment policies at a continuous, categorical or vector node | supported | [modified treatment policies at a node](longitudinal-tmle.md#modified-treatment-policies-at-a-node). A plan node holds a `Shift`, `Scale`, `Piecewise`, `ModifiedPolicy` or `RiskRatioTilt`. A continuous node reads a pooled-hazard density or the classifier ratio. Exact-law tests cover it, and the registered study `longitudinal-mtp` validates it. A vector node with a continuous component is refused |
+| `LTMLE`: modified treatment policies at a continuous, categorical or vector node | supported | [modified treatment policies at a node](longitudinal-tmle.md#modified-treatment-policies-at-a-node). A plan node holds a `Shift`, `Scale`, `Piecewise`, `ModifiedPolicy` or `RiskRatioTilt`. A continuous node reads a pooled-hazard density or the classifier ratio. Exact-law tests cover it, and the registered study `longitudinal-mtp` validates it |
+| `LTMLE` and `SDR`: modified treatment policies at a mixed vector node | supported | [vector nodes with a continuous component](longitudinal-tmle.md#vector-nodes-with-a-continuous-component). A mixed node holds a `JointPolicy`, one policy for each component. The ratio is a chain-rule density or the classifier ratio. Exact-law tests cover it, and the registered study [`vector-mtp`](method-evidence/vector-modified-treatment-policies.md) validates it. [Vector treatments](#vector-treatments) lists the refusals |
+| `TMLE`: modified treatment policies on a point vector treatment | supported | [vector treatments](point-treatment-tmle.md#vector-treatments). A vector of categorical columns is one categorical treatment over its tuples. A vector with a dose reports `ey_policy` and `ate_policy`. The registered study `vector-mtp` validates both |
 
 A source could close one entry as it stands. It is the multi-arm part of the simulated
 common-cause row. [X43](../roadmap.md#x43-categorical-incremental-policies) tracks the `incremental=`
@@ -562,3 +609,38 @@ row. It needs a written derivation of the changed terms, witnesses, and a regist
 
 The `DRTMLE` row needs no new source either. It needs the implementation that its roadmap row
 holds.
+
+## Vector treatments
+
+A vector treatment holds several treatment columns. A vector of categorical columns is one
+categorical treatment over the observed tuples. A vector with a continuous component has no
+arms. `TMLE(policies=[JointPolicy(...)])` fits it at a point treatment, and `LTMLE` and `SDR` fit
+it at a node. The first table says what ships. The second table lists what a vector refuses. Each
+refusal arrives before the nuisance fit.
+
+| surface | status | where |
+| --- | --- | --- |
+| point treatment, all columns categorical | supported. Every estimand of a categorical treatment runs on the tuple levels | [vector treatments](point-treatment-tmle.md#vector-treatments) |
+| point treatment, with a dose | supported for `ey_policy` and `ate_policy`, on `ratio="density"` and `ratio="classifier"` | [vector treatments](point-treatment-tmle.md#vector-treatments) |
+| longitudinal node, all columns categorical | supported. The node is one categorical node over the tuples | [modified treatment policies at a node](longitudinal-tmle.md#modified-treatment-policies-at-a-node) |
+| longitudinal node, with a dose | supported on both ratio routes, for `LTMLE` and `SDR` | [vector nodes with a continuous component](longitudinal-tmle.md#vector-nodes-with-a-continuous-component) |
+
+Each row of the next table gives the theoretical reason for its refusal.
+
+| refused | raised | reason | test |
+| --- | --- | --- | --- |
+| a `RiskRatioTilt` on a dose or on a categorical component with other than the levels 0 and 1 | `DataError` | the tilt is the `ipsi` rule of `lmtp`. It keeps a treated unit treated with probability $\delta$ and otherwise sets it to 0. A dose or a three-level component has no treated and untreated label, so the two-point randomizer is not defined. A binary component coded 0 and 1 is supported | `tests/unit/test_vector_component_randomizer.py` |
+| an odds tilt, `Incremental`, at a mixed node, and `IPSI` at a mixed node | `CapabilityError` | an odds tilt multiplies the odds of one categorical node (Kennedy 2019, Equation (1)). The joint density of a node with a dose has no odds to multiply. `IPSI` estimates no density ratio, so it has no estimator for a policy node | `tests/unit/test_longitudinal_mixed_node.py` |
+| a dose map that reads the natural value of a later dose | `DataError` | the Jacobian determinant of the joint map is the product of the declared derivatives only when each map reads earlier doses. Any acyclic read has an order that makes the map triangular. The message names it, and `JointPolicy(..., order=...)` declares it | `tests/unit/test_longitudinal_mixed_node.py`, `tests/unit/test_vector_density_route.py` |
+| dose maps that read each other in a cycle, and any other joint map that is not triangular | `DataError` | Equation (3) of Díaz et al. (2023) needs a map that is one-to-one on each piece. A determinant checked on a grid does not establish that a multivariate map is one-to-one, so no declaration of such a map is checkable | `tests/unit/test_vector_density_route.py` |
+| a policy of one column on a point vector with a dose, and a static label, a rule, a known policy density or a policy of one column at a mixed node | `CapabilityError` | a static or dynamic value on a dose is not pathwise differentiable (Díaz et al. 2023, Section 4). A policy of one column does not say which component it moves. Declare a `JointPolicy` | `tests/unit/test_point_vector_treatment.py`, `tests/unit/test_longitudinal_mixed_node.py` |
+| a known treatment mechanism, `treatment_probabilities=`, on a vector with a dose | `CapabilityError` | a known mechanism is a probability for each level. A vector with a dose has a conditional density and no levels, and a known density is outside this package | `tests/unit/test_point_vector_treatment.py`, `tests/unit/test_longitudinal_mixed_node.py` |
+| a declared missing treatment, `treatment_delta=`, on a vector with a dose | `DataError` | the composite indicator divides by the probability that the treatment is recorded and that the arm is $a$. A dose has no arm indicator | `tests/unit/test_point_vector_treatment.py` |
+| `DRTMLE` and `CTMLE` on a vector with a dose, and `DRTMLE` with `policies=` at any treatment | `CapabilityError` | the `CTMLE` strategies need a discrete treatment, because `strategy="oat"` fits one prediction of $\bar Q$ for each arm. The reduced-dimension regressions of `DRTMLE` are derived for static treatment, and no theorem read here gives the reductions of a policy | `tests/unit/test_vector_study_spine.py` |
+| `msm=` on a point vector with a dose | `CapabilityError` | an `MSM` projects the dose-response curve of one dose. The clever covariate integrates over a grid on that dose by the trapezoid rule. A vector has no one dose axis, and the package defines no grid or cubature over a vector. A longitudinal `msm=` over joint-policy plans ships, because its cells are plans | `tests/unit/test_vector_study_spine.py` |
+| an arm-indexed estimand, `interventions=`, `incremental=`, a learned rule, or a fit with no `policies=`, on a point vector with a dose | `DataError` for `interventions=`, `incremental=`, a learned rule and a fit with no `policies=`. `CapabilityError` for an arm-indexed `estimands=` and for a study estimand | such a treatment has no arms, and each of these parameters is indexed by an arm. Say which values to compare with `policies=` | `tests/unit/test_point_vector_treatment.py` |
+| `ratio="classifier"` where no policy ratio is estimated, such as an `ATE` or a declared mechanism | `MethodConfigurationError` | the setting would have no effect, and a silent no-op reads as a validated choice | `tests/unit/test_vector_study_spine.py` |
+
+The refusal of a later-dose read is a scope limit and not a statement about the theory. A map
+that reads a later dose is valid after a reorder, and the message names the order that resolves
+the read. A cycle has no such order.

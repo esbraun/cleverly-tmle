@@ -12,6 +12,7 @@ deterministic-regimes,root_n_and_efficiency,coverage resolves,fixed at size
 incremental-interventions,root_n_and_efficiency,coverage resolves,fixed at size
 known-treatment-mechanism,root_n_and_efficiency,coverage resolves,fixed at size
 learned-rule-cvtmle,root_n_and_efficiency,coverage resolves,fixed at size
+longitudinal-incremental,root_n_and_efficiency,coverage resolves,fixed at size
 mar-attributable-tmle,root_n_and_efficiency,coverage resolves,fixed at size
 mar-drtmle,root_n_and_efficiency,coverage resolves,fixed at size
 mar-natural-course-tmle,root_n_and_efficiency,coverage resolves,fixed at size

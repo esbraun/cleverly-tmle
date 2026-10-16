@@ -30,7 +30,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.assessment import AssessmentStatus
 from cleverly.datasets import make_binary_outcome, make_missing_outcome, make_multi_arm
 from cleverly.estimators import CTMLE, TMLE
@@ -54,7 +54,7 @@ from tests.unit._source_mutation import mutate
 pytestmark = pytest.mark.xdist_group("outcome_adaptive_status")
 
 STATUS = "generated_design_plugin"
-RECORD = NON_INFERENTIAL[STATUS]
+RECORD = STATUS_RECORDS[STATUS]
 
 
 def _binary() -> Any:
@@ -253,13 +253,12 @@ class TestAParametricPerArmFitReportsItsInterval:
         report = result.sensitivity.evalue("ate")
         assert np.isfinite(report.limit)
 
-    def test_a_default_band_is_refused_by_the_verdict_and_not_built(self) -> None:
-        """``simultaneous=True`` leaves the allow-list, so the fit withholds and builds no band."""
+    def test_a_default_band_keeps_the_interval_and_is_not_built(self) -> None:
+        """``simultaneous=True`` is admitted; the fit reports its intervals and builds no band."""
         estimator = _parametric(estimands=("ey", "ate"), simultaneous=True)
         result = estimator.fit(_binary(), outcome="Y", treatment="A").single()
-        verdict = per_arm_parametric_support(estimator, result.data)
-        assert verdict.axis == "simultaneous"
-        assert result.inference_status == STATUS
+        assert per_arm_parametric_support(estimator, result.data).admitted
+        assert result.inference_status == "influence_curve"
         assert result.simultaneous is None
 
 

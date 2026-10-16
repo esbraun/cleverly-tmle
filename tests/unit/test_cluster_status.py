@@ -1,14 +1,18 @@
-"""Clustered fits withhold their interval below 10 clusters, and only there.
+"""Clustered fits show a labelled t interval below 10 clusters, and withhold it below 3.
 
-The status table of ``docs/technical-reference/inference.md`` gives one clustered status for
-``TMLE`` and ``DRTMLE``, and X54 in the roadmap holds the evidence below its floor.
+The status table of ``docs/technical-reference/inference.md`` gives two clustered statuses for
+``TMLE`` and ``DRTMLE``, and X54 and F28 in the roadmap hold the evidence below the floor.
 
 ``"few_cluster_plugin"``
-    A fit with fewer than :data:`~cleverly._inference_status.MINIMUM_INTERVAL_CLUSTERS`
-    contributing clusters, in sample or cross-fitted, overall or in a stratum. 10 is the
-    smallest count a registered study measures. From 10 to 39 such clusters every estimate
-    keeps its interval on a Student t reference with ``J - 2`` degrees of freedom, which
-    ``tests/unit/test_few_cluster_reference.py`` checks.
+    A fit with 3 to 9 contributing clusters, in sample or cross-fitted, overall or in a
+    stratum. 10 is the smallest count a registered study measures. Every estimate shows its
+    interval on a Student t reference with ``J - 2`` degrees of freedom under the
+    experimental label. From 10 to 39 such clusters every estimate keeps the same reference
+    and the ordinary status, which ``tests/unit/test_few_cluster_reference.py`` checks.
+``"no_cluster_variance_plugin"``
+    A fit with fewer than :data:`~cleverly._inference_status.MINIMUM_T_REFERENCE_CLUSTERS`
+    contributing clusters. A t reference has no degree of freedom left, so the fit withholds
+    its interval.
 
 The cluster sizes do not enter the status. The cluster total of the curve is
 ``A_j - N_j psi``, the delta-method curve of the row-weighted mean, so unequal sizes keep the
@@ -40,7 +44,7 @@ from cleverly import (
     Runtime,
     TMLEMethod,
 )
-from cleverly._inference_status import MINIMUM_INTERVAL_CLUSTERS
+from cleverly._inference_status import MINIMUM_INTERVAL_CLUSTERS, STATUS_RECORDS
 from cleverly.datasets import make_clustered
 from cleverly.estimators import DRTMLE, TMLE
 from cleverly.inference import cluster as cluster_module
@@ -52,6 +56,7 @@ from tests.unit._inference_status_support import (
     assert_evalue_unavailable,
     assert_keeps_inference,
     assert_round_trips,
+    assert_shows_interval,
     assert_variable_importance_refuses,
     assert_withholds,
     at_or_below,
@@ -66,6 +71,7 @@ pytestmark = pytest.mark.xdist_group("cluster_status")
 tmle_module = importlib.import_module("cleverly.estimators.tmle")
 
 FEW = "few_cluster_plugin"
+NO_CLUSTER = "no_cluster_variance_plugin"
 
 #: A cross-fitted continuous outcome needs its declared range, so every cross-fitted fit
 #: here passes one wide enough for ``make_clustered``.
@@ -129,6 +135,14 @@ def few_frame() -> Any:
     """9 clusters of 40 rows, one below the floor."""
     frame = make_clustered(n=360, cluster_size=40, seed=7)[0]
     assert sizes(frame) == (MINIMUM_INTERVAL_CLUSTERS - 1, 40, 40)
+    return frame
+
+
+@pytest.fixture(scope="module")
+def two_frame() -> Any:
+    """2 clusters of 200 rows, one below the smallest count a t reference reads."""
+    frame = make_clustered(n=400, cluster_size=200, seed=7)[0]
+    assert sizes(frame) == (2, 200, 200)
     return frame
 
 
@@ -210,7 +224,54 @@ class TestTheNeighbouringFitsKeepTheirInterval:
         assert {e.reference_df for e in result.estimates.values()} == {8}
 
 
-class TestFewClustersReportNoInterval:
+class TestFewClustersShowALabelledTInterval:
+    @pytest.mark.parametrize(
+        ("estimator", "settings"),
+        [
+            pytest.param(TMLE, IN_SAMPLE, id="TMLE in sample"),
+            pytest.param(TMLE, CROSS_FITTED, id="TMLE cross-fitted"),
+            pytest.param(DRTMLE, IN_SAMPLE, id="DRTMLE in sample"),
+        ],
+    )
+    def test_the_estimates_show_the_t_interval_of_the_plug_in_curve(
+        self, few_frame: Any, estimator: type, settings: dict[str, Any]
+    ) -> None:
+        """Nine clusters read t(7): the interval is the plug-in Wald interval on that quantile."""
+        result = fit(few_frame, estimator=estimator, **settings)
+        assert_shows_interval(result, FEW, MINIMUM_INTERVAL_CLUSTERS - 3)
+
+    def test_the_label_and_the_summary_carry_the_reason(self, few_frame: Any) -> None:
+        result = fit(few_frame, **IN_SAMPLE)
+        support = result["ate"].support
+        assert support.label == "experimental"
+        assert STATUS_RECORDS[FEW].shown_reason in support.reason
+        assert "X54" in support.evidence
+        assert STATUS_RECORDS[FEW].shown_reason in result.summary()
+
+    def test_the_nuisance_report_and_the_assessment_carry_the_note(self, few_frame: Any) -> None:
+        assert_assessment_note(fit(few_frame, **IN_SAMPLE), FEW)
+
+    def test_the_evalue_is_available(self, few_frame: Any) -> None:
+        assert fit(few_frame, **IN_SAMPLE).sensitivity.capability("evalue").available
+
+    def test_variable_importance_runs_and_names_the_status(self, few_frame: Any) -> None:
+        """The status reads the prepared cluster labels, and a shown status does not refuse."""
+        from cleverly import variable_importance
+
+        entries = variable_importance(
+            few_frame,
+            outcome="Y",
+            candidates=["A"],
+            covariates=["W1", "W2"],
+            estimator=TMLE(**linear_in_sample()),
+            id="cluster",
+        )
+        frame = entries.to_frame()
+        assert set(frame["inference"]) == {FEW}
+        assert {"std_err", "p_value", "p_value_adjusted"} <= set(frame.columns)
+
+
+class TestFewerThanThreeClustersReportNoInterval:
     @pytest.mark.parametrize(
         ("estimator", "settings"),
         [
@@ -220,24 +281,24 @@ class TestFewClustersReportNoInterval:
         ],
     )
     def test_the_estimates_withhold_their_inference(
-        self, few_frame: Any, estimator: type, settings: dict[str, Any]
+        self, two_frame: Any, estimator: type, settings: dict[str, Any]
     ) -> None:
-        result = fit(few_frame, estimator=estimator, **settings)
-        assert_withholds(result, FEW)
+        result = fit(two_frame, estimator=estimator, **settings)
+        assert_withholds(result, NO_CLUSTER)
         # The diagnostic keeps the normal reference.
         assert {e.reference_df for e in result.estimates.values()} == {None}
 
-    def test_the_nuisance_report_and_the_assessment_carry_the_note(self, few_frame: Any) -> None:
-        assert_assessment_note(fit(few_frame, **IN_SAMPLE), FEW)
+    def test_the_nuisance_report_and_the_assessment_carry_the_note(self, two_frame: Any) -> None:
+        assert_assessment_note(fit(two_frame, **IN_SAMPLE), NO_CLUSTER)
 
-    def test_the_evalue_is_unavailable_with_the_reason(self, few_frame: Any) -> None:
-        assert_evalue_unavailable(fit(few_frame, **IN_SAMPLE), FEW)
+    def test_the_evalue_is_unavailable_with_the_reason(self, two_frame: Any) -> None:
+        assert_evalue_unavailable(fit(two_frame, **IN_SAMPLE), NO_CLUSTER)
 
-    def test_variable_importance_refuses_before_it_fits(self, few_frame: Any) -> None:
+    def test_variable_importance_refuses_before_it_fits(self, two_frame: Any) -> None:
         """The status reads the prepared cluster labels, so it refuses before a learner."""
         assert_variable_importance_refuses(
-            FEW,
-            few_frame,
+            NO_CLUSTER,
+            two_frame,
             covariates=["W1", "W2"],
             estimator=TMLE(**linear_in_sample(**never_fit_learners())),
             id="cluster",
@@ -278,20 +339,41 @@ def few_stratum_frame() -> Any:
     return frame
 
 
-class TestAStratumWithFewClustersReportsNoInterval:
+@pytest.fixture(scope="module")
+def two_stratum_frame() -> Any:
+    """50 clusters, 2 of them in the stratum ``S = "small"``."""
+    frame = stratified_frame(50, small=2)
+    assert frame.loc[frame["S"] == "small", "cluster"].nunique() == 2
+    return frame
+
+
+class TestAStratumWithFewClustersReadsItsOwnCount:
     """Each stratum's estimate reads only its own clusters, so the count holds per stratum.
 
-    The fit keeps one status, so a stratum of 3 clusters inside a fit of 50 withholds
-    every estimate's interval.
+    The fit keeps one status. A stratum of 3 clusters inside a fit of 50 shows every
+    estimate's interval, each on the degrees of freedom of the rows it reads. A stratum of 2
+    clusters withholds every estimate's interval.
     """
 
-    def test_a_three_cluster_stratum_withholds_every_estimate(self, few_stratum_frame: Any) -> None:
+    def test_a_three_cluster_stratum_shows_each_estimate_on_its_own_reference(
+        self, few_stratum_frame: Any
+    ) -> None:
         result = fit_stratified(few_stratum_frame)
         assert set(result.estimates) == {"ate", "ate[S='small']", "ate[S='big']"}
-        assert_withholds(result, FEW)
+        assert result.inference_status == FEW
+        assert {name: e.reference_df for name, e in result.estimates.items()} == {
+            "ate": None,
+            "ate[S='small']": 1,
+            "ate[S='big']": None,
+        }
+        assert all(e.support.label == "experimental" for e in result.estimates.values())
         assert "clusters = 50, fewest in one stratum 3 (cluster-robust variance)" in (
             result.summary()
         )
+
+    def test_a_two_cluster_stratum_withholds_every_estimate(self, two_stratum_frame: Any) -> None:
+        result = fit_stratified(two_stratum_frame)
+        assert_withholds(result, NO_CLUSTER)
 
     def test_a_stratum_at_the_floor_keeps_the_interval(self) -> None:
         """The control: 50 clusters split 10 and 40, the small stratum at the floor."""
@@ -304,9 +386,9 @@ class TestAStratumWithFewClustersReportsNoInterval:
         self, few_stratum_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(cluster_module, "fewest_clusters", whole_fit_count)
-        # The forced status reaches the stratum's t reference, which refuses 3 clusters.
-        with pytest.raises((AssertionError, ValueError)):
-            assert_withholds(fit_stratified(few_stratum_frame), FEW)
+        # The whole-fit count reads 50, so the fit keeps the ordinary status.
+        with pytest.raises(AssertionError):
+            assert fit_stratified(few_stratum_frame).inference_status == FEW
 
 
 def within_cluster_strata(frame: Any, first: int, second: int) -> Any:
@@ -352,6 +434,11 @@ class TestUnequalWeightMassKeepsTheInterval:
 
 class TestThePrecedence:
     def test_estimated_weights_come_before_the_few_cluster_status(self, few_frame: Any) -> None:
+        """Both statuses show an interval, so the table order picks the first and names both.
+
+        The label reason carries the reason of each shown status: X50 for the weights and X54
+        for the cluster count.
+        """
         frame = few_frame.assign(w=np.random.default_rng(3).uniform(0.5, 2.0, len(few_frame)))
         result = (
             DRTMLE(**linear_in_sample(estimands=ESTIMANDS, **IN_SAMPLE))
@@ -365,9 +452,30 @@ class TestThePrecedence:
             )
             .single()
         )
-        assert_withholds(result, "estimated_weight_plugin")
+        assert_shows_interval(result, "estimated_weight_plugin", MINIMUM_INTERVAL_CLUSTERS - 3)
         # The witness that the few-cluster status applies to this data on its own.
         assert cluster_inference_status(result.data.cluster) == FEW
+        support = result["ate"].support
+        assert STATUS_RECORDS["estimated_weight_plugin"].shown_reason in support.reason
+        assert STATUS_RECORDS[FEW].shown_reason in support.reason
+        assert {"X50", "X54"} <= set(support.evidence)
+
+    def test_a_withheld_status_comes_before_a_shown_one(self, two_frame: Any) -> None:
+        """Two clusters with estimated weights keep the withheld status, whatever its place."""
+        frame = two_frame.assign(w=np.random.default_rng(3).uniform(0.5, 2.0, len(two_frame)))
+        result = (
+            DRTMLE(**linear_in_sample(estimands=ESTIMANDS, **IN_SAMPLE))
+            .fit(
+                frame,
+                outcome="Y",
+                treatment="A",
+                id="cluster",
+                weights="w",
+                weights_estimated=True,
+            )
+            .single()
+        )
+        assert_withholds(result, NO_CLUSTER)
 
 
 def whole_fit_count(cluster: Any, strata: Any = None, weights: Any = None) -> int:
@@ -399,7 +507,7 @@ class TestZeroWeightClusters:
             .single()
         )
         assert result.data.n_clusters == 40
-        assert_withholds(result, FEW)
+        assert_shows_interval(result, FEW, 1)
         assert "positive weight mass in 3" in result.summary()
 
     def test_all_positive_clusters_keep_the_interval(self, equal_frame: Any) -> None:
@@ -411,8 +519,8 @@ class TestZeroWeightClusters:
     ) -> None:
         frame = equal_frame.assign(w=(equal_frame["cluster"] < 3).astype(float))
         monkeypatch.setattr(cluster_module, "fewest_clusters", whole_fit_count)
-        with pytest.raises((AssertionError, ValueError)):
-            assert_withholds(
+        with pytest.raises(AssertionError):
+            assert_shows_interval(
                 TMLE(**linear_in_sample(estimands=("ate",), **IN_SAMPLE))
                 .fit(
                     frame,
@@ -424,6 +532,7 @@ class TestZeroWeightClusters:
                 )
                 .single(),
                 FEW,
+                1,
             )
 
 
@@ -443,13 +552,13 @@ class TestTheStatusIsTheHooksToWithhold:
         """The rule's own module compares against a floor of zero."""
         monkeypatch.setattr(cluster_module, "MINIMUM_INTERVAL_CLUSTERS", 0)
         with pytest.raises((AssertionError, ValueError)):
-            assert_withholds(fit(few_frame, **IN_SAMPLE), FEW)
+            assert_shows_interval(fit(few_frame, **IN_SAMPLE), FEW, 7)
 
     def test_an_at_or_below_comparison_fails_the_boundary_control(
         self, few_frame: Any, floor_frame: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(tmle_module, "cluster_inference_status", at_or_below)
-        assert_withholds(fit(few_frame, **IN_SAMPLE), FEW)
+        assert_shows_interval(fit(few_frame, **IN_SAMPLE), FEW, 7)
         with pytest.raises(AssertionError):
             assert_keeps_inference(fit(floor_frame, **IN_SAMPLE))
 
@@ -505,6 +614,10 @@ class TestASavedResultLoadsAsSaved:
     @pytest.mark.parametrize("route", ROUTES)
     def test_a_few_cluster_fit_keeps_its_status(self, few_frame: Any, route: str) -> None:
         assert_round_trips(fit(few_frame, **IN_SAMPLE), FEW, route)
+
+    @pytest.mark.parametrize("route", ROUTES)
+    def test_a_no_cluster_fit_keeps_its_status(self, two_frame: Any, route: str) -> None:
+        assert_round_trips(fit(two_frame, **IN_SAMPLE), NO_CLUSTER, route)
 
     @pytest.mark.parametrize("route", ROUTES)
     def test_a_t_reference_round_trips(self, floor_frame: Any, route: str) -> None:

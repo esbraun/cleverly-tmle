@@ -35,6 +35,7 @@ from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError, RefusalReason
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
+from ..interventions.policy import vector_route_refusal
 from ..learners._fitting import (
     Task,
     as_target,
@@ -1255,6 +1256,9 @@ def fit_nuisances(
     fill = data.arm_codes[0] if recorded is not None else None
     if companion is not None:
         _check_companion(data, companion)
+    vector = data.treatment_kind == "vector"
+    if vector and (not policies or not fit_treatment):
+        raise CapabilityError.from_refusal(vector_route_refusal(data.treatment_name))
     if not fit_treatment and (data.is_continuous_treatment or incremental or companion is not None):
         raise ValueError(
             "fit_treatment=False only supports discrete point-treatment nuisances without "
@@ -1267,11 +1271,26 @@ def fit_nuisances(
         if screen_treatment
         else treatment_learner
     )
-    arms = data.arm_codes
+    # A vector treatment with a continuous component has no arms; see ``vector`` above.
+    arms = () if vector else data.arm_codes
     density: ConditionalDensity | None = None
     policy_set: PolicySet | None = None
     ipsi_set: IPSISet | None = None
-    if data.is_continuous_treatment and policies and policy_ratio == "classifier":
+    if vector and policy_ratio != "classifier":
+        # The density route at a vector treatment: the chain rule over the components, and
+        # each policy's induced density by its preimages (interventions.joint_density).
+        propensity = Propensity(np.zeros((data.n, 0)), ())
+        policy_set = PolicySet.evaluate_vector_density(
+            tuple(policies),
+            data,
+            treatment_model,
+            folds,
+            reference=policy_reference,
+            n_bins=density_bins,
+            n_jobs=n_jobs,
+        )
+        diagnostics["density"] = policy_set.joint.diagnostics if policy_set.joint else {}
+    elif vector or (data.is_continuous_treatment and policies and policy_ratio == "classifier"):
         # The classifier route of Diaz et al. (2023), Section 5.4: no density is fitted, and
         # each policy's ratio is the odds of a stacked label.  The classifier is
         # ``treatment_learner``, cross-fitted on the same folds every other nuisance uses.

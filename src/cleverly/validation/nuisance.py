@@ -53,7 +53,7 @@ import numpy as np
 from scipy.special import expit
 from scipy.stats import norm
 
-from .._inference_status import InferenceStatus, status_record, supplies_inference
+from .._inference_status import InferenceStatus, is_labelled, status_record, supplies_inference
 from .._typing import BoolArray, FloatArray, IntArray
 from ..data.weighting import REPORTED_DRAW
 from ..exceptions import capitalize_first
@@ -657,15 +657,17 @@ class NuisanceDiagnostics:
 
     @property
     def inference_note(self) -> str | None:
-        """The fact a report adds when the fit's estimates carry no inference.
+        """The fact a report adds when the fit's estimates carry a labelled status.
 
         The assessment note the status table records for a fit whose estimates declare
-        a diagnostic status, and ``None`` otherwise. Keyed on
+        a labelled status, shown or withheld, and ``None`` otherwise. Keyed on
         :attr:`inference` and not on :attr:`treatment_role`, which the outcome-adaptive
         path shares, and that path has a status of its own. :meth:`summary` and the
         assessment's nuisance-model row both read it here.
         """
-        return status_record(self.inference).assessment_note if self._non_inferential else None
+        return (
+            status_record(self.inference).assessment_note if is_labelled(self.inference) else None
+        )
 
     def _working_mechanism(self, model: NuisanceModelReport) -> bool:
         """Whether this report is a collaborative fit's own selected propensity.
@@ -790,7 +792,7 @@ def _at_realised_treatment(data: CausalData, mechanism: FloatArray) -> FloatArra
     for.
     """
     values = np.asarray(mechanism, dtype=float)
-    if data.is_continuous_treatment:
+    if not data.has_arms:
         return np.asarray(values[:, 0], dtype=float)
     # Binary-only, as it has always been: a K-armed fit reports arm 0's value for every
     # row outside arms 0 and 1. Pre-existing and out of scope here; named so it is not
@@ -862,7 +864,12 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
     # Two arms read one column only when the mechanism is a distribution over the arms. The
     # per-arm outcome-adaptive mechanism of CTMLE is off the simplex: its arm-0 column is
     # not the complement of its arm-1 column, so each arm takes its own report below.
-    if data.is_binary_treatment and nuisance.fits_treatment and nuisance.propensity.simplex:
+    if (
+        data.has_arms
+        and data.is_binary_treatment
+        and nuisance.fits_treatment
+        and nuisance.propensity.simplex
+    ):
         models.append(
             _binary_report(
                 "propensity",
@@ -876,7 +883,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
                 mask=recorded,
             )
         )
-    elif not data.is_continuous_treatment and nuisance.fits_treatment:
+    elif data.has_arms and nuisance.fits_treatment:
         # One one-vs-rest report per arm, rather than a single multi-class summary.
         # Positivity is an arm-by-arm property -- the estimate can rest on a badly
         # calibrated denominator for one arm while the pooled log loss looks fine --
@@ -970,7 +977,7 @@ def nuisance_diagnostics(result: TMLEResult) -> NuisanceDiagnostics:
             else "declared_treatment_law"
             if nuisance.treatment_mechanism == "known"
             else "estimated_treatment_law"
-            if not data.is_continuous_treatment
+            if data.has_arms
             else None
         ),
         repeat_spread=spread_rows,

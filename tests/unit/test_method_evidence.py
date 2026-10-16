@@ -881,16 +881,9 @@ class TestPublishedVerdicts:
         single = published.loc[published["property"] == "single_robustness"]
         positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
-            # A study with no rows of the family may publish no ``n`` column at all (the
-            # learned-rule boundary study publishes no property rows), but the two-size rule
-            # reads ``n``, so a study that does publish the family has to carry it.
-            assert "n" in positive, f"{study.slug}: single_robustness rows carry no n column"
-            positive = positive.sort_values("n")
-            small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
-            tolerance = study.properties().ABSOLUTE_BIAS_TOLERANCE
-            expected = bool(large < tolerance and large < small)
+            expected = bool(positive["bias_equivalent"].all())
             assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
-                f"{study.slug}: a single_robustness row's verdict is not the two-size rule"
+                f"{study.slug}: a single_robustness row's verdict is not its declared rule"
             )
 
         # Unconditional over every study with calibration cells.  Guarding this block on the
@@ -1308,6 +1301,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         "weight_necessity",
         "policy_necessity",
         "inverse_necessity",
+        "preimage_necessity",
+        "image_necessity",
+        "jacobian_necessity",
         "projection_necessity",
         "randomizer_projection",
         "ratio_necessity",
@@ -1414,7 +1410,6 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "sdr_tmle_agreement",
         "variance_direction",
         "censoring_complete_case",
-        "in_sample_fit",
         "one_wrong_reported",
         # The isotonic cell's binding share: the projection moved a level or it did not.
         "isotonic_projection",
@@ -2680,8 +2675,11 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:projection_displacement": lambda s: s.properties().PROJECTION_DISPLACEMENT,
     "margin:policy_displacement": lambda s: s.properties().POLICY_DISPLACEMENT,
     "margin:inverse_displacement": lambda s: s.properties().INVERSE_DISPLACEMENT,
+    "margin:preimage_displacement": lambda s: s.properties().PREIMAGE_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
-    "margin:subject_failure_bound": lambda s: s.runner().FAILURE_BOUND,
+    # The record's declaration, not a runner constant: a study may declare the bound inline in
+    # ``failure_bound`` without naming it in its runner module.
+    "margin:subject_failure_bound": lambda s: float(s.failure_bound[s.implementation]),
     "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
 }
 
@@ -3146,10 +3144,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES = (
-    "tests.studies.longitudinal_incremental_properties",
-    "tests.studies.longitudinal_incremental_dropout_properties",
-)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:

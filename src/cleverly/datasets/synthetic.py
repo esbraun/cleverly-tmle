@@ -1091,6 +1091,87 @@ def make_missing_outcome(
     return _make(missing_outcome_dgp(strength), n, seed, backend)
 
 
+def missing_outcome_bounded_dgp(strength: float = 2.0, concentration: float = 12.0) -> DGP:
+    r"""The law behind :func:`make_missing_outcome_bounded`: a proportion with missing values.
+
+    The treatment and response mechanisms are those of ``missing_outcome_dgp(strength)``.  The
+    outcome mean is ``0.06 + 0.88 expit(0.7 (m(A, W) - 1.8))``, where ``m`` is that law's
+    outcome mean.  The map is increasing, so the curvature and the ``A``-by-``W1`` interaction
+    stay.  Every mean lies in ``(0.06, 0.94)``.  ``Y`` is drawn as
+    ``Beta(phi * mean, phi * (1 - mean))``, so the support is ``(0, 1)``.  With ``phi = 12``
+    the smaller beta shape exceeds ``0.72``, which keeps a draw from rounding to ``0`` or ``1``.
+    """
+    base = missing_outcome_dgp(strength)
+
+    def outcome_mean(w: FloatArray, a: float, z: float | None) -> FloatArray:
+        return 0.06 + 0.88 * expit(0.7 * (base.outcome_mean(w, a, z) - 1.8))
+
+    return DGP(
+        name=f"missing_outcome_bounded_x{strength:g}(concentration={concentration:g})",
+        n_latent=base.n_latent,
+        covariate_names=base.covariate_names,
+        propensity=base.propensity,
+        outcome_mean=outcome_mean,
+        family="beta",
+        concentration=concentration,
+        missingness=base.missingness,
+    )
+
+
+def make_missing_outcome_bounded(
+    n: int = 1000,
+    *,
+    seed: int | np.random.Generator | None = None,
+    strength: float = 2.0,
+    backend: Backend | str | None = None,
+) -> tuple[Any, dict[str, float]]:
+    """Missing outcomes on the known support ``(0, 1)``, with a nonlinear outcome mean.
+
+    Parameters
+    ----------
+    n : int
+        Number of observations.
+    seed : int, Generator, or None
+        Seed or NumPy random generator.
+    strength : float
+        The ``strength`` of :func:`make_missing_outcome`. See its Notes.
+    backend : {"pandas", "polars", "pyarrow"} or None, default=None
+        Dataframe backend. ``None`` uses pandas when installed, then the first available backend.
+
+    Returns
+    -------
+    dataframe
+        Simulated observations with a proportion outcome that holds missing values.
+    truth : dict of str to float
+        Exact causal parameters for the data-generating process.
+
+    See Also
+    --------
+    cleverly.datasets.make_missing_outcome : The same mechanisms with an unbounded outcome.
+
+    Notes
+    -----
+    The outcome is a proportion. Its known support is the open interval ``(0, 1)``, so a
+    cross-fitted fit can declare ``q_bounds=(0, 1)``. The bounds come from the law, not from
+    the observed outcomes. :func:`missing_outcome_bounded_dgp` gives the outcome mean.
+
+    At the default ``strength=2`` the effect varies with ``W1``, and the response probability
+    falls as ``W1`` rises. The effect standardized to the respondents' covariates therefore
+    differs from the ATE.
+
+    Examples
+    --------
+    >>> from cleverly.datasets import make_missing_outcome_bounded
+    >>> frame, truth = make_missing_outcome_bounded(n=200, seed=1)
+    >>> list(frame.columns)
+    ['Y', 'A', 'W1', 'W2', 'W3', 'Delta']
+    >>> observed = frame["Y"].dropna()
+    >>> bool(observed.between(0.0, 1.0, inclusive="neither").all())
+    True
+    """
+    return _make(missing_outcome_bounded_dgp(strength), n, seed, backend)
+
+
 def missing_outcome_binary_dgp() -> DGP:
     """A binary outcome *and* missing outcomes, so ``rr`` and ``or`` have a truth.
 
@@ -1944,6 +2025,7 @@ GENERATORS: dict[str, Callable[..., tuple[Any, dict[str, float]]]] = {
     "clustered": make_clustered,
     "binary_outcome": make_binary_outcome,
     "missing_outcome_binary": make_missing_outcome_binary,
+    "missing_outcome_bounded": make_missing_outcome_bounded,
 }
 
 
