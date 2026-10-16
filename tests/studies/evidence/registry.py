@@ -440,6 +440,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_ctmle_oat_per_arm_parametric import (
         STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC,
     )
+    from tests.studies.canonical_ctmle_oat_per_arm_parametric_crossfit import (
+        STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC_CROSSFIT,
+    )
     from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
         STUDY as CTMLE_OAT_PER_ARM_STRATA_MISSING,
     )
@@ -634,6 +637,7 @@ def registered() -> tuple[StudyRecord, ...]:
         PARAMETRIC_GFORMULA,
         CTMLE_OAT_PER_ARM,
         CTMLE_OAT_PER_ARM_PARAMETRIC,
+        CTMLE_OAT_PER_ARM_PARAMETRIC_CROSSFIT,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         CALIBRATION_SLOPE_WARNING,

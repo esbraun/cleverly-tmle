@@ -32,7 +32,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError, RefusalReason
+from ..exceptions import CapabilityError, DataError, RefusalReason
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet
 from ..interventions.policy import (
@@ -62,6 +62,7 @@ if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes 
 
 __all__ = [
     "CompanionEstimates",
+    "DrawInference",
     "InnerDesigns",
     "KnownPropensity",
     "NuisanceEstimates",
@@ -717,6 +718,38 @@ class NuisanceEstimates:
 
 
 @dataclass(frozen=True)
+class DrawInference:
+    """What one draw of the cross-fitting split reported for one estimand.
+
+    The reported estimate of a repeated fit is the median over draws, with the
+    split-adjusted variance of :func:`~cleverly.inference.median_estimates`. This record
+    keeps the draw's own numbers, so each draw can be checked against a fit with
+    ``repeats=1`` at its seed.
+
+    Parameters
+    ----------
+    status : str
+        The draw's inference status, before
+        :func:`~cleverly.inference.influence.restamp_parameter_statuses` gives every draw
+        of the estimand one parameter status.
+    se : float
+        The standard error of the draw's reported curve, on the reporting scale.
+    curve : ndarray or None, default=None
+        ``(n,)``, the draw's reported influence curve. Written by the per-arm
+        outcome-adaptive :class:`~cleverly.CTMLE` with the stacked curve; ``None``
+        elsewhere.
+    shipped_se : float or None, default=None
+        The standard error of the draw's uncorrected adaptive-propensity curve on an
+        admitted per-arm fit with the stacked curve. ``None`` for a fit without a stack.
+    """
+
+    status: str
+    se: float
+    curve: FloatArray | None = None
+    shipped_se: float | None = None
+
+
+@dataclass(frozen=True)
 class RepeatFit:
     """One draw of the cross-fitting split, with everything that draw produced.
 
@@ -754,12 +787,18 @@ class RepeatFit:
         any C-TMLE selection folds.  Under ``random_state=None`` the engine drew it from
         operating-system entropy, so this field is the only record of it.  ``None`` only on
         a draw built by hand.
+    inference : mapping of str to DrawInference, default={}
+        This draw's own status and standard error per reported estimand, before the
+        median.  The per-arm outcome-adaptive :class:`~cleverly.CTMLE` with the stacked
+        curve also keeps the draw's curve and its shipped standard error.  Empty only on a
+        draw built by hand.
     """
 
     nuisance: NuisanceEstimates
     fluctuations: dict[str, Fluctuation]
     psi: Mapping[str, float] = field(default_factory=dict)
     seed: int | None = None
+    inference: Mapping[str, DrawInference] = field(default_factory=dict)
 
     @property
     def folds(self) -> Folds:
@@ -1092,6 +1131,381 @@ def _screened(learner: Learner, threshold: float, min_retain: int | None) -> Lea
     )
 
 
+@dataclass(frozen=True)
+class ArmQuery:
+    """Which treatment arm's outcome model predicts a set of rows, and at what intermediate level.
+
+    Parameters
+    ----------
+    arm : float or ndarray
+        One arm code for every row, or one arm code per row.  The observed prediction passes
+        each row's own arm.  An arm-coded modified treatment policy passes the arm each row is
+        moved to.
+    intermediate : float or None
+        The level the intermediate variable is set to, or ``None`` to predict at the design
+        the models were trained on, which holds the observed intermediate when the data
+        carries one.
+    """
+
+    arm: float | FloatArray
+    intermediate: float | None = None
+
+
+def _refuse_by_arm_dose(data: CausalData) -> None:
+    """Refuse a per-arm outcome regression on a continuous dose (R-f1).
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+
+    Raises
+    ------
+    CapabilityError
+        When the treatment is a continuous dose or a vector with a continuous component.  A
+        dose MSM and a shift policy on a dose both sit on a continuous treatment, so this one
+        test covers them.
+    """
+    if data.treatment_kind in ("continuous", "vector"):
+        raise CapabilityError(
+            "outcome_by_arm=True fits one outcome regression per treatment arm, so it needs "
+            "an arm-coded treatment. A continuous dose has no arms.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Use outcome_by_arm=False, which fits one regression on the dose.",
+        )
+
+
+def _no_arm_rows(data: CausalData, arm: float, where: str) -> DataError:
+    """The error of an arm whose outcome regression has no row to train on (R-f2).
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    arm : float
+        The arm code with no training row.
+    where : str
+        Where the rows are missing, such as ``"training fold 3"``.
+
+    Returns
+    -------
+    DataError
+        The error to raise.
+    """
+    return DataError(
+        f"outcome_by_arm=True found no row with {data.treatment_name} = "
+        f"{data.arm_label(arm)!r} and an observed outcome in {where}, so that arm's outcome "
+        "regression has nothing to fit. Use fewer folds, or outcome_by_arm=False"
+    )
+
+
+def _arm_codes_by_row(data: CausalData, treatment: FloatArray) -> FloatArray:
+    """The arm code of each row, with the first arm written into an unrecorded treatment.
+
+    The same fill as :meth:`~cleverly.data.CausalData.treatment_design`'s ``missing_as=``.
+    Every consumer of the prediction at such a row multiplies it by a residual that is zero
+    there.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data whose arms the codes name.
+    treatment : ndarray
+        The treatment codes, ``NaN`` where the treatment is not recorded.
+
+    Returns
+    -------
+    ndarray
+        One arm code per row.
+    """
+    codes = np.asarray(treatment, dtype=float)
+    return np.where(np.isfinite(codes), codes, float(data.arm_codes[0]))
+
+
+def _fit_arm_models(
+    learner: Learner,
+    data: CausalData,
+    design: FloatArray,
+    target: FloatArray,
+    rows: IntArray,
+    *,
+    task: Task,
+    where: str,
+) -> dict[float, Learner]:
+    """One outcome learner per arm, each fitted on the arm's own rows of ``rows``.
+
+    Parameters
+    ----------
+    learner : Learner
+        The outcome learner, cloned by the fit for each arm.
+    data : CausalData
+        The prepared data, which supplies the treatment codes, weights and clusters.
+    design : ndarray
+        The design without the treatment column.
+    target : ndarray
+        The scaled outcome.
+    rows : ndarray
+        The training rows with an observed outcome and a recorded treatment.
+    task : {"regression", "classification"}
+        The outcome task.
+    where : str
+        Where ``rows`` come from, for the error of an arm with no row.
+
+    Returns
+    -------
+    dict
+        The fitted model of each arm, keyed by arm code.
+    """
+    treatment = np.asarray(data.treatment, dtype=float)
+    models: dict[float, Learner] = {}
+    for arm in data.arm_codes:
+        arm_rows = rows[treatment[rows] == arm]
+        if arm_rows.size == 0:
+            raise _no_arm_rows(data, arm, where)
+        models[arm] = fit_on_rows(
+            learner, design, target, data.weights, arm_rows, task, data.cluster
+        )
+    return models
+
+
+def _predict_by_arm(
+    models: Mapping[float, Learner],
+    matrix: FloatArray,
+    arm: float | FloatArray,
+    *,
+    task: Task,
+    clip: tuple[float, float] | None,
+) -> FloatArray:
+    """Predict each row of ``matrix`` from the model of its own arm.
+
+    Parameters
+    ----------
+    models : mapping
+        The fitted model of each arm.
+    matrix : ndarray
+        The design without the treatment column.
+    arm : float or ndarray
+        One arm code for every row, or one arm code per row.
+    task : {"regression", "classification"}
+        The outcome task.
+    clip : tuple of float or None
+        The bounds the prediction is clipped to.
+
+    Returns
+    -------
+    ndarray
+        One prediction per row.
+    """
+    requested = np.asarray(arm, dtype=float).reshape(-1)
+    if requested.size == 1:
+        return _clip(predict_mean(models[float(requested[0])], matrix, task), clip)
+    out = np.empty(matrix.shape[0], dtype=float)
+    for code in np.unique(requested):
+        selected = requested == code
+        out[selected] = _clip(predict_mean(models[float(code)], matrix[selected], task), clip)
+    return out
+
+
+def _gather_by_arm(
+    data: CausalData, arm: float | FloatArray, table: Mapping[float, FloatArray]
+) -> FloatArray:
+    """Read each row's value from the table of its own arm.
+
+    Parameters
+    ----------
+    data : CausalData
+        The data whose arm codes are validated.
+    arm : float or ndarray
+        One arm code for every row, or one arm code per row.
+    table : mapping
+        A prediction per arm, ``(m,)`` or ``(K, m)`` with the rows on the last axis.
+
+    Returns
+    -------
+    ndarray
+        The predictions, with row ``i`` read from the table of the arm requested for it.
+    """
+    requested = np.asarray(arm, dtype=float).reshape(-1)
+    if requested.size == 1:
+        code = float(requested[0])
+        data.arm_label(code)
+        return np.array(table[code], dtype=float)
+    out = np.empty_like(next(iter(table.values())), dtype=float)
+    for code in np.unique(requested):
+        data.arm_label(float(code))
+        selected = requested == code
+        out[..., selected] = table[float(code)][..., selected]
+    return out
+
+
+def _check_arm_training(
+    data: CausalData, folds: Folds, rows: BoolArray, arm: float, left_out: int | None
+) -> None:
+    """Refuse a fit whose arm has no training row in some fold (R-f2).
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    folds : Folds
+        The outer folds.
+    rows : ndarray
+        The rows eligible for this arm's model.
+    arm : float
+        The arm code.
+    left_out : int or None
+        The outer fold a nested fit also leaves out, or ``None``.
+
+    Raises
+    ------
+    DataError
+        When a training fold holds no eligible row of the arm.
+    """
+    if folds.is_single:
+        if not rows.any():
+            raise _no_arm_rows(data, arm, "the training sample")
+        return
+    for fold, (train, _) in enumerate(folds):
+        if not rows[train].any():
+            where = f"training fold {fold + 1}"
+            if left_out is not None:
+                where += f" with fold {left_out + 1} left out"
+            raise _no_arm_rows(data, arm, where)
+
+
+def _fit_outcome_by_arm(
+    learner: Learner,
+    data: CausalData,
+    target: FloatArray,
+    folds: Folds,
+    *,
+    task: Task,
+    queries: Mapping[str, ArmQuery],
+    fit_mask: BoolArray,
+    companion: CausalData | None = None,
+    companion_queries: Mapping[str, ArmQuery] | None = None,
+    clip: tuple[float, float] | None = (0.0, 1.0),
+    n_jobs: int = 1,
+    remedy: str = _CROSS_FIT_REMEDY,
+    left_out: int | None = None,
+) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
+    """Out-of-fold outcome regressions with one learner per treatment arm.
+
+    Each fold fits one learner per arm on the rows ``fit_mask & (A == a)`` of its training
+    set.  The design holds the covariates, and the intermediate variable when the data
+    carries one, and holds no treatment column.  Row ``i``'s prediction in a query comes from
+    the model of the arm the query names for that row.  The fold loop is
+    :func:`cross_fit_companion`, so a companion prediction comes from the model object that
+    produced the production prediction.
+
+    Parameters
+    ----------
+    learner : Learner
+        The outcome learner.
+    data : CausalData
+        The prepared data, with an arm-coded treatment.
+    target : ndarray
+        The scaled outcome.
+    folds : Folds
+        The outer folds.
+    task : {"regression", "classification"}
+        The outcome task.
+    queries : mapping
+        The named predictions to return on the rows of ``data``.
+    fit_mask : ndarray
+        The rows eligible for training: an observed outcome, and a recorded treatment under a
+        declared missing treatment.
+    companion : CausalData or None
+        An independent draw at which every fold's models are also evaluated.
+    companion_queries : mapping or None
+        The named predictions to return on the companion rows.
+    clip : tuple of float or None
+        The bounds the predictions are clipped to.
+    n_jobs : int
+        The number of workers.
+    remedy : str
+        The sentences a fold with no trainable rows closes its error with.
+    left_out : int or None
+        The outer fold a nested fit also leaves out, for the error message.
+
+    Returns
+    -------
+    tuple
+        The predictions by query name, the companion slabs by query name, ``(K, m)`` with
+        entry ``k`` from fold ``k``'s models, and the Super Learner diagnostics of every
+        arm and fold.
+    """
+    _refuse_by_arm_dose(data)
+    companion_queries = {} if companion_queries is None else companion_queries
+    treatment = np.asarray(data.treatment, dtype=float)
+    mask = np.asarray(fit_mask, dtype=bool)
+    arms = data.arm_codes
+    covariates = data.covariates
+    train_design = (
+        covariates
+        if not data.has_intermediate
+        else np.hstack([covariates, np.asarray(data.intermediate, dtype=float).reshape(-1, 1)])
+    )
+
+    def design_at(level: float | None) -> FloatArray:
+        if level is None:
+            return train_design
+        if not data.has_intermediate:
+            raise DataError(
+                f"an outcome prediction was requested at intermediate_value={level!r} but the "
+                "data has no intermediate variable; the design would be one column wider than "
+                "the outcome model's."
+            )
+        return np.hstack([covariates, np.full((data.n, 1), float(level))])
+
+    levels = list(dict.fromkeys(query.intermediate for query in queries.values()))
+    predict_designs = {f"z@{level}": design_at(level) for level in levels}
+    companion_designs: dict[str, FloatArray] = {}
+    if companion is not None:
+        companion_designs = {"x": companion.covariates}
+
+    eligible = {arm: mask & (treatment == arm) for arm in arms}
+    for arm in arms:
+        _check_arm_training(data, folds, eligible[arm], arm, left_out)
+
+    per_arm: dict[float, dict[str, FloatArray]] = {}
+    per_arm_companion: dict[float, dict[str, FloatArray]] = {}
+    diagnostics: list[SuperLearnerDiagnostics] = []
+    for arm in arms:
+        predictions, at_companion, arm_diagnostics = cross_fit_companion(
+            learner,
+            train_design,
+            target,
+            data.weights,
+            folds,
+            task=task,
+            predict_designs=predict_designs,
+            companion_designs=companion_designs,
+            fit_mask=eligible[arm],
+            groups=data.cluster,
+            clip=clip,
+            n_jobs=n_jobs,
+            remedy=remedy,
+        )
+        per_arm[arm] = predictions
+        per_arm_companion[arm] = at_companion
+        diagnostics.extend(arm_diagnostics)
+
+    out = {
+        name: _gather_by_arm(
+            data, query.arm, {arm: per_arm[arm][f"z@{query.intermediate}"] for arm in arms}
+        )
+        for name, query in queries.items()
+    }
+    at_companion_out: dict[str, FloatArray] = {}
+    if companion is not None:
+        for name, query in companion_queries.items():
+            at_companion_out[name] = _gather_by_arm(
+                companion, query.arm, {arm: per_arm_companion[arm]["x"] for arm in arms}
+            )
+    return out, at_companion_out, diagnostics
+
+
 def _arm_key(arm: float) -> str:
     """Name of the counterfactual design for one arm, where no intermediate is involved."""
     return f"arm@{arm}"
@@ -1309,6 +1723,7 @@ def fit_nuisances(
     fit_treatment_observation: bool = True,
     policy_by_fold: Sequence[Sequence[Policy]] | None = None,
     probe_doses: Mapping[str, FloatArray] | None = None,
+    outcome_by_arm: bool = False,
 ) -> NuisanceEstimates:
     """Fit every nuisance model this estimator needs.
 
@@ -1336,6 +1751,13 @@ def fit_nuisances(
     :attr:`NuisanceEstimates.treatment_observation` ``None``.  A per-arm outcome-adaptive
     :class:`~cleverly.CTMLE` fits that factor on its own design, and nothing reads the
     full-covariate one.
+
+    ``outcome_by_arm=True`` fits one outcome regression per treatment arm
+    (``_fit_outcome_by_arm``).  Each fold fits a learner per arm on the arm's rows with an
+    observed outcome, on the covariates alone, and a prediction at row ``i`` comes from the
+    model of the arm the prediction is for: the row's own arm when observed, arm ``a`` for
+    the counterfactual ``a``, and the shifted arm for an arm-coded modified treatment policy.
+    The default fits one regression on the covariates and the treatment.
 
     ``companion`` is an independent draw at which every fold's mechanism and outcome
     regression is *also* evaluated, returned on
@@ -1380,6 +1802,8 @@ def fit_nuisances(
             "fit_nuisances was given a composite-indicator view. The view is for targeting "
             "and for the readers of a fitted result; fit the nuisances on the prepared data."
         )
+    if outcome_by_arm:
+        _refuse_by_arm_dose(data)
     diagnostics: dict[str, Any] = {}
     groups = data.cluster
     recorded = data.treatment_recorded if data.has_missing_treatment else None
@@ -1473,7 +1897,7 @@ def fit_nuisances(
             density_diagnostics: Any
             density, density_diagnostics = fit_mixed_density(
                 treatment_model,
-                data.covariates,
+                data.mechanism_covariates,
                 data.treatment,
                 data.weights,
                 folds,
@@ -1485,7 +1909,7 @@ def fit_nuisances(
         else:
             density, density_diagnostics = fit_conditional_density(
                 treatment_model,
-                data.covariates,
+                data.mechanism_covariates,
                 data.treatment,
                 data.weights,
                 folds,
@@ -1534,13 +1958,13 @@ def fit_nuisances(
     elif fit_treatment:
         propensity_out, propensity_companion, propensity_diagnostics = cross_fit_companion(
             treatment_model,
-            data.covariates,
+            data.mechanism_covariates,
             data.treatment,
             data.weights,
             folds,
             task="classification",
-            predict_designs={"g": data.covariates},
-            companion_designs={} if companion is None else {"g": companion.covariates},
+            predict_designs={"g": data.mechanism_covariates},
+            companion_designs={} if companion is None else {"g": companion.mechanism_covariates},
             fit_mask=recorded,
             groups=groups,
             clip=(0.0, 1.0),
@@ -1583,7 +2007,7 @@ def fit_nuisances(
         # what turns "does not" into "cannot" for every accidental consumer.
         propensity = UnfittedPropensity(np.full((data.n, len(arms)), np.nan), arms)
 
-    retained = data.covariate_names
+    retained = data.mechanism_covariate_names
     if screen_treatment:
         retained = _retained_covariates(data, screen_threshold, min_retain)
 
@@ -1717,20 +2141,47 @@ def fit_nuisances(
         for arm in arms:
             companion_designs[_design_key(arm, levels[0])] = companion.counterfactual_design(arm)
 
-    outcome_out, outcome_companion, outcome_diagnostics = cross_fit_companion(
-        outcome_learner,
-        outcome_design,
-        scaled,
-        data.weights,
-        folds,
-        task=outcome_task,
-        predict_designs=designs,
-        companion_designs=companion_designs,
-        fit_mask=data.observed if recorded is None else data.observed & recorded,
-        groups=groups,
-        clip=(0.0, 1.0),
-        n_jobs=n_jobs,
-    )
+    outcome_fit_mask = data.observed if recorded is None else data.observed & recorded
+    if outcome_by_arm:
+        # One learner per arm; the designs above keep the treatment column and go unused.
+        by_arm_queries = {"observed": ArmQuery(_arm_codes_by_row(data, data.treatment))}
+        for level in levels:
+            for code, value in counterfactual.items():
+                by_arm_queries[_design_key(code, level)] = ArmQuery(value, level)
+        by_arm_companion: dict[str, ArmQuery] = {}
+        if companion is not None:
+            by_arm_companion = {
+                "observed": ArmQuery(_arm_codes_by_row(companion, companion.treatment))
+            }
+            for arm in arms:
+                by_arm_companion[_design_key(arm, levels[0])] = ArmQuery(arm)
+        outcome_out, outcome_companion, outcome_diagnostics = _fit_outcome_by_arm(
+            outcome_learner,
+            data,
+            scaled,
+            folds,
+            task=outcome_task,
+            queries=by_arm_queries,
+            fit_mask=outcome_fit_mask,
+            companion=companion,
+            companion_queries=by_arm_companion,
+            n_jobs=n_jobs,
+        )
+    else:
+        outcome_out, outcome_companion, outcome_diagnostics = cross_fit_companion(
+            outcome_learner,
+            outcome_design,
+            scaled,
+            data.weights,
+            folds,
+            task=outcome_task,
+            predict_designs=designs,
+            companion_designs=companion_designs,
+            fit_mask=outcome_fit_mask,
+            groups=groups,
+            clip=(0.0, 1.0),
+            n_jobs=n_jobs,
+        )
     if outcome_diagnostics:
         diagnostics["outcome"] = outcome_diagnostics
 
@@ -1825,6 +2276,14 @@ def _check_companion(data: CausalData, companion: CausalData) -> None:
             "models evaluated elsewhere, so its design has to be the design they were "
             "fitted on"
         )
+    if companion.treatment_covariate_names != data.treatment_covariate_names:
+        raise ValueError(
+            "the companion's treatment mechanism reads "
+            f"{list(companion.mechanism_covariate_names)} and the fit's reads "
+            f"{list(data.mechanism_covariate_names)}; a companion is the "
+            "fit's own models evaluated elsewhere, so the mechanism has to read the same "
+            "covariates"
+        )
     if tuple(companion.treatment_levels) != tuple(data.treatment_levels):
         raise ValueError(
             f"the companion's treatment takes levels {list(companion.treatment_levels)} and "
@@ -1840,6 +2299,7 @@ def fit_inner_designs(
     outcome_learner: Learner,
     treatment_learner: Learner,
     n_jobs: int = 1,
+    outcome_by_arm: bool = False,
 ) -> InnerDesigns:
     r"""Refit the two primary nuisances once per outer fold, leaving that fold out as well.
 
@@ -1859,6 +2319,10 @@ def fit_inner_designs(
     :class:`~cleverly.DRTMLE` refuses ``intermediate=`` and the other parameter axes by
     name, while its supported ``delta=`` surface requires ``cross_fit=False`` and therefore
     cannot enter this nested construction.
+
+    ``outcome_by_arm=True`` fits the nested outcome regressions per arm
+    (``_fit_outcome_by_arm``): each inner model of arm ``a`` trains on the rows of arm
+    ``a`` outside the two left-out folds.
 
     **Cost is ``K`` times the primary nuisance fitting**, paid once at the initial fit --
     ``K²`` models of each nuisance against ``K``.  Every refit inside the alternation reuses
@@ -1897,31 +2361,47 @@ def fit_inner_designs(
         if not known:
             mechanism, _ = cross_fit_predictions(
                 treatment_learner,
-                data.covariates,
+                data.mechanism_covariates,
                 data.treatment,
                 data.weights,
                 folds,
                 task="classification",
-                predict_designs={"g": data.covariates},
+                predict_designs={"g": data.mechanism_covariates},
                 fit_mask=without,
                 groups=data.cluster,
                 clip=(0.0, 1.0),
                 classes=arms,
                 n_jobs=n_jobs,
             )
-        regression, _ = cross_fit_predictions(
-            outcome_learner,
-            outcome_design,
-            scaled,
-            data.weights,
-            folds,
-            task=nuisance.outcome_task,
-            predict_designs=designs,
-            fit_mask=observed & without,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            n_jobs=n_jobs,
-        )
+        if outcome_by_arm:
+            regression, _, _ = _fit_outcome_by_arm(
+                outcome_learner,
+                data,
+                scaled,
+                folds,
+                task=nuisance.outcome_task,
+                queries={
+                    "observed": ArmQuery(_arm_codes_by_row(data, data.treatment)),
+                    **{f"arm{arm}": ArmQuery(arm) for arm in arms},
+                },
+                fit_mask=observed & without,
+                n_jobs=n_jobs,
+                left_out=fold,
+            )
+        else:
+            regression, _ = cross_fit_predictions(
+                outcome_learner,
+                outcome_design,
+                scaled,
+                data.weights,
+                folds,
+                task=nuisance.outcome_task,
+                predict_designs=designs,
+                fit_mask=observed & without,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+            )
         propensities.append(nuisance.propensity if known else Propensity(mechanism["g"], arms))
         outcomes.append(
             InitialFit(regression["observed"], {arm: regression[f"arm{arm}"] for arm in arms})
@@ -1941,11 +2421,14 @@ def _retained_covariates(
 
     # The recorded rows only, as the treatment model is fitted there.
     rows = data.treatment_recorded if data.has_missing_treatment else slice(None)
+    names = data.mechanism_covariate_names
+    if not names:
+        return ()
     keep = screen_by_correlation(
-        data.covariates[rows],
+        data.mechanism_covariates[rows],
         data.treatment[rows],
         threshold=threshold,
         min_retain=min_retain,
         sample_weight=data.weights[rows],
     )
-    return tuple(name for name, flag in zip(data.covariate_names, keep, strict=True) if flag)
+    return tuple(name for name, flag in zip(names, keep, strict=True) if flag)

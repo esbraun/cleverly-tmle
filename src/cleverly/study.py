@@ -17,6 +17,11 @@ from .data.known_mechanism import (
     KNOWN_POLICY_CLASSIFIER_REFUSAL,
     probability_columns,
 )
+from .data.treatment_covariates import (
+    check_treatment_covariates,
+    known_and_restricted,
+    treatment_mechanism_restriction,
+)
 from .data.validate import RANDOMIZED_INTERCEPT
 from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
 from .estimators._strata import check_stratified_targets
@@ -477,6 +482,16 @@ class PointTreatment:
         covariates.  A design names columns, so the array forms of
         :meth:`cleverly.TMLE.fit` are refused here.  ``CollaborativeTMLEMethod`` is
         unavailable on such a design, because there is no mechanism to select.
+    treatment_adjustment : sequence of str or None
+        The adjustment columns that the treatment mechanism reads, a subset of
+        ``adjustment``.  ``None`` reads all of them.  The outcome regression and every
+        other nuisance keep the full set.  The declaration restricts the observed-data
+        model and does not change the estimand.  The interval is claimed only under that
+        restriction, and the identification record prints it.  An empty sequence declares a
+        marginal treatment mechanism.  To exclude instruments, omit them from
+        ``adjustment`` instead.  The declaration is refused beside
+        ``treatment_probabilities``, which supplies a known mechanism, and beside an
+        incremental estimand, which shifts the fitted propensity score.
     continuous_treatment : sequence of str
         The columns of a vector ``treatment`` that hold a continuous dose.
     treatment_support : Support, mapping of str to Support, or None
@@ -524,6 +539,16 @@ class PointTreatment:
     ...     treatment_probabilities={0: "p_control", 1: "p_treated"},
     ... ).treatment_probabilities
     ((0, 'p_control'), (1, 'p_treated'))
+
+    A design can let the treatment mechanism read a subset of the adjustment set:
+
+    >>> PointTreatment(
+    ...     outcome="Y",
+    ...     treatment="A",
+    ...     adjustment=("age", "baseline_score"),
+    ...     treatment_adjustment=("age",),
+    ... ).treatment_adjustment
+    ('age',)
     """
 
     outcome: str
@@ -541,6 +566,7 @@ class PointTreatment:
     outcome_family: Family = "auto"
     treatment_missingness: str | None = None
     treatment_probabilities: Any = None
+    treatment_adjustment: Sequence[str] | None = None
     continuous_treatment: Sequence[str] = field(default_factory=tuple)
     treatment_support: Any = None
     dose_atoms: Sequence[float] | Mapping[str, Sequence[float]] = field(default_factory=tuple)
@@ -585,6 +611,19 @@ class PointTreatment:
                 "declare a non-empty adjustment set or randomized=True; an empty set is "
                 "an identification claim, not a nuisance-model default"
             )
+        if self.treatment_adjustment is not None:
+            object.__setattr__(
+                self,
+                "treatment_adjustment",
+                check_treatment_covariates(
+                    self.treatment_adjustment,
+                    self.adjustment,
+                    argument="treatment_adjustment",
+                    base="adjustment",
+                ),
+            )
+            if self.treatment_probabilities is not None:
+                raise known_and_restricted("treatment_adjustment")
 
     @property
     def treatment_columns(self) -> tuple[str, ...]:
@@ -653,6 +692,7 @@ class PointTreatment:
             treatment_probabilities=(
                 None if self.treatment_probabilities is None else dict(self.treatment_probabilities)
             ),
+            treatment_covariates=self.treatment_adjustment,
         ).with_dose_declarations(self.treatment_support, _declared_atoms(self.dose_atoms))
 
     def _check_prepared(self, data: CausalData) -> None:
@@ -734,6 +774,25 @@ class PointTreatment:
                 f"the supplied CausalData adjusts for {sorted(sources)}, but this design "
                 f"declares {sorted(declared_adjustment)}; an identification claim and the "
                 "data it is claimed about have to be the same set"
+            )
+        # The mechanism's covariates are a restriction the interval depends on, so a
+        # container that reads another subset is refused like any other mismatch.  A
+        # declaration of the whole adjustment set is no restriction, and a covariate that
+        # was dropped as degenerate is in neither set.
+        dropped = set(data.dropped_covariates)
+        restricted: set[str] | None = (
+            None if self.treatment_adjustment is None else set(self.treatment_adjustment) - dropped
+        )
+        if restricted == set(self.adjustment) - dropped:
+            restricted = None
+        used = data.treatment_adjustment_sources
+        if (restricted is None) != (used is None) or (
+            used is not None and restricted is not None and set(used) != restricted
+        ):
+            raise DataError(
+                f"the supplied CausalData has treatment_adjustment={used!r}, but this design "
+                f"declares treatment_adjustment={self.treatment_adjustment!r}; build the data "
+                "from this design, or correct the design"
             )
 
 
@@ -3116,12 +3175,18 @@ def _point_identification(
             "Díaz, Carone & van der Laan (2016)",
             "Díaz & van der Laan (2017)",
         )
+    restrictions: list[str] = []
+    if design.treatment_adjustment is not None and set(design.treatment_adjustment) != set(
+        design.adjustment
+    ):
+        restrictions.append(treatment_mechanism_restriction(design.treatment_adjustment))
     return Identification(
         assumptions=tuple(assumptions),
         required_nuisances=tuple(nuisances),
         dr_condition=_bound_dr_condition(base, design, functional, direct=direct),
         references=references,
         interpretations=base.interpretations,
+        model_restrictions=tuple(restrictions),
     )
 
 
@@ -3356,6 +3421,8 @@ def _matches_registered_point_identification(
         expected = _point_identification(registered, design, expected_functional)
     except (AttributeError, CapabilityError, DataError, KeyError, TypeError, ValueError):
         return False
+    # ``actual == expected`` compares every field of the record, ``model_restrictions``
+    # included, so a design-level restriction dropped or added after the fact is refused.
     return functional == expected_functional and actual == expected
 
 
@@ -4241,6 +4308,14 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 *(f"      source: {item}" for item in reading.references),
             )
         ]
+        restrictions = (
+            [
+                "model restrictions:",
+                *(f"  - {item}" for item in self.identification.model_restrictions),
+            ]
+            if self.identification.model_restrictions
+            else []
+        )
         history = self.functional.history
         # A longitudinal functional conditions each node's mechanism on its own history,
         # so one list of the baseline covariates would understate every later node.
@@ -4261,6 +4336,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     if readings
                     else []
                 ),
+                *restrictions,
                 *protocol_summary_lines(self.protocol, protocol),
             ]
         )
@@ -4288,6 +4364,11 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 f"interpretation {reading.label}: {reading.meaning}; needs "
                 + "; ".join(reading.assumptions)
                 for reading in self.identification.interpretations
+            ),
+            *(
+                ("model restrictions: " + "; ".join(self.identification.model_restrictions),)
+                if self.identification.model_restrictions
+                else ()
             ),
             *protocol_summary_lines(self.protocol, protocol),
         )

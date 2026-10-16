@@ -133,6 +133,7 @@ from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
 from ..estimators._nuisance import cross_fit_predictions, fit_mixed_density
 from ..exceptions import CapabilityError, DataError, LongitudinalError, RefusalReason
+from ..fluctuation._score import STOP_CONTEXT_MISSING, StopContext, rule_ratio_at
 from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
@@ -201,6 +202,7 @@ __all__ = [
     "fit_mechanism",
     "fit_regimen",
     "known_product_refusal",
+    "node_stop_context",
     "outcome_design",
     "preflight_declared_doses",
     "preflight_known_mechanisms",
@@ -2761,6 +2763,11 @@ def _fluctuate_node(
     tol: float,
     arms: FloatArray | None = None,
     probes: FloatArray | None = None,
+    stopping: str = "relative",
+    stop: StopContext | None = None,
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> Fluctuation:
     """Solve one node's intercept fluctuation with the clever covariate in the loss weight.
 
@@ -2798,12 +2805,47 @@ def _fluctuate_node(
         ``(n, 2S)`` predictions of a tuned node at the boundary and last moved dose of each
         of its ``S`` tuning slots, moved by the same coefficient and filed under
         :func:`_probe_arms`.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides the node's score equation is solved.  ``"relative"`` runs the
+        shipped solve untouched.  A declared rule runs :func:`_fluctuate_node_ruled`.
+    stop : StopContext, optional
+        The units of the rows the node receives and the outcome range, which a declared rule
+        computes its threshold from.  A declared rule without one raises ``ValueError``.
+    step_bound : float, optional
+        The longest step of one iteration.  ``None`` runs the shipped solve untouched.  A bound
+        runs :func:`_fluctuate_node_ruled`, whose solver takes the constrained step along
+        ``sign(s)``: the node has one coefficient.
+    step_search : bool
+        Under a bound, whether the step minimises the quasi-loss over ``[0, step_bound]``.
+    iterate : {"last", "best"}
+        Which iterate of the node's walk is reported.  ``"last"`` runs the shipped solve
+        untouched.  ``"best"`` runs :func:`_fluctuate_node_ruled`, whose solver reports the
+        iterate of smallest raw score norm.
 
     Returns
     -------
     Fluctuation
         The solved fluctuation.  Its targeted predictions are filed under the regimen key.
     """
+    if stopping != "relative" or step_bound is not None or iterate == "best":
+        return _fluctuate_node_ruled(
+            pseudo_outcome,
+            initial,
+            loss_weights,
+            fitted_on,
+            label=label,
+            time=time,
+            alpha=alpha,
+            max_iter=max_iter,
+            tol=tol,
+            arms=arms,
+            probes=probes,
+            stopping=stopping,
+            stop=stop,
+            step_bound=step_bound,
+            step_search=step_search,
+            iterate=iterate,
+        )
     intercept = np.ones((len(pseudo_outcome), 1))
     initial_arms = {_REGIMEN_ARM: initial}
     submodel_arms = {_REGIMEN_ARM: intercept}
@@ -2848,6 +2890,152 @@ def _fluctuate_node(
         max_iter=max_iter,
         tol=tol,
     )
+
+
+def _fluctuate_node_ruled(
+    pseudo_outcome: FloatArray,
+    initial: FloatArray,
+    loss_weights: FloatArray,
+    fitted_on: BoolArray,
+    *,
+    label: str,
+    time: int,
+    alpha: float,
+    max_iter: int,
+    tol: float,
+    arms: FloatArray | None,
+    stopping: str,
+    stop: StopContext | None,
+    probes: FloatArray | None = None,
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
+) -> Fluctuation:
+    """:func:`_fluctuate_node` under a declared stopping rule, a step bound, a best iterate, or any.
+
+    The node is the same intercept fluctuation with the same loss weight.  What changes is the
+    outer test of :func:`~cleverly.fluctuation.iterative.solve_fluctuation`: the node stops when
+    its largest score over its threshold is at most one.  The score column is the
+    contribution of the node (declared difference D4 of the options plan, because the loss
+    weight is not one), summed over the rows ``stop`` describes.  Those are all the rows the solver
+    receives, and the rows that are not followers contribute zero, so the threshold is the
+    standard error of the node's score ``P_n S``.
+
+    A step bound takes the ``tmle3`` constrained step at the node.  The node has one coefficient,
+    so the step direction is ``sign(s)`` and the step is ``t* sign(s)`` with ``t*`` in
+    ``(0, step_bound]`` (:func:`~cleverly.fluctuation.iterative.solve_fluctuation`).  Under
+    ``stopping="relative"`` a bounded node needs no context and tests ``tol`` on the relative
+    score.
+
+    A node whose regression already equals its one target value has a zero score at
+    ``epsilon = 0``.  It is not solved, and it meets any rule, so it records ratio zero.
+
+    Parameters
+    ----------
+    pseudo_outcome, initial, loss_weights, fitted_on, label, time, alpha, max_iter, tol, arms
+        As :func:`_fluctuate_node` reads them.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule.
+    stop : StopContext, optional
+        The units and the outcome range.  ``None`` raises ``ValueError`` under a declared rule.
+    probes : FloatArray or None
+        As :func:`_fluctuate_node` reads them.
+    step_bound : float, optional
+        The longest step of one iteration.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate of the node's walk is reported.  A node that needs no solve took no step
+        and records ``best_iterate=0``.
+
+    Returns
+    -------
+    Fluctuation
+        The solved fluctuation, with :attr:`~cleverly.fluctuation.iterative.Fluctuation.stopping`,
+        ``thresholds`` and ``rule_ratio`` filled.
+    """
+    declared = stopping != "relative"
+    if declared and stop is None:
+        raise ValueError(STOP_CONTEXT_MISSING)
+    intercept = np.ones((len(pseudo_outcome), 1))
+    initial_arms = {_REGIMEN_ARM: initial}
+    submodel_arms = {_REGIMEN_ARM: intercept}
+    if arms is not None:
+        for code in range(arms.shape[1]):
+            initial_arms[_policy_arm(code)] = arms[:, code]
+            submodel_arms[_policy_arm(code)] = intercept
+    if probes is not None:
+        for key, column in zip(_probe_arms(probes.shape[1]), probes.T, strict=True):
+            initial_arms[key] = column
+            submodel_arms[key] = intercept
+    constant = constant_target(pseudo_outcome, fitted_on)
+    if constant is not None and np.all(np.asarray(initial)[fitted_on] == constant):
+        names = (f"epsilon[{label}, t={time}]",)
+        zero = np.zeros(1)
+        thresholds: FloatArray | None = None
+        ratio: float | None = None
+        if declared and stop is not None:
+            thresholds, ratio = rule_ratio_at(
+                zero, np.zeros((len(pseudo_outcome), 1)), stop, stopping
+            )
+        return Fluctuation(
+            epsilon=zero,
+            targeted=InitialFit(initial, initial_arms),
+            score=zero,
+            converged=True,
+            n_iter=0,
+            trace=(0.0,),
+            method="iterative",
+            names=names,
+            score_initial=zero,
+            stopping=stopping,
+            thresholds=thresholds,
+            rule_ratio=ratio,
+            best_iterate=0 if iterate == "best" else None,
+        )
+    return solve_fluctuation(
+        pseudo_outcome,
+        InitialFit(initial, initial_arms),
+        Submodel(
+            intercept,
+            submodel_arms,
+            (f"epsilon[{label}, t={time}]",),
+            "sequential",
+        ),
+        loss_weights,
+        fitted_on,
+        alpha=alpha,
+        max_iter=max_iter,
+        tol=tol,
+        stopping=stopping,
+        stop=stop,
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
+    )
+
+
+def node_stop_context(data: LongitudinalData, scaler: OutcomeScaler) -> StopContext:
+    """The context of a declared stopping rule at every node of a per-regimen recursion.
+
+    A node's solver receives all ``n`` rows of the panel, and the rows that are not followers
+    contribute zero to the score.  So the unit of a row is its cluster
+    (:attr:`~cleverly.longitudinal.LongitudinalData.cluster`), else the row, and the span is the
+    outcome range the ``[0, 1]`` scale was mapped from.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    scaler : OutcomeScaler
+        The outcome transformation.
+
+    Returns
+    -------
+    StopContext
+        The units of the rows and the outcome range.
+    """
+    return StopContext(data.cluster, scaler.range)
 
 
 def _targeted_policy(
@@ -3175,6 +3363,10 @@ def fit_regimen(
     max_iter: int = 20,
     tol: float = 1e-10,
     n_jobs: int = 1,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> RegimenFit:
     """Run the backward recursion for one regimen, targeting at every node.
 
@@ -3206,6 +3398,17 @@ def fit_regimen(
     Observation weights reach every regression, the fluctuation's score and the plug-in,
     and multiply the returned curve row-wise -- the module docstring says what that is and
     what it is not.
+
+    ``stopping`` is the rule that decides each node's score equation is solved.
+    ``"relative"`` is the shipped test.  A declared rule gives every node the context of
+    :func:`node_stop_context`, so each node's threshold is the standard error of its own score.
+
+    ``step_bound`` bounds the step of each node's targeting iteration (``None`` takes the full
+    Newton step), and ``step_search`` chooses whether a bounded step searches its length.  See
+    :func:`_fluctuate_node_ruled`.
+
+    ``iterate="best"`` reports, at each node, the iterate of smallest raw score norm instead of
+    the last, and judges the node's ``converged`` there.
     """
     horizon = data.n_times if horizon is None else horizon
     if not 1 <= horizon <= data.n_times:
@@ -3226,7 +3429,12 @@ def fit_regimen(
             max_iter=max_iter,
             tol=tol,
             n_jobs=n_jobs,
+            stopping=stopping,
+            step_bound=step_bound,
+            step_search=step_search,
+            iterate=iterate,
         )
+    stop = None if stopping == "relative" else node_stop_context(data, scaler)
     cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     carried = seed_carried(data, scaler, horizon=horizon)
     # Once per regimen, not once per node: the masks are prefix scans of one conjunction,
@@ -3264,6 +3472,11 @@ def fit_regimen(
                 tol=tol,
                 arms=node.initial_by_arm,
                 probes=node.probes,
+                stopping=stopping,
+                step_bound=step_bound,
+                step_search=step_search,
+                iterate=iterate,
+                stop=stop,
             )
         step = _targeted_step(node, fluctuation, regression_target=None)
         steps.append(step)
@@ -3668,6 +3881,10 @@ def _fit_regimen_crossfit(
     max_iter: int,
     tol: float,
     n_jobs: int,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> RegimenFit:
     """Run untargeted fold recursions, stitch them, and target once per node over all rows.
 
@@ -3713,6 +3930,14 @@ def _fit_regimen_crossfit(
         Relative-score convergence tolerance.
     n_jobs : int
         Parallel workers across the outer folds.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides each node's pooled score equation is solved.
+    step_bound : float or None
+        The longest step of one iteration of a node's targeting.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate of a node's walk is reported.
 
     Returns
     -------
@@ -3747,6 +3972,10 @@ def _fit_regimen_crossfit(
         alpha=alpha,
         max_iter=max_iter,
         tol=tol,
+        stopping=stopping,
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
     )
     return _finish_regimen_fit(
         data,
@@ -3774,6 +4003,10 @@ def _pooled_targeting(
     alpha: float,
     max_iter: int,
     tol: float,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> tuple[SequentialStep, ...]:
     r"""Solve one fluctuation per node over every follower, from the horizon backwards.
 
@@ -3817,12 +4050,23 @@ def _pooled_targeting(
         Largest number of Newton iterations per node.
     tol : float
         Relative-score convergence tolerance.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides each node's pooled score equation is solved.  A declared rule
+        reads the units of all ``n`` rows, because the score is summed over every follower and
+        averaged over every row (:func:`node_stop_context`).
+    step_bound : float or None
+        The longest step of one iteration of a node's targeting.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate of a node's walk is reported.
 
     Returns
     -------
     tuple of SequentialStep
         One step per node, in time order.
     """
+    stop = None if stopping == "relative" else node_stop_context(data, scaler)
     steps: list[SequentialStep] = []
     carried = seed_carried(data, scaler, horizon=horizon)
     for time in range(horizon, 0, -1):
@@ -3849,6 +4093,11 @@ def _pooled_targeting(
                     tol=tol,
                     arms=node.initial_by_arm,
                     probes=node.probes,
+                    stopping=stopping,
+                    step_bound=step_bound,
+                    step_search=step_search,
+                    iterate=iterate,
+                    stop=stop,
                 )
         step = _targeted_step(
             node,

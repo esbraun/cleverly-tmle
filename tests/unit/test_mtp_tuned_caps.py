@@ -306,6 +306,38 @@ def test_the_fold_average_refuses_a_working_model(frame: Any) -> None:
         _fit(LTMLE, [_regimen("fold_average")], frame, n_folds=2, msm=model, **_raising())
 
 
+@pytest.mark.parametrize(
+    "option",
+    [{"stopping": "scaled_var"}, {"step_bound": 0.1}, {"iterate": "best"}],
+    ids=["stopping", "step_bound", "iterate"],
+)
+def test_the_fold_average_refuses_a_declared_targeting_option(
+    frame: Any, option: dict[str, Any]
+) -> None:
+    (name,) = option
+    with pytest.raises(CapabilityError, match=f"is not combined with {name}=") as caught:
+        _fit(LTMLE, [_regimen("fold_average")], frame, n_folds=2, **option, **_raising())
+    assert caught.value.refusal.roadmap == "X75"
+
+
+@pytest.mark.parametrize(
+    "option",
+    [{"stopping": "scaled_var"}, {"step_bound": 0.1}, {"iterate": "best"}],
+    ids=["stopping", "step_bound", "iterate"],
+)
+def test_a_declared_targeting_option_moves_the_probes_with_the_node(
+    frame: Any, option: dict[str, Any]
+) -> None:
+    """The ruled fluctuation files a tuned node's probes, as the shipped solve does.
+
+    The targeted step reads each probe back from the fluctuation, so a ruled solve that
+    dropped them would fail here rather than report a cap with no tuning term.
+    """
+    result = _fit(LTMLE, [_regimen("population")], frame, n_folds=2, **option)
+    assert any(step.probes is not None for step in result.fits["tuned"].steps)
+    assert np.isfinite(result["ey_regimen[tuned]"].psi)
+
+
 def test_a_target_declares_a_tuned_map_only() -> None:
     with pytest.raises(DataError, match="a target declares the parameter of a data-tuned map"):
         Shift(1.0, cap=2.0, target="population")

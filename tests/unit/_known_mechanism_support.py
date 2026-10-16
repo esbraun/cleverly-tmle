@@ -174,6 +174,134 @@ class FixedMechanism(BaseEstimator, ClassifierMixin):
         return np.array([THREE_ARM_MECHANISM[cell] for cell in cells], dtype=float)
 
 
+# ------------------------------------------------------------ treatment-mechanism covariates
+
+#: Units per ``(W1, Z)`` cell of the instrument law is ``4 * INSTRUMENT_M``.
+INSTRUMENT_M = 64
+
+#: ``E[Q0(1, W1)]`` of the instrument law, the arm-1 mean.
+INSTRUMENT_TRUTH_ARM1 = 0.6
+
+#: The size of the outcome-regression error ``delta * k`` in the instrument witness.
+INSTRUMENT_DELTA = 0.1
+
+
+def instrument_mechanism(w1: Any, z: Any, *, on_instrument: bool = True) -> Any:
+    """``g_0(W1, Z)`` of the instrument law: ``0.25 + 0.25 W1 + 0.25 Z``, or ``gbar(W1)``.
+
+    Parameters
+    ----------
+    w1, z : array-like
+        The two binary covariates.
+    on_instrument : bool
+        ``False`` drops the ``Z`` term, so ``g_0 = gbar(W1) = 0.375 + 0.25 W1``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The true treatment probability.
+    """
+    w1 = np.asarray(w1, dtype=float)
+    z = np.asarray(z, dtype=float)
+    if on_instrument:
+        return 0.25 + 0.25 * w1 + 0.25 * z
+    return 0.375 + 0.25 * w1 + 0.0 * z
+
+
+def instrument_frame(m: int = INSTRUMENT_M, *, on_instrument: bool = True) -> pd.DataFrame:
+    """The exact law of plan I-2.6.2, whose empirical law is the law.
+
+    ``W1`` and ``Z`` are independent Bernoulli(1/2), ``A | (W1, Z) ~ Bernoulli(g_0)``, and
+    ``Y = 0.2 + 0.3 A + 0.2 W1`` with no noise.  Each ``(W1, Z)`` cell holds ``4 m`` rows
+    and its arms split in the exact proportions of ``g_0``, so ``P_n = P_0`` with no sampling
+    error.  ``Z`` is an instrument: it moves ``A`` and not ``Y``.
+
+    Parameters
+    ----------
+    m : int
+        Rows per cell are ``4 m``, so ``16 m`` rows in all.
+    on_instrument : bool
+        ``False`` gives the control law, whose mechanism does not depend on ``Z``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns ``W1``, ``Z``, ``A``, ``Y``.
+    """
+    rows: list[tuple[float, float, float, float]] = []
+    for w1 in (0.0, 1.0):
+        for z in (0.0, 1.0):
+            g0 = float(instrument_mechanism(w1, z, on_instrument=on_instrument))
+            treated = _whole(4 * m * g0)
+            for a, count in ((1.0, treated), (0.0, 4 * m - treated)):
+                rows += [(w1, z, a, 0.2 + 0.3 * a + 0.2 * w1)] * count
+    return pd.DataFrame(rows, columns=["W1", "Z", "A", "Y"])
+
+
+class CellMeanClassifier(BaseEstimator, ClassifierMixin):
+    """A treatment learner that returns the training mean of ``A`` in each design cell.
+
+    For every distinct design row it receives, it returns the training mean of the target in
+    that cell.  On ``{W1}`` it returns ``gbar`` exactly, and on ``{W1, Z}`` it returns ``g_0``
+    exactly.  It reads whatever columns it is given, so a fit that hands it the wrong columns
+    changes its output.  A saturated logistic regression is not exact enough: the plan's
+    reviewer measured ``max |g_n - gbar|`` of ``2.1e-06`` unpenalised and ``2.0e-03`` at the
+    default penalty.
+    """
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> CellMeanClassifier:
+        design = np.asarray(design, dtype=float)
+        target = np.asarray(target, dtype=float)
+        self.classes_ = np.array([0.0, 1.0])
+        self.widths_ = design.shape[1]
+        self.table_ = {
+            key: float(target[np.all(design == np.array(key), axis=1)].mean())
+            for key in {tuple(row) for row in design}
+        }
+        return self
+
+    def predict_proba(self, design: Any) -> np.ndarray:
+        design = np.asarray(design, dtype=float)
+        assert design.shape[1] == self.widths_
+        one = np.array([self.table_[tuple(row)] for row in design])
+        return np.column_stack([1.0 - one, one])
+
+
+class RawScaleOutcome(BaseEstimator):
+    """An outcome stub returning ``Q0(A, W1) + delta * k`` from the design columns.
+
+    The design is ``(A, W1, Z)``, or ``(A, W1)`` when the fit drops ``Z`` from the adjustment
+    set.  It asserts the width, so a fit that drops a column from the outcome regression fails
+    loudly.  With ``q_bounds=(0, 1)`` the scaler is the identity, so these predictions are
+    read on their own scale.
+
+    Parameters
+    ----------
+    delta : float
+        The size of the error.
+    k : {"Z", "W1", "none"}
+        The covariate the error multiplies.  ``"Z"`` needs the three-column design.
+    width : int
+        The design width the fit must hand over.
+    """
+
+    def __init__(self, delta: float = INSTRUMENT_DELTA, k: str = "Z", width: int = 3) -> None:
+        self.delta = delta
+        self.k = k
+        self.width = width
+
+    def fit(self, design: Any, target: Any, sample_weight: Any = None) -> RawScaleOutcome:
+        return self
+
+    def predict(self, design: Any) -> np.ndarray:
+        design = np.asarray(design, dtype=float)
+        assert design.shape[1] == self.width, design.shape
+        a, w1 = design[:, 0], design[:, 1]
+        z = design[:, 2] if self.width == 3 else 0.0 * a
+        k = {"Z": z, "W1": w1, "none": 0.0 * a}[self.k]
+        return 0.2 + 0.3 * a + 0.2 * w1 + self.delta * k
+
+
 # --------------------------------------------------------------------- longitudinal
 
 #: ``P(A1 = 1)``, the first-stage randomization.

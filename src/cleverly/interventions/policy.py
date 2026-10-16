@@ -4428,7 +4428,7 @@ class PolicySet:
         for c in range(count):
             evaluated = classifier_ratio(
                 learner,
-                data.covariates,
+                data.mechanism_covariates,
                 block(a),
                 ((1.0, block(shifted[:, c])),),
                 data.weights,
@@ -4510,7 +4510,7 @@ class PolicySet:
         for c in range(count):
             evaluated = classifier_ratio(
                 learner,
-                data.covariates,
+                data.mechanism_covariates,
                 observed,
                 ((1.0, assigned[c]),),
                 data.weights,
@@ -4593,7 +4593,7 @@ class PolicySet:
             setup.natural,
             np.ones(data.n, dtype=bool),
             setup.frame_with,
-            np.asarray(data.covariates, dtype=float),
+            np.asarray(data.mechanism_covariates, dtype=float),
             setup.where,
             component_atom_layout(setup.components, data.component_atoms),
         )

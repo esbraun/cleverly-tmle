@@ -247,6 +247,10 @@ class Identification:
         The causal readings of the functional, each with the exchangeability assumption
         it adds.  Empty when the functional has one reading, whose assumptions are all in
         ``assumptions``.
+    model_restrictions:
+        Restrictions a design places on the observed-data model.  They do not change the
+        estimand, and the interval is claimed only under them.  Empty by default, and a
+        summary prints nothing for an empty tuple.
     """
 
     assumptions: tuple[str, ...]
@@ -254,6 +258,7 @@ class Identification:
     dr_condition: str
     references: tuple[str, ...] = ()
     interpretations: tuple[Interpretation, ...] = ()
+    model_restrictions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

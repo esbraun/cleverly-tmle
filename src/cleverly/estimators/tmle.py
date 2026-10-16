@@ -114,8 +114,10 @@ from .._typing import (
     FoldStrata,
     GBounds,
     IntArray,
+    IterateChoice,
     Learner,
     ParameterAxis,
+    StoppingRule,
     TargetingMethod,
     TargetingScheme,
 )
@@ -126,6 +128,7 @@ from ..data.known_mechanism import (
     KNOWN_SCREEN_REFUSAL,
     moved_known_values_refusal,
 )
+from ..data.treatment_covariates import known_and_restricted
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..exceptions import (
     CapabilityError,
@@ -139,7 +142,15 @@ from ..exceptions import (
     WeightingWarning,
     refuse_after_repeats,
 )
-from ..fluctuation._score import relative_score, score_columns, score_scale
+from ..fluctuation._score import (
+    StopContext,
+    check_iterate,
+    check_step_bound,
+    check_stopping_rule,
+    relative_score,
+    score_columns,
+    score_scale,
+)
 from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
@@ -233,7 +244,15 @@ from ..targets.population_intervention import (
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
-from ._nuisance import KnownPropensity, NuisanceEstimates, RepeatFit, fit_nuisances
+from ._nuisance import (
+    DrawInference,
+    KnownPropensity,
+    NuisanceEstimates,
+    RepeatFit,
+    _refuse_by_arm_dose,
+    fit_nuisances,
+)
+from ._option_support import point_option_conditions
 from ._strata import (
     absent_arm_error,
     check_stratified_targets,
@@ -779,6 +798,15 @@ class TMLE:
     screen_treatment, screen_threshold, min_retain:
         Pre-screen covariates for the treatment model (R's ``prescreenW.g``).  Refused
         beside a declared known mechanism, which replaces the treatment model.
+    outcome_by_arm:
+        Fit one outcome regression per treatment arm (R's ``drtmle(stratify=TRUE)``).  Each
+        fold fits a learner on the covariates alone for each arm, on that arm's rows with an
+        observed outcome.  A prediction at row ``i`` comes from the model of the arm it is
+        for: the row's own arm when observed, arm ``a`` for the counterfactual ``a``, and
+        the shifted arm for an arm-coded modified treatment policy.  The default fits one
+        regression on the covariates and the treatment.  An arm with no training row in a
+        fold raises :class:`~cleverly.exceptions.DataError`.  A continuous dose has no arms
+        and is refused.
     estimands:
         Which estimands to report; ``"all"`` requests everything the outcome type
         supports.
@@ -796,6 +824,18 @@ class TMLE:
         under weak overlap.  See :mod:`cleverly.inference.multiplier`.
     step_size, max_iter, tol:
         Targeting-step controls.
+    stopping:
+        The rule that decides the score equation is solved: ``"relative"`` (default),
+        ``"scaled_var"`` or ``"sample_size"``; see :class:`cleverly.Targeting`.
+        ``"relative"`` tests the relative score norm against ``tol``, as before.
+    step_bound, step_search:
+        ``step_bound=None`` takes the full Newton step. A positive number replaces it by the
+        ``tmle3`` constrained step of at most that length, along the normalised score;
+        ``step_search=False`` takes the whole bound. See :class:`cleverly.Targeting`.
+    iterate:
+        ``"last"`` (default) reports the iterate at which the targeting walk stopped.
+        ``"best"`` reports the iterate of smallest raw score norm, as ``tmle3``'s
+        ``use_best`` does; see :class:`cleverly.Targeting`.
     run_id:
         An identifier of your own -- an experiment id, a ticket number -- recorded on
         :attr:`TMLEResult.provenance`.  The library records no git commit of its own:
@@ -931,6 +971,7 @@ class TMLE:
         screen_treatment: bool = False,
         screen_threshold: float = 0.1,
         min_retain: int | None = None,
+        outcome_by_arm: bool = False,
         estimands: Sequence[EstimandName] | str | None = None,
         interventions: Sequence[Any] | None = None,
         policies: Sequence[Policy] | None = None,
@@ -949,10 +990,20 @@ class TMLE:
         step_size: float = 1e-3,
         max_iter: int = 20,
         tol: float = 1e-10,
+        stopping: StoppingRule = "relative",
+        step_bound: float | None = None,
+        step_search: bool = True,
+        iterate: IterateChoice = "last",
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
     ) -> None:
+        if not isinstance(outcome_by_arm, (bool, np.bool_)):
+            raise MethodConfigurationError(
+                f"outcome_by_arm must be True or False; got {outcome_by_arm!r}.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass outcome_by_arm=True for one outcome regression per arm.",
+            )
         _validate_learner(outcome_learner, "outcome_learner")
         _validate_learner(treatment_learner, "treatment_learner")
         _validate_learner(missingness_learner, "missingness_learner")
@@ -981,6 +1032,7 @@ class TMLE:
         self.screen_treatment = screen_treatment
         self.screen_threshold = screen_threshold
         self.min_retain = min_retain
+        self.outcome_by_arm = outcome_by_arm
         self.estimands = estimands
         self.interventions = as_interventions(interventions)
         self.policies = tuple(policies or ())
@@ -1003,6 +1055,10 @@ class TMLE:
         self.step_size = step_size
         self.max_iter = max_iter
         self.tol = tol
+        self.stopping = stopping
+        self.step_bound = step_bound
+        self.step_search = step_search
+        self.iterate = iterate
         self.random_state = random_state
         self.n_jobs = n_jobs
         self._validate_settings()
@@ -1063,6 +1119,9 @@ class TMLE:
                 "targeting='one_step' walks a logistic submodel and cannot be combined with "
                 "fluctuation='linear'"
             )
+        check_iterate(self.iterate, self.fluctuation)
+        check_stopping_rule(self.stopping, self.fluctuation)
+        check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.targeting)
         if not 0.0 < self.alpha_sig < 1.0:
             raise ValueError(f"alpha_sig must lie in (0, 1); got {self.alpha_sig}")
         if not 0.0 < self.nuisance_bound < 0.5:
@@ -1223,6 +1282,7 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        treatment_covariates: Sequence[str] | None = None,
         continuous_treatment: Sequence[str] = (),
         treatment_support: Support | Mapping[str, Support] | None = None,
         dose_atoms: Sequence[float] = (),
@@ -1313,6 +1373,15 @@ class TMLE:
             rows.  Beside a prepared :class:`~cleverly.data.CausalData` the array forms are
             attached with :meth:`~cleverly.data.CausalData.with_known_mechanism`, and a
             container that already declares one refuses a second.
+        treatment_covariates : Sequence[str] or None
+            The adjustment columns that the treatment mechanism reads, a subset of
+            ``covariates``.  ``None`` reads all of them.  The outcome regression, the
+            missingness mechanisms and the policy rules keep the full set.  The declaration
+            restricts the observed-data model and does not change the estimand.  The result
+            summary prints the restriction the interval needs.  Beside a prepared
+            :class:`~cleverly.data.CausalData` it is attached with
+            :meth:`~cleverly.data.CausalData.with_treatment_covariates`.  It is refused
+            beside ``treatment_probabilities``, ``incremental=`` and ``strategy='oat'``.
 
         Returns
         -------
@@ -1338,6 +1407,7 @@ class TMLE:
             treatment_kind=treatment_kind,
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
+            treatment_covariates=treatment_covariates,
             continuous_treatment=continuous_treatment,
         ).with_dose_declarations(treatment_support, dose_atoms)
         if not prepared.has_intermediate:
@@ -1513,6 +1583,7 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        treatment_covariates: Sequence[str] | None = None,
         continuous_treatment: Sequence[str] = (),
     ) -> CausalData:
         """Coerce whatever the caller passed into a validated :class:`CausalData`."""
@@ -1542,6 +1613,10 @@ class TMLE:
                     "column names cannot be combined with a CausalData input; the roles are "
                     "already assigned"
                 )
+            if treatment_covariates is not None and treatment_probabilities is not None:
+                raise known_and_restricted("treatment_covariates")
+            if treatment_covariates is not None:
+                data = data.with_treatment_covariates(treatment_covariates)
             if treatment_probabilities is not None:
                 return data.with_known_mechanism(treatment_probabilities)
             return data
@@ -1573,6 +1648,7 @@ class TMLE:
             ),
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
+            treatment_covariates=treatment_covariates,
             continuous_treatment=continuous_treatment,
         )
 
@@ -1603,6 +1679,8 @@ class TMLE:
         """
         self._refuse_vector_compositions(data)
         self._refuse_known_compositions(data)
+        if self.outcome_by_arm:
+            _refuse_by_arm_dose(data)
         if data.has_missing_treatment:
             named = None if self.estimands is None or self.estimands == "all" else self.estimands
             refusal = missing_treatment_refusal(
@@ -1640,12 +1718,13 @@ class TMLE:
                 alternative="Use cv_evaluation=False.",
                 roadmap="X28",
             )
-        if self.simultaneous and len(estimands) > 1:
+        if self.simultaneous and len(estimands) > 1 and self._builds_default_band(data):
             # Guarded by the band's own construction condition, not by ``simultaneous``
             # alone.  ``simultaneous`` defaults to True and a band needs two estimates, so
             # refusing on the flag would refuse every single-estimand repeated fit over a
-            # band the fit would never build.  One estimand can still expand into several
-            # estimates, so the construction site refuses again once the count is known.
+            # band the fit would never build.  The same holds for a fit whose
+            # ``_builds_default_band`` declines the band.  One estimand can still expand into
+            # several estimates, so the construction site refuses again once the count is known.
             refuse_after_repeats(
                 self.repeats,
                 operation="simultaneous=True",
@@ -1924,7 +2003,8 @@ class TMLE:
             # ``_retarget_detailed`` applies ``_inference_status`` to what it returns, and to
             # both fold-level reports, so ``per_repeat``, ``median_estimates``,
             # ``result.repeats`` and ``result.cv_targeting`` all carry it.
-            estimates, fluctuations, detail = self._retarget_detailed(
+            retarget = partial(
+                self._retarget_detailed,
                 data,
                 nuisance,
                 estimands=estimands,
@@ -1933,6 +2013,8 @@ class TMLE:
                 g_bounds_conditional=config.g_bounds_conditional,
                 classification=classification,
             )
+            # The record is read before the median, so each draw keeps its own status.
+            estimates, fluctuations, detail, draw_record = self._targeted_draw(data, retarget)
             per_repeat.append(estimates)
             repeats.append(
                 RepeatFit(
@@ -1940,6 +2022,7 @@ class TMLE:
                     fluctuations=fluctuations,
                     psi={name: value.psi for name, value in estimates.items()},
                     seed=seed,
+                    inference=draw_record,
                 )
             )
             details.append(detail)
@@ -2048,6 +2131,36 @@ class TMLE:
         record_fit(classification, result, source="TMLE._fit_single")
         return result
 
+    def _targeted_draw(
+        self,
+        data: CausalData,
+        retarget: Callable[[], tuple[dict[str, ParameterEstimate], Any, Any]],
+    ) -> tuple[dict[str, ParameterEstimate], Any, Any, dict[str, DrawInference]]:
+        """Run one draw's targeting, and record its own status and standard error per estimand.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. This hook does not read it; the per-arm
+            :class:`~cleverly.CTMLE` reads it to decide whether the draw has a stack.
+        retarget : callable
+            Runs the draw's targeting once. It returns the estimates, the fluctuations and
+            the fold-level report.
+
+        Returns
+        -------
+        tuple
+            The three values of ``retarget``, then one :class:`DrawInference` per estimand,
+            without a curve or a shipped standard error.
+        """
+        del data
+        estimates, fluctuations, detail = retarget()
+        record = {
+            name: DrawInference(status=estimate.inference, se=float(np.sqrt(estimate.variance)))
+            for name, estimate in estimates.items()
+        }
+        return estimates, fluctuations, detail, record
+
     def _cv_detail(
         self, details: Sequence[CVTargeting | None], *, cluster: IntArray | None
     ) -> CVTargeting | None:
@@ -2148,6 +2261,9 @@ class TMLE:
         self._resolve_arm_indexed_missing_contract(data, estimands, conditions)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
         self._refuse_unbounded_cross_fitted_scale(data)
+        # The targeting and fitting options that no registered study covers label the fit
+        # experimental; each is implemented, so none of them raises.
+        conditions.extend(point_option_conditions(self, data))
         return Preflight(estimands, tuple(conditions))
 
     def _fold_policy_refusal(self) -> Refusal | None:
@@ -2882,6 +2998,28 @@ class TMLE:
                 lambda value: f"respondent(s) with outcome {scaler.unscale_level(value):g}",
             ),
         ]
+        if self.outcome_by_arm and not _has_no_arms(data):
+            # One outcome learner per arm: each trains on the arm's rows with an observed
+            # outcome, so the split rule is asked of those rows and not of the pooled ones.
+            treatment = np.asarray(data.treatment, dtype=float)
+            learner = roles[0][1]
+
+            def arm_label(arm: float) -> Callable[[float], str]:
+                return lambda value: (
+                    f"respondent(s) in arm {data.arm_label(arm)} with outcome "
+                    f"{scaler.unscale_level(value):g}"
+                )
+
+            roles[:1] = [
+                (
+                    "outcome",
+                    learner,
+                    observed & (treatment == arm),
+                    scaler.scale(data.outcome),
+                    arm_label(arm),
+                )
+                for arm in data.arm_codes
+            ]
         if fits_treatment and not _has_no_arms(data):
             roles.append(
                 (
@@ -3308,6 +3446,14 @@ class TMLE:
         """
         if not self.incremental:
             return
+        if data.treatment_covariate_names is not None:
+            names = ", ".join(data.treatment_adjustment_sources or ())
+            raise CapabilityError(
+                "incremental= shifts the fitted propensity score, so a mechanism on "
+                f"{{{names}}} defines the shift on {{{names}}} and changes the estimand.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative="Omit treatment_adjustment=, or treatment_covariates= in TMLE.fit.",
+            )
         refuse_multi_arm_tilt(data)
         if data.has_intermediate:
             raise CapabilityError(
@@ -3678,6 +3824,7 @@ class TMLE:
             n_jobs=self.n_jobs,
             fit_treatment=fit_treatment,
             fit_treatment_observation=fit_treatment_observation,
+            outcome_by_arm=self.outcome_by_arm,
         )
         if tuned is not None:
             assert estimates.policies is not None
@@ -3839,6 +3986,7 @@ class TMLE:
             continuous_treatment=_has_no_arms(data),
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
+            outcome_by_arm=self.outcome_by_arm,
             estimands=estimands,
             alpha_sig=self.alpha_sig,
             random_state=self.random_state,
@@ -4087,6 +4235,11 @@ class TMLE:
             conditional_bounds = mean_bounds
             missingness = None
 
+        # The units and the outcome range a declared stopping rule computes its threshold
+        # from, built once on the data the solvers see, which is the composite data when the
+        # composite route replaced it. `None` under `stopping="relative"`, which never reads it.
+        stop = self._stop_context(data, nuisance)
+
         estimates: dict[str, ParameterEstimate] = {}
         fluctuations: dict[str, Fluctuation] = {}
         pooled_report: dict[str, ParameterEstimate] = {}
@@ -4127,7 +4280,7 @@ class TMLE:
             known_tilt = nuisance.incremental is not None and nuisance.incremental.mechanism_known
             if needs_mechanism(group) and not known_tilt:
                 submodel, fluctuation, targeted, targeting_submodel = self._solve_mechanism(
-                    data, nuisance, group, bounds, nuisance_bound
+                    data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
             elif needs_reduction(nuisance, group):
                 # A fit carrying reduced-dimension regressions solves two further score
@@ -4136,7 +4289,7 @@ class TMLE:
                 # regression -- so this returns two values, as the projection does and
                 # unlike the mechanism alternation.
                 submodel, fluctuation, targeting_submodel = self._solve_reduction(
-                    data, nuisance, group, bounds, nuisance_bound
+                    data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
             elif needs_projection(nuisance, group):
                 # A working model with a non-identity link has a clever covariate that
@@ -4144,14 +4297,14 @@ class TMLE:
                 # solved for together. Nothing about the nuisances moves, which is why
                 # this returns two values where the mechanism alternation returns three.
                 submodel, fluctuation = self._solve_projection(
-                    data, nuisance, group, bounds, nuisance_bound
+                    data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
                 if data.has_strata:
                     # The marginal coefficients above are the unstratified solve.  The
                     # stratum coefficients need their own fluctuation, because each
                     # stratum block reads its own coefficients.
                     targeting_submodel, nested = self._solve_stratified_projection(
-                        data, nuisance, group, bounds, nuisance_bound
+                        data, nuisance, group, bounds, nuisance_bound, stop=stop
                     )
                     fluctuation = replace(fluctuation, stratified=nested)
             else:
@@ -4183,7 +4336,7 @@ class TMLE:
                     if data.has_strata
                     else submodel
                 )
-                _, fluctuation = self._solve(data, nuisance, targeting_submodel)
+                _, fluctuation = self._solve(data, nuisance, targeting_submodel, stop=stop)
             fluctuations[group] = fluctuation
 
             if joint and group == "natural_course":
@@ -4375,6 +4528,10 @@ class TMLE:
             max_iter=self.max_iter,
             tol=self.tol,
             step_size=self.step_size,
+            stopping=self.stopping,
+            step_bound=self.step_bound,
+            step_search=self.step_search,
+            iterate=self.iterate,
         )
 
     def _fold_strata(self, data: CausalData) -> FloatArray | None:
@@ -4583,7 +4740,11 @@ class TMLE:
         return stratify(pieces, data.strata, probabilities, labels)
 
     def _solve(
-        self, data: CausalData, nuisance: NuisanceEstimates, submodel: Submodel
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        submodel: Submodel,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """Solve the fluctuation, pooled over folds or one fluctuation per fold.
 
@@ -4592,6 +4753,9 @@ class TMLE:
         a linked working model's ``beta`` -- differs between folds, and the score has to be
         taken against the covariate each row was actually fluctuated by.  For every other
         group the returned submodel is the one that went in, value for value.
+
+        ``stop`` is the stopping-rule context over all the rows.  A fold-targeted solve
+        receives ``stop.restrict(test)``, so its threshold counts the fold's own units.
         """
         scaled = nuisance.scaler.scale(data.outcome)
         if self.targeting_scheme == "fold" and self.cross_fit:
@@ -4608,6 +4772,7 @@ class TMLE:
                             data.weights[test],
                             data.observed[test],
                             warn=False,
+                            stop=None if stop is None else stop.restrict(test),
                         ),
                     ),
                     submodel.group,
@@ -4628,6 +4793,7 @@ class TMLE:
             submodel,
             self._validation_weights(data, nuisance),
             data.observed,
+            stop=stop,
         )
 
     def _validation_weights(self, data: CausalData, nuisance: NuisanceEstimates) -> FloatArray:
@@ -4677,6 +4843,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation, NuisanceEstimates, Submodel]:
         """Alternate the outcome and the treatment mechanism, with one block per stratum.
 
@@ -4718,6 +4885,7 @@ class TMLE:
             observed=data.observed,
             outcome_submodel=outcome_submodel,
             mechanism_columns=mechanism_columns,
+            stop=stop,
         )
         if not data.has_strata:
             return solved, fluctuation, targeted, solved
@@ -4731,6 +4899,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation, Submodel]:
         """Alternate the outcome, the mechanism and the reduced regressions.
 
@@ -4771,6 +4940,7 @@ class TMLE:
             # fetched defensively rather than assumed onto a class that does not declare it.
             max_outer=getattr(self, "max_outer", DEFAULT_MAX_OUTER),
             blocks=blocks,
+            stop=stop,
         )
         return submodel, fluctuation, submodel if blocks is None else blocks.submodel(submodel)
 
@@ -4781,6 +4951,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """Alternate the projection and the fluctuation, pooled or fold by fold.
 
@@ -4804,6 +4975,7 @@ class TMLE:
             scaled=scaled,
             weights=self._validation_weights(data, nuisance),
             observed=data.observed,
+            stop=stop,
         )
         if self.targeting_scheme == "fold" and self.cross_fit and not nuisance.folds.is_single:
             per_fold: list[ProjectionFluctuation] = []
@@ -4846,6 +5018,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """The stratum coefficients of a linked working model, pooled over the sample.
 
@@ -4867,6 +5040,7 @@ class TMLE:
             blocks_at=lambda betas: self._stratified_submodel(
                 data, nuisance, group, bounds, None, None, lower, reference, msm_beta=betas
             ),
+            stop=stop,
         )
 
     def _solve_rows(
@@ -4878,10 +5052,30 @@ class TMLE:
         observed: BoolArray,
         *,
         warn: bool = True,
+        stop: StopContext | None = None,
     ) -> Fluctuation:
         return solve_submodel(
-            scaled, initial, submodel, weights, observed, self.targeting_spec(), warn=warn
+            scaled,
+            initial,
+            submodel,
+            weights,
+            observed,
+            self.targeting_spec(),
+            warn=warn,
+            stop=stop,
         )
+
+    def _stop_context(self, data: CausalData, nuisance: NuisanceEstimates) -> StopContext | None:
+        """What a declared stopping rule needs besides the score, or ``None`` under ``relative``.
+
+        The unit of each row is its cluster (:attr:`~cleverly.data.CausalData.cluster`), else
+        the row itself, and the span is the outcome range the solver's ``[0, 1]`` scale was
+        mapped from.  Every solve that receives a subset of the rows takes
+        :meth:`~cleverly.fluctuation._score.StopContext.restrict` of this one.
+        """
+        if self.stopping == "relative":
+            return None
+        return StopContext(data.cluster, nuisance.scaler.range)
 
     def _solve_by_fold(
         self,
@@ -4949,6 +5143,9 @@ class TMLE:
                     n_iter=fold_fluctuation.n_iter,
                     trace=fold_fluctuation.trace,
                     score_scale=fold_fluctuation.score_scale,
+                    thresholds=fold_fluctuation.thresholds,
+                    rule_ratio=fold_fluctuation.rule_ratio,
+                    best_iterate=fold_fluctuation.best_iterate,
                 )
             )
             masses.append(float(data.weights[test].sum()))
@@ -4991,7 +5188,14 @@ class TMLE:
             epsilon=epsilon,
             targeted=targeted,
             score=score,
-            converged=bool(relative_score(score, scale) <= self.tol),
+            # Under a declared rule each fold met or missed the rule on its own units, so the
+            # pooled verdict is that every fold met it; the pooled score is not judged on a
+            # ruler no fold used.
+            converged=(
+                bool(relative_score(score, scale) <= self.tol)
+                if self.stopping == "relative"
+                else all(record.converged for record in fold_records)
+            ),
             n_iter=iterations,
             # These are independent fold solves, not one iteration trajectory.
             trace=(),
@@ -5013,6 +5217,16 @@ class TMLE:
             # needed by the concentration diagnostic, while column order is shared by the
             # stitched submodels and checked above.
             absolute_score_weights=np.vstack(absolute_score_weight_parts),
+            stopping=self.stopping,
+            # The largest fold ratio. The thresholds differ by fold (each counts its own
+            # units) and live on `folds`, so the pooled record holds none.
+            rule_ratio=(
+                None
+                if self.stopping == "relative"
+                else max(
+                    record.rule_ratio for record in fold_records if record.rule_ratio is not None
+                )
+            ),
         )
 
     @staticmethod
@@ -5049,8 +5263,14 @@ class TMLE:
         fluctuation: Fluctuation,
         targeted: InitialFit,
         scaled: FloatArray,
+        submodel: Submodel,
     ) -> dict[float, FloatArray] | None:
-        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other."""
+        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other.
+
+        ``submodel`` is the mean submodel the estimates read. This hook does not read it; the
+        per-arm :class:`~cleverly.CTMLE` reads its clever covariate.
+        """
+        del submodel
         parts = correction_parts(data, nuisance, fluctuation, targeted, scaled)
         return None if parts is None else parts.total()
 
@@ -5096,7 +5316,7 @@ class TMLE:
         # alternation exited at: the refitted reductions and the *targeted* mechanism, both
         # of which live on the fluctuation rather than on the nuisances. `None` for every
         # other fit, and then `counterfactual_means` is untouched character for character.
-        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled)
+        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled, submodel)
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)
