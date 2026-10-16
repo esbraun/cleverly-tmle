@@ -16,7 +16,9 @@ of the retired RM9 roadmap item:
 * W13, Super Learner leakage: a held-out outcome cannot move the inner split.
 
 The refusal tests pin :class:`~tests.unit._natural_course_support.NeverFit` learners, so a
-refusal that ran after a learner call would raise ``AssertionError`` instead.
+refusal that ran after a learner call would raise ``AssertionError`` instead. A row that the
+contract turned into an experimental condition reaches the first learner, so the same
+learners raise ``AssertionError`` at the first call, and the preflight lists the condition.
 """
 
 from __future__ import annotations
@@ -123,6 +125,8 @@ class Row:
     role: tuple[str, str, Any] | None = None
     continuous: bool = False
     collaborative: bool = False
+    #: ``False`` for a row that now runs as an experimental condition (RM42b).
+    refuses: bool = True
 
 
 ROWS: tuple[Row, ...] = (
@@ -132,27 +136,35 @@ ROWS: tuple[Row, ...] = (
         "Set fluctuation='logistic' (Targeting(fluctuation='logistic'))",
         engine={"fluctuation": "linear"},
         public={"targeting": {"fluctuation": "linear"}},
+        refuses=False,
     ),
     Row(
         "one-step",
         "Set targeting='iterative' (Targeting(algorithm='iterative'))",
         engine={"targeting": "one_step"},
         public={"targeting": {"algorithm": "one_step"}},
+        refuses=False,
     ),
     Row(
         "target-weights",
         "Set target_weights=False (Targeting(target_weights=False))",
         engine={"target_weights": True},
         public={"targeting": {"target_weights": True}},
+        refuses=False,
     ),
     Row(
         "fold-evaluation",
         "Set cv_evaluation=False (CrossFitting(fold_evaluation=False))",
         engine={"cv_evaluation": True},
         public={"cross_fitting": {"fold_evaluation": True}},
+        refuses=False,
     ),
     # Reached through the estimand dimension of the parametrization.
-    Row("att-atc", "The default estimand list and estimands='all' include att and atc"),
+    Row(
+        "att-atc",
+        "The default estimand list and estimands='all' include att and atc",
+        refuses=False,
+    ),
     Row(
         "continuous-without-q-bounds",
         "Declare q_bounds equal to the known outcome support (Targeting(q_bounds=(lower, upper)))",
@@ -165,6 +177,7 @@ ROWS: tuple[Row, ...] = (
         "Leave split_plan=None (CrossFitting(split_plan=None))",
         engine={"split_plan": _DRAWN_PLAN},
         public={"cross_fitting": {"split_plan": _DRAWN_PLAN}},
+        refuses=False,
     ),
     Row(
         "one-fold",
@@ -177,6 +190,7 @@ ROWS: tuple[Row, ...] = (
         "X53 in docs/roadmap.md tracks this. Set repeats=1 (CrossFitting(repeats=1))",
         engine={"repeats": 2},
         public={"cross_fitting": {"repeats": 2}},
+        refuses=False,
     ),
     Row(
         "fold-targeting",
@@ -189,22 +203,26 @@ ROWS: tuple[Row, ...] = (
         "weights",
         "Drop weights= from fit (PointTreatment(weights=None))",
         role=("weights", "weights", "wt"),
+        refuses=False,
     ),
     Row(
         "clusters",
         "Drop id= from fit (PointTreatment(cluster=None))",
         role=("id", "cluster", "cid"),
+        refuses=False,
     ),
     Row(
         "baseline-strata",
         "Drop strata= from fit (PointTreatment(strata=()))",
         role=("strata", "strata", ("S",)),
+        refuses=False,
     ),
     Row(
         "bootstrap",
         "Set n_bootstrap=0 (Inference(n_bootstrap=0))",
         engine={"n_bootstrap": 2},
         public={"inference": {"n_bootstrap": 2}},
+        refuses=False,
     ),
 )
 BY_ID = {row.id: row for row in ROWS}
@@ -220,21 +238,29 @@ OVERRIDE_ROWS = tuple(row for row in ROWS if row.id not in DIMENSION_ROWS)
 CONTRACT_ROWS = tuple(row for row in OVERRIDE_ROWS if row.id != "one-fold")
 
 
-def _expected(row: Row | None, *, conditional: bool, stratify: str) -> Row:
-    """The first contract row this composition breaks, in the fit's check order."""
+def _broken(row: Row | None, *, conditional: bool, stratify: str) -> list[Row]:
+    """The contract rows this composition breaks, in the fit's check order."""
     broken = [] if row is None else [row]
     if conditional:
         broken.append(BY_ID["att-atc"])
     if stratify != "none":
         broken.append(BY_ID["stratified-folds"])
-    return min(broken, key=lambda item: ORDER[item.id])
+    return sorted(broken, key=lambda item: ORDER[item.id])
+
+
+def _expected(row: Row | None, *, conditional: bool, stratify: str) -> Row | None:
+    """The first contract row that refuses this composition, or ``None`` if none refuses."""
+    refusing = [r for r in _broken(row, conditional=conditional, stratify=stratify) if r.refuses]
+    return refusing[0] if refusing else None
 
 
 #: The engine's estimand requests: one admitted list and three that include ``att``.
 ENGINE_ESTIMANDS: tuple[Any, ...] = (("ate",), None, "all", ("att",))
 
 
-def _engine_fit(row: Row | None, *, estimands: Any, stratify: str) -> None:
+def _engine_setup(
+    row: Row | None, *, estimands: Any, stratify: str
+) -> tuple[Any, dict[str, Any], dict[str, Any], pd.DataFrame]:
     settings: dict[str, Any] = {
         **ADMITTED,
         **never_fit_learners(),
@@ -260,7 +286,22 @@ def _engine_fit(row: Row | None, *, estimands: Any, stratify: str) -> None:
     frame = _frame(continuous=continuous)
     if row is not None and row.role is not None and row.role[0] == "strata":
         roles["covariates"] = (*COVARIATES, "S")
+    return engine, settings, roles, frame
+
+
+def _engine_fit(row: Row | None, *, estimands: Any, stratify: str) -> None:
+    engine, settings, roles, frame = _engine_setup(row, estimands=estimands, stratify=stratify)
     engine(**settings).fit(frame, **roles)
+
+
+def _engine_conditions(row: Row | None, *, estimands: Any) -> str:
+    """The text of the experimental conditions the preflight collects, before any learner."""
+    engine, settings, roles, frame = _engine_setup(row, estimands=estimands, stratify="none")
+    estimator = engine(**settings)
+    data = CausalData.from_frame(frame, **roles)
+    conditions = estimator._preflight_fit_configuration(data).conditions
+    assert NeverFit.calls == 0
+    return "\n".join(condition.message() for condition in conditions)
 
 
 @pytest.mark.parametrize("estimands", ENGINE_ESTIMANDS, ids=("ate", "default", "all", "att"))
@@ -288,6 +329,23 @@ def test_each_engine_refusal_row_fires_before_any_learner(row: Row, estimands: A
         return
     expected = _expected(row, conditional=conditional, stratify="none")
 
+    if row.id == "fold-evaluation" and estimands in (None, "all"):
+        # The condition of the fold-evaluated construction does not mask the later refusal of
+        # a nonlinear contrast under it (X61): the preflight collects, then refuses.
+        with pytest.raises(CapabilityError, match=r"cv_evaluation=True does not yet support"):
+            _engine_fit(row, estimands=estimands, stratify="none")
+        assert NeverFit.calls == 0
+        return
+    if expected is None:
+        # Every row that is broken runs as an experimental condition: the preflight lists
+        # each one, and the fit reaches its first learner.
+        text = _engine_conditions(row, estimands=estimands)
+        for broken in _broken(row, conditional=conditional, stratify="none"):
+            assert broken.fragment in text, broken.id
+        with pytest.raises(AssertionError, match="must run before any learner is fitted"):
+            _engine_fit(row, estimands=estimands, stratify="none")
+        assert NeverFit.calls == 1
+        return
     with pytest.raises(CapabilityError) as caught:
         _engine_fit(row, estimands=estimands, stratify="none")
     message = str(caught.value)
@@ -296,11 +354,9 @@ def test_each_engine_refusal_row_fires_before_any_learner(row: Row, estimands: A
     assert NeverFit.calls == 0
 
 
-def test_att_and_atc_are_refused_by_name_in_every_request_form() -> None:
+def test_att_and_atc_are_an_experimental_condition_in_every_request_form() -> None:
     for estimands in (None, "all", ("att",)):
-        with pytest.raises(CapabilityError) as caught:
-            _engine_fit(None, estimands=estimands, stratify="none")
-        message = str(caught.value)
+        message = _engine_conditions(None, estimands=estimands)
         assert BY_ID["att-atc"].fragment in message
         assert (
             "Request estimands from ['ate', 'ey', 'ey1', 'ey0', 'ey_obs', 'par', 'paf', 'rr', 'or']"
@@ -308,7 +364,7 @@ def test_att_and_atc_are_refused_by_name_in_every_request_form() -> None:
         )
         requested = "['att']" if estimands == ("att",) else "['att', 'atc']"
         assert f"No audited result covers {requested}" in message
-        assert NeverFit.calls == 0
+        assert "X60" in message
 
 
 def test_stratified_folds_are_refused_before_the_contract_is_reached() -> None:
@@ -354,11 +410,13 @@ def test_the_att_refusal_names_the_admitted_list_for_three_arms() -> None:
         }
     )
     estimator = TMLE(**{**ADMITTED, **never_fit_learners(), "estimands": "all"})
+    data = CausalData.from_frame(
+        frame, outcome="Y", treatment="A", covariates=("W1",), delta="Delta"
+    )
 
-    with pytest.raises(CapabilityError) as caught:
-        estimator.fit(frame, outcome="Y", treatment="A", covariates=("W1",), delta="Delta")
-    assert "Request estimands from ['ate', 'ey', 'ey_obs', 'par', 'paf', 'rr', 'or']" in str(
-        caught.value
+    conditions = estimator._preflight_fit_configuration(data).conditions
+    assert "Request estimands from ['ate', 'ey', 'ey_obs', 'par', 'paf', 'rr', 'or']" in " ".join(
+        condition.message() for condition in conditions
     )
     assert NeverFit.calls == 0
 
@@ -408,6 +466,12 @@ def test_each_public_refusal_row_fires_before_any_learner(
     row: Row, estimand: Any, conditional: bool
 ) -> None:
     """``stratify`` is fixed at ``"none"``; see ``test_each_engine_refusal_row_...``."""
+    expected = _expected(row, conditional=conditional, stratify="none")
+    if expected is None:
+        with pytest.raises(AssertionError, match="must run before any learner is fitted"):
+            _public_fit(row, estimand=estimand, stratify="none")
+        assert NeverFit.calls == 1
+        return
     with pytest.raises(CapabilityError) as caught:
         _public_fit(row, estimand=estimand, stratify="none")
     message = str(caught.value)
@@ -415,17 +479,15 @@ def test_each_public_refusal_row_fires_before_any_learner(
         # The public route refuses a collaborative ATT before the engine sees it.
         assert message.startswith("method 'collaborative_tmle' cannot estimate ATT")
     else:
-        expected = _expected(row, conditional=conditional, stratify="none")
         assert message.startswith(CONTRACT)
         assert expected.fragment in message
     assert NeverFit.calls == 0
 
 
-def test_the_public_att_request_is_refused_by_name() -> None:
-    with pytest.raises(CapabilityError) as caught:
+def test_the_public_att_request_reaches_the_learners_as_an_experimental_fit() -> None:
+    with pytest.raises(AssertionError, match="must run before any learner is fitted"):
         _public_fit(None, estimand=ATT(), stratify="none")
-    assert BY_ID["att-atc"].fragment in str(caught.value)
-    assert NeverFit.calls == 0
+    assert NeverFit.calls == 1
 
 
 def test_the_public_stratified_folds_are_refused_before_the_contract_is_reached() -> None:
@@ -525,11 +587,12 @@ def test_a_supplied_weight_column_is_outside_the_unweighted_contract(offset: flo
     frame = _frame()
     frame["wt"] = 1.0 + offset * np.where(np.arange(N) % 2 == 0, -1.0, 1.0)
     estimator = TMLE(**{**ADMITTED, **never_fit_learners(), "estimands": ("ate",)})
+    data = CausalData.from_frame(
+        frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta", weights="wt"
+    )
 
-    with pytest.raises(CapabilityError, match="Drop weights= from fit"):
-        estimator.fit(
-            frame, outcome="Y", treatment="A", covariates=COVARIATES, delta="Delta", weights="wt"
-        )
+    conditions = estimator._preflight_fit_configuration(data).conditions
+    assert any("Drop weights= from fit" in condition.message() for condition in conditions)
     assert NeverFit.calls == 0
 
 

@@ -344,6 +344,7 @@ from .._inference_status import (
     precedent_status,
     status_record,
 )
+from .._support import Preflight, record_refusal_site
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
 from ..exceptions import CapabilityError, DataWarning, Refusal, RefusalReason
@@ -2014,16 +2015,14 @@ default="greedy"
         }
         return estimates, fluctuations, detail, record
 
-    def _bootstrap_inferential(self, data: CausalData) -> bool:
-        """Whether the full-refit bootstrap interval is published as inference.
+    def _bootstrap_diagnostic(self, data: CausalData) -> bool:
+        """Whether the full-refit bootstrap interval is a diagnostic.
 
-        ``False`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
+        ``True`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
         Cai and van der Laan (2020) gives the influence curve of a superefficient estimator,
         and it does not cover the bootstrap of that estimator. On a selector strategy, no
-        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The registered
-        study ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary
-        point-treatment :class:`~cleverly.TMLE` only. The percentile range prints as a
-        diagnostic.
+        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The percentile
+        range prints as a diagnostic.
 
         Parameters
         ----------
@@ -2033,10 +2032,10 @@ default="greedy"
         Returns
         -------
         bool
-            ``False``.
+            ``True``.
         """
         del data
-        return False
+        return True
 
     def _builds_default_band(self, data: CausalData) -> bool:
         """Whether ``simultaneous=True`` builds a band; ``False`` on an admitted per-arm fit.
@@ -3401,7 +3400,7 @@ default="greedy"
         configured.ordering = (*declared, *added)
         return configured
 
-    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+    def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
         """Resolve targets, and refuse the designs a collaborative search has no result for.
 
         Runs before any split is drawn, so a refused design pays for no fold generation
@@ -3444,6 +3443,9 @@ default="greedy"
                     "and no reviewed result covers a grouped draw of those splits or the "
                     "cluster-robust variance of the candidate the search then stops at"
                 )
+            )
+            record_refusal_site(
+                "ctmle.clustered", RefusalReason.IMPLEMENTATION_GAP, "F22", flagged=True
             )
             raise CapabilityError(
                 f"C-TMLE has no clustered result. {reason}. docs/roadmap.md X51 tracks the "

@@ -1710,6 +1710,7 @@ def truncation_curve(
                     g_bounds=None if mechanism else pair,
                     g_bounds_conditional=None if mechanism else pair,
                     nuisance_bound=lower if mechanism else None,
+                    conditions=result.config.support_conditions,
                 )[0]
                 for repeat in result.repeats
             ],
@@ -1755,10 +1756,18 @@ def truncation_curve(
                     # some of them only, so the row names the factors it truncated.
                     **({} if moved is None else {"truncated_factor": moved}),
                     **({"treatment_mechanism": "known"} if known else {}),
+                    # The retarget classified the swept fit again, so an experimental
+                    # configuration keeps its label and the sentence that names the condition.
+                    **(
+                        {"support": "experimental", "support_reason": estimate.support.reason}
+                        if estimate.support.label == "experimental"
+                        else {}
+                    ),
                 }
             )
 
-    payload = {key: [row[key] for row in rows] for key in rows[0]}
+    keys = list(dict.fromkeys(key for row in rows for key in row))
+    payload = {key: [row.get(key) for row in rows] for key in keys}
     return result.data.frame_like(payload)
 
 

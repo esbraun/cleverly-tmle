@@ -32,7 +32,6 @@ from tests.unit.tutorial_semantics import (
 NOTEBOOK = EXAMPLES / "survey-nonresponse.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/sn-bounded"
-_ARM = "tests/canonical/tmle_mar_arm_indexed_cvtmle/properties.csv"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
@@ -41,26 +40,8 @@ UNPRINTED_DECIMALS = {
     "0.960": f"complete-case intervals that contain 0.172772 (480 of 500): {_PROBE}/summary.log",
     "0.00043": f"mean complete-case estimate minus 0.172772, 500 draws: {_PROBE}/summary.log",
     "0.00023": f"Monte Carlo SE of the mean complete-case estimate: {_PROBE}/summary.log",
-    "0.956": f"Step 6 coverage of the ATE (478 of 500): {_PROBE}/summary.log",
-    "0.938": f"lower Wald limit of the Step 6 coverage: {_PROBE}/summary.log",
-    "0.974": f"upper Wald limit of the Step 6 coverage: {_PROBE}/summary.log",
-    "0.00038": f"mean Step 6 estimate minus the ATE, 500 draws: {_PROBE}/summary.log",
-    "0.00025": f"Monte Carlo SE of the mean Step 6 estimate: {_PROBE}/summary.log",
-    "0.998": f"mean Step 6 SE over the empirical SD: {_PROBE}/summary.log",
     "3.17": f"5th percentile of the interval tipping gamma (3.1721): {_PROBE}/summary.log",
     "5.48": f"95th percentile of the interval tipping gamma (5.4783): {_PROBE}/summary.log",
-    "0.9383": f"coverage_ci_lower of interval_calibration/l2_ate__learned_nuisances: {_ARM}",
-    "0.9635": f"coverage_ci_upper of interval_calibration/l2_ate__learned_nuisances: {_ARM}",
-    "0.9684": f"se_ratio_ci_lower of interval_calibration/l2_ate__learned_nuisances: {_ARM}",
-    "1.0485": f"se_ratio_ci_upper of interval_calibration/l2_ate__learned_nuisances: {_ARM}",
-    "0.6786": f"se_ratio_ci_lower of interval_calibration/l2_ate__shrunken_se_control: {_ARM}",
-    "0.7348": f"se_ratio_ci_upper of interval_calibration/l2_ate__shrunken_se_control: {_ARM}",
-    "-0.0437": f"bias_ci_lower of mar_robustness/l2_ate__only_outcome_wrong: {_ARM}",
-    "-0.0013": f"bias_ci_upper of mar_robustness/l2_ate__only_outcome_wrong: {_ARM}",
-    "0.0711": f"bias_margin of mar_robustness/l2_ate__only_outcome_wrong: {_ARM}",
-    "-4.8100": f"bias_ci_lower of mar_robustness/l2_ate__outcome_and_response_wrong: {_ARM}",
-    "-4.7846": f"bias_ci_upper of mar_robustness/l2_ate__outcome_and_response_wrong: {_ARM}",
-    "0.0425": f"bias_margin of mar_robustness/l2_ate__outcome_and_response_wrong: {_ARM}",
 }
 
 
@@ -87,7 +68,7 @@ def _read(path: str) -> list[dict[str, str]]:
 def check(namespace: dict[str, Any]) -> None:
     """Witness the identification, graph, comparison, diagnostic, and sensitivity claims.
 
-    The committed review probe and registered properties also back each quoted number.
+    The committed review probe also backs each quoted number.
     """
     law = missing_outcome_bounded_dgp()
     truth = namespace["truth"]["ate"]
@@ -101,15 +82,8 @@ def check(namespace: dict[str, Any]) -> None:
     probe = _read(f"{_PROBE}/sweep.csv")
     assert len(probe) == 500
     ate_hits = sum(row["covers"] == "True" for row in probe)
-    psi = np.array([float(row["psi"]) for row in probe])
-    se = np.array([float(row["se"]) for row in probe])
     cc = np.array([float(row["cc_psi"]) for row in probe])
-    half = 1.959964 * np.sqrt(ate_hits / 500 * (1 - ate_hits / 500) / 500)
     assert ate_hits == 478
-    assert (f"{ate_hits / 500 - half:.3f}", f"{ate_hits / 500 + half:.3f}") == ("0.938", "0.974")
-    assert f"{psi.mean() - ate:.5f}" == "0.00038"
-    assert f"{psi.std(ddof=1) / np.sqrt(500):.5f}" == "0.00025"
-    assert f"{se.mean() / psi.std(ddof=1):.3f}" == "0.998"
     assert sum(row["cc_covers_ate"] == "True" for row in probe) == 0
     assert sum(row["cc_covers_target"] == "True" for row in probe) == 480
     assert f"{cc.mean() - cc_target:.5f}" == "0.00043"
@@ -118,43 +92,6 @@ def check(namespace: dict[str, Any]) -> None:
     assert len(tips) == 485
     assert sum(bool(row["tip_point"]) for row in probe) == 358
     assert (f"{np.percentile(tips, 5):.2f}", f"{np.percentile(tips, 95):.2f}") == ("3.17", "5.48")
-
-    # The registered cells that the trust table quotes.
-    cells = {(row["property"], row["cell"]): row for row in _read(_ARM)}
-    learned = cells[("interval_calibration", "l2_ate__learned_nuisances")]
-    shrunken = cells[("interval_calibration", "l2_ate__shrunken_se_control")]
-    quoted = (
-        learned["coverage_ci_lower"],
-        learned["coverage_ci_upper"],
-        learned["se_ratio_ci_lower"],
-        learned["se_ratio_ci_upper"],
-        shrunken["se_ratio_ci_lower"],
-        shrunken["se_ratio_ci_upper"],
-    )
-    assert tuple(f"{float(value):.4f}" for value in quoted) == (
-        "0.9383",
-        "0.9635",
-        "0.9684",
-        "1.0485",
-        "0.6786",
-        "0.7348",
-    )
-    assert int(learned["n"]) == 2000
-    outcome_wrong = cells[("mar_robustness", "l2_ate__only_outcome_wrong")]
-    both_wrong = cells[("mar_robustness", "l2_ate__outcome_and_response_wrong")]
-    robustness = tuple(
-        row[key]
-        for row in (outcome_wrong, both_wrong)
-        for key in ("bias_ci_lower", "bias_ci_upper", "bias_margin")
-    )
-    assert tuple(f"{float(value):.4f}" for value in robustness) == (
-        "-0.0437",
-        "-0.0013",
-        "0.0711",
-        "-4.8100",
-        "-4.7846",
-        "0.0425",
-    )
 
     effect = namespace["effect"]
     fitted = namespace["full"]

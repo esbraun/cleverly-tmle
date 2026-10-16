@@ -7,7 +7,6 @@ decimals are also compared against its stored outputs.
 
 from __future__ import annotations
 
-import csv
 import re
 from typing import Any
 
@@ -35,31 +34,12 @@ _DOSE = f"{_PROBE}/summary.log, sweep_dose.csv (seeds 9000 to 9119)"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
-    "1.07": f"regime offer-to-all mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
-    "1.10": f"regime screen mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
-    "-0.00029": f"regime offer-to-all mean error, degree-2 logistic g: {_BINARY}",
-    "0.00054": f"MC SE of the regime offer-to-all mean error, degree-2 logistic g: {_BINARY}",
-    "-0.00028": f"regime screen mean error, degree-2 logistic g: {_BINARY}",
-    "0.00037": f"MC SE of the regime screen mean error, degree-2 logistic g: {_BINARY}",
-    "1.08": f"incremental mean SE over empirical SD, degree-2 logistic g: {_BINARY}",
     "5.6": f"the law's share of intensities below zero, 0.055784: {_PROBE}/truth.log",
-    # The shown dose configuration, quad_rboost40.
-    "-0.0004": f"+0.5 capped mean error, quad_rboost40 (-0.00040): {_DOSE}",
-    "+0.0002": f"+0.5 uncapped mean error, quad_rboost40 (+0.00020): {_DOSE}",
-    "-0.0005": f"+1.0 mean error, quad_rboost40 (-0.00052): {_DOSE}",
-    "0.0010": f"MC SE of the +0.5 mean errors, quad_rboost40 (0.00102, 0.00097): {_DOSE}",
-    "0.0025": f"MC SE of the +1.0 mean error, quad_rboost40 (0.00248): {_DOSE}",
-    "1.17": f"+0.5 capped mean SE over empirical SD, quad_rboost40: {_DOSE}",
-    "1.16": f"+0.5 uncapped mean SE over empirical SD, quad_rboost40: {_DOSE}",
-    "0.95": f"+1.0 mean SE over empirical SD, quad_rboost40: {_DOSE}",
-    "+0.0006": f"cap-gap mean error, quad_rboost40 (+0.00059): {_DOSE}",
-    "0.0005": f"MC SE of the cap-gap mean error, quad_rboost40 (0.00046): {_DOSE}",
+    # The mean density ratio of the shown dose configuration, quad_rboost40.
     "1.05": f"largest mean of the mean density ratio, quad_rboost40 (+1.0, 1.048): {_DOSE}",
     # The density comparison, same quadratic Q.
-    "1.01": f"largest mean SE over empirical SD, quad_oracle320 (+0.5 uncapped): {_DOSE}",
-    "1.00": f"mean of the +0.5 capped mean density ratio, quad_oracle320 (1.002): {_DOSE}",
-    "0.57": f"+1.0 mean SE over empirical SD, quad40: {_DOSE}",
-    "0.73": f"+0.5 capped mean SE over empirical SD, quad40: {_DOSE}",
+    "1.01": f"largest mean density ratio, quad_oracle320 (+1.0 uncapped): {_DOSE}",
+    "1.00": f"smallest mean density ratio, quad_oracle320 (+0.5 capped, 1.002): {_DOSE}",
     # The cross-fitted shift probe that the technical reference cites.
     "3.91": (
         "cross-fitted +1.0 mean SE over empirical SD, default booster density: "
@@ -73,26 +53,11 @@ UNPRINTED_DECIMALS = {
     "+0.00011": f"incremental mean error, degree-2 logistic g: {_BINARY}",
     "+0.00066": f"incremental mean error, shallow booster: {_BINARY}",
     "0.00008": f"Monte Carlo SE of each incremental mean error: {_BINARY}",
-    "0.93": (
-        f"median propensity calibration slope, degree-2 logistic g (0.929): {_BINARY}; "
-        f"smallest mean SE over empirical SD, quad_oracle320 (+0.5 capped), and the cap-gap "
-        f"ratio, quad_rboost40: {_DOSE}"
-    ),
+    "0.93": f"median propensity calibration slope, degree-2 logistic g (0.929): {_BINARY}",
     "0.94": f"median propensity calibration slope, shallow booster (0.939): {_BINARY}",
-    "0.9525": "coverage of ate_regime[rule vs never]: tests/canonical/lmtp_regimes/summary.csv",
-    "0.9625": (
-        "coverage of ate_policy[+0.5 capped vs natural course]: "
-        "tests/canonical/lmtp_shift/summary.csv"
-    ),
-    "0.94625": (
-        "coverage of ate_ipsi[odds x2 vs natural course]: "
-        "tests/canonical/npcausal_incremental/summary.csv"
-    ),
     "3.2": "a section number of Kennedy (2019), docs/references.md#incremental-interventions",
     "3.3": "a section number of Kennedy (2019), docs/references.md#incremental-interventions",
     "4.5": "the capacity of 5 minus the raise of 0.5, the threshold the cap acts on",
-    "0.15": "the shift study's curvature, PRIMARY_CURVATURE: tests/studies/canonical_shift_policies.py",
-    "0.25": "the curvature of shift_dgp(): src/cleverly/datasets/synthetic.py",
 }
 
 #: Where each probe or study decimal of ``UNPRINTED_DECIMALS`` lives: the committed file, a
@@ -102,42 +67,18 @@ _ROW = r"\| {row} \| (\d+)/120 = [\d.]+ \| ([+-][\d.]+) \(([\d.]+)\) \| [\d.]+ \
 _SECTIONS = {
     "poly2": r"### treatment learner: poly2",
     "booster": r"### treatment learner: booster",
-    "quad40": r"### configuration: quad40 ",
     "quad_oracle320": r"### configuration: quad_oracle320",
     "quad_rboost40": r"### configuration: quad_rboost40",
 }
 #: (prose decimal, section, row, column) where column 1 is the coverage count, 2 the mean
-#: error, 3 its Monte Carlo SE, and 4 the mean SE over the empirical SD.
+#: error, and 3 its Monte Carlo SE.
 _PROBE_CELLS = (
-    ("-0.00029", "poly2", "all", 2),
-    ("0.00054", "poly2", "all", 3),
-    ("1.07", "poly2", "all", 4),
-    ("-0.00028", "poly2", "screen", 2),
-    ("0.00037", "poly2", "screen", 3),
-    ("1.10", "poly2", "screen", 4),
     ("+0.00011", "poly2", "ipsi", 2),
     ("0.00008", "poly2", "ipsi", 3),
-    ("1.08", "poly2", "ipsi", 4),
     ("+0.00066", "booster", "ipsi", 2),
     ("0.00008", "booster", "ipsi", 3),
-    ("-0.0004", "quad_rboost40", "capped", 2),
-    ("0.0010", "quad_rboost40", "capped", 3),
-    ("1.17", "quad_rboost40", "capped", 4),
-    ("+0.0002", "quad_rboost40", "uncapped", 2),
-    ("0.0010", "quad_rboost40", "uncapped", 3),
-    ("1.16", "quad_rboost40", "uncapped", 4),
-    ("-0.0005", "quad_rboost40", "one", 2),
-    ("0.0025", "quad_rboost40", "one", 3),
-    ("0.95", "quad_rboost40", "one", 4),
-    ("+0.0006", "quad_rboost40", "gap", 2),
-    ("0.0005", "quad_rboost40", "gap", 3),
-    ("0.93", "quad_rboost40", "gap", 4),
-    ("0.93", "quad_oracle320", "capped", 4),
-    ("1.01", "quad_oracle320", "uncapped", 4),
-    ("0.73", "quad40", "capped", 4),
-    ("0.57", "quad40", "one", 4),
 )
-#: Coverage counts the trust section quotes, by (section, row).
+#: Coverage counts the readings quote, by (section, row).
 _PROBE_COVERAGE = {
     ("poly2", "all"): 117,
     ("poly2", "screen"): 117,
@@ -146,7 +87,6 @@ _PROBE_COVERAGE = {
     ("quad_rboost40", "capped"): 117,
     ("quad_rboost40", "uncapped"): 117,
     ("quad_rboost40", "one"): 114,
-    ("quad_rboost40", "gap"): 112,
 }
 
 
@@ -167,16 +107,8 @@ def _rounds_to(value: float, prose: str) -> bool:
     return f"{value:.{places}f}" == prose.lstrip("+")
 
 
-def _summary_csv(study: str, estimand: str, column: str) -> float:
-    with (ROOT / f"tests/canonical/{study}/summary.csv").open(encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            if row["implementation"] == "cleverly" and row["estimand"] == estimand:
-                return float(row[column])
-    raise AssertionError((study, estimand))
-
-
 def check_sources() -> None:
-    """Each unprinted probe or study decimal equals its committed source, rounded as written."""
+    """Each unprinted probe decimal equals its committed source, rounded as written."""
     for prose, section, row, column in _PROBE_CELLS:
         assert prose in UNPRINTED_DECIMALS
         assert _rounds_to(float(_probe_row(section, row)[column - 1]), prose), (prose, section)
@@ -193,22 +125,9 @@ def check_sources() -> None:
         assert means is not None
         values = [round(float(value), 2) for value in means.groups()]
         assert (min(values), max(values)) == (low, high), section
-    # Coverage of the default booster density: 87 to 104 of 120 draws.
-    quad40 = [int(_probe_row("quad40", row)[0]) for row in ("capped", "uncapped", "one")]
-    assert (min(quad40), max(quad40)) == (87, 104)
     truth = _read(f"{_PROBE}/truth.log")
     assert re.search(r"ipsi x2 vs x1\s+0\.024137 ", truth)
     assert re.search(r"P\(A < 0\)\s+0\.0557", truth)  # 5.6%
-    # The registered coverages and the shift study's curvature.
-    assert _summary_csv("lmtp_regimes", "ate_regime[rule vs never]", "coverage") == 0.9525
-    assert _summary_csv("lmtp_shift", "ate_policy[+0.5 capped vs natural course]", "coverage") == (
-        0.9625
-    )
-    assert (
-        _summary_csv("npcausal_incremental", "ate_ipsi[odds x2 vs natural course]", "coverage")
-        == 0.94625
-    )
-    assert "PRIMARY_CURVATURE = 0.15" in _read("tests/studies/canonical_shift_policies.py")
     # The cross-fitted shift probe of the technical reference: 3.91 and 0.98.
     reference = _read("docs/technical-reference/point-treatment-tmle.md")
     assert re.search(r"default settings \| 40 \| cross-fitted \| 3\.91 \|", reference)

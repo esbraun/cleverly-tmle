@@ -148,7 +148,7 @@ from ..estimators.composite import complement_form, composite_clipping_mask, tar
 from ..estimators.tmle import correction_parts, reported_mechanism
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
-from ..utils.text import format_negligible, format_table
+from ..utils.text import format_negligible, format_table, format_within
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..estimators.base import TMLEResult
@@ -578,7 +578,7 @@ class CorrectionCheck:
                                 self.threshold if row.solved else 0.0,
                                 digits=3,
                             ),
-                            format_negligible(row.residual, self.identity_threshold, digits=3),
+                            format_within(row.residual, self.identity_threshold, digits=3),
                             format_negligible(row.clip_bias, self.identity_threshold, digits=3),
                         ]
                         for row in self.rows
