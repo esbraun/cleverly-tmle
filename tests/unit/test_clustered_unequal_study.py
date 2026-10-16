@@ -35,7 +35,8 @@ def pair(request: pytest.FixtureRequest) -> tuple[object, object]:
 def test_the_declared_cells_are_the_cells_a_run_publishes(pair: tuple[object, object]) -> None:
     study, properties = pair
     declared = {(cell.property, cell.cell): cell for cell in properties.declared_cells()}
-    rows = properties.generate_property_rows(n_jobs=1, budget=2)
+    # One replicate per fit set suffices: the cells a run publishes are fixed by the fit set.
+    rows = properties.generate_property_rows(n_jobs=1, budget=1)
     published = {tuple(key) for key in rows.groupby(["property", "cell"]).groups}
     assert published == set(declared)
     assert set(declared) == {

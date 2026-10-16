@@ -268,7 +268,9 @@ def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
     declared = {(cell.property, cell.cell): cell for cell in properties.declared_cells()}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        rows = properties.generate_property_rows(n_jobs=1, budget=2)
+        # One replicate per fit set suffices: the cells a run publishes are fixed by the fit set,
+        # and test_method_evidence.py checks the summary, which needs two, on the committed rows.
+        rows = properties.generate_property_rows(n_jobs=1, budget=1)
     published = {tuple(key) for key in rows.groupby(["property", "cell"]).groups}
     assert published == set(declared)
     assert int(rows["failed_replicates"].max()) == 0
@@ -278,12 +280,6 @@ def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
             selected["truth"], cell.dgp.truth()[cell.estimand], rtol=1e-12, atol=0
         )
         assert set(selected["n"]) == {cell.n}
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        summary = properties.summarize_properties(rows)
-    assert {(row.property, row.cell) for row in summary.itertuples()} == {
-        (family, cell) for family, cells in study.STUDY.property_cells.items() for cell in cells
-    }
 
 
 def test_no_two_families_share_a_declared_stream() -> None:
