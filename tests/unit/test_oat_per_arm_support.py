@@ -28,7 +28,12 @@ from cleverly.estimators.ctmle import (
     SupportVerdict,
     per_arm_parametric_support,
 )
-from cleverly.exceptions import CapabilityError, DataWarning
+from cleverly.exceptions import (
+    CapabilityError,
+    DataWarning,
+    MethodConfigurationError,
+    RefusalReason,
+)
 from cleverly.learners import ParametricMechanism, ParametricOutcome
 from tests.studies import oat_parametric_quadrature as quad
 from tests.studies import oat_per_arm_laws as laws
@@ -158,11 +163,12 @@ class TestTheArmColumns:
         assert "arm_columns=1" in verdict.detail
         assert "got arm_columns=2" in verdict.detail
 
-    def test_the_mismatched_fit_keeps_the_generated_design_status(self) -> None:
-        result = _fit(outcome_learner=ParametricOutcome(arm_columns=2))
-        assert {estimate.inference for estimate in result.estimates.values()} == {
-            "generated_design_plugin"
-        }
+    def test_the_mismatched_fit_is_refused_before_any_learner_runs(self) -> None:
+        # Q8: the TMLE preflight refuses the declaration; the predicate stays the interval's
+        # own guard for a caller that reads it on prepared data.
+        with pytest.raises(MethodConfigurationError, match="arm_columns=1") as raised:
+            _fit(outcome_learner=ParametricOutcome(arm_columns=2))
+        assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
 
 class TestTheDataAxes:
