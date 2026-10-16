@@ -1025,6 +1025,7 @@ def preflight_declared_doses(
     *,
     ratio: str,
     density_bins: int | None,
+    undeclared_atoms: bool = True,
 ) -> None:
     """The declared-support and atom checks of every continuous node, before any plan.
 
@@ -1044,6 +1045,9 @@ def preflight_declared_doses(
         The ratio route, which decides whether the bin count rule applies.
     density_bins : int or None
         The declared bin count of the density route, or ``None`` for the default.
+    undeclared_atoms : bool, default True
+        Whether R-b4 runs. It guards the density ratio, so an estimator that reads no
+        ratio passes ``False``.
 
     Raises
     ------
@@ -1059,20 +1063,21 @@ def preflight_declared_doses(
             # row at risk.
             values = np.nan_to_num(data.node_values(time), nan=0.0)
             reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
-            refuse_component_atoms(
-                values,
-                data.node_components(time),
-                reachable,
-                moved=any(
-                    joint_policy_moves(regimen.plan[time - 1])
-                    for regimen in regimens
-                    if isinstance(regimen, DynamicRegimen)
-                    and isinstance(regimen.plan[time - 1], JointPolicy)
-                ),
-                ratio=ratio,
-                density_bins=density_bins,
-                atoms=data.component_atoms(time),
-            )
+            if undeclared_atoms:
+                refuse_component_atoms(
+                    values,
+                    data.node_components(time),
+                    reachable,
+                    moved=any(
+                        joint_policy_moves(regimen.plan[time - 1])
+                        for regimen in regimens
+                        if isinstance(regimen, DynamicRegimen)
+                        and isinstance(regimen.plan[time - 1], JointPolicy)
+                    ),
+                    ratio=ratio,
+                    density_bins=density_bins,
+                    atoms=data.component_atoms(time),
+                )
             if data.component_atoms(time):
                 check_component_atoms(
                     values,
@@ -1106,7 +1111,8 @@ def preflight_declared_doses(
             bins = (
                 density_bins if density_bins is not None else default_density_bins(continuous.size)
             )
-        _refuse_undeclared_atoms(at_risk, atoms=atoms, moved=moved, bins=bins, where=name)
+        if undeclared_atoms:
+            _refuse_undeclared_atoms(at_risk, atoms=atoms, moved=moved, bins=bins, where=name)
         if atoms:
             check_declared_atoms(dose, reachable, atoms, None, node=name)
 

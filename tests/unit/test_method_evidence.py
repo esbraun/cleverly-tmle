@@ -1527,13 +1527,14 @@ class TestNegativeControls:
         rows = _property_rows(study.slug)
         published = _property_summary(study.slug).set_index(["property", "cell"])
         calibration = published.loc[published.index.get_level_values(0) == family]
-        # The passing positives only: a positive published red under reporting policy can read
-        # conservative, as the learned-density arms of ``mtp-pricing`` do (SE ratio 1.05 to
-        # 1.11), and a 10% cut moves it into the band, which shows nothing about the gate.
+        # A positive published red because it reads conservative is left out, as the
+        # learned-density arms of ``mtp-pricing`` are (SE ratio 1.05 to 1.11): a 10% cut moves
+        # it into the band, which shows nothing about the gate.  A red positive that already
+        # understates its error stays in, and the cut keeps it red.
+        positive = calibration["role"] == "positive"
+        conservative_red = ~calibration["passed"].astype(bool) & (calibration["se_ratio"] > 1.0)
         positive_cells = set(
-            calibration.loc[
-                (calibration["role"] == "positive") & calibration["passed"].astype(bool)
-            ].index.get_level_values(1)
+            calibration.loc[positive & ~conservative_red].index.get_level_values(1)
         )
         mutated = rows.copy()
         mask = (mutated["property"] == family) & mutated["cell"].isin(positive_cells)

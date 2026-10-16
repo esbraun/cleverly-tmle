@@ -3993,6 +3993,8 @@ class _SequentialEstimator:
     #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
     #: regimen this estimator fits.  Only a model-based estimator accepts one.
     _allow_set_dose: ClassVar[bool] = False
+    #: Whether the fit reads a density ratio at a continuous node, which R-b4 of X40 guards.
+    _reads_density_ratio: ClassVar[bool] = True
 
     #: Whether a fit classifies itself for the support record. A bootstrap replicate sets it off.
     _record_support: bool = True
@@ -4508,7 +4510,11 @@ class _SequentialEstimator:
         # The declared support and the declared atoms of each continuous dose, and the
         # undeclared-atom check, before any plan or learner (X40 parts (a) and (b)).
         preflight_declared_doses(
-            prepared, regimens, ratio=self.ratio, density_bins=self.density_bins
+            prepared,
+            regimens,
+            ratio=self.ratio,
+            density_bins=self.density_bins,
+            undeclared_atoms=self._reads_density_ratio,
         )
         # Every rule is called here and nowhere else, so a mask and the design the
         # mechanism was evaluated at cannot disagree about what the regimen assigned.
@@ -6792,6 +6798,8 @@ class ParametricGFormula(_Baseline):
 
     _estimator: ClassVar[str] = "parametric_gformula"
     _allow_set_dose: ClassVar[bool] = True
+    #: The simulation draws the natural dose from its fitted law and reads no ratio.
+    _reads_density_ratio: ClassVar[bool] = False
 
     def __init__(
         self,

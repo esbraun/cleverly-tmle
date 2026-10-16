@@ -85,12 +85,10 @@ fit_scenario <- function(frame, scenario) {
   if (!nrow(wanted)) stop(sprintf("no truth rows for %s replicate %s", scenario, replicate))
   fits <- list()
   get_fit <- function(label) {
-    # Each lmtp fit is one declared comparator stage, so an lmtp error is a recorded failure
-    # under the failure bound, not a fatal one.
+    # The adapters run each lmtp call inside its own `study_stage`, so an lmtp error is a
+    # recorded failure under the failure bound, and their own checks stay fatal (M7).
     if (is.null(fits[[label]])) {
-      fits[[label]] <<- study_stage(
-        sprintf("%s %s", scenario, label), fit_plan(frame, estimator, label)
-      )
+      fits[[label]] <<- fit_plan(frame, estimator, label)
     }
     fits[[label]]
   }
