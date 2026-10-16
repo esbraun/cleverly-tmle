@@ -994,6 +994,22 @@ def test_w7_every_redirected_design_carries_its_reason_code() -> None:
     )
 
 
+def test_w7_a_mixed_node_is_refused_before_any_learner() -> None:
+    """A flag with a dose at one node has no blip coding, so the fit refuses it by name."""
+    frame = _simulated().assign(F=lambda f: (f["A1"] > 0).astype(float), D=lambda f: f["S1"].abs())
+    with pytest.raises(CapabilityError, match=r"node 'F\+D' at time 1 is a vector") as caught:
+        StructuralNestedMean(None, **GLMS).fit(
+            frame,
+            outcome="Y",
+            treatment=[["F", "D"], "A2"],
+            continuous_treatment=["D"],
+            baseline=["W"],
+            time_varying=[["S1"], ["S2"]],
+        )
+    assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    assert "LTMLE or SDR" in str(caught.value)
+
+
 def test_w7_a_reference_with_no_regimen_is_refused() -> None:
     _refused(
         RefusalReason.INVALID_DECLARATION,

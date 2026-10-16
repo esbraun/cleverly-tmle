@@ -186,6 +186,19 @@ _COVARIATE_FEATURE_REFUSAL = Refusal(
 )
 
 
+def _mixed_refusal(data: LongitudinalData) -> Refusal:
+    """The refusal of a vector node with a continuous component, naming the first one."""
+    time = next(t for t in range(1, data.n_times + 1) if data.node_kind(t) == "mixed")
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"node {data.treatment_names[time - 1]!r} at time {time} is a vector with a continuous "
+        "component. StructuralNestedMean codes a node as one dose or one set of level "
+        "indicators, and the blip of a flag with a dose has no coding here.",
+        alternative="Fit LTMLE or SDR, which read a mixed node, or declare the flag and the "
+        "dose as separate nodes.",
+    )
+
+
 def _invalid(condition: str, *, alternative: str | None = None) -> CapabilityError:
     """An :attr:`~cleverly.exceptions.RefusalReason.INVALID_DECLARATION` refusal."""
     return CapabilityError(
@@ -275,21 +288,49 @@ class _Node:
         return self.p * self.d
 
 
+def _is_dose(data: LongitudinalData, time: int) -> bool:
+    """Whether node ``time`` holds one dose.  The fit refuses a mixed node before this runs."""
+    return data.node_kind(time) == "continuous"
+
+
+def _level_labels(data: LongitudinalData, time: int) -> tuple[object, ...]:
+    """The labels of a categorical node's levels, in code order.
+
+    The level set is read from the units that hold each level.  Each code ``0 .. K-1`` occurs
+    at the node because the level set is built from the column itself.  A dense code set is
+    checked rather than assumed.
+    """
+    codes = data.node_codes(time)
+    present = data.node_present(time)
+    present_codes, first = np.unique(codes[present], return_index=True)
+    if not np.array_equal(present_codes, np.arange(present_codes.size)):
+        raise _invalid(
+            f"the treatment codes of node {time} are not dense; "
+            f"the codes {present_codes.tolist()} occur"
+        )
+    return tuple(data.observed_labels(time)[present][first])
+
+
+def _n_levels(data: LongitudinalData, time: int) -> int:
+    """The number of levels of a categorical node: one more than its highest code."""
+    return int(np.nanmax(data.node_codes(time))) + 1
+
+
 def _treatment_components(data: LongitudinalData, time: int) -> tuple[str, ...]:
     """The name of each coding component of node ``time``'s treatment."""
     name = data.treatment_names[time - 1]
-    if data.is_continuous_node(time):
+    if _is_dose(data, time):
         return (name,)
-    levels = data.treatment_levels[time - 1]
+    levels = _level_labels(data, time)
     if len(levels) == 2:
         return (name,)
     return tuple(f"{name}={level}" for level in levels[1:])
 
 
 def _node_levels(data: LongitudinalData, time: int) -> tuple[str, ...]:
-    if data.is_continuous_node(time):
+    if _is_dose(data, time):
         return ("dose",)
-    return tuple(str(level) for level in data.treatment_levels[time - 1][1:])
+    return tuple(str(level) for level in _level_labels(data, time)[1:])
 
 
 def _terms(value: Any) -> list[tuple[str, ...]]:
@@ -397,8 +438,8 @@ def _parse_blip_features(
         _Node(
             time=time,
             treatment=data.treatment_names[time - 1],
-            continuous=data.is_continuous_node(time),
-            n_levels=0 if data.is_continuous_node(time) else len(data.treatment_levels[time - 1]),
+            continuous=_is_dose(data, time),
+            n_levels=0 if _is_dose(data, time) else _n_levels(data, time),
             levels=_node_levels(data, time),
             features=_node_features(data, time, by_node.get(time, [])),
         )
@@ -431,9 +472,10 @@ def _encode(codes: FloatArray, n_levels: int, continuous: bool) -> FloatArray:
 
 def _coding(data: LongitudinalData, time: int, codes: FloatArray | None = None) -> FloatArray:
     """The coding of node ``time``'s treatment, observed or at ``codes``: ``(n, d)``."""
-    raw = data.treatment[:, time - 1] if codes is None else codes
+    raw = data.node_codes(time) if codes is None else codes
     filled = np.nan_to_num(np.asarray(raw, dtype=float), nan=0.0)
-    return _encode(filled, len(data.treatment_levels[time - 1]), data.is_continuous_node(time))
+    dose = _is_dose(data, time)
+    return _encode(filled, 0 if dose else _n_levels(data, time), dose)
 
 
 def _factor_value(
@@ -854,7 +896,7 @@ def _regimen_inputs(
         coding.append(
             _encode(
                 np.asarray([codes[node.time - 1]], dtype=float),
-                len(data.treatment_levels[node.time - 1]),
+                node.n_levels,
                 node.continuous,
             )[0]
         )
@@ -885,7 +927,7 @@ class _StaticRegimen:
 
 def _code_of(data: LongitudinalData, regimen: Regimen, time: int) -> float:
     value = regimen.values[time - 1]
-    if data.is_continuous_node(time):
+    if _is_dose(data, time):
         try:
             dose = float(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
@@ -893,7 +935,7 @@ def _code_of(data: LongitudinalData, regimen: Regimen, time: int) -> float:
                 f"regimen {regimen.label!r} assigns {value!r} at node {time}, which holds a "
                 "dose; a static dose is a number"
             ) from None
-        observed = np.asarray(data.treatment[:, time - 1], dtype=float)
+        observed = np.asarray(data.node_codes(time), dtype=float)
         low, high = float(np.nanmin(observed)), float(np.nanmax(observed))
         if not low <= dose <= high:
             raise _invalid(
@@ -902,7 +944,7 @@ def _code_of(data: LongitudinalData, regimen: Regimen, time: int) -> float:
                 "under the structural model only inside that range"
             )
         return dose
-    levels = data.treatment_levels[time - 1]
+    levels = _level_labels(data, time)
     for index, level in enumerate(levels):
         if _same_label(value, level):
             return float(index)
@@ -1492,6 +1534,8 @@ class StructuralNestedMean:
             raise CapabilityError.from_refusal(_HELD_REFUSAL)
         if data.known_mechanisms is not None:
             raise CapabilityError.from_refusal(_KNOWN_MECHANISM_REFUSAL)
+        if data.has_mixed_node:
+            raise CapabilityError.from_refusal(_mixed_refusal(data))
 
     def _reference(self, regimens: Sequence[_StaticRegimen]) -> _StaticRegimen | None:
         if not regimens:
@@ -1512,9 +1556,9 @@ class StructuralNestedMean:
     def _refuse_reference_dose(data: LongitudinalData) -> None:
         """The reference dose 0 of a continuous node must lie in the observed range."""
         for node in range(1, data.n_times + 1):
-            if not data.is_continuous_node(node):
+            if not _is_dose(data, node):
                 continue
-            observed = np.asarray(data.treatment[:, node - 1], dtype=float)
+            observed = np.asarray(data.node_codes(node), dtype=float)
             low, high = float(np.nanmin(observed)), float(np.nanmax(observed))
             if not low <= 0.0 <= high:
                 raise _invalid(
