@@ -19,6 +19,7 @@ from cleverly import MSMProjection
 from cleverly.datasets import navigation_protocol
 from cleverly.msm import MSM
 from cleverly.sensitivity.omitted_variable import OMITTED_VARIABLE_OPERATIONS
+from tests.documents import ROOT
 from tests.unit.tutorial_semantics import (
     EXAMPLES,
     assert_protocol_recorded,
@@ -30,46 +31,33 @@ from tests.unit.tutorial_semantics import (
 NOTEBOOK = EXAMPLES / "msm-projections.ipynb"
 
 _PROBE = "reviews/notebook-review/probes/msm-projections-final"
-_STUDY = "tests/canonical/tmle3_msm"
 
 #: Decimals the readings write that no stored output prints, each with its source.
 UNPRINTED_DECIMALS = {
     "0.9405": f"Step 7 slope coverage, fitted g (3762 of 4000), seeds 30000-33999; the same value "
     f"for the 1:10:1 slope: {_PROBE}/sweep.log",
-    "0.9387": f"Step 7 slope coverage, true g (3755 of 4000): {_PROBE}/sweep.log",
-    "0.9455": f"Step 8 per-step slope coverage (3782 of 4000): {_PROBE}/sweep.log",
-    "0.984": f"Step 7 slope mean SE over empirical SD, fitted g: {_PROBE}/sweep.log",
-    "0.986": f"Step 7 slope mean SE over empirical SD, true g: {_PROBE}/sweep.log",
-    "0.997": f"Step 8 slope mean SE over empirical SD: {_PROBE}/sweep.log",
-    "0.946": f"2 Phi(1.96 x 0.984) - 1, the normal coverage at the fitted-g SE / SD ratio: "
+    "0.01": f"the true-g threshold, share below it 0.0112 for medium or high: "
     f"{_PROBE}/shortfall.log",
-    "0.9327": f"Wilson 95% lower end of the Step 7 slope coverage: {_PROBE}/sweep.log",
-    "0.9474": f"Wilson 95% upper end of the same coverage: {_PROBE}/sweep.log",
-    "0.05": f"excess kurtosis of the Step 7 slope z-statistic over 4000 draws: {_PROBE}/shortfall.log",
-    "0.937": f"lowest Step 7 slope coverage over quartiles of the smallest fitted g: "
-    f"{_PROBE}/shortfall.log",
-    "0.945": f"highest Step 7 slope coverage over the same quartiles: {_PROBE}/shortfall.log",
-    "0.01": "the study's fixed g_bounds (0.01, 0.99): tests/studies/canonical_point_msm.py G_BOUNDS; "
-    f"also the true-g threshold, share below it 0.0112 for medium or high: {_PROBE}/shortfall.log",
     "0.734": "half the stored ate[high vs low], 1.4681 / 2, checked in check()",
-    "0.99": "the upper end of the same G_BOUNDS",
-    "0.25": "the smallest propensity of the study laws, tests/discrete_law.py G = (0.40, 0.60, 0.25)",
-    "0.6": "the largest propensity of the same G",
-    "0.9463": f"cleverly coverage of the primary msm[a] row: {_STUDY}/summary.csv",
-    "0.9969": f"cleverly SE ratio of the primary msm[a] row: {_STUDY}/summary.csv",
-    "0.9357": f"coverage_ci_lower of interval_calibration/a__correctly_specified: "
-    f"{_STUDY}/properties.csv",
-    "0.9641": f"coverage_ci_upper of the same cell: {_STUDY}/properties.csv",
-    "0.9537": f"se_ratio_ci_lower of the same cell: {_STUDY}/properties.csv",
-    "1.0430": f"se_ratio_ci_upper of the same cell: {_STUDY}/properties.csv",
-    "-0.000906": f"bias_ci_lower of projection_necessity/W__declared_weights: "
-    f"{_STUDY}/properties.csv",
-    "0.0018": f"bias_ci_upper of the same cell (0.00177): {_STUDY}/properties.csv",
-    "0.0045": f"bias_margin of the same cell (0.00449): {_STUDY}/properties.csv",
-    "-0.1150": f"bias_ci_lower of projection_necessity/W__uniform_weights: {_STUDY}/properties.csv",
-    "-0.1129": f"bias_ci_upper of the same cell: {_STUDY}/properties.csv",
-    "0.0035": f"bias_margin of the same cell (0.00346): {_STUDY}/properties.csv",
 }
+
+
+def _log_value(text: str, pattern: str) -> str:
+    """Return the first group of ``pattern`` in a committed probe log."""
+    match = re.search(pattern, text)
+    assert match, f"the probe log no longer contains {pattern!r}"
+    return match.group(1)
+
+
+def _assert_unprinted_sources() -> None:
+    """Each decimal in UNPRINTED_DECIMALS equals the committed file that holds it."""
+    sweep = (ROOT / _PROBE / "sweep.log").read_text(encoding="utf-8")
+    shortfall = (ROOT / _PROBE / "shortfall.log").read_text(encoding="utf-8")
+    assert re.search(r"slope_cover: 3762/4000 = 0\.9405 ", sweep)
+    assert _log_value(sweep, r"weighted_cover: 3762/4000 = ([0-9.]+)") == "0.9405"
+    # "About one patient in a hundred has a true probability below 0.01."
+    share = float(_log_value(shortfall, r"g\(high\) below 0\.01: ([0-9.]+)"))
+    assert 0.005 < share < 0.02
 
 
 def _weighted_projection(design: np.ndarray, weights: np.ndarray, means: np.ndarray) -> np.ndarray:
@@ -79,6 +67,7 @@ def _weighted_projection(design: np.ndarray, weights: np.ndarray, means: np.ndar
 
 def check(namespace: dict[str, Any]) -> None:
     """The projection tutorial's protocol, codings, failure mode, weights, and control hold."""
+    _assert_unprinted_sources()
     effect = namespace["arm_means_effect"]
     fitted = namespace["arm_result"]
     study, method = namespace["study"], namespace["method"]

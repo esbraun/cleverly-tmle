@@ -196,7 +196,7 @@ def _weights(
         if plan.is_tilt_node(time):
             delta = plan.tilt_delta(time)
             pi = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
-            arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+            arm = np.nan_to_num(data.node_codes(time), nan=0.0)
             tilt = tilt * (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
         else:
             numerator = numerator * _node_numerator(plan, data, time)
@@ -297,7 +297,7 @@ def _recursion(
             with phase("influence_curve"):
                 delta = plan.tilt_delta(time)
                 pi = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
-                arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+                arm = np.nan_to_num(data.node_codes(time), nan=0.0)
                 blip = regression.initial_by_arm[:, 1] - regression.initial_by_arm[:, 0]
                 derivative = delta * blip * (arm - pi) / (delta * pi + 1.0 - pi) ** 2
                 term = np.where(at_risk, weights.weights[time - 1] * derivative, 0.0)

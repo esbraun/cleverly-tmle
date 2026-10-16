@@ -29,7 +29,7 @@ from ._assessment_cache import (
     _unpack_cached,
 )
 from ._declarations import declarations_pass
-from ._inference_status import precedent_status, status_record, supplies_inference
+from ._inference_status import is_labelled, precedent_status, status_record, supplies_inference
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import (
@@ -641,7 +641,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         )
     if (
         family == "point"
-        and result.data.is_continuous_treatment
+        and result.data.treatment_kind == "continuous"
         and result.config.parameter_axis == "msm"
     ):
         # The arm positivity report cannot interpret a continuous density. No
@@ -2249,6 +2249,15 @@ def _bound_arguments(bound: inspect.BoundArguments, report: Any = None) -> dict[
         resolved = getattr(report, "random_state", getattr(report, "root_seed", None))
         if resolved is not None:
             effective["random_state"] = resolved
+    # ``omitted_variable_bounds`` resolves an omitted strength to 0.03 itself, because a
+    # ``benchmark=`` must be told apart from an explicit strength. Record what it ran, except
+    # beside a benchmark, where a replay passing both strengths would conflict with it.
+    if effective.get("benchmark") is None:
+        for name in ("cf_y", "cf_d"):
+            if name in effective and effective[name] is None:
+                resolved = getattr(report, name, None)
+                if resolved is not None:
+                    effective[name] = resolved
     return effective
 
 
@@ -2594,11 +2603,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                     nuisance.policies,
                     nuisance.density,
                     self._result.data.treatment,
-                    propensity=(
-                        None
-                        if self._result.data.is_continuous_treatment
-                        else nuisance.propensity.values
-                    ),
+                    propensity=(nuisance.propensity.values if self._result.data.has_arms else None),
                     mechanisms=mechanisms,
                     folds=nuisance.folds,
                     **score_arguments("mtp"),
@@ -2778,7 +2783,9 @@ class DiagnosticsFacade(_CapabilityFacade):
             ``cleverly.sensitivity.positivity.truncation_refusal`` returns. A
             longitudinal result also refuses an omitted ``bounds`` grid and
             ``mechanism=True``, which are the two requests its contract above has no answer
-            to.
+            to. On a declared known mechanism, either family refuses an explicit bound pair
+            that the fit itself refuses, because that pair would truncate a declared value.
+            The point-treatment default grid omits such a pair.
         """
         # The row this request resolves to, not the bare row. It carries every
         # point-treatment refusal of the axis, read from the predicate the module call
@@ -3084,6 +3091,23 @@ def _support_item(
     )
 
 
+def _experimental_note(result: Any) -> str:
+    """The ``; experimental: reason`` clause of a result with experimental estimates, or ``""``."""
+    estimates = getattr(result, "estimates", None)
+    if not estimates:
+        return ""
+    reasons: list[str] = []
+    for estimate in estimates.values():
+        support = getattr(estimate, "support", None)
+        if (
+            support is not None
+            and support.label == "experimental"
+            and support.reason not in reasons
+        ):
+            reasons.append(support.reason)
+    return "".join(f"; experimental: {reason}" for reason in reasons)
+
+
 def _nuisance_item(
     report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
 ) -> AssessmentItem:
@@ -3104,14 +3128,14 @@ def _nuisance_item(
         # report publishes no spread and holds no status, so the note is read off the
         # result here. An interpreter called without a result adds none.
         status = "influence_curve" if _result is None else _result.inference_status
-        if not supplies_inference(status):
+        if is_labelled(status):
             detail += f"; {status_record(status).assessment_note}"
         elif _result is not None:
             # A parameter status sits beside an inferential fit status, so it is read per
             # estimate: the note names how many parameters carry it.
             flagged: dict[str, int] = {}
             for estimate in _result.estimates.values():
-                if not estimate.supplies_inference:
+                if is_labelled(estimate.inference):
                     flagged[estimate.inference] = flagged.get(estimate.inference, 0) + 1
             for flagged_status, count in flagged.items():
                 detail += f"; {count} parameter(s): {status_record(flagged_status).assessment_note}"
@@ -3164,6 +3188,7 @@ def _nuisance_item(
             # ordinary fit needs.
             facts.append(f"split spread unavailable: {spread_omission}")
         detail = "; ".join(facts)
+    detail += _experimental_note(_result)
     return AssessmentItem(
         "nuisance_models",
         AssessmentStatus.WARNING if findings else AssessmentStatus.COMPLETED,
@@ -3314,7 +3339,10 @@ def _omitted_item(
     spans = report.lower <= report.null_hypothesis <= report.upper
     defaults = [] if arguments is None else [n for n in ("cf_y", "cf_d") if n not in arguments]
     provenance = ""
-    if defaults:
+    benchmark = None if arguments is None else arguments.get("benchmark")
+    if benchmark is not None:
+        provenance = f"at the strengths of the benchmark against {list(benchmark.covariates)}; "
+    elif defaults:
         provenance = (
             "at the default strengths; "
             if len(defaults) == 2
@@ -3450,11 +3478,13 @@ def _conditioning_population(report: Any) -> tuple[float | None, float | None, b
         for cell in report.cells
         if cell.target_population_fraction is not None
     ]
+    from .sensitivity.simulated_confounding import _is_anchor
+
     anchor = next(
         (
             cell.target_population_fraction
             for cell in report.cells
-            if cell.treatment_strength == 0.0 and cell.outcome_strength == 0.0
+            if _is_anchor(cell.treatment_strength, cell.outcome_strength)
         ),
         None,
     )
@@ -3883,7 +3913,9 @@ class SensitivityFacade(_CapabilityFacade):
         # both reads.  Neither one needs a ``getattr`` default: a default would answer for a
         # point result whose data lack the flag, and no such result exists, because both are
         # properties of ``CausalData``.
-        continuous = not longitudinal and bool(self._result.data.is_continuous_treatment)
+        # A vector treatment with a continuous component has no arms either, so it takes
+        # the continuous branch: every eligible parameter is a named policy parameter.
+        continuous = not longitudinal and not self._result.data.has_arms
         from .sensitivity._simulated_confounding_request import (
             _eligible_binary_parameter_names,
             _fit_wide_refusal,

@@ -1105,6 +1105,10 @@ def _property_artifacts(
 
     Returns the summary when it was computed, and ``None`` when the artefacts were reused or
     stubbed -- so the failure gate below can tell "every cell passed" from "no cell ran".
+
+    A record that declares ``property_artifacts`` gets its rows and those files from the
+    property module's ``generate_property_artifacts`` hook, from the same fits.
+
     The second item names the property failure files written beside the rows, which the
     manifest hashes: all three when a property fit recorded a failure, none otherwise.
 
@@ -1115,10 +1119,21 @@ def _property_artifacts(
     """
     out = paths["properties.csv"].parent
     if not arguments.skip_properties:
+        extras: dict[str, pd.DataFrame] = {}
         with replication.recording(
             record.implementation, witness=properties.PROPERTY_WITNESS
         ) as recorded:
-            rows = properties.generate_property_rows(n_jobs=arguments.jobs)
+            if record.property_artifacts:
+                rows, extras = properties.generate_property_artifacts(n_jobs=arguments.jobs)
+            else:
+                rows = properties.generate_property_rows(n_jobs=arguments.jobs)
+        if set(extras) != set(record.property_artifacts):
+            raise RuntimeError(
+                f"{record.slug} produced property artifacts {sorted(extras)}, "
+                f"expected {sorted(record.property_artifacts)}"
+            )
+        for name, frame in extras.items():
+            write_csv(frame, paths[name])
         records = property_failures.frame(recorded)
         witnesses = recorded.witness_values
         rows = property_failures.stamp(rows, records)
@@ -1174,7 +1189,7 @@ def _property_artifacts(
         )
         return summary, PROPERTY_FAILURE_FILES
 
-    names = ("property-replicates.csv.gz", "properties.csv")
+    names = ("property-replicates.csv.gz", "properties.csv", *record.property_artifacts)
     if all((here / name).exists() for name in names):
         committed = tuple(name for name in PROPERTY_FAILURE_FILES if (here / name).exists())
         for name in (*names, *committed):
@@ -1193,6 +1208,8 @@ def _property_artifacts(
         compression={"method": "gzip", "mtime": 0},
     )
     write_csv(pd.DataFrame(columns=["property", "cell", "passed"]), paths["properties.csv"])
+    for name in record.property_artifacts:
+        write_csv(pd.DataFrame(columns=["property", "cell"]), paths[name])
     return None, ()
 
 
@@ -1388,7 +1405,12 @@ def _regenerate(
     # removal waits until here because ``--skip-reference`` reads the committed failure file.
     for name in set(OPTIONAL_ARTIFACT_NAMES) - set(optional):
         (out / name).unlink(missing_ok=True)
-    artifact_names = (*ARTIFACT_NAMES, *record.extra_artifacts, *optional)
+    artifact_names = (
+        *ARTIFACT_NAMES,
+        *record.extra_artifacts,
+        *record.property_artifacts,
+        *optional,
+    )
     paths = {name: out / name for name in artifact_names}
     write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
     summaries = summarize(rows, truth_varies=record.truth_varies_by_replicate)
@@ -1478,7 +1500,10 @@ def _regenerate(
         ],
     }
     if reference is not None:
-        gates["paired similarity and non-inferiority"] = paired.loc[~paired["passed"]]
+        # A descriptive paired comparison states no verdict, so it gates nothing.  The
+        # reference's own truth rows still gate below.
+        if record.paired_role == "gated":
+            gates["paired similarity and non-inferiority"] = paired.loc[~paired["passed"]]
         # The subject's own verdict is gated unconditionally above.  This one is about the
         # *comparator*, and a study may declare in advance that its comparator fails its own
         # truth gates while remaining a usable similarity and non-inferiority reference --

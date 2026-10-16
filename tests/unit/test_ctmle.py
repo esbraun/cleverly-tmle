@@ -22,7 +22,7 @@ from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.datasets import (
     make_binary_outcome,
     make_cde,
@@ -48,7 +48,7 @@ from tests import discrete_law as law
 from tests.conftest import FAST_KWARGS, linear_ctmle, mean_one_weights
 
 #: The selector-path record, read where every raise and report reads it.
-WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
+WORKING_MECHANISM = STATUS_RECORDS["working_mechanism_plugin"]
 
 #: In sample: q_bounds stays None, and a cross-fitted continuous fit refuses that.
 #: Selector-based collaborative fits draw selection and nested folds whether or not
@@ -1042,17 +1042,20 @@ class TestOnlyTheDeclaredFullCandidateIsAdmitted:
         self._refuses(self._fit([_W4, _W4]))
 
     def test_a_repeated_name_is_not_the_full_set(self) -> None:
-        assert not ctmle_module.declares_full_adjustment_only(
-            "discrete", [("W1", "W1", "W2", "W3")], _W4
-        )
-        assert not ctmle_module.declares_full_adjustment_only("discrete", [(*_W4, "W4")], _W4)
-        assert ctmle_module.declares_full_adjustment_only(
-            "discrete", [("W4", "W3", "W2", "W1")], _W4
-        )
+        key = ctmle_module.declares_no_selection
+        assert not key("discrete", [("W1", "W1", "W2", "W3")], None, _W4)
+        assert not key("discrete", [(*_W4, "W4")], None, _W4)
+        assert key("discrete", [("W4", "W3", "W2", "W1")], None, _W4)
 
-    @pytest.mark.parametrize("strategy", ["greedy", "ordered", "oat"])
+    @pytest.mark.parametrize("strategy", ["greedy", "ordered", "lasso", "oat"])
     def test_other_strategies_are_never_admitted(self, strategy: str) -> None:
-        assert not ctmle_module.declares_full_adjustment_only(strategy, [_W4], _W4)
+        assert not ctmle_module.declares_no_selection(strategy, [_W4], [], _W4)
+
+    def test_only_an_empty_learners_list_is_admitted(self) -> None:
+        key = ctmle_module.declares_no_selection
+        assert key("learners", None, [], _W4)
+        assert not key("learners", None, [object()], _W4)
+        assert not key("learners", None, None, _W4)
 
     def test_the_status_reads_no_fitted_state(self) -> None:
         """The status an unfitted estimator gives is the status the fit stamps."""

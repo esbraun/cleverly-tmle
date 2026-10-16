@@ -7,10 +7,11 @@ construction for one treatment-specific mean:
 ``D(Q_0, G_0(. | Q_0)) = 1{A = a} / G_0(a | Qbar_0(a, W)) (Y - Qbar_0(a, W)) + Qbar_0(a, W) - psi_a``.
 It is not the efficient influence function.  Condition (v) of that theorem fails for an
 estimated outcome regression, so the registered study found the reported standard error too
-small, and every ``oat`` fit withholds its interval
-(:data:`~cleverly.estimators.ctmle.OAT_PER_ARM_INFERENTIAL` is ``False``).  The checks below
-read the retained diagnostic, ``plugin_std_error`` and ``plugin_interval``: it is the curve the
-paper states, computed as the paper computes it, and the study's calibration cells measure it.
+small, and an ``oat`` fit that
+:func:`~cleverly.estimators.ctmle.per_arm_parametric_support` refuses withholds its interval.
+Every fit below uses sklearn learners, which the predicate refuses.  The checks read the
+retained diagnostic, ``plugin_std_error`` and ``plugin_interval``: it is the curve the paper
+states, computed as the paper computes it, and the study's calibration cells measure it.
 
 The checks, and the instrument that makes each one able to fail:
 
@@ -48,14 +49,15 @@ from scipy.stats import norm
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly import CollaborativeTMLEMethod
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.datasets import make_missing_outcome
 from cleverly.estimators import CTMLE
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.estimators import targeting as targeting_module
+from cleverly.estimators.ctmle import per_arm_parametric_support
 from cleverly.fluctuation.iterative import InitialFit, solve_fluctuation
 from cleverly.fluctuation.submodel import Submodel, mean_submodel
-from cleverly.inference.multiplier import multiplier_critical_value
+from cleverly.learners import ParametricMechanism, ParametricOutcome
 from cleverly.learners.crossfit import SplitPlan, random_partition
 from cleverly.targets import builtin
 from tests import discrete_law_oat as law
@@ -556,32 +558,6 @@ def test_the_three_arm_ratio_reads_the_stacked_curves(three_arm: Any) -> None:
         )
 
 
-def test_the_band_reads_the_stacked_curves_when_the_flag_is_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The withheld fit builds no band; with the revert undone it builds it from the stack."""
-    withheld = glm_fit(three_arm_frame(), estimands=("ey", "ate"), simultaneous=True)
-    assert withheld.inference_status == "generated_design_plugin"
-    assert withheld.simultaneous is None
-    monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", True)
-    banded = glm_fit(three_arm_frame(), estimands=("ey", "ate"), simultaneous=True)
-    n = banded.data.n
-    estimates = list(banded.estimates.values())
-    curves = np.column_stack([np.asarray(e.influence_curve) for e in estimates])
-    errors = np.array([e.std_error for e in estimates])
-    expected = multiplier_critical_value(
-        curves,
-        errors,
-        n=n,
-        alpha=banded.estimator.alpha_sig,
-        n_replicates=banded.estimator.n_multiplier,
-        kind=banded.estimator.multiplier_kind,
-        random_state=banded.estimator.random_state,
-    )
-    assert banded.simultaneous is not None
-    assert banded.simultaneous.critical_value == pytest.approx(expected, rel=1e-12)
-
-
 def test_integer_weights_equal_duplicated_rows() -> None:
     check_weights_equal_duplicates()
 
@@ -806,16 +782,27 @@ class TestTheSetting:
         assert CollaborativeTMLEMethod(strategy="oat").estimator_kwargs()["oat_design"] is None
 
 
-def test_the_bootstrap_stays_a_diagnostic_when_the_flag_is_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_bootstrap_stays_a_diagnostic_on_an_admitted_fit() -> None:
     """Theorem 1 does not cover the bootstrap of this superefficient estimator."""
-    monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", True)
-    result = glm_fit(binary_frame(300, 21), estimands=("ate",), n_bootstrap=20)
+    result = (
+        CTMLE(
+            strategy="oat",
+            outcome_learner=ParametricOutcome(),
+            treatment_learner=ParametricMechanism(),
+            cross_fit=False,
+            simultaneous=False,
+            random_state=0,
+            estimands=("ate",),
+            n_bootstrap=20,
+        )
+        .fit(binary_frame(300, 21), outcome="Y", treatment="A")
+        .single()
+    )
+    assert per_arm_parametric_support(result.estimator, result.data).admitted
     assert result.inference_status == "influence_curve"
     summary = result["ate"].bootstrap
     assert summary is not None
-    assert summary.inferential is False
+    assert summary.diagnostic is True
     columns = set(result.to_frame().columns)
     assert {"bootstrap_sd", "bootstrap_range_lower", "bootstrap_range_upper"} <= columns
     assert not {"bootstrap_ci_lower", "bootstrap_ci_upper", "bootstrap_std_err"} & columns
@@ -829,8 +816,8 @@ def test_no_reachable_text_calls_the_curve_efficient() -> None:
         result.extra["ctmle"].summary(),
         result.extra["ctmle"].describe(),
         result.diagnostics.nuisance_models().summary(),
-        NON_INFERENTIAL["generated_design_plugin"].reason,
-        NON_INFERENTIAL["generated_design_plugin"].assessment_note,
+        STATUS_RECORDS["generated_design_plugin"].reason,
+        STATUS_RECORDS["generated_design_plugin"].assessment_note,
     ]
     for text in texts:
         assert "efficien" not in text.lower(), text
@@ -918,6 +905,10 @@ def test_the_missingness_tilt_runs_on_a_withheld_per_arm_fit() -> None:
     assert len(tilt) > 0
 
 
-def test_the_revert_flag_is_applied() -> None:
-    """The registered study's revert cells were red, so the declared revert is applied."""
-    assert ctmle_module.OAT_PER_ARM_INFERENTIAL is False
+def test_the_sklearn_learner_fits_take_the_generated_design_status() -> None:
+    """The registered study's cells were red, and the predicate refuses sklearn learners."""
+    for result in (glm_fit(binary_frame(300, 21)), glm_fit(three_arm_frame())):
+        verdict = per_arm_parametric_support(result.estimator, result.data)
+        assert verdict.admitted is False
+        assert verdict.axis == "outcome_learner"
+        assert result.inference_status == "generated_design_plugin"

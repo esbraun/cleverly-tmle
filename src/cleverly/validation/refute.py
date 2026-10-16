@@ -893,10 +893,15 @@ _ADDITIVE_MEAN_CONTRASTS = {"ate", "att", "atc"}
 def _permuted_treatment(data: Any, rng: np.random.Generator) -> np.ndarray:
     """The placebo treatment: the recorded codes permuted among the recorded rows.
 
-    A row with an unrecorded treatment keeps its ``NaN`` code, so the placebo keeps the
-    treatment observation pattern and permutes only what was recorded.  Without a missing
-    treatment this is a permutation of the whole column, drawn exactly as before.
+    A vector treatment with a continuous component permutes its component rows.  A row
+    with an unrecorded treatment keeps its ``NaN`` code, so the placebo keeps the treatment
+    observation pattern and permutes only what was recorded.  Without a missing treatment
+    this is a permutation of the whole column, drawn exactly as before.
     """
+    if data.treatment_kind == "vector":
+        # The rows of the component block move together, so the placebo keeps the joint
+        # law of the components and breaks only their link to the covariates and outcome.
+        return np.asarray(rng.permutation(data.treatment_components, axis=0), dtype=float)
     if not data.has_missing_treatment:
         return np.asarray(rng.permutation(data.treatment), dtype=float)
     recorded = data.treatment_recorded

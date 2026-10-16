@@ -26,7 +26,7 @@ import sklearn.linear_model
 from scipy.special import expit
 
 from cleverly import CapabilityError, SuperLearner, load
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly._typing import FloatArray
 from cleverly.datasets import (
     instrument_dgp,
@@ -45,7 +45,7 @@ from tests.conftest import FAST_KWARGS, SELECTOR_CONFIGS, linear_ctmle, linear_i
 from tests.unit._natural_course_support import NeverFit, never_fit_learners
 
 #: The selector-path record, read where every raise and report reads it.
-WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
+WORKING_MECHANISM = STATUS_RECORDS["working_mechanism_plugin"]
 
 TMLE_SETTINGS = {**FAST_KWARGS, "estimands": ("ate", "ey1", "ey0")}
 
@@ -480,7 +480,15 @@ class TestDownstreamMachineryStillWorks:
             if design == "shared"
             else "C-TMLE outcome-adaptive fit used one Qbar feature per arm in 2 binary mechanisms"
         )
-        assert oat.extra["ctmle"].describe() == sentence
+        refusal = oat.extra["ctmle"].stacked_refusal
+        if design == "shared":
+            assert oat.extra["ctmle"].describe() == sentence
+        else:
+            # The default outcome learner is outside the stacked interval of X58.
+            assert refusal is not None and "outcome_learner" in refusal
+            assert (
+                oat.extra["ctmle"].describe() == f"{sentence}. No stacked interval (X58): {refusal}"
+            )
         assert sentence in diagnostics.summary()
         assert sentence in oat.diagnostics.run_all()["nuisance_models"].detail
 
@@ -569,19 +577,10 @@ def test_the_documented_seed_reports_chance_auc_without_a_finding() -> None:
     mutated-role report below is the control that shows the AUC is extreme enough for the
     suppression to be doing the work.
 
-    ``docs/examples/collaborative-tmle.ipynb`` makes the *same* claim on a different fit.
-    Its search stops at ``social_support`` rather than at the intercept, so its selected
-    mechanism reports an AUC of ``0.516`` and a calibration slope near ``1``, and the
-    suppression is what keeps those two numbers from raising a finding there. The extreme
-    end of that behaviour is pinned here and not there.
-
-    The fit here is on a binary outcome rather than the notebook's continuous one: a
-    cross-fitted fit of a continuous outcome now needs a declared ``q_bounds``
-    (the fold and scale rules), which ``instrument_dgp``'s unbounded outcome cannot state
-    truthfully. This test keeps cross-fitting, because its subject is a cross-validated
-    calibration slope, which an in-sample fit does not have. The notebook needs a
-    continuous outcome for its own closing step, so it fits in sample instead. Each is the
-    honest choice for its own subject, and the two therefore describe different fits.
+    The fit here is on a binary outcome: a cross-fitted fit of a continuous outcome needs a
+    declared ``q_bounds`` (the fold and scale rules), which ``instrument_dgp``'s unbounded
+    outcome cannot state truthfully. This test keeps cross-fitting, because its subject is a
+    cross-validated calibration slope, which an in-sample fit does not have.
     """
     frame, _ = _make_binary_instrument(n=2_000, seed=44)
     result = (
@@ -1040,7 +1039,7 @@ class TestTheSelectorPathsPublishNoInference:
         assert estimate.inference == "generated_design_plugin"
         with pytest.raises(CapabilityError) as raised:
             getattr(estimate, accessor)
-        assert NON_INFERENTIAL["generated_design_plugin"].reason in str(raised.value)
+        assert STATUS_RECORDS["generated_design_plugin"].reason in str(raised.value)
         assert WORKING_MECHANISM.reason not in str(raised.value)
 
     @pytest.mark.parametrize("accessor", ["ci", "pvalue", "std_error"])
@@ -1052,7 +1051,7 @@ class TestTheSelectorPathsPublishNoInference:
         assert estimate.inference == "generated_design_plugin"
         with pytest.raises(CapabilityError) as raised:
             getattr(estimate, accessor)
-        assert NON_INFERENTIAL["generated_design_plugin"].reason in str(raised.value)
+        assert STATUS_RECORDS["generated_design_plugin"].reason in str(raised.value)
 
     def test_the_retained_diagnostic_is_the_refused_number(
         self, shared: Callable[[str], Any]
@@ -1125,7 +1124,7 @@ class TestTheSelectorPathsPublishNoInference:
         assert self._fit(self.ORDINARY).sensitivity.capability("evalue").available
         adaptive = self._fit("oat").sensitivity.capability("evalue")
         assert adaptive.available is False
-        assert NON_INFERENTIAL["generated_design_plugin"].reason in (adaptive.reason or "")
+        assert STATUS_RECORDS["generated_design_plugin"].reason in (adaptive.reason or "")
         assert not self._fit("oat_per_arm").sensitivity.capability("evalue").available
 
     def test_the_truncation_curve_reports_the_diagnostic_rather_than_raising(self) -> None:

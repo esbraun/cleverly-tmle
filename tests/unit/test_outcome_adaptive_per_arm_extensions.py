@@ -7,8 +7,10 @@ treatment observation factor ``P(Delta_A = 1 | q_a)`` with a missing treatment. 
 strata each factor is fitted inside each stratum.  By the chain rule the product is
 ``P(C_a = 1 | q_a)`` (or ``P(C_a = 1 | q_a, S)``) for ``C_a = Delta_A Delta 1{A = a}``: the
 construction of Benkeser, Cai and van der Laan (2020), Theorem 1, applied to the composite
-indicator.  Every ``oat`` fit withholds its interval (``generated_design_plugin``), so the
-checks below read points and the retained ``plugin_std_error`` diagnostic.
+indicator.  Every fit below uses sklearn learners, which
+:func:`~cleverly.estimators.ctmle.per_arm_parametric_support` refuses, so each takes
+``generated_design_plugin`` and the checks read points and the retained ``plugin_std_error``
+diagnostic.
 
 The checks, and what makes each able to fail:
 
@@ -31,6 +33,7 @@ Each design check has a mutation control in :class:`TestEachMutationFailsItsChec
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from dataclasses import replace
 from typing import Any, ClassVar
@@ -45,6 +48,7 @@ import cleverly
 from cleverly.estimators import CTMLE
 from cleverly.estimators import ctmle as ctmle_module
 from cleverly.exceptions import CapabilityError
+from cleverly.learners import ParametricMechanism, ParametricOutcome
 from cleverly.learners.crossfit import _POST_DRAW_REMEDY, SplitPlan, random_partition
 from cleverly.sensitivity import missingness as missingness_module
 from tests import discrete_law_oat as law
@@ -848,7 +852,7 @@ def check_status(case: str) -> None:
         for name in result.estimates:
             summary = result[name].bootstrap
             assert summary is not None, name
-            assert summary.inferential is False, name
+            assert summary.diagnostic is True, name
         columns = set(result.to_frame().columns)
         assert {"bootstrap_sd", "bootstrap_range_lower", "bootstrap_range_upper"} <= columns
         assert not {"bootstrap_ci_lower", "bootstrap_ci_upper", "bootstrap_std_err"} & columns
@@ -1042,13 +1046,69 @@ def test_the_support_report_names_the_design_product() -> None:
         assert f"{label} truncated to [" in report.summary()
 
 
-def test_the_revert_key_still_excludes_every_extension(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With the per-arm flag set, a fit with strata or missing data still withholds."""
-    monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", True)
-    for flags in ({"strata": True}, {"delta": True}, {"delta": True, "treatment_delta": True}):
-        result = per_arm_fit(extended_frame(BINARY_ACTIVE, 400, 95, **flags))
-        assert result.inference_status == "generated_design_plugin", flags
-    complete = per_arm_fit(extended_frame(BINARY_ACTIVE, 400, 95))
+def parametric_estimator() -> CTMLE:
+    """The per-arm estimator that the predicate admits when the data allow it."""
+    return CTMLE(
+        strategy="oat",
+        outcome_learner=ParametricOutcome(),
+        treatment_learner=ParametricMechanism(),
+        missingness_learner=LogisticRegression(max_iter=1000),
+        cross_fit=False,
+        simultaneous=False,
+        random_state=0,
+        g_bounds=(0.01, 0.99),
+        estimands=("ey0", "ey1", "ate"),
+    )
+
+
+def prepared_extension(estimator: CTMLE, **flags: bool) -> Any:
+    """The prepared data of an extended frame, with no learner fitted."""
+    frame = extended_frame(BINARY_ACTIVE, 400, 95, **flags)
+    declared = roles(frame)
+    return estimator._prepare(
+        frame,
+        outcome="Y",
+        treatment="A",
+        covariates=None,
+        delta=declared.get("delta"),
+        weights=None,
+        id=None,
+        intermediate=None,
+        strata=[declared["strata"]] if "strata" in declared else None,
+        treatment_delta=declared.get("treatment_delta"),
+    )
+
+
+#: The data extensions the predicate excludes, with the axis that names each.
+EXTENSION_AXES = (
+    ({"strata": True}, "strata"),
+    ({"delta": True}, "missing_outcome"),
+    ({"treatment_delta": True}, "missing_treatment"),
+    ({"delta": True, "treatment_delta": True}, "missing_outcome"),
+)
+
+
+def check_predicate_excludes_every_extension() -> None:
+    """With the parametric learners, strata and missing data still leave the allow-list."""
+    estimator = parametric_estimator()
+    for flags, axis in EXTENSION_AXES:
+        data = prepared_extension(estimator, **flags)
+        verdict = ctmle_module.per_arm_parametric_support(estimator, data)
+        assert verdict.admitted is False, flags
+        assert verdict.axis == axis, flags
+        assert estimator._inference_status(data) == "generated_design_plugin", flags
+
+
+def test_the_predicate_excludes_every_extension() -> None:
+    """The parametric learners do not admit strata or missing data, and a complete fit passes."""
+    check_predicate_excludes_every_extension()
+    estimator = parametric_estimator()
+    assert ctmle_module.per_arm_parametric_support(
+        estimator, prepared_extension(estimator)
+    ).admitted
+    complete = estimator.fit(
+        extended_frame(BINARY_ACTIVE, 400, 95), outcome="Y", treatment="A"
+    ).single()
     assert complete.inference_status != "generated_design_plugin"
 
 
@@ -1480,9 +1540,18 @@ def _shared_is_per_arm(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _admits_extensions(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ctmle_module, "OAT_PER_ARM_INFERENTIAL", True)
-    monkeypatch.setattr(ctmle_module, "per_arm_design_admits", lambda estimator, data: True)
+def _ignores_extension_axes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The predicate with its strata, missing-outcome and missing-treatment reads dropped."""
+    original = ctmle_module.per_arm_parametric_support
+
+    def mutant(estimator: Any, data: Any) -> Any:
+        clone = copy.copy(data)
+        object.__setattr__(clone, "strata", None)
+        object.__setattr__(clone, "observed", np.ones(clone.n, dtype=bool))
+        object.__setattr__(clone, "treatment_observed", None)
+        return original(estimator, clone)
+
+    monkeypatch.setattr(ctmle_module, "per_arm_parametric_support", mutant)
 
 
 def _shared_refusal() -> None:
@@ -1518,7 +1587,10 @@ MUTATIONS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], Callable[[], No
         check_tilt_reads_the_full_covariate_model,
     ),
     "shared_design_is_per_arm": (_shared_is_per_arm, _shared_refusal),
-    "status_key_admits_extensions": (_admits_extensions, lambda: check_status("strata")),
+    "predicate_ignores_the_extension_axes": (
+        _ignores_extension_axes,
+        check_predicate_excludes_every_extension,
+    ),
 }
 
 

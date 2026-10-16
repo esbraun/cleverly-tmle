@@ -40,8 +40,9 @@ from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 import numpy as np
 
 from .._inference_status import (
-    NON_INFERENTIAL,
+    STATUS_RECORDS,
     InferenceStatus,
+    is_labelled,
     precedent_status,
     status_record,
     supplies_inference,
@@ -103,6 +104,8 @@ class ReplicationRecord:
         ``"influence_curve"`` says the estimator's own reported inference. Any other
         status says the estimator supplies none, and the study measured its retained
         plug-in diagnostic instead.
+    support : {"supported", "experimental"}
+        The support label of the replicate's estimate.
     """
 
     replicate: int
@@ -116,6 +119,7 @@ class ReplicationRecord:
     inference_estimate: float
     alpha: float
     inference: InferenceStatus = "influence_curve"
+    support: str = "experimental"
 
 
 @dataclass(frozen=True)
@@ -304,6 +308,8 @@ class EstimandSummary:
     #: status depends on the draw, such as a clustered fit whose cluster count straddles
     #: the few-cluster floor, gives a mix.
     status_counts: tuple[tuple[str, int], ...] = ()
+    #: ``"experimental"`` when any replicate's estimate was, else ``"supported"``.
+    support: str = "experimental"
 
     @property
     def mixed_statuses(self) -> str:
@@ -394,10 +400,12 @@ class EstimandSummary:
         # the columns it always carried, and a summary of a diagnostic carries
         # ``inference`` and names its mean spread through ``spread_name``.
         row: dict[str, Any] = {"estimand": self.estimand}
-        if not supplies_inference(self.inference):
+        if is_labelled(self.inference):
             row["inference"] = self.inference
         if self.status_counts:
             row["mixed_statuses"] = self.mixed_statuses
+        if self.support == "experimental":
+            row["support"] = self.support
         return {
             **row,
             "truth": self.truth,
@@ -436,7 +444,7 @@ def summarize_replications(
     counts: Counter[str] = Counter(record.inference for record in selected)
     status = precedent_status(counts)
     # The table order, then "influence_curve", which has no record and comes last.
-    order = [*NON_INFERENTIAL, "influence_curve"]
+    order = [*STATUS_RECORDS, "influence_curve"]
     return EstimandSummary(
         estimand=estimand,
         truth=float(np.mean([record.truth for record in selected])),
@@ -448,6 +456,11 @@ def summarize_replications(
         rejected=np.asarray([record.rejected for record in selected], dtype=float),
         inference_estimates=None if np.array_equal(inference, estimates) else inference,
         inference=status,
+        support=(
+            "experimental"
+            if any(record.support == "experimental" for record in selected)
+            else "supported"
+        ),
         status_counts=(
             tuple((name, counts[name]) for name in order if name in counts)
             if len(counts) > 1
@@ -578,8 +591,18 @@ class StudyResult:
                 f"{summary.estimand}: the replicates took more than one status "
                 f"({summary.mixed_statuses}), and every column reads them as the "
                 f"{_diagnostic_noun(status for status, _ in summary.status_counts)}"
+                if any(not supplies_inference(status) for status, _ in summary.status_counts)
+                else f"{summary.estimand}: the replicates took more than one status "
+                f"({summary.mixed_statuses}), and every column reads the interval each "
+                "replicate reported"
                 for summary in self.summaries.values()
                 if summary.status_counts
+            ),
+            *(
+                f"{summary.estimand}: experimental, because at least one replicate's "
+                "estimate has no registered study behind its configuration"
+                for summary in self.summaries.values()
+                if summary.support == "experimental"
             ),
             "",
             format_table(
@@ -917,6 +940,7 @@ class CoverageStudy:
                         inference_estimate=estimate.inference_value,
                         alpha=float(estimate.alpha),
                         inference=estimate.inference,
+                        support=estimate.support.label,
                     )
                 )
             return tuple(out)

@@ -163,9 +163,11 @@ passes its own rule, which the table shows. The [red-cell ledger](red-cells.md) 
 by the family's joint clause, because its estimated twin fails. That contrast locates the deficit
 in the estimated design.
 
-The simultaneous band cell sets `OAT_PER_ARM_INFERENTIAL` inside the study for that one fit. It
-measures the band that the per-arm design would build from its stacked curves. The shipped fit
-withholds the band.
+The simultaneous band cell calls the public `simultaneous_bands` function on the plug-in curves of
+its own fit. It measures the band that the per-arm design would build from those curves. The
+shipped fit withholds the band. A replay of 20 joint replications gave the same bands, critical
+values and coverage rows as the earlier cell, bit for bit. The earlier cell enabled inference for
+its own fit through a global flag that the package no longer has.
 
 ## Measured values
 

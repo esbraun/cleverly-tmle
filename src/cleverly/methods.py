@@ -5,7 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
-from ._typing import FluctuationKind, FoldStrata, GBounds, TargetingMethod, TargetingScheme
+from ._typing import (
+    FluctuationKind,
+    FoldStrata,
+    GBounds,
+    SurvivalModel,
+    TargetingMethod,
+    TargetingScheme,
+)
 from .exceptions import MethodConfigurationError, Refusal, RefusalReason
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
@@ -121,6 +128,12 @@ IPSI_NO_FLUCTUATION = Refusal(
     "fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or "
     "submodel.",
 )
+#: Why ``method="sdr"`` and ``method="ipsi"`` refuse the hazard and isotonic settings.
+SURVIVAL_CURVE_TMLE_ONLY = (
+    "survival_model=, a hazard targeting= algorithm, step_size= and isotonic= are settings of "
+    "the targeted fit, method='tmle'. The {method} estimator fits no hazard, and no "
+    "registered study measures its projected curve. Fit method='tmle', or remove them"
+)
 #: Why a point treatment refuses the IPSI estimator (R8 in ``test_ipsi_e2e.py``).
 IPSI_POINT_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
@@ -220,12 +233,23 @@ class ModelSpec:
         Number of bins for a continuous-treatment conditional density.  ``None`` grows the
         count with the sample, ``max(20, ceil(2 n^(1/3)))``.  A growing count is necessary for
         a consistent density, and the hazard learner must also be consistent.
+    ratio : {"density", "classifier"}
+        How a modified treatment policy's density ratio is estimated.  ``"density"`` divides
+        two fitted conditional densities.  ``"classifier"`` reads the odds of a stacked
+        classifier (Díaz et al. 2023, Section 5.4).  It applies to a point fit with
+        ``ModifiedTreatmentPolicy`` and to a longitudinal fit with a continuous or vector
+        node.  A study refuses ``"classifier"`` where no policy ratio is estimated.
     screen_treatment : bool
         Whether to screen treatment-mechanism covariates by correlation.
     screen_threshold : float
         Absolute correlation threshold used by screening.
     min_retain : int or None
         Minimum number of covariates retained by screening.
+    survival_model : {"iterated_mean", "hazard"}
+        How a longitudinal fit models a survival curve.  ``"hazard"`` targets the
+        cause-specific hazards of a held baseline treatment; see
+        :class:`~cleverly.longitudinal.LTMLE`.  A point-treatment fit refuses
+        ``"hazard"``.
 
     See Also
     --------
@@ -249,9 +273,11 @@ class ModelSpec:
     pseudo_learner: Any = None
     censoring_learner: Any = None
     density_bins: int | None = None
+    ratio: Literal["density", "classifier"] = "density"
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
+    survival_model: SurvivalModel = "iterated_mean"
 
     def __post_init__(self) -> None:
         for name in (
@@ -263,6 +289,10 @@ class ModelSpec:
             "censoring_learner",
         ):
             _validate_learner(getattr(self, name), name)
+        if self.ratio not in ("density", "classifier"):
+            raise MethodConfigurationError(
+                f"ratio must be 'density' or 'classifier'; got {self.ratio!r}"
+            )
 
 
 @dataclass(frozen=True)
@@ -379,6 +409,10 @@ class Targeting:
         Maximum targeting iterations.
     tol : float, default=1e-10
         Score-equation convergence tolerance.
+    isotonic : bool, default=False
+        Whether a longitudinal survival fit projects each curve's levels and band limits
+        onto a non-decreasing curve; see :class:`~cleverly.longitudinal.LTMLE`.  A
+        point-treatment fit refuses ``True``.
 
     See Also
     --------
@@ -408,6 +442,7 @@ class Targeting:
     step_size: float = 1e-3
     max_iter: int = 20
     tol: float = 1e-10
+    isotonic: bool = False
 
 
 @dataclass(frozen=True)
@@ -584,9 +619,11 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "pseudo_learner": "pseudo_learner",
         "censoring_learner": "censoring_learner",
         "density_bins": "density_bins",
+        "ratio": "ratio",
         "screen_treatment": "screen_treatment",
         "screen_threshold": "screen_threshold",
         "min_retain": "min_retain",
+        "survival_model": "survival_model",
     },
     "cross_fitting": {
         "cross_fit": "enabled",
@@ -609,6 +646,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "step_size": "step_size",
         "max_iter": "max_iter",
         "tol": "tol",
+        "isotonic": "isotonic",
     },
     "inference": {
         "alpha": "alpha",
@@ -629,12 +667,11 @@ SHORTCUTS: dict[str, dict[str, str]] = {
 #: Point-engine settings with no longitudinal implementation. The public names are kept beside
 #: their normalized fields so an error names the declaration the caller wrote. ``cross_fit`` is
 #: deliberately absent: the longitudinal translation supports it by resolving ``False`` to
-#: ``n_folds=1``. All 18 settings below must either acquire a longitudinal derivation or remain
-#: explicit refusals; dropping one from the translation is never a supported interpretation.
+#: ``n_folds=1``. Each setting below must either acquire a longitudinal derivation or remain
+#: an explicit refusal; dropping one from the translation is never a supported interpretation.
 _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "missingness_learner", "missingness_learner"),
     ("models", "intermediate_learner", "intermediate_learner"),
-    ("models", "density_bins", "density_bins"),
     ("models", "screen_treatment", "screen_treatment"),
     ("models", "screen_threshold", "screen_threshold"),
     ("models", "min_retain", "min_retain"),
@@ -644,10 +681,8 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("cross_fitting", "fold_evaluation", "cv_evaluation"),
     ("cross_fitting", "split_plan", "split_plan"),
     ("targeting", "fluctuation", "fluctuation"),
-    ("targeting", "algorithm", "targeting"),
     ("targeting", "nuisance_bound", "nuisance_bound"),
     ("targeting", "target_weights", "target_weights"),
-    ("targeting", "step_size", "step_size"),
 )
 
 
@@ -656,6 +691,17 @@ def _differs_from_default(value: Any, default: Any) -> bool:
     if default is None:
         return value is not None
     return bool(value != default)
+
+
+def _refuse_curve_settings(method: TMLEMethod, name: str) -> None:
+    """Refuse a hazard or isotonic setting on an estimator that is not the targeted fit."""
+    if (
+        method.models.survival_model != "iterated_mean"
+        or method.targeting.algorithm != "iterative"
+        or method.targeting.step_size != Targeting().step_size
+        or method.targeting.isotonic
+    ):
+        raise MethodConfigurationError(SURVIVAL_CURVE_TMLE_ONLY.format(method=name))
 
 
 @dataclass(frozen=True)
@@ -703,6 +749,12 @@ class TMLEMethod:
     #: Whether this method can draw collaborative selection folds. The fold-policy
     #: refusal also checks the strategy: OAT selects nothing and draws none of them.
     _collaborative: ClassVar[bool] = False
+    #: Why this method refuses ``ratio="classifier"``: ``None`` where it estimates a policy
+    #: ratio.  A method that fits no policy ratio refuses the setting at construction rather
+    #: than ignore it.
+    _ratio_refusal: ClassVar[Refusal | None] = None
+    #: Why this method refuses ``density_bins=``: ``None`` where it fits a density.
+    _density_bins_refusal: ClassVar[Refusal | None] = None
 
     models: ModelSpec = ModelSpec()
     cross_fitting: CrossFitting = CrossFitting()
@@ -731,11 +783,16 @@ class TMLEMethod:
             split_plan=cross.split_plan,
             n_bootstrap=self.inference.n_bootstrap,
             stratify_folds=cross.stratify_by,
-            collaborative=self._collaborative and getattr(self, "strategy", None) != "oat",
+            collaborative=self._collaborative
+            and getattr(self, "strategy", None) not in ("oat", "derivative"),
             option_name="enabled",
         )
         if refusal is not None:
             raise MethodConfigurationError.from_refusal(refusal)
+        if self.models.ratio != "density" and self._ratio_refusal is not None:
+            raise MethodConfigurationError.from_refusal(self._ratio_refusal)
+        if self.models.density_bins is not None and self._density_bins_refusal is not None:
+            raise MethodConfigurationError.from_refusal(self._density_bins_refusal)
 
     def with_overrides(self, **overrides: Any) -> TMLEMethod:
         """Return a copy with flat shortcuts normalized by concern.
@@ -847,6 +904,12 @@ class TMLEMethod:
                     "censoring_learner": models.censoring_learner,
                     "n_bootstrap": inference.n_bootstrap,
                     "bootstrap_resampling": inference.bootstrap_resampling,
+                    "density_bins": models.density_bins,
+                    "ratio": models.ratio,
+                    "survival_model": models.survival_model,
+                    "targeting": targeting.algorithm,
+                    "step_size": targeting.step_size,
+                    "isotonic": targeting.isotonic,
                 }
             )
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a
@@ -856,6 +919,12 @@ class TMLEMethod:
             if common["n_multiplier"] == "auto":
                 common["n_multiplier"] = DEFAULT_LONGITUDINAL_MULTIPLIER
             return common
+        if models.survival_model != "iterated_mean" or targeting.isotonic:
+            raise MethodConfigurationError(
+                "survival_model= and isotonic= apply to a survival curve over time nodes, and "
+                "a point-treatment functional has no curve. Remove them, or declare a "
+                "longitudinal or TimeToEvent design"
+            )
         if common["n_multiplier"] == "auto":
             common["n_multiplier"] = DEFAULT_POINT_MULTIPLIER
         common.update(
@@ -864,6 +933,7 @@ class TMLEMethod:
                 "missingness_learner": models.missingness_learner,
                 "intermediate_learner": models.intermediate_learner,
                 "density_bins": models.density_bins,
+                "ratio": models.ratio,
                 "screen_treatment": models.screen_treatment,
                 "screen_threshold": models.screen_threshold,
                 "min_retain": models.min_retain,
@@ -903,11 +973,16 @@ class CollaborativeTMLEMethod(TMLEMethod):
         Seed, run identifier, and parallelism.
     name : str
         Stable method name.
-    strategy : {"greedy", "ordered", "discrete", "oat"}, default="greedy"
-        Collaborative search strategy. ``"greedy"``, ``"ordered"`` and ``"discrete"``
-        report no confidence interval, no p-value and no standard error, with one
-        exception that the Notes state. F18 in the roadmap holds the reason. ``"oat"``
-        reports no interval on either design, for the reason F19 holds.
+    strategy : {"greedy", "ordered", "discrete", "lasso", "learners", "derivative", "oat"}, \
+default="greedy"
+        Collaborative search strategy. ``"greedy"``, ``"ordered"``, ``"discrete"``,
+        ``"lasso"`` and ``"learners"`` report no confidence interval, no p-value and no
+        standard error, with two exceptions that the Notes state. F18 in the roadmap holds
+        the reason. ``"oat"`` reports no interval, for the reason F19 holds, except on an
+        in-sample per-arm fit with ``ParametricOutcome`` and ``ParametricMechanism`` that
+        ``cleverly.estimators.ctmle.per_arm_parametric_support`` admits (X58). That fit
+        reports pointwise intervals. ``"derivative"`` is C-TMLE0. It selects nothing and
+        reports the ordinary TMLE interval.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None
@@ -926,8 +1001,24 @@ class CollaborativeTMLEMethod(TMLEMethod):
         Estimand used by the selector.
     oat_design : {"per_arm", "shared"} or None, default=None
         The treatment design of ``strategy="oat"``. ``None`` resolves to ``"per_arm"``.
-        ``"shared"`` fits the one categorical mechanism of ``ctmle3``. Neither reports an
-        interval, for the reason F19 in the roadmap holds.
+        ``"shared"`` fits the one categorical mechanism of ``ctmle3`` and reports no
+        interval, for the reason F19 in the roadmap holds. ``"per_arm"`` reports an interval
+        only on the fits that the ``strategy`` entry names.
+    lambdas : tuple of float or None, default=None
+        The penalty grid of ``strategy="lasso"``: two or more penalties, strictly
+        decreasing, with 0 allowed only as the last value. ``None`` uses ``glmnet``'s default
+        grid with 0 appended. Under ``strategy="derivative"``, the pair ``(mechanism,
+        partner)`` of two different penalties, or ``None`` to choose the mechanism penalty by
+        cross-validation.
+    treatment_candidates : tuple or None, default=None
+        The declared candidates of ``strategy="learners"``, from the least to the most
+        adaptive: unfitted learners, or :class:`~cleverly.estimators.PropensityArrays`
+        pairs. ``treatment_learner`` on every covariate is appended as the last candidate.
+        Under ``strategy="derivative"``, the pair ``(mechanism, partner)`` of two unfitted
+        learners or two arrays of treatment probabilities.
+    selection_split : tuple of int or None, default=None
+        Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
+        selection split. ``selection_folds`` must equal ``V``.
 
     See Also
     --------
@@ -939,18 +1030,23 @@ class CollaborativeTMLEMethod(TMLEMethod):
     Notes
     -----
     The default ``"greedy"`` strategy selects a working treatment mechanism, and so do
-    ``"ordered"`` and ``"discrete"``. No result shows that the reported curve is the
-    estimator's influence curve at that mechanism. Their estimates therefore raise
-    :class:`~cleverly.exceptions.CapabilityError` from ``std_error``, ``ci`` and
-    ``pvalue``. Each estimate keeps ``plugin_std_error`` and ``plugin_interval`` as a
+    ``"ordered"``, ``"discrete"``, ``"lasso"`` and ``"learners"``. No result shows that the
+    reported curve is the estimator's influence curve at that mechanism. Their estimates
+    therefore raise :class:`~cleverly.exceptions.CapabilityError` from ``std_error``, ``ci``
+    and ``pvalue``. Each estimate keeps ``plugin_std_error`` and ``plugin_interval`` as a
     diagnostic, which is not a confidence statement. For an interval, use
-    :class:`TMLEMethod`. The exception is a ``"discrete"`` fit whose one declared
-    candidate is the full adjustment set. It selects nothing, equals the ordinary TMLE,
-    and reports the ordinary interval.
+    :class:`TMLEMethod`. There are two exceptions. A ``"discrete"`` fit whose one declared
+    candidate is the full adjustment set, and a ``"learners"`` fit with an empty
+    ``treatment_candidates`` list, select nothing, equal the ordinary TMLE, and report the
+    ordinary interval.
 
     ``strategy="oat"`` selects nothing, and it keeps the diagnostic only on either design:
     condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1, fails for an
     estimated outcome regression.
+
+    ``strategy="derivative"`` adds a derivative column for each arm to one TMLE update.
+    The columns contain the clever covariates, so the update solves the efficient influence
+    curve equation, and the fit reports the ordinary TMLE interval.
 
     Examples
     --------
@@ -968,6 +1064,13 @@ class CollaborativeTMLEMethod(TMLEMethod):
     """
 
     _collaborative: ClassVar[bool] = True
+    _ratio_refusal: ClassVar[Refusal | None] = Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "ratio='classifier' sets how a modified treatment policy's density ratio is "
+        "estimated, and collaborative TMLE fits no policies=: its collaborative score is "
+        "derived for arm means.",
+        alternative="Drop ratio=, or fit ModifiedTreatmentPolicy with TMLEMethod.",
+    )
 
     strategy: str = "greedy"
     preorder: str | None = None
@@ -979,7 +1082,23 @@ class CollaborativeTMLEMethod(TMLEMethod):
     penalty: bool = True
     selection_estimand: str = "ate"
     oat_design: str | None = None
+    lambdas: tuple[float, ...] | None = None
+    treatment_candidates: tuple[Any, ...] | None = None
+    selection_split: tuple[int, ...] | None = None
     name: str = "collaborative_tmle"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        from .estimators.ctmle import PropensityArrays, _is_array_like
+
+        for name in ("lambdas", "treatment_candidates", "selection_split"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, tuple):
+                object.__setattr__(self, name, tuple(value))
+        # A lone array entry passes through, so the engine names the ctmleGeneral pair.
+        for index, entry in enumerate(self.treatment_candidates or ()):
+            if not isinstance(entry, PropensityArrays) and not _is_array_like(entry):
+                _validate_learner(entry, f"treatment_candidates[{index}]")
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
         """Translate this configuration for the point-treatment CTMLE engine.
@@ -1013,6 +1132,9 @@ class CollaborativeTMLEMethod(TMLEMethod):
             "penalty": self.penalty,
             "ctmle_estimand": self.selection_estimand,
             "oat_design": self.oat_design,
+            "lambdas": self.lambdas,
+            "treatment_candidates": self.treatment_candidates,
+            "selection_split": self.selection_split,
         }
 
 
@@ -1074,6 +1196,14 @@ class DRTMLEMethod(TMLEMethod):
     >>> DRTMLEMethod(guard=("Q",), randomized=True).guard
     ('Q',)
     """
+
+    _ratio_refusal: ClassVar[Refusal | None] = Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "ratio='classifier' sets how a modified treatment policy's density ratio is "
+        "estimated, and DR-TMLE fits no policies=: its reduced-dimension regressions are "
+        "derived for counterfactual means under static treatment.",
+        alternative="Drop ratio=, or fit ModifiedTreatmentPolicy with TMLEMethod.",
+    )
 
     guard: tuple[str, ...] = ("Q", "g")
     reduction: str = "univariate"
@@ -1203,10 +1333,23 @@ class SDRMethod(TMLEMethod):
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(engine_name))
+        _refuse_curve_settings(self, "SDR")
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol"):
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "survival_model",
+            "targeting",
+            "step_size",
+            "isotonic",
+        ):
             del kwargs[engine_name]
         return kwargs
+
+
+#: The engine each baseline method configures, as the curve-setting refusal names it.
+_BASELINE_ENGINES = {"gcomp": "SequentialGComputation", "ipw": "SequentialIPW"}
 
 
 @dataclass(frozen=True)
@@ -1235,8 +1378,8 @@ class _BaselineMethod(TMLEMethod):
         Raises
         ------
         MethodConfigurationError
-            When ``longitudinal`` is false, or when a fluctuation setting differs from its
-            default.
+            When ``longitudinal`` is false, when a fluctuation setting differs from its
+            default, or when a survival-curve setting of the targeted fit is set.
         """
         if not longitudinal:
             raise MethodConfigurationError.from_refusal(BASELINE_POINT_REFUSAL)
@@ -1252,8 +1395,17 @@ class _BaselineMethod(TMLEMethod):
                 raise MethodConfigurationError.from_refusal(
                     baseline_no_fluctuation_refusal(engine_name)
                 )
+        _refuse_curve_settings(self, _BASELINE_ENGINES[self.name])
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol"):
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "survival_model",
+            "targeting",
+            "step_size",
+            "isotonic",
+        ):
             del kwargs[engine_name]
         return kwargs
 
@@ -1431,6 +1583,20 @@ class IPSIMethod(TMLEMethod):
     False
     """
 
+    _ratio_refusal: ClassVar[Refusal | None] = Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "ratio='classifier' sets how a modified treatment policy's density ratio is "
+        "estimated, and IPSI estimates none: an odds tilt's ratio is a closed form in the "
+        "fitted propensity of a binary node.",
+        alternative="Drop ratio=, or fit the policy with TMLEMethod or SDRMethod.",
+    )
+    _density_bins_refusal: ClassVar[Refusal | None] = Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "density_bins= sets the bins of a continuous node's conditional density, and IPSI "
+        "fits no density: it tilts the odds of a binary node.",
+        alternative="Drop density_bins=, or fit the continuous node with TMLEMethod or SDRMethod.",
+    )
+
     name: str = "ipsi"
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
@@ -1460,7 +1626,16 @@ class IPSIMethod(TMLEMethod):
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(IPSI_NO_FLUCTUATION)
+        _refuse_curve_settings(self, "IPSI")
         kwargs = super().estimator_kwargs(longitudinal=True)
-        for engine_name in ("alpha", "max_iter", "tol"):
+        for engine_name in (
+            "alpha",
+            "max_iter",
+            "tol",
+            "survival_model",
+            "targeting",
+            "step_size",
+            "isotonic",
+        ):
             del kwargs[engine_name]
         return kwargs

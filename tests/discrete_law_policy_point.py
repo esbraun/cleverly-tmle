@@ -350,3 +350,208 @@ def gateaux(grid: str, estimand: str, point: int, *, step: float = 1e-30) -> flo
 def eif(grid: str, estimand: str) -> np.ndarray:
     """The influence curve at every support point, in :attr:`Grid.support` order."""
     return np.array([gateaux(grid, estimand, point) for point in range(len(GRIDS[grid].support))])
+
+
+# ------------------------------------------------------------------ mixed vector treatment
+#
+# A coarse law whose treatment is a vector ``A = (F, D)``: a binary flag and a dose on the
+# grid ``{0, 1, 2}``.  Support index ``k = 3 f + d``, covariate ``W`` in ``{0, 1}``.  The fit
+# reads ``D`` as a continuous component, so this is the oracle of the classifier route at a
+# point vector treatment with a continuous component (Díaz, Williams, Hoffman and Schenck
+# 2023, Section 2, Theorem 1 and Section 5.4).
+#
+# The saturated classifier returns the exact ratio under three conditions, which every exact
+# fit of this law meets:
+#
+# 1. ``Folds.single``, unit weights, and a frame of :data:`MIXED_N` rows that realises the
+#    law by integer counts.
+# 2. Every policy stays on the grid, by a cap at the grid maximum, so every stacked cell with
+#    label one also holds label-zero mass.  Otherwise the predicted probability is one and the
+#    odds guard of ``cleverly.learners.density_ratio`` replaces the ratio.
+# 3. The learners partition by distinct design row, so the encoding of the flag, an indicator
+#    or a code, cannot change a prediction.
+#
+# The outcome learner is saturated too, so the targeting step moves nothing; the targeting
+# witness on a sample with a misspecified outcome regression is W8.
+
+#: The flag and the dose of each support index ``k = 3 f + d``.
+MIXED_CELLS = tuple((f, d) for f in range(2) for d in range(3))
+#: The dose values of the grid.
+MIXED_DOSES = (0.0, 1.0, 2.0)
+#: ``P(W = w)``.
+MIXED_P_W = np.array([0.5, 0.5])
+#: ``g(k | w)`` in eighths, indexed ``[w, k]``: both components depend on ``W``.
+MIXED_G = np.array([[1.0, 2.0, 1.0, 1.0, 1.0, 2.0], [2.0, 1.0, 1.0, 1.0, 2.0, 1.0]]) / 8.0
+#: The outcome probabilities of ``Qbar``, in quarters.
+_MIXED_Q_VALUES = (0.25, 0.5, 0.75)
+
+
+def mixed_q(w: int, k: int) -> float:
+    """``Qbar(k, w)``, which reads both components: the flag enters through ``2 f d``.
+
+    Chosen by a search over modular patterns for the law whose policy means lie farthest
+    apart: the natural course, "dose up", "flag gated", its shifted-flag reading and "dose
+    gated" differ pairwise by at least 0.015, and "flag gated" and its shifted-flag reading
+    by 0.047.
+    """
+    f, d = MIXED_CELLS[k]
+    return _MIXED_Q_VALUES[(w + d + 2 * f * d + d * d) % 3]
+
+
+#: Rows: every cell probability is a multiple of ``1 / 64``.
+MIXED_N = 4 * 64
+#: ``(w, k, y)`` in the order :func:`mixed_frame` emits rows.
+MIXED_SUPPORT = tuple(itertools.product(range(2), range(6), range(2)))
+
+
+def _mixed_counts() -> np.ndarray:
+    counts = np.array(
+        [
+            MIXED_P_W[w] * MIXED_G[w, k] * (mixed_q(w, k) if y else 1.0 - mixed_q(w, k)) * MIXED_N
+            for w, k, y in MIXED_SUPPORT
+        ]
+    )
+    assert np.allclose(counts, np.round(counts), atol=1e-9), "the law is not realised by n rows"
+    assert int(np.round(counts).sum()) == MIXED_N
+    assert np.all(np.round(counts) > 0)
+    return np.round(counts).astype(int)
+
+
+MIXED_COUNTS = _mixed_counts()
+MIXED_PROBS = MIXED_COUNTS / MIXED_N
+
+
+def mixed_frame() -> pd.DataFrame:
+    """``MIXED_N`` rows realising the mixed law, in :data:`MIXED_SUPPORT` order.
+
+    The columns are ``W``, ``F``, ``D`` and ``Y``.
+    """
+    rows = []
+    for (w, k, y), count in zip(MIXED_SUPPORT, MIXED_COUNTS, strict=True):
+        f, d = MIXED_CELLS[k]
+        rows.extend([(float(w), float(f), MIXED_DOSES[d], float(y))] * int(count))
+    return pd.DataFrame(rows, columns=["W", "F", "D", "Y"])
+
+
+def mixed_sample(n: int, seed: int) -> pd.DataFrame:
+    """Draw ``n`` rows from the mixed law, for fits whose nuisances are not exact."""
+    rng = np.random.default_rng(seed)
+    points = np.asarray(MIXED_SUPPORT)[rng.choice(len(MIXED_SUPPORT), size=n, p=MIXED_PROBS)]
+    cells = np.asarray(MIXED_CELLS)[points[:, 1]]
+    return pd.DataFrame(
+        {
+            "W": points[:, 0].astype(float),
+            "F": cells[:, 0].astype(float),
+            "D": np.asarray(MIXED_DOSES)[cells[:, 1]],
+            "Y": points[:, 2].astype(float),
+        }
+    )
+
+
+def mixed_first_row_of() -> np.ndarray:
+    """Index of the first row of each support point, in :data:`MIXED_SUPPORT` order."""
+    return np.concatenate([[0], np.cumsum(MIXED_COUNTS)[:-1]]).astype(int)
+
+
+def _index(f: int, d: int) -> int:
+    return 3 * f + d
+
+
+def _up(k: int) -> int:
+    f, d = MIXED_CELLS[k]
+    return _index(f, min(d + 1, 2))
+
+
+def _flag_gated(k: int) -> int:
+    """W4: set the flag to one, and raise the dose by one where the **natural** flag is one."""
+    f, d = MIXED_CELLS[k]
+    return _index(1, min(d + 1, 2) if f == 1 else d)
+
+
+def _flag_gated_shifted(k: int) -> int:
+    """The M3 reading of W4: the dose map reads the flag after the policy set it to one."""
+    _, d = MIXED_CELLS[k]
+    return _index(1, min(d + 1, 2))
+
+
+def _dose_gated(k: int) -> int:
+    """Keep the flag, and raise the dose by one where the flag is one."""
+    f, d = MIXED_CELLS[k]
+    return _index(f, min(d + 1, 2) if f == 1 else d)
+
+
+def _flag_reads_dose(k: int) -> int:
+    """W18: the flag goes to one where the **natural** dose is at least one; the dose rises.
+
+    The categorical map reads a dose that the policy moves, so its preimage indicator is
+    evaluated at the preimage of the dose.
+    """
+    f, d = MIXED_CELLS[k]
+    return _index(1 if d >= 1 else f, min(d + 1, 2))
+
+
+def _mixed_map(assign: Callable[[int], int]) -> tuple[tuple[int, ...], ...]:
+    return tuple(tuple(assign(k) for k in range(6)) for _ in range(2))
+
+
+#: Every mixed policy, as ``(probability, map)`` branches with ``map[w][k]`` the target index.
+MIXED_POLICIES: dict[str, Branches] = {
+    "natural": ((1.0, _mixed_map(lambda k: k)),),
+    "dose up": ((1.0, _mixed_map(_up)),),
+    "flag gated": ((1.0, _mixed_map(_flag_gated)),),
+    "flag gated (shifted flag)": ((1.0, _mixed_map(_flag_gated_shifted)),),
+    "dose gated": ((1.0, _mixed_map(_dose_gated)),),
+    "flag reads dose": ((1.0, _mixed_map(_flag_reads_dose)),),
+    "random": ((0.25, _mixed_map(_up)), (0.75, _mixed_map(lambda k: k))),
+    # The static intervention that sets every unit to ``(f, d) = (1, 2)``: its mean is
+    # ``E[Y(1, 2)]``, the ``ey`` of that tuple level on an all-categorical reading.
+    "static (1, 2)": ((1.0, _mixed_map(lambda k: _index(1, 2))),),
+    # H5: a risk-ratio tilt of the flag is a two-point randomizer.  ``delta = 1/4`` keeps the
+    # flag with probability 1/4 and sets it to zero otherwise; ``delta = 4`` keeps it with
+    # probability 1/4 and sets it to one otherwise.  The last plan is the product of the
+    # tilt up and the dose randomizer of "random", with product probabilities.
+    "flag tilt down": (
+        (0.25, _mixed_map(lambda k: k)),
+        (0.75, _mixed_map(lambda k: _index(0, MIXED_CELLS[k][1]))),
+    ),
+    "flag tilt up": (
+        (0.25, _mixed_map(lambda k: k)),
+        (0.75, _mixed_map(lambda k: _index(1, MIXED_CELLS[k][1]))),
+    ),
+    "flag tilt up, random dose": (
+        (0.25 * 0.25, _mixed_map(_up)),
+        (0.25 * 0.75, _mixed_map(lambda k: k)),
+        (0.75 * 0.25, _mixed_map(lambda k: _index(1, MIXED_CELLS[_up(k)][1]))),
+        (0.75 * 0.75, _mixed_map(lambda k: _index(1, MIXED_CELLS[k][1]))),
+    ),
+}
+
+
+def functional_mixed(probs: Any, label: str) -> Any:
+    """The policy mean of ``label`` from the ``(2 * 6 * 2,)`` cell probabilities, longhand.
+
+    ``probs`` may be complex.  Arithmetic only: every comparison lives in
+    :data:`MIXED_POLICIES`.
+    """
+    cells = np.asarray(probs).reshape(2, 6, 2)
+    joint = cells[:, :, 0] + cells[:, :, 1]
+    qbar = cells[:, :, 1] / joint
+    return _mean_under(joint, qbar, MIXED_POLICIES[label])
+
+
+def mixed_truth(label: str) -> float:
+    """The parameter of ``label`` at the mixed law."""
+    return float(np.real(functional_mixed(MIXED_PROBS, label)))
+
+
+def mixed_eif(label: str) -> np.ndarray:
+    """The complex-step efficient influence function at every support point."""
+    base = np.asarray(MIXED_PROBS, dtype=complex)
+    step = 1e-30
+    out = []
+    for point in range(base.size):
+        mass = np.zeros_like(base)
+        mass[point] = 1.0
+        perturbed = (1.0 - 1j * step) * base + 1j * step * mass
+        out.append(float(np.imag(functional_mixed(perturbed, label)) / step))
+    return np.array(out)
