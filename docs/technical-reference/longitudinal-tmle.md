@@ -292,7 +292,8 @@ panel, under the same inference statuses.
 | cross-fitting, clusters, weights, a held treatment, known mechanisms | fits |
 | `msm=` over $(d, h)$ cells | fits |
 | `stopping=`, `step_bound=`, `step_search=`, `iterate=` | fit. Each horizon applies them at its nodes ([targeting options at each node](#targeting-options-at-each-node)) |
-| `SDR` and `IPSI` | refused before any learner, until [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) |
+| `IPSI` | fits. Each horizon is the end-of-study fit of the truncated panel ([below](#ipsi-on-a-repeated-outcome)) |
+| `SDR` | refused before any learner, until [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | competing causes | not declarable. A cause mapping declares an absorbing outcome |
 | `rmst()`, `rmtl()`, `incidence_total()`, `ratio(view="survival")` | refused. A mean of a repeated outcome is not a cumulative risk |
 | `curve()` | `scale="mean"`, the default for this outcome. `"risk"` and `"survival"` are refused |
@@ -300,9 +301,25 @@ panel, under the same inference statuses.
 This construction does not cover a recurrent-event count process or truncation by death. If death
 is encoded as censoring, the parameter is the mean in a population where death is prevented.
 
-`tests/unit/test_repeated_outcome.py` checks the reduction at every horizon for 13 compositions:
-the estimate, the influence curve, every node regression and the cumulative mechanism, at
-`rtol=1e-12`. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
+| estimator | status | source for horizon $h$ |
+| --- | --- | --- |
+| `LTMLE` | fits | Bang and Robins (2005); van der Laan and Gruber (2012) |
+| `IPSI` | fits | Kim, Kennedy and Naimi (2021), Theorems 3.1, 4.1 and 5.1 |
+| `SDR` | refused until X32b | none yet |
+
+The allowlist `REPEATED_OUTCOME_KINDS` holds the kinds in this table that fit.
+`tests/unit/test_repeated_outcome_subclasses.py` fits every estimator subclass and requires
+either the reduction or the refusal.
+
+A level of $E[Y_h^d]$ is checked against the range of its own horizon. The outcome scale pools
+every node, so a level of $Y_2$ outside the range of $Y_2$ and inside the range of $Y_1$ would
+pass the pooled range. The fit warns with `ParameterSpaceWarning` and names the range of
+that horizon. A declared `q_bounds` replaces the derived range
+(`tests/unit/test_repeated_outcome_container.py`, W16).
+
+`tests/unit/test_repeated_outcome.py` checks the reduction at every horizon for 13 compositions
+of `LTMLE`, and for 11 of those 13 compositions of `IPSI` plus six incremental ones: the estimate, the
+influence curve, every node regression and the cumulative mechanism, at `rtol=1e-12`. The other two `IPSI` compositions refuse with the end-of-study message. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
 the complex-step Gateaux derivative of the g-formula on two exact laws in
 `tests/discrete_law_repeated.py`. One law is binary. The other has three values per node. Ten
 mutation controls fail these tests, among them the absorbing seed $\max_{s \le h} Y_s$, a history
@@ -1491,10 +1508,8 @@ with the natural course. The parameter names are the longitudinal ones, such as
 `ey_regimen[odds x2]` and `ate_regimen[odds x2 vs natural course]`.
 
 A mean of a non-absorbing outcome $Y_t$ under a tilt is the end-of-study estimand on the panel
-truncated after node $t$. $Y_t$ is the outcome, and earlier $Y_s$ are covariates (Kim et al.
-2021, Theorem 3.1 at that $t$). `IPSI` refuses `outcome=Repeated([...])`, so a user truncates
-the panel by hand for each $t$. [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi)
-owns that curve.
+truncated after node $t$. `IPSI` fits it with `outcome=Repeated([...])`
+([below](#ipsi-on-a-repeated-outcome)).
 
 ### The tilt recursion and its influence function
 
@@ -1561,6 +1576,74 @@ which needs Donsker-type conditions. The default is `n_folds=10`.
 `tests/unit/test_ipsi_construction.py` compares the cross-fitted engine with an independent
 scikit-learn longhand to $10^{-12}$. Two rejected constructions move the estimate by more than
 $10^{-4}$: a stitched training target, and the average of fold means on unequal folds.
+
+### IPSI on a repeated outcome
+
+`IPSI` accepts `outcome=Repeated(["Y1", "Y2", "Y3"])`. The fit reports one mean per tilt and horizon,
+named `ey_regimen[odds x2 @ t=2]`, and the contrasts `ate_regimen[odds x2 vs natural course @ t=2]`.
+Each horizon $h$ is the end-of-study fit of the panel truncated after node $h$, with $Y_h$ as the
+outcome and each earlier $Y_s$ as a covariate of node $s + 1$. `IncrementalMean(horizons=[1, 3])`
+and `IncrementalEffect(horizons=[1, 3])` take the same horizons in a `CausalStudy`.
+
+The parameter is $\psi_h(\delta) = E[Y_h^{Q(\delta)}]$. The plan $Q(\delta)$ draws $A_t$ from
+$q_t(1 \mid H_t)$ at every $t \le h$ and prevents dropout. Theorem 3.1 of Kim et al. (2021) at
+$t = h$ identifies it under consistency, exchangeability with dropout missing at random
+(Assumption A2-M), and dropout positivity (Assumption A3). A tilt needs no treatment
+positivity for $\delta \in (0, \infty)$.
+
+| source (arXiv v3) | statement | code | witness |
+| --- | --- | --- | --- |
+| Theorem 3.1 | $\psi_t(\delta)$ is an integral of $E[Y_t \mid H_t, A_t, R_{t+1} = 1]$ over the tilted arms | `tilt_propensities`, `ipsi._recursion`, `seed_carried(horizon=h)` | E4 compares the cell form with forward composition. E5 compares the fit with it |
+| Theorem 4.1 | the uncentered influence function, summed over $s \le t$ | `ipsi._weights`, `ipsi._recursion` | E5 compares the fitted curve with the complex-step Gateaux derivative on an exact law |
+| Theorem 5.1 | a Gaussian process over $(\delta, t)$ under conditions 1 to 4 | per-cell Wald interval, multiplier band over the stacked curves | E8 |
+
+Kim's $X_t$ is $L_t$ here, and $R_{t+1}$ is $C_t$. The arXiv v3 text has four typographical
+errors that this page and the code follow in their intended form: `Algorithm 1, step 4b` indexes
+$\omega_s$ where it means $\omega_t$. Condition 3 of Theorem 5.1 lacks two minus signs. The
+conclusion of Theorem 5.1 divides by $n$ where it means $\sqrt{n}$. The pointwise interval of
+Section 5.2 prints $\hat\sigma^2$ where it means $\hat\sigma$.
+
+**Single robustness.** `IPSI` is consistent when $\pi$ and $\omega$ are consistent, whatever $m$
+is. It is not doubly robust. The tests below run on two exact laws with $T = 2$ in
+`tests/discrete_law_repeated.py`. The law has a non-absorbing outcome, so $Y_2 = 0$ can follow
+$Y_1 = 1$.
+
+| witness | fit | result on the binary law at $h = 2$ |
+| --- | --- | --- |
+| E5 | saturated $m$, estimated $\pi$ and $\omega$ | the estimate equals the tilt functional, and the curve equals its Gateaux derivative, to $10^{-11}$ |
+| E6 | $m$ on $W$ and the arm, estimated $\pi$ and $\omega$ | the estimate equals the truth. The plug-in of that $m$ misses by +0.0471 ($\delta = 0.5$) and −0.0293 ($\delta = 2$) |
+| E6, known $\pi$ | the same, with `treatment_probabilities=` | the mechanism term is zero, and the estimate equals the truth |
+| E7 | saturated $m$, $\pi$ and $\omega$ on $W$ alone | the estimate misses by +0.0008 ($\delta = 0.5$) and −0.0009 ($\delta = 2$). With $\pi$ on $W$ alone it misses by +0.0015 and −0.0003. With $\omega$ on $W$ alone it is exact |
+
+The E7 bias is small, and no sampled family can power it at the studied sizes. The exact law
+records it. `tests/unit/test_repeated_law_values.py` pins the same claim on the three-node law of
+the study: a saturated $m$ with $\pi$ and $\omega$ on $W$ alone misses by +0.0028 at
+$\delta = 0.5$ and $h = 3$.
+
+**Dropout.** The censoring factor $1\{C_t = 1\}/\omega_t$ enters every weight $W_t$ up to $h$. With
+a consistent $m$ the estimate does not read $\omega$, but the curve does. Replacing $1/\omega_t$
+by one leaves the E5 estimate and moves its curve by at least 0.5 at every tilted cell, with $\delta = 1$ included. With a wrong $m$
+it moves the estimate (E6): by +0.0413 ($\delta = 0.5$) and −0.0235 ($\delta = 2$) on the
+binary law at $h = 2$.
+
+**The band.** The default `simultaneous=True` band covers every declared $\delta$ and horizon, and
+every contrast against the reference. It is the multiplier band over the stacked influence
+curves.
+
+| claim | condition |
+| --- | --- |
+| $\sqrt{n}(\hat\theta - \theta)$ is jointly normal | Kim conditions 1 to 4 at every declared $(\delta, h)$. The dimension is fixed, so the Cramér–Wold device applies. This is Theorem 5.1 restricted to a finite grid |
+| the multiplier critical value is consistent | the stacked curves estimate their covariance consistently |
+| the horizons are dependent | the horizons share units and mechanisms, so the band uses the joint covariance. E8 requires a nonzero correlation between the horizons of one tilt and rebuilds the critical value from the stacked curves |
+| no band over a continuum of $\delta$ | the band covers the declared grid. It does not cover the points between the nodes of the grid |
+| an inconsistent $m$ | no interval claim. The product $(\hat\pi - \pi)(\hat m - m)$ is first order, so the curve is not the influence function. $\psi(\delta)$ depends on $\pi$, so the projection argument of a doubly robust estimator does not apply |
+
+The [registered study](method-evidence/repeated-outcome-ipsi.md) measures the coverage of this
+curve on one three-node law. With $n$ = 8,000 in sample, the coverage of the 15 reported
+parameters lies between 0.945 and 0.955, and the default band covers them jointly at 0.949. The
+interval at $(\delta, h)$ is an asymptotic statement under the conditions above. The exact-law witnesses E4 to E8 and the
+mutation controls in `tests/unit/test_repeated_outcome_ipsi_mutations.py` stand behind the point
+estimate and the curve.
 
 ### The IPSI contract
 
