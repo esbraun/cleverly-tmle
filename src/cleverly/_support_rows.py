@@ -1172,12 +1172,12 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
     # price study. To flip it to a stated limit, move each sentence to MEASURED_LIMITS under the
     # same row id, and change the four dispositions of ``mtp-pricing`` in
     # ``tests/studies/evidence/support_dispositions.py`` (see ``_X40_PRICE_DOWN`` there).
-    ("G37.ltmle.tau5", "wald"): (
-        "Row G37.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
+    ("G39.ltmle.tau5", "wald"): (
+        "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "
         "coverage 0.9160 to 0.9170 and SE ratio 0.9310 to 0.9479 (mtp-pricing-calibration)."
     ),
-    ("G37.sdr.tau5", "wald"): (
-        "Row G37.sdr.tau5 is red for the price_down plan at five nodes and n = 5,000: "
+    ("G39.sdr.tau5", "wald"): (
+        "Row G39.sdr.tau5 is red for the price_down plan at five nodes and n = 5,000: "
         "coverage 0.9190 to 0.9230 and SE ratio 0.9339 to 0.9518 (mtp-pricing-calibration)."
     ),
 }
@@ -1276,8 +1276,12 @@ MEASURED_LIMITS: Final[Mapping[str, tuple[str, ...]]] = {
         "band-finite-sample: joint coverage 0.9085 to 0.9394",
     ),
     "G29.g1": ("X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",),
-    "G38.tau3": ("mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",),
-    "G38.tau5": ("mtp-pricing-learned-density: coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323",),
+    "G40.tau3": (
+        "mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",
+    ),
+    "G40.tau5": (
+        "mtp-pricing-learned-density: coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323",
+    ),
     "G34.competing": (
         (
             "X19-competing-calibration: coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, "
@@ -2186,16 +2190,16 @@ def _long_rows() -> tuple[SupportRow, ...]:
 
 
 def _continuous_dose_rows() -> list[SupportRow]:
-    """The rows of the continuous-policy studies (X40): ``G37`` to ``G39``.
+    """The rows of the continuous-policy studies (X40): ``G39`` to ``G41``.
 
     The key reads the node count, the engine, the splitting, the outcome scale and the ratio
     route. It does not read a declared support, an atom, a branch or a tuned cap. The two-node
     density rows of ``mtp-boundaries`` therefore stand on ``G10.continuous`` and
     ``G24.mtp.in_sample``. These rows hold the keys that no earlier row covers.
 
-    ``G37`` is the classifier ratio route on a price with a declared support
-    (``mtp-pricing``), by engine and horizon. ``G38`` is the learned density at three and five
-    nodes. ``G39`` is a cap tuned on the data over a bounded outcome (``mtp-tuning``).
+    ``G39`` is the classifier ratio route on a price with a declared support
+    (``mtp-pricing``), by engine and horizon. ``G40`` is the learned density at three and five
+    nodes. ``G41`` is a cap tuned on the data over a bounded outcome (``mtp-tuning``).
     """
     xf = ("cross_fitted",)
     pricing, tuning = ["mtp-pricing"], ["mtp-tuning"]
@@ -2270,7 +2274,7 @@ def _continuous_dose_rows() -> list[SupportRow]:
     ):
         rows.append(
             long_row(
-                f"G37.{suffix}",
+                f"G39.{suffix}",
                 pricing,
                 regimens=("mtp",),
                 engine=engine,
@@ -2285,7 +2289,7 @@ def _continuous_dose_rows() -> list[SupportRow]:
     for nodes in (3, 5):
         rows.append(
             long_row(
-                f"G38.tau{nodes}",
+                f"G40.tau{nodes}",
                 pricing,
                 regimens=("mtp",),
                 missing=("complete",),
@@ -2328,7 +2332,7 @@ def _continuous_dose_rows() -> list[SupportRow]:
     ):
         rows.append(
             long_row(
-                f"G39.{suffix}",
+                f"G41.{suffix}",
                 tuning,
                 regimens=("mtp",),
                 engine=engine,
@@ -2441,7 +2445,7 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
 
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
 #: the sequential baselines (``G28``), the parametric g-formula (``G29``) and the continuous-dose
-#: price and tuned-cap rows (``G37`` to ``G39``).
+#: price and tuned-cap rows (``G39`` to ``G41``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
 
 

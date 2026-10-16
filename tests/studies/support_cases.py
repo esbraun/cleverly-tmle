@@ -1994,12 +1994,12 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
         )
     pricing = "canonical_mtp_pricing"
     for row, scenario, tau, estimator in (
-        ("G37.ltmle.tau2", "pricing_ltmle_tau2", 2, "ltmle"),
-        ("G37.sdr.tau2", "pricing_sdr_tau2", 2, "sdr"),
-        ("G37.ltmle.tau3", "pricing_ltmle_tau3", 3, "ltmle"),
-        ("G37.sdr.tau3", "pricing_sdr_tau3", 3, "sdr"),
-        ("G37.ltmle.tau5", "pricing_ltmle_tau5", 5, "ltmle"),
-        ("G37.sdr.tau5", "pricing_sdr_tau5", 5, "sdr"),
+        ("G39.ltmle.tau2", "pricing_ltmle_tau2", 2, "ltmle"),
+        ("G39.sdr.tau2", "pricing_sdr_tau2", 2, "sdr"),
+        ("G39.ltmle.tau3", "pricing_ltmle_tau3", 3, "ltmle"),
+        ("G39.sdr.tau3", "pricing_sdr_tau3", 3, "sdr"),
+        ("G39.ltmle.tau5", "pricing_ltmle_tau5", 5, "ltmle"),
+        ("G39.sdr.tau5", "pricing_sdr_tau5", 5, "sdr"),
     ):
         cases.append(
             _seeded(
@@ -2018,11 +2018,11 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
     properties = "mtp_pricing_properties"
     for row, label in (
         ("G10.continuous", "up_learned_density_tau2"),
-        ("G38.tau3", "up_learned_density_tau3"),
-        ("G38.tau5", "up_learned_density_tau5"),
-        ("G37.ltmle.tau3_cross_fitted", "crossfit_ltmle_learned_classifier_tau3"),
-        ("G37.sdr.tau3_cross_fitted", "crossfit_sdr_learned_classifier_tau3"),
-        ("G37.ltmle.tau3_revenue", "revenue_learned_classifier_tau3"),
+        ("G40.tau3", "up_learned_density_tau3"),
+        ("G40.tau5", "up_learned_density_tau5"),
+        ("G39.ltmle.tau3_cross_fitted", "crossfit_ltmle_learned_classifier_tau3"),
+        ("G39.sdr.tau3_cross_fitted", "crossfit_sdr_learned_classifier_tau3"),
+        ("G39.ltmle.tau3_revenue", "revenue_learned_classifier_tau3"),
     ):
         cases.append(
             _observed(
@@ -2039,8 +2039,8 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
         )
     tuning = "canonical_mtp_tuning"
     for row, scenario, estimator in (
-        ("G39.ltmle", "population_quantile_ltmle", "ltmle"),
-        ("G39.sdr", "population_quantile_sdr", "sdr"),
+        ("G41.ltmle", "population_quantile_ltmle", "ltmle"),
+        ("G41.sdr", "population_quantile_sdr", "sdr"),
     ):
         cases.append(
             _seeded(
@@ -2058,8 +2058,8 @@ def _continuous_dose_cases() -> tuple[RowCase, ...]:
         )
     tuning_properties = "mtp_tuning_properties"
     for row, label in (
-        ("G39.ltmle_cross_fitted", "population_dose_quantile_crossfit_tau2"),
-        ("G39.ltmle_cross_fitted_classifier", "population_dose_quantile_crossfit_classifier_tau2"),
+        ("G41.ltmle_cross_fitted", "population_dose_quantile_crossfit_tau2"),
+        ("G41.ltmle_cross_fitted_classifier", "population_dose_quantile_crossfit_classifier_tau2"),
     ):
         cases.append(
             _observed(

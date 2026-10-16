@@ -1404,12 +1404,12 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
 #: price_down cells of the five-node price study is ``experimental`` with the measured number
 #: (the RM42b measured-shortfall standard), pending his confirmation. To flip it to a stated
 #: limit, set this to ``LIMIT``. Then move each sentence of
-#: ``SHORTFALLS`` for ``G37.ltmle.tau5`` and ``G37.sdr.tau5`` in ``src/cleverly/_support_rows.py``
+#: ``SHORTFALLS`` for ``G39.ltmle.tau5`` and ``G39.sdr.tau5`` in ``src/cleverly/_support_rows.py``
 #: to ``MEASURED_LIMITS`` under the same row id, with the text of ``_PRICE_DOWN_LIMIT``.
 _X40_PRICE_DOWN: Choice = EXPERIMENTAL
 _PRICE_DOWN_LIMIT = {
-    "G37.ltmle.tau5": "mtp-pricing-calibration: coverage 0.9160 to 0.9170, SE ratio 0.9310 to 0.9479",
-    "G37.sdr.tau5": "mtp-pricing-calibration: coverage 0.9190 to 0.9230, SE ratio 0.9339 to 0.9518",
+    "G39.ltmle.tau5": "mtp-pricing-calibration: coverage 0.9160 to 0.9170, SE ratio 0.9310 to 0.9479",
+    "G39.sdr.tau5": "mtp-pricing-calibration: coverage 0.9190 to 0.9230, SE ratio 0.9339 to 0.9518",
 }
 _X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
     *(
@@ -1424,8 +1424,8 @@ _X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str]
             "X40",
         )
         for scenario, row in (
-            ("pricing_ltmle_tau5", "G37.ltmle.tau5"),
-            ("pricing_sdr_tau5", "G37.sdr.tau5"),
+            ("pricing_ltmle_tau5", "G39.ltmle.tau5"),
+            ("pricing_sdr_tau5", "G39.sdr.tau5"),
         )
         for estimand in ("ate_regimen[price_down vs natural_prices]", "ey_regimen[price_down]")
     ),
@@ -1445,7 +1445,7 @@ _X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str]
         "mtp-pricing",
         "property",
         "interval_calibration/up_learned_density_tau3__correctly_specified",
-        "G38.tau3",
+        "G40.tau3",
         ("wald",),
         LIMIT,
         "mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",
@@ -1455,7 +1455,7 @@ _X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str]
         "mtp-pricing",
         "property",
         "interval_calibration/up_learned_density_tau5__correctly_specified",
-        "G38.tau5",
+        "G40.tau5",
         ("wald",),
         LIMIT,
         "mtp-pricing-learned-density: coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323",
