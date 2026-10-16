@@ -22,10 +22,11 @@ scenario                 subject and pairing
 ``pricing_*_tau5``       the same at ``tau = 5``
 =======================  ================================================================
 
-**Learners.**  The primary rows match the comparator's ``SL.glm`` and its prediction bound: a
-quasibinomial GLM on the outcome design at the last node, and least squares clipped to
-``[1e-5, 1 - 1e-5]`` at every earlier node (:data:`PRIMARY_PSEUDO_LEARNER`).  The property
-rows read the declared learners of :mod:`tests.studies.mtp_pricing_properties`.
+**Learners.**  The primary rows match the comparator's ``SL.glm``: a quasibinomial GLM on the
+outcome design at the last node, and least squares at every earlier node.  The primary
+``LTMLE`` rows bound the logistic submodel at ``lmtp``'s bound (:data:`PRIMARY_ALPHA`).  The
+property rows read the declared learners and settings of
+:mod:`tests.studies.mtp_pricing_properties`.
 
 **The comparator.**  ``tests/canonical/mtp_pricing_runner.R`` calls ``lmtp_mtp_tmle``
 (``tests/canonical/lmtp_mtp_adapter.R``) for the ``LTMLE`` scenarios and
@@ -44,16 +45,16 @@ under 0.04 SD, on the exact ratio.  A probe on fresh draws read SE ratio 0.887 a
 moves to n = 5,000 on Eric's decision (2026-10-16); the property cells keep their declared
 sizes and their committed rows.  The n = 2,000 reading stays in the method-evidence page.
 
-**Third declaration (2026-10-16, before any comparator run).**  The first R smoke stopped:
-``lmtp`` bounds every sequential prediction to ``[1e-5, 1 - 1e-5]``, and the least-squares
-fits of nodes 1 to 4 predicted at or above ``1 - 1e-5`` in 13 to 20 of 20 probe samples of
-every scenario.  The last node, a quasibinomial GLM, never did.  ``lmtp`` clipped those
-predictions and the package did not, so the pairs could not agree.  The primary learner before
-the last node becomes least squares clipped at ``lmtp``'s bound
-(:class:`~tests.studies.mtp_pricing_common.BoundedLeastSquares`), so both sides read one
-clipped regression.  The true regression at each node is a probability, so the clip projects
-onto the parameter space.  The primary rows refit.  The property cells keep their learners and
-their committed rows.
+**Third declaration (2026-10-16, before any comparator run).**  The first R smoke stopped
+on the adapter's prediction-bound check.  The least-squares fits of nodes 1 to 4 predict at or
+above ``1 - 1e-5`` in 13 to 20 of 20 probe samples of every scenario; the last node, a
+quasibinomial GLM, never does.  A second smoke matched the two sides against the replicate
+rows it wrote.  ``lmtp``'s ``SDR`` bounds no sequential prediction, so plain least squares
+agrees to 1.1e-12.  ``lmtp``'s ``LTMLE`` bounds its predictions to ``[1e-5, 1 - 1e-5]`` before
+the logistic fluctuation, where the package's default submodel bound is 0.9995; with
+:data:`PRIMARY_ALPHA` the two agree to 1.3e-8, and with the default they differed by up to
+2.5e-6.  The primary ``LTMLE`` rows refit with that bound.  The ``SDR`` rows and the property
+cells keep their settings and their committed rows.
 
 **Red-cell reading, declared before any run.**  As ``mtp-boundaries``
 (:mod:`tests.studies.canonical_mtp_boundaries`), with the owner rows
@@ -101,12 +102,13 @@ G_BOUNDS = (0.001, 1.0)
 REFERENCE = common.REFERENCE
 LABELS = common.LABELS
 FAILURE_BOUND = 0.01
-#: The primary rows' learner at every node before the last: the comparator's ``SL.glm`` with
-#: ``lmtp``'s prediction bound.  Plain least squares predicts at or above ``1 - 1e-5`` at
-#: nodes 1 to 4 in most samples of every scenario, where ``lmtp`` bounds and the package does
-#: not, so the two sides would read two regularisations of one regression.  The property cells
-#: keep their own learners.
-PRIMARY_PSEUDO_LEARNER = common.BoundedLeastSquares()
+#: The probability bound of the primary ``LTMLE`` rows' logistic submodel: ``lmtp``'s bound,
+#: which maps every sequential prediction into ``[1e-5, 1 - 1e-5]``.  The package's default
+#: of 0.9995 truncates the predictions in ``(0.9995, 1 - 1e-5]`` that ``lmtp`` keeps, and the
+#: least-squares nodes of this law predict there in most samples.  ``SDR`` fits no submodel,
+#: and ``lmtp``'s ``SDR`` bounds none of its sequential predictions.  The property cells keep
+#: the default.
+PRIMARY_ALPHA = 1.0 - 1e-5
 
 #: Each scenario: ``(tau, estimator)``.
 SCENARIOS: dict[str, tuple[int, str]] = {
@@ -237,10 +239,8 @@ CONFIGURATION = {
     "construction": "ordinary, one fold",
     "g_bounds": list(G_BOUNDS),
     "support": "Support(4 + 2 L_t, 8 + 2 L_t) at every A_t",
-    "outcome_learner": (
-        "QuasiBinomialGLM at the last node; least squares clipped to [1e-5, 1 - 1e-5] at "
-        "earlier nodes (lmtp: SL.glm and its prediction bound)"
-    ),
+    "outcome_learner": "QuasiBinomialGLM at the last node; LinearRegression at earlier nodes",
+    "ltmle_alpha": PRIMARY_ALPHA,
     "treatment_learner": "OracleRatio (the exact ratio on the classifier route)",
     "plans": list(LABELS),
     "horizons": list(common.HORIZONS),
@@ -273,6 +273,7 @@ def fit(
     treatment_learner: Any = None,
     ratio: Literal["density", "classifier"] = "classifier",
     n_folds: int = 1,
+    alpha: float | None = None,
     revenue: bool = False,
     density_bins: Any = None,
     random_state: int = 0,
@@ -299,7 +300,8 @@ def fit(
         settings["q_bounds"] = common.REVENUE_BOUNDS
     regimens = common.regimens(labels, tau)
     if estimator == "ltmle":
-        model: Any = LTMLE(regimens, max_iter=100, tol=1e-10, **settings)
+        targeting = {} if alpha is None else {"alpha": alpha}
+        model: Any = LTMLE(regimens, max_iter=100, tol=1e-10, **targeting, **settings)
     elif estimator == "sdr":
         model = SDR(regimens, **settings)
     else:
@@ -392,7 +394,9 @@ def _replicate(
     scenario, replicate, _ = key
     tau, estimator = SCENARIOS[scenario]
     frame, truth = drawn
-    result = fit(frame, tau, estimator=estimator, pseudo_learner=PRIMARY_PSEUDO_LEARNER)
+    result = fit(
+        frame, tau, estimator=estimator, alpha=PRIMARY_ALPHA if estimator == "ltmle" else None
+    )
     sample = frame.copy()
     for name, values in pairing_columns(result, frame, tau).items():
         sample[name] = values

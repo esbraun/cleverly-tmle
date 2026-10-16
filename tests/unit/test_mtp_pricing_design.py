@@ -538,19 +538,19 @@ def test_every_primary_scenario_is_an_exactness_witness() -> None:
     assert len(study.scientific_failures({"exactness.csv": table})["exactness witness"]) == 6
 
 
-def test_the_primary_pseudo_learner_reads_lmtp_bound() -> None:
-    learner = study.PRIMARY_PSEUDO_LEARNER
-    assert isinstance(learner, common.BoundedLeastSquares)
-    x = np.linspace(0.0, 1.0, 50)[:, None]
-    y = 1.4 * x[:, 0] - 0.2
-    fitted = learner.fit(x, y)
-    prediction = fitted.predict(x)
-    # Least squares fits this line exactly, so every prediction outside the bound is clipped
-    # to it and every other one is the line.
-    assert prediction.min() == common.LMTP_BOUND
-    assert prediction.max() == 1.0 - common.LMTP_BOUND
-    inside = (y > common.LMTP_BOUND) & (y < 1.0 - common.LMTP_BOUND)
-    np.testing.assert_allclose(prediction[inside], y[inside], atol=1e-12)
+def test_the_primary_ltmle_rows_bound_the_submodel_at_lmtp_bound() -> None:
+    import inspect
+
+    assert study.PRIMARY_ALPHA == 1.0 - 1e-5
+    assert study.CONFIGURATION["ltmle_alpha"] == study.PRIMARY_ALPHA
+    source = inspect.getsource(study._replicate)
+    assert 'alpha=PRIMARY_ALPHA if estimator == "ltmle" else None' in source
+    # The nonzero witness: on a sample whose least-squares nodes predict above 0.9995, the
+    # bound moves the price_down mean, so a primary fit that dropped it would not be exact.
+    frame, _ = study.draw_scenario("pricing_ltmle_tau3", 2_000, 0)
+    shipped = study.fit(frame, 3).psi("ey_regimen[price_down]")
+    matched = study.fit(frame, 3, alpha=study.PRIMARY_ALPHA).psi("ey_regimen[price_down]")
+    assert abs(shipped - matched) > 1e-8
 
 
 def test_the_runner_reads_lmtp_bound_through_the_gate() -> None:

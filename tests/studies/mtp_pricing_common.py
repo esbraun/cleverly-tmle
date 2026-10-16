@@ -40,7 +40,7 @@ import pandas as pd
 from scipy.special import expit
 from scipy.stats import norm
 from sklearn.base import BaseEstimator
-from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import SplineTransformer
 
 from cleverly.interventions import ModifiedPolicy, Piece, Shift, Support
@@ -498,33 +498,6 @@ class SplinePseudo(BaseEstimator):
 
     def predict(self, X: Any) -> np.ndarray:
         return np.asarray(self.model_.predict(self._basis(X, False)), dtype=float)
-
-
-#: ``lmtp``'s prediction bound: it maps every sequential prediction into ``[p, 1 - p]``.
-LMTP_BOUND = 1e-5
-
-
-class BoundedLeastSquares(BaseEstimator):
-    """Least squares whose predictions are clipped to ``[bound, 1 - bound]``.
-
-    The primary pseudo-outcome regression of ``mtp-pricing`` at a node ``t < tau``.  It is
-    ``lmtp``'s ``SL.glm`` at a continuous node followed by ``lmtp``'s own bound, so both sides
-    fit the same regression and read the same clipped prediction.  The clip is also a
-    projection onto the parameter space: the true regression at every node is a probability.
-    """
-
-    def __init__(self, bound: float = LMTP_BOUND) -> None:
-        self.bound = bound
-
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> BoundedLeastSquares:
-        self.model_ = LinearRegression().fit(
-            np.asarray(X, dtype=float), np.asarray(y, dtype=float), sample_weight=sample_weight
-        )
-        return self
-
-    def predict(self, X: Any) -> np.ndarray:
-        prediction = self.model_.predict(np.asarray(X, dtype=float))
-        return np.clip(prediction, self.bound, 1.0 - self.bound)
 
 
 class WrongOutcome(BaseEstimator):
