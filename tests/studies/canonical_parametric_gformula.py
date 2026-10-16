@@ -5,10 +5,11 @@ of node-specific main-terms models.  The laws and their exact truths are in
 :mod:`tests.studies.parametric_gformula_laws`, and the property families in
 :mod:`tests.studies.parametric_gformula_properties`.
 
-This study is Python only.  Its comparator, ``pygformula`` 1.2.0, is pending: the record
-declares ``pending_reference`` and a follow-up PR from X45 registers the comparison.  The fixtures and
-the pinned requirements of the comparison run in their own environment, never in a package
-extra (``tests/canonical/parametric_gformula_study/README.md``).
+This study is Python only, and its record declares no comparator.  ``pygformula`` 1.2.0 fits
+one pooled model per covariate over time, so on these laws it fits a different model.  It is
+compared on construction-matched fixtures instead
+(:mod:`tests.canonical.parametric_gformula_study.fixtures`, run by
+``tests/canonical/parametric_gformula_study/compare_pygformula.py`` in its own image).
 
 **Laws.**  Every covariate law is exactly the main-terms model the estimator fits, in the
 estimator's full-history design.  Treatment and censoring are main-terms logistic in the
@@ -105,11 +106,8 @@ PRIMARY_REPLICATES = 1_000
 FAILURE_BOUND = 0.01
 
 IMPLEMENTATION = "cleverly-parametric-gformula"
-#: The comparator whose runs are pending: a follow-up PR from X45 registers it.
-REFERENCE = "pygformula"
-#: The version the comparison pins, and the tag of its image.
+#: The ``pygformula`` version the fixture comparison pins, and the tag of its image.
 PYGFORMULA = "1.2.0"
-PENDING_REASON = "pygformula comparator run, follow-up PR from X45"
 
 #: The expected count of finite-sample reds under perfect calibration, over :data:`GATED_CELLS`
 #: gated cells (72 measured cells and 42 derived controls), and the chance of at least one.  The
@@ -643,9 +641,6 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=None,
-    comparison="matching implementation",
-    pending_reference=REFERENCE,
-    pending_reason=PENDING_REASON,
     calibration_efficiency_ratio=False,
     modules=(
         "tests/studies/canonical_parametric_gformula.py",
@@ -663,7 +658,7 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     nuisance_count=3,
     publication_policy="reporting",
-    failure_bound={IMPLEMENTATION: FAILURE_BOUND, REFERENCE: FAILURE_BOUND},
+    failure_bound={IMPLEMENTATION: FAILURE_BOUND},
 )
 
 CONFIGURATION = {
@@ -677,7 +672,7 @@ CONFIGURATION = {
     "phase and the property_simulation stream (fit set, replicate) in the property fit sets",
     "ladder": list(LADDER),
     "calibration_n": CALIBRATION_N,
-    "reference": f"none yet; {REFERENCE} is pending",
+    "reference": f"none; pygformula {PYGFORMULA} runs on the fixtures of compare_pygformula.py",
 }
 
 # --------------------------------------------------------------------------------- primary

@@ -309,7 +309,7 @@ the committed results and checked at the precision printed.
 
 | limit | what it means |
 | --- | --- |
-| In sample, one split, one draw | The fit is not cross-fitted, and `repeats` is 1. The predicate refuses `cross_fit=True` and `repeats > 1`. [X58](../../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) part (c) holds them |
+| In sample, one split, one draw | The fit is not cross-fitted, and `repeats` is 1. This study measures no cross-fitted or repeated fit. The [cross-fitted study](outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) of [X58](../../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) part (c) measures them |
 | Two arms | The treatment is binary. More than two arms, `ey_obs`, `par`, `paf` and the simultaneous band are refused or withheld. X58 part (b) holds them |
 | Complete, unweighted, unstratified, unclustered data | The study measures no weight, stratum, missing outcome, missing treatment or cluster. X58 part (d) holds fixed weights and X52 holds the rest |
 | Two parametric learners only | Only `ParametricOutcome` and `ParametricMechanism` are admitted, as exact classes. A scikit-learn learner keeps the `"generated_design_plugin"` status, and [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) owns its interval |

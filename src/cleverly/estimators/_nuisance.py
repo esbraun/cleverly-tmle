@@ -57,6 +57,7 @@ if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes 
 
 __all__ = [
     "CompanionEstimates",
+    "DrawInference",
     "InnerDesigns",
     "KnownPropensity",
     "NuisanceEstimates",
@@ -708,6 +709,38 @@ class NuisanceEstimates:
 
 
 @dataclass(frozen=True)
+class DrawInference:
+    """What one draw of the cross-fitting split reported for one estimand.
+
+    The reported estimate of a repeated fit is the median over draws, with the
+    split-adjusted variance of :func:`~cleverly.inference.median_estimates`. This record
+    keeps the draw's own numbers, so each draw can be checked against a fit with
+    ``repeats=1`` at its seed.
+
+    Parameters
+    ----------
+    status : str
+        The draw's inference status, before
+        :func:`~cleverly.inference.influence.restamp_parameter_statuses` gives every draw
+        of the estimand one parameter status.
+    se : float
+        The standard error of the draw's reported curve, on the reporting scale.
+    curve : ndarray or None, default=None
+        ``(n,)``, the draw's reported influence curve. Written by the per-arm
+        outcome-adaptive :class:`~cleverly.CTMLE` with the stacked curve; ``None``
+        elsewhere.
+    shipped_se : float or None, default=None
+        The standard error of the draw's uncorrected adaptive-propensity curve on an
+        admitted per-arm fit with the stacked curve. ``None`` for a fit without a stack.
+    """
+
+    status: str
+    se: float
+    curve: FloatArray | None = None
+    shipped_se: float | None = None
+
+
+@dataclass(frozen=True)
 class RepeatFit:
     """One draw of the cross-fitting split, with everything that draw produced.
 
@@ -745,12 +778,18 @@ class RepeatFit:
         any C-TMLE selection folds.  Under ``random_state=None`` the engine drew it from
         operating-system entropy, so this field is the only record of it.  ``None`` only on
         a draw built by hand.
+    inference : mapping of str to DrawInference, default={}
+        This draw's own status and standard error per reported estimand, before the
+        median.  The per-arm outcome-adaptive :class:`~cleverly.CTMLE` with the stacked
+        curve also keeps the draw's curve and its shipped standard error.  Empty only on a
+        draw built by hand.
     """
 
     nuisance: NuisanceEstimates
     fluctuations: dict[str, Fluctuation]
     psi: Mapping[str, float] = field(default_factory=dict)
     seed: int | None = None
+    inference: Mapping[str, DrawInference] = field(default_factory=dict)
 
     @property
     def folds(self) -> Folds:

@@ -1334,3 +1334,43 @@ class TestMutationControls:
             for arm in data.arm_codes
         )
         assert gap > WITNESS_FLOOR
+
+
+class TestThePerArmParametricStackUnderArmModels:
+    """X58's fold coefficient record reads one pooled outcome GLM, so arm models write none.
+
+    The arm models leave one outcome diagnostic per arm, so a record built from them would
+    raise for want of the single pooled entry. The fit keeps the shipped
+    ``generated_design_plugin`` status that the allow-list gives it.
+    """
+
+    @pytest.mark.parametrize("cross_fit", [False, True])
+    def test_the_fit_records_no_stack_and_keeps_the_plugin_status(self, cross_fit: bool) -> None:
+        from cleverly.learners import ParametricMechanism, ParametricOutcome
+
+        result = fit_ctmle(
+            binary_frame(n=600),
+            strategy="oat",
+            oat_design="per_arm",
+            outcome_learner=ParametricOutcome(),
+            treatment_learner=ParametricMechanism(),
+            cross_fit=cross_fit,
+            estimands=("ate", "ey1", "ey0"),
+        )
+        assert "stack" not in result.nuisance.diagnostics
+        assert result.inference_status == "generated_design_plugin"
+
+    def test_the_pooled_fit_records_the_stack(self) -> None:
+        from cleverly.learners import ParametricMechanism, ParametricOutcome
+
+        result = fit_ctmle(
+            binary_frame(n=600),
+            strategy="oat",
+            oat_design="per_arm",
+            outcome_learner=ParametricOutcome(),
+            treatment_learner=ParametricMechanism(),
+            cross_fit=False,
+            outcome_by_arm=False,
+            estimands=("ate", "ey1", "ey0"),
+        )
+        assert "stack" in result.nuisance.diagnostics

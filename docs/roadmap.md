@@ -771,8 +771,13 @@ a stacked-equation interval for `ey0`, `ey1`, `ate`, `rr` and `or`. The binary `
 into part (a) because `ratio()` and `contrast()` inherit the status. The
 [evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) states the registered study, which is Python property evidence with no
 comparator. [Parametric per-arm intervals](technical-reference/collaborative-tmle.md#parametric-per-arm-intervals)
-states the contract. Parts (b) to (d) stay open. The text below keeps the part (a) scope for
-reference and states what each open part still needs.
+states the contract.
+
+**Part (c) is implemented.** A cross-fitted fit reads the exact V-fold stack, and `repeats` above 1
+reports the median of the draws. Its study `ctmle-oat-per-arm-parametric-crossfit` is registered, and
+its [evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md)
+reports the declared run. Every gated cell passes. Parts (b) and (d) stay open. The text below keeps the part (a)
+scope for reference and states what each open part still needs.
 
 **What is known.** [The applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)
 and the [per-arm evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle.md)
@@ -875,8 +880,9 @@ ordinary TMLE without a separate argument.
 
 **Release gate.** A support predicate, `per_arm_parametric_support`, replaced the global per-arm
 flag. The predicate reads the outcome learner, the mechanism learner, the design, the fitting, the
-target and the inference request. It never reads a fitted array. One passed study does not open every per-arm
-fit. Each open part widens the predicate only after its own study passes.
+target and the inference request. It never reads a fitted array. The predicate admits the
+compositions that the stacked theory covers. A fit that no support row covers reports its
+interval with the `experimental` label. Each part adds its support rows with its registered study.
 
 The corrected status, the covariance and the method declaration survive `result.save()`,
 `cleverly.load()`, contrasts and summaries. [RM42](#rm42-experimental-status-and-support-rows)
