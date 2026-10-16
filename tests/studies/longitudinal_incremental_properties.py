@@ -62,12 +62,12 @@ n = 4,000 was too small.  At 2,000 replications a calibration cell at its target
 probability 0.935, so the seven cells pass jointly with probability 0.59.  At 3,000 each cell
 passes with at least 0.99 and the seven jointly with 0.96.  The per-cell rule then allows
 n = 24,000.  The study keeps 48,000, which cuts the projected bias by a factor of 1.4.  The
-power cell's rejection rate
-reads 0.855 at n = 4,000 against an exact-law power of 0.882.  One Monte Carlo SE below that
+power cell's rejection rate reads 0.855 at n = 4,000 against an exact-law power of 0.882.  One Monte Carlo SE below that
 rate, it clears the power rule with probability 0.84 at 1,000 replications and 0.995 at 2,000,
 so the null and power cells run 2,000 each.  The ``single_robustness`` probe reads
-standardized biases of 0.20 at n = 6,000 and 0.11 at 24,000, so 24,000 would fail.  Projected
-to 48,000 and 96,000, the pair passes with probability at least 0.95.
+standardized biases of 0.20 at n = 6,000 and 0.11 at 24,000, so 24,000 passes with
+probability below 0.95.  Projected to 48,000 and 96,000, the pair passes with probability at
+least 0.95.
 
 **Rules.**  ``interval_calibration``, ``root_n_and_efficiency``, ``root_n_rate``,
 ``type_i_error``, ``power`` and ``simultaneous_coverage`` read the shared verdicts.
@@ -78,7 +78,8 @@ pair passes when both sizes pass the shared bias-equivalence rule (standardized 
 0.25).  With a correct mechanism the remainder is a product of a fixed outcome error and a
 mechanism error that averages to zero, so its bias is second order.  The outcome regression
 is linear, so its plug-in misses the truth and the weighted residual terms must correct it.  A
-constant regression would leave a plug-in of exactly zero and a weighting estimator.  Its diagnostic cell publishes its bias beside the exact-law limit of
+constant regression would leave a plug-in of exactly zero and a weighting estimator.  Its
+diagnostic cell publishes its bias beside the exact-law limit of
 :func:`~tests.studies.longitudinal_incremental_common.constant_mechanism_limit`.
 ``targeting_necessity`` reads the shared necessity rule at :data:`TARGETING_DISPLACEMENT`.
 

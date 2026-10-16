@@ -5,10 +5,10 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-ipsi-dropout",
-      "cleverly_version": "0.1.3",
-      "cleverly_commit": "19646803860679dd8930e681e96f708f006e6c5d",
-      "cleverly_worktree_clean": true,
-      "python": "3.13.16",
+      "cleverly_version": "0.1.2",
+      "cleverly_commit": "340fcd6a71603360af55b51e859349c6d38202c4",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.7",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
       "pandas": "3.0.6",
@@ -129,8 +129,8 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_longitudinal_incremental_dropout.py": "bf2dd93498ca58cc1ef516914a78663b4bf5333795b8fd48e8b8ca9d9eced2d8",
-    "tests/studies/longitudinal_incremental_dropout_properties.py": "87e2a4a51997190fbad0ec08cffcd3d796ac065086e41f1e99e7f5ec2c56661e",
+    "tests/studies/canonical_longitudinal_incremental_dropout.py": "378e2b7253e9c9e1908a12fa5b2729f89ca384efc8a010e0a88340b7eced5222",
+    "tests/studies/longitudinal_incremental_dropout_properties.py": "7410874831346c2041d517c1216c5c9174211258d5a6347a7d3e9b7d0cc395e1",
     "tests/studies/longitudinal_incremental_common.py": "ed586da4507db03e220361312974bb2bcd34ecdf34092879291f17cbf1e96ad6",
     "tests/discrete_law_longitudinal_incremental.py": "a1b01eeea0343037b33a6ce948884241e718f882a309dd35216b8217717df0a5",
     "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
@@ -140,11 +140,11 @@
     "tests/longitudinal_ipsi.py": "e0178cef68da828d421c16f68b02e0cc0662e4a82c1f7105ce03501c34677a05",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
-    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
+    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
+    "tests/studies/evidence/property_verdicts.py": "5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef",
     "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
-    "tests/studies/evidence/simultaneous.py": "7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9"
+    "tests/studies/evidence/simultaneous.py": "7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15"
   },
   "reference_sha256": {},
   "sha256": {
