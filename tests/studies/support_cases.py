@@ -166,6 +166,7 @@ def capture(run: Callable[[], Any]) -> Observed:
 
     def at_longitudinal(estimator: Any, data: Any, **settings: Any) -> None:
         settings.pop("source", None)
+        settings.pop("conditions", None)
         raise _Reached(Observed(*longitudinal_key(estimator, data, **settings)))
 
     def at_point(
@@ -1335,6 +1336,25 @@ def _c_cases() -> tuple[RowCase, ...]:
                 ("ate",),
             )
         )
+    crossfit = "canonical_ctmle_oat_per_arm_parametric_crossfit"
+    where = _ST + "canonical_ctmle_oat_per_arm_parametric_crossfit.py:625"
+    for row, cell, repeats, names in (
+        ("C11.stacked", "crossfit_1500__ate__corrected", 1, ("ey0", "ey1", "ate", "rr", "or")),
+        ("C11.repeated", "repeats__ate__corrected", 3, ATE),
+    ):
+        add(
+            _case(
+                row,
+                "ctmle-oat-per-arm-parametric-crossfit",
+                cell,
+                where,
+                lambda repeats=repeats, names=names: _study(crossfit).estimator(
+                    _study(crossfit).Fit("main", estimands=names, repeats=repeats)
+                ),
+                {},
+                names,
+            )
+        )
     return tuple(cases)
 
 
@@ -1662,6 +1682,22 @@ def _long_cases() -> tuple[RowCase, ...]:
         "censored_repeated_outcome",
         400,
     )
+
+    # The repeated-outcome ``IPSI`` study: the property cells that license a configuration.
+    ipsi_properties = "ipsi_repeated_properties.py:335"
+    for row, configuration, n in (
+        ("G37.in_sample", "in_sample", 400),
+        ("G37.cross_fitted", "crossfit", 400),
+        ("G37.bounded", "continuous", 400),
+    ):
+        observed(
+            row,
+            "longitudinal-repeated-ipsi",
+            configuration,
+            ipsi_properties,
+            lambda study, configuration=configuration, n=n: study.sample(configuration, 0, n),
+            lambda study, frame, configuration=configuration: study.fit(frame, configuration),
+        )
 
     # The IS and cross-fitted fits of ``SDR``: the runner's scenarios and the property cells.
     sdr = "canonical_longitudinal_sdr.py:362"

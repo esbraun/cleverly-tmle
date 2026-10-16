@@ -1132,6 +1132,57 @@ def _c_rows() -> tuple[SupportRow, ...]:
             cells=["bounded_outcome__ate__corrected"],
         ),
     ]
+    # The cross-fitted stack (X58 part (c)). The study fits a binary outcome at n_folds=5, at
+    # one draw and at repeats=3. The key holds neither the fold count nor the repeat count, so
+    # the CTMLE preflight adds a group-A condition for another count, and that fit is
+    # experimental although it matches a row here.
+    crossfit = "ctmle-oat-per-arm-parametric-crossfit"
+    measured = (
+        "The study ctmle-oat-per-arm-parametric-crossfit measures n_folds=5 only. A fit at "
+        "another fold count inside the cap of 20 folds is experimental."
+    )
+    rows += [
+        point_row(
+            "C11.stacked",
+            [crossfit],
+            families=("P1", "P2"),
+            engine=stack,
+            splitting=("stacked",),
+            cells=[
+                *(
+                    f"crossfit_1500__{estimand}__corrected"
+                    for estimand in ("ey0", "ey1", "ate", "log_rr", "log_or")
+                ),
+                *(
+                    f"{group}__{estimand}__corrected"
+                    for group in ("crossfit_500", "crossfit_8000", "crossfit_pseudo_true")
+                    for estimand in ("ey0", "ey1", "ate")
+                ),
+                "binary_active__estimated",
+                "sharp_null",
+            ],
+            limits=[
+                measured,
+                "The interval needs at least 30 rows in each held-out fold.",
+                "Under a wrong outcome model the interval covers the limit psi*, not the arm "
+                "mean (cells crossfit_pseudo_true).",
+            ],
+        ),
+        point_row(
+            "C11.repeated",
+            [crossfit],
+            families=("P1",),
+            engine=stack,
+            splitting=("stacked", "repeated"),
+            cells=[f"repeats__{estimand}__corrected" for estimand in ("ey0", "ey1", "ate")],
+            limits=[
+                measured,
+                "The study measures repeats=3 only. A fit at another repeat count is experimental.",
+                "The repeats cells cannot see the split-adjustment term of the median rule, about "
+                "0.2% of the variance. A unit identity test pins that term.",
+            ],
+        ),
+    ]
     rows += [
         point_row(
             f"C09.{strategy}",
@@ -1895,6 +1946,43 @@ def _long_rows() -> tuple[SupportRow, ...]:
             cells=["interval_calibration"],
         ),
     ]
+    # The repeated-outcome ``IPSI`` study (X32b): three odds tilts at three nodes.  The band is
+    # the default simultaneous band of the in-sample fits over all fifteen reported parameters.
+    # A booster fit and the small-sample cells are diagnostic there, so they license nothing.
+    ipsi_study = ["longitudinal-repeated-ipsi"]
+    ipsi_limits = [
+        "The gated cells draw n = 8,000. At n = 2,000 the continuous arm reads an SE ratio down "
+        "to 0.92, below the calibration band, and the study reports that cell without a verdict.",
+        "The estimator is singly robust: a wrong treatment or censoring mechanism leaves a bias.",
+    ]
+
+    def ipsi_row(
+        row_id: str,
+        *,
+        kinds: frozenset[Kind] = _LONG_WALD,
+        splitting: tuple[str, ...] = ("in_sample",),
+        outcome: tuple[str, ...] = BINARY,
+        cells: Sequence[str] = ("interval_calibration",),
+    ) -> SupportRow:
+        return long_row(
+            row_id,
+            ipsi_study,
+            outcome_kind="repeated",
+            regimens=("tilt",),
+            treatment=("2",) * 3,
+            engine="ipsi",
+            kinds=kinds,
+            splitting=splitting,
+            outcome=outcome,
+            cells=cells,
+            limits=ipsi_limits,
+        )
+
+    rows += [
+        ipsi_row("G37.in_sample", kinds=_LONG_BAND, cells=["interval_calibration", "all_reported"]),
+        ipsi_row("G37.cross_fitted", splitting=xf),
+        ipsi_row("G37.bounded", outcome=BOUNDED),
+    ]
     sdr = ["longitudinal-sdr"]
     rows += [
         long_row("G23.in_sample", sdr, engine="sdr", kinds=_LONG_BAND, cells=["static"]),
@@ -2258,7 +2346,8 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
 
 
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
-#: the sequential baselines (``G28``) and the parametric g-formula (``G29``).
+#: the sequential baselines (``G28``), the parametric g-formula (``G29``) and repeated-outcome
+#: ``IPSI`` (``G37``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
 
 

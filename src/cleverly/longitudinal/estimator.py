@@ -97,7 +97,15 @@ from .._support import (
     regimen_kinds,
     support_for,
 )
-from .._typing import BoolArray, CumulativeGBounds, FloatArray, Learner
+from .._typing import (
+    BoolArray,
+    CumulativeGBounds,
+    FloatArray,
+    IterateChoice,
+    Learner,
+    StoppingRule,
+)
+from ..estimators._option_support import stopping_conditions
 from ..exceptions import (
     CapabilityError,
     CleverlyError,
@@ -110,6 +118,13 @@ from ..exceptions import (
     PositivityWarning,
     Refusal,
     RefusalReason,
+)
+from ..fluctuation._score import (
+    check_iterate,
+    check_step_bound,
+    check_stopping_rule,
+    residual_line,
+    rule_failure_line,
 )
 from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
 from ..inference.cluster import (
@@ -271,7 +286,15 @@ LONGITUDINAL_REPLAY_MSM_DECLARATION = "longitudinal_replay_msm_declaration"
 
 #: The :class:`LTMLE` settings that :class:`SDR` refuses, through
 #: :func:`~cleverly.methods.sdr_no_fluctuation_refusal`.
-SDR_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol")
+SDR_REFUSED_SETTINGS: tuple[str, ...] = (
+    "alpha",
+    "max_iter",
+    "tol",
+    "stopping",
+    "step_bound",
+    "step_search",
+    "iterate",
+)
 
 #: Why a baseline estimator refuses cross-fitting.  ``{estimator}`` is the class name, which
 #: :func:`baseline_cross_fit_refusal` fills in.
@@ -824,7 +847,7 @@ def _fit_key(label: str, cause: str | None, horizon: int, curve: bool) -> str:
 
 #: The estimator kinds that fit a repeated outcome.  A kind belongs here once each horizon of
 #: its fit is the end-of-study fit of the panel truncated after it, and its evidence exists.
-REPEATED_OUTCOME_KINDS: frozenset[str] = frozenset({"tmle"})
+REPEATED_OUTCOME_KINDS: frozenset[str] = frozenset({"tmle", "ipsi"})
 
 #: How the refusal names each estimator kind.
 _REPEATED_OUTCOME_NAMES: dict[str, str] = {
@@ -868,10 +891,9 @@ def refuse_repeated_outcome(estimator: str, name: str) -> None:
     """Refuse a repeated outcome on a longitudinal estimator that has no per-horizon reduction.
 
     A kind in ``REPEATED_OUTCOME_KINDS`` fits a repeated outcome by one backward pass per
-    horizon, each the end-of-study fit of the panel truncated after it.  Another estimator
-    that shares :meth:`LTMLE.fit`, such as a sequentially doubly robust or an
-    incremental-intervention estimator, fits nothing until its own reduction and evidence
-    exist, so it refuses here, before any learner, rather than fitting by inheritance.
+    horizon, each the end-of-study fit of the panel truncated after it.  A kind outside the
+    set, such as :class:`SDR`, fits nothing until its own reduction and evidence exist, so it
+    refuses here, before any learner, rather than fitting by inheritance.
     ``tests/unit/test_repeated_outcome_subclasses.py`` fits every concrete subclass of
     ``_SequentialEstimator`` on a repeated outcome and requires either this refusal or,
     for a kind in the set, an estimate and influence curve at each horizon equal to the
@@ -1110,6 +1132,14 @@ class _LongitudinalReplayRecipe:
     #: ``"tmle"``, ``"sdr"``, ``"ipsi"``, ``"gcomp"`` or ``"ipw"``: which recursion a replay
     #: repeats.
     estimator: str = "tmle"
+    #: The stopping rule of a TMLE fit's node solves, ``"relative"`` unless the fit declared one.
+    stopping: str = "relative"
+    #: The step bound of a TMLE fit's node solves, ``None`` unless the fit declared one.
+    step_bound: float | None = None
+    #: Whether a bounded step searches its length.
+    step_search: bool = True
+    #: Which iterate of each node's walk a TMLE fit reports: ``"last"``, or ``"best"``.
+    iterate: str = "last"
     #: The IPW normalization, ``None`` on every other estimator.
     normalization: str | None = None
     #: Whether every regression a baseline estimator reads is a GLM, which decides its
@@ -1186,6 +1216,10 @@ def _replay_recipe(
     tol: float | None,
     n_jobs: int,
     estimator: str = "tmle",
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
     normalization: str | None = None,
 ) -> _LongitudinalReplayRecipe:
     """Freeze resolved plans and clone the unfitted recursive learner specifications.
@@ -1217,6 +1251,10 @@ def _replay_recipe(
         n_jobs=n_jobs,
         omissions=tuple(dict.fromkeys(omissions)),
         estimator=estimator,
+        stopping=stopping,
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
         normalization=normalization,
     )
 
@@ -2953,7 +2991,12 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         # One line per regimen, from the fit that runs to the last node: "throughout"
         # means through the study, and a horizon-k fit stops at k, where the same
         # sentence would be false.  Per-horizon leverage is what diagnostics() is for.
+        # A competing-risks fit holds one fit per regimen per cause.  The followers and the
+        # weights come from the regimen's treatment and censoring mechanism, which every
+        # cause shares, so the causes give one line; a cause is named only where its
+        # line differs from another cause's.
         deepest = max(fit.horizon for fit in self.fits.values())
+        followers: dict[str, list[tuple[str | None, str]]] = {}
         for fit in self.fits.values():
             if fit.horizon != deepest:
                 continue
@@ -2966,12 +3009,20 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             )
             if fit.simulation is not None:
                 kept = "followed it throughout in the data, which the simulation does not need"
-            lines.append(
-                f"  {fit.regimen.label}: {int(fit.scored_nodes[-1].trained_on.sum())} of "
-                f"{self.n} units {kept}; max weight {fit.max_weight:.1f}, "
-                f"effective n {fit.effective_n:.0f}; max truncated share "
-                f"{truncated:.1%} at t={truncated_time}"
+            followers.setdefault(fit.regimen.label, []).append(
+                (
+                    fit.cause,
+                    f"{int(fit.scored_nodes[-1].trained_on.sum())} of "
+                    f"{self.n} units {kept}; max weight {fit.max_weight:.1f}, "
+                    f"effective n {fit.effective_n:.0f}; max truncated share "
+                    f"{truncated:.1%} at t={truncated_time}",
+                )
             )
+        for label, entries in followers.items():
+            if len({text for _, text in entries}) == 1:
+                lines.append(f"  {label}: {entries[0][1]}")
+                continue
+            lines.extend(f"  {label} ({cause}): {text}" for cause, text in entries)
         lines.extend(f"  {line}" for line in self._targeting_lines())
         if self.simultaneous is None and record is not None and len(self.estimates) > 1:
             # Stated rather than left blank, as on a point-treatment fit: the bands are on
@@ -3001,9 +3052,58 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             for name, estimate in self.estimates.items():
                 if estimate.bootstrap is not None:
                     lines.append(f"    {name}  {bootstrap_line(estimate)}")
+        rule = self._declared_rule()
+        if rule != "relative":
+            # Under a declared stopping rule the largest score residual in standard errors,
+            # beside the coverage a Wald interval keeps at it.
+            residual = residual_line(self.estimates, rule, self.config.alpha_sig)
+            if residual:
+                lines.append("")
+                lines.append(f"  {residual}")
         if not self.converged:
-            lines.append("  warning: at least one node's targeting step did not converge")
+            if rule == "relative":
+                lines.append("  warning: at least one node's targeting step did not converge")
+            else:
+                missed = self._rule_misses()
+                detail = (
+                    "; ".join(missed) + ". See res.fits"
+                    if missed
+                    else "at least one node's targeting step did not converge. See res.fits"
+                )
+                lines.append(f"  {rule_failure_line(rule, detail)}")
         return "\n".join(lines)
+
+    def _declared_rule(self) -> str:
+        """The stopping rule the fit declared, ``"relative"`` when it declared none."""
+        for fit in self.fits.values():
+            for step in fit.steps:
+                if step.fluctuation is not None and step.fluctuation.stopping != "relative":
+                    return step.fluctuation.stopping
+        return "relative"
+
+    def _rule_misses(self) -> list[str]:
+        """Each node whose largest score over its threshold is above one, once per solve.
+
+        A working model solves one stacked fluctuation per node for every cell it holds, so
+        the cells share the solve and it is named once.
+        """
+        seen: set[int] = set()
+        missed: list[str] = []
+        for key, fit in self.fits.items():
+            for step in fit.steps:
+                fluctuation = step.fluctuation
+                if (
+                    fluctuation is None
+                    or id(fluctuation) in seen
+                    or fluctuation.rule_ratio is None
+                    or fluctuation.rule_ratio <= 1.0
+                ):
+                    continue
+                seen.add(id(fluctuation))
+                missed.append(
+                    f"{key} at t={step.time} is {fluctuation.rule_ratio:.3g} times its threshold"
+                )
+        return missed
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"LongitudinalResult({', '.join(self.estimates)})"
@@ -3066,6 +3166,10 @@ def _run_recursion(
     n_jobs: int,
     estimator: str = "tmle",
     fold_mechanisms: Sequence[FoldMechanism] = (),
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
     normalization: str | None = None,
     parametric: bool = True,
     gformula: GFormulaSettings | None = None,
@@ -3121,6 +3225,15 @@ def _run_recursion(
         Which recursion runs.
     fold_mechanisms : sequence of FoldMechanism
         Each outer fold's own mechanism, on a cross-fitted SDR or IPSI fit.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides each node's score equation is solved.  Only a TMLE fit reads it.
+    step_bound : float or None
+        The longest step of one iteration of a node's targeting.  ``None`` takes the full Newton
+        step.  Only a TMLE fit reads it.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate of each node's walk is reported.  Only a TMLE fit reads it.
     normalization : str or None
         The IPW normalization, on an IPW fit.
     parametric : bool
@@ -3202,6 +3315,10 @@ def _run_recursion(
         "max_iter": max_iter,
         "tol": tol,
         "n_jobs": n_jobs,
+        "stopping": stopping,
+        "step_bound": step_bound,
+        "step_search": step_search,
+        "iterate": iterate,
     }
     # ``None`` on a single-event or end-of-study fit, so the comprehension below is one
     # loop deeper for every fit and a second code path for none.
@@ -4097,6 +4214,9 @@ class _SequentialEstimator:
             isotonic=self.isotonic,
             msm=self.msm is not None,
             pseudo_learner=self.pseudo_learner is not None,
+            iterate=getattr(self, "iterate", "last"),
+            stopping=getattr(self, "stopping", "relative"),
+            step_bound=getattr(self, "step_bound", None),
         )
         if self.msm is not None and self.reference is not None:
             raise ValueError(
@@ -4151,7 +4271,15 @@ class _SequentialEstimator:
 
     def _targeting(self) -> dict[str, Any]:
         """The fluctuation settings the recursion and the replay recipe take."""
-        return {"alpha": None, "max_iter": None, "tol": None}
+        return {
+            "alpha": None,
+            "max_iter": None,
+            "tol": None,
+            "stopping": "relative",
+            "step_bound": None,
+            "step_search": True,
+            "iterate": "last",
+        }
 
     def _normalization(self) -> str | None:
         """The IPW normalization, ``None`` on every other estimator."""
@@ -4558,6 +4686,7 @@ class _SequentialEstimator:
                 known_factors=_known_factors(prepared),
                 has_msm=self.msm is not None,
                 regimen_kinds=regimen_kinds(plans),
+                conditions=stopping_conditions(getattr(self, "stopping", "relative")),
             )
             if self._record_support
             else None
@@ -5309,7 +5438,34 @@ class LTMLE(_SequentialEstimator):
     max_iter : int
         Maximum targeting iterations per node.
     tol : float
-        Targeting tolerance per node.
+        Targeting tolerance per node.  It is the bar of ``stopping="relative"``.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides each node's score equation is solved.  ``"relative"`` is the
+        shipped test, ``tol`` on the score relative to its largest possible magnitude.
+        ``"sample_size"`` stops a node when its score, in the outcome's units, is at most
+        ``1 / n_u``, and ``"scaled_var"`` when it is at most ``sd / (sqrt(n_u) * min(log n_u,
+        10))``, as ``tmle3`` does.  Here ``n_u`` is the number of distinct units, clusters
+        when the data declare ``id=``, among the rows of the panel, and ``sd`` is the sample
+        standard deviation of the node's per-unit score contribution.  A node stops at the
+        first Newton iterate that meets the rule, so a declared rule changes ``converged``,
+        ``n_iter`` and the warning, and it moves the estimate by the part of the last Newton
+        step it skips.
+    step_bound : float or None
+        The longest step of one iteration of a node's targeting, in the units of the
+        fluctuation coefficient.  ``None`` takes the full Newton step.  A positive number takes
+        the ``tmle3`` constrained step: the node's single coefficient moves by ``sign(s)`` times
+        a length in ``(0, step_bound]``, where ``s`` is the node's score.  A bounded node may
+        stop short of ``tol``, and then it warns and reports ``converged=False``.
+    step_search : bool
+        With ``step_bound``, ``True`` takes the length that minimises the node's weighted mean
+        quasi-loss over ``(0, step_bound]``, and ``False`` takes the whole bound.  It needs
+        ``step_bound``.
+    iterate : {"last", "best"}
+        Which iterate of a node's targeting walk is reported.  ``"last"`` reports the iterate at
+        which the walk stopped.  ``"best"`` reports the iterate ``k >= 1`` whose score has the
+        smallest 2-norm, the first of any tie, and judges the node's ``converged`` there.  A
+        bounded step without a search can oscillate around the root, which is where the two
+        differ.
     random_state : int or None
         The seed of the outer split.  A default learner, and a
         :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
@@ -5393,6 +5549,10 @@ class LTMLE(_SequentialEstimator):
         bootstrap_resampling: Resampling = "auto",
         density_bins: int | None = None,
         ratio: str = "density",
+        stopping: StoppingRule = "relative",
+        step_bound: float | None = None,
+        step_search: bool = True,
+        iterate: IterateChoice = "last",
         survival_model: str = "iterated_mean",
         targeting: str = "iterative",
         step_size: float = 1e-3,
@@ -5402,6 +5562,10 @@ class LTMLE(_SequentialEstimator):
         self.alpha = alpha
         self.max_iter = max_iter
         self.tol = tol
+        self.stopping = stopping
+        self.step_bound = step_bound
+        self.step_search = step_search
+        self.iterate = iterate
         self.survival_model = survival_model
         self.targeting = targeting
         self.step_size = step_size
@@ -5443,10 +5607,21 @@ class LTMLE(_SequentialEstimator):
             )
         if self.max_iter < 1:
             raise ValueError(f"max_iter must be at least 1; got {self.max_iter}")
+        check_iterate(self.iterate, "logistic")
+        check_stopping_rule(self.stopping, "logistic")
+        check_step_bound(self.step_bound, self.step_search, "logistic")
 
     def _targeting(self) -> dict[str, Any]:
-        """The logistic shrink, the iteration limit and the score tolerance."""
-        return {"alpha": self.alpha, "max_iter": self.max_iter, "tol": self.tol}
+        """The logistic shrink, the iteration limit, the score tolerance and the step rules."""
+        return {
+            "alpha": self.alpha,
+            "max_iter": self.max_iter,
+            "tol": self.tol,
+            "stopping": self.stopping,
+            "step_bound": self.step_bound,
+            "step_search": self.step_search,
+            "iterate": self.iterate,
+        }
 
 
 class SDR(_SequentialEstimator):
@@ -5528,10 +5703,9 @@ class SDR(_SequentialEstimator):
     ratio : {"density", "classifier"}
         How a continuous node's policy ratio is estimated, as for :class:`LTMLE`.
     **refused : Any
-        ``alpha``, ``max_iter`` and ``tol``, which raise
-        :class:`MethodConfigurationError` because the
-        estimator fits no fluctuation, and each point-treatment keyword that
-        :class:`LTMLE` refuses.
+        ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search`` and
+        ``iterate``, which raise :class:`MethodConfigurationError` because the estimator fits no
+        fluctuation, and each point-treatment keyword that :class:`LTMLE` refuses.
 
     See Also
     --------
@@ -5667,7 +5841,17 @@ class SDR(_SequentialEstimator):
 
 
 #: The settings :class:`IPSI` refuses with :data:`~cleverly.methods.IPSI_NO_FLUCTUATION`.
-IPSI_REFUSED_SETTINGS: tuple[str, ...] = ("alpha", "max_iter", "tol", "targeting", "fluctuation")
+IPSI_REFUSED_SETTINGS: tuple[str, ...] = (
+    "alpha",
+    "max_iter",
+    "tol",
+    "stopping",
+    "step_bound",
+    "step_search",
+    "iterate",
+    "targeting",
+    "fluctuation",
+)
 
 
 class IPSI(_SequentialEstimator):
@@ -5687,6 +5871,16 @@ class IPSI(_SequentialEstimator):
     (2023), which this package fits as :class:`~cleverly.interventions.RiskRatioTilt` with
     :class:`LTMLE` or :class:`SDR`.
 
+    **A repeated outcome.**  With ``outcome=Repeated([...])`` the fit reports one mean per
+    horizon.  Each horizon is the end-of-study fit of the panel truncated after it, with
+    :math:`Y_h` as the outcome and each earlier :math:`Y_s` as a covariate.  The functional at
+    horizon :math:`h` is Theorem 3.1 of Kim, Kennedy and Naimi (2021) at :math:`t = h`.  The
+    influence function is their Theorem 4.1 on the prefix.  The band of ``simultaneous=True``
+    covers the declared tilts and horizons jointly, which is their Theorem 5.1 restricted to
+    the declared finite grid of :math:`\delta`.  It does not cover the values of :math:`\delta`
+    between the declared ones.  The estimator is singly robust: a wrong treatment mechanism
+    leaves a bias that a correct outcome regression does not remove.
+
     Parameters
     ----------
     regimens : mapping, sequence of Incremental, or sequence of regimens
@@ -5702,7 +5896,9 @@ class IPSI(_SequentialEstimator):
         course.  Under dropout, :math:`\psi(1)` is the mean with dropout prevented, not the
         observed mean.
     horizons : sequence of int or None
-        The survival horizons, as for :class:`LTMLE`.
+        The horizons of a survival or repeated outcome, as for :class:`LTMLE`.  ``None``
+        reports every node.  A repeated outcome reports one mean per horizon, each from the
+        truncated end-of-study fit.  Refused on a fit with one end-of-study outcome.
     msm : MSM or None
         A working model over the regimen and horizon cells.  Each cell's influence-function
         values are projected onto it.  The identity link is supported.  A logit or log
@@ -5750,7 +5946,8 @@ class IPSI(_SequentialEstimator):
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     **refused : Any
-        ``alpha``, ``max_iter``, ``tol``, ``targeting`` and ``fluctuation``, which raise
+        ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search``,
+        ``iterate``, ``targeting`` and ``fluctuation``, which raise
         :class:`MethodConfigurationError` because the estimator fits no fluctuation, and each
         point-treatment keyword that :class:`LTMLE` refuses.
 
@@ -7126,6 +7323,10 @@ def _refit_bound(
             n_jobs=recipe.n_jobs,
             estimator=recipe.estimator,
             fold_mechanisms=result.fold_mechanisms,
+            stopping=recipe.stopping,
+            step_bound=recipe.step_bound,
+            step_search=recipe.step_search,
+            iterate=recipe.iterate,
             normalization=recipe.normalization,
             parametric=recipe.parametric,
         )

@@ -440,6 +440,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_ctmle_oat_per_arm_parametric import (
         STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC,
     )
+    from tests.studies.canonical_ctmle_oat_per_arm_parametric_crossfit import (
+        STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC_CROSSFIT,
+    )
     from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
         STUDY as CTMLE_OAT_PER_ARM_STRATA_MISSING,
     )
@@ -454,6 +457,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
+    from tests.studies.canonical_ipsi_repeated import STUDY as CANONICAL_IPSI_REPEATED
     from tests.studies.canonical_known_mechanism import STUDY as KNOWN_MECHANISM
     from tests.studies.canonical_known_mechanism_drtmle import STUDY as KNOWN_MECHANISM_DRTMLE
     from tests.studies.canonical_known_node_mechanisms import STUDY as KNOWN_NODE_MECHANISMS
@@ -612,6 +616,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_COMPETING,
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
         CANONICAL_LTMLE_REPEATED,
+        CANONICAL_IPSI_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,
@@ -626,6 +631,7 @@ def registered() -> tuple[StudyRecord, ...]:
         PARAMETRIC_GFORMULA,
         CTMLE_OAT_PER_ARM,
         CTMLE_OAT_PER_ARM_PARAMETRIC,
+        CTMLE_OAT_PER_ARM_PARAMETRIC_CROSSFIT,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         CALIBRATION_SLOPE_WARNING,

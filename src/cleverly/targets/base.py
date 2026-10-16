@@ -212,12 +212,17 @@ class Identification:
         right", which is a strictly stronger requirement on the mechanism half.
     references:
         Where the influence function is derived.
+    model_restrictions:
+        Restrictions a design places on the observed-data model.  They do not change the
+        estimand, and the interval is claimed only under them.  Empty by default, and a
+        summary prints nothing for an empty tuple.
     """
 
     assumptions: tuple[str, ...]
     required_nuisances: tuple[str, ...]
     dr_condition: str
     references: tuple[str, ...] = ()
+    model_restrictions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

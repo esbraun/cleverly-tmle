@@ -81,11 +81,8 @@ def test_the_declared_numbers() -> None:
     assert study.CALIBRATION_N == 2_000
     assert record.calibration_efficiency_ratio is False
     assert record.reference is None
-    assert (record.pending_reference, record.comparison) == (
-        "pygformula",
-        "matching implementation",
-    )
-    assert record.failure_bound == {study.IMPLEMENTATION: 0.01, study.REFERENCE: 0.01}
+    assert record.comparator_state == "none"
+    assert record.failure_bound == {study.IMPLEMENTATION: 0.01}
     assert properties.SHRUNKEN_SE_FACTOR == 0.70
     assert properties.LADDER_REPLICATES == 1_000
     assert properties.PAIRED_N == {"G1": 2_000, "G2": 32_000}
@@ -182,9 +179,9 @@ def test_every_key_the_study_publishes_has_a_description() -> None:
             descriptions.cell(family, cell, role="positive")
 
 
-def test_the_pending_comparator_declares_the_sources_the_manifest_records() -> None:
+def test_the_fixture_comparator_pins_its_image() -> None:
     folder = study.STUDY.artifacts
-    for name in ("Dockerfile", "requirements.txt", "run_pygformula.py", "regenerate.py"):
+    for name in ("Dockerfile", "requirements.txt", "run_pygformula.py", "compare_pygformula.py"):
         assert (folder / name).is_file(), name
     pinned = (folder / "requirements.txt").read_text()
     assert f"pygformula=={study.PYGFORMULA}" in pinned
@@ -194,7 +191,7 @@ def test_the_pending_comparator_declares_the_sources_the_manifest_records() -> N
         re.M,
     )
     assert f"ARG PYGFORMULA={study.PYGFORMULA}" in (folder / "Dockerfile").read_text()
-    assert study.STUDY.comparator_state == "pending"
+    assert study.STUDY.comparator_state == "none"
 
 
 # ------------------------------------------------------------------- (a) specification

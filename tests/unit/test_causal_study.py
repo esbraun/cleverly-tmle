@@ -55,7 +55,7 @@ from cleverly.datasets import (
 from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning, RefusalReason
 from cleverly.inference.results import reported_status
-from cleverly.interventions import Shift, Stochastic
+from cleverly.interventions import Incremental, Shift, Stochastic
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
 from cleverly.methods import (
@@ -69,6 +69,8 @@ from cleverly.study import (
     _ARM_STATEMENTS,
     _LONGITUDINAL_IDENTIFICATION,
     BackdoorMeanContrast,
+    IncrementalEffect,
+    IncrementalMean,
     _arm_scope,
     _matches_registered_point_identification,
     _point_identification,
@@ -437,11 +439,74 @@ def test_design_bound_identification_provenance_requires_the_complete_record() -
     altered_nuisances = dataclasses.replace(
         effect.identification, required_nuisances=("outcome_regression",)
     )
-    for altered in (altered_assumptions, altered_nuisances):
+    altered_restrictions = dataclasses.replace(
+        effect.identification, model_restrictions=("a restriction the design does not declare",)
+    )
+    for altered in (altered_assumptions, altered_nuisances, altered_restrictions):
         assert altered.references == registered.references
         assert not _matches_registered_point_identification(
             altered, registered, effect, effect._study.data, effect.functional.axis
         )
+
+
+def test_an_empty_model_restriction_prints_nothing() -> None:
+    effect = _study().identify(ATE())
+    assert effect.identification.model_restrictions == ()
+    assert "restriction" not in effect.summary()
+    assert not any("restriction" in line for line in effect.summary_lines())
+
+
+def test_a_model_restriction_prints_after_the_assumptions() -> None:
+    effect = _study().identify(ATE())
+    restricted = dataclasses.replace(
+        effect,
+        identification=dataclasses.replace(
+            effect.identification,
+            model_restrictions=("restriction one", "restriction two"),
+        ),
+    )
+    lines = restricted.summary().splitlines()
+    start = lines.index("model restrictions:")
+    assert lines[start + 1 : start + 3] == ["  - restriction one", "  - restriction two"]
+    assert lines.index("assumptions:") < start
+    assert all(
+        item in lines[lines.index("assumptions:") + 1 : start]
+        for item in (f"  - {a}" for a in effect.identification.assumptions)
+    )
+    facts = restricted.summary_lines()
+    kinds = [line.split(":")[0] for line in facts]
+    assert facts[kinds.index("model restrictions")] == (
+        "model restrictions: restriction one; restriction two"
+    )
+    assert kinds.index("identification assumptions") + 1 == kinds.index("model restrictions")
+
+
+def test_a_result_prints_the_model_restrictions_of_its_identification() -> None:
+    law = discrete_law_mar.DiscreteLaw()
+    effect = CausalStudy(
+        discrete_law_mar.frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",), missingness="Delta"),
+    ).identify(ATE())
+    restricted = dataclasses.replace(
+        effect,
+        identification=dataclasses.replace(
+            effect.identification, model_restrictions=("restriction one",)
+        ),
+    )
+    kwargs: dict[str, Any] = {
+        "outcome_learner": OracleOutcome(law),
+        "treatment_learner": OracleTreatment(law),
+        "missingness_learner": OracleMissingness(law),
+        "cross_fit": False,
+        "simultaneous": False,
+        "random_state": 0,
+    }
+    plain = effect.estimate(**kwargs).summary().splitlines()
+    shown = restricted.estimate(**kwargs).summary().splitlines()
+    assert not any("restriction" in line for line in plain)
+    kinds = [line.split(":")[0] for line in shown]
+    assert shown[kinds.index("model restrictions")] == "model restrictions: restriction one"
+    assert kinds.index("identification assumptions") + 1 == kinds.index("model restrictions")
 
 
 def test_a_cde_mar_record_with_stale_assumptions_is_refused() -> None:
@@ -962,6 +1027,8 @@ def test_a_string_contrast_on_a_controlled_direct_effect_is_refused_at_construct
         (RegimeMean(regimens=(), horizons=(1, 2)), "one time point"),
         (RegimeContrast(regimens=(), horizons=(1,)), "one time point"),
         (MSMProjection(MSM.linear(), horizons=(1,)), "one time point"),
+        (IncrementalMean(interventions=[Incremental(2.0)], horizons=(1,)), "one time point"),
+        (IncrementalEffect(interventions=[Incremental(2.0)], horizons=(1,)), "one time point"),
         (MSMProjection(MSM.linear(), regimens={"always": 1}), "longitudinal regimen cells"),
     ],
 )

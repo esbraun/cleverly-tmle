@@ -28,6 +28,10 @@ from .._refusal import NO_ALTERNATIVE, Refusal
 from .._support import Classification, SupportKey
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
+from ..data.treatment_covariates import (
+    drtmle_restriction_line,
+    treatment_mechanism_restriction,
+)
 from ..exceptions import (
     CapabilityError,
     RefusalReason,
@@ -170,6 +174,9 @@ class TMLEConfig:
     #: (:attr:`~cleverly.data.CausalData.known_treatment`), else ``"estimated"``.  Recorded
     #: so a result read back from disk says which one its interval rests on.
     treatment_mechanism: str = "estimated"
+    #: Whether the outcome regression was fitted once per treatment arm
+    #: (``outcome_by_arm=True``) rather than once on the covariates and the treatment.
+    outcome_by_arm: bool = False
     #: Whether the treatment is a continuous dose, whose policy ratio reads a density that
     #: no bound truncates.  A categorical treatment's policy ratio reads the bounded
     #: propensity, so its summary prints the bound.
@@ -1543,6 +1550,13 @@ class TMLEResult:
         if self.identified_effect is not None:
             facts.extend(self.identified_effect.summary_lines(protocol=protocol))
         else:
+            if data.treatment_adjustment_sources is not None:
+                # A fit with no study carries no identification record, so the data's own
+                # declaration prints the same restriction a design records.
+                facts.append(
+                    "model restrictions: "
+                    + treatment_mechanism_restriction(data.treatment_adjustment_sources)
+                )
             facts.extend(protocol_summary_lines(None, protocol))
         if data.cluster is not None:
             facts.append(f"clusters = {_cluster_fact(data)} (cluster-robust variance)")
@@ -1571,6 +1585,8 @@ class TMLEResult:
         reduced = self.extra.get("drtmle")
         if reduced is not None:
             facts.append(reduced.describe())
+            if data.treatment_adjustment_sources is not None:
+                facts.append(drtmle_restriction_line(data.treatment_adjustment_sources))
         # The same for the learned-rule record, which states the data-adaptive target.
         learned = self.extra.get("learned_rule")
         if learned is not None:
@@ -1753,6 +1769,13 @@ class TMLEResult:
         # every transcript in the README and the guide is a passing fit, and a line there
         # would be noise on the common path and easier to stop reading.
         verdict = self.score_verdict
+        # Under a declared stopping rule the largest score residual, in standard errors, with the
+        # coverage a Wald interval keeps at it.  Empty under the shipped rule, so an ordinary fit
+        # prints what it always printed.
+        residual = verdict.rule_line()
+        if residual:
+            parts.append("")
+            parts.append(residual)
         if not verdict.passed:
             parts.append("")
             parts.append(verdict.one_line())

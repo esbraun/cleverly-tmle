@@ -88,7 +88,9 @@ def bootstrap_draw_blocks(values: np.ndarray, *, replicates: int, rng: np.random
     drawn = 0
     while drawn < replicates:
         count = min(block, replicates - drawn)
-        yield values[rng.integers(0, rows, size=(count, rows))]
+        # ``np.take`` along the first axis returns the same C-ordered array as fancy
+        # indexing, so the draws are bit-identical, and it gathers rows several times faster.
+        yield np.take(values, rng.integers(0, rows, size=(count, rows)), axis=0)
         drawn += count
 
 

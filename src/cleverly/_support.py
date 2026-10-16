@@ -1300,6 +1300,7 @@ def classify_longitudinal_fit(
     known_factors: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
+    conditions: Sequence[Refusal] = (),
 ) -> Classification | None:
     """Classify a longitudinal fit before any mechanism is fitted.
 
@@ -1323,6 +1324,9 @@ def classify_longitudinal_fit(
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
         The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
+    conditions : sequence of Refusal, default ()
+        The conditions the fit meets, such as a declared stopping rule. Each one makes the fit
+        experimental.
 
     Returns
     -------
@@ -1339,7 +1343,7 @@ def classify_longitudinal_fit(
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
         )
-        classification = classify_key(key, learners)
+        classification = classify_key(key, learners, conditions)
     except Exception as error:
         directory = recording_directory()
         if directory is not None:
