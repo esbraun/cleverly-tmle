@@ -1594,8 +1594,10 @@ curves.
 | no band over a continuum of $\delta$ | the band covers the declared grid. It does not cover the points between the nodes of the grid |
 | an inconsistent $m$ | no interval claim. The product $(\hat\pi - \pi)(\hat m - m)$ is first order, so the curve is not the influence function. $\psi(\delta)$ depends on $\pi$, so the projection argument of a doubly robust estimator does not apply |
 
-No registered study measures the coverage of this curve yet. The interval at $(\delta, h)$ is an
-asymptotic statement under the conditions above. The exact-law witnesses E4 to E8 and the
+The [registered study](method-evidence/repeated-outcome-ipsi.md) measures the coverage of this
+curve on one three-node law. With $n$ = 8,000 in sample, the coverage of the 15 reported
+parameters lies between 0.945 and 0.955, and the default band covers them jointly at 0.949. The
+interval at $(\delta, h)$ is an asymptotic statement under the conditions above. The exact-law witnesses E4 to E8 and the
 mutation controls in `tests/unit/test_repeated_outcome_ipsi_mutations.py` stand behind the point
 estimate and the curve.
 

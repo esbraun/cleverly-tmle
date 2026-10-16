@@ -9,19 +9,19 @@ The study has no comparator. No R package implements IPSI for a repeated outcome
 come from the exact law in `tests/studies/ltmle_repeated_law.py`. The study declares no
 `reference` and no `pending_reference`.
 
-## State: placeholder pilots
+## State: recorded pilots
 
-The pilot tables in `tests/studies/ipsi_repeated_properties.py` are placeholders. The marker
-`PILOT_STATE` in `tests/studies/canonical_ipsi_repeated.py` reads `"placeholder"`. The declared
-sizes follow the rules in `tests/studies/repeated_sizing.py` applied to those placeholders, so
-they are not final. The declared run refuses to start until the pilots are recorded.
+The pilot tables in `tests/studies/ipsi_repeated_properties.py` are recorded. The marker
+`PILOT_STATE` in `tests/studies/canonical_ipsi_repeated.py` reads `"recorded"`. The declared
+sizes are the rules in `tests/studies/repeated_sizing.py` applied to those tables. The declared
+run has finished, and its artifacts are committed beside this file.
 
-To record the pilots:
+To record the pilots again, run these steps:
 
 1. Run P4, P5 and P6 with the commands below.
 2. Run `assemble` for each pilot. It prints the tables and the sizes the rules give.
 3. Paste the tables into `ipsi_repeated_properties.py` and set the size constants to the printed
-   values. Set `PILOT_STATE` to `"recorded"`.
+   values.
 4. Run the declared study (the last section).
 
 ## Pilots

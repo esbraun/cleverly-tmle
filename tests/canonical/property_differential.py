@@ -3,8 +3,8 @@
 Each declared rule restates a verdict that a study's own ``summarize_properties`` computes.
 The differential perturbs every committed study's property rows, summarizes them with the
 study's own code, and requires the declared rules to give the same ``passed`` and
-``property_passed`` on every verdict row.  Some modules have no committed rows, so they run on
-synthetic rows built from their declared cells.  ``longitudinal_sdr_properties`` runs on both
+``property_passed`` on every verdict row.  One module has no committed rows, so it runs on
+synthetic rows built from its declared cells.  ``longitudinal_sdr_properties`` runs on both
 its committed rows and synthetic rows: its committed rows make no perturbation decide the
 ``P_D`` two-size clause alone, and its synthetic rows do.
 
@@ -80,7 +80,6 @@ DIFFERENTIAL_BOOTSTRAP = 200
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
     "tests.studies.vector_mtp_properties",
-    "tests.studies.ipsi_repeated_properties",
 )
 
 #: The synthetic modules whose ``interval_calibration`` cells draw at the module's own
@@ -181,9 +180,8 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     The module's ``fit_properties`` is replaced by a function that returns, for each key, one
     row per cell the key fills, at the declared budget.  Each row's truth is zero and its
     estimate a seeded normal draw with standard error ``n ** -0.5``, centred on zero in a
-    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control, or on
-    the centre that the module's ``SYNTHETIC_CENTRES`` names.  A module of
-    :data:`EFFICIENCY_SCALED` draws its calibration cells at its efficiency bound.  The
+    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control.  A module
+    of :data:`EFFICIENCY_SCALED` draws its calibration cells at its efficiency bound.  The
     module's own code then derives its calibration controls and orders the rows, so the rows
     have the shape a run publishes.  They are no run's output: the differential reads only
     whether a rule and the module agree on them.
@@ -201,10 +199,6 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     declared = {(cell.property, cell.cell): cell for cell in module.declared_cells()}
     bounds = module.EFFICIENCY_SD if module.__name__ in EFFICIENCY_SCALED else {}
     critical = float(norm.ppf(1.0 - module.STUDY.margins.alpha / 2.0))
-    # A control that must reach an exact alternative target is centred on it, so that its
-    # clauses can each decide a verdict alone.  The module names those cells in
-    # ``SYNTHETIC_CENTRES``, as ``property/cell`` to centre.
-    centres: dict[str, float] = dict(getattr(module, "SYNTHETIC_CENTRES", {}))
 
     def fit_properties(
         keys: Any, fit_one: Any, *, cells_of: Any, replicate_of: Any, **options: Any
@@ -232,7 +226,6 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
                 else:
                     scale = float(spec.n) ** -0.5
                 centre = SYNTHETIC_CONTROL_BIAS * scale if spec.role == "control" else 0.0
-                centre = centres.get(name, centre)
                 estimate = rng.normal(centre, scale)
                 std_error = scale * rng.uniform(0.9, 1.1)
                 rows.append(
@@ -256,17 +249,10 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
 
     original = getattr(module, "fit_properties")  # noqa: B009
     setattr(module, "fit_properties", fit_properties)  # noqa: B010
-    # A module that refuses a declared run while its pilot tables are placeholders
-    # (``require_recorded_pilots``) fits nothing here, so the guard has nothing to protect.
-    guard = getattr(module, "require_recorded_pilots", None)
-    if guard is not None:
-        setattr(module, "require_recorded_pilots", lambda what: None)  # noqa: B010
     try:
         rows: pd.DataFrame = module.generate_property_rows(n_jobs=1)
     finally:
         setattr(module, "fit_properties", original)  # noqa: B010
-        if guard is not None:
-            setattr(module, "require_recorded_pilots", guard)  # noqa: B010
     return rows
 
 

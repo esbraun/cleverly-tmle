@@ -44,15 +44,15 @@ def _gap_in_se(limit: float, truth: float, name: str, n: int) -> float:
 
 
 def test_the_record_declares_no_comparator() -> None:
-    """The record is not in ``registered()`` yet: registration needs the committed artifacts."""
+    """The record is registered: its artifacts are committed."""
     assert study.STUDY.slug == "longitudinal-repeated-ipsi"
     assert study.STUDY.reference is None
     assert study.STUDY.pending_reference is None
-    assert study.STUDY not in registered()
+    assert study.STUDY in registered()
 
 
 def test_the_study_seed_is_unique() -> None:
-    seeds = [record.seed for record in registered()]
+    seeds = [record.seed for record in registered() if record is not study.STUDY]
     assert study.STUDY.seed not in seeds
 
 
@@ -590,8 +590,7 @@ def test_the_fit_sets_emit_exactly_the_declared_cells(
 # ---------------------------------------------------------------------------- the failure contract
 #
 # RM39b2 (#304) checks the contract of a registered study: the bound, the declared rules and the
-# clause-binding witnesses.  This study is not registered yet, so those checks skip it.  The tests
-# below hold it to the same contract until the registering change.
+# clause-binding witnesses.  The tests below hold this study to the same contract by name.
 
 
 def test_the_property_module_declares_the_failure_bound_and_the_witness() -> None:
@@ -630,14 +629,15 @@ def test_the_necessity_rules_read_the_declarations_the_verdicts_read() -> None:
         assert rule.group == "family"
 
 
-def test_the_failure_differential_covers_the_unregistered_module() -> None:
-    """Without a committed run, the job reads the module's synthetic rows (``SYNTHETIC_MODULES``)."""
-    assert properties.__name__ in property_differential.SYNTHETIC_MODULES
-    assert properties.__name__ in UNCOMMITTED_MODULES
+def test_the_failure_differential_reads_the_committed_rows() -> None:
+    """With a committed run, the job reads the study's rows and no synthetic rows."""
+    assert study.STUDY.slug in property_differential.SUBJECTS
+    assert properties.__name__ not in property_differential.SYNTHETIC_MODULES
+    assert properties.__name__ not in UNCOMMITTED_MODULES
 
 
 def test_each_clause_the_module_uses_has_a_witness_in_the_binding_table() -> None:
-    subject = properties.__name__
+    subject = study.STUDY.slug
     judged = property_differential.judge(subject, "none")
     assert judged.wrong.empty, judged.wrong.to_string()
     bound = property_differential._pairs(property_differential.read_bindings(), subject)

@@ -1406,6 +1406,8 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # The repeated outcome's in-sample arms at n = 2,000: few units follow the rule to
         # the last node, so the pilot SE ratio sits below the band (X32 pilot).
         "small_sample_calibration",
+        # The repeated IPSI outcome's cross-fitted booster arm: reported, never gated (X32b).
+        "booster_calibration",
         "in_sample_agreement",
         "sdr_tmle_agreement",
         "variance_direction",
@@ -3144,7 +3146,7 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 )
 
 #: The property modules with no committed rows, which declare their cells but publish none.
-UNCOMMITTED_MODULES: tuple[str, ...] = ("tests.studies.ipsi_repeated_properties",)
+UNCOMMITTED_MODULES: tuple[str, ...] = ()
 
 
 def _property_modules() -> list[Any]:

@@ -817,10 +817,9 @@ class DeclaredLaw:
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every sampled cell with its law, role, size, replicates and seed.
 
-    The calibration controls are derived from the positive arm's rows, so they are not here
-    (:data:`DERIVED_CELLS`).  The failure differential
-    (``tests/canonical/property_differential.py``) reads this list to build synthetic rows
-    while the study holds no committed rows.
+    The calibration controls are derived from the positive arm's rows (:data:`DERIVED_CELLS`).
+    They are listed here with the positive arm's law, so that a committed truth can be read back
+    against the cell it came from.
     """
     cells: list[PropertyCell] = []
     controls = {name for names in DERIVED_CELLS.values() for name in names}
@@ -829,14 +828,14 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         n = fit_n(family, configuration)
         key = ((family, configuration, 0, replicates, seed, n),)
         for name in _cells_of(key):
-            if name in controls or name.startswith(f"{JOINT_FAMILY}/"):
+            if name.startswith(f"{JOINT_FAMILY}/"):
                 continue
             _, cell = name.split("/", 1)
             label, arm = cell.split("__", 1)
             if family in _PAIRED_CELLS:
                 role = ("positive", "control")[_PAIRED_CELLS[family][1].index(arm)]
             elif family == "interval_calibration":
-                role = "positive"
+                role = "control" if name in controls else "positive"
             else:
                 role = DIAGNOSTIC_ROLE
             estimand = label_estimand(label)
@@ -939,16 +938,6 @@ NECESSITIES = (
         "outcome_history_necessity", HISTORY_FREE_LABELS, HISTORY_FREE_ARMS, HISTORY_FREE_LIMIT
     ),
 )
-
-
-#: The centre of each control cell in the failure differential's synthetic rows: the exact
-#: limit that the control must reach (``tests/canonical/property_differential.py``).
-SYNTHETIC_CENTRES = {
-    f"{necessity.family}/{label}__{necessity.arms[1]}": float(necessity.alternative_truths[label])
-    for necessity in NECESSITIES
-    if necessity.alternative_truths is not None
-    for label in necessity.labels
-}
 
 
 def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
