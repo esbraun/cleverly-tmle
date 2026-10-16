@@ -149,6 +149,7 @@ validation = result.validate()
 support = result.diagnostics.support()
 nuisance = result.diagnostics.nuisance_models()
 scores = result.diagnostics.score_equations()
+influence = result.diagnostics.influence()
 corrections = (
     result.diagnostics.corrections()
     if result.diagnostics.capability("corrections").available
@@ -157,6 +158,10 @@ corrections = (
 stability = result.diagnostics.truncation_curve()
 all_cached = result.diagnostics.run_all()
 ```
+
+`influence()` reports how few rows carry each estimate's influence curve. It gives the Kish
+count, the skewness, the kurtosis, the relative standard deviation of the variance estimate, and
+the coverage loss of the Wald interval that the Edgeworth term predicts.
 
 The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
 correction term. Ordinary and collaborative TMLE report it as `not_applicable`.

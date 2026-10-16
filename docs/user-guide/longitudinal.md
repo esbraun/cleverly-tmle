@@ -411,6 +411,14 @@ design is licensed as inference only after its cells are green. Until then the s
 `bootstrap sd` and a percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of
 their inputs.
 
+Pass `bootstrap_interval="bca"` with `n_bootstrap=` to get a bias-corrected and accelerated
+interval. It corrects for a skewed sampling distribution. A regimen that few units follow has
+one. No study licenses the BCa interval yet, so the summary prints it as a `BCa range`.
+
+A fit without a bootstrap warns with `SparseInfluenceWarning` when few rows carry an influence
+curve. The condition is a Kish count below about 64. `result.diagnostics.influence()` reports the
+count, the skew, and the predicted Wald coverage loss of each estimate.
+
 ## Repeated outcomes
 
 A repeated outcome is measured at every node and can return to zero. Declare it with
