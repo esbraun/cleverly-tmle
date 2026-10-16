@@ -2035,6 +2035,111 @@ def _vector_cases() -> tuple[RowCase, ...]:
     return tuple(cases)
 
 
+def _continuous_dose_cases() -> tuple[RowCase, ...]:
+    """The continuous-policy cases (X40): the three studies' primary fits and calibration fits."""
+    cases: list[RowCase] = []
+    boundaries = "canonical_mtp_boundaries"
+    for row, scenario in (
+        ("G10.continuous", "boundaries_ltmle"),
+        ("G24.mtp.in_sample", "boundaries_sdr"),
+    ):
+        cases.append(
+            _seeded(
+                row,
+                "mtp-boundaries",
+                scenario,
+                f"{boundaries}.py:338",
+                boundaries,
+                scenario,
+                400,
+                lambda study, frame, scenario=scenario: study.fit_scenario(frame, scenario),
+            )
+        )
+    pricing = "canonical_mtp_pricing"
+    for row, scenario, tau, estimator in (
+        ("G39.ltmle.tau2", "pricing_ltmle_tau2", 2, "ltmle"),
+        ("G39.sdr.tau2", "pricing_sdr_tau2", 2, "sdr"),
+        ("G39.ltmle.tau3", "pricing_ltmle_tau3", 3, "ltmle"),
+        ("G39.sdr.tau3", "pricing_sdr_tau3", 3, "sdr"),
+        ("G39.ltmle.tau5", "pricing_ltmle_tau5", 5, "ltmle"),
+        ("G39.sdr.tau5", "pricing_sdr_tau5", 5, "sdr"),
+    ):
+        cases.append(
+            _seeded(
+                row,
+                "mtp-pricing",
+                scenario,
+                f"{pricing}.py:245",
+                pricing,
+                scenario,
+                400,
+                lambda study, frame, tau=tau, estimator=estimator: study.fit(
+                    frame, tau, estimator=estimator
+                ),
+            )
+        )
+    properties = "mtp_pricing_properties"
+    for row, label in (
+        ("G10.continuous", "up_learned_density_tau2"),
+        ("G40.tau3", "up_learned_density_tau3"),
+        ("G40.tau5", "up_learned_density_tau5"),
+        ("G39.ltmle.tau3_cross_fitted", "crossfit_ltmle_learned_classifier_tau3"),
+        ("G39.sdr.tau3_cross_fitted", "crossfit_sdr_learned_classifier_tau3"),
+        ("G39.ltmle.tau3_revenue", "revenue_learned_classifier_tau3"),
+    ):
+        cases.append(
+            _observed(
+                row,
+                "mtp-pricing",
+                f"{label}__correctly_specified",
+                f"{properties}.py:402",
+                properties,
+                lambda module, label=label: _study("mtp_pricing_common").sample(
+                    400, 0, module.CELLS[label][0]
+                ),
+                lambda module, frame, label=label: module.calibration_fit(label, frame),
+            )
+        )
+    tuning = "canonical_mtp_tuning"
+    for row, scenario, estimator in (
+        ("G41.ltmle", "population_quantile_ltmle", "ltmle"),
+        ("G41.sdr", "population_quantile_sdr", "sdr"),
+    ):
+        cases.append(
+            _seeded(
+                row,
+                "mtp-tuning",
+                scenario,
+                f"{tuning}.py:230",
+                tuning,
+                scenario,
+                400,
+                lambda study, frame, estimator=estimator: study.fit(
+                    frame, "dose_quantile", "population", estimator=estimator
+                ),
+            )
+        )
+    tuning_properties = "mtp_tuning_properties"
+    for row, label in (
+        ("G41.ltmle_cross_fitted", "population_dose_quantile_crossfit_tau2"),
+        ("G41.ltmle_cross_fitted_classifier", "population_dose_quantile_crossfit_classifier_tau2"),
+    ):
+        cases.append(
+            _observed(
+                row,
+                "mtp-tuning",
+                f"{label}__correctly_specified",
+                f"{tuning_properties}.py:133",
+                tuning_properties,
+                lambda module: _study(tuning).draw_from_seed("population_quantile_ltmle", 400, 0)[
+                    0
+                ],
+                lambda module, frame, label=label: module.calibration_fit(label, frame),
+            )
+        )
+    return tuple(cases)
+
+
 #: The point-treatment cases: ordinary TMLE, DR-TMLE and C-TMLE.
 CASES: tuple[RowCase, ...] = (
     *_t_cases(),
@@ -2043,4 +2148,5 @@ CASES: tuple[RowCase, ...] = (
     *_gap_cases(),
     *_long_cases(),
     *_vector_cases(),
+    *_continuous_dose_cases(),
 )

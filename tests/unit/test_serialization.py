@@ -592,6 +592,7 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
     assert result_fields == {
         "assessment_cache",
         "bootstrap",
+        "bootstrap_band",
         "config",
         "data",
         "estimates",

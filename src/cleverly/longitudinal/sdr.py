@@ -51,6 +51,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import partial
+from typing import Any
 
 import numpy as np
 
@@ -79,6 +81,7 @@ from .sequential import (
     constant_target,
     fit_mechanism,
     seed_carried,
+    tuning_term,
 )
 
 __all__ = [
@@ -128,6 +131,8 @@ class _Node:
     constant: bool
     #: Per row, the followed ``(row, s)`` paths from this node and those the bounds moved.
     binding: tuple[IntArray, IntArray]
+    #: ``(n, 2)`` predictions at a population-tuned node's boundary and last moved dose.
+    probes: FloatArray | None = None
 
 
 def node_factors(data: LongitudinalData, plan: Plan, mechanism: Mechanism) -> FloatArray:
@@ -221,18 +226,29 @@ def _recursion(
     g_bounds: tuple[float, float],
     fit_rows: BoolArray | None,
     outer_fold: int | None,
+    carry_plan: Plan | None = None,
 ) -> list[_Node]:
-    """One cell's recursion with one fold's nuisances, on every row, in time order."""
+    """One cell's recursion with one fold's nuisances, on every row, in time order.
+
+    ``carry_plan`` is a cross-fitted population-target plan's map at the fold's own
+    training tuner :math:`\\theta^{(-k)}`, with the fold mechanism's numerators.  The
+    regressions are then fitted to the transform under ``carry_plan``, so they are fixed
+    given the fold's training rows, and the returned arrays, which the held-out rows read,
+    are those under ``plan``, the map at :math:`\\theta_n`.
+    """
     single = Folds.single(data.n)
     numerator = plan.intervention_density(data)
     factors = node_factors(data, plan, mechanism)
     _, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     cumulative_numerator = plan.cumulative_numerator(data)
+    carry_numerator = None if carry_plan is None else carry_plan.intervention_density(data)
     horizon = cell.horizon
     seed = seed_carried(data, scaler, horizon=horizon)
     values: dict[int, FloatArray] = {horizon + 1: seed}
+    carry_values: dict[int, FloatArray] = {horizon + 1: seed}
     observed: dict[int, FloatArray] = {}
     residual: dict[int, FloatArray] = {}
+    carry_residual: dict[int, FloatArray] = {}
     carried = seed
     nodes: list[_Node] = []
     for time in range(horizon, 0, -1):
@@ -250,6 +266,7 @@ def _recursion(
             fit_rows=fit_rows,
             outer_fold=outer_fold,
             clip=None,
+            carry_plan=carry_plan,
         )
         at_risk = regression.at_risk
         value = (
@@ -269,6 +286,23 @@ def _recursion(
             for node, weight in zip(range(time, horizon + 1), weights, strict=True):
                 transform = transform + weight * (residual[node] - observed[node])
             transform = np.where(at_risk, transform, _FILLER)
+            training = transform
+            if carry_numerator is not None:
+                # The fold's own map: what its earlier regression is fitted to.
+                carry_value = (
+                    value if regression.carry_marginal is None else regression.carry_marginal
+                )
+                carry_values[time] = np.where(at_risk, carry_value, _FILLER)
+                carry_residual[time] = _pseudo_outcome(
+                    data, carry_values[time + 1], time, cell.cause
+                )
+                carry_weights, _, _ = partial_weights(
+                    carry_numerator, factors, masks, time, horizon, g_bounds
+                )
+                training = np.array(carry_values[time], dtype=float, copy=True)
+                for node, weight in zip(range(time, horizon + 1), carry_weights, strict=True):
+                    training = training + weight * (carry_residual[node] - observed[node])
+                training = np.where(at_risk, training, _FILLER)
             _, clever = _clever_covariate(
                 at_risk,
                 regression.trained_on,
@@ -294,9 +328,10 @@ def _recursion(
                 constant=constant_target(regression.pseudo_outcome, regression.fitted_on)
                 is not None,
                 binding=(paths, binding),
+                probes=regression.probes,
             )
         )
-        carried = transform
+        carried = training
     nodes.reverse()
     return nodes
 
@@ -321,6 +356,7 @@ def _slice(node: _Node, rows: IntArray) -> _Node:
         diagnostics=node.diagnostics,
         constant=node.constant,
         binding=(node.binding[0][rows], node.binding[1][rows]),
+        probes=None if node.probes is None else node.probes[rows],
     )
 
 
@@ -333,11 +369,17 @@ class FoldMechanism:
     mechanism : Mechanism
         The fold's treatment and censoring fits, evaluated at every row.
     plans : tuple of Plan
-        The plans with the fold's own policy numerators attached.
+        The plans with the fold's own policy numerators attached: the plans a held-out
+        row's transform reads.
+    carry_plans : tuple of Plan
+        Per plan, the plan the fold's training transform reads, or ``None`` where it is the
+        plan itself.  On a cross-fitted population-target tuned plan it is the map at the
+        fold's own training tuner, with the fold's numerators.
     """
 
     mechanism: Mechanism
     plans: tuple[Plan, ...]
+    carry_plans: tuple[Plan | None, ...] = ()
 
 
 def fit_fold_mechanisms(
@@ -383,13 +425,16 @@ def fit_fold_mechanisms(
     """
     wanted = profiling()
 
-    def run_fold(train: IntArray) -> tuple[FoldMechanism, PhaseProfile | None]:
+    def run_fold(fold: int, train: IntArray) -> tuple[FoldMechanism, PhaseProfile | None]:
         outer_train = np.zeros(data.n, dtype=bool)
         outer_train[train] = True
+        # A tuned plan fits the fold's mechanism under the fold's own map, at its training
+        # tuner, so the classifier route stacks no held-out row's map.
+        own = [plan.fold_plans[fold] if plan.fold_plans else plan for plan in plans]
         with collect_phases(wanted) as profile, phase("mechanism_fit"):
             mechanism = fit_mechanism(
                 data,
-                plans,
+                own,
                 treatment_learner=treatment_learner,
                 censoring_learner=censoring_learner,
                 folds=Folds.single(data.n),
@@ -397,14 +442,113 @@ def fit_fold_mechanisms(
                 ratio=ratio,
                 fit_rows=outer_train,
             )
-        attached = attach_policy_numerators(plans, mechanism.policy_numerators)
-        return FoldMechanism(mechanism, tuple(attached)), profile
+        attached = attach_policy_numerators(own, mechanism.policy_numerators)
+        if not any(plan.fold_plans for plan in plans):
+            return FoldMechanism(mechanism, tuple(attached)), profile
+        evaluated: list[Plan] = []
+        carry: list[Plan | None] = []
+        for plan, fold_plan in zip(plans, attached, strict=True):
+            if not plan.fold_plans or plan.fold_average:
+                # A fold-average plan reads its fold's map on both kinds of row.
+                evaluated.append(fold_plan)
+                carry.append(None)
+                continue
+            evaluated.append(
+                _at_full_sample_tuner(
+                    data,
+                    plan,
+                    fold_plan,
+                    mechanism,
+                    ratio,
+                    refit=partial(
+                        _mixed_numerator,
+                        data,
+                        fit_rows=outer_train,
+                        treatment_learner=treatment_learner,
+                        density_bins=density_bins,
+                    ),
+                )
+            )
+            carry.append(fold_plan)
+        return FoldMechanism(mechanism, tuple(evaluated), tuple(carry)), profile
 
     with phase("fold_mechanisms"):
-        outcomes = map_parallel(run_fold, [(train,) for train, _ in folds], n_jobs=n_jobs)
+        outcomes = map_parallel(
+            run_fold, [(fold, train) for fold, (train, _) in enumerate(folds)], n_jobs=n_jobs
+        )
     for _, profile in outcomes:
         merge_worker_phases(profile)
     return tuple(fold for fold, _ in outcomes)
+
+
+def _mixed_numerator(
+    data: LongitudinalData,
+    plan: Plan,
+    time: int,
+    *,
+    fit_rows: BoolArray,
+    treatment_learner: Learner,
+    density_bins: int | None,
+) -> FloatArray:
+    """One fold's joint density at a mixed node, evaluated under ``plan``'s map."""
+    from .sequential import _mixed_node_density
+
+    at_risk = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+    numerators: dict[str, dict[int, FloatArray]] = {plan.label: {}}
+    _mixed_node_density(
+        data,
+        [plan],
+        time,
+        at_risk,
+        numerators,
+        fit_at=at_risk & fit_rows,
+        treatment_learner=treatment_learner,
+        folds=Folds.single(data.n),
+        density_bins=density_bins,
+        n_jobs=1,
+    )
+    return numerators[plan.label][time]
+
+
+def _at_full_sample_tuner(
+    data: LongitudinalData,
+    plan: Plan,
+    fold_plan: Plan,
+    mechanism: Mechanism,
+    ratio: str,
+    *,
+    refit: Any = None,
+) -> Plan:
+    """A population-target plan at :math:`\\theta_n`, with one fold's ratio numerators.
+
+    On the density route each tuned node's ratio is the fold's density evaluated under the
+    map at :math:`\\theta_n`; on the classifier route it is the fold's classifier, fitted
+    at the fold's own map, at the observed dose.  Every other node keeps the fold plan's
+    numerator, since its map does not depend on a tuner.  At a mixed node the induced
+    joint density is not a function of the stored component densities alone, so
+    ``refit(plan, time)`` fits the fold's joint density again, on the same rows, and
+    evaluates it under the map at :math:`\\theta_n`.
+    """
+    from dataclasses import replace
+
+    from ..interventions.policy import lazy_frame
+    from .sequential import _density_numerator
+
+    numerators = list(fold_plan.mtp_numerators)
+    if ratio == "density":
+        # A node with several tuned components is refitted once, at all of their maps.
+        for time in sorted({tuning.time for tuning in plan.tuning}):
+            if any(t.component is not None for t in plan.tuning if t.time == time):
+                numerators[time - 1] = refit(plan, time)
+                continue
+            density = mechanism.densities[(time, data.treatment_names[time - 1])]
+            dose = np.nan_to_num(data.node_codes(time), nan=0.0)
+            frame = lazy_frame(partial(data.policy_frame, time))
+            at_risk = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+            numerators[time - 1] = np.where(
+                at_risk, _density_numerator(plan, time, dose, frame, density), 0.0
+            )
+    return replace(plan, mtp_numerators=tuple(numerators))
 
 
 def fit_cells_sdr(
@@ -470,6 +614,7 @@ def fit_cells_sdr(
         fold_plans: dict[str, Plan],
         fit_rows: BoolArray | None,
         outer_fold: int | None,
+        carry_plans: dict[str, Plan | None] | None = None,
     ) -> list[list[_Node]]:
         return [
             _recursion(
@@ -484,6 +629,7 @@ def fit_cells_sdr(
                 g_bounds=g_bounds,
                 fit_rows=fit_rows,
                 outer_fold=outer_fold,
+                carry_plan=None if carry_plans is None else carry_plans.get(cell.label),
             )
             for cell in cells
         ]
@@ -503,9 +649,18 @@ def fit_cells_sdr(
             outer_train = np.zeros(data.n, dtype=bool)
             outer_train[train] = True
             own = fold_mechanisms[fold]
+            carry = (
+                {plan.label: c for plan, c in zip(own.plans, own.carry_plans, strict=True)}
+                if own.carry_plans
+                else None
+            )
             with collect_phases(wanted) as profile:
                 recursions = run(
-                    own.mechanism, {plan.label: plan for plan in own.plans}, outer_train, fold
+                    own.mechanism,
+                    {plan.label: plan for plan in own.plans},
+                    outer_train,
+                    fold,
+                    carry,
                 )
             sliced = [[_slice(node, test) for node in nodes] for nodes in recursions]
             return test, sliced, profile
@@ -577,6 +732,7 @@ def _merge(
         }
         clever = np.zeros(data.n)
         by_arm = None if template.by_arm is None else blank(template.by_arm.shape[1])
+        probes = None if template.probes is None else blank(template.probes.shape[1])
         diagnostics: list[SuperLearnerDiagnostics] = []
         constant_folds: list[int] = []
         paths = 0
@@ -589,6 +745,9 @@ def _merge(
             if by_arm is not None:
                 assert node.by_arm is not None
                 by_arm[rows] = node.by_arm
+            if probes is not None:
+                assert node.probes is not None
+                probes[rows] = node.probes
             diagnostics.extend(node.diagnostics)
             if node.constant:
                 constant_folds.append(fold + 1)
@@ -609,6 +768,7 @@ def _merge(
                         np.array([paths], dtype=np.intp),
                         np.array([binding], dtype=np.intp),
                     ),
+                    probes=probes,
                     **arrays,
                 ),
                 constant_folds=tuple(constant_folds) if len(parts) > 1 else (),
@@ -646,14 +806,20 @@ def _finish(
             initial_by_arm=item.node.by_arm,
             transform=item.node.transform,
             bound_binding=(item.binding[1] / item.binding[0]) if item.binding[0] else 0.0,
+            probes=item.node.probes,
         )
         for item in nodes
     )
     first = steps[0].transform
     assert first is not None
+    unbounded, bounded = cumulative
+    if plan.fold_average:
+        return _fold_average_sdr(data, plan, cell, steps, first, unbounded, bounded)
     psi = float(np.average(first, weights=data.weights))
     influence = data.weights * (first - psi)
-    unbounded, bounded = cumulative
+    term, derivatives = tuning_term(data, plan, steps)
+    if term is not None:
+        influence = influence + term
     return RegimenFit(
         regimen=plan.regimen,
         psi_scaled=psi,
@@ -667,4 +833,51 @@ def _finish(
         obs_weights=np.asarray(data.weights, dtype=float),
         policy=plan.policy,
         cumulative_numerator=plan.cumulative_numerator(data),
+        tuning_term=term,
+        tuning_derivatives=derivatives,
+    )
+
+
+def _fold_average_sdr(
+    data: LongitudinalData,
+    plan: Plan,
+    cell: SDRCell,
+    steps: tuple[SequentialStep, ...],
+    first: FloatArray,
+    unbounded: FloatArray,
+    bounded: FloatArray,
+) -> RegimenFit:
+    """The fold-average estimate and curve of a sequentially doubly robust fit.
+
+    Fold ``k``'s estimate is the weighted mean of :math:`\\varphi_1` over its held-out rows,
+    built from fold ``k``'s nuisances under fold ``k``'s map.  The estimate and the curve
+    are assembled as in :func:`~cleverly.longitudinal.sequential._finish_fold_average`.
+    """
+    assert plan.folds is not None
+    owner = np.asarray(plan.folds.assignment)
+    n_folds = plan.folds.n_folds
+    estimates = []
+    influence = np.zeros(data.n)
+    for k in range(n_folds):
+        rows = owner == k
+        mass = float(np.sum(data.weights[rows]))
+        psi_k = float(np.average(first[rows], weights=data.weights[rows]))
+        estimates.append(psi_k)
+        influence = np.where(
+            rows, data.n * data.weights * (first - psi_k) / (n_folds * mass), influence
+        )
+    return RegimenFit(
+        regimen=plan.regimen,
+        psi_scaled=float(np.mean(estimates)),
+        influence_curve_scaled=influence,
+        horizon=cell.horizon,
+        cause=cell.cause,
+        steps=steps,
+        cumulative_unbounded=unbounded,
+        cumulative=bounded,
+        assignment=np.asarray(plan.values),
+        obs_weights=np.asarray(data.weights, dtype=float),
+        policy=plan.policy,
+        cumulative_numerator=plan.cumulative_numerator(data),
+        fold_estimates=tuple(estimates),
     )

@@ -132,6 +132,7 @@ class StudyRecord:
     #: Scenario name -> the estimands that scenario reports.
     scenarios: Mapping[str, tuple[str, ...]]
     replicates: int
+    #: The sample size of every scenario that :attr:`scenario_n` does not name.
     n: int
     seed: int
     #: Number of nuisance functions the study's correctly specified calibration cell fits.
@@ -140,6 +141,12 @@ class StudyRecord:
     #: observed law reported under several intervention levels: each exported scenario keeps
     #: its own rows, while all mapped scenarios draw the owner's realized sample.
     scenario_seed_owners: Mapping[str, str] = field(default_factory=dict)
+    #: Scenario -> its own sample size, for a study whose scenarios run at different sizes.
+    #:
+    #: A scenario this mapping omits runs at :attr:`n`, so an empty mapping is a single-size
+    #: study, which every reader treats exactly as before the field existed.  Read a scenario's
+    #: size through :meth:`n_of`, and the sizes a run draws through :meth:`sizes`.
+    scenario_n: Mapping[str, int] = field(default_factory=dict)
     #: Optional independent entropy for bootstrap and Monte Carlo summary intervals.  The
     #: realized samples still use ``seed``; this exists to avoid changing costly raw rows
     #: when a newly registered study discovers a cross-study resampling-stream collision.
@@ -354,6 +361,26 @@ class StudyRecord:
             raise ValueError(f"a failure bound must lie in [0, 0.05]; got {outside}")
         if self.nuisance_count < 1:
             raise ValueError("nuisance_count must be positive")
+        unknown_sizes = set(self.scenario_n) - set(self.scenarios)
+        if unknown_sizes:
+            raise ValueError(f"scenario_n names unknown scenarios: {sorted(unknown_sizes)}")
+        wrong_sizes = {
+            name: size
+            for name, size in self.scenario_n.items()
+            if isinstance(size, bool) or not isinstance(size, int) or size < 1
+        }
+        if wrong_sizes:
+            raise ValueError(f"scenario_n sizes must be positive integers; got {wrong_sizes}")
+        owners_apart = {
+            scenario: owner
+            for scenario, owner in self.scenario_seed_owners.items()
+            if self.n_of(scenario) != self.n_of(owner)
+        }
+        if owners_apart:
+            raise ValueError(
+                "a scenario that draws its owner's sample must run at the owner's size; "
+                f"scenario_n separates {owners_apart}"
+            )
         scenarios = set(self.scenarios)
         unknown = set(self.scenario_seed_owners) | set(self.scenario_seed_owners.values())
         unknown -= scenarios
@@ -369,6 +396,20 @@ class StudyRecord:
                 "scenario_seed_owners must point directly to an owning scenario; "
                 f"found chained owners {chained}"
             )
+
+    def n_of(self, scenario: str) -> int:
+        """The sample size of ``scenario``: its :attr:`scenario_n` entry, else :attr:`n`."""
+        return int(self.scenario_n.get(scenario, self.n))
+
+    def sizes(self, n: int) -> dict[str, int]:
+        """Scenario -> the size a run at ``n`` draws.
+
+        At the declared ``n`` each scenario takes :meth:`n_of`.  Any other ``n`` is an
+        override, such as a smoke run, and every scenario takes it.
+        """
+        if n == self.n:
+            return {scenario: self.n_of(scenario) for scenario in self.scenarios}
+        return {scenario: int(n) for scenario in self.scenarios}
 
     def comparison_kind(self, scenario: str, estimand: str) -> str | None:
         """The kind of one equivalence row: an exact override, a scenario override, or the default."""
@@ -494,6 +535,9 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_MAR_NATURAL_COURSE_CVTMLE,
     )
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
+    from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
+    from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
+    from tests.studies.canonical_mtp_tuning import STUDY as MTP_TUNING
     from tests.studies.canonical_multi_arm_ctmle_oat import (
         STUDY as CANONICAL_MULTI_ARM_CTMLE_OAT,
     )
@@ -604,6 +648,9 @@ def registered() -> tuple[StudyRecord, ...]:
         STOCHASTIC_CATEGORICAL_LTMLE,
         LONGITUDINAL_MTP,
         VECTOR_MTP,
+        MTP_BOUNDARIES,
+        MTP_PRICING,
+        MTP_TUNING,
         LONGITUDINAL_SDR,
         LONGITUDINAL_IPSI,
         LONGITUDINAL_IPSI_DROPOUT,

@@ -319,7 +319,7 @@ class TestBootstrapAndPerturbation:
         plain: list[np.ndarray] = []
         run_bootstrap(
             data,
-            lambda sample: plain.append(sample.covariates.copy()) or {"ate": 0.0},
+            lambda sample: plain.append(sample.covariates.copy()) or {"ate": (0.0, 1.0)},
             n_replicates=4,
             random_state=17,
         )

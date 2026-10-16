@@ -38,7 +38,12 @@ from .test_longitudinal_mixed_node import (
     settings,
 )
 
-pytestmark = pytest.mark.xdist_group("longitudinal_mixed_node_mutations")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("longitudinal_mixed_node_mutations"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 CAUGHT = 1e-4
 
@@ -146,10 +151,10 @@ def test_m7_an_outcome_prediction_with_the_natural_flag_is_caught(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The prediction at a branch keeps the natural flag.  Measured deviation: 2.11."""
-    old = "targets[int(arm)]  # type: ignore[arg-type]\n                    if current"
+    old = "values = np.array(targets[0 if arm is None else int(arm)], dtype=float)"
     new = (
-        "np.column_stack([data.node_values(node)[:, 0], targets[int(arm)][:, 1]])\n"
-        "                    if current"
+        "values = np.column_stack([data.node_values(node)[:, 0], "
+        "np.array(targets[0 if arm is None else int(arm)], dtype=float)[:, 1]])"
     )
     mutate(monkeypatch, sequential, sequential, "outcome_design", [(old, new)])
     _caught()

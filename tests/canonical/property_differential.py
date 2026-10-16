@@ -3,10 +3,10 @@
 Each declared rule restates a verdict that a study's own ``summarize_properties`` computes.
 The differential perturbs every committed study's property rows, summarizes them with the
 study's own code, and requires the declared rules to give the same ``passed`` and
-``property_passed`` on every verdict row.  A module with no committed rows runs on synthetic
-rows built from its declared cells.  ``longitudinal_sdr_properties`` runs on both its committed
-rows and synthetic rows: its committed rows make no perturbation decide the ``P_D`` two-size
-clause alone, and its synthetic rows do.
+``property_passed`` on every verdict row.  ``longitudinal_sdr_properties`` runs on both its
+committed rows and synthetic rows built from its declared cells: its committed rows make no
+perturbation decide the ``P_D`` two-size clause alone, and its synthetic rows do.  The three
+X40 modules run on synthetic rows until their declared runs commit their rows.
 
 | subject | rows |
 | --- | --- |
@@ -75,8 +75,15 @@ DIFFERENTIAL_BOOTSTRAP = 200
 
 #: The property modules that run on :func:`synthetic_rows`: each module with no committed rows,
 #: and ``longitudinal_sdr_properties``, whose committed rows leave the clause
-#: ``P_D large-size bias bound under the small`` without a binding witness.
-SYNTHETIC_MODULES = ("tests.studies.longitudinal_sdr_properties",)
+#: ``P_D large-size bias bound under the small`` without a binding witness. The three X40
+#: studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``) bind to their committed
+#: rows, so they are subjects by slug.
+SYNTHETIC_MODULES = (
+    "tests.studies.longitudinal_sdr_properties",
+    "tests.studies.long_horizon_ltmle_properties",
+    "tests.studies.long_horizon_categorical_ltmle_properties",
+    "tests.studies.long_horizon_sdr_properties",
+)
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.
 SYNTHETIC_SEED = 20_261_016
