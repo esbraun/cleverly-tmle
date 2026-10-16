@@ -512,7 +512,7 @@ the [stacked curve](#parametric-per-arm-intervals) instead.
 | the diagnostic's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits report the diagnostic curve, and they withhold their interval unless `per_arm_parametric_support` admits them |
 | withheld | every `strategy="oat"` fit of either design that `per_arm_parametric_support` refuses. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the predicate refuses it on the `strata`, `missing_outcome` or `missing_treatment` axis |
 | bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
-| predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits an in-sample per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on a binary treatment with complete, unweighted and unstratified data. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
+| predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits a per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on a binary treatment with complete, unweighted and unstratified data. The fit is in sample, or cross-fitted inside the fold-count cap with any `repeats`. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
 
 **The shared design publishes no inference.** It fits one categorical mechanism on the outcome
 predictions of every arm. Theorem 1 covers one scalar design, and no reviewed result supplies the
@@ -617,13 +617,14 @@ default.
 
 ### Parametric per-arm intervals
 
-An in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism` reports an interval.
-`per_arm_parametric_support` admits the fit. The reported curve is the curve of one stacked
+A per-arm fit with `ParametricOutcome` and `ParametricMechanism` reports an interval, in sample or
+cross-fitted. `per_arm_parametric_support` admits the fit. The reported curve is the curve of one stacked
 Z-estimator. It is not the curve of Theorem 1, and it carries the generated-design term that
 condition (v) lets Theorem 1 drop. The registered study
 [`ctmle-oat-per-arm-parametric`](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md)
-measures it, and [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome)
-part (a) delivered it. The module `cleverly.estimators._oat_stack` computes the curve.
+measures the in-sample fit, and [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome)
+part (a) delivered it. Part (c) adds the cross-fitted fit, which the next paragraphs call the
+V-fold stack. The module `cleverly.estimators._oat_stack` computes the curve.
 
 **The stack.** Let $x(A, W)$ be the declared outcome feature row, $x_a(W) = x(a, W)$, and
 $\phi$ the declared mechanism basis. Write $q_a = \operatorname{expit}(x_a^\top \beta)$,
@@ -755,6 +756,59 @@ negligible. For a user value such as $\alpha = 0.9$ the factor is 0.09, and the 
 negligible. The registered study runs the default $\alpha$ only, so no cell measures a user
 $\alpha$.
 
+**The V-fold stack.** A cross-fitted fit is one Z-estimator over every fold. Each fold $k$ has
+its own outcome coefficients $\beta_k$ and its own mechanism coefficients $\gamma_{a,k}$. Each arm
+has one pooled $\epsilon_a$ and one whole-sample mean $\psi_a$. Write $v(i)$ for the validation
+fold of row $i$. The curve is $-A_n^{-1} U_i$ of this finite system, as in sample.
+
+| equation | rows that enter it | coefficients that it reads |
+| --- | --- | --- |
+| outcome GLM of fold $k$ | the training rows of fold $k$ | $\beta_k$ |
+| mechanism of arm $a$, fold $k$ | the training rows of fold $k$ | $\gamma_{a,k}$, on $\phi(q^k_a)$ with $q^k_a = \operatorname{expit}(x_a^\top \beta_k)$ |
+| fluctuation of arm $a$ | every row | $\beta_{v(i)}$, $\gamma_{a,v(i)}$ and $\epsilon_a$, with the clip state of fold $v(i)$ |
+| mean of arm $a$ | every row | $\beta_{v(i)}$, $\gamma_{a,v(i)}$, $\epsilon_a$ and $\psi_a$ |
+
+So a row enters the outcome and mechanism equations of each fold $k \ne v(i)$. It enters the
+fluctuation and mean equations at its own fold. With `cross_fit=False` the system has one fold, and
+it is the in-sample stack. `tests/unit/test_oat_crossfit_stack.py` gives each block a witness, and
+`tests/unit/test_oat_repeated_stack.py` gives each repeated draw one.
+
+The claim needs a fold count that stays fixed as $n$ grows. The predicate withholds the interval
+above `MAX_STACK_FOLDS` (20) folds, or when a held-out fold holds fewer than `MIN_STACK_FOLD_ROWS`
+(30) rows. Such a fit takes `"generated_design_plugin"` on the `n_folds` axis and keeps its point
+estimate.
+
+| `repeats` | what the fit reports |
+| --- | --- |
+| 1 | the V-fold stack of one draw |
+| above 1 | the median over draws, with the split-adjusted variance of `median_estimates` (Chernozhukov et al., 2018, equation 3.14) |
+
+`result.repeats[r].inference` keeps the status, standard error and curve of draw $r$ for each
+estimand. It also keeps `shipped_se`, the standard error of the draw's uncorrected
+adaptive-propensity curve. When the stack of one arm fails on one draw, the median takes
+`"stack_failure_plugin"` on the estimates that read that arm. Draws with different fit statuses
+make the median raise `ValueError`. The fit builds no simultaneous band, and
+X58 part (b) holds the band.
+
+**The support label of the V-fold stack.** The registered study `ctmle-oat-per-arm-parametric-crossfit`
+fits `binary_active` with `n_folds=5`, at `repeats=1` and `repeats=3`. Its declared run is pending.
+The support rows of the study cover the binary cells. Another admitted fit reports its interval
+with the `"experimental"` label.
+
+| fit | support row | label |
+| --- | --- | --- |
+| cross-fitted, `n_folds=5`, `repeats=1`, binary outcome, a subset of `ey0`, `ey1`, `ate`, `rr` and `or` | `C11.stacked` | `"supported"` |
+| cross-fitted, `n_folds=5`, `repeats=3`, binary outcome, a subset of `ey0`, `ey1` and `ate` | `C11.repeated` | `"supported"` |
+| cross-fitted, another `n_folds` inside the cap, or another `repeats` | `C11.stacked` or `C11.repeated` | `"experimental"`, interval shown |
+| cross-fitted, `repeats=3`, with `rr` or `or` | none | `"experimental"`, interval shown |
+| cross-fitted, a continuous outcome with declared `q_bounds` | none | `"experimental"`, interval shown |
+
+The support key does not hold the fold count or the repeat count. So the `CTMLE` preflight adds a
+condition for a fold count other than 5 and for a repeat count other than 1 or 3. The condition
+makes the fit experimental, and its reason names the measured value. Its evidence is
+[X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome).
+`tests/unit/test_oat_per_arm_crossfit_support.py` checks each line of the table.
+
 **The support predicate.** `per_arm_parametric_support(estimator, data)` returns a
 `SupportVerdict`. The verdict holds `admitted`, `axis` and `detail`. The predicate is an
 allow-list over every constructor option of `TMLE` and `CTMLE`, in `PER_ARM_PARAMETRIC_OPTIONS`,
@@ -767,7 +821,11 @@ learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclas
 | --- | --- | --- |
 | `strategy`, `oat_design` | `"oat"` and `"per_arm"` | F19 for the shared design |
 | `outcome_learner`, `treatment_learner` | exactly `ParametricOutcome` and exactly `ParametricMechanism` | F19 for a flexible learner |
-| `cross_fit`, `repeats`, `split_plan`, `cv_evaluation`, `targeting_scheme` | `False`, 1, `None`, `False`, `"pooled"` | X58 part (c) |
+| `cross_fit` | `True` or `False` | none |
+| `n_folds` | with `cross_fit=True`, at most 20 folds and held-out folds of at least 30 rows, checked on the data | none. Outside the cap the fixed fold-count argument does not apply |
+| `repeats` | any positive integer | none |
+| `split_plan` | `None`. A supplied partition can depend on the data, and the V-fold argument needs fold labels independent of the data | none. A data-dependent partition needs its own theory step |
+| `cv_evaluation`, `targeting_scheme` | `False` and `"pooled"`. The stack has no per-fold fluctuation $\epsilon_{a,k}$ | none. `CTMLE` refuses both values at construction |
 | `simultaneous` | any value. The fit builds no band | X58 part (b) for the band |
 | `family`, `fluctuation`, `targeting` | `"auto"`, `"binomial"` or `"gaussian"`; `"logistic"`; `"iterative"` | none |
 | `q_bounds` | a declared tuple for an outcome that is not binary, checked on the data | none |
@@ -781,7 +839,7 @@ learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclas
 | `cluster` | none | X52 part (d) |
 | `missing_treatment`, `intermediate`, `known_treatment` | none | none |
 
-Every other option accepts any value, because the in-sample fit never reads it. `g_bounds`,
+Every other option accepts any value, because the stack never reads it. `g_bounds`,
 `alpha`, `nuisance_bound`, `n_bootstrap` and `max_iter` are examples. A fit outside the allow-list
 takes `"generated_design_plugin"`, with the axis in the reason.
 
