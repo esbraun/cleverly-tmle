@@ -76,7 +76,7 @@ def one_seed(seed: int) -> dict:
     ratio_model = make_pipeline(
         PolynomialFeatures(2, include_bias=False),
         StandardScaler(),
-        LogisticRegression(C=1e6, max_iter=2000, random_state=42),
+        LogisticRegression(C=1e6, tol=1e-8, max_iter=100_000, random_state=42),
     )
 
     def method(*, outcome_learner, q_bounds=None):

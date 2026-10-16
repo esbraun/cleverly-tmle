@@ -1,11 +1,11 @@
 draws 200, seeds 1000 to 1199, n = 10000, complete data
-seconds per draw: mean 7.5
+seconds per draw: mean 18.6
 
 Coverage, bias, and SE ratio of LTMLE
-  renewal  price_up    coverage 186 of 200 (0.930); bias -0.0002 (MC SE 0.0005); SD 0.0066; mean SE 0.0063; ratio 0.959
-  renewal  price_down  coverage 187 of 200 (0.935); bias +0.0004 (MC SE 0.0005); SD 0.0077; mean SE 0.0080; ratio 1.034
-  revenue  price_up    coverage 185 of 200 (0.925); bias +0.0092 (MC SE 0.0040); SD 0.0559; mean SE 0.0537; ratio 0.960
-  revenue  price_down  coverage 191 of 200 (0.955); bias +0.0083 (MC SE 0.0038); SD 0.0538; mean SE 0.0550; ratio 1.023
+  renewal  price_up    coverage 186 of 200 (0.930); bias -0.0002 (MC SE 0.0005); SD 0.0065; mean SE 0.0063; ratio 0.959
+  renewal  price_down  coverage 187 of 200 (0.935); bias +0.0004 (MC SE 0.0005); SD 0.0077; mean SE 0.0080; ratio 1.032
+  revenue  price_up    coverage 184 of 200 (0.920); bias +0.0099 (MC SE 0.0039); SD 0.0557; mean SE 0.0534; ratio 0.959
+  revenue  price_down  coverage 191 of 200 (0.955); bias +0.0094 (MC SE 0.0038); SD 0.0537; mean SE 0.0548; ratio 1.020
 
 Support label of every fit
   ladder_price_up_label: supported on 200 of 200 (1.000)
@@ -17,9 +17,9 @@ Support label of every fit
   y_price_up_label: supported on 200 of 200 (1.000)
 
 Warnings
-  renewal_warnings: SparseInfluenceWarning on 42 of 200 (0.210)
+  renewal_warnings: SparseInfluenceWarning on 36 of 200 (0.180)
   renewal_warnings: other warnings []
-  revenue_warnings: SparseInfluenceWarning on 55 of 200 (0.275)
+  revenue_warnings: SparseInfluenceWarning on 46 of 200 (0.230)
   revenue_warnings: other warnings []
   ladder_warnings: SparseInfluenceWarning on 0 of 200 (0.000)
   ladder_warnings: other warnings []
@@ -34,40 +34,40 @@ Failure mode: the logistic regression with the plan's prices, against LTMLE
     adjust: mean -0.0807, SD 0.0049, median -0.0807, 5% -0.0886, 95% -0.0724, min -0.0935, max -0.0689
     omit: mean -0.0207, SD 0.0036, median -0.0207, 5% -0.0263, 95% -0.0147, min -0.0303, max -0.0096
     adjust further from the truth than LTMLE: 193 of 200 (0.965)
-    adjust outside the LTMLE interval: 193 of 200 (0.965)
+    adjust outside the LTMLE interval: 194 of 200 (0.970)
     omit outside the LTMLE interval: 200 of 200 (1.000)
     adjust between LTMLE and omit: 200 of 200 (1.000)
   price_down: truth 0.1149
     adjust: mean 0.0975, SD 0.0049, median 0.0974, 5% 0.0892, 95% 0.1049, min 0.0856, max 0.1090
     omit: mean 0.0275, SD 0.0045, median 0.0275, 5% 0.0198, 95% 0.0347, min 0.0130, max 0.0391
-    adjust further from the truth than LTMLE: 184 of 200 (0.920)
+    adjust further from the truth than LTMLE: 185 of 200 (0.925)
     adjust outside the LTMLE interval: 127 of 200 (0.635)
     omit outside the LTMLE interval: 200 of 200 (1.000)
     adjust between LTMLE and omit: 199 of 200 (0.995)
 
 Node-3 support of the renewal fit
-  price_up: max weight mean 15.0739, SD 2.1232, median 14.6803, 5% 12.3371, 95% 18.9181, min 11.0947, max 23.3719
-  price_up: effective n over n mean 0.3590, SD 0.0075, median 0.3589, 5% 0.3465, 95% 0.3696, min 0.3377, max 0.3801
+  price_up: max weight mean 14.8178, SD 2.0257, median 14.4413, 5% 12.1688, 95% 18.4858, min 11.2034, max 22.2145
+  price_up: effective n over n mean 0.3607, SD 0.0069, median 0.3607, 5% 0.3497, 95% 0.3712, min 0.3399, max 0.3787
   price_up: no weight truncated: 200 of 200 (1.000)
-  price_down: max weight mean 32.4389, SD 5.3990, median 31.4340, 5% 25.3671, 95% 42.5353, min 22.2689, max 52.5899
-  price_down: effective n over n mean 0.1522, SD 0.0059, median 0.1522, 5% 0.1430, 95% 0.1620, min 0.1357, max 0.1663
+  price_down: max weight mean 31.7571, SD 5.2131, median 30.9547, 5% 24.7715, 95% 42.3923, min 22.0822, max 51.6274
+  price_down: effective n over n mean 0.1536, SD 0.0056, median 0.1533, 5% 0.1444, 95% 0.1632, min 0.1382, max 0.1683
   price_down: no weight truncated: 200 of 200 (1.000)
 
 Factor ladder: a 6%, a 12%, and a 25% rise, node 3
-  up_6      coverage 184 of 200 (0.920); bias -0.0001 (MC SE 0.0002); interval width mean 0.0126, SD 0.0002, median 0.0127, 5% 0.0124, 95% 0.0129, min 0.0122, max 0.0131
-  up_6      max weight mean 6.4629, SD 0.6001, median 6.3662, 5% 5.6409, 95% 7.6480, min 5.4116, max 8.6040
-  up_6      effective n over n mean 0.6667, SD 0.0037, median 0.6669, 5% 0.6607, 95% 0.6727, min 0.6574, max 0.6749
+  up_6      coverage 184 of 200 (0.920); bias -0.0001 (MC SE 0.0002); interval width mean 0.0126, SD 0.0002, median 0.0126, 5% 0.0123, 95% 0.0129, min 0.0122, max 0.0131
+  up_6      max weight mean 6.4035, SD 0.6017, median 6.2915, 5% 5.6056, 95% 7.5956, min 5.3672, max 8.3527
+  up_6      effective n over n mean 0.6682, SD 0.0036, median 0.6681, 5% 0.6621, 95% 0.6735, min 0.6568, max 0.6773
   up_6      no weight truncated: 200 of 200 (1.000)
-  price_up  coverage 186 of 200 (0.930); bias -0.0002 (MC SE 0.0005); interval width mean 0.0246, SD 0.0005, median 0.0246, 5% 0.0238, 95% 0.0255, min 0.0235, max 0.0262
-  price_up  max weight mean 15.0739, SD 2.1232, median 14.6803, 5% 12.3371, 95% 18.9181, min 11.0947, max 23.3719
-  price_up  effective n over n mean 0.3590, SD 0.0075, median 0.3589, 5% 0.3465, 95% 0.3696, min 0.3377, max 0.3801
+  price_up  coverage 186 of 200 (0.930); bias -0.0002 (MC SE 0.0005); interval width mean 0.0245, SD 0.0005, median 0.0245, 5% 0.0238, 95% 0.0252, min 0.0234, max 0.0260
+  price_up  max weight mean 14.8178, SD 2.0257, median 14.4413, 5% 12.1688, 95% 18.4858, min 11.2034, max 22.2145
+  price_up  effective n over n mean 0.3607, SD 0.0069, median 0.3607, 5% 0.3497, 95% 0.3712, min 0.3399, max 0.3787
   price_up  no weight truncated: 200 of 200 (1.000)
-  up_25     coverage 190 of 200 (0.950); bias -0.0001 (MC SE 0.0007); interval width mean 0.0397, SD 0.0008, median 0.0396, 5% 0.0385, 95% 0.0413, min 0.0379, max 0.0421
-  up_25     max weight mean 20.5143, SD 3.1338, median 20.1148, 5% 16.2938, 95% 27.0212, min 15.4782, max 31.6810
-  up_25     effective n over n mean 0.1966, SD 0.0054, median 0.1966, 5% 0.1873, 95% 0.2047, min 0.1823, max 0.2099
+  up_25     coverage 191 of 200 (0.955); bias -0.0001 (MC SE 0.0007); interval width mean 0.0398, SD 0.0008, median 0.0397, 5% 0.0387, 95% 0.0413, min 0.0382, max 0.0422
+  up_25     max weight mean 20.5435, SD 3.0507, median 20.1489, 5% 16.4461, 95% 26.8827, min 15.1489, max 30.4793
+  up_25     effective n over n mean 0.1960, SD 0.0052, median 0.1964, 5% 0.1873, 95% 0.2040, min 0.1818, max 0.2084
   up_25     no weight truncated: 200 of 200 (1.000)
   width increases with the factor: 200 of 200 (1.000)
-  max weight increases with the factor: 192 of 200 (0.960)
+  max weight increases with the factor: 195 of 200 (0.975)
   effective n decreases with the factor: 200 of 200 (1.000)
 
 Limits of the regressions, one draw of n = 400000, seed 3000001
@@ -85,66 +85,66 @@ Seed 1000, the draw the page shows
 seed                        1000
 renewal_warnings             NaN
 revenue_warnings             NaN
-y_price_up_psi         -0.102561
-y_price_up_se           0.006462
-y_price_up_lo          -0.115225
-y_price_up_hi          -0.089897
+y_price_up_psi         -0.102545
+y_price_up_se           0.006476
+y_price_up_lo          -0.115238
+y_price_up_hi          -0.089852
 y_price_up_truth       -0.100302
 y_price_up_label       supported
-y_price_down_psi        0.105036
-y_price_down_se         0.007889
-y_price_down_lo         0.089573
-y_price_down_hi         0.120499
+y_price_down_psi         0.10496
+y_price_down_se         0.007828
+y_price_down_lo         0.089617
+y_price_down_hi         0.120303
 y_price_down_truth       0.11491
 y_price_down_label     supported
-r_price_up_psi         -0.313028
-r_price_up_se           0.055748
-r_price_up_lo          -0.422292
-r_price_up_hi          -0.203765
+r_price_up_psi         -0.312933
+r_price_up_se           0.055855
+r_price_up_lo          -0.422408
+r_price_up_hi          -0.203459
 r_price_up_truth       -0.312247
 r_price_up_label       supported
-r_price_down_psi        0.073978
-r_price_down_se         0.053882
-r_price_down_lo        -0.031628
-r_price_down_hi         0.179584
+r_price_down_psi        0.074258
+r_price_down_se         0.053559
+r_price_down_lo        -0.030716
+r_price_down_hi         0.179231
 r_price_down_truth      0.125366
 r_price_down_label     supported
-maxw_price_up          13.696774
-essr_price_up           0.351676
+maxw_price_up          13.704437
+essr_price_up           0.350867
 trunc_price_up                 0
-maxw_price_down        31.464289
-essr_price_down         0.154081
+maxw_price_down        31.239884
+essr_price_down         0.155428
 trunc_price_down               0
 adjust_price_up        -0.079591
 adjust_price_down       0.093788
 omit_price_up          -0.020187
 omit_price_down         0.026777
 ladder_warnings              NaN
-ladder_up_6_psi        -0.059896
-ladder_up_6_se          0.003335
-ladder_up_6_lo         -0.066433
-ladder_up_6_hi         -0.053358
+ladder_up_6_psi        -0.059772
+ladder_up_6_se          0.003288
+ladder_up_6_lo         -0.066216
+ladder_up_6_hi         -0.053329
 ladder_up_6_truth      -0.058653
 ladder_up_6_label      supported
-ladder_up_6_maxw        5.744303
-ladder_up_6_essr        0.657678
+ladder_up_6_maxw        5.711665
+ladder_up_6_essr        0.662966
 ladder_up_6_trunc              0
-ladder_price_up_psi    -0.102561
-ladder_price_up_se      0.006462
-ladder_price_up_lo     -0.115225
-ladder_price_up_hi     -0.089897
+ladder_price_up_psi    -0.102545
+ladder_price_up_se      0.006476
+ladder_price_up_lo     -0.115238
+ladder_price_up_hi     -0.089852
 ladder_price_up_truth  -0.100302
 ladder_price_up_label  supported
-ladder_price_up_maxw   13.696774
-ladder_price_up_essr    0.351676
+ladder_price_up_maxw   13.704437
+ladder_price_up_essr    0.350867
 ladder_price_up_trunc          0
-ladder_up_25_psi       -0.122315
-ladder_up_25_se         0.009932
-ladder_up_25_lo        -0.141782
-ladder_up_25_hi        -0.102847
+ladder_up_25_psi        -0.12231
+ladder_up_25_se         0.010029
+ladder_up_25_lo        -0.141967
+ladder_up_25_hi        -0.102653
 ladder_up_25_truth     -0.128338
 ladder_up_25_label     supported
-ladder_up_25_maxw      19.686495
-ladder_up_25_essr       0.199585
+ladder_up_25_maxw        19.9759
+ladder_up_25_essr       0.197715
 ladder_up_25_trunc             0
-seconds                 8.246106
+seconds                18.188404
