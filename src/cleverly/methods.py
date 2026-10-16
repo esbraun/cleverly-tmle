@@ -978,11 +978,11 @@ default="greedy"
         Collaborative search strategy. ``"greedy"``, ``"ordered"``, ``"discrete"``,
         ``"lasso"`` and ``"learners"`` report no confidence interval, no p-value and no
         standard error, with two exceptions that the Notes state. F18 in the roadmap holds
-        the reason. ``"oat"`` reports no interval, for the reason F19 holds, except on an
-        in-sample per-arm fit with ``ParametricOutcome`` and ``ParametricMechanism`` that
-        ``cleverly.estimators.ctmle.per_arm_parametric_support`` admits (X58). That fit
-        reports pointwise intervals. ``"derivative"`` is C-TMLE0. It selects nothing and
-        reports the ordinary TMLE interval.
+        the reason. ``"oat"`` reports no interval, for the reason F19 holds, except on a
+        per-arm fit with ``ParametricOutcome`` and ``ParametricMechanism`` that
+        ``cleverly.estimators.ctmle.per_arm_parametric_support`` admits (X58), in sample or
+        cross-fitted. That fit reports pointwise intervals. ``"derivative"`` is C-TMLE0. It
+        selects nothing and reports the ordinary TMLE interval.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None

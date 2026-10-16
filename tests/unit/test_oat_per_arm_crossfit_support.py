@@ -1,9 +1,12 @@
-"""The support predicate, statuses and persistence of the cross-fitted stacked interval (X58b1).
+"""The support predicate, statuses, labels and persistence of the cross-fitted stacked interval.
 
-Until the support rows of RM42b label an unstudied configuration, the predicate admits a
-cross-fitted per-arm fit only at the values the study ``ctmle-oat-per-arm-parametric-crossfit``
-measures: ``n_folds=5``, ``repeats`` in ``{1, 3}`` and a binary outcome. The fold-count cap
-(at most 20 folds, held-out folds of at least 30 rows) holds always.
+X58b1. The predicate admits a cross-fitted per-arm fit at any fold count inside the fold-count
+cap (at most 20 folds, held-out folds of at least 30 rows), with any ``repeats``, on a binary
+outcome or a bounded one (plan 13.1, D6). The support rows ``C11.stacked`` and ``C11.repeated``
+cover the binary cells the study ``ctmle-oat-per-arm-parametric-crossfit`` measures: ``n_folds=5``
+and ``repeats`` in ``{1, 3}``. Another admitted fit reports its interval labelled
+``"experimental"``. A fold or repeat count outside the study meets a preflight condition, because
+the support key holds neither count.
 """
 
 from __future__ import annotations
@@ -21,9 +24,15 @@ from cleverly.estimators.ctmle import (
     MAX_STACK_FOLDS,
     MIN_STACK_FOLD_ROWS,
     CTMLEOutcomeAdaptiveFit,
+    _unstudied_stack_conditions,
     per_arm_parametric_support,
 )
-from cleverly.exceptions import CapabilityError, DataError, MethodConfigurationError
+from cleverly.exceptions import (
+    CapabilityError,
+    DataError,
+    MethodConfigurationError,
+    RefusalReason,
+)
 from cleverly.learners import ParametricMechanism, ParametricOutcome, random_partition
 from cleverly.learners.crossfit import SplitPlan
 from tests.studies import oat_parametric_quadrature as quad
@@ -140,30 +149,120 @@ class TestTheAdmittedValues:
         assert "stack" not in result.nuisance.diagnostics
 
 
-class TestTheStudiedValues:
-    """Refused before RM42b: values the crossfit study does not measure."""
+class TestTheWidening:
+    """D6: the predicate admits what the stacked theory covers, inside the fold-count cap."""
 
     @pytest.mark.parametrize("folds", [2, 10])
     def test_another_fold_count(self, folds: int) -> None:
         verdict = _verdict(n_folds=folds)
-        assert verdict.axis == "n_folds"
-        assert "n_folds=5" in verdict.detail
-        assert "RM42b" in verdict.detail
+        assert verdict.admitted
+        assert f"cross-fitted over {folds} folds" in verdict.detail
 
     def test_five_repeats(self) -> None:
         verdict = _verdict(repeats=5)
-        assert verdict.axis == "repeats"
-        assert "repeats=1 or repeats=3" in verdict.detail
+        assert verdict.admitted
+        assert "with 5 repeats" in verdict.detail
+
+    @pytest.mark.parametrize("repeats", [0, True, 2.0])
+    def test_a_repeat_count_that_is_not_a_positive_integer(self, repeats: Any) -> None:
+        estimator = CTMLE(**_options())
+        data = _prepared(estimator)
+        estimator.repeats = repeats
+        assert per_arm_parametric_support(estimator, data).axis == "repeats"
 
     def test_a_cross_fitted_bounded_outcome(self) -> None:
         frame = quad.sample(quad.BINARY_ACTIVE, 1500, 33, bounded=(2.0, 10.0))
         verdict = _verdict(frame, q_bounds=(2.0, 10.0), estimands=("ey0", "ey1", "ate"))
-        assert verdict.axis == "cross_fit"
-        assert "binary outcome" in verdict.detail
-        in_sample = _verdict(
-            frame, q_bounds=(2.0, 10.0), estimands=("ey0", "ey1", "ate"), cross_fit=False
-        )
-        assert in_sample.admitted
+        assert verdict.admitted
+
+    def test_a_cross_fitted_bounded_outcome_without_bounds(self) -> None:
+        frame = quad.sample(quad.BINARY_ACTIVE, 1500, 33, bounded=(2.0, 10.0))
+        verdict = _verdict(frame, estimands=("ey0", "ey1", "ate"))
+        assert verdict.axis == "q_bounds"
+
+
+class TestTheSupportLabel:
+    """The rows C11.stacked and C11.repeated cover the study's cells; other fits are labelled."""
+
+    def test_the_stacked_fit_is_supported(self, crossfit: Any) -> None:
+        supports = [crossfit[name].support for name in ESTIMANDS]
+        assert {(support.label, support.row) for support in supports} == {
+            ("supported", "C11.stacked")
+        }
+
+    def test_the_repeated_fit_is_supported(self) -> None:
+        result = _fit(repeats=3, estimands=("ey0", "ey1", "ate"))
+        supports = [result[name].support for name in ("ey0", "ey1", "ate")]
+        assert {(support.label, support.row) for support in supports} == {
+            ("supported", "C11.repeated")
+        }
+
+    def test_a_repeated_ratio_is_experimental_with_its_interval(self, repeated: Any) -> None:
+        """The study measures no ratio under repeats, so C11.repeated holds only P1."""
+        assert repeated["rr"].support.label == "experimental"
+        assert repeated["rr"].inference == "influence_curve"
+        assert np.isfinite(repeated["rr"].std_error)
+
+    def test_a_cross_fitted_bounded_outcome_is_experimental_with_its_interval(self) -> None:
+        frame = quad.sample(quad.BINARY_ACTIVE, 1500, 33, bounded=(2.0, 10.0))
+        result = _fit(frame, q_bounds=(2.0, 10.0), estimands=("ey0", "ey1", "ate"))
+        for name in ("ey0", "ey1", "ate"):
+            assert result[name].inference == "influence_curve"
+            assert result[name].support.label == "experimental"
+            low, high = result[name].ci
+            assert low < result[name].psi < high
+
+    def test_another_fold_count_is_experimental_with_its_interval(self) -> None:
+        """The key holds no fold count, so the preflight condition labels the fit."""
+        result = _fit(n_folds=10, estimands=("ey0", "ey1", "ate"))
+        for name in ("ey0", "ey1", "ate"):
+            support = result[name].support
+            assert (support.label, support.row) == ("experimental", "C11.stacked")
+            assert "at n_folds=5 only. This fit has n_folds=10." in support.reason
+            assert support.evidence == ("X58",)
+            assert result[name].inference == "influence_curve"
+            assert np.isfinite(result[name].std_error)
+
+    def test_another_repeat_count_is_experimental(self) -> None:
+        result = _fit(repeats=2, estimands=("ey0", "ey1", "ate"))
+        support = result["ate"].support
+        assert (support.label, support.row) == ("experimental", "C11.repeated")
+        assert "repeats=1 or repeats=3 only. This fit has repeats=2." in support.reason
+        assert result["ate"].inference == "influence_curve"
+
+    def test_the_supported_rows_state_the_measured_counts(self, crossfit: Any) -> None:
+        assert any("measures n_folds=5 only" in limit for limit in crossfit["ate"].support.limits)
+
+
+class TestTheUnstudiedConditions:
+    """The preflight conditions of an admitted fit outside the study's fold and repeat counts."""
+
+    def _conditions(self, **overrides: Any) -> tuple[Any, ...]:
+        estimator = CTMLE(**_options(**overrides))
+        return _unstudied_stack_conditions(estimator, _prepared(estimator))
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [{}, {"repeats": 3}, {"cross_fit": False, "n_folds": 10}],
+    )
+    def test_a_studied_or_in_sample_fit_meets_none(self, overrides: dict[str, Any]) -> None:
+        assert self._conditions(**overrides) == ()
+
+    def test_a_refused_fit_meets_none(self) -> None:
+        """A fit outside the predicate keeps the shipped curve, which no condition labels."""
+        assert self._conditions(n_folds=10, outcome_learner=laws.interaction_outcome(2)) == ()
+
+    def test_each_unstudied_count_meets_its_own_condition(self) -> None:
+        conditions = self._conditions(n_folds=10, repeats=2)
+        assert [c.reason for c in conditions] == [RefusalReason.INFERENCE_GAP] * 2
+        assert [c.roadmap for c in conditions] == ["X58", "X58"]
+        assert "n_folds=10" in conditions[0].condition
+        assert "repeats=2" in conditions[1].condition
+
+    def test_the_preflight_carries_the_conditions(self) -> None:
+        estimator = CTMLE(**_options(n_folds=10))
+        preflight = estimator._preflight_fit_configuration(_prepared(estimator))
+        assert [c.roadmap for c in preflight.conditions] == ["X58"]
 
 
 class TestTheFoldCap:

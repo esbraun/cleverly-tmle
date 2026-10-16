@@ -141,9 +141,12 @@ the fit takes the ordinary TMLE status.
     ``"generated_design_plugin"`` status unless :func:`per_arm_parametric_support` admits it:
     ``ci``, ``pvalue`` and ``std_error`` raise :class:`~cleverly.exceptions.CapabilityError`,
     and ``plugin_std_error`` and ``plugin_interval`` report the retained diagnostic.  F19 in
-    ``docs/roadmap.md`` holds the generated-design term.  The predicate admits only an
-    in-sample per-arm fit with the two parametric learners.  Its curve is the stacked-equation
-    curve, which includes the generated-design term (X58 in ``docs/roadmap.md``).
+    ``docs/roadmap.md`` holds the generated-design term.  The predicate admits a per-arm fit
+    with the two parametric learners, in sample or cross-fitted inside the fold-count cap,
+    with any ``repeats``.  Its curve is the stacked-equation curve, which includes the
+    generated-design term (X58 in ``docs/roadmap.md``).  A cross-fitted fit reads the exact
+    V-fold stack.  Under ``repeats`` it reports the median of the draws with the
+    split-adjusted variance, and each draw's record is in ``result.repeats``.
     ``ctmle3`` does not cross-fit this fit at all
     -- ``LF_oat`` pins ``cv_fold = -1`` -- so non-cross-fitted parity and a cross-fitted
     result would have different sources.
@@ -638,8 +641,9 @@ MAX_STACK_FOLDS: Final = 20
 MIN_STACK_FOLD_ROWS: Final = 30
 
 #: The fold count and the repeat counts the study ``ctmle-oat-per-arm-parametric-crossfit``
-#: measures. Until the support rows of RM42b label an unstudied configuration, the predicate
-#: admits only these (X58 plan, 13.1).
+#: measures. The predicate admits every value inside the fold-count cap. Another value is a
+#: group-A condition of the preflight (``_unstudied_stack_conditions``), so the fit
+#: reports its interval labelled ``"experimental"`` (X58 plan, 13.1, D6).
 _STUDIED_FOLDS: Final = 5
 _STUDIED_REPEATS: Final = (1, 3)
 
@@ -653,8 +657,8 @@ _FOLD_CAP_TEXT: Final = (
 
 #: The admitted values of every constructor option of :class:`~cleverly.TMLE` and
 #: :class:`CTMLE` for the stacked per-arm interval. ``tests/unit/test_oat_per_arm_support.py``
-#: fails when an option has no entry. An option that the in-sample per-arm fit never reads
-#: admits any value.
+#: fails when an option has no entry. An option that the stack never reads admits any value,
+#: and ``n_folds`` is checked against the fold-count cap on the data.
 PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] = {
     "strategy": (lambda v: v == "oat", "strategy='oat'"),
     "oat_design": (lambda v: v == "per_arm", "oat_design='per_arm'"),
@@ -690,14 +694,12 @@ PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] 
     ),
     "n_folds": (
         _anything,
-        f"with cross_fit=True, n_folds={_STUDIED_FOLDS} inside the fold-count cap (checked on "
-        "the data)",
+        "with cross_fit=True, a fold count inside the fold-count cap (checked on the data)",
     ),
     "learner_folds": (_anything, "any value; the parametric learners have no inner folds"),
     "repeats": (
-        lambda v: v in _STUDIED_REPEATS,
-        "repeats=1 or repeats=3, the repeat counts the ctmle-oat-per-arm-parametric-crossfit "
-        "study measures. Another count waits for the support rows of RM42b",
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 1,
+        "a positive integer repeats; each draw is a V-fold stack, and the fit reports their median",
     ),
     "stratify_folds": (
         _anything,
@@ -806,9 +808,10 @@ _REPORT: ContextVar[list[StackReport | None] | None] = ContextVar("_REPORT", def
 #: adaptive-propensity curve.
 _SHIPPED: ContextVar[bool] = ContextVar("_SHIPPED", default=False)
 
-#: The shipped standard error of each estimand of the draw in progress. :meth:`CTMLE._targeted_draw`
-#: sets it for an admitted fit, and :meth:`CTMLE._estimates_for` fills it. A context variable
-#: is local to its thread, so a fit under ``n_jobs`` threads reads only its own draw.
+#: The shipped standard error of each estimand of the draw in progress.
+#: :meth:`CTMLE._targeted_draw` sets it for an admitted fit, and :meth:`CTMLE._estimates_for`
+#: fills it. A context variable is local to its thread, so a fit under ``n_jobs`` threads
+#: reads only its own draw.
 _SHIPPED_SE: ContextVar[dict[str, float] | None] = ContextVar("_SHIPPED_SE", default=None)
 
 
@@ -824,10 +827,13 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
     (:data:`PER_ARM_PARAMETRIC_OPTIONS`) and the data properties the stack needs. It reads
     the configuration and the prepared data only, never a fitted array.
 
-    A cross-fitted fit is admitted inside the fold-count cap (:data:`MAX_STACK_FOLDS`
-    folds, held-out folds of at least :data:`MIN_STACK_FOLD_ROWS` rows), at the fold count
-    and with the repeat counts the ``ctmle-oat-per-arm-parametric-crossfit`` study
-    measures, on a binary outcome.
+    A cross-fitted fit is admitted at any fold count inside the fold-count cap
+    (:data:`MAX_STACK_FOLDS` folds, held-out folds of at least :data:`MIN_STACK_FOLD_ROWS`
+    rows), with any ``repeats``, on a binary outcome or on a continuous outcome with declared
+    ``q_bounds``. The predicate states what the stacked theory covers. The support label
+    states what a registered study measures: the rows of the study
+    ``ctmle-oat-per-arm-parametric-crossfit`` cover a binary outcome, and a fit outside
+    every row reports its interval labelled ``"experimental"``.
 
     Parameters
     ----------
@@ -888,22 +894,6 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
                 f"{_FOLD_CAP_TEXT}; got n_folds={folds} with a smallest held-out fold of "
                 f"{smallest} rows",
             )
-        if folds != _STUDIED_FOLDS:
-            return SupportVerdict(
-                False,
-                "n_folds",
-                f"the stacked interval needs n_folds={_STUDIED_FOLDS} with cross_fit=True, the "
-                "fold count the ctmle-oat-per-arm-parametric-crossfit study measures. Another "
-                f"count waits for the support rows of RM42b; got n_folds={folds}",
-            )
-        if data.family != "binomial":
-            return SupportVerdict(
-                False,
-                "cross_fit",
-                "the stacked interval needs a binary outcome with cross_fit=True, the outcome "
-                "the ctmle-oat-per-arm-parametric-crossfit study measures. A bounded outcome "
-                "waits for the support rows of RM42b",
-            )
     try:
         # The pure resolution, never ``_resolve_estimands_for_data``: the predicate runs from
         # the status hook, the summary and the estimate builder, and must not raise there.
@@ -935,6 +925,60 @@ def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdi
         f"the per-arm fit{splitting} with ParametricOutcome and ParametricMechanism on a "
         "binary treatment",
     )
+
+
+def _unstudied_stack_conditions(estimator: Any, data: CausalData) -> tuple[Refusal, ...]:
+    """The group-A conditions of an admitted cross-fitted per-arm fit outside the study.
+
+    The study ``ctmle-oat-per-arm-parametric-crossfit`` measures the stacked interval at
+    ``_STUDIED_FOLDS`` folds and at the repeat counts ``_STUDIED_REPEATS``.
+    The support key holds neither count, so a support row alone cannot tell them apart. Each
+    other value that :func:`per_arm_parametric_support` admits returns one condition, and the
+    preflight adds it to the fit's conditions. The fit then reports its interval labelled
+    ``"experimental"``, with the condition as the reason (RM42b).
+
+    Parameters
+    ----------
+    estimator : CTMLE
+        The collaborative estimator.
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    tuple of Refusal
+        One :attr:`~cleverly.exceptions.RefusalReason.INFERENCE_GAP` condition for an
+        unstudied fold count and one for an unstudied repeat count. Empty for a fit the
+        predicate refuses, for an in-sample fit and for a studied configuration.
+    """
+    if not estimator.cross_fit or not per_arm_parametric_support(estimator, data).admitted:
+        return ()
+    conditions: list[Refusal] = []
+    study = "The study ctmle-oat-per-arm-parametric-crossfit measures the cross-fitted stacked"
+    if estimator.n_folds != _STUDIED_FOLDS:
+        conditions.append(
+            Refusal(
+                RefusalReason.INFERENCE_GAP,
+                f"{study} interval at n_folds={_STUDIED_FOLDS} only. This fit has "
+                f"n_folds={estimator.n_folds}.",
+                alternative=(
+                    f"Set n_folds={_STUDIED_FOLDS} (CrossFitting(n_folds="
+                    f"{_STUDIED_FOLDS})) for the studied fold count."
+                ),
+                roadmap="X58",
+            )
+        )
+    if estimator.repeats not in _STUDIED_REPEATS:
+        studied = " or ".join(f"repeats={value}" for value in _STUDIED_REPEATS)
+        conditions.append(
+            Refusal(
+                RefusalReason.INFERENCE_GAP,
+                f"{study} interval at {studied} only. This fit has repeats={estimator.repeats}.",
+                alternative="Set repeats=3 (CrossFitting(repeats=3)) for a studied repeat count.",
+                roadmap="X58",
+            )
+        )
+    return tuple(conditions)
 
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
@@ -1756,10 +1800,11 @@ default="greedy"
         :func:`per_arm_parametric_support` admits it. The registered study found the
         per-arm standard errors too small, because condition (v) of Benkeser, Cai and van der
         Laan (2020), Theorem 1, fails for an estimated outcome regression. The predicate admits
-        only an in-sample fit with the parametric learners, whose stacked curve includes the
-        generated-design term. It refuses observation weights, so estimated weights never reach
-        an admitted fit. An admitted fit takes the :class:`~cleverly.TMLE` status. The status
-        table of ``docs/technical-reference/inference.md`` states the shipped behaviour.
+        a fit with the parametric learners, in sample or cross-fitted, whose stacked curve
+        includes the generated-design term. It refuses observation weights, so estimated weights
+        never reach an admitted fit. An admitted fit takes the :class:`~cleverly.TMLE` status.
+        The status table of ``docs/technical-reference/inference.md`` states the shipped
+        behaviour.
 
         Parameters
         ----------
@@ -3459,7 +3504,11 @@ default="greedy"
                 roadmap="F22",
             )
         self._check_estimands(data)
-        return super()._resolve_estimands_for_data(data)
+        preflight = super()._resolve_estimands_for_data(data)
+        unstudied = _unstudied_stack_conditions(self, data)
+        if not unstudied:
+            return preflight
+        return replace(preflight, conditions=(*preflight.conditions, *unstudied))
 
     def _check_policies(self, data: CausalData) -> None:
         """Refuse each intervention keyword, then a continuous dose, before the shift check.

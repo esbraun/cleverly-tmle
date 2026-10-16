@@ -1099,6 +1099,50 @@ def _c_rows() -> tuple[SupportRow, ...]:
             cells=["bounded_outcome__ate__corrected"],
         ),
     ]
+    # The cross-fitted stack (X58 part (c)). The study fits a binary outcome at n_folds=5, at
+    # one draw and at repeats=3. The key holds neither the fold count nor the repeat count, so
+    # the CTMLE preflight adds a group-A condition for another count, and that fit is
+    # experimental although it matches a row here.
+    crossfit = "ctmle-oat-per-arm-parametric-crossfit"
+    measured = (
+        "The study ctmle-oat-per-arm-parametric-crossfit measures n_folds=5 only. A fit at "
+        "another fold count inside the cap of 20 folds is experimental."
+    )
+    rows += [
+        point_row(
+            "C11.stacked",
+            [crossfit],
+            families=("P1", "P2"),
+            engine=stack,
+            splitting=("stacked",),
+            cells=[
+                *(
+                    f"crossfit_1500__{estimand}__corrected"
+                    for estimand in ("ey0", "ey1", "ate", "log_rr", "log_or")
+                ),
+                *(
+                    f"{group}__{estimand}__corrected"
+                    for group in ("crossfit_500", "crossfit_8000", "crossfit_pseudo_true")
+                    for estimand in ("ey0", "ey1", "ate")
+                ),
+                "binary_active__estimated",
+                "sharp_null",
+            ],
+            limits=[measured],
+        ),
+        point_row(
+            "C11.repeated",
+            [crossfit],
+            families=("P1",),
+            engine=stack,
+            splitting=("stacked", "repeated"),
+            cells=[f"repeats__{estimand}__corrected" for estimand in ("ey0", "ey1", "ate")],
+            limits=[
+                measured,
+                "The study measures repeats=3 only. A fit at another repeat count is experimental.",
+            ],
+        ),
+    ]
     rows += [
         point_row(
             f"C09.{strategy}",

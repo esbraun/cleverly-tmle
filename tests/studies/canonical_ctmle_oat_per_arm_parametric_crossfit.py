@@ -105,8 +105,8 @@ SCENARIO = "binary_active"
 FAILURE_BOUND = 0.01
 #: The factor of ``shrunken_se_control``.  The shared ``calibration_controls`` value.
 SHRUNKEN_SE_FACTOR = 0.70
-#: The fold count the support predicate studies before RM42b, and the repeat count of the
-#: ``repeats`` group.
+#: The fold count of every group, and the repeat count of the ``repeats`` group.  The support
+#: rows ``C11.stacked`` and ``C11.repeated`` state these as their measured values.
 FOLDS = 5
 REPEATS = 3
 
