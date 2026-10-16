@@ -83,6 +83,7 @@ categorized API tables.
    cleverly.ConvergenceWarning
    cleverly.ParameterSpaceWarning
    cleverly.PositivityWarning
+   cleverly.SparseInfluenceWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
    cleverly.exceptions.Refusal

@@ -50,6 +50,7 @@ from .exceptions import (
     NotFittedError,
     ParameterSpaceWarning,
     PositivityWarning,
+    SparseInfluenceWarning,
     VersionMismatchWarning,
     WeightingWarning,
 )
@@ -170,6 +171,7 @@ __all__ = [
     "RiskRatio",
     "Runtime",
     "SDRMethod",
+    "SparseInfluenceWarning",
     "SplitPlan",
     "StudyProtocol",
     "SuperLearner",

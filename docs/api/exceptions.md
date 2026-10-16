@@ -15,6 +15,7 @@ or lifecycle use. Treat warnings as requests to inspect convergence, overlap, or
    cleverly.ConvergenceWarning
    cleverly.ParameterSpaceWarning
    cleverly.PositivityWarning
+   cleverly.SparseInfluenceWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
    cleverly.exceptions.RefusalReason

@@ -31,6 +31,7 @@ __all__ = [
     "PositivityWarning",
     "Refusal",
     "RefusalReason",
+    "SparseInfluenceWarning",
     "VersionMismatchWarning",
     "WeightingWarning",
     "inference_refusal",
@@ -216,6 +217,17 @@ class PositivityWarning(UserWarning):
     Practical positivity violations inflate the influence curve and can make
     the influence-curve based confidence intervals anti-conservative. See
     :mod:`cleverly.sensitivity.positivity` for diagnostics.
+    """
+
+
+class SparseInfluenceWarning(UserWarning):
+    """A few rows carry the influence curve, so the Wald interval may under-cover.
+
+    The warning fires when :math:`\\sqrt{(\\hat\\kappa - 1)/n} > 0.125`, with
+    :math:`\\hat\\kappa` the raw kurtosis of the influence curve. That is close to a Kish
+    effective sample size :math:`n / \\hat\\kappa` below 64. The threshold was set after
+    the X39 pilots were read. ``result.diagnostics.influence()`` reports the measures per
+    estimate.
     """
 
 

@@ -837,7 +837,7 @@ def _kind(fit: Callable[[], Any], *must_run: str, refits: bool = True) -> Kind:
 
 
 #: The rows that read a fit's own nuisances and scores.
-_READ = ("nuisance_models", "score_equations", "support")
+_READ = ("influence", "nuisance_models", "score_equations", "support")
 #: The two point rows that run a new computation: a refit and a truncation sweep.
 _POINT = ("refute", "truncation_curve")
 #: Every point row of a fit that admits the default truncation axis.

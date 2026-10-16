@@ -362,6 +362,15 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         interpretation="arm, regimen, shift, or incremental support for the identified functional",
     ),
     _capability(
+        "influence",
+        "point",
+        artifacts=("influence curves", "bootstrap draws, when attached"),
+        interpretation=(
+            "how few rows carry each influence curve: Kish count, skew, kurtosis, variance "
+            "noise and the Edgeworth-predicted Wald coverage loss"
+        ),
+    ),
+    _capability(
         "nuisance_models",
         "point",
         artifacts=(
@@ -412,6 +421,15 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         "longitudinal",
         artifacts=("cumulative mechanism products", "regimen histories"),
         interpretation="history-specific support and cumulative leverage at every node",
+    ),
+    _capability(
+        "influence",
+        "longitudinal",
+        artifacts=("influence curves", "bootstrap draws, when attached"),
+        interpretation=(
+            "how few rows carry each influence curve: Kish count, skew, kurtosis, variance "
+            "noise and the Edgeworth-predicted Wald coverage loss"
+        ),
     ),
     _capability(
         "nuisance_models",
@@ -2639,6 +2657,52 @@ class DiagnosticsFacade(_CapabilityFacade):
 
         return _cached(self._result, "diagnostics.nuisance_models", (), {}, compute)
 
+    def influence(self) -> Any:
+        """How few rows carry each estimate's influence curve.
+
+        Returns
+        -------
+        InfluenceReport
+            One row per estimate (:mod:`cleverly.inference.sparse`): the Kish count, the
+            skewness, the raw kurtosis, the relative SD of the variance estimate, the
+            Edgeworth-predicted Wald coverage loss, and, with an attached bootstrap, the BCa
+            bias correction and acceleration.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_longitudinal
+        >>> from cleverly.longitudinal import LTMLE
+        >>> frame, _ = make_longitudinal(n=200, seed=0)
+        >>> result = LTMLE(
+        ...     {"always": 1, "never": 0},
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     censoring_learner=LogisticRegression(max_iter=1000),
+        ... ).fit(
+        ...     frame,
+        ...     outcome="Y",
+        ...     treatment=["A1", "A2"],
+        ...     baseline=["W1", "W2"],
+        ...     time_varying=[[], ["L2"]],
+        ...     censoring=["C1", "C2"],
+        ... )
+        >>> report = result.diagnostics.influence()
+        >>> report.sparse
+        ('ey_regimen[always]', 'ey_regimen[never]', 'ate_regimen[never vs always]')
+        """
+        self._require("influence")
+
+        def compute() -> Any:
+            from .inference.sparse import influence_report
+
+            alpha = float(getattr(self._result.config, "alpha_sig", 0.05))
+            return influence_report(
+                self._result.estimates, alpha=alpha, backend=self._result.data.backend
+            )
+
+        return _cached(self._result, "diagnostics.influence", (), {}, compute)
+
     def score_equations(self, *, tolerance: float = DEFAULT_TOLERANCE) -> Any:
         """Whether targeting solved the score equations this fit relies on.
 
@@ -2942,6 +3006,28 @@ def _item_from_capability(capability: AssessmentCapability) -> AssessmentItem:
         capability.status,
         capability.reason or capability.interpretation,
         refusal=capability.refusal,
+    )
+
+
+def _influence_item(
+    report: Any, _result: Any, _arguments: Mapping[str, Any] = _NO_ARGUMENTS
+) -> AssessmentItem:
+    rows = tuple(getattr(report, "rows", ()))
+    if not rows:
+        return AssessmentItem("influence", AssessmentStatus.COMPLETED, "no influence curve")
+    smallest = min(rows, key=lambda row: row.kish)
+    detail = (
+        f"{len(rows)} estimate(s); smallest Kish count {smallest.kish:.0f} "
+        f"({smallest.name}), predicted Wald coverage loss {smallest.edgeworth_loss:.3g}"
+    )
+    sparse = report.sparse
+    if not sparse:
+        return AssessmentItem("influence", AssessmentStatus.PASSED, detail)
+    return AssessmentItem(
+        "influence",
+        AssessmentStatus.WARNING,
+        f"{detail}; {len(sparse)} estimate(s) read their curve from few rows",
+        ("inspect result.diagnostics.influence().to_frame()",),
     )
 
 
@@ -3625,6 +3711,7 @@ def _tipping_item(
 #: builds, so it is deliberately absent from ``__all__``.
 INTERPRETERS: dict[str, Callable[[Any, Any, Mapping[str, Any]], AssessmentItem]] = {
     "score_equations": _score_item,
+    "influence": _influence_item,
     "support": _support_item,
     "nuisance_models": _nuisance_item,
     "corrections": _correction_item,
