@@ -11,14 +11,15 @@ family                     cells
 =========================  ===============================================================
 ``interval_calibration``   ``<group>__<estimate>__corrected``: SE ratio and coverage of the
                            gated estimates of each group.  ``three_arm`` (in sample,
-                           ``reference="1"``): ``ey``, ``ate``, ``log_rr``, ``log_or`` and
-                           ``par[1]``, ``paf[1]``.  ``three_arm_shared``: ``ey`` and ``ate``
-                           on the strong shared prognosis.  ``binary_population``: ``par`` and
-                           ``paf``.  ``three_arm_crossfit`` (cross-fitted, ``reference="0"``):
-                           ``ey`` and ``ate``.  ``weighted``: ``ey0``, ``ey1``, ``ate``,
-                           ``log_rr``, ``log_or``, ``par`` and ``paf``.  ``weighted_crossfit``:
-                           ``ey0``, ``ey1`` and ``ate``.  ``composition`` (weighted, cross-fitted,
-                           ``reference="1"``): ``ey`` and ``ate``
+                           ``reference="1"``): ``ey``, ``ate``, ``log_rr``, ``log_or``,
+                           ``par[1]``, ``paf[1]`` and ``ey_obs``.  ``three_arm_shared``: ``ey``
+                           and ``ate`` on the strong shared prognosis.  ``binary_population``:
+                           ``par``, ``paf`` and ``ey_obs``.  ``three_arm_crossfit``
+                           (cross-fitted, ``reference="0"``): ``ey`` and ``ate``.  ``weighted``:
+                           ``ey0``, ``ey1``, ``ate``, ``log_rr``, ``log_or``, ``par``, ``paf``
+                           and ``ey_obs``.  ``weighted_crossfit``: ``ey0``, ``ey1`` and ``ate``.
+                           ``composition`` (weighted, cross-fitted, ``reference="1"``): ``ey``
+                           and ``ate``
 ``interval_calibration``   the controls.  ``<label>__shrunken_se_control`` and
                            ``<label>__noise_control`` are derived from each group's contrast row.
                            ``<group>__<estimate>__shipped_curve__shrunken_se_control`` reports
@@ -40,10 +41,12 @@ family                     cells
                            the three-arm sharp null, ``n = 1,000``
 =========================  ===============================================================
 
-**Reported, not gated.**  The summary carries three quantities that no verdict reads.
+**Gated ``ey_obs``.**  The curve of ``ey_obs`` is the shipped empirical one.  The support rows
+``C11.binary``, ``C11.k_arms`` and ``C11.weighted`` license its interval, so each group that fits
+it gates a ``<group>__ey_obs__corrected`` cell (design review m2).
 
-* ``ey_obs_coverage`` and ``ey_obs_se_ratio`` on the ``par`` rows of the groups that fit
-  ``ey_obs``.  Its curve is the shipped empirical one.
+**Reported, not gated.**  The summary carries two quantities that no verdict reads.
+
 * ``covariance_mc``, ``covariance_reported`` and their ratio on the ``ate[0 vs 1]`` row of
   ``three_arm_shared``.
 * ``se_ratio_deficit_lower`` and ``se_ratio_deficit_upper``: the paired deficit of the
@@ -75,7 +78,6 @@ from tests.parallel import STUDY_JOBS
 from tests.studies.canonical_ctmle_oat_per_arm_parametric_extensions import (
     BUDGETS,
     CALIBRATION_N,
-    CELLS,
     CONTROL_LABELS,
     GENERATED_CONTRASTS,
     GENERATED_LABEL,
@@ -127,8 +129,6 @@ CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 #: The replicate columns a row carries beside the shared ones.
 EXTRA_COLUMNS = (
-    "ey_obs_estimate",
-    "ey_obs_std_error",
     "arm0_estimate",
     "arm1_estimate",
     "reported_cov01",
@@ -137,8 +137,6 @@ EXTRA_COLUMNS = (
 SUMMARY_COLUMNS = (
     "se_ratio_deficit_lower",
     "se_ratio_deficit_upper",
-    "ey_obs_coverage",
-    "ey_obs_se_ratio",
     "covariance_mc",
     "covariance_reported",
     "covariance_ratio",
@@ -215,9 +213,6 @@ def _measure_cell(cell: Cell, result: Any) -> dict[str, Any]:
     elif cell.recipe != "corrected":
         raise KeyError(cell.recipe)
     measured: dict[str, Any] = {"cell": cell.name, "estimate": value, "std_error": se}
-    if cell.report == "ey_obs":
-        measured["ey_obs_estimate"] = float(result["ey_obs"].psi)
-        measured["ey_obs_std_error"] = float(result["ey_obs"].plugin_std_error)
     if cell.report == "covariance":
         curves = result.influence_curves
         measured.update(
@@ -472,20 +467,6 @@ def _generated_design_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> Non
     )
 
 
-def _report_ey_obs(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """The coverage and SE ratio of ``ey_obs``, read off the rows of the cell that carries it."""
-    for cell in (c for c in CELLS if c.report == "ey_obs"):
-        group = rows.loc[(rows["property"] == cell.family) & (rows["cell"] == cell.name)]
-        estimate = group["ey_obs_estimate"].to_numpy(dtype=float)
-        error = group["ey_obs_std_error"].to_numpy(dtype=float)
-        reference = truth(cell.truth, "ey_obs")
-        mask = (summary["property"] == cell.family) & (summary["cell"] == cell.name)
-        summary.loc[mask, "ey_obs_coverage"] = float(
-            np.mean(np.abs(estimate - reference) <= CRITICAL * error)
-        )
-        summary.loc[mask, "ey_obs_se_ratio"] = float(np.std(estimate, ddof=1) / np.mean(error))
-
-
 def _covariance_stats(values: np.ndarray) -> float:
     """``mean(reported) / cov(arm0, arm1)`` of rows ``(arm0, arm1, reported)``."""
     return float(values[:, 2].mean() / np.cov(values[:, 0], values[:, 1])[0, 1])
@@ -522,7 +503,6 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
     calibration_verdicts(summary, margins=STUDY.margins, positive_suffix="corrected")
     _generated_design_verdicts(summary, rows)
     simultaneous_coverage_verdicts(summary, margins=STUDY.margins)
-    _report_ey_obs(summary, rows)
     _report_covariance(summary, rows)
     return finish(summary, rates)
 

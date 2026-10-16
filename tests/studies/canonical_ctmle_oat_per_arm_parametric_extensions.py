@@ -44,11 +44,15 @@ property cell of :mod:`tests.studies.ctmle_oat_per_arm_parametric_extensions_pro
 * The exact-law values of the controls are in ``CONFIGURATION["negative_control_expected"]``.
   The joint-coverage figures are for five three-arm estimates: 0.826 (pointwise, either
   reference), 0.861 (shipped band, ``reference="1"``, ``three_arm``) and 0.867 (shipped band,
-  ``reference="0"``, ``three_arm_crossfit``).  The pilot recomputes them on each declared band
-  set.
-* The ``ey_obs`` rows (its curve is the shipped empirical one) and the Monte Carlo covariance of
-  the two arm means against the mean reported covariance in ``three_arm_shared`` are reported and
-  gate nothing.  The paired deficit of the generated-design pair is reported and gates nothing.
+  ``reference="0"``, ``three_arm_crossfit``).  For the six estimates of the ``binary_population``
+  band set the exact values are 0.841 (pointwise) and 0.872 (shipped band).  The stacked band
+  covers 0.950 on each declared band set.
+* The ``ey_obs`` rows of ``three_arm``, ``binary_population`` and ``weighted`` are gated positive
+  cells.  Their curve is the shipped empirical one, and the support rows ``C11.binary``,
+  ``C11.k_arms`` and ``C11.weighted`` license the interval of ``ey_obs`` (family ``P4``), so a
+  measured cell backs each of those claims (design review m2).  The Monte Carlo covariance of the
+  two arm means against the mean reported covariance in ``three_arm_shared`` is reported and gates
+  nothing.  The paired deficit of the generated-design pair is reported and gates nothing.
 
 **Failures.**  The record declares ``failure_bound={IMPLEMENTATION: 0.01}`` and the property
 module declares ``FAILURE_BOUND = 0.01``, in the form ``docs/development/method-benchmarking.md``
@@ -64,10 +68,11 @@ lost values, and one more lost replicate reads ``bound exceeded``.
 units: eight calibration groups (the generated-design pair among them), one type I group, the
 primary phase and nine negative controls.  Each unit is sized so that its pass probability is at
 least ``0.95 ** (1 / 19) = 0.99730``, so the study passes with probability at least 0.95 when
-nothing is wrong.  The budgets of :data:`BUDGETS` are the rev 3.1 expected budgets of plan 13.6,
-rounded up to a multiple of 400.  The declared-size pilot reads every group at those budgets on
-pilot-only seeds and reports the study-wise pass probability before any declared run.  A budget
-moves only by a later commit that cites that pilot.
+nothing is wrong.  Pilot step 2 reads every group on pilot-only seeds, and the budgets of
+:data:`BUDGETS` are set from it by the rule in ``CONFIGURATION["budget_rule"]``.  Pilot step 4
+re-reads each group at its declared budget on fresh pilot-only seeds and reports the study-wise
+pass probability before any declared run.  A budget moves only by a later commit that cites a
+pilot.
 """
 
 from __future__ import annotations
@@ -95,7 +100,13 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.point_study_helpers import primary_rows
 
-#: Replicates per law of the primary phase: two laws, 3,200 replicates in all (plan 13.6).
+#: Replicates per law of the primary phase: two laws, 3,200 replicates in all (plan 13.6).  The
+#: smallest multiple of 400 at the per-unit target, on 11 independent rows at a true coverage of
+#: 0.95, is 1,200.  1,600 is kept (design review m6) because it holds the target down to a true
+#: coverage of 0.945 on every row (0.99990, where 1,200 gives 0.99478) and stays at 0.99592 at
+#: 0.94 (1,200 gives 0.93764).  The three-arm in-sample
+#: ``rr`` and ``or`` rows have no earlier measurement under the stacked curve.  The cost is
+#: 0.04 CPU-h.
 PRIMARY_REPLICATES = 1_600
 PRIMARY_N = 1_500
 #: Fresh entropy: no registered study uses either number, and
@@ -135,8 +146,10 @@ SCENARIOS: Mapping[str, tuple[str, ...]] = {
 
 #: The replicates of each fit group: the rev 3.1 expected budgets of plan 13.6, each a multiple
 #: of 400.  The eight calibration groups are sized to the per-unit target ``0.95 ** (1 / 19)``.
-#: ``three_arm_null`` is sized at 1,200: at most 93 rejections pass the type I verdict, and the
-#: pass probability is 0.99998 per row at a true rate of 0.05 and 0.99953 at 0.055.
+#: ``three_arm_null`` is sized at 1,600 (design review m1): at most 129 rejections pass the type I
+#: verdict.  With every allowed lost replicate (16) counted as a rejection, the two rows pass with
+#: probability 0.99982 at a true rate of 0.05 and 0.99490 at 0.055.  At 1,200 the same worst case
+#: gave 0.99506 and 0.95525.
 BUDGETS: Mapping[str, int] = {
     "three_arm": 29_200,
     "three_arm_shared": 14_000,
@@ -146,7 +159,7 @@ BUDGETS: Mapping[str, int] = {
     "weighted": 17_600,
     "weighted_crossfit": 11_600,
     "composition": 17_600,
-    "three_arm_null": 1_200,
+    "three_arm_null": 1_600,
 }
 #: The units of the study-wise rule (plan 13.6): calibration groups, type I groups, the primary
 #: phase and the declared negative controls.
@@ -394,9 +407,8 @@ class Cell:
     role : {"positive", "control"}
         The row's role.
     report : str
-        A quantity the row also records and no verdict reads.  ``"ey_obs"``: the ``ey_obs``
-        estimate and standard error of the same fit.  ``"covariance"``: both arm estimates and
-        the reported covariance.
+        A quantity the row also records and no verdict reads.  ``"covariance"``: both arm
+        estimates and the reported covariance.
     """
 
     plan: str
@@ -504,13 +516,14 @@ THREE_REF1_ROWS = (
     "log_or[2 vs 1]",
     "par[1]",
     "paf[1]",
+    "ey_obs",
 )
-BINARY_WEIGHTED_ROWS = ("ey0", "ey1", "ate", "log_rr", "log_or", "par", "paf")
+BINARY_WEIGHTED_ROWS = ("ey0", "ey1", "ate", "log_rr", "log_or", "par", "paf", "ey_obs")
 
 
 def _cells() -> tuple[Cell, ...]:
     out: list[Cell] = []
-    out += _calibration("three_arm", THREE_REF1_ROWS, report={"par[1]": "ey_obs"})
+    out += _calibration("three_arm", THREE_REF1_ROWS)
     out.append(_control("three_arm", "ey[1]", "shipped_curve", "shrunken_se_control"))
     out += _joint("three_arm", GROUPS["three_arm"].bands[0])
     out += _calibration(
@@ -521,7 +534,7 @@ def _cells() -> tuple[Cell, ...]:
     out.append(
         _control("three_arm_shared", "ate[0 vs 1]", "cross_term_dropped", "inflated_se_control")
     )
-    out += _calibration("binary_population", ("par", "paf"), report={"par": "ey_obs"})
+    out += _calibration("binary_population", ("par", "paf", "ey_obs"))
     out.append(_control("binary_population", "par", "shipped_curve", "shrunken_se_control"))
     out += _joint("binary_population", GROUPS["binary_population"].bands[0])
     out += _calibration("three_arm_crossfit", BAND_REF0)
@@ -540,7 +553,7 @@ def _cells() -> tuple[Cell, ...]:
         for contrast in GENERATED_CONTRASTS
         for kind, fit in (("oracle_design", "oracle"), ("estimated", "estimated"))
     ]
-    out += _calibration("weighted", BINARY_WEIGHTED_ROWS, report={"par": "ey_obs"})
+    out += _calibration("weighted", BINARY_WEIGHTED_ROWS)
     out.append(_control("weighted", "ey0", "shipped_curve", "shrunken_se_control"))
     out += _calibration("weighted_crossfit", ("ey0", "ey1", "ate"))
     out += _calibration("composition", BAND_REF1)
@@ -617,14 +630,18 @@ def cells_of(group: str) -> tuple[Cell, ...]:
     return tuple(cell for cell in CELLS if cell.group == group)
 
 
-# TODO(binding search): the two ``simultaneous_coverage`` rows of ``tests/canonical/clause-bindings.csv``
-# (joint coverage below nominal, joint coverage in calibration band) carry the perturbation of
-# ``canonical-multi-arm-tmle`` (``se_low``, plan 13.6 lists ``ctmle-oat-per-arm`` ``se_high`` and
-# ``none`` as the other precedent).  Run
+# TODO(binding search): after the declared run, the clause bindings of this slug in
+# ``tests/canonical/clause-bindings.csv`` are placeholders until the binding search runs on the
+# declared rows.  Three rows are open.  ``interval_calibration, coverage in calibration band``
+# carries ``bias``, which did not bind on the X58b1 rows.  ``simultaneous_coverage, joint coverage
+# below nominal`` carries ``se_low``, which cannot decide it: the clause applies to controls only,
+# and ``se_low`` lowers a red control further.  ``ctmle-oat-per-arm`` uses ``se_high``, which may
+# flip two clauses together and may need a role kind (``se_role/...``).  ``simultaneous_coverage,
+# joint coverage in calibration band`` carries ``se_low``.  Run
 # ``python -m tests.canonical.property_differential --bindings <dir> --subjects
-# ctmle-oat-per-arm-parametric-extensions`` on the declared rows, and write each row from the
-# search, which also confirms the ``se_low`` row of ``interval_calibration``.  The search moves
-# no result.
+# ctmle-oat-per-arm-parametric-extensions`` after the declared run, write the three rows from the
+# search, then drop the ``se_low`` pin in the design test and this TODO.  The search moves no
+# result.  ``test_each_binding_witness_decides_its_clause`` is red until then.
 
 STUDY = StudyRecord(
     name="K-arm, weighted and population-target outcome-adaptive per-arm C-TMLE with a parametric outcome",
@@ -709,8 +726,11 @@ CONFIGURATION: dict[str, Any] = {
     "budget_rule": (
         "plan 13.6 (rev 3.1) expected budgets, each a multiple of 400; the study-wise rule of "
         "plan section 12 with G = 19 gated units, each sized to pass with probability >= "
-        "0.95 ** (1 / 19) = 0.99730; three_arm_null is sized at 1,200 (at most 93 rejections "
-        "pass); the primary phase runs 1,600 replicates per law"
+        "0.95 ** (1 / 19) = 0.99730; three_arm_null is sized at 1,600 (at most 129 rejections "
+        "pass, and the target holds at every allowed loss count at a true rate of 0.05); the "
+        "primary phase runs 1,600 replicates per law, which holds the target down to a true "
+        "coverage of 0.945 on every row and gives 0.99592 at 0.94, where the smallest size at "
+        "0.95 is 1,200 and gives 0.93764 at 0.94"
     ),
     "failure_bounds": {
         "declared": FAILURE_BOUND,
@@ -734,16 +754,17 @@ CONFIGURATION: dict[str, Any] = {
         "the cross_term_dropped control leaves it above, and the joint-coverage interval of a "
         "pointwise or shipped-band control lies below 0.95. The harness publishes passed=True "
         "for such a control. If one stays inside or straddles its threshold, its cell cannot see "
-        "its term, the study is invalid, and it is redesigned before any reading. The ey_obs "
-        "rows, the Monte Carlo covariance of the two arm means of three_arm_shared against the "
+        "its term, the study is invalid, and it is redesigned before any reading. The "
+        "Monte Carlo covariance of the two arm means of three_arm_shared against the "
         "mean reported covariance and the paired deficit of the generated-design pair are "
         "reported and gate nothing."
     ),
     "negative_controls": dict(NEGATIVE_CONTROLS),
     # The exact-law figures of plan 13.2 and 13.6 (the quadrature logs).  The shipped ratios are
     # the SD of the shipped curve over the stacked SD; a joint figure is the probability that the
-    # stacked estimates all fall inside the band of the named curve.  The pilot recomputes each on
-    # its declared band set.
+    # stacked estimates all fall inside the band of the named curve.  The design test recomputes
+    # each on its declared band set, and the stacked band covers 0.9505 (three_arm), 0.9497
+    # (three_arm_crossfit) and 0.950 (binary_population).
     "negative_control_expected": {
         "three_arm__ey_1__shipped_curve__shrunken_se_control": {"se_ratio": 0.780},
         "three_arm__pointwise_joint_control": {"joint_coverage": 0.826},
@@ -752,8 +773,8 @@ CONFIGURATION: dict[str, Any] = {
             "se_ratio": 1.163
         },
         "binary_population__par__shipped_curve__shrunken_se_control": {"se_ratio": 0.766},
-        "binary_population__pointwise_joint_control": {"joint_coverage": "pilot"},
-        "binary_population__shipped_curve_band_control": {"joint_coverage": "pilot"},
+        "binary_population__pointwise_joint_control": {"joint_coverage": 0.841},
+        "binary_population__shipped_curve_band_control": {"joint_coverage": 0.872},
         "three_arm_crossfit__ey_1__shipped_curve__shrunken_se_control": {"se_ratio": 0.780},
         "weighted__ey0__shipped_curve__shrunken_se_control": {"se_ratio": 0.819},
     },

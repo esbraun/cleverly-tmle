@@ -1117,7 +1117,7 @@ def _c_rows() -> tuple[SupportRow, ...]:
     parametric = "ctmle-oat-per-arm-parametric"
     extensions = "ctmle-oat-per-arm-parametric-extensions"
     # The binary in-sample row also carries the population targets and the band of X58 part (b):
-    # the study ctmle-oat-per-arm-parametric-extensions fits ey_obs, par and paf, and the band over
+    # the study ctmle-oat-per-arm-parametric-extensions gates ey_obs, par and paf, and the band over
     # the arm means, the ATE and those targets, on the same law.
     rows += [
         replace(
@@ -1131,13 +1131,17 @@ def _c_rows() -> tuple[SupportRow, ...]:
                     "binary_active__ate__corrected",
                     "binary_population__par__corrected",
                     "binary_population__paf__corrected",
+                    "binary_population__ey_obs__corrected",
                     "binary_population__simultaneous_band",
                 ],
                 limits=[
                     "The band covers the arm means, the ATE and the population targets (cell "
-                    "binary_population). A band over a ratio is experimental.",
-                    "The interval of ey_obs is the shipped empirical curve. The study reports it "
-                    "and gates no verdict on it.",
+                    "binary_population). A band over rr or or (family P2) is experimental.",
+                    "The study measures the band over ey0, ey1, ate, ey_obs, par and paf. A band "
+                    "over another set of these families rests on the same multiplier argument "
+                    "(plan 13.2).",
+                    "The curve of ey_obs is the shipped empirical curve. The cell "
+                    "binary_population__ey_obs__corrected measures its interval.",
                 ],
             ),
             kind_families=(("band", frozenset({"P1", "P4"})),),
@@ -1242,6 +1246,7 @@ def _c_rows() -> tuple[SupportRow, ...]:
                             "log_or_2_vs_1",
                             "par_1",
                             "paf_1",
+                            "ey_obs",
                         )
                     ),
                     "three_arm__simultaneous_band",
@@ -1255,8 +1260,11 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 limits=[
                     three_arms,
                     "The band covers the three arm means and the two contrasts against the "
-                    "reference arm (cell three_arm). A band over a ratio or a population target "
-                    "is experimental.",
+                    "reference arm (cell three_arm). A band over rr or or (family P2) or over a "
+                    "population target (family P4) is experimental.",
+                    "The study measures the band over ey[0], ey[1], ey[2] and the two ate "
+                    "contrasts against the reference arm. A band over another set of arm means and "
+                    "ate contrasts rests on the same multiplier argument (plan 13.2).",
                     "The study fits the reference arm 1 in sample. The arm curves of the law "
                     "three_arm_active are nearly uncorrelated, and the law three_arm_shared "
                     "(correlation 0.25 to 0.26) measures the cross-arm covariance.",
@@ -1272,12 +1280,12 @@ def _c_rows() -> tuple[SupportRow, ...]:
             weighting="fixed",
             cells=[
                 f"weighted__{estimand}__corrected"
-                for estimand in ("ey0", "ey1", "ate", "log_rr", "log_or", "par", "paf")
+                for estimand in ("ey0", "ey1", "ate", "log_rr", "log_or", "par", "paf", "ey_obs")
             ],
             limits=[
                 known_weight,
-                "The interval of ey_obs is the shipped weighted empirical curve. The study "
-                "reports it and gates no verdict on it.",
+                "The curve of ey_obs is the shipped weighted empirical curve. The cell "
+                "weighted__ey_obs__corrected measures its interval.",
             ],
         ),
         point_row(
@@ -1319,6 +1327,9 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 three_arms,
                 "The study measures one cross-fitting draw and the reference arm 0. A fit with "
                 "repeats at three arms matches no row and is experimental.",
+                "The study measures the band over ey[0], ey[1], ey[2] and the two ate contrasts "
+                "against the reference arm. A band over another set of arm means and ate "
+                "contrasts rests on the same multiplier argument (plan 13.2).",
             ],
         ),
         point_row(

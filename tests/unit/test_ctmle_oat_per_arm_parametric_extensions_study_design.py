@@ -39,7 +39,7 @@ PLAN = {
     "weighted": (17_600, 1_500),
     "weighted_crossfit": (11_600, 1_500),
     "composition": (17_600, 1_500),
-    "three_arm_null": (1_200, 1_000),
+    "three_arm_null": (1_600, 1_000),
 }
 #: The law, cross-fitting and reference arm of each group (plan 13.6, m11).
 PLAN_FITS = {
@@ -57,11 +57,11 @@ PLAN_FITS = {
 FAMILIES = {"interval_calibration", "generated_design", "type_i_error", "simultaneous_coverage"}
 #: The positive calibration rows by group (plan 13.6, "gated rows").
 GATED_ROWS = {
-    "three_arm": 11,
+    "three_arm": 12,
     "three_arm_shared": 5,
-    "binary_population": 2,
+    "binary_population": 3,
     "three_arm_crossfit": 5,
-    "weighted": 7,
+    "weighted": 8,
     "weighted_crossfit": 3,
     "composition": 5,
 }
@@ -147,9 +147,10 @@ def test_every_group_exists_with_its_budget_size_law_and_reference() -> None:
             assert fit.cross_fit is cross_fit, (name, fit.name)
             assert fit.reference == reference, (name, fit.name)
     assert {cell.plan for cell in runner.CELLS} == set(PLAN)
-    # Plan 13.6: the nine groups sum to 130,000 replicates and the primary phase adds 3,200.
-    assert sum(runner.BUDGETS.values()) == 130_000
-    assert sum(runner.BUDGETS.values()) + 2 * runner.PRIMARY_REPLICATES == 133_200
+    # Plan 13.6 with the type I group at 1,600 (design review m1): the nine groups sum to
+    # 130,400 replicates and the primary phase adds 3,200.
+    assert sum(runner.BUDGETS.values()) == 130_400
+    assert sum(runner.BUDGETS.values()) + 2 * runner.PRIMARY_REPLICATES == 133_600
 
 
 def test_every_cross_fitted_group_uses_five_folds_and_one_draw() -> None:
@@ -218,7 +219,7 @@ def test_the_cells_the_summary_must_contain_are_the_declared_ones() -> None:
         for cell in runner.CELLS
         if cell.family == "interval_calibration" and cell.role == "positive"
     ]
-    assert len(positive) == sum(GATED_ROWS.values()) == 38
+    assert len(positive) == sum(GATED_ROWS.values()) == 41
     assert all(cell.name.endswith("__corrected") for cell in positive)
     for group, rows in GATED_ROWS.items():
         assert len([cell for cell in positive if cell.group == group]) == rows, group
@@ -236,10 +237,12 @@ def test_the_cells_the_summary_must_contain_are_the_declared_ones() -> None:
         "log_or[2 vs 1]",
         "par[1]",
         "paf[1]",
+        "ey_obs",
     }
     assert {cell.estimand for cell in positive if cell.group == "binary_population"} == {
         "par",
         "paf",
+        "ey_obs",
     }
     assert {cell.estimand for cell in positive if cell.group == "weighted"} == {
         "ey0",
@@ -249,6 +252,7 @@ def test_the_cells_the_summary_must_contain_are_the_declared_ones() -> None:
         "log_or",
         "par",
         "paf",
+        "ey_obs",
     }
     # The generated-design pair reads both contrasts, two arms each.
     pair = [cell for cell in runner.CELLS if cell.family == "generated_design"]
@@ -263,14 +267,38 @@ def test_the_cells_the_summary_must_contain_are_the_declared_ones() -> None:
         assert f"{label}__corrected" in {cell.name for cell in runner.CELLS}
 
 
-def test_ey_obs_is_reported_and_gates_nothing() -> None:
-    """Plan 13.6: ``ey_obs`` is a reported-only estimate in the three groups that fit it."""
-    carriers = [cell for cell in runner.CELLS if cell.report == "ey_obs"]
-    assert {cell.group for cell in carriers} == {"three_arm", "binary_population", "weighted"}
-    assert not [cell for cell in runner.CELLS if cell.estimand == "ey_obs"]
-    for cell in carriers:
+def test_ey_obs_is_gated_in_the_three_groups_that_fit_it() -> None:
+    """Design review m2: each support row that licenses ``ey_obs`` (family P4) has a gated cell."""
+    cells = [cell for cell in runner.CELLS if cell.estimand == "ey_obs"]
+    assert {cell.name for cell in cells} == {
+        "three_arm__ey_obs__corrected",
+        "binary_population__ey_obs__corrected",
+        "weighted__ey_obs__corrected",
+    }
+    assert all(cell.role == "positive" and not cell.report for cell in cells)
+    for cell in cells:
         fit = next(f for f in runner.GROUPS[cell.group].fits if f.name == cell.fit)
         assert "ey_obs" in fit.estimands
+    # No group that fits ey_obs leaves it ungated, and no extra column records it.
+    fitted = {
+        group.name
+        for group in runner.GROUPS.values()
+        if any("ey_obs" in fit.estimands for fit in group.fits if fit.outcome == "parametric")
+    }
+    assert fitted == {cell.group for cell in cells}
+    columns = (*properties.EXTRA_COLUMNS, *properties.SUMMARY_COLUMNS)
+    assert not [name for name in columns if "obs" in name]
+    # The support rows that license P4 under the Wald kind list exactly these cells.
+    from cleverly._support_rows import POINT_ROWS
+
+    listed = {
+        cell
+        for row in POINT_ROWS
+        if row.id in ("C11.binary", "C11.k_arms", "C11.weighted")
+        for cell in row.cells
+        if cell.endswith("__ey_obs__corrected")
+    }
+    assert listed == {cell.name for cell in cells}
 
 
 def test_the_study_has_nineteen_units_and_each_is_sized_to_the_per_unit_target() -> None:
@@ -293,7 +321,7 @@ def test_the_study_has_nineteen_units_and_each_is_sized_to_the_per_unit_target()
 
 
 def test_the_type_i_group_passes_at_its_budget_with_the_declared_probability() -> None:
-    """At 1,200 replicates at most 93 rejections pass; both rows clear the per-unit target."""
+    """At 1,600 replicates at most 129 rejections pass, and the target holds at every lost count."""
     margins = runner.STUDY.margins
     replicates = runner.BUDGETS["three_arm_null"]
     ceiling = margins.alpha + margins.type_i_margin
@@ -305,28 +333,35 @@ def test_the_type_i_group_passes_at_its_budget_with_the_declared_probability() -
             if clopper_pearson(k, size, confidence_level=margins.confidence_level).high <= ceiling
         )
 
-    assert allowed(replicates) == 93
-    at_null = float(binom.cdf(93, replicates, 0.05))
-    at_inflated = float(binom.cdf(93, replicates, 0.055))
-    assert at_null**2 == pytest.approx(0.99996, abs=2e-5)
-    assert at_inflated**2 == pytest.approx(0.99905, abs=2e-5)
-    assert at_inflated**2 > TARGET
+    def passes(size: int, lost: int, rate: float) -> float:
+        # The kept replicates are ``size - lost``; each lost replicate counts as a rejection, so
+        # at most ``allowed(size) - lost`` of the kept ones may reject.  The two rows share one
+        # fit and so lose together; the product is the independent (lower) bound.
+        return float(binom.cdf(allowed(size) - lost, size - lost, rate)) ** 2
+
+    assert allowed(replicates) == 129
+    lost = int(runner.FAILURE_BOUND * replicates)
+    assert lost == 16
+    # Clean and with every allowed lost replicate counted as a rejection, at a true rate of
+    # 0.05 and at 0.055.
+    assert passes(replicates, 0, 0.05) > 0.99999
+    assert passes(replicates, 0, 0.055) == pytest.approx(0.99998, abs=2e-5)
+    assert passes(replicates, lost, 0.05) == pytest.approx(0.99982, abs=2e-5)
+    assert passes(replicates, lost, 0.055) == pytest.approx(0.99490, abs=2e-5)
+    # The target holds at every allowed loss count at 0.05, and at 13 of 16 at 0.055.
+    assert all(passes(replicates, k, 0.05) > TARGET for k in range(lost + 1))
+    assert max(k for k in range(lost + 1) if passes(replicates, k, 0.055) > TARGET) == 13
+    # At 1,200 replicates the worst case at the bound (12) misses the target: 0.99506 at 0.05
+    # holds only up to ten lost replicates, and 0.95525 at 0.055 up to two.  Hence 1,600.
+    assert allowed(1_200) == 93
+    assert passes(1_200, 0, 0.05) == pytest.approx(0.99996, abs=2e-5)
+    assert passes(1_200, 12, 0.05) == pytest.approx(0.99506, abs=2e-5)
+    assert passes(1_200, 12, 0.055) == pytest.approx(0.95525, abs=2e-5)
+    assert passes(1_200, 12, 0.05) < TARGET
     # At 800 replicates the same two rows give 0.9955 at 0.05, below the target.
     assert allowed(800) == 58
-    assert float(binom.cdf(58, 800, 0.05)) ** 2 == pytest.approx(0.9955, abs=1e-4)
-    assert float(binom.cdf(58, 800, 0.05)) ** 2 < TARGET
-    # The worst case of the failure bound: every lost replicate counted as a rejection.  Both
-    # rows lose the same replicate (one fit writes both), so the two rows lose together.  At a
-    # true rate of 0.05 the pair stays above the target for up to nine lost replicates.  The
-    # bound allows twelve, and the worst case at twelve is 0.9936, below the target.  The declared
-    # run is read against this figure: a failure count above nine voids the sizing claim of this
-    # group and no other.
-    lost = int(runner.FAILURE_BOUND * replicates)
-    assert lost == 12
-    worst = {k: float(binom.cdf(93 - k, replicates, 0.05)) ** 2 for k in (0, 9, 10, lost)}
-    assert worst[0] == pytest.approx(0.99996, abs=2e-5)
-    assert worst[9] > TARGET > worst[10]
-    assert worst[lost] == pytest.approx(0.9936, abs=1e-4)
+    assert passes(800, 0, 0.05) == pytest.approx(0.9955, abs=1e-4)
+    assert passes(800, 0, 0.05) < TARGET
 
 
 def test_the_primary_phase_has_the_per_estimand_headroom() -> None:
@@ -348,6 +383,25 @@ def test_the_primary_phase_has_the_per_estimand_headroom() -> None:
     # Eleven rows, taken as independent, pass with these probabilities at a true coverage 0.95.
     assert one[1_600] ** rows > TARGET
     assert one[800] ** rows < TARGET
+    # Design review m6: 1,200 is the smallest multiple of 400 at the target at a coverage of 0.95.
+    # 1,600 is kept: it holds the target down to a coverage of 0.945 on every row and gives
+    # 0.99592 at 0.94 (the review wrote that it holds the target at 0.94; the figure is below it).
+    assert one[1_200] ** rows == pytest.approx(0.99981, abs=2e-5)
+    assert one[1_200] ** rows > TARGET
+    at = {
+        (size, coverage): float(binom.sf(k - 1, size, coverage)) ** rows
+        for size, k in need.items()
+        for coverage in (0.945, 0.94)
+    }
+    assert at[1_200, 0.94] == pytest.approx(0.93764, abs=2e-5)
+    assert at[1_200, 0.94] < TARGET
+    assert at[1_600, 0.945] == pytest.approx(0.99990, abs=2e-5)
+    assert at[1_200, 0.945] == pytest.approx(0.99478, abs=2e-5)
+    assert at[1_200, 0.945] < TARGET < at[1_600, 0.945]
+    assert at[1_600, 0.94] == pytest.approx(0.99592, abs=2e-5)
+    assert at[1_600, 0.94] < TARGET
+    assert runner.PRIMARY_REPLICATES == 1_600
+    assert "0.945" in runner.CONFIGURATION["budget_rule"]
 
 
 # ----------------------------------------------------------------------- the negative controls
@@ -536,9 +590,10 @@ def _joint(label: str) -> dict[str, float]:
 def test_the_joint_controls_are_red_and_the_band_is_calibrated_on_the_exact_law() -> None:
     """Plan 13.2 and 13.6: 0.826 pointwise, 0.861 and 0.867 shipped, 0.9505 and 0.9497 stacked.
 
-    The binary population band set (six estimates, ``ey_obs`` among them) has no figure in the
-    plan.  The quadrature gives 0.841 pointwise and 0.872 for the shipped band.  Every control is
-    far enough below 0.95 that the upper 99% bound at its budget stays below it.
+    The binary population band set (``ey0``, ``ey1``, ``ate``, ``ey_obs``, ``par``, ``paf``) has
+    no figure in the plan.  The quadrature gives 0.841 pointwise and 0.872 for the shipped band,
+    and CONFIGURATION declares both.  Every control is far enough below 0.95 that the upper 99%
+    bound at its budget stays below it.
     """
     z = float(norm.ppf(0.995))
     expected = {
@@ -555,11 +610,54 @@ def test_the_joint_controls_are_red_and_the_band_is_calibrated_on_the_exact_law(
             replicates = runner.BUDGETS[group]
             bound = value + z * np.sqrt(value * (1.0 - value) / replicates)
             assert bound < 0.95, (label, kind)
+    # CONFIGURATION declares the exact values, as it does for the SE controls.
+    declared = runner.CONFIGURATION["negative_control_expected"]
+    for label in ("three_arm", "binary_population"):
+        figures = expected[label]
+        pointwise = declared[f"{label}__pointwise_joint_control"]
+        shipped = declared[f"{label}__shipped_curve_band_control"]
+        assert pointwise["joint_coverage"] == figures["pointwise"]
+        assert shipped["joint_coverage"] == figures["shipped"]
+    assert "pilot" not in str(declared)
+    # The stacked band covers 0.9505, 0.9497 and 0.950 (design review m5).
+    assert _joint("three_arm")["stacked"] == pytest.approx(0.9505, abs=1e-3)
+    assert _joint("three_arm_crossfit")["stacked"] == pytest.approx(0.9497, abs=1e-3)
+    assert _joint("binary_population")["stacked"] == pytest.approx(0.950, abs=1e-3)
     # The band set of each band is the declared one, and each holds only stacked estimates.
     sets = {band.label: band.names for g in runner.GROUPS.values() for band in g.bands}
     assert sets["three_arm"] == ("ey[0]", "ey[1]", "ey[2]", "ate[0 vs 1]", "ate[2 vs 1]")
     assert sets["three_arm_crossfit"] == ("ey[0]", "ey[1]", "ey[2]", "ate[1 vs 0]", "ate[2 vs 0]")
     assert sets["binary_population"] == ("ey0", "ey1", "ate", "ey_obs", "par", "paf")
+
+
+@pytest.mark.parametrize(
+    ("group", "band_fit", "shipped_fit"),
+    [
+        ("three_arm", "band", "shipped_band"),
+        ("binary_population", "main", "shipped_band"),
+    ],
+)
+def test_the_shipped_band_control_reads_the_stacked_estimates_with_the_shipped_se(
+    group: str, band_fit: str, shipped_fit: str
+) -> None:
+    """Design review n1: the refused ``ShippedOutcome`` fit differs from the stack in the curve only.
+
+    The control relabels the refused fit ``influence_curve`` to build the shipped band.  If a
+    later predicate admitted the subclass, the control would turn green and void the study at run
+    time.  This test fails first.  Every name of the declared band set must carry the stacked
+    ``psi`` exactly, the stored shipped standard error to ``1e-12``, and the plug-in status.
+    """
+    key = (group, 0, 5)
+    _, results = properties._measure(key, properties._draw(key))
+    (band,) = runner.GROUPS[group].bands
+    stacked, shipped = results[band_fit], results[shipped_fit]
+    for name in band.names:
+        assert shipped[name].psi == stacked[name].psi, name
+        assert shipped[name].plugin_std_error == pytest.approx(
+            stacked.repeats[0].inference[name].shipped_se, rel=1e-12
+        ), name
+        assert stacked[name].inference == "influence_curve", name
+        assert shipped[name].inference == "generated_design_plugin", name
 
 
 def test_the_band_cells_pass_at_their_budget_with_the_declared_probability() -> None:

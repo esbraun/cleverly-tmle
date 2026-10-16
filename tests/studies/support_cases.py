@@ -1355,7 +1355,7 @@ def _c_cases() -> tuple[RowCase, ...]:
             )
         )
     extensions = "canonical_ctmle_oat_per_arm_parametric_extensions"
-    where = _ST + "canonical_ctmle_oat_per_arm_parametric_extensions.py:876"
+    where = _ST + "canonical_ctmle_oat_per_arm_parametric_extensions.py:895"
     # The configurations of X58b2. A case needs no reference arm: the key reads structure only,
     # and the generator labels the arms by number.
     for row, cell, fit, data, names in (

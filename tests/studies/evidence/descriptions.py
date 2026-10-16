@@ -2721,6 +2721,7 @@ _EXTENSION_FITS: dict[str, tuple[str, tuple[str, ...]]] = {
             "log_or_2_vs_1",
             "par_1",
             "paf_1",
+            "ey_obs",
         ),
     ),
     "three_arm_shared": (
@@ -2730,7 +2731,7 @@ _EXTENSION_FITS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "binary_population": (
         "the stacked curve of the population targets on the two-arm law, in sample",
-        ("par", "paf"),
+        ("par", "paf", "ey_obs"),
     ),
     "three_arm_crossfit": (
         "the cross-fitted stacked curve on the three-arm law, five folds, reference arm 0",
@@ -2738,7 +2739,7 @@ _EXTENSION_FITS: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
     "weighted": (
         "the stacked curve on the two-arm law under the known weight 0.5 + 1{W1 > 0}, in sample",
-        ("ey0", "ey1", "ate", "log_rr", "log_or", "par", "paf"),
+        ("ey0", "ey1", "ate", "log_rr", "log_or", "par", "paf", "ey_obs"),
     ),
     "weighted_crossfit": (
         "the cross-fitted stacked curve on the two-arm law under the known weight, five folds",
@@ -2754,6 +2755,7 @@ _EXTENSION_ESTIMATES = {
     "ey0": "arm-0 mean",
     "ey1": "arm-1 mean",
     "ate": "ATE",
+    "ey_obs": "observed mean of the outcome",
     "log_rr": "log risk ratio",
     "log_or": "log odds ratio",
     "par": "population attributable risk against reference arm 0",
