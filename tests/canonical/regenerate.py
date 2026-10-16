@@ -734,7 +734,8 @@ class _Phase:
     """The Python side's output, whichever shape the study's ``draw_and_fit`` returns."""
 
     rows: pd.DataFrame
-    samples: pd.DataFrame | None = None
+    #: The samples, or the path of the file that holds them.
+    samples: pd.DataFrame | Path | None = None
     truths: pd.DataFrame | None = None
     cached: bool = False
     paths: dict[str, Path] = field(default_factory=dict)
@@ -912,7 +913,11 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     files = ["python-rows.csv.gz"]
     write_csv(result.rows, paths["python-rows.csv.gz"], compression=archive)
     if result.samples is not None and result.truths is not None:
-        write_csv(result.samples, paths["samples.csv.gz"], compression=archive)
+        if isinstance(result.samples, Path):
+            # A study that spilled its samples hands over the assembled archive.
+            shutil.move(result.samples, paths["samples.csv.gz"])
+        else:
+            write_csv(result.samples, paths["samples.csv.gz"], compression=archive)
         write_csv(result.truths, paths["truth.csv"])
         files += ["samples.csv.gz", "truth.csv"]
     paths["python-failures.csv"].unlink(missing_ok=True)
@@ -930,7 +935,7 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     )
     return _Phase(
         rows=result.rows,
-        samples=result.samples,
+        samples=paths["samples.csv.gz"] if isinstance(result.samples, Path) else result.samples,
         truths=result.truths,
         paths=paths,
         subject_failures=result.failures,
