@@ -957,6 +957,7 @@ def resolve_plans(
     data: LongitudinalData,
     *,
     _collapse_point_masses: bool = True,
+    allow_set_dose: bool = False,
 ) -> tuple[Plan, ...]:
     """Evaluate every regimen against ``data``, once, before any nuisance is fitted.
 
@@ -975,6 +976,10 @@ def resolve_plans(
     _collapse_point_masses : bool, default=True
         Private.  ``False`` keeps a one-hot policy on the policy path, which a test uses to
         check that path against the rule it equals.
+    allow_set_dose : bool, default=False
+        Whether a fixed dose or a known rule that sets a dose, at a continuous node, is
+        resolved.  Only a model-based estimator accepts one, because the nonparametric target is
+        not pathwise differentiable.
 
     Returns
     -------
@@ -982,13 +987,16 @@ def resolve_plans(
         One per regimen, in the order given.
     """
     return tuple(
-        _resolve_plan(regimen, data, collapse=_collapse_point_masses) for regimen in regimens
+        _resolve_plan(regimen, data, collapse=_collapse_point_masses, allow_set_dose=allow_set_dose)
+        for regimen in regimens
     )
 
 
-def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: bool) -> Plan:
+def _resolve_plan(
+    regimen: RegimenSpec, data: LongitudinalData, *, collapse: bool, allow_set_dose: bool = False
+) -> Plan:
     """One regimen's plan, with its policy densities evaluated and point masses collapsed."""
-    refuse_continuous_assignments(regimen, data)
+    refuse_continuous_assignments(regimen, data, allow_set_dose=allow_set_dose)
     values = data.encode_assignment(regimen.assignment(data), regimen.label)
     if not (isinstance(regimen, DynamicRegimen) and (regimen.has_policy or regimen.has_tilt)):
         return Plan(regimen, values)
@@ -1178,7 +1186,9 @@ def _component_labels(levels: Sequence[Any], index: int) -> tuple[object, ...]:
         return tuple(sorted(values, key=repr))
 
 
-def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) -> None:
+def refuse_continuous_assignments(
+    regimen: RegimenSpec, data: LongitudinalData, *, allow_set_dose: bool = False
+) -> None:
     """Refuse a plan node the treatment node it sits at cannot take, before any learner.
 
     A static dose on a continuous treatment is not pathwise differentiable (Díaz, Williams,
@@ -1193,6 +1203,9 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
         The resolved regimen.
     data : LongitudinalData
         The validated panel.
+    allow_set_dose : bool, default=False
+        Accept a fixed dose, a number, or a known rule that sets a dose from the history, at a
+        continuous node.  A parametric model gives either a finite-dimensional target.
 
     Raises
     ------
@@ -1204,6 +1217,19 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
     for time, node in enumerate(nodes, start=1):
         kind = data.node_kind(time)
         name = data.decision_name(time)
+        if (
+            allow_set_dose
+            and kind == "continuous"
+            and not _is_drawn(node)
+            and (
+                callable(node)
+                or (
+                    isinstance(node, (int, float, np.integer, np.floating))
+                    and not isinstance(node, bool)
+                )
+            )
+        ):
+            continue
         if isinstance(node, JointPolicy):
             if kind == "mixed" or len(data.component_names(time)) > 1:
                 continue

@@ -15,6 +15,7 @@ runtime behavior. Pass the configured object to `IdentifiedEffect.estimate()`.
    cleverly.IPSIMethod
    cleverly.GComputationMethod
    cleverly.IPWMethod
+   cleverly.ParametricGFormulaMethod
    cleverly.ModelSpec
    cleverly.CrossFitting
    cleverly.SplitPlan
