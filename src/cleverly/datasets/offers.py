@@ -459,8 +459,7 @@ def offers_protocol() -> StudyProtocol:
             "Marketing consent at the first weekly send",
             "At least one prior order",
             "One account per customer, so shared-household accounts are excluded",
-            "An account that stays open through week 4, so a closure-free window is a "
-            "condition of the target population",
+            "A subscription term that is fixed at the first weekly send and runs through week 4",
         ),
         time_zero=(
             "The first weekly send, after the week-1 engagement score and before the first offer"
@@ -489,7 +488,7 @@ def offers_protocol() -> StudyProtocol:
             "Tracking-consent withdrawal before week 4 censors the customer. The strategy is "
             "hypothetical: the order had tracking continued",
             "Each code expires at the end of its week, so no code is redeemable in week 4",
-            "Account closure before week 4 is outside the target population",
+            "None: the term runs through week 4, so no account closes before the outcome week",
         ),
         interference_unit="Individual customer",
         assumption_rationale=(
