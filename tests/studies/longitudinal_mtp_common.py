@@ -709,8 +709,23 @@ class OracleLogOdds(BaseEstimator):
         return np.asarray(self.model_.predict_proba(self._feature(X)), dtype=float)
 
 
+#: Rows per block of :func:`first_regression`.
+_QUADRATURE_ROWS = 4096
+
+
 def first_regression(label: str, w: np.ndarray, a1: np.ndarray, order: int = 96) -> np.ndarray:
     """``m_1(a1, w) = E[m_2(d_2(A2, H_2), H_2) | A1 = a1, W = w]`` by quadrature, per row."""
+    if len(a1) > _QUADRATURE_ROWS:
+        # Each row's sum runs along its own quadrature nodes, so blocks of rows give the same
+        # bytes as one pass. The blocks keep the (rows x order) arrays inside the CPU cache.
+        return np.concatenate(
+            [
+                first_regression(
+                    label, w[i : i + _QUADRATURE_ROWS], a1[i : i + _QUADRATURE_ROWS], order
+                )
+                for i in range(0, len(a1), _QUADRATURE_ROWS)
+            ]
+        )
     _, d2 = CONTINUOUS_MAPS[label]
     nodes, weights = _gauss_legendre(order)
     out = np.zeros(len(a1))
