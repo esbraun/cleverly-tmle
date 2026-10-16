@@ -6,7 +6,7 @@ maps that bind at that support, change their Jacobian with the dose, have two in
 or send an interval to a declared atom (``dose_atoms={"A2": (3.0,)}``).  ``LTMLE`` and ``SDR``
 read it at one fold on the density route.  The laws, the plans, the truths and the oracle
 learners live in :mod:`tests.studies.mtp_boundaries_common`.  The comparator is R ``lmtp``
-1.5.4, pending.  Four primary scenarios, 1,000 replications at n = 2,000:
+1.5.4, pending.  Four primary scenarios, 1,000 replications at n = 5,000:
 
 =====================  =================================================================
 scenario               subject and pairing
@@ -43,6 +43,14 @@ evidence.
 
 **Properties.**  :mod:`tests.studies.mtp_boundaries_properties` declares every family, its
 sizes and the pilots behind them.
+
+**Second declaration (2026-10-16).**  The first run (cleverly-tmle ea94ee79, n = 2,000) read
+the two ``boundaries_ltmle`` ``p4`` rows red: coverage 0.916 and 0.922, SE ratio 0.925 (99%
+interval 0.872 to 0.982), bias under 0.03 SD.  The ``p4`` calibration cell shows the same
+finite-sample shortfall of the influence-curve variance at n = 2,000 and passes at n = 4,000
+(SE ratio 0.971).  As for ``mtp-pricing`` (Eric's decision, 2026-10-16), the primary moves to
+n = 5,000; the property cells keep their declared sizes and their committed rows.  The
+n = 2,000 reading stays in the method-evidence page.
 
 **Red-cell reading, declared before any run.**  Publication policy is ``reporting``, and the
 reading below is the merge gate, as in ``vector-mtp``.  The fast tier gates the artefacts'
@@ -92,7 +100,7 @@ from tests.studies.fractional_glm import QuasiBinomialGLM
 from tests.studies.oracle_density_bins import oracle_bins
 
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 2_000
+PRIMARY_N = 5_000
 SEED = 20264011
 RESAMPLING_SEED = 2026401101
 #: The pre-declaration smoke gate on the exactness witnesses.
@@ -448,8 +456,10 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
         n_jobs=n_jobs,
         implementation=STUDY.implementation,
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+        # Each fit writes its sample to disk, so the run holds one sample per worker.
+        spill_samples_at=0,
     )
-    samples = pd.concat([sample for sample, _, _ in outcomes.kept], ignore_index=True)
+    samples = replication.assembled_samples(outcomes, at=0)
     truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
     estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
     return replication.result(
