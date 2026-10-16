@@ -1744,6 +1744,22 @@ def _long_cases() -> tuple[RowCase, ...]:
         400,
     )
 
+    # The repeated-outcome ``IPSI`` study: the property cells that license a configuration.
+    ipsi_properties = "ipsi_repeated_properties.py:335"
+    for row, configuration, n in (
+        ("G37.in_sample", "in_sample", 400),
+        ("G37.cross_fitted", "crossfit", 400),
+        ("G37.bounded", "continuous", 400),
+    ):
+        observed(
+            row,
+            "longitudinal-repeated-ipsi",
+            configuration,
+            ipsi_properties,
+            lambda study, configuration=configuration, n=n: study.sample(configuration, 0, n),
+            lambda study, frame, configuration=configuration: study.fit(frame, configuration),
+        )
+
     # The IS and cross-fitted fits of ``SDR``: the runner's scenarios and the property cells.
     sdr = "canonical_longitudinal_sdr.py:362"
     sdr_slug = "longitudinal-sdr"

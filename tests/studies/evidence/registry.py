@@ -460,6 +460,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
+    from tests.studies.canonical_ipsi_repeated import STUDY as CANONICAL_IPSI_REPEATED
     from tests.studies.canonical_known_mechanism import STUDY as KNOWN_MECHANISM
     from tests.studies.canonical_known_mechanism_drtmle import STUDY as KNOWN_MECHANISM_DRTMLE
     from tests.studies.canonical_known_node_mechanisms import STUDY as KNOWN_NODE_MECHANISMS
@@ -618,6 +619,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_COMPETING,
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
         CANONICAL_LTMLE_REPEATED,
+        CANONICAL_IPSI_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,

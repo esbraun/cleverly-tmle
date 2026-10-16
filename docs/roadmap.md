@@ -766,8 +766,9 @@ comparator. [Parametric per-arm intervals](technical-reference/collaborative-tml
 states the contract.
 
 **Part (c) is implemented.** A cross-fitted fit reads the exact V-fold stack, and `repeats` above 1
-reports the median of the draws. Its study `ctmle-oat-per-arm-parametric-crossfit` is registered,
-and its declared run is pending. Parts (b) and (d) stay open. The text below keeps the part (a)
+reports the median of the draws. Its study `ctmle-oat-per-arm-parametric-crossfit` is registered, and
+its [evidence page](technical-reference/method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md)
+reports the declared run. Every gated cell passes. Parts (b) and (d) stay open. The text below keeps the part (a)
 scope for reference and states what each open part still needs.
 
 **What is known.** [The applied revert](technical-reference/collaborative-tmle.md#the-applied-revert)
@@ -1183,16 +1184,15 @@ Acceptance:
 
 ### X32b. Repeated outcomes for SDR and IPSI
 
-`LTMLE` fits a repeated outcome, declared with `outcome=Repeated([...])`. Each horizon is the
-end-of-study fit of the panel truncated after it
-([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). `LTMLE.fit`
-refuses a repeated outcome for any other estimator kind, before any learner. So `SDR` and `IPSI`
-refuse it now.
+`LTMLE` and `IPSI` fit a repeated outcome, declared with `outcome=Repeated([...])`. Each horizon
+is the end-of-study fit of the panel truncated after it
+([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). The fit refuses
+a repeated outcome for any other estimator kind, before any learner. So `SDR` refuses it now.
 
 | part | what to add | evidence |
 | --- | --- | --- |
 | (a) `SDR` | the per-horizon reduction of the sequentially doubly robust fit | the reduction test of `tests/unit/test_repeated_outcome.py` for `SDR`, and exact-law Gateaux witnesses |
-| (b) `IPSI` | the curve $t \mapsto E[Y_t^{Q}]$ under a tilt. Kim, Kennedy and Naimi (2021), *Journal of Causal Inference* 9(1):302–344, Theorems 3.1, 4.1 and 5.1, cover tilts, dropout, and the joint process over $\delta$ and $t$ | the same, for `IPSI` |
+| (b) `IPSI` | the curve $t \mapsto E[Y_t^{Q}]$ under a tilt. Kim, Kennedy and Naimi (2021), *Journal of Causal Inference* 9(1):302–344, Theorems 3.1, 4.1 and 5.1, cover tilts, dropout, and the joint process over $\delta$ and $t$ | shipped, with the reduction test and the exact-law witnesses E5 to E8. The registered study `longitudinal-repeated-ipsi` passes all 96 property rows, 81 gated and 15 reported |
 
 Acceptance:
 
