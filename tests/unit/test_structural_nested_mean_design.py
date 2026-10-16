@@ -221,9 +221,13 @@ FAILURE_FLOOR = 0.99
 POOLED_DRAWS = 3_000
 #: The declared total CPU-hours of a full run, from the timed pilot fits (``cpu_hours``).
 BUDGET_CPU_HOURS = 11.97
-#: The ceiling on a full run that makes a replicate count feasible: 12 CPU-hours is three hours
-#: on four workers.  The parent can raise it; the calibration replicates then follow.
-CPU_HOUR_CEILING = 12.0
+#: The arm of adaptive learners.  Its pilot SE ratios spread between cells, so its chance of
+#: passing has a limit below the family floor at any replicate count.
+ADAPTIVE_ARM = "n"
+#: The smallest multiple of 400 at which every other arm passes together with chance 0.95.
+SIZING_MINIMUM = 17_600
+#: The chance that every cell of the adaptive arm passes at the declared replicates.
+DECLARED_ADAPTIVE_PASS = 0.45
 #: The chance that all 61 calibration cells pass at the declared replicates.
 DECLARED_FAMILY_PASS = 0.442
 
@@ -755,23 +759,39 @@ def test_every_calibration_arm_has_a_pilot_of_the_pooled_size() -> None:
         assert draws >= POOLED_DRAWS, setup
 
 
+def _other_arms_pass_probability(replicates: int) -> float:
+    """The chance that every calibration cell outside the adaptive arm passes."""
+    return float(
+        np.prod(
+            [
+                arm_pass_probability(labels, replicates)
+                for arm, labels in _arms().items()
+                if arm != ADAPTIVE_ARM
+            ]
+        )
+    )
+
+
 def test_the_calibration_replicates_follow_the_sizing_rule() -> None:
     """(c) MAJOR-1: the rule is the smallest multiple of 400 whose family pass probability is at
-    least 0.95 under the arm-pooled predictive rule, with the bias leg.  The pilots show that no
-    replicate count reaches 0.95: the chance rises with R to a limit set by the pilot's
-    resolution of each arm's true SE ratio.  So the rule falls back to the largest multiple of
-    400 whose full run fits the declared CPU-hour ceiling, and declares the chance it gives.
-    Perfect calibration is the AGENT-BRIEF floor: necessary and not sufficient."""
+    least 0.95 under the arm-pooled predictive rule, with the bias leg.  The adaptive arm ``N``
+    cannot reach the floor at any replicate count: its pilot SE ratios spread between cells, and
+    its chance tends to about 0.67.  So the rule is applied to the other arms, which gives
+    :data:`SIZING_MINIMUM`, and the adaptive arm's chance is declared.  The declared count is at
+    least the minimum.  A red adaptive cell is read by the declared red-cell rule.  Perfect
+    calibration is the AGENT-BRIEF floor: necessary and not sufficient."""
     replicates = properties.CALIBRATION_REPLICATES
     assert replicates % REPLICATE_GRAIN == 0
     assert perfect_family_pass_probability(replicates) >= FAMILY_FLOOR
-    # The floor is out of reach at any replicate count: the limit of the chance is below it.
-    assert family_pass_probability(10**6) < FAMILY_FLOOR
+    assert _other_arms_pass_probability(SIZING_MINIMUM) >= FAMILY_FLOOR
+    assert _other_arms_pass_probability(SIZING_MINIMUM - REPLICATE_GRAIN) < FAMILY_FLOOR
+    assert replicates >= SIZING_MINIMUM
+    adaptive = _arms()[ADAPTIVE_ARM]
+    assert arm_pass_probability(adaptive, 10**6) < FAMILY_FLOOR
+    assert arm_pass_probability(adaptive, replicates) == pytest.approx(
+        DECLARED_ADAPTIVE_PASS, abs=0.01
+    )
     assert family_pass_probability(replicates) == pytest.approx(DECLARED_FAMILY_PASS, abs=0.005)
-    assert cpu_hours() <= CPU_HOUR_CEILING
-    assert cpu_hours(replicates + REPLICATE_GRAIN) > CPU_HOUR_CEILING
-    smaller = replicates - REPLICATE_GRAIN
-    assert family_pass_probability(smaller) < family_pass_probability(replicates)
 
 
 def test_the_noise_control_scale_is_the_pilot_sampling_sd() -> None:

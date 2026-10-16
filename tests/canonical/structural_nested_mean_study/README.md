@@ -28,9 +28,11 @@ check has about 8 degrees of freedom there, so it has low power on `SP`. The cel
 family `positivity_reporting` reports the structural fit under weak positivity and gates nothing.
 
 The calibration cells run 21,200 replicates each. The arm-pooled predictive rule needs a chance
-of 0.95 that all 61 cells pass, and no replicate count gives it: the chance tends to 0.67 as the
-count grows. The count is the largest multiple of 400 whose full run fits 12 CPU-hours (about three
-hours on four workers), and it gives a chance of 0.44.
+of 0.95 that all 61 cells pass. The adaptive arm `N` cannot reach it at any count, because its
+pilot SE ratios spread between cells. Its chance tends to 0.67. The rule therefore applies to the
+other arms, and it gives a minimum of 17,600. The declared count is above that minimum. The
+adaptive arm passes with chance 0.45, and the whole family with chance 0.44. A red adaptive cell
+is read by the declared red-cell rule.
 
 ## Run
 

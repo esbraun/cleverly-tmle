@@ -107,10 +107,11 @@ SHRUNKEN_SE_FACTOR = 0.70
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
 #: The replicates of every calibration cell.  The arm-pooled predictive rule asks for the smallest
-#: multiple of 400 whose chance that all 61 cells pass is at least 0.95.  No count reaches it: the
-#: chance tends to 0.67 as R grows, because the pilots resolve each arm's true SE ratio to about
-#: 0.01.  So this is the largest multiple of 400 whose full run fits the 12 CPU-hour ceiling of
-#: ``tests/unit/test_structural_nested_mean_design.py``, and the chance it gives is 0.44.
+#: multiple of 400 whose chance that all 61 cells pass is at least 0.95.  The adaptive arm ``N``
+#: cannot reach it at any count: its pilot SE ratios spread between cells, and its chance tends to
+#: 0.67.  The rule applied to the other arms gives 17,600.  The declared count is above that
+#: minimum; the adaptive arm passes with chance 0.45 and the family with 0.44
+#: (``tests/unit/test_structural_nested_mean_design.py``).
 CALIBRATION_REPLICATES = 21_200
 LADDER_REPLICATES = 1_000
 #: The empirical SD of each calibration label in the design pilot times :math:`\sqrt{2000}`
