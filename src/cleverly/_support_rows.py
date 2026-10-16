@@ -1219,9 +1219,9 @@ SHORTFALLS: Final[Mapping[tuple[str, str], str]] = {
         "Row T16.dose_logit is red for the logit slope at the smallest stratum: coverage "
         "0.9289 to 0.9560 and SE ratio 0.7818 to 0.9387 (X8)."
     ),
-    # X40: the owner's recommended default for the four red price_down cells of the five-node
-    # price study. To flip it to a stated limit, move each sentence to MEASURED_LIMITS under the
-    # same row id, and change the four dispositions of ``mtp-pricing`` in
+    # X40: the owner chose this label for the four red price_down cells of the five-node price
+    # study (2026-10-16). To flip it to a stated limit, move each sentence to MEASURED_LIMITS
+    # under the same row id, and change the four dispositions of ``mtp-pricing`` in
     # ``tests/studies/evidence/support_dispositions.py`` (see ``_X40_PRICE_DOWN`` there).
     ("G39.ltmle.tau5", "wald"): (
         "Row G39.ltmle.tau5 is red for the price_down plan at five nodes and n = 5,000: "

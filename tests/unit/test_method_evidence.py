@@ -912,7 +912,13 @@ class TestPublishedVerdicts:
                 # studies use two-part prefixes such as ``dynamic__correctly_specified``.
                 # ``rsplit`` reads all three.
                 suffix = row.cell.rsplit("__", 1)[-1]
-                if suffix == "shrunken_se_control":
+                # ``mtp-tuning`` declares two more below-band controls: the curve without the
+                # tuning term, and the fold-average rows scored on the population target.
+                if suffix in (
+                    "shrunken_se_control",
+                    "term_dropped_control",
+                    "population_truth_control",
+                ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]

@@ -1399,9 +1399,9 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
     ),
 )
 
-#: X40 (continuous-policy validation). The owner's recommended default for the four red
-#: price_down cells of the five-node price study is ``experimental`` with the measured number
-#: (the RM42b measured-shortfall standard), pending his confirmation. To flip it to a stated
+#: X40 (continuous-policy validation). The owner chose ``experimental`` with the measured number
+#: (the RM42b measured-shortfall standard) for the four red price_down cells of the five-node
+#: price study on 2026-10-16. To flip it to a stated
 #: limit, set this to ``LIMIT``. Then move each sentence of
 #: ``SHORTFALLS`` for ``G39.ltmle.tau5`` and ``G39.sdr.tau5`` in ``src/cleverly/_support_rows.py``
 #: to ``MEASURED_LIMITS`` under the same row id, with the text of ``_PRICE_DOWN_LIMIT``.
