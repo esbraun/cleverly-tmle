@@ -8,6 +8,8 @@ test-only hazard learner, and the verdicts, each with a deliberate-mutation cont
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -340,3 +342,49 @@ def test_the_gate_matches_the_declared_design() -> None:
     assert fx.GATE_SE == 4.0
     assert fx.COEFFICIENT_RTOL == 1e-6
     assert dataclasses.is_dataclass(fx.Fixture)
+
+
+# ---------------------------------------------------------------------- the committed comparison
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_the_committed_run_record_matches_the_committed_files() -> None:
+    record = json.loads((STUDY / driver.RUN_RECORD).read_text(encoding="utf-8"))
+    assert record["pygformula"] == driver.PYGFORMULA
+    assert record["fixtures"] == list(fx.FIXTURES)
+    assert record["seeds"] == list(fx.SEEDS)
+    assert record["gate_se"] == fx.GATE_SE
+    assert record["image_id"], "the committed comparison ran in the container"
+    assert record["results_sha256"] == _sha256(STUDY / driver.RESULTS)
+    assert record["sources_sha256"] == {
+        path.name: _sha256(path) for path in driver.REFERENCE.files(STUDY)
+    }
+
+
+def test_the_committed_verdicts_recompute_from_the_committed_rows() -> None:
+    pyg_coefficients, pyg_estimates = fx.read_pygformula(STUDY / driver.RESULTS)
+    committed = pd.read_csv(STUDY / driver.COEFFICIENTS, keep_default_na=False, na_values=[""])
+    cleverly_coefficients = committed.loc[:, ["fixture", "model", "term", "cleverly"]].rename(
+        columns={"cleverly": "value"}
+    )
+    coefficients = fx.coefficient_rows(cleverly_coefficients, pyg_coefficients)
+    assert coefficients["passed"].tolist() == committed["passed"].tolist()
+    np.testing.assert_allclose(coefficients["pygformula"], committed["pygformula"], rtol=1e-11)
+
+    seeds = pd.read_csv(STUDY / driver.SEED_TABLE)
+    by_side = {
+        name: frame.drop(columns="implementation").reset_index(drop=True)
+        for name, frame in seeds.groupby("implementation")
+    }
+    pyg = by_side["pygformula"].sort_values(["fixture", "estimand", "horizon", "seed"])
+    expected = pyg_estimates.sort_values(["fixture", "estimand", "horizon", "seed"])
+    np.testing.assert_allclose(pyg["value"].to_numpy(), expected["value"].to_numpy(), rtol=1e-11)
+    estimates = fx.estimate_rows(by_side["cleverly"], by_side["pygformula"])
+    published = pd.read_csv(STUDY / driver.ESTIMATES)
+    assert estimates["passed"].tolist() == published["passed"].tolist()
+    assert estimates["deterministic"].tolist() == published["deterministic"].tolist()
+    np.testing.assert_allclose(estimates["ratio"], published["ratio"], rtol=1e-6, atol=1e-12)
+    assert fx.findings(coefficients, estimates) == []

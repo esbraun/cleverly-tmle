@@ -49,7 +49,7 @@ study method.
 | --- | --- | --- |
 | point estimates and stacked interval, `GLM` models | shipped, status `influence_curve` | the unit witnesses [below](#validation) |
 | repeated-sampling evidence | registered study `parametric-gformula`. The [method-evidence page](method-evidence/parametric-gformula.md) lists the cells | Python property evidence |
-| the `pygformula` comparator run | pending. The packages fit different models ([below](#how-it-differs-from-gformula-and-pygformula)) | none |
+| agreement with `pygformula` 1.2.0 | four fixtures where both model classes are correct. 63 of 63 coefficient rows and 21 of 21 estimate rows pass ([below](#how-it-differs-from-gformula-and-pygformula)) | the committed `pygformula-*.csv` files in `tests/canonical/parametric_gformula_study/` |
 | a published analytic variance for the simulation form | none exists | [Inference](#inference) |
 | pooled-over-time models | not shipped. [X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks it | none |
 | a repeated outcome | refused. [X71](../roadmap.md#x71-repeated-outcomes-for-the-sequential-baselines) tracks it | none |
@@ -339,7 +339,11 @@ references are to `gfoRmula` 1.1.1 and `pygformula` 1.2.0.
 The packages differ from this estimator in the model class. A comparison of estimates is a
 comparison of two model classes, unless the data come from a law where both are correct.
 `pygformula` cannot express node-specific covariate models, so a matching comparison needs a
-two-node panel for the covariate laws. The `pygformula` comparator run is pending.
+two-node panel for the covariate laws. The fixtures in `tests/studies/parametric_gformula_fixtures.py`
+use such laws. Coefficients agree within a relative tolerance of `1e-6`. Estimates agree within
+four combined Monte Carlo SE over 24 seeds, and to `1e-10` where neither side draws a covariate.
+The study README gives the
+[fixture table](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/parametric_gformula_study/README.md#comparator).
 
 Pooled-over-time models with lag and cumulative-average terms are the default of both packages.
 [X73](../roadmap.md#x73-pooled-over-time-parametric-g-formula-models) tracks them.

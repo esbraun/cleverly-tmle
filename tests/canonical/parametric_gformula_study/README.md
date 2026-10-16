@@ -1,7 +1,7 @@
 # Parametric g-formula evidence (`parametric-gformula`)
 
-This study fits `ParametricGFormula` (NICE) on five exact laws. The comparator `pygformula`
-1.2.0 is implemented and not yet run, so the record still declares it as pending (see
+This study fits `ParametricGFormula` (NICE) on five exact laws. The record declares no
+comparator. `pygformula` 1.2.0 runs on separate fixtures, and their results are committed (see
 [Comparator](#comparator)). `tests/studies/canonical_parametric_gformula.py`
 states the primary scenarios and the reading rule. `tests/studies/parametric_gformula_properties.py`
 states the property families. `tests/studies/parametric_gformula_laws.py` holds the laws and
@@ -71,10 +71,11 @@ no verdict, so no gate reads the lost replicates.
 
 ## Comparator
 
-The record declares `pending_reference="pygformula"`. The comparator is implemented and has not
-run in its image. The manifest records the bytes of `Dockerfile`, `requirements.txt` and
-`run_pygformula.py` as declared sources, and no test gates those digests while the record is
-pending.
+The record declares no comparator. `pygformula` runs on four fixtures in its own image, and
+`compare_pygformula.py` writes the results beside this README. All 63 coefficient rows and all
+21 estimate rows pass. `tests/unit/test_parametric_gformula_comparator.py` recomputes the
+verdicts from the committed rows. It also checks the digests in `pygformula-run.json` against
+`pygformula-results.csv`, `Dockerfile`, `requirements.txt` and `run_pygformula.py`.
 
 `pygformula` cannot express node-specific covariate models. It parses bare column names and
 pools the residual SD across time. So the fixtures use laws where pooled and node-specific
@@ -127,10 +128,8 @@ side, so it needs no Docker.
 
 ### Registration
 
-The record moves from `pending_reference` to `reference` only with committed artifacts, because
-`comparator_findings` (`tests/studies/evidence/manifest.py`) requires the manifest, the
-published rows and the record to agree. A `reference` pairs rows by scenario and replicate in
-`replicates.csv.gz`, and `validate_replicates` requires a positive standard error and an interval
-for each. `pygformula` reports neither without a bootstrap, and the fixtures are one panel with
-many seeds. So the fixture comparison does not fit the paired-row contract, and the registration
-change must either extend the record or publish the fixture artifacts under a new comparison kind.
+The fixture comparison does not fit the paired-row contract of a `reference`. A `reference`
+pairs rows by scenario and replicate in `replicates.csv.gz`, and `validate_replicates` requires a
+positive standard error and an interval for each. `pygformula` reports neither without a
+bootstrap, and each fixture is one panel with many seeds. So the record declares no comparator,
+and the fixture files are the `pygformula` evidence.
