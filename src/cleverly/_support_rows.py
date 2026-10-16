@@ -1895,6 +1895,43 @@ def _long_rows() -> tuple[SupportRow, ...]:
             cells=["interval_calibration"],
         ),
     ]
+    # The repeated-outcome ``IPSI`` study (X32b): three odds tilts at three nodes.  The band is
+    # the default simultaneous band of the in-sample fits over all fifteen reported parameters.
+    # A booster fit and the small-sample cells are diagnostic there, so they license nothing.
+    ipsi_study = ["longitudinal-repeated-ipsi"]
+    ipsi_limits = [
+        "The gated cells draw n = 8,000. At n = 2,000 the continuous arm reads an SE ratio down "
+        "to 0.92, below the calibration band, and the study reports that cell without a verdict.",
+        "The estimator is singly robust: a wrong treatment or censoring mechanism leaves a bias.",
+    ]
+
+    def ipsi_row(
+        row_id: str,
+        *,
+        kinds: frozenset[Kind] = _LONG_WALD,
+        splitting: tuple[str, ...] = ("in_sample",),
+        outcome: tuple[str, ...] = BINARY,
+        cells: Sequence[str] = ("interval_calibration",),
+    ) -> SupportRow:
+        return long_row(
+            row_id,
+            ipsi_study,
+            outcome_kind="repeated",
+            regimens=("tilt",),
+            treatment=("2",) * 3,
+            engine="ipsi",
+            kinds=kinds,
+            splitting=splitting,
+            outcome=outcome,
+            cells=cells,
+            limits=ipsi_limits,
+        )
+
+    rows += [
+        ipsi_row("G37.in_sample", kinds=_LONG_BAND, cells=["interval_calibration", "all_reported"]),
+        ipsi_row("G37.cross_fitted", splitting=xf),
+        ipsi_row("G37.bounded", outcome=BOUNDED),
+    ]
     sdr = ["longitudinal-sdr"]
     rows += [
         long_row("G23.in_sample", sdr, engine="sdr", kinds=_LONG_BAND, cells=["static"]),
@@ -2258,7 +2295,8 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
 
 
 #: The longitudinal rows: ``LTMLE`` (``G01`` to ``G21``, ``G27``), ``SDR`` (``G23`` to ``G26``),
-#: the sequential baselines (``G28``) and the parametric g-formula (``G29``).
+#: the sequential baselines (``G28``), the parametric g-formula (``G29``) and repeated-outcome
+#: ``IPSI`` (``G37``).
 LONGITUDINAL_ROWS: Final[tuple[SupportRow, ...]] = _with_shortfalls(_long_rows())
 
 
