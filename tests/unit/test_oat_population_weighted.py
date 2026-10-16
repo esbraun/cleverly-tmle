@@ -271,8 +271,8 @@ class TestDW1Duplication:
         u_d = _rows_of(doubled_stack.problem, doubled_stack.theta, a_d)
         np.testing.assert_allclose(u_w, u_d[:n], rtol=1e-10, atol=1e-12)
 
-    def test_the_reported_standard_errors(self, duplication: tuple[Any, Any, int]) -> None:
-        weighted_fit, doubled_fit, n = duplication
+    def test_the_point_estimates(self, duplication: tuple[Any, Any, int]) -> None:
+        weighted_fit, doubled_fit, _ = duplication
         for name in ("ey0", "ey1", "ate"):
             assert weighted_fit[name].psi == pytest.approx(doubled_fit[name].psi, rel=1e-10)
 
