@@ -85,6 +85,7 @@ categorized API tables.
    cleverly.MonteCarloWarning
    cleverly.ParameterSpaceWarning
    cleverly.PositivityWarning
+   cleverly.SparseInfluenceWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
    cleverly.exceptions.Refusal

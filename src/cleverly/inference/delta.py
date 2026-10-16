@@ -214,6 +214,42 @@ def one_sided_quantile(level: float, df: int | None = None) -> float:
     return float(stats.t.ppf(level, df))
 
 
+def normal_quantile(level: float) -> float:
+    """The standard normal quantile at ``level``, for a bootstrap level map or a diagnostic.
+
+    A Wald interval takes :func:`reference_quantile` or :func:`one_sided_quantile`, which honour
+    a Student t reference. This helper is for the reads that are not a Wald reference: the
+    BCa bias correction and level map, and the Edgeworth term of the influence report.
+
+    Parameters
+    ----------
+    level : float
+        Probability in ``[0, 1]``.
+
+    Returns
+    -------
+    float
+        :math:`\\Phi^{-1}(\\text{level})`, infinite at 0 and 1.
+    """
+    return float(stats.norm.ppf(level))
+
+
+def normal_cdf(value: float) -> float:
+    """The standard normal distribution function at ``value``.
+
+    Parameters
+    ----------
+    value : float
+        The point to evaluate.
+
+    Returns
+    -------
+    float
+        :math:`\\Phi(\\text{value})`.
+    """
+    return float(stats.norm.cdf(value))
+
+
 def wald_ci(
     estimate: float, std_error: float, alpha: float = 0.05, *, df: int | None = None
 ) -> tuple[float, float]:

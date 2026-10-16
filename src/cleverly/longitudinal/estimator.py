@@ -126,7 +126,15 @@ from ..fluctuation._score import (
     residual_line,
     rule_failure_line,
 )
-from ..inference.bootstrap import BootstrapResult, Resampling, run_bootstrap
+from ..inference.bootstrap import (
+    BootstrapBand,
+    BootstrapInterval,
+    BootstrapResult,
+    Resampling,
+    bootstrap_band,
+    run_bootstrap,
+    run_index_bootstrap,
+)
 from ..inference.cluster import (
     cluster_inference_status,
     cluster_reference_df,
@@ -164,10 +172,12 @@ from ..inference.results import (
     sole_estimate,
     with_derived_bootstrap,
 )
+from ..inference.sparse import influence_report, warn_sparse_influence
 from ..interventions import RiskRatioTilt
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..assessment import AssessmentReport
+from ..learners._fitting import supports_sample_weight
 from ..learners.crossfit import Folds, _fresh_seed, check_integrity, random_partition
 from ..learners.glm import GLM
 from ..learners.library import _validate_learner
@@ -200,6 +210,7 @@ from .baselines import (
     mechanism_reads_parametric,
 )
 from .data import LongitudinalData, Repeated
+from .frequency import FrequencyReplicate, ReportedName, frequency_exact
 from .gformula import (
     GFormulaReport,
     GFormulaSettings,
@@ -1598,6 +1609,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         Method identity stamped by the estimator.
     bootstrap : BootstrapResult or None
         The full-refit bootstrap draws, when ``n_bootstrap > 0`` was requested.
+    bootstrap_band : BootstrapBand or None
+        The studentized bootstrap sup-t band over the estimates that supply inference.
+        ``None`` without a bootstrap, with ``simultaneous=False``, or with fewer than two
+        such estimates.
     isotonic_moves : tuple of tuple
         The levels an ``isotonic=True`` projection moved, as
         ``(regimen, cause, horizon, before, after)``.
@@ -1695,6 +1710,10 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The full-refit bootstrap draws, ``None`` unless ``n_bootstrap > 0``.  A replayed
     #: fit never reruns the bootstrap.
     bootstrap: BootstrapResult | None = None
+    #: The studentized bootstrap sup-t band over the estimates that supply inference, when
+    #: ``n_bootstrap > 0`` and ``simultaneous=True`` and two or more estimates supply it.
+    #: Its ``support`` says whether a registered row lists the ``bootstrap_band`` kind.
+    bootstrap_band: BootstrapBand | None = None
     #: ``(regimen, cause, horizon, before, after)`` of every level the isotonic projection
     #: moved, empty when it moved none or ``isotonic=False``.
     isotonic_moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
@@ -1845,7 +1864,14 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             gradient=gradient,
             transform=transform,
         )
-        return with_derived_bootstrap(derived, self.estimates, self.bootstrap, names, function)
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            names,
+            function,
+            cluster=self.data.cluster,
+        )
 
     def _levels(self) -> dict[tuple[str, str | None, int], str]:
         """``(regimen, cause, horizon) -> name`` of every reported level.
@@ -2009,6 +2035,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             self.bootstrap,
             (numerator, denominator),
             ratio_function(kind, complement=view == "survival"),
+            cluster=self.data.cluster,
         )
 
     def _ratio_name(self, numerator: str, denominator: str, kind: str, view: str) -> str:
@@ -2188,6 +2215,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             self.bootstrap,
             tuple(weights),
             linear_function(tuple(weights.values()), constant),
+            cluster=self.data.cluster,
         )
 
     def rmtl(
@@ -2306,6 +2334,7 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             self.bootstrap,
             tuple(weights),
             linear_function(tuple(weights.values())),
+            cluster=self.data.cluster,
         )
 
     def _names(self, names: Sequence[str] | None) -> tuple[str, ...]:
@@ -3052,6 +3081,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
             for name, estimate in self.estimates.items():
                 if estimate.bootstrap is not None:
                     lines.append(f"    {name}  {bootstrap_line(estimate)}")
+        if self.bootstrap_band is not None:
+            band = self.bootstrap_band
+            lines.append("")
+            marker = " [experimental]" if band.support.label == "experimental" else ""
+            lines.append(
+                f"  studentized bootstrap sup-t bands ({level}, critical value "
+                f"{band.critical_value:.3f}, {band.n_replicates} replicates){marker}:"
+            )
+            for name, (low, high) in band.bands.items():
+                lines.append(f"    {name}  [{low:.4f}, {high:.4f}]")
         rule = self._declared_rule()
         if rule != "relative":
             # Under a declared stopping rule the largest score residual in standard errors,
@@ -4134,6 +4173,7 @@ class _SequentialEstimator:
         n_jobs: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
+        bootstrap_interval: BootstrapInterval = "percentile",
         density_bins: int | None = None,
         ratio: str = "density",
         **refused: Any,
@@ -4163,6 +4203,7 @@ class _SequentialEstimator:
         self.n_jobs = n_jobs
         self.n_bootstrap = n_bootstrap
         self.bootstrap_resampling = bootstrap_resampling
+        self.bootstrap_interval = bootstrap_interval
         self.density_bins = density_bins
         self.ratio = ratio
         refuse_unsupported(refused, where=type(self).__name__)
@@ -4192,6 +4233,16 @@ class _SequentialEstimator:
             raise ValueError(f"n_bootstrap must be 0 or at least 2; got {self.n_bootstrap}")
         if self.bootstrap_resampling not in ("auto", "iid", "cluster"):
             raise ValueError("resampling must be 'auto', 'iid', or 'cluster'")
+        if self.bootstrap_interval not in ("percentile", "bca"):
+            raise ValueError(
+                f"bootstrap_interval must be 'percentile' or 'bca'; got {self.bootstrap_interval!r}"
+            )
+        if self.bootstrap_interval != "percentile" and not self.n_bootstrap:
+            raise ValueError(
+                f"bootstrap_interval={self.bootstrap_interval!r} names an interval of the "
+                "full-refit bootstrap, and n_bootstrap=0 runs none. Pass n_bootstrap= too, "
+                "such as n_bootstrap=199"
+            )
         if self.ratio not in ("density", "classifier"):
             raise ValueError(
                 f"ratio must be 'density' or 'classifier'; got {self.ratio!r}. It is how a "
@@ -4932,10 +4983,87 @@ class _SequentialEstimator:
             fold_mechanisms=fold_mechanisms,
             fitted_method=self._estimator,
         )
+        if (
+            self._estimator in ("tmle", "sdr")
+            and not (self.n_bootstrap and self.bootstrap_interval == "bca")
+            and prepared.cluster is None
+            and model is None
+        ):
+            # A Wald fit of an estimate read from few rows: the variance estimate is noisy
+            # and the skew moves the coverage (``cleverly.inference.sparse``). A percentile
+            # bootstrap keeps the skew shortfall and its first interval is still the Wald one,
+            # so it warns too, with advice for the BCa interval.
+            warn_sparse_influence(
+                influence_report(
+                    {name: e for name, e in estimates.items() if e.supplies_inference},
+                    alpha=self.alpha_sig,
+                ),
+                cross_fitted=not folds.is_single,
+                bootstrap_measured=not hazard and not self.isotonic,
+                percentile_bootstrap=bool(self.n_bootstrap),
+            )
         result = self._finish(result, reported, fits)
         if self.n_bootstrap:
-            # Spawned from ``random_state`` inside ``run_bootstrap``, so the stream draws
-            # nothing the fit above used: its split and its multiplier band are unchanged.
+            result = self._attach_bootstrap(
+                result,
+                prepared,
+                folds,
+                plans,
+                model=model,
+                hazard=hazard,
+                contributors=reported.contributors,
+                learners=(outcome_learner, pseudo_learner, treatment_learner, censoring_learner),
+                g_bounds=bounds,
+                classification=classification,
+                status=status,
+            )
+        record_fit(classification, result, source=f"{type(self).__name__}.fit")
+        return result
+
+    def _attach_bootstrap(
+        self,
+        result: LongitudinalResult,
+        prepared: LongitudinalData,
+        folds: Folds,
+        plans: Sequence[Plan],
+        *,
+        model: Any,
+        hazard: bool,
+        contributors: Mapping[str, tuple[RegimenFit, ...]],
+        learners: tuple[Learner, Learner, Learner, Learner],
+        g_bounds: tuple[float, float],
+        classification: Classification | None,
+        status: InferenceStatus,
+    ) -> LongitudinalResult:
+        """Run the full-refit bootstrap and attach its intervals and band to ``result``.
+
+        The replicates take the frequency-weighted fast path
+        (:class:`~cleverly.longitudinal.frequency.FrequencyReplicate`) when the fit is
+        eligible for it, and a materialized refit otherwise.  Both read the same row index
+        per replicate, so the choice moves no draw beyond rounding.
+        """
+        fast = self._frequency_replicate(
+            prepared,
+            folds,
+            plans,
+            model=model,
+            hazard=hazard,
+            contributors=contributors,
+            learners=learners,
+            g_bounds=g_bounds,
+            names=tuple(result.estimates),
+        )
+        # Spawned from ``random_state`` inside the run, so the stream draws nothing the fit
+        # used: its split and its multiplier band are unchanged.
+        if fast is not None:
+            bootstrap = run_index_bootstrap(
+                prepared,
+                fast,
+                n_replicates=self.n_bootstrap,
+                random_state=self.random_state,
+                n_jobs=self.n_jobs,
+            )
+        else:
             bootstrap = run_bootstrap(
                 prepared,
                 self._bootstrap_estimates,
@@ -4944,12 +5072,125 @@ class _SequentialEstimator:
                 random_state=self.random_state,
                 n_jobs=self.n_jobs,
             )
-            # The support row of the fit decides whether the percentile interval is supported:
-            # only the rows that list ``bootstrap`` license it, and every other fit that
-            # publishes it is experimental.
-            result = attach_bootstrap(result, bootstrap, classification=classification)
-        record_fit(classification, result, source=f"{type(self).__name__}.fit")
-        return result
+        # The support row of the fit decides whether each bootstrap interval is supported:
+        # only a row that lists the interval's kind (``bootstrap``, ``bootstrap_bca`` or
+        # ``bootstrap_band``) licenses it, and every other fit that publishes it is
+        # experimental.
+        result = attach_bootstrap(
+            result, bootstrap, classification=classification, interval=self.bootstrap_interval
+        )
+        banded = {
+            name: estimate
+            for name, estimate in result.estimates.items()
+            if estimate.supplies_inference and name in bootstrap.std_errors
+        }
+        # As for the multiplier band, no source gives a t-calibrated joint band.
+        if not self.simultaneous or len(banded) < 2 or has_t_reference(banded):
+            return result
+        band = bootstrap_band(
+            bootstrap,
+            {name: estimate.psi for name, estimate in banded.items()},
+            {name: estimate.plugin_std_error for name, estimate in banded.items()},
+            alpha=self.alpha_sig,
+            support=band_support(
+                classification,
+                status,
+                (estimate.support for estimate in banded.values()),
+                kind="bootstrap_band",
+            ),
+        )
+        return replace(result, bootstrap_band=band)
+
+    def _frequency_replicate(
+        self,
+        prepared: LongitudinalData,
+        folds: Folds,
+        plans: Sequence[Plan],
+        *,
+        model: Any,
+        hazard: bool,
+        contributors: Mapping[str, tuple[RegimenFit, ...]],
+        learners: tuple[Learner, Learner, Learner, Learner],
+        g_bounds: tuple[float, float],
+        names: tuple[str, ...],
+    ) -> FrequencyReplicate | None:
+        """The frequency-weighted replicate of this fit, or ``None`` when it is not exact.
+
+        The fast path covers an unclustered, unweighted, in-sample iterated-mean ``LTMLE``
+        or ``SDR`` fit of one end-of-study horizon, with every treatment and censoring
+        factor declared known, categorical treatment nodes, no tilt or modified treatment
+        policy, and outcome and pseudo-outcome learners declared exact under frequency
+        weights (:func:`~cleverly.longitudinal.frequency.frequency_exact`) that accept
+        ``sample_weight``.  Every other fit takes the materialized refit.
+        """
+        outcome_learner, pseudo_learner, treatment_learner, censoring_learner = learners
+        eligible = (
+            self._estimator in ("tmle", "sdr")
+            and not hazard
+            and not self.isotonic
+            and model is None
+            and folds.is_single
+            and prepared.cluster is None
+            and self.bootstrap_resampling in ("auto", "iid")
+            and not prepared.is_weighted
+            and not prepared.reports_curve
+            and not prepared.is_survival
+            and not prepared.is_repeated
+            and not prepared.is_competing
+            and not prepared.treatment_held
+            and all(
+                prepared.node_kind(time) == "categorical" for time in range(1, prepared.n_times + 1)
+            )
+            and _mechanism_declared(prepared)
+            and not any(plan.has_tilt or plan.has_mtp for plan in plans)
+            and all(
+                frequency_exact(learner) and supports_sample_weight(learner)
+                for learner in (outcome_learner, pseudo_learner)
+            )
+        )
+        if not eligible:
+            return None
+        reported = []
+        horizons: set[int] = set()
+        for name, fits in contributors.items():
+            horizons.update(fit.horizon for fit in fits)
+            reference = fits[1].regimen.label if len(fits) > 1 else None
+            reported.append(ReportedName(name, fits[0].regimen.label, reference))
+        produced = tuple(item.name for item in reported)
+        # The same names in another order would drop the fast path without a trace, so fail
+        # loudly under ``python`` without ``-O``.
+        assert produced == names or sorted(produced) != sorted(names), (
+            "the contributors and the result list the same estimates in a different order"
+        )
+        if produced != names or len(horizons) != 1:
+            return None
+        regimens = tuple(plan.regimen for plan in plans)
+
+        def resolve(data: LongitudinalData) -> tuple[tuple[Plan, ...], Mechanism]:
+            resolved = resolve_plans(regimens, data)
+            mechanism = fit_mechanism(
+                data,
+                resolved,
+                treatment_learner=treatment_learner,
+                censoring_learner=censoring_learner,
+                folds=Folds.single(data.n),
+                density_bins=self.density_bins,
+                ratio=self.ratio,
+            )
+            return tuple(resolved), mechanism
+
+        return FrequencyReplicate.build(
+            prepared,
+            resolve=resolve,
+            names=reported,
+            estimator=self._estimator,
+            horizon=horizons.pop(),
+            outcome_learner=outcome_learner,
+            pseudo_learner=pseudo_learner,
+            g_bounds=g_bounds,
+            q_bounds=self.q_bounds,
+            targeting=self._targeting(),
+        )
 
     def _replicate_estimator(self) -> _SequentialEstimator:
         """This estimator's settings for one bootstrap replicate.
@@ -4966,8 +5207,8 @@ class _SequentialEstimator:
         replicate.n_jobs = 1
         return replicate
 
-    def _bootstrap_estimates(self, data: LongitudinalData) -> dict[str, float]:
-        """One bootstrap replicate: a full refit on the resample, point estimates only.
+    def _bootstrap_estimates(self, data: LongitudinalData) -> dict[str, tuple[float, float]]:
+        """One bootstrap replicate: a full refit on the resample.
 
         Runs the same path as :meth:`fit`, not :func:`_refit_bound`, which holds the
         mechanism and the folds fixed.
@@ -4979,11 +5220,15 @@ class _SequentialEstimator:
 
         Returns
         -------
-        dict of str to float
-            The point estimate of every reported parameter.
+        dict of str to tuple of float
+            The point estimate and the influence-curve standard error of every reported
+            parameter.
         """
         refit = self._replicate_estimator().fit(data)
-        return {name: estimate.psi for name, estimate in refit.estimates.items()}
+        return {
+            name: (estimate.psi, estimate.plugin_std_error)
+            for name, estimate in refit.estimates.items()
+        }
 
     # ------------------------------------------------------------- internals
 
@@ -5489,9 +5734,20 @@ class LTMLE(_SequentialEstimator):
         otherwise.  A fit that withholds its interval, or that has fewer clusters than the
         floor, prints ``bootstrap sd`` and a percentile range.  The registered study measures
         it with correctly specified cell-mean nuisances on finite binary laws, at
-        ``n = 1000``.
+        ``n = 1000``.  Each replicate also records its own influence-curve standard error,
+        which the studentized sup-t band (:attr:`LongitudinalResult.bootstrap_band`) divides
+        by.  An in-sample fit with declared mechanisms and frequency-exact learners computes
+        each replicate as a frequency-weighted fit on the distinct rows
+        (:class:`~cleverly.longitudinal.frequency.FrequencyReplicate`), which equals the
+        materialized refit to rounding.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    bootstrap_interval : {"percentile", "bca"}, default="percentile"
+        The pointwise bootstrap interval.  ``"bca"`` is the bias-corrected and accelerated
+        interval, with the acceleration from each estimate's own influence curve (summed within
+        clusters when clusters are resampled).  It needs ``n_bootstrap``; 199 replicates is
+        the X39 study setting.  It carries the label ``experimental`` until a registered row
+        lists the ``bootstrap_bca`` kind for the fit.
     survival_model : {"iterated_mean", "hazard"}
         How a survival curve is modelled.  ``"iterated_mean"`` runs one backward
         recursion per horizon, and its curve can decrease.  ``"hazard"`` fits the
@@ -5547,6 +5803,7 @@ class LTMLE(_SequentialEstimator):
         n_jobs: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
+        bootstrap_interval: BootstrapInterval = "percentile",
         density_bins: int | None = None,
         ratio: str = "density",
         stopping: StoppingRule = "relative",
@@ -5592,6 +5849,7 @@ class LTMLE(_SequentialEstimator):
             n_jobs=n_jobs,
             n_bootstrap=n_bootstrap,
             bootstrap_resampling=bootstrap_resampling,
+            bootstrap_interval=bootstrap_interval,
             density_bins=density_bins,
             ratio=ratio,
             **refused,
@@ -5694,10 +5952,14 @@ class SDR(_SequentialEstimator):
     n_jobs : int
         Worker count for the parallel fan-out.
     n_bootstrap : int
-        Full-refit bootstrap replicates, ``0`` for none.  No registered study measures the
-        SDR bootstrap, so the draws report a bootstrap sd and no percentile inference.
+        Full-refit bootstrap replicates, ``0`` for none.  No registered row lists a
+        bootstrap kind for an ``SDR`` fit, so its intervals carry the label
+        ``experimental``.  The replicates are computed as for :class:`LTMLE`.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    bootstrap_interval : {"percentile", "bca"}, default="percentile"
+        The pointwise bootstrap interval, as for :class:`LTMLE`.  It carries the label
+        ``experimental``.
     density_bins : int or None
         The bin count of a continuous node's conditional density, as for :class:`LTMLE`.
     ratio : {"density", "classifier"}
@@ -5764,6 +6026,7 @@ class SDR(_SequentialEstimator):
         n_jobs: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
+        bootstrap_interval: BootstrapInterval = "percentile",
         density_bins: int | None = None,
         ratio: str = "density",
         **refused: Any,
@@ -5793,6 +6056,7 @@ class SDR(_SequentialEstimator):
             n_jobs=n_jobs,
             n_bootstrap=n_bootstrap,
             bootstrap_resampling=bootstrap_resampling,
+            bootstrap_interval=bootstrap_interval,
             density_bins=density_bins,
             ratio=ratio,
             **refused,
@@ -7246,6 +7510,17 @@ class _BoundReplay:
     fits: dict[str, RegimenFit]
     msm_fits: tuple[MSMRegimenFit, ...]
     contributors: dict[str, tuple[RegimenFit, ...]]
+
+
+def _mechanism_declared(data: LongitudinalData) -> bool:
+    """Whether every treatment and censoring factor of ``data`` is declared known."""
+    known = data.known_mechanisms
+    if known is None:
+        return False
+    nodes = range(1, data.n_times + 1)
+    if not all(known.treatment_at(time) is not None for time in nodes):
+        return False
+    return not data.censoring_names or all(known.censoring_at(time) is not None for time in nodes)
 
 
 def _refit_bound(
