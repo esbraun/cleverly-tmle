@@ -1366,6 +1366,16 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "",
         "",
     ),
+    (
+        "parametric-gformula",
+        "property",
+        "interval_calibration/nice_g1_treat_all__correctly_specified",
+        "G29.g1",
+        ("wald",),
+        EXPERIMENTAL,
+        "",
+        "",
+    ),
 )
 
 #: The committed decisions, one per positive red row.

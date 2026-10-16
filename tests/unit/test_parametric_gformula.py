@@ -2436,7 +2436,13 @@ class TestStatus:
             frame,
             **{**ROLES_B, "weights": "wt", "weights_estimated": True},
         )
+        estimate = result.estimates["ey_regimen[a]"]
         assert result.inference_status == "estimated_weight_plugin"
+        assert estimate.supplies_inference
+        assert np.isfinite(estimate.std_error)
+        assert estimate.support.label == "experimental"
+        assert "conditions on the weights" in estimate.support.reason
+        assert "X50" in estimate.support.evidence
 
     def test_a_low_draw_count_warns_and_a_high_one_does_not(self) -> None:
         # The outcome mean is not drawn, so the simulation varies only through L2.  A strong

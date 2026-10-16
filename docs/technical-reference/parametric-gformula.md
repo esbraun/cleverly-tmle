@@ -195,8 +195,8 @@ the registered study `parametric-gformula`, which includes cells at `n_draws = 1
 | fit | status | what the result reports |
 | --- | --- | --- |
 | every model that the estimate reads is a `GLM`, or a node with one observed class | `influence_curve` | the stacked curve, with an interval |
-| a model that the estimate reads uses another learner | `adaptive_baseline_plugin` | the point estimate, and a diagnostic curve under `plugin_std_error`. The curve drops each non-`GLM` block |
-| `weights_estimated=True` | `estimated_weight_plugin` | the stacked curve as a diagnostic |
+| a model that the estimate reads uses another learner | `adaptive_baseline_plugin` | the point estimate. `std_error`, `ci` and `pvalue` raise `CapabilityError`. A diagnostic curve stays under `plugin_std_error`, and it drops each non-`GLM` block |
+| `weights_estimated=True` | `estimated_weight_plugin` | the stacked curve as an interval under the `experimental` label. The interval conditions on the weights |
 
 The models that the estimate reads are every covariate model, the outcome model, every hazard
 model, and the natural-treatment model of each tilt node and each policy node $t \ge 2$. A node
@@ -206,6 +206,24 @@ not read leaves the status unchanged. No result gives the asymptotic linearity o
 form with data-adaptive learners.
 
 The full-refit bootstrap runs and reports `bootstrap sd`, as for the other baselines.
+
+### Support label
+
+Each estimate carries a `support` label. A fit is `supported` for a point estimate or a Wald
+interval only when one row of the table below covers its configuration. Any other fit runs and
+reports the label `experimental` with the reason. A fit that passes a learner other than `GLM`
+for the outcome, the treatment or the censoring model leaves every row.
+
+| row | configuration | licensed |
+| --- | --- | --- |
+| `G29.g1` | end-of-study binary outcome with censoring, two arms at three nodes, static, rule and odds-tilt regimens | point. The Wald interval is `experimental` because the treat-all calibration cell is red (X45) |
+| `G29.g2_g5` | end-of-study Gaussian outcome with complete data, two arms at three nodes, static, known stochastic and odds-tilt regimens | point, Wald |
+| `G29.g3` | competing-risk cumulative incidence with censoring, two arms at four nodes, static regimens | point, Wald |
+| `G29.g4` | end-of-study Gaussian outcome with complete data, continuous dose at three nodes, shift, fixed-dose and rule-set-dose regimens | point, Wald |
+
+The study fits no survival outcome, no cluster, no weight, no declared mechanism and no
+`n_draws` above `10` for these rows. The rows are in `cleverly._support_rows`, and each has a case
+in `tests/studies/support_cases.py`.
 
 ## Declared treatment mechanisms
 

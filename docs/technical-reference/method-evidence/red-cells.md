@@ -108,7 +108,7 @@ The test fails on four states.
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 173 | 32 studies |
+| total | 174 | 33 studies |
 <!-- /generated -->
 
 ## The red rows

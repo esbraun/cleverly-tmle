@@ -6589,7 +6589,8 @@ class ParametricGFormula(_Baseline):
     equations of the models and the estimate (Stefanski and Boos 2002, Section 2).  The
     simulation error is part of that interval, and ``result.simulation`` reports its share of
     the variance.  Any other learner gives the ``"adaptive_baseline_plugin"`` status: the point
-    estimate stands, and the interval is a diagnostic.
+    estimate stands, the interval is withheld, and a diagnostic curve stays under
+    ``plugin_std_error``.
 
     Parameters
     ----------
