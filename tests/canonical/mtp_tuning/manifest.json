@@ -5,8 +5,8 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly-mtp-tuning",
-      "cleverly_version": "0.1.3",
-      "cleverly_commit": "c27dc310c966e521e6dfd59000cdd0429aafd3c8",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "98bad01d1c5dad81b9642a185f949fc41ad10a20",
       "cleverly_worktree_clean": false,
       "python": "3.13.16",
       "numpy": "2.5.4",
@@ -17,7 +17,7 @@
     "reference": null
   },
   "configuration": {
-    "replicates": 200,
+    "replicates": 1000,
     "n": 2000,
     "seed": 20264031,
     "resampling_seed": 2026403101,
@@ -78,7 +78,7 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_mtp_tuning.py": "60497699e1b4f45d901bab3fca744fe48df100eb48265d55bb96a3d8e571bce5",
+    "tests/studies/canonical_mtp_tuning.py": "68ce19b5639b329cccabbce4e20383f0304665170bda82ae778177efd4829956",
     "tests/studies/mtp_tuning_properties.py": "8e6ec7a065486a4a33301a13bdbd377ff65c2c1907dd1f82c8693004b803dd74",
     "tests/studies/mtp_pricing_common.py": "5da8c15baaee240013f43988653f9ed2fdf6b3e8a538a7ac99a3b6e343d70e3a",
     "tests/studies/mtp_study_tools.py": "1ae81eda30faf49fdcd13973e9a5e5d69a4ec6bb93c6d9d86b73e71ee7f11b40",
@@ -86,7 +86,7 @@
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
     "tests/studies/canonical_categorical_ltmle.py": "2dc1081ad4c1d871415a41444122a7fe90dd526748710f98c4fb133bc9428311",
     "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
-    "tests/studies/canonical_mtp_pricing.py": "c66f11242fc181b943fa00de7446fcf8315c07f0888cbb390054263bd42454ca",
+    "tests/studies/canonical_mtp_pricing.py": "38eaa61b2ed1422801e8821e3e7654197a66643aa28acea4bc7dfa4e20cdfeba",
     "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
     "tests/studies/mtp_pricing_properties.py": "1962266491b694654bb0975ea62bec34987ae0c8634e0bb35d8c69a574068dd4",
     "tests/law_q_tuned.py": "f79cd1f308db26c789e57356bccd441b53c47e1ae0400e2672e174cc2211fd53",
@@ -101,10 +101,10 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "d8443007bafa00740b36a11ff3d75038d2f5d3a0258336cf66b9c3f34641b66a",
-    "summary.csv": "9d2d7cea22cf61b49aa5d9b92f8432f9feef4c08adcf683fb9c90fb8544f88a9",
+    "replicates.csv.gz": "08361463755cd3ca96bbadcdf81df0c97c90fb9803b687e93181463d73af4b68",
+    "summary.csv": "f0db0fa6709baf7787c8070ec2729f3e035878a3cfe2394f0ddd92fbd4569fb4",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "540afcf550525c464c69eb5bdc211d725ef49078157ceb7e141a5acded3a9a57",
+    "performance-tests.csv": "939d3c8b1f1dd0934fdba716dbc8813a84c966d199bc51430af2a04aac0b8885",
     "property-replicates.csv.gz": "0b751ae83d647c2146aab5977e06cace42e301e7c5b0906e19d007cdbcf25b5d",
     "properties.csv": "5a1022a9f9c3f32af6180f7de94158eb386256775b6e538b14fe8412bfbe5c57"
   }
