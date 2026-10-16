@@ -13,21 +13,22 @@ variable, or a closed form. `tests/studies/parametric_gformula_laws.py` states e
 `tests/studies/canonical_parametric_gformula.py` declares the laws, the plans and the reading
 rule before the run.
 
-The comparator is `pygformula` 1.2.0. The comparator runs are pending, so this study carries the
-label "Python property evidence, with comparator runs pending". A follow-up PR from X45 registers
-the runs. The comparison is not acceptance evidence for any claim until that PR merges.
+No canonical implementation is compared on the study laws. The `pygformula` package, version
+1.2.0, cannot fit node-specific models. So it runs on four separate fixtures where both model
+classes are correct. All 63 coefficient rows and all 21 estimate rows of those fixtures pass. The
+fixtures test agreement of the point estimate only. They are not evidence for the interval.
 
 ## What was compared
 
 | setting | `cleverly` | `pygformula` 1.2.0 |
 | --- | --- | --- |
-| status | run and published on this page | pending. No reference process ran, and `equivalence.csv` has no rows |
-| datasets | 1,000 samples of 8,000 rows of each of five laws | the identical rows, once the runs exist |
+| status | run and published on this page | run on the fixtures. The results are in `tests/canonical/parametric_gformula_study/pygformula-*.csv` |
+| datasets | 1,000 samples of 8,000 rows of each of five laws | one panel of 2,000 units for each of four fixtures, fitted by both packages |
 | models | one main-terms `GLM` for each covariate, treatment, censoring and outcome node, in the full-history design | bare column names with a pooled residual SD over time, so only laws where pooled and node-specific models agree can pair |
 | simulation | `n_draws = 10` histories for each unit, Philox streams keyed by scenario and replicate | `n_simul = n`, with at least 20 seeds for the Monte Carlo SE |
-| intervals | stacked estimating equation with the chain rule and the simulation term, pointwise 95% Wald | none exists. A pending fixture compares the estimate against four combined Monte Carlo SE |
+| intervals | stacked estimating equation with the chain rule and the simulation term, pointwise 95% Wald | none exists. The fixture gate compares the estimate against four combined Monte Carlo SE |
 
-The pending runs use their own environment (`tests/canonical/parametric_gformula_study/Dockerfile`
+The fixture runs use their own environment (`tests/canonical/parametric_gformula_study/Dockerfile`
 and `requirements.txt`), and never a package extra. The README of that directory lists the fixtures.
 
 The study has two phases. The primary phase fits each law once for every replicate and reads the
@@ -288,11 +289,11 @@ has no rows.
 
 | limit | what it means for use |
 | --- | --- |
-| the comparator runs are pending | no `pygformula` output is compared. A follow-up PR from X45 registers the runs, and this page is Python property evidence until then |
+| no comparator on the study laws | `pygformula` runs on four fixtures, not on the study laws. The fixtures compare coefficients and point estimates, not intervals |
 | correctly specified laws | every law but `G4Q` is the main-terms model that the estimator fits. The study does not show coverage under misspecification. The `G4Q` cell reports a bias of 1.49 |
 | one red cell | the `G1` treat-all calibration cell reads as finite-sample under a declared reading. A repeat run under a fresh declaration would test the reading |
 | GLM learners only | the estimator ships with `GLM` models. A flexible learner is outside the evidence |
-| node-specific models | `pygformula` pools residual SD over time, so its fixtures use laws where pooled and node-specific models agree. The pending pairs do not cover node-specific laws |
+| node-specific models | `pygformula` pools residual SD over time, so its fixtures use laws where pooled and node-specific models agree. The fixtures do not cover node-specific laws |
 | no published variance | no published analytic variance exists for the simulation form. The interval is a natural extension, and its calibration here is the evidence for it |
 | lost replicates | ten property replicates were lost to comparator fits. They carry no verdict, so no gate reads them |
 
@@ -300,8 +301,10 @@ has no rows.
 
 The [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/parametric_gformula_study/manifest.json)
 records the seeds, the margins, the estimator configuration, the source hashes and the result
-hashes. It records the comparator as pending, with the sources of the stub runner and the image.
-Run `python -m tests.canonical.parametric_gformula_study.regenerate` to regenerate the artifacts.
+hashes. It records no comparator. Run
+`python -m tests.canonical.parametric_gformula_study.regenerate` to regenerate the artifacts.
+Run `python -m tests.canonical.parametric_gformula_study.compare_pygformula` to repeat the
+`pygformula` fixtures. That command needs Docker.
 The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/parametric_gformula_study/replicates.csv.gz)
 and the [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/parametric_gformula_study/properties.csv)
 carry every published row.
