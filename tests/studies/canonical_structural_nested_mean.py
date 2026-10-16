@@ -1,7 +1,7 @@
 r"""Registered evidence for the structural nested mean estimator (``structural-nested-mean``, X44).
 
 The subject is :class:`~cleverly.longitudinal.StructuralNestedMean` with declared
-:class:`~cleverly.learners.GLM` nuisances (and a shallow regularized booster on the nonlinear law
+:class:`~cleverly.learners.GLM` nuisances (and an early-stopped booster on the nonlinear law
 ``N``).  The laws are in :mod:`tests.studies.structural_nested_mean_laws` and the property
 families in :mod:`tests.studies.structural_nested_mean_properties`.
 
@@ -25,7 +25,7 @@ scenario  what it shows
 ``p``     a past-treatment feature, :math:`\phi_2 = (1, A_1)`
 ``m``     the second treatment and the outcome read the first covariate
 ``l``     :math:`\phi_2 = (1, S_2)`: the blips and ``ey_reference`` (no static contrast)
-``n``     nonlinear nuisances, a cross-fitted booster
+``n``     nonlinear nuisances, a cross-fitted early-stopped booster
 ``s2w``   known weights
 ``s2c``   clusters of ten
 ========  ======================================================================================
@@ -71,6 +71,7 @@ from __future__ import annotations
 import re
 import warnings
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
@@ -124,11 +125,9 @@ PENDING_REASON = (
 #: The ``GLM`` interaction order of each setup's nuisances: the lowest order that returns every
 #: truth at population weights (the design test checks it, and that one order less fails except
 #: at main terms).  ``3`` unless listed.  ``N`` has no entry: it fits a booster.  An order of
-#: three on ``S2`` fails on a separated cell in 9.7% of the draws at n = 500.  ``SP`` is the one
-#: exception to the exactness rule: its node-2 outcome regression needs a three-way cell, but an
-#: order of three fails on a separated cell in 17% of the draws at n = 2,000 (101 of 600), above
-#: the failure bound.  Its treatment regressions are exact at order two, so the estimator stays
-#: unbiased by double robustness, and the design test pins the outcome gap as a witness.
+#: three on ``S2`` fails on a separated cell in 9.7% of the draws at n = 500.  The order applies to
+#: the outcome regressions, and to the treatment regressions unless
+#: :data:`TREATMENT_INTERACTIONS` lists the setup.
 INTERACTIONS: dict[str, int] = {
     "S2": 2,
     "H": 2,
@@ -140,58 +139,155 @@ INTERACTIONS: dict[str, int] = {
     "C": 1,
     "LU": 2,
     "VB": 2,
-    "SP": 2,
 }
+#: The treatment-side ``GLM`` order of a setup whose two roles need different orders.  The node-2
+#: outcome regression of ``SP`` needs a three-way cell, so its outcome order is three.  An order
+#: of three on both roles failed on a separated treatment cell in 17% of the draws at n = 2,000
+#: (101 of 600).  The treatment logits of ``SP`` are additive, so its treatment regressions are
+#: exact at any order; order two is the order of the model-check fits
+#: (:data:`CHECK_INTERACTIONS`).  The declared pair fails in none of 1,000 draws
+#: (``PILOT_POSITIVITY`` in the design test).
+TREATMENT_INTERACTIONS: dict[str, int] = {"SP": 2}
 DEFAULT_INTERACTIONS = 3
 #: The outer folds of each setup; ``10`` (the shipped default) unless listed.
 DEFAULT_FOLDS = 10
 FOLDS: dict[str, int] = {"N": 5}
 
 
+#: The settings of ``N``'s boosters.  Their capacity grows with n: each fit holds out
+#: ``validation_fraction`` of its training rows and stops when the held-out loss has not improved
+#: for ``n_iter_no_change`` rounds, so the number of trees is chosen by the data.
+#:
+#: Why this learner.  The structural estimator's remainder is a product of nuisance errors, so
+#: nuisances that converge faster than :math:`n^{-1/4}` make it negligible (Chernozhukov et al.
+#: 2018, Thm 3.1).  A booster of fixed size has a fixed bias, and the round-2 review measured it:
+#: ``blip[A2]`` read 1.8 SE of bias at n = 512,000.  Early stopping on a held-out split is
+#: hold-out model selection over a nested sieve (the number of rounds).  The selected fit attains
+#: the rate of the best stopping time up to an :math:`O(\log n / n)` term (Gyorfi, Kohler,
+#: Krzyzak and Walk 2002, Thm 7.1), and boosting with early stopping is consistent (Zhang and Yu
+#: 2005).  Trees of 15 leaves with no depth cap reach every interaction of the five history
+#: variables, so the sum of trees can represent each nuisance of the finite law.  A depth of two
+#: cannot represent :math:`q_2 = E[Y \mid H_2]`, which holds the ``expit`` of the node-2 logit, an
+#: interaction of three variables.  A cross-validated library was the alternative.  Its oracle
+#: inequality only carries over the rate of its best candidate, so it would still need a
+#: candidate of growing capacity, at the cost of an inner cross-validation.  ``max_iter`` is a cap
+#: that the stopping rule never reaches at the probed sizes (``BOOSTER_ROUNDS`` in the design
+#: test).
+BOOSTER_SETTINGS: dict[str, Any] = {
+    "max_depth": None,
+    "max_leaf_nodes": 15,
+    "learning_rate": 0.1,
+    "max_iter": 2_000,
+    "l2_regularization": 1.0,
+    "min_samples_leaf": 20,
+    "early_stopping": True,
+    "validation_fraction": 0.1,
+    "n_iter_no_change": 20,
+    "random_state": 0,
+}
+
+
 def booster_classifier() -> HistGradientBoostingClassifier:
-    """The shallow regularized booster of ``N``'s treatment mechanisms."""
-    return HistGradientBoostingClassifier(
-        max_depth=2,
-        max_iter=50,
-        learning_rate=0.1,
-        l2_regularization=1.0,
-        min_samples_leaf=20,
-        early_stopping=False,
-        random_state=0,
-    )
+    """The early-stopped booster of ``N``'s treatment mechanisms."""
+    return HistGradientBoostingClassifier(**BOOSTER_SETTINGS)
 
 
 def booster_regressor() -> HistGradientBoostingRegressor:
-    """The shallow regularized booster of ``N``'s outcome regressions."""
-    return HistGradientBoostingRegressor(
-        max_depth=2,
-        max_iter=50,
-        learning_rate=0.1,
-        l2_regularization=1.0,
-        min_samples_leaf=20,
-        early_stopping=False,
-        random_state=0,
-    )
+    """The early-stopped booster of ``N``'s outcome regressions."""
+    return HistGradientBoostingRegressor(**BOOSTER_SETTINGS)
 
 
-#: The ``GLM`` interaction order of the model-check fits.  At n = 1,000 and two folds an order of
-#: three fails on a separated follower cell in about 14% of the draws of ``S2``; an order of two
-#: fails in none of 150.
+#: The ``GLM`` interaction order of the model-check fits, for both roles.  At n = 1,000 and two
+#: folds an order of three fails on a separated follower cell in about 14% of the draws of
+#: ``S2``; an order of two fails in none of 150.  On ``SP`` it leaves the node-2 outcome
+#: regression inexact; the treatment regressions stay exact, so the difference of the two
+#: estimators still has mean zero under a correct model by double robustness.
 CHECK_INTERACTIONS = 2
+#: The splits of the model check (``check_model(n_splits=...)``): the
+#: shipped default.
+CHECK_SPLITS = 5
 
 
 def learners(name: str, order: int | None = None) -> dict[str, Any]:
-    """The outcome and treatment learners of one setup; ``order`` replaces its ``GLM`` order."""
+    """The outcome and treatment learners of one setup; ``order`` replaces both ``GLM`` orders."""
     if laws.setup(name).nuisance == "booster":
         return {
             "outcome_learner": booster_regressor(),
             "treatment_learner": booster_classifier(),
         }
-    order = INTERACTIONS.get(name, DEFAULT_INTERACTIONS) if order is None else order
+    if order is None:
+        outcome = INTERACTIONS.get(name, DEFAULT_INTERACTIONS)
+        treatment = TREATMENT_INTERACTIONS.get(name, outcome)
+    else:
+        outcome = treatment = order
     return {
-        "outcome_learner": GLM(family="gaussian", interactions=order),
-        "treatment_learner": GLM(interactions=order),
+        "outcome_learner": GLM(family="gaussian", interactions=outcome),
+        "treatment_learner": GLM(interactions=treatment),
     }
+
+
+#: The learner class of each nuisance role of a ``GLM`` setup and of ``N``.
+GLM_LEARNERS: dict[str, type] = {"outcome": GLM, "treatment": GLM}
+BOOSTER_LEARNERS: dict[str, type] = {
+    "outcome": HistGradientBoostingRegressor,
+    "treatment": HistGradientBoostingClassifier,
+}
+
+
+@dataclass(frozen=True)
+class SupportDeclaration:
+    """The RM42b support key one setup's fits record, with the learner class of each role.
+
+    Every key of this study also reads the ``snmm`` engine, ``cross_fitted`` splitting, a
+    gaussian unbounded outcome, complete data and the ``rademacher`` multiplier.
+
+    Parameters
+    ----------
+    treatment : tuple of str
+        The level count of each treatment node, or ``"continuous"``.
+    weighting : str
+        ``"none"`` or ``"fixed"`` (known weights).
+    dependence : str
+        ``"iid"`` or ``"clustered"``.
+    covariate_features : bool
+        Whether a blip feature reads a time-varying covariate.
+    regimens : bool
+        Whether the fit declares static regimens.
+    learners : dict
+        The learner class of the ``outcome`` and ``treatment`` roles.
+    """
+
+    treatment: tuple[str, ...] = ("2", "2")
+    weighting: str = "none"
+    dependence: str = "iid"
+    covariate_features: bool = False
+    regimens: bool = True
+    learners: Mapping[str, type] = field(default_factory=lambda: dict(GLM_LEARNERS))
+
+
+#: The support key each fitted setup records under ``CLEVERLY_SUPPORT_RECORD``.  The design test
+#: fits every setup under the record switch and requires the recorded key and learner classes
+#: to equal this declaration, so the support rows written after the run name what the run
+#: measured.  The ``N`` key names the booster classes; its claim is the early-stopped booster of
+#: :func:`booster_regressor` and :func:`booster_classifier`.  The model check also records the
+#: key of its ``LTMLE`` side.  A model-check row is supported only when that ``LTMLE`` key has
+#: its own row.
+SUPPORT_KEYS: dict[str, SupportDeclaration] = {
+    "S2": SupportDeclaration(),
+    "S3": SupportDeclaration(treatment=("2", "2", "2")),
+    "K": SupportDeclaration(treatment=("3", "3")),
+    "C": SupportDeclaration(treatment=("continuous", "continuous")),
+    "H": SupportDeclaration(),
+    "P": SupportDeclaration(),
+    "M": SupportDeclaration(),
+    "L": SupportDeclaration(covariate_features=True, regimens=False),
+    "N": SupportDeclaration(learners=dict(BOOSTER_LEARNERS)),
+    "S2W": SupportDeclaration(weighting="fixed"),
+    "S2C": SupportDeclaration(dependence="clustered"),
+    "SP": SupportDeclaration(),
+    "LU": SupportDeclaration(),
+    "VB": SupportDeclaration(),
+}
 
 
 class StatusMismatch(AssertionError):
@@ -288,14 +384,15 @@ CONTROL_REPLICATES = 2_000
 
 #: The positive setups whose estimands are calibrated.
 CALIBRATED = ("S2", "S3", "K", "C", "H", "P", "M", "L", "N", "S2W", "S2C")
-#: The ladder estimands of each laddered setup.  ``N`` is the adaptive cell: a contrast and a
-#: blip, so a remainder that does not vanish shows in two estimands.
+#: The ladder estimands of each laddered setup.  ``N`` is the adaptive cell: a contrast and both
+#: blips, so a remainder that does not vanish shows in three estimands.  ``blip[A2]`` carried
+#: the largest bias of the fixed booster that the round-2 review measured.
 LADDER_ESTIMANDS: dict[str, tuple[str, ...]] = {
     "S2": ("ate_regimen[r11 vs r00]",),
     "H": ("ate_regimen[r11 vs r00]",),
     "K": ("ate_regimen[r12 vs r00]",),
     "C": ("ate_regimen[dose_high vs dose0]",),
-    "N": ("ate_regimen[r11 vs r00]", "blip[A1:1.0:intercept]"),
+    "N": ("ate_regimen[r11 vs r00]", "blip[A1:1.0:intercept]", "blip[A2:1.0:intercept]"),
 }
 
 
@@ -479,20 +576,44 @@ STUDY = StudyRecord(
     failure_bound={IMPLEMENTATION: FAILURE_BOUND, PENDING_REFERENCE: FAILURE_BOUND},
 )
 
+
+def _booster_text(kind: str) -> str:
+    settings = ", ".join(f"{key}={value!r}" for key, value in BOOSTER_SETTINGS.items())
+    return f"{kind}({settings})"
+
+
+def _support_text(declared: SupportDeclaration) -> dict[str, Any]:
+    return {
+        "treatment": list(declared.treatment),
+        "weighting": declared.weighting,
+        "dependence": declared.dependence,
+        "covariate_features": declared.covariate_features,
+        "regimens": declared.regimens,
+        "learners": {role: cls.__name__ for role, cls in declared.learners.items()},
+    }
+
+
 CONFIGURATION = {
     "estimator": "StructuralNestedMean",
     "outcome_learner": {
         "GLM setups": f"GLM(family='gaussian', interactions=order); order {DEFAULT_INTERACTIONS}",
         "GLM orders": dict(INTERACTIONS),
-        "N": "HistGradientBoostingRegressor(max_depth=2, max_iter=50, l2=1)",
+        "N": _booster_text("HistGradientBoostingRegressor"),
     },
     "treatment_learner": {
-        "GLM setups": "GLM(interactions=order), the same orders",
-        "N": "HistGradientBoostingClassifier(max_depth=2, max_iter=50, l2=1)",
+        "GLM setups": "GLM(interactions=order), the outcome order unless listed",
+        "GLM orders": dict(TREATMENT_INTERACTIONS),
+        "N": _booster_text("HistGradientBoostingClassifier"),
     },
     "n_folds": {"default": DEFAULT_FOLDS, **FOLDS},
+    "model_check": {
+        "interactions": CHECK_INTERACTIONS,
+        "n_splits": CHECK_SPLITS,
+        "cells": {name: list(cell) for name, cell in CHECK_CELLS.items()},
+    },
     "ladder": {setup: list(ladder_sizes(setup)) for setup in LADDER_ESTIMANDS},
     "calibration_n": CALIBRATION_N,
+    "support_keys": {name: _support_text(declared) for name, declared in SUPPORT_KEYS.items()},
     "expected_red": list(EXPECTED_RED),
     "reference": "none yet; the EconML 0.17.0 DynamicDML comparator is pending",
 }

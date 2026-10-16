@@ -7,9 +7,10 @@ Every number here is fixed before any registered run.  The test checks eight con
 (b) each negative control misses the regimen truth by a computed amount, and the detection rule
     (the bias interval lies beyond the margin on the side of the gap) fires with chance at
     least 0.95 at the declared replicates;
-(c) the replicates of the calibration cells follow the arm-pooled predictive rule: the chance
-    that all 61 cells pass, with the SE ratio, the coverage and the bias leg, is at least 0.95
-    when the true SE ratio of each arm is drawn from its pilot;
+(c) the replicates of the calibration cells are the output of the partially pooled predictive
+    rule: the smallest multiple of 400 at which all 61 cells pass, with the SE ratio, the
+    coverage and the bias leg, with chance at least 0.95, when the true SE ratio of each cell is
+    its own pilot shrunk toward its setup's centre;
 (d) the ladder rungs clear their coverage floor, and each rung stays under the failure bound;
 (e) the model-check size cells and the power cell, with the exact-law power from the influence
     curves;
@@ -25,6 +26,7 @@ here reads a run artifact, and no ``passed`` column exists.
 
 from __future__ import annotations
 
+import json
 import math
 import warnings
 from collections.abc import Callable
@@ -38,6 +40,7 @@ from scipy.optimize import brentq
 from scipy.stats import beta, binom, chi2, norm
 
 import cleverly.longitudinal.structural as snmm_module
+from cleverly._support import RECORD_ENVIRONMENT_VARIABLE
 from cleverly.learners import GLM
 from cleverly.longitudinal import StructuralNestedMean
 from tests import discrete_law_structural as finite
@@ -108,10 +111,10 @@ PILOT: dict[str, tuple[int, float, float, float, float, float]] = {
     "l_blip_a2_l1": (9400, 0.9894, 0.0257, 0.0083, 0.9465, 1.5949),
     "l_blip_a2_l1_s2": (9400, 0.9918, 0.0162, -0.0175, 0.9473, 2.2809),
     "l_ey0": (9400, 0.9868, 0.0205, 0.0225, 0.9454, 0.9706),
-    "n_blip_a1_l1": (9000, 1.0113, 0.0207, -0.0545, 0.9542, 1.4031),
-    "n_blip_a2_l1": (9000, 1.0478, 0.0165, 0.0997, 0.9596, 1.2001),
-    "n_ey0": (9000, 1.0190, 0.0192, -0.0016, 0.9524, 1.3383),
-    "n_ate_r11": (9000, 1.0400, 0.0212, 0.0249, 0.9567, 1.7325),
+    "n_blip_a1_l1": (6000, 0.9972, 0.0212, -0.0064, 0.9487, 1.3995),
+    "n_blip_a2_l1": (6000, 0.9716, 0.0179, -0.0414, 0.9413, 1.1977),
+    "n_ey0": (6000, 1.0145, 0.0184, 0.0022, 0.9543, 1.3196),
+    "n_ate_r11": (6000, 1.0064, 0.0212, -0.0344, 0.9538, 1.7028),
     "s2w_blip_a1_l1": (10500, 0.9930, 0.0239, -0.0083, 0.9488, 1.5830),
     "s2w_ey0": (10500, 0.9927, 0.0296, 0.0107, 0.9494, 1.1960),
     "s2w_ey_r11": (10500, 0.9813, 0.0306, -0.0106, 0.9416, 1.2541),
@@ -131,7 +134,7 @@ PILOT_COST: dict[str, tuple[float, int, int]] = {
     "P": (0.0946, 9000, 0),
     "M": (0.0875, 9000, 5),
     "L": (0.0830, 9400, 0),
-    "N": (0.4135, 9000, 0),
+    "N": (1.7549, 6000, 0),
     "S2W": (0.0774, 10500, 0),
     "S2C": (0.0810, 9000, 0),
 }
@@ -166,12 +169,15 @@ PILOT_LADDER: dict[tuple[str, int], tuple[int, int, float, float, float, float, 
     ("c_ate_dose_high", 500): (600, 0, 0.0248, 1.0289, 0.0440, -0.0351, 0.9600, 0.8837),
     ("c_ate_dose_high", 2000): (3000, 0, 0.0452, 0.9936, 0.0214, 0.0199, 0.9483, 0.9143),
     ("c_ate_dose_high", 8000): (600, 0, 0.1088, 1.0089, 0.0109, 0.0249, 0.9500, 0.9036),
-    ("n_ate_r11", 500): (600, 0, 0.3511, 1.0378, 0.0446, -0.0857, 0.9500, 1.7497),
-    ("n_ate_r11", 2000): (9000, 0, 0.4135, 1.0400, 0.0212, 0.0249, 0.9567, 1.7325),
-    ("n_ate_r11", 8000): (1500, 0, 0.6702, 1.0365, 0.0109, 0.0826, 0.9520, 1.7353),
-    ("n_blip_a1_l1", 500): (600, 0, 0.3511, 1.0153, 0.0429, -0.0474, 0.9617, 1.4084),
-    ("n_blip_a1_l1", 2000): (9000, 0, 0.4135, 1.0113, 0.0207, -0.0545, 0.9542, 1.4031),
-    ("n_blip_a1_l1", 8000): (1500, 0, 0.6702, 0.9865, 0.0103, -0.0960, 0.9427, 1.4376),
+    ("n_ate_r11", 500): (600, 0, 1.8638, 0.9723, 0.0444, -0.0916, 0.9450, 1.7975),
+    ("n_ate_r11", 2000): (6000, 0, 1.7549, 1.0064, 0.0212, -0.0344, 0.9538, 1.7028),
+    ("n_ate_r11", 8000): (1500, 0, 2.9456, 1.0202, 0.0104, -0.0077, 0.9553, 1.6740),
+    ("n_blip_a1_l1", 500): (600, 0, 1.8638, 0.9953, 0.0457, -0.0720, 0.9433, 1.4113),
+    ("n_blip_a1_l1", 2000): (6000, 0, 1.7549, 0.9972, 0.0212, -0.0064, 0.9487, 1.3995),
+    ("n_blip_a1_l1", 8000): (1500, 0, 2.9456, 0.9859, 0.0104, -0.0123, 0.9500, 1.4150),
+    ("n_blip_a2_l1", 500): (600, 0, 1.8638, 0.9585, 0.0405, -0.0504, 0.9367, 1.2493),
+    ("n_blip_a2_l1", 2000): (6000, 0, 1.7549, 0.9716, 0.0179, -0.0414, 0.9413, 1.1977),
+    ("n_blip_a2_l1", 8000): (1500, 0, 2.9456, 1.0271, 0.0089, 0.0041, 0.9607, 1.1276),
 }
 #: ``cell -> (draws, failures, tested, rejected, seconds per check, SD of the reported difference, mean SE,
 #: median covariance degrees of freedom)``.
@@ -189,8 +195,10 @@ PILOT_CHECKS: dict[str, tuple[int, int, int, int, float, float, float, float]] =
     "lu_f2": (800, 0, 800, 800, 0.2774, 0.03312, 0.03322, 344.8),
     "lu_f10": (800, 0, 800, 800, 1.0383, 0.03247, 0.03244, 563.6),
 }
-#: ``(seconds per fit, draws, recordable failures)`` of the ``SP`` positivity pilot.
-PILOT_POSITIVITY: tuple[float, int, int] = (0.0752, 600, 0)
+#: ``(seconds per fit, draws, recordable failures)`` of the ``SP`` positivity pilot at the
+#: declared orders: outcome 3 and treatment 2 (probe ``sp_pilot.py``).  Its coverage reads 0.935
+#: to 0.957 over the ten estimands.
+PILOT_POSITIVITY: tuple[float, int, int] = (0.0803, 1000, 0)
 #: ``estimand -> (draws, SE ratio, relative SD of the SE, seconds per fit)`` of the unclustered S2C fit.
 PILOT_UNCLUSTERED: dict[str, tuple[int, float, float, float]] = {
     "blip[A1:1.0:intercept]": (2400, 1.0111, 0.0408, 0.0765),
@@ -199,6 +207,33 @@ PILOT_UNCLUSTERED: dict[str, tuple[int, float, float, float]] = {
     "ate_regimen[r11 vs r00]": (2400, 1.0179, 0.0422, 0.0765),
 }
 PILOT_UNCLUSTERED_SECONDS = 0.0765
+
+#: ``(estimand, n) -> (draws, bias over the mean reported SE, its Monte Carlo SE)`` of the
+#: declared ``N`` fit at large n (probe ``ngrow.py`` of the review scratchpad).
+PILOT_LARGE_N: dict[tuple[str, int], tuple[int, float, float]] = {
+    ("blip[A1:1.0:intercept]", 128_000): (24, 0.134, 0.229),
+    ("blip[A2:1.0:intercept]", 128_000): (24, 0.139, 0.155),
+    ("ey_reference", 128_000): (24, -0.458, 0.227),
+    ("ate_regimen[r11 vs r00]", 128_000): (24, 0.204, 0.184),
+    ("blip[A1:1.0:intercept]", 512_000): (24, -0.245, 0.198),
+    ("blip[A2:1.0:intercept]", 512_000): (24, 0.170, 0.217),
+    ("ey_reference", 512_000): (24, -0.085, 0.185),
+    ("ate_regimen[r11 vs r00]", 512_000): (24, -0.085, 0.167),
+}
+#: ``n -> (median, largest)`` rounds early stopping chose in the ``N`` boosters of one fit
+#: (probe ``nrounds.py``).  The largest stays far below ``max_iter``, so the cap never binds.
+BOOSTER_ROUNDS: dict[int, tuple[int, int]] = {
+    2_000: (77, 214),
+    8_000: (96, 153),
+    128_000: (123, 185),
+    512_000: (123, 273),
+}
+#: The same reading of the round-2 fixed booster (depth 2, 50 trees) at n = 512,000.
+FIXED_BOOSTER_512K: dict[str, tuple[float, float]] = {
+    "blip[A1:1.0:intercept]": (-0.290, 0.209),
+    "ate_regimen[r11 vs r00]": (1.032, 0.238),
+    "blip[A2:1.0:intercept]": (1.807, 0.262),
+}
 
 #: PINNED-END
 
@@ -220,16 +255,9 @@ FAILURE_FLOOR = 0.99
 #: Every calibration arm is piloted on at least this many draws.
 POOLED_DRAWS = 3_000
 #: The declared total CPU-hours of a full run, from the timed pilot fits (``cpu_hours``).
-BUDGET_CPU_HOURS = 11.97
-#: The arm of adaptive learners.  Its pilot SE ratios spread between cells, so its chance of
-#: passing has a limit below the family floor at any replicate count.
-ADAPTIVE_ARM = "n"
-#: The smallest multiple of 400 at which every other arm passes together with chance 0.95.
-SIZING_MINIMUM = 17_600
-#: The chance that every cell of the adaptive arm passes at the declared replicates.
-DECLARED_ADAPTIVE_PASS = 0.45
-#: The chance that all 61 calibration cells pass at the declared replicates.
-DECLARED_FAMILY_PASS = 0.442
+BUDGET_CPU_HOURS = 10.98
+#: The chance that all 61 calibration cells pass at the declared replicates, under the rule.
+DECLARED_FAMILY_PASS = 0.952
 
 Z99 = float(norm.ppf(0.995))
 BIAS_MARGIN = Margins().standardized_bias
@@ -448,33 +476,21 @@ def test_the_declared_order_is_the_lowest_exact_order(name: str) -> None:
         assert _exact_error(name, order - 1) > 1e-6, name
 
 
-#: The regressions that are not exact at the declared order.  The node-2 outcome regression of
-#: ``SP`` needs a three-way cell, and an order of three fails on a separated cell in 17% of the
-#: draws at n = 2,000.  Its treatment regressions are exact, so the estimator is unbiased.
-INEXACT_REGRESSIONS = frozenset({("SP", "outcome")})
+def _regression_gaps(
+    name: str, learners: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> dict[str, float]:
+    """The largest distance of each role's regressions from the weighted cell means.
 
-
-@pytest.mark.parametrize("name", [n for n in laws.setups() if n != "N"])
-def test_every_nuisance_regression_is_exact_at_the_declared_order(
-    name: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """(a) Each regression of a population-weighted fit returns the weighted cell mean of its
-    target.  The final truths alone can hide a wrong nuisance, because the estimator is doubly
-    robust: a correct treatment side makes psi exact with a wrong outcome regression."""
+    The fit is at population weights, so an exact regression returns the weighted cell mean of
+    its target on every row.
+    """
     captured: list[tuple[str, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
     original = snmm_module._regress
 
     def recording(
-        data: Any,
-        learners: Any,
-        role: str,
-        design: np.ndarray,
-        target: np.ndarray,
-        folds: Any,
-        n_jobs: Any,
-        sink: Any,
+        data: Any, learners: Any, role: str, design: np.ndarray, target: np.ndarray, *rest: Any
     ) -> np.ndarray:
-        prediction = original(data, learners, role, design, target, folds, n_jobs, sink)
+        prediction = original(data, learners, role, design, target, *rest)
         captured.append(
             (
                 role,
@@ -486,9 +502,9 @@ def test_every_nuisance_regression_is_exact_at_the_declared_order(
         )
         return prediction
 
-    monkeypatch.setattr(snmm_module, "_regress", recording)
-    order = study.INTERACTIONS.get(name, study.DEFAULT_INTERACTIONS)
-    _exact_fit(name, **study.learners(name, order))
+    with monkeypatch.context() as patch:
+        patch.setattr(snmm_module, "_regress", recording)
+        _exact_fit(name, **learners)
     assert captured, name
     worst: dict[str, float] = {}
     for role, design, target, weight, prediction in captured:
@@ -496,14 +512,37 @@ def test_every_nuisance_regression_is_exact_at_the_declared_order(
         frame = pd.DataFrame({"key": key, "target": target * weight, "weight": weight})
         grouped = frame.groupby("key").sum()
         cell_mean = (grouped["target"] / grouped["weight"]).reindex(key).to_numpy()
-        gap = float(np.max(np.abs(cell_mean - prediction)))
-        worst[role] = max(worst.get(role, 0.0), gap)
-        if (name, role) not in INEXACT_REGRESSIONS:
-            assert gap < 1e-6, (name, role, gap)
-    for pair in INEXACT_REGRESSIONS:
-        if pair[0] == name:
-            # A deliberate witness: the exemption stays only while the regression is inexact.
-            assert 1e-6 < worst[pair[1]] < 0.2, (pair, worst)
+        worst[role] = max(worst.get(role, 0.0), float(np.max(np.abs(cell_mean - prediction))))
+    return worst
+
+
+@pytest.mark.parametrize("name", [n for n in laws.setups() if n != "N"])
+def test_every_nuisance_regression_is_exact_at_the_declared_order(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """(a) Each regression of a population-weighted fit returns the weighted cell mean of its
+    target.  The final truths alone can hide a wrong nuisance, because the estimator is doubly
+    robust: a correct treatment side makes psi exact with a wrong outcome regression."""
+    for role, gap in _regression_gaps(name, study.learners(name), monkeypatch).items():
+        assert gap < 1e-6, (name, role, gap)
+
+
+def test_the_sparse_law_needs_its_outcome_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    """(a) NEW-3: ``SP`` declares outcome order 3 and treatment order 2.  A deliberate witness:
+    one outcome order less leaves the node-2 outcome regression inexact.  The treatment logits
+    are additive, so main terms are exact on the treatment side too; order 2 is the order of
+    the model-check fits (``CHECK_INTERACTIONS``), so the two fit sets share one treatment side."""
+    declared = study.learners("SP")
+    assert declared["outcome_learner"].interactions == 3
+    assert declared["treatment_learner"].interactions == study.CHECK_INTERACTIONS == 2
+    lower_outcome = {
+        "outcome_learner": GLM(family="gaussian", interactions=2),
+        "treatment_learner": GLM(interactions=2),
+    }
+    assert _regression_gaps("SP", lower_outcome, monkeypatch)["outcome"] > 1e-3
+    _, draws, failures = PILOT_POSITIVITY
+    assert draws >= 600
+    assert failures == 0
 
 
 def test_the_booster_law_is_nonlinear_in_the_baseline() -> None:
@@ -513,6 +552,49 @@ def test_the_booster_law_is_nonlinear_in_the_baseline() -> None:
     assert declared["treatment_learner"].__class__.__name__ == "HistGradientBoostingClassifier"
     law = laws.setup("N").law
     assert len({path["W"] for path, _ in finite.paths(law)}) == 9
+
+
+def test_each_setup_records_its_declared_support_key(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """NEW-4: every fitted setup, under ``CLEVERLY_SUPPORT_RECORD``, records the key and learner
+    classes of :data:`~tests.studies.canonical_structural_nested_mean.SUPPORT_KEYS`.  The support
+    rows written after the run read these keys."""
+    assert set(study.SUPPORT_KEYS) == {*study.CALIBRATED, "SP", *study.NEGATIVE_CONTROLS}
+    for name, declared in study.SUPPORT_KEYS.items():
+        directory = tmp_path / name
+        monkeypatch.setenv(RECORD_ENVIRONMENT_VARIABLE, str(directory))
+        study.fit(name, laws.sample(name, 500, 11))
+        records = [
+            json.loads(line)
+            for path in directory.glob("*.jsonl")
+            for line in path.read_text().splitlines()
+        ]
+        outcomes = [r for r in records if r["record"] == "fit_outcome"]
+        assert len(outcomes) == 1, name
+        key, learners = outcomes[0]["key"], outcomes[0]["learners"]
+        family = {"blips", "end_of_study", *(("regimens", "static") if declared.regimens else ())}
+        assert key["engine"] == ["snmm"], name
+        assert set(key["family"]) == family, name
+        assert key["outcome"] == ["gaussian", "unbounded"], name
+        assert key["missing"] == ["complete"], name
+        assert key["splitting"] == ["cross_fitted"], name
+        assert tuple(key["treatment"]) == declared.treatment, name
+        assert key["weighting"] == declared.weighting, name
+        assert key["dependence"] == declared.dependence, name
+        assert dict(map(tuple, key["options"])) == {
+            "covariate_features": declared.covariate_features,
+            "multiplier_kind": "rademacher",
+        }, name
+        assert learners == {
+            "outcome": _qualified(declared.learners["outcome"]),
+            "treatment": _qualified(declared.learners["treatment"]),
+            "regression": None,
+        }, name
+
+
+def _qualified(cls: type) -> str:
+    return f"{cls.__module__}.{cls.__qualname__}"
 
 
 def test_the_outcome_support_holds_the_draws() -> None:
@@ -695,23 +777,47 @@ def _arms() -> dict[str, list[str]]:
     return arms
 
 
-def arm_pass_probability(labels: list[str], replicates: int) -> float:
-    """The chance that every cell of one arm passes, with the arm's true SE ratio uncertain.
+def cell_posteriors(labels: list[str]) -> dict[str, tuple[float, float, float]]:
+    """``label -> (mean, shrinkage, own SD)`` of each cell's true SE ratio, by partial pooling.
 
-    The true SE ratio of a cell is ``m + e + u``.  ``m`` is the mean of the arm's pilot ratios,
-    ``e`` is the shared pilot error, normal with the variance of one pilot ratio divided by
-    :data:`EFFECTIVE_CELLS`, and ``u`` is the cell's own departure, normal with the upper bound
-    :func:`_spread_upper_bound`.  The cells share ``e``, so the arm's chance is the mean over
-    ``e`` of the product over cells.
+    Each cell's pilot ratio ``r`` has the sampling SD ``s`` of :func:`_pilot_se`.  The arm's
+    true ratios spread about the centre ``m`` with the SD ``tau`` of :func:`_spread_upper_bound`,
+    and ``m`` weights each pilot ratio by ``1 / (s^2 + tau^2)``.  The normal posterior of a cell
+    shrinks its own pilot toward ``m`` by ``B = s^2 / (s^2 + tau^2)``: its mean is
+    ``B m + (1 - B) r`` and its own variance is ``(1 - B) s^2``.  With ``tau = 0`` every cell
+    takes the arm centre, and with a large ``tau`` every cell keeps its own pilot.
     """
-    centre = float(np.mean([PILOT[label][1] for label in labels]))
+    ratios = np.array([PILOT[label][1] for label in labels])
+    errors = np.array([_pilot_se(label) for label in labels])
+    tau = _spread_upper_bound(labels)
+    weight = 1.0 / (errors**2 + tau**2)
+    centre = float((weight * ratios).sum() / weight.sum())
+    shrinkage = errors**2 / (errors**2 + tau**2)
+    means = shrinkage * centre + (1.0 - shrinkage) * ratios
+    own = np.sqrt((1.0 - shrinkage) * errors**2)
+    return {
+        label: (float(mean), float(b), float(sd))
+        for label, mean, b, sd in zip(labels, means, shrinkage, own, strict=True)
+    }
+
+
+def arm_pass_probability(labels: list[str], replicates: int) -> float:
+    """The chance that every cell of one arm passes, with each cell's true SE ratio uncertain.
+
+    The true SE ratio of a cell is ``mean + B e + own u`` from :func:`cell_posteriors`.  ``e`` is
+    the error of the arm centre: the cells of one setup share their draws, so ``e`` is one error
+    with the variance of one pilot ratio (:data:`EFFECTIVE_CELLS`), and each cell carries it in
+    proportion to its shrinkage ``B``.  ``u`` is standard normal and the cell's own.  The arm's
+    chance is the mean over ``e`` of the product over cells.
+    """
+    posterior = cell_posteriors(labels)
     shared = float(np.median([_pilot_se(label) for label in labels])) / math.sqrt(EFFECTIVE_CELLS)
-    own = _spread_upper_bound(labels)
     total = 0.0
     for node, weight in zip(_NODES, _WEIGHTS, strict=True):
         product = 1.0
         for label in labels:
-            rho = centre + shared * node + own * _NODES
+            mean, shrinkage, own = posterior[label]
+            rho = mean + shrinkage * shared * node + own * _NODES
             product *= float(np.sum(_WEIGHTS * _cell_pass(label, rho, replicates)))
         total += float(weight) * product
     return total
@@ -759,39 +865,46 @@ def test_every_calibration_arm_has_a_pilot_of_the_pooled_size() -> None:
         assert draws >= POOLED_DRAWS, setup
 
 
-def _other_arms_pass_probability(replicates: int) -> float:
-    """The chance that every calibration cell outside the adaptive arm passes."""
-    return float(
-        np.prod(
-            [
-                arm_pass_probability(labels, replicates)
-                for arm, labels in _arms().items()
-                if arm != ADAPTIVE_ARM
-            ]
-        )
-    )
+def sized_replicates() -> int:
+    """The smallest multiple of :data:`REPLICATE_GRAIN` whose family pass chance is at least
+    :data:`FAMILY_FLOOR`."""
+    replicates = REPLICATE_GRAIN
+    while family_pass_probability(replicates) < FAMILY_FLOOR:
+        replicates += REPLICATE_GRAIN
+    return replicates
 
 
 def test_the_calibration_replicates_follow_the_sizing_rule() -> None:
-    """(c) MAJOR-1: the rule is the smallest multiple of 400 whose family pass probability is at
-    least 0.95 under the arm-pooled predictive rule, with the bias leg.  The adaptive arm ``N``
-    cannot reach the floor at any replicate count: its pilot SE ratios spread between cells, and
-    its chance tends to about 0.67.  So the rule is applied to the other arms, which gives
-    :data:`SIZING_MINIMUM`, and the adaptive arm's chance is declared.  The declared count is at
-    least the minimum.  A red adaptive cell is read by the declared red-cell rule.  Perfect
+    """(c) NEW-2: the declared count is the output of the rule.  The rule is the smallest multiple
+    of 400 whose chance that all 61 cells pass is at least 0.95.  Each cell's true SE ratio is
+    its own pilot shrunk toward its arm's centre (:func:`cell_posteriors`), and each cell also
+    needs the coverage and the bias legs.  Every arm is in the family, ``N`` included.  Perfect
     calibration is the AGENT-BRIEF floor: necessary and not sufficient."""
     replicates = properties.CALIBRATION_REPLICATES
     assert replicates % REPLICATE_GRAIN == 0
+    assert set(_arms()) == {setup.lower() for setup in study.CALIBRATED}
+    assert family_pass_probability(replicates) >= FAMILY_FLOOR
+    assert family_pass_probability(replicates - REPLICATE_GRAIN) < FAMILY_FLOOR
     assert perfect_family_pass_probability(replicates) >= FAMILY_FLOOR
-    assert _other_arms_pass_probability(SIZING_MINIMUM) >= FAMILY_FLOOR
-    assert _other_arms_pass_probability(SIZING_MINIMUM - REPLICATE_GRAIN) < FAMILY_FLOOR
-    assert replicates >= SIZING_MINIMUM
-    adaptive = _arms()[ADAPTIVE_ARM]
-    assert arm_pass_probability(adaptive, 10**6) < FAMILY_FLOOR
-    assert arm_pass_probability(adaptive, replicates) == pytest.approx(
-        DECLARED_ADAPTIVE_PASS, abs=0.01
-    )
     assert family_pass_probability(replicates) == pytest.approx(DECLARED_FAMILY_PASS, abs=0.005)
+
+
+def test_partial_pooling_keeps_a_cell_that_its_own_pilot_resolves() -> None:
+    """(c) A deliberate witness of the pooling: a cell whose pilot ratio sits far from its arm
+    keeps most of its own reading, and an arm with no spread takes its centre."""
+    labels = _arms()["s2"]
+    original = PILOT[labels[0]]
+    try:
+        PILOT[labels[0]] = (original[0], original[1] + 0.05, *original[2:])
+        mean, shrinkage, _ = cell_posteriors(labels)[labels[0]]
+        assert shrinkage < 0.5
+        assert mean > original[1] + 0.025
+    finally:
+        PILOT[labels[0]] = original
+    flat = _arms()["h"]
+    assert _spread_upper_bound(flat) == 0.0
+    centres = {round(mean, 12) for mean, _, _ in cell_posteriors(flat).values()}
+    assert len(centres) == 1
 
 
 def test_the_noise_control_scale_is_the_pilot_sampling_sd() -> None:
@@ -899,16 +1012,43 @@ def test_the_ladder_spread_contracts_at_the_root_n_rate() -> None:
 
 
 def test_the_adaptive_cell_has_a_ladder_that_shows_the_remainder_contract() -> None:
-    """MAJOR-4: ``N`` stands on three sizes with a contrast and a blip.  Its bias interval at the
-    largest rung lies inside 0.25 SD with chance at least 0.90, and its bias in SD units does not
-    grow from n = 2,000 to n = 8,000 by more than the pilot's resolution."""
-    assert study.LADDER_ESTIMANDS["N"] == ("ate_regimen[r11 vs r00]", "blip[A1:1.0:intercept]")
+    """MAJOR-4: ``N`` stands on three sizes with a contrast and both blips.  Its bias interval at
+    the largest rung lies inside 0.25 SD with chance at least 0.90, and its bias in SD units does
+    not grow from n = 2,000 to n = 8,000 by more than the pilot's resolution."""
+    assert study.LADDER_ESTIMANDS["N"] == (
+        "ate_regimen[r11 vs r00]",
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
+    )
     for label in (label_of("N", e) for e in study.LADDER_ESTIMANDS["N"]):
         draws, _, _, _, _, bias, _, _ = PILOT_LADDER[(label, 8_000)]
         assert _bias_leg(bias, draws, properties.LADDER_REPLICATES) >= PASS_FLOOR, label
         mid_draws, *_, mid_bias, _, _ = PILOT_LADDER[(label, 2_000)]
         resolution = Z99 * math.sqrt(1.0 / draws + 1.0 / mid_draws)
         assert abs(bias) <= abs(mid_bias) + resolution, label
+
+
+def _consistent_with_zero(bias_over_se: float, error: float) -> bool:
+    """The 99% interval of a bias in SE units contains zero."""
+    return abs(bias_over_se) <= Z99 * error
+
+
+def test_the_adaptive_remainder_vanishes_at_large_n() -> None:
+    """NEW-1: at n = 128,000 and 512,000 the bias of every ``N`` estimand, in units of its mean
+    reported SE, is consistent with zero (99%).  A remainder of fixed absolute size would grow
+    like the root of n in these units.  The fixed booster of round 2 is the deliberate control:
+    its pinned reading fails the same check, so the check can see the defect."""
+    estimands = set(laws.setup("N").estimands)
+    for n in (128_000, 512_000):
+        assert {e for (e, size) in PILOT_LARGE_N if size == n} == estimands, n
+    for (estimand, n), (draws, ratio, error) in PILOT_LARGE_N.items():
+        assert draws >= 24, (estimand, n)
+        assert _consistent_with_zero(ratio, error), (estimand, n, ratio, error)
+    assert not all(_consistent_with_zero(r, e) for r, e in FIXED_BOOSTER_512K.values())
+    for n, (_, largest) in BOOSTER_ROUNDS.items():
+        assert largest < study.BOOSTER_SETTINGS["max_iter"] / 4, n
+    assert study.BOOSTER_SETTINGS["early_stopping"] is True
+    assert study.BOOSTER_SETTINGS["max_depth"] is None
 
 
 # ----------------------------------------------------------------- (e) the model check

@@ -1,7 +1,7 @@
 r"""Property families of ``structural-nested-mean`` (X44).
 
 Every fit is :func:`tests.studies.canonical_structural_nested_mean.fit`: the declared ``GLM``
-nuisances of each setup (a shallow booster on ``N``), the shipped ten outer folds (five on ``N``)
+nuisances of each setup (an early-stopped booster on ``N``), the shipped ten outer folds (five on ``N``)
 and the setup's blip features.  The setups, their laws and their exact truths are in
 :mod:`tests.studies.structural_nested_mean_laws`.
 
@@ -12,7 +12,7 @@ family                         cells, replications and size
                                :data:`CALIBRATION_REPLICATES` per setup, and the two derived
                                controls of each label (a shrunken standard error and added noise)
 ``root_n_and_efficiency``      one contrast on each of ``S2``, ``H``, ``K`` and ``C``, and a
-                               contrast and a blip on the adaptive cell ``N``, at the three sizes
+                               contrast and both blips on the adaptive cell ``N``, at the three sizes
                                of :func:`~tests.studies.canonical_structural_nested_mean.ladder_sizes`,
                                :data:`LADDER_REPLICATES` each
 ``root_n_rate``                the rate rows of each ladder label
@@ -106,13 +106,12 @@ POWER_REPLICATES = study.POWER_REPLICATES
 SHRUNKEN_SE_FACTOR = 0.70
 CRITICAL = float(norm.ppf(1.0 - STUDY.margins.alpha / 2.0))
 
-#: The replicates of every calibration cell.  The arm-pooled predictive rule asks for the smallest
-#: multiple of 400 whose chance that all 61 cells pass is at least 0.95.  The adaptive arm ``N``
-#: cannot reach it at any count: its pilot SE ratios spread between cells, and its chance tends to
-#: 0.67.  The rule applied to the other arms gives 17,600.  The declared count is above that
-#: minimum; the adaptive arm passes with chance 0.45 and the family with 0.44
-#: (``tests/unit/test_structural_nested_mean_design.py``).
-CALIBRATION_REPLICATES = 21_200
+#: The replicates of every calibration cell: the output of the sizing rule.  The rule takes the
+#: smallest multiple of 400 whose chance that all 61 cells pass is at least 0.95.  Each cell's true
+#: SE ratio is its own pilot shrunk toward its setup's centre (partial pooling), and every arm,
+#: the adaptive arm ``N`` included, is in the family.  At this count the family passes with
+#: chance 0.952, and at 7,600 with 0.941 (``tests/unit/test_structural_nested_mean_design.py``).
+CALIBRATION_REPLICATES = 8_000
 LADDER_REPLICATES = 1_000
 #: The empirical SD of each calibration label in the design pilot times :math:`\sqrt{2000}`
 #: (``CALIBRATION_N``), so the noise control adds one sampling SD at the cell's size.  It scales
@@ -167,10 +166,10 @@ NOISE_SD: dict[str, float] = {
     "l_blip_a2_l1": 1.5949,
     "l_blip_a2_l1_s2": 2.2809,
     "l_ey0": 0.9706,
-    "n_blip_a1_l1": 1.4031,
-    "n_blip_a2_l1": 1.2001,
-    "n_ey0": 1.3383,
-    "n_ate_r11": 1.7325,
+    "n_blip_a1_l1": 1.3995,
+    "n_blip_a2_l1": 1.1977,
+    "n_ey0": 1.3196,
+    "n_ate_r11": 1.7028,
     "s2w_blip_a1_l1": 1.5830,
     "s2w_ey0": 1.1960,
     "s2w_ey_r11": 1.2541,
@@ -414,7 +413,9 @@ def fit_set_rows(fit_set: str, replicate: int, frame: pd.DataFrame) -> list[dict
         name = fit_set.removeprefix("check_")
         result = study.fit(spec.setup, frame, folds=spec.folds, order=study.CHECK_INTERACTIONS)
         study.require_status(result, [])
-        check = result.check_model(q_bounds=laws.outcome_support(spec.setup))
+        check = result.check_model(
+            q_bounds=laws.outcome_support(spec.setup), n_splits=study.CHECK_SPLITS
+        )
         return [_check_row(name, spec, replicate, check)]
     result = study.fit(spec.setup, frame)
     names = list(laws.setup(spec.setup).estimands)

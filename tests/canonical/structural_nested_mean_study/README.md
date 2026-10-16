@@ -1,7 +1,7 @@
 # Structural nested mean evidence (`structural-nested-mean`)
 
-This study fits `StructuralNestedMean` with `GLM` nuisances (a shallow booster on law `N`) on
-exact finite laws. It is Python only for now. The EconML 0.17.0 `DynamicDML` comparator is
+This study fits `StructuralNestedMean` with `GLM` nuisances on exact finite laws. Law `N` uses an
+early-stopped booster instead. It is Python only for now. The EconML 0.17.0 `DynamicDML` comparator is
 declared and pending (`STUDY.pending_reference`). A later change registers the comparator runs.
 
 | file | role |
@@ -27,12 +27,21 @@ gap. The size cells of the model check on the sparse-positivity law `SP` run at 
 check has about 8 degrees of freedom there, so it has low power on `SP`. The cell `SP` of the
 family `positivity_reporting` reports the structural fit under weak positivity and gates nothing.
 
-The calibration cells run 21,200 replicates each. The arm-pooled predictive rule needs a chance
-of 0.95 that all 61 cells pass. The adaptive arm `N` cannot reach it at any count, because its
-pilot SE ratios spread between cells. Its chance tends to 0.67. The rule therefore applies to the
-other arms, and it gives a minimum of 17,600. The declared count is above that minimum. The
-adaptive arm passes with chance 0.45, and the whole family with chance 0.44. A red adaptive cell
-is read by the declared red-cell rule.
+The booster of law `N` stops on a validation split, so the data choose its number of trees. Its
+capacity therefore grows with n. The design test pins a probe at n = 128,000 and n = 512,000,
+with 24 draws at each size. At both sizes, the bias of each `N` estimand is less than 0.46 of its
+reported SE, and each 99% interval contains zero. The fixed booster of an earlier draft fails
+this check at n = 512,000.
+
+The calibration cells run 8,000 replicates each. A sizing rule gives this count. The rule takes
+the smallest multiple of 400 at which all 61 cells pass with a chance of at least 0.95. The
+rule takes the true SE ratio of each cell from its own pilot, shrunk toward the mean of its setup.
+At 8,000 replicates, the family passes with a chance of 0.952.
+`tests/unit/test_structural_nested_mean_design.py` checks the rule.
+
+The `positivity_reporting` fits of `SP` use outcome order 3 and treatment order 2. At these
+orders, each nuisance regression is exact. The model-check fits use order 2 for both roles.
+A pilot of 1,000 draws at n = 2,000 shows no fit failure.
 
 ## Run
 
@@ -54,12 +63,20 @@ print(p.summarize_properties(rows).shape)
 "
 ```
 
-Regenerate the declared study and refresh its document:
+Regenerate the declared study and refresh its document. Set `CLEVERLY_SUPPORT_RECORD` on the
+run, so that each fit records its support key. The support rows of this study come from these
+records. `REC` is the record root of the RM42b measurement.
 
 ```bash
-python tests/canonical/structural_nested_mean_study/regenerate.py
+CLEVERLY_SUPPORT_RECORD=$REC/studies/structural_nested_mean_study \
+  python tests/canonical/structural_nested_mean_study/regenerate.py
+python -m tests.studies.support_measurement --records $REC --out $REC/measurement.md
 python -m tests.studies.evidence.document --slug structural-nested-mean
 ```
+
+`SUPPORT_KEYS` in `tests/studies/canonical_structural_nested_mean.py` declares the key and the
+learner class of each setup. The design test fits each setup with the record switch on and
+compares the record with that declaration.
 
 `tests/unit/test_structural_nested_mean_design.py` prints the budget in CPU-hours from the
 timed pilot fits.

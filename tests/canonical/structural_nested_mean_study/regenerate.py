@@ -5,6 +5,10 @@ no reference process.  :data:`REFERENCE` names the declared sources, the Dockerf
 requirements lock and the fixture generator of ``tests/canonical/econml_dynamic_dml``, so the
 manifest records their bytes at the run.  A study runner for the comparator phase comes with
 the later change that registers it.
+
+The caller sets ``CLEVERLY_SUPPORT_RECORD=<root>/studies/structural_nested_mean_study`` on the
+run, as the RM42b measurement does for every study, so each fit records its support key.  The
+driver does not set it.  ``SUPPORT_KEYS`` of the study module declares the keys the run records.
 """
 
 from pathlib import Path
