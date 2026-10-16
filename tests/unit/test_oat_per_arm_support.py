@@ -127,20 +127,16 @@ class TestTheAllowList:
             ("outcome_learner", _SubclassedOutcome()),
             ("treatment_learner", LogisticRegression()),
             ("fluctuation", "linear"),
-            ("n_folds", 2),
-            ("repeats", 2),
             ("target_weights", True),
             ("screen_treatment", True),
         ],
         ids=lambda v: v if isinstance(v, str) else type(v).__name__,
     )
     def test_each_refused_option_names_its_axis(self, option: str, value: Any) -> None:
-        options = _options(**{option: value})
-        if option in ("n_folds", "repeats"):
-            options["cross_fit"] = True
-        if option == "repeats":
-            options["n_folds"] = 5
-        estimator = CTMLE(**options)
+        # The fold-count cap and a repeat count that is not a positive integer have their own
+        # tests in test_oat_per_arm_crossfit_support.py; every other fold or repeat count is
+        # admitted (X58 plan, D6).
+        estimator = CTMLE(**_options(**{option: value}))
         verdict = per_arm_parametric_support(estimator, _prepared(estimator))
         assert not verdict.admitted
         assert verdict.axis == option
