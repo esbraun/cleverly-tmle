@@ -1791,7 +1791,7 @@ def test_the_documented_seed_fit_puts_results_before_its_compact_review_inventor
         for surface, item in battery._presented()
         if item.status is not AssessmentStatus.COMPLETED
     }
-    assert len(inventoried) == 8
+    assert len(inventoried) == 9
     assert {name for name in inventoried if name in review} == inventoried
 
     # Every returned result names the operation ``report(...)`` takes. No detail on this
