@@ -6915,6 +6915,23 @@ class ParametricGFormula(_Baseline):
         ):
             raise CapabilityError(refusal=GCOMP_SCALE_REFUSAL)
 
+    def _refuse_undeclared_policy_scale(
+        self, data: LongitudinalData, plans: Sequence[Plan]
+    ) -> None:
+        """Keep a continuous outcome under a modified treatment policy without ``q_bounds``.
+
+        R-f1 of X40 protects the [0, 1] outcome map of the sequential regressions.  The
+        simulation fits the outcome law on its own scale and maps nothing, so the refusal
+        does not apply here; :meth:`_refuse_design` keeps the scale refusal that does.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel.
+        plans : sequence of Plan
+            The resolved plans.
+        """
+
     def _fit_mechanism(
         self,
         data: LongitudinalData,
