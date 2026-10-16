@@ -1358,6 +1358,18 @@ parametric-gformula,root_n_and_efficiency,bias equivalent,bias
 parametric-gformula,root_n_and_efficiency,coverage floor,affine
 parametric-gformula,root_n_and_efficiency,se ratio sanity,se_high
 parametric-gformula,root_n_rate,slope in root-n band,contract
+structural-nested-mean,blip_feature_control,bias beyond margin on the side of the gap,affine
+structural-nested-mean,interval_calibration,bias equivalent,bias
+structural-nested-mean,interval_calibration,coverage in calibration band,coverage/0.5
+structural-nested-mean,interval_calibration,noise se ratio below band,se_high
+structural-nested-mean,interval_calibration,se ratio below band,se_high
+structural-nested-mean,interval_calibration,se ratio in calibration band,affine
+structural-nested-mean,power,rejection floor,rejection/0.01
+structural-nested-mean,root_n_and_efficiency,bias equivalent,bias
+structural-nested-mean,root_n_and_efficiency,coverage floor,affine
+structural-nested-mean,root_n_and_efficiency,se ratio sanity,se_high
+structural-nested-mean,root_n_rate,slope in root-n band,contract
+structural-nested-mean,warning_rate,false warnings under the ceiling,se_low
 vector-mtp,double_robustness,bias discriminated,pair_collapse
 vector-mtp,double_robustness,bias equivalent,bias
 vector-mtp,double_robustness,se ratio in union band,se/0.05

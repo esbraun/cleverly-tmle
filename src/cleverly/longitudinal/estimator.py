@@ -5273,8 +5273,8 @@ class _SequentialEstimator:
 
     # ------------------------------------------------------------- internals
 
+    @staticmethod
     def _prepare(
-        self,
         data: Any,
         *,
         outcome: str | Sequence[str] | Mapping[str, Sequence[str]] | Repeated | None,

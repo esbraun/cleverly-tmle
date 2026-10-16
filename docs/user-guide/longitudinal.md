@@ -791,6 +791,93 @@ the estimators, the stacked influence curve, the settings, and the refusals. The
 [sequential offers tutorial](../examples/sequential-offers.ipynb) fits g-computation and `LTMLE`
 with the same misspecified outcome model on one campaign.
 
+## Estimate structural blips
+
+`StructuralNestedMean` fits a linear structural nested mean model. Use it to report the effect of
+each treatment node on the end-of-study outcome, and to let that effect vary with declared
+features. It is a separate method. `LTMLE` and `SDR` fit no model for the effect.
+
+| you want | fit |
+| --- | --- |
+| the effect of node $t$ with later treatment at the reference, as a coefficient matrix | `StructuralNestedMean` |
+| the mean outcome under a static regimen, with no model for the effect | `LTMLE` or `SDR` |
+| the value of a rule, a policy or an incremental intervention | `LTMLE`, `SDR` or `IPSI` |
+
+Declare the features of each node in `blip_features`. A key is a node counted from one, or its
+treatment column. A value lists columns. A tuple of columns declares a product. The intercept is
+always a feature. A feature may read the baseline columns, the covariates through its node, and
+the earlier treatments.
+
+```python
+from cleverly.datasets import make_longitudinal
+from cleverly.learners import GLM
+from cleverly.longitudinal import StructuralNestedMean
+
+frame, _ = make_longitudinal(n=300, seed=0, censoring=False)
+result = StructuralNestedMean(
+    {"always": 1, "never": 0},
+    reference="never",
+    blip_features={1: ["W1"], 2: ["W1", "A1"]},
+    outcome_learner=GLM(family="binomial"),
+    treatment_learner=GLM(family="binomial"),
+    n_folds=2,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+)
+print(result.summary())
+print(result.blip(2))
+```
+
+`snmm()` is the one-call form. `result.blip(node)` returns the coefficients of a node as a matrix
+with one row per feature and one column per coding component. It is the transpose of the matrix
+$\Psi_t$ of the
+[technical page](../technical-reference/structural-dynamic-effects.md#the-model). A categorical node has one column for each level
+after the first sorted level. A continuous node has one column, the dose. The regimen levels and
+contrasts follow from the blips and the mean outcome at the reference level `ey_reference`.
+
+Pass `regression_learner=` when the outcome is binary and a node holds a dose or a feature is
+continuous. A classifier takes no target outside $\{0, 1\}$, and `regression_learner` fits those
+targets. It defaults to `outcome_learner`.
+
+Read the result with this condition. The intervals are valid under the linear structural nested
+mean model with the declared blip features. Every row of the summary and of `to_frame()` carries
+that label. A blip that depends on an undeclared earlier treatment or covariate makes the
+coefficients answer a different question.
+
+The evidence label is "Python property evidence, with comparator runs pending". The
+[structural nested mean study](../technical-reference/method-evidence/structural-nested-mean.md)
+covers cross-fitted fits with `GLM` nuisances on binary, three-level and dose nodes. It also
+covers known weights and 40 or more clusters. A fit inside those rows reads `supported`. Any other fit, such as an in-sample fit, reads `experimental`. The summary
+prints a `support` column and the reason.
+
+Check the model against `LTMLE`.
+
+```python
+check = result.check_model()
+print(check.summary())
+```
+
+`check_model()` fits `LTMLE` on the same rows and folds. A cross-fitted check refits both
+estimators on `n_splits` seeded splits (default 5) and averages the difference. It reports a joint
+Wald statistic on the difference of the contrasts. A rejection says that the model fails for these contrasts. A
+non-rejection does not confirm the model.
+
+| the fit | what it reports |
+| --- | --- |
+| `n_folds > 1` | the influence-curve intervals |
+| `n_folds=1` and every learner a `GLM` | the influence-curve intervals, valid when every `GLM` is correct |
+| `n_folds=1` and another learner | the point estimate, with a diagnostic standard error |
+
+The estimator refuses a rule, a policy, censoring, survival and repeated outcomes. It refuses a
+static level, a contrast and `check_model` when a feature reads a time-varying covariate.
+[Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
+each refusal and its alternative.
+
 ## Simulate the parametric g-formula
 
 `ParametricGFormula` estimates the same regimen levels and contrasts as `LTMLE`. It fits a model for

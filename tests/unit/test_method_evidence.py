@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
+import io
 import json
 import math
 import re
@@ -1328,6 +1329,10 @@ BIAS_GATED_PROPERTIES = frozenset(
         "repeated_outcome_necessity",
         "outcome_history_necessity",
         "full_history_necessity",
+        # X44's negative controls: a blip feature left out moves the regimen estimates off the
+        # g-formula truth.  A control passes when its bias interval lies beyond the margin on
+        # the side of the computed gap, which is the discrimination endpoint read on one side.
+        "blip_feature_control",
     }
 )
 
@@ -1407,6 +1412,9 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # outside the calibration band on a predicted side; the other cells report.
         "first_node_se",
         "fixed_mechanism_se",
+        # The SE of a clustered fit made without its cluster column, which must leave the band
+        # from below.
+        "unclustered_se",
     }
 )
 
@@ -1435,6 +1443,8 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
+        # X44's weak-positivity fit of the structural estimator, reported with no verdict.
+        "positivity_reporting",
         # X45's parametric g-formula beside ICE, LTMLE or IPSI on the same draws, and its
         # extrapolation share, each reported with no verdict.
         "ice_reported",
@@ -3105,6 +3115,11 @@ class TestPropertyFailures:
             witnesses=property_failures.read_witnesses(
                 study.artifact(property_failures.PROPERTY_WITNESSES)
             ),
+        )
+        # The artifact is a CSV, so the recomputed frame is compared as the driver writes it
+        # and as ``_property_accounting`` reads it back: an empty ``imputation`` reads as NaN.
+        recomputed = pd.read_csv(
+            io.StringIO(recomputed.to_csv(index=False)), keep_default_na=False, na_values=[""]
         )
         pd.testing.assert_frame_equal(
             committed, recomputed, check_dtype=False, check_exact=False, rtol=1e-12

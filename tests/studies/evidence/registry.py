@@ -581,6 +581,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_STRATIFIED_MSM_IDENTITY,
     )
     from tests.studies.canonical_stratified_tmle import STUDY as CANONICAL_STRATIFIED_TMLE
+    from tests.studies.canonical_structural_nested_mean import STUDY as STRUCTURAL_NESTED_MEAN
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.canonical_vector_mtp import STUDY as VECTOR_MTP
     from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
@@ -678,6 +679,7 @@ def registered() -> tuple[StudyRecord, ...]:
         DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
+        STRUCTURAL_NESTED_MEAN,
         PARAMETRIC_GFORMULA,
         CTMLE_OAT_PER_ARM,
         CTMLE_OAT_PER_ARM_PARAMETRIC,

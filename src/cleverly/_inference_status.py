@@ -303,7 +303,8 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "C-TMLE fit (strategy='oat', oat_design='per_arm') that "
                 "per_arm_parametric_support admits, take this status too with estimated "
                 "weights, because each one's stacked estimating-equation curve conditions on "
-                "the weights."
+                "the weights. A StructuralNestedMean fit with estimated weights takes it for the "
+                "same reason: its curve treats the weights as known."
             ),
             assessment_note=(
                 "the reported interval conditions on the weights and is experimental: no "
@@ -338,7 +339,11 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "plugin_interval: for g-computation it is the efficient influence curve at the "
                 "untargeted fits, and for IPW it is the fixed-mechanism curve. F35 in "
                 "docs/roadmap.md reopens this when a result supplies the asymptotic linearity "
-                "of these estimators with data-adaptive nuisances."
+                "of these estimators with data-adaptive nuisances. A StructuralNestedMean fit "
+                "with n_folds=1 and a learner other than GLM takes this status too, because no "
+                "result read here covers in-sample adaptive nuisances in a g-estimating "
+                "equation. Cross-fitting, which is the default, gives that estimator its "
+                "interval."
             ),
             assessment_note=(
                 "the reported curve is a baseline diagnostic: no confidence interval or "

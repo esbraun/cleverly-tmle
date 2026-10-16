@@ -330,6 +330,7 @@ row. A move to `gated` is a separate registry decision.
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
 | [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |
 | [LTMLE on declared known node mechanisms](known-node-mechanisms-ltmle.md) | 20 | 0 |
+| [structural nested mean model](structural-nested-mean.md) | 298 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
 | [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |
 <!-- /generated -->
