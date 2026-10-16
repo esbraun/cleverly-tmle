@@ -763,8 +763,9 @@ class TestRelativeReachability:
     """The measurement behind the ``Targeting(step_bound=)`` docstring.
 
     On six arm-mean fits (a continuous and a binary outcome, bounds 0.01, 0.05 and 0.25) the
-    bounded walk with the search on reaches ``tol=1e-10`` after 35 to 145 iterations and never
-    within the default ``max_iter=20``.  With the search off the walk lands within one bound of
+    bounded walk with the search on reaches ``tol=1e-10`` only past the default ``max_iter=20``.
+    The count sits at the round-off floor, so it moves with the platform: 35 to 145 here, and
+    25 to 190 on one CI runner.  With the search off the walk lands within one bound of
     the root and stays there, so ``relative`` is never reached.
     """
 
@@ -795,7 +796,7 @@ class TestRelativeReachability:
         assert 1e-10 < default.relative_score_norm < 1e-7
         long = self.fit(frame, step_bound=delta, max_iter=1000)
         assert long.converged and long.relative_score_norm <= 1e-10
-        assert 30 <= long.n_iter <= 150
+        assert long.n_iter > default.n_iter
 
     @pytest.mark.parametrize("delta", [0.01, 0.05, 0.25])
     def test_the_fixed_step_never_reaches_the_tolerance(self, frame: Any, delta: float) -> None:

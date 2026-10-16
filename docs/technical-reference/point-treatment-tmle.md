@@ -823,6 +823,8 @@ path under a declared rule takes one step before it tests the rule, as `tmle3` d
 Each outer iteration is one line search along the steepest-ascent direction, so convergence is
 linear and takes tens of iterations. The search stops within $1.5\times10^{-8}$ of the minimiser.
 That leaves a relative score of about $10^{-10}$ to $10^{-9}$ at the root, at the edge of `tol`.
+Near that edge, floating-point rounding sets the iteration count. On a CI runner with Python 3.13,
+two of the six point fits took 25 and 190 iterations.
 
 The `tmle3` pairing is therefore a declared rule with a larger `max_iter`. A bounded walk that stops
 short of its rule warns, reports `converged=False` and `failure="max_iter_reached"`, and fails
