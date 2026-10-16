@@ -143,7 +143,6 @@ not change the package version.
 | after beta | Hazard targeting beyond a held baseline treatment | published support; pending source read | the shipped hazard targeting on a held baseline treatment | [X70](#x70-hazard-targeting-beyond-a-held-baseline-treatment) |
 | after beta | Two-phase and outcome-dependent sampling | published support; pending source read | observed-data likelihood and influence correction | [X7](#x7-two-phase-and-outcome-dependent-sampling) |
 | after beta | Omitted-variable bounds on the other linear functionals | published support; pending source read | the shipped arm-axis bound | [X9](#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
-| after beta | Registered study run for the plug-in omitted-variable limits | no new theory; the [second-order correction](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule) ships | the shipped plug-in limits and the declared study | [X26](#x26-registered-study-run-for-the-plug-in-omitted-variable-limits) |
 | after beta | Continuous-dose MSM with a second mechanism | source audit | implemented continuous-dose MSM targeting, missing-outcome arm targeting, and controlled-direct-effect targeting | [X10](#x10-continuous-dose-msm-with-a-second-mechanism) |
 | after beta | Fold-evaluated CV-TMLE with baseline strata | [published support; finite-partition extension](technical-reference/natural-extension-verdicts.md) | the shipped fold-evaluated estimate and the shipped stratified fluctuation | [X28](#x28-fold-evaluated-cv-tmle-with-baseline-strata) |
 | after beta | Simulated-confounding laws for point-treatment fits | [natural extension](technical-reference/hard-stop-review.md); no new theory for part (d) | the shipped point-treatment replay | [X47](#x47-simulated-confounding-laws-for-point-treatment-fits) |
@@ -1043,19 +1042,6 @@ intermediate representer. DR-TMLE and
 C-TMLE fits stay in [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions), and longitudinal fits
 stay in [F16](#f16-longitudinal-sensitivity-bound-estimation). The `ipsi` axis stays refused,
 because its functional depends on the treatment mechanism.
-
-### X26. Registered study run for the plug-in omitted-variable limits
-
-The package ships the plug-in limits for a declared known mechanism and for a `LogisticRegression`
-in sample and cross-fitted. The bound subtracts a second-order estimate of the bias of $\nu^2$ and
-corrects the variance. The registered study `omitted-variable-bound-plugin-se` has a declared
-design and a pilot, and it has not run. The
-[study page](technical-reference/method-evidence/omitted-variable-bound-plugin-standard-error.md)
-states the declaration.
-
-Acceptance: run the registered study at its declared replicate counts, seeds and margins, publish
-the generated tables on the study page, and diagnose every red cell by the
-[red-cell rule](development/method-benchmarking.md#red-cells).
 
 ### X10. Continuous-dose MSM with a second mechanism
 
