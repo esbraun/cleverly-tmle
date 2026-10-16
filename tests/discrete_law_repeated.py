@@ -665,7 +665,15 @@ class RepeatedLaw:
         return estimate, phi1 - estimate
 
     def ipsi_population(
-        self, delta: float, horizon: int, *, key: str, omega: bool = True
+        self,
+        delta: float,
+        horizon: int,
+        *,
+        key: str,
+        omega: bool = True,
+        pi_key: list[str] | None = None,
+        omega_key: list[str] | None = None,
+        correction: bool = True,
     ) -> tuple[float, np.ndarray]:
         r"""The estimate and curve of ``IPSI`` at ``horizon`` on this law, with tabled mechanisms.
 
@@ -685,6 +693,16 @@ class RepeatedLaw:
         omega : bool
             ``False`` replaces the censoring factor :math:`1 / \omega_t` by one and keeps the
             indicator: the N9 mutation.
+        pi_key : list of str or None
+            ``None`` reads the tabled treatment mechanism :math:`\pi_t`.  A list of columns
+            replaces it by the cell mean of the arm among the rows at risk, by those
+            columns: ``["W"]`` is the limit of a fit whose treatment mechanism reads the
+            baseline covariate alone (E7).
+        omega_key : list of str or None
+            The same for the retention probability :math:`\omega_t`.
+        correction : bool
+            ``False`` returns the plug-in :math:`P\bar m_1` and the curve of that mean: the
+            estimator without its residual and mechanism terms.
 
         Returns
         -------
@@ -700,6 +718,15 @@ class RepeatedLaw:
         pi = {1: g1, 2: g2}
         omegas = {1: c1, 2: c2} if omega else {1: np.ones(n), 2: np.ones(n)}
         at_risk = {1: np.ones(n, dtype=bool), 2: stay[1] == 1}
+        if pi_key is not None:
+            pi = {
+                t: self._cell_mean((arm[t] == 1).astype(float), at_risk[t], pi_key) for t in (1, 2)
+            }
+        if omega_key is not None and omega:
+            omegas = {
+                t: self._cell_mean((stay[t] == 1).astype(float), at_risk[t], omega_key)
+                for t in (1, 2)
+            }
         history = {1: ["W"], 2: ["W", "A1", "y1lev", "L2"]}
         keys = {t: (history[t] if key == "full" else ["W"]) for t in (1, 2)}
         y = frame[f"Y{horizon}"].to_numpy()
@@ -715,6 +742,9 @@ class RepeatedLaw:
             mbar[t] = q1 * m1 + (1.0 - q1) * m0
             target = mbar[t]
         phi = mbar[1].copy()
+        if not correction:
+            estimate = float(np.sum(p * phi))
+            return estimate, phi - estimate
         previous = np.ones(n)
         for t in range(1, horizon + 1):
             previous = np.where(at_risk[t], previous, 0.0)

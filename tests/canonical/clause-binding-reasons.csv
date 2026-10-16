@@ -36,3 +36,4 @@ longitudinal-repeated-outcome,repeated_outcome_necessity,bias discriminated,impl
 tests.studies.long_horizon_categorical_ltmle_properties,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
 tests.studies.long_horizon_ltmle_properties,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
 tests.studies.long_horizon_sdr_properties,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
+longitudinal-repeated-ipsi,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent
