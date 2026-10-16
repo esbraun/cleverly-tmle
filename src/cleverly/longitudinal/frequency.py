@@ -223,7 +223,7 @@ def merge_equal_rows(
     start[1:] = np.any(ordered[1:] != ordered[:-1], axis=1)
     group = np.cumsum(start) - 1
     merged = ordered[start]
-    summed = np.bincount(group, weights=weight[order])
+    summed = np.asarray(np.bincount(group, weights=weight[order]), dtype=np.float64)
     return merged[:, :-1], merged[:, -1], summed
 
 

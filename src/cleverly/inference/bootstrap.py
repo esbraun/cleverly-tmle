@@ -277,7 +277,7 @@ def cluster_sums(curve: FloatArray, cluster: IntArray | None) -> FloatArray:
     if cluster is None:
         return values
     _, codes = np.unique(np.asarray(cluster).reshape(-1), return_inverse=True)
-    return np.bincount(codes, weights=values)
+    return np.asarray(np.bincount(codes, weights=values), dtype=np.float64)
 
 
 def bca_acceleration(influence_curve: FloatArray, cluster: IntArray | None = None) -> float:
