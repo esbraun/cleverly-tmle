@@ -1161,7 +1161,12 @@ def _c_rows() -> tuple[SupportRow, ...]:
                 "binary_active__estimated",
                 "sharp_null",
             ],
-            limits=[measured],
+            limits=[
+                measured,
+                "The interval needs at least 30 rows in each held-out fold.",
+                "Under a wrong outcome model the interval covers the limit psi*, not the arm "
+                "mean (cells crossfit_pseudo_true).",
+            ],
         ),
         point_row(
             "C11.repeated",
@@ -1173,6 +1178,8 @@ def _c_rows() -> tuple[SupportRow, ...]:
             limits=[
                 measured,
                 "The study measures repeats=3 only. A fit at another repeat count is experimental.",
+                "The repeats cells cannot see the split-adjustment term of the median rule, about "
+                "0.2% of the variance. A unit identity test pins that term.",
             ],
         ),
     ]

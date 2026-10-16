@@ -20,11 +20,10 @@ labels the interval "Python property evidence, no comparator".
 the outcome features, whose limit ``psi*`` comes from :mod:`tests.studies.oat_parametric_quadrature`.
 The generated-design pair pins ``Qbar_0`` of ``binary_active`` for its oracle arm.
 
-**The primary phase** fits ``binary_active`` cross-fitted at ``n = 1,500`` for 800 replicates and
-reports ``ey0``, ``ey1``, ``ate``, ``rr`` and ``or``.  The record needs a primary scenario.  Plan
-13.6 counts no primary phase among the units of ``G`` for this study, because the in-sample
-primary rows are X58a's.  Every other cell is a property cell of
-:mod:`tests.studies.ctmle_oat_per_arm_parametric_crossfit_properties`.
+**The primary phase** fits ``binary_active`` cross-fitted at ``n = 1,500`` for 1,200 replicates and
+reports ``ey0``, ``ey1``, ``ate``, ``rr`` and ``or``.  It is not X58a's in-sample phase.  The
+driver gates its rows, so ``G`` counts it as a unit (design review M1).  Every other cell is a
+property cell of :mod:`tests.studies.ctmle_oat_per_arm_parametric_crossfit_properties`.
 
 **The declared reading** (plan 13.6, 5.4 carried over), fixed before any run:
 
@@ -32,19 +31,23 @@ primary rows are X58a's.  Every other cell is a property cell of
   SE-ratio interval contains 1, its coverage is consistent with 0.95, and the diagnosis finds no
   defect.  Any other red row is a defect suspect, and it is diagnosed before anything is
   published.
-* ``shipped_curve_control`` (``crossfit_1500``) and ``shipped_curve_median_control``
-  (``repeats``) are negative controls.  Each *must* be red.  The first reads the SE ratio of the
-  shipped adaptive-propensity curve of the same cross-fitted fits, expected at 0.845.  The second
-  reads the median over draws of the stored shipped standard error with the split-adjusted
-  variance.  In harness terms a control row publishes ``passed = True`` exactly when its SE-ratio
-  interval leaves the calibration band on the declared side.  A control whose interval stays
-  inside the band, or straddles it, publishes ``passed = False``.  Its cell then cannot see its
-  term, the study is invalid, and it is redesigned before any reading.  The policy is ``gated``,
-  so such a row blocks publication.  The study has no inflated control, so it takes no
-  ``se_low`` clause binding (plan 13.6).
-* The coverage of ``psi_0`` in the pseudo-true group, the ``sqrt(n)`` SD of the groups at
-  ``n = 500`` and ``n = 8,000`` against the quadrature SD, the per-draw spread of the repeated
-  fits and the paired deficit of the generated-design pair are reported and gate nothing.
+* ``crossfit_1500__ate__shipped_curve__shrunken_se_control`` and
+  ``repeats__ate__shipped_curve__shrunken_se_control`` are negative controls.
+  Each *must* be red.  The first reads the SE ratio of the shipped adaptive-propensity curve of
+  the same cross-fitted fits.  The second reads the median over draws of the stored shipped
+  standard error with the split-adjusted variance.  The exact-law ratio of both is 0.845 (the
+  in-sample value, which is the cross-fitted limit by CW4).  The repeated control equals the
+  single-draw value up to the draw-spread term, which is about 0.2% of the variance.  The
+  declared-size pilot read 0.852 and 0.853.  In harness terms a control row publishes
+  ``passed = True`` exactly when its SE-ratio interval leaves the calibration band on the
+  declared side.  A control whose interval stays inside the band, or straddles it, publishes
+  ``passed = False``.  Its cell then cannot see its term, the study is invalid, and it is
+  redesigned before any reading.  The policy is ``gated``, so such a row blocks publication.
+  The study has no inflated control, so it takes no ``se_low`` clause binding (plan 13.6).
+* The coverage of ``psi_0`` in the pseudo-true group (declared at 0.5646, 0.5646 and 0.2963 for
+  ``ey0``, ``ey1`` and ``ate``), the ``sqrt(n)`` SD of the groups at ``n = 500`` and
+  ``n = 8,000`` against the quadrature SD, the per-draw spread of the repeated fits and the
+  paired deficit of the generated-design pair are reported and gate nothing.
 
 **Failures.**  The record declares ``failure_bound={IMPLEMENTATION: 0.01}`` and the property
 module declares ``FAILURE_BOUND = 0.01``, in the form ``docs/development/method-benchmarking.md``
@@ -53,13 +56,13 @@ redrawn, and the run continues: the primary phase records it through ``fit_prima
 property phase through ``fit_properties``.  A fit that raises, and an admitted fit whose stack
 fails (``fit_cleverly`` raises on any status other than ``"influence_curve"``), both count as
 failed replicates.  Under ``repeats=3`` the median carries the precedent parameter status of its
-draws, so one failed draw fails the replicate.  A cell may lose ``floor(0.01 R)`` replicates of its ``R``, each clause is judged by its worst case
-over the lost values, and one more lost replicate reads ``bound exceeded``.
+draws, so one failed draw fails the replicate.  A cell may lose ``floor(0.01 R)`` replicates of its ``R``, each clause is judged by its worst
+case over the lost values, and one more lost replicate reads ``bound exceeded``.
 
-**Sizes.**  Plan 13.6 sizes the study by the study-wise rule of section 12.  ``G`` counts nine
-units: six calibration groups (the generated-design pair among them), one type I group, no primary
-phase and two negative controls.  Each unit is sized so that its pass probability is at least
-``0.95 ** (1 / 9) = 0.99432``, so the study passes with probability at least 0.95 when nothing is
+**Sizes.**  Plan 13.6 sizes the study by the study-wise rule of section 12.  ``G`` counts ten
+units: six calibration groups (the generated-design pair among them), one type I group, the
+primary phase and two negative controls.  Each unit is sized so that its pass probability is at
+least ``0.95 ** (1 / 10) = 0.99488``, so the study passes with probability at least 0.95 when nothing is
 wrong.  The budgets of :data:`BUDGETS` are the rev 3.1 expected budgets of plan 13.6, rounded up
 to a multiple of 400.  The declared-size pilot (``reviews/x58/x58b/pilot`` of the plans
 repository) reads every group at those budgets on pilot-only seeds and reports the study-wise
@@ -91,7 +94,7 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.point_study_helpers import primary_rows
 
-PRIMARY_REPLICATES = 800
+PRIMARY_REPLICATES = 1_200
 PRIMARY_N = 1_500
 #: Fresh entropy: no registered study uses either number, and
 #: ``tests/unit/test_ctmle_oat_per_arm_parametric_crossfit_study_design.py`` checks that.
@@ -116,7 +119,7 @@ ARM_ESTIMANDS = ("ey0", "ey1", "ate")
 # ---------------------------------------------------------------------------------- the sizes
 
 #: The replicates of each fit group: the rev 3.1 expected budgets of plan 13.6, each a multiple
-#: of 400.  The six calibration groups are sized to the per-unit target ``0.95 ** (1 / 9)``.
+#: of 400.  The six calibration groups are sized to the per-unit target ``0.95 ** (1 / 10)``.
 #: ``crossfit_null`` is sized at 1,200: at most 93 rejections pass the type I verdict, and the
 #: pass probability is 0.99998 at a true rate of 0.05 and 0.99953 at 0.055.
 BUDGETS: Mapping[str, int] = {
@@ -133,7 +136,7 @@ BUDGETS: Mapping[str, int] = {
 UNITS: Mapping[str, int] = {
     "calibration_groups": 6,
     "type_i_groups": 1,
-    "primary_phase": 0,
+    "primary_phase": 1,
     "negative_controls": 2,
 }
 UNIT_COUNT = sum(UNITS.values())
@@ -487,8 +490,9 @@ CONFIGURATION: dict[str, Any] = {
     "units": dict(UNITS),
     "budget_rule": (
         "plan 13.6 (rev 3.1) expected budgets, each a multiple of 400; the study-wise rule of "
-        "plan section 12 with G = 9 gated units, each sized to pass with probability >= "
-        "0.95 ** (1 / 9); crossfit_null is sized at 1,200 (at most 93 rejections pass)"
+        "plan section 12 with G = 10 gated units, each sized to pass with probability >= "
+        "0.95 ** (1 / 10); crossfit_null and the primary phase are sized at 1,200 (at most 93 "
+        "rejections pass in crossfit_null)"
     ),
     "failure_bounds": {
         "declared": FAILURE_BOUND,
@@ -507,19 +511,28 @@ CONFIGURATION: dict[str, Any] = {
     "declared_reading": (
         "A red calibration row is finite-sample only under the AGENT-BRIEF rule (its 99% "
         "SE-ratio interval contains 1, its coverage is consistent with 0.95, and diagnosis "
-        "finds no defect). shipped_curve_control and shipped_curve_median_control must be "
+        "finds no defect). crossfit_1500__ate__shipped_curve__shrunken_se_control and "
+        "repeats__ate__shipped_curve__shrunken_se_control must be "
         "red, that is, their SE-ratio intervals must leave the calibration band below. The "
         "harness publishes passed=True for such a control. If either control stays inside "
         "or straddles the band, its cell cannot see its term, the study is invalid, and it is "
         "redesigned before any reading. The coverage of psi_0 in the pseudo-true group, the "
         "sqrt(n) SD of the groups at n = 500 and n = 8,000, the per-draw spread of the "
         "repeated fits and the paired deficit of the generated-design pair are reported and "
-        "gate nothing."
+        "gate nothing. The coverage of psi_0 is declared at "
+        "0.5646, 0.5646 and 0.2963 (psi0_coverage_expected)."
     ),
     "negative_controls": dict(NEGATIVE_CONTROLS),
     "negative_control_expected_se_ratio": {
-        "shipped_curve_control": 0.845,
+        # The in-sample exact-law value, which is the cross-fitted limit (CW4).  The repeated
+        # control equals it up to the draw-spread term.  "pilot" records the declared-size pilot.
+        "crossfit_1500__ate__shipped_curve__shrunken_se_control": {"exact": 0.845, "pilot": 0.852},
+        "repeats__ate__shipped_curve__shrunken_se_control": {"exact": 0.845, "pilot": 0.853},
     },
+    # The quadrature prediction of the coverage of psi_0 by the pseudo-true cells at n = 1,500:
+    # Phi(1.96 - b) - Phi(-1.96 - b) with b the standardized gap (psi* - psi_0) sqrt(n) / SD.
+    # The pilot read 0.571, 0.562 and 0.303.
+    "psi0_coverage_expected": {"ey0": 0.5646, "ey1": 0.5646, "ate": 0.2963},
     "publication_reading": (
         "gated: every row must pass, and a negative control passes by being red"
     ),

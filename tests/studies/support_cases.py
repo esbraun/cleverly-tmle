@@ -1336,7 +1336,7 @@ def _c_cases() -> tuple[RowCase, ...]:
             )
         )
     crossfit = "canonical_ctmle_oat_per_arm_parametric_crossfit"
-    where = _ST + "canonical_ctmle_oat_per_arm_parametric_crossfit.py:612"
+    where = _ST + "canonical_ctmle_oat_per_arm_parametric_crossfit.py:625"
     for row, cell, repeats, names in (
         ("C11.stacked", "crossfit_1500__ate__corrected", 1, ("ey0", "ey1", "ate", "rr", "or")),
         ("C11.repeated", "repeats__ate__corrected", 3, ATE),
