@@ -1898,7 +1898,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
     # The repeated-outcome ``IPSI`` study (X32b): three odds tilts at three nodes.  The band is
     # the default simultaneous band of the in-sample fits over all fifteen reported parameters.
     # A booster fit and the small-sample cells are diagnostic there, so they license nothing.
-    ipsi = ["longitudinal-repeated-ipsi"]
+    ipsi_study = ["longitudinal-repeated-ipsi"]
     ipsi_limits = [
         "The gated cells draw n = 8,000. At n = 2,000 the continuous arm reads an SE ratio down "
         "to 0.92, below the calibration band, and the study reports that cell without a verdict.",
@@ -1915,7 +1915,7 @@ def _long_rows() -> tuple[SupportRow, ...]:
     ) -> SupportRow:
         return long_row(
             row_id,
-            ipsi,
+            ipsi_study,
             outcome_kind="repeated",
             regimens=("tilt",),
             treatment=("2",) * 3,
