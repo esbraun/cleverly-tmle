@@ -13,8 +13,8 @@ On Linux the answer is also capped by the memory limit of the process's control 
 (cgroup v2 ``memory.max``, or cgroup v1 ``memory.limit_in_bytes``). A container sees the memory
 of the host in ``/proc/meminfo``, and a pool that sized itself by that count could exceed the
 container limit and lose a worker to the out-of-memory killer. The headroom of a group is its
-limit less its usage, and the usage leaves out the inactive file cache, which the kernel
-reclaims before it kills a process.
+limit less its usage, and the usage leaves out the file cache (the active and inactive file
+pages), which the kernel reclaims before it kills a process.
 """
 
 from __future__ import annotations
@@ -33,11 +33,15 @@ CGROUP = "/proc/self/cgroup"
 #: Where Linux mounts the control group file systems.
 CGROUP_ROOT = "/sys/fs/cgroup"
 
-#: Per cgroup version: the limit, the usage, and the ``memory.stat`` key of the inactive file
-#: cache.  cgroup v1 reports a missing limit as a huge number, and v2 as ``max``.
+#: Per cgroup version: the limit, the usage, and the ``memory.stat`` keys of the file cache.
+#: cgroup v1 reports a missing limit as a huge number, and v2 as ``max``.
 _CGROUP_FILES = {
-    2: ("memory.max", "memory.current", "inactive_file"),
-    1: ("memory.limit_in_bytes", "memory.usage_in_bytes", "total_inactive_file"),
+    2: ("memory.max", "memory.current", ("inactive_file", "active_file")),
+    1: (
+        "memory.limit_in_bytes",
+        "memory.usage_in_bytes",
+        ("total_inactive_file", "total_active_file"),
+    ),
 }
 
 #: A cgroup v1 limit at or above this many bytes means no limit (the kernel writes a page-rounded
@@ -126,15 +130,16 @@ def _cgroup_headroom(cgroup: str, root: str) -> int | None:
     """The smallest memory headroom among the limited control groups, or ``None`` without one."""
     headroom: int | None = None
     for version, directory in _cgroup_directories(cgroup, root):
-        limit_name, usage_name, inactive_key = _CGROUP_FILES[version]
+        limit_name, usage_name, cache_keys = _CGROUP_FILES[version]
         limit = _read_int(os.path.join(directory, limit_name))
         if limit is None or (version == 1 and limit >= _V1_UNLIMITED):
             continue
         usage = _read_int(os.path.join(directory, usage_name))
         if usage is None:
             continue
-        inactive = _stat_value(os.path.join(directory, "memory.stat"), inactive_key)
-        room = max(0, limit - max(0, usage - inactive))
+        stat = os.path.join(directory, "memory.stat")
+        cache = sum(_stat_value(stat, key) for key in cache_keys)
+        room = max(0, limit - max(0, usage - cache))
         headroom = room if headroom is None else min(headroom, room)
     return headroom
 

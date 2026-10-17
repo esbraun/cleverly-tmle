@@ -95,18 +95,18 @@ def _cgroup_file(tmp_path: Path, text: str) -> str:
 
 
 def test_a_v2_limit_is_headroom_less_the_active_usage(tmp_path: Path) -> None:
-    """``memory.current`` counts the inactive file cache, and the headroom gives it back."""
+    """``memory.current`` counts the file cache, and the headroom gives it back."""
     root = tmp_path / "fs"
     _group(
         root / "box",
         {
             "memory.max": f"{8 * GIB}\n",
             "memory.current": f"{5 * GIB}\n",
-            "memory.stat": f"anon 1\ninactive_file {2 * GIB}\nactive_file 3\n",
+            "memory.stat": f"anon 1\ninactive_file {2 * GIB}\nactive_file {GIB}\nshmem 7\n",
         },
     )
     cgroup = _cgroup_file(tmp_path, "0::/box\n")
-    assert memory._cgroup_headroom(cgroup, str(root)) == 5 * GIB
+    assert memory._cgroup_headroom(cgroup, str(root)) == 6 * GIB
 
 
 def test_the_tightest_ancestor_decides(tmp_path: Path) -> None:
