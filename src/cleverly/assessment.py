@@ -3428,7 +3428,7 @@ def _robustness_item(
     # non-inferential status in the report itself, so a saved report reads the same name
     # and prints the same noun with no fit at hand.
     # Imported here because the sensitivity module imports this one.
-    from .sensitivity.omitted_variable import _UNREACHABLE_RV, limit_refusal_reason
+    from .sensitivity.omitted_variable import _UNREACHABLE_RV
 
     status = report.get("inference", "influence_curve")
     point = (
@@ -3441,15 +3441,6 @@ def _robustness_item(
             "robustness_value",
             AssessmentStatus.COMPLETED,
             f"{point}; no confidence-limit value: {report['limit_refusal']}",
-        )
-    if "nu2_estimator" in report:
-        # A report names its estimator only when no confidence-limit value exists under any
-        # name, so the row gives the bound's own reason rather than reading an absent key.
-        return AssessmentItem(
-            "robustness_value",
-            AssessmentStatus.COMPLETED,
-            f"{point}; no confidence-limit value under "
-            f"{limit_refusal_reason(report['nu2_estimator'])}",
         )
     limit_value = report[spread_name("rva", status)]
     limit_detail = (

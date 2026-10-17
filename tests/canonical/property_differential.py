@@ -596,7 +596,15 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
         ``(property, cell, clause, statistic, label, complete case, candidate)``.
     """
     module, record = subject_of(subject)
-    rows = subject_rows(subject)
+    rows = subject_rows(subject).copy()
+    # A subject with committed failures stamps its rows with the replicates it lost, and
+    # ``Context.k`` reads that stamp.  The candidates then fill the lost replicates, and they
+    # bound the complete case without equalling it.  Renumber the surviving replicates and
+    # restamp them as the requested set, so that ``k = 0`` holds for every cell.
+    cells = rows.groupby(["property", "cell"])["replicate"]
+    rows["replicate"] = cells.cumcount()
+    rows["requested_replicates"] = cells.transform("size")
+    rows["failed_replicates"] = 0
     wrong: list[tuple[Any, ...]] = []
     read = 0
     with reduced(record) as cheap:

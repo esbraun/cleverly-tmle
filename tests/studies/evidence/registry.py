@@ -601,6 +601,9 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
+    from tests.studies.omitted_variable_bound_plugin import (
+        STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
+    )
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
@@ -689,6 +692,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CTMLE_OAT_PER_ARM_PARAMETRIC_EXTENSIONS,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
+        OMITTED_VARIABLE_BOUND_PLUGIN_SE,
         CALIBRATION_SLOPE_WARNING,
         DEFAULT_SIMULTANEOUS_BANDS,
         FULL_REFIT_BOOTSTRAP,

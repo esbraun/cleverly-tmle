@@ -611,6 +611,54 @@ methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()
 `contour()`, `evalue()`, `missingness()`, `tipping_gamma()`, and `simulated_confounding()`. A
 simulated surface needs an explicit strength grid, so `run_all()` never starts it.
 
+The omitted-variable bound has two estimators of $\nu^2$. The default is doubly robust, and its
+one-sided limits hold for any treatment learner. The plug-in estimator gives the limits for a
+declared known mechanism and for a scikit-learn `LogisticRegression`, with no penalty or a fixed L2
+penalty, fitted in sample or cross-fitted. The example fits one, with the default `C=1`, and reads the limits.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly.datasets import make_linear_ate
+
+linear_frame, _ = make_linear_ate(1000, seed=1)
+linear_study = CausalStudy(
+    linear_frame,
+    design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")),
+)
+plugin_fit = linear_study.estimate(
+    ATE(),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+    random_state=1,
+)
+plugin_bounds = plugin_fit.sensitivity.omitted_confounding(
+    cf_y=0.05, cf_d=0.05, nu2_estimator="plugin"
+)
+print(plugin_bounds.summary())
+print(plugin_bounds.ci_lower, plugin_bounds.robustness_value_ci)
+```
+
+The summary names the mechanism whose score the standard error carries. A treatment learner
+outside the admitted set, such as a random forest, makes `ci_lower`, `ci_upper`,
+`robustness_value_ci` raise `CapabilityError` with the roadmap item F26, and `robustness_value`
+omits `rva`. The bounds and the rest of `robustness_value` stay available.
+
+The plug-in $\nu^2$ has a bias of order $1/n$, and its constant grows with $g^{-2}$. The bound
+subtracts a second-order estimate of that bias. A fixed L2 penalty adds to the bias, and the same
+correction covers it. The correction needs a smooth mechanism. The standard error of the limits is
+the influence variance of the uncorrected curve, because the subtraction does not change the curve.
+
+The bound refuses its limits in three cases. A truncation bound clips a cell or lies within three
+standard errors of a fitted logit (`truncation_active`). The predicted remainder exceeds a quarter
+of the standard error of $\nu^2$ (`correction_unstable`). The corrected $\nu^2$ is not positive
+(`corrected_nonpositive`). More rows, or a `g_bounds` that the fitted mechanism does
+not approach, can clear the refusal. The
+[learner rule](../technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
+lists every key.
+
 The `missingness()` tilt and the `tipping_gamma()` search perturb the arm-indexed means and their
 linear contrasts. The table gives each missing-outcome fit where both are unavailable.
 

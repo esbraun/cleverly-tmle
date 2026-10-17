@@ -129,7 +129,6 @@ not change the package version.
 | B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
-| BP | Plug-in omitted-variable limits with a declared parametric mechanism | [published support; stacked-equation extension](technical-reference/natural-extension-verdicts.md) | the shipped plug-in bound | [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
 | BD | Worked examples for the shipped methods | no new theory | every row of milestones B0 to B4 and BP | [X68](#x68-worked-examples-for-the-shipped-methods) |
 | BD | Documentation review for new and changed methods | no new theory | every row of milestones B0 to B4 and BP; X68 | [X69](#x69-documentation-review-for-new-and-changed-methods) |
@@ -247,7 +246,7 @@ It moved each part that an established method or a natural extension carries to 
 | Missing-outcome simulated-confounding replay | a replay of the stored estimator when the response or treatment-observation mechanism reads the treatment | identification | complete outcomes only. [X47](#x47-simulated-confounding-laws-for-point-treatment-fits) holds a response mechanism that reads the covariates only | [F12](#f12-missing-outcome-simulated-confounding-replay) |
 | Longitudinal simulated-confounding replay | censoring or survival outcomes; a time-varying covariate after the first treatment node; a time-varying latent with treatment feedback | identification | point-treatment results only. [X48](#x48-longitudinal-simulated-confounding-replay-with-a-time-fixed-latent) holds one time-fixed latent on uncensored terminal-outcome fits | [F13](#f13-longitudinal-simulated-confounding-replay) |
 | Controlled-direct-effect simulated-confounding replay | the treatment axis on a fit with an intermediate | identification | fits without an intermediate only. [X47](#x47-simulated-confounding-laws-for-point-treatment-fits) holds the outcome axis and an intermediate axis that holds the treatment | [F15](#f15-controlled-direct-effect-simulated-confounding-replay) |
-| Plug-in omitted-variable confidence limits | confidence limits of the plug-in $E_n[\hat\alpha^2]$ for a learned mechanism other than the declared model of [X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) | regularity | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour()`. The one-sided limits and `rva` refuse under `nu2_estimator="plugin"`. `nu2_estimator="doubly_robust"` gives them for any mechanism learner | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
+| Plug-in omitted-variable confidence limits | confidence limits of the plug-in $E_n[\hat\alpha^2]$ for a learned mechanism other than the admitted set: a declared known mechanism, or a `LogisticRegression` with no penalty or a fixed L2 penalty, bare or after `StandardScaler`, fitted in sample or cross-fitted | regularity | the plug-in bounds, `rv`, `max_bias`, `benchmark()` and `contour()`. The one-sided limits and `rva` open for the [admitted set](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule) and refuse for every other learner under `nu2_estimator="plugin"`. `nu2_estimator="doubly_robust"` gives them for any mechanism learner | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) |
 | Targeted bootstrap inference | full-refit bootstrap consistency with data-adaptive or cross-fitted nuisances; a row-resampling (nonparametric) targeted bootstrap for learners other than HAL | asymptotic | the in-sample point-treatment `TMLE` bootstrap publishes its percentile interval, with a data-adaptive learner too, although the registered study measured only correctly specified nuisances. A cross-fitted point bootstrap, and every `DRTMLE` and `CTMLE` bootstrap, prints as a diagnostic. [X55](#x55-bootstrap-extensions) holds the extensions that published support carries | [F2](#f2-targeted-bootstrap-inference) |
 | Longitudinal sensitivity-bound estimation | (a) a sample estimate of the bounds of Tan (2025); (b) its interval; (c) an omitted-variable bound or an E-value on a longitudinal fit | (a) asymptotic; (b) regularity; (c) identification | no sensitivity bound on a longitudinal fit | [F16](#f16-longitudinal-sensitivity-bound-estimation) |
 | Other refused C-TMLE and DR-TMLE compositions | C-TMLE ATT, ATC, incremental, modified treatment policies, the risk-ratio tilt, controlled direct effects, continuous doses and longitudinal functionals; DR-TMLE ATT, ATC, modified treatment policies, the risk-ratio tilt, incremental, controlled direct effects, longitudinal functionals, continuous doses, a partial guard with missing outcomes, fold targeting and fold evaluation; DR-TMLE combined with C-TMLE | regularity for the C-TMLE targets; asymptotic for the DR-TMLE targets | named pre-fit refusals. [X50](#x50-further-dr-tmle-compositions) and [X51](#x51-c-tmle-point-estimates-for-further-targets) hold the compositions that moved, and [X62](#x62-other-dr-tmle-and-c-tmle-compositions) holds the others | [F5](#f5-other-refused-c-tmle-and-dr-tmle-compositions) |
@@ -497,6 +496,13 @@ The `X45-finite-sample` owner holds one calibration cell of the `parametric-gfor
 The study declares the reading before its run, and the diagnosis finds no defect in
 `ParametricGFormula`.
 
+The `X26-plugin-finite-sample`, `X26-plugin-conservative` and `X26-refusal-limited` owners were
+declared before the run of the `omitted-variable-bound-plugin-se` study. A red cell of that study
+takes one of them only under the declared rules of its
+[red-cell policy](technical-reference/method-evidence/omitted-variable-bound-plugin-standard-error.md#red-cell-policy).
+The run left two red cells. `X26-plugin-conservative` holds the ATE cell, and `X26-refusal-limited`
+holds the ATT cell. `X26-plugin-finite-sample` holds no cell.
+
 The `X8-logit-small-stratum` and `X8-identity-small-stratum` owners hold cells of the two
 stratified MSM studies in their smallest stratum. Each is a standing record of a reading, and
 neither gates the beta release. The `X8-drtmle-one-sided-bias` and `X8-drtmle-small-stratum`
@@ -528,6 +534,9 @@ owners do the same for the stratified DR-TMLE study.
 | `X19-competing-calibration` | the `interval_calibration/competing_contrast_x2_h3__correctly_specified` cell of `longitudinal-incremental-dropout` | reading `finite-sample, conservative`. At n = 96,000 and 3,000 replications the SE ratio is 1.047, with an interval of 1.012 to 1.083 against an upper bound of 1.07. Coverage is 0.959. The reported standard error matches the exact efficient influence-function standard deviation (ratio 1.0006), and the empirical spread sits 4.4% below it. The design probes on other draws read 0.948 at n = 32,000 and 0.980 at n = 64,000 (`tests/diagnostics/x19_sizing/reading.csv`). The owner closes when a re-declared competing-risk calibration cell passes its band at a budget fixed before its run. Until then the cell stays published red under `reporting` |
 | `X13-finite-sample` | the `interval_calibration/weighted_t5__correctly_specified` cell of `point-treatment-survival` and the `interval_calibration/three_arm_t3__correctly_specified` cell of `point-treatment-survival-crossfit` | reading `finite-sample`. The weighted cell's SE ratio is 1.027, with a 99% interval of 0.981 to 1.076 against an upper bound of 1.07. Its reported standard error equals the weighted efficiency bound (ratio 1.0007), and the interval of its empirical efficiency ratio, 0.930 to 1.020, contains one. A diagnostic on 1,000 fresh draws ([`tests/diagnostics/x13_weighted_calibration/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_weighted_calibration)) reads an SE ratio of 1.022 and a coverage of 0.957. The cross-fitted three-arm cell's empirical efficiency interval is 1.010 to 1.108 against 1.10, with an SE ratio of 1.008. A diagnostic on fresh draws ([`tests/diagnostics/x13_crossfit_three_arm/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x13_crossfit_three_arm)) put its reported standard error over the bound at 1.0003 in sample, 1.082 at five folds and 1.055 at ten folds at n = 2,000, and 1.0085 at five folds at n = 8,000, so the excess is the finite-sample cost of cross-fitting saturated cell means. The owner closes when a cell is re-declared with its size and replication count chosen before its run by a stated sizing rule, such as a pass probability of at least 0.90 under exact calibration, and that cell passes. A larger run that happens to pass does not close it. Until then each cell stays published red under `reporting` |
 | `X45-finite-sample` | the `interval_calibration/nice_g1_treat_all__correctly_specified` cell of `parametric-gformula` | reading `finite-sample` under the reading that `tests/studies/canonical_parametric_gformula.py` declares before the run. The cell (n = 2,000, R = 2,400) has an SE ratio of 0.9619, with a 99% interval of 0.9259 to 1.0000 against a lower bound of 0.93. Its coverage is 0.9413, with a 99% interval of 0.9278 to 0.9529 inside the band 0.92 to 0.98. Its bias is 0.000158 with a standard error of 0.000393. The same law, plan and size in two independent draws give SE ratios of 1.0022 (`shared_target`, R = 1,192) and 0.9701 (`ice_reported`, R = 1,198). The other `G1` calibration cells read 0.972 to 0.993, and the `G1` contrast ladder reads 1.021, 0.986 and 1.006 at n = 2,000, 4,000 and 8,000. The study declares an expected 1.26 finite-sample reds over 114 gated cells, and a chance of 0.72 of at least one. The owner closes when a cell is re-declared with its size chosen before its run and that cell passes. Until then the cell stays published red under `reporting` |
+| `X26-plugin-finite-sample` | a red positive `interval_calibration` cell of `omitted-variable-bound-plugin-se`, only after rule 2 of its red-cell policy finds no defect and its 99% SE-ratio interval contains 1 with coverage consistent with 0.95 | reading `finite-sample, contracting` or `finite-sample, not contracting at n=4000`, from the $n = 4000$ rerun at 5,000 replicates that rule 3 declares before the run. The run holds no cell here. The owner closes when a re-declared cell passes its band at a budget fixed before its run. Until then the cell stays published red under `reporting` |
+| `X26-plugin-conservative` | the `interval_calibration/multinomial_logistic_crossfit_ate_2v0_lower__correctly_specified` cell of `omitted-variable-bound-plugin-se`, as rule 8 of its red-cell policy defines: the lower endpoints of the 99% SE-ratio and coverage intervals are at least 0.93 and 0.92, the SE ratio is at least 1 and the coverage is at least 0.95 | reading `conservative, contracting`. Rule 2 found agreement: on 20 replicates the package curve of the plug-in $\hat\nu^2$ departs from an infinitesimal jackknife by at most 6.2e-7 of its largest value and from a numerical sandwich by at most 2.6e-9, against a tolerance of 1e-6 ([`tests/diagnostics/x26_red_cells/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x26_red_cells), [`tests/unit/test_x26_red_cells_reading.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_x26_red_cells_reading.py)). The cell has an SE ratio of 1.0523 (99% interval 1.0332 to 1.0723) and coverage 0.9609, with 32 of 10,000 replicates lost. The plain influence variance omits the second-order variance term, which is consistent with the excess. The rerun at $n = 4000$ with 5,000 replicates, `python -m tests.diagnostics.x26_red_cells.rerun`, lost no replicate and reads an SE ratio of 0.998, with a 99% interval of 0.973 to 1.025, and coverage 0.9506 (`rerun-reading.csv`). The SE ratio falls from 1.0523 at $n = 1000$, so the reading is `conservative, contracting`. The owner closes when a re-declared cell passes its band at a budget fixed before its run. Until then the cell stays published red under `reporting` |
+| `X26-refusal-limited` | the `interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified` cell of `omitted-variable-bound-plugin-se`, as rule 7 of its red-cell policy defines: the cell is green on the complete case and red only because a worst-case clause of the failure accounting fails | reading `refusal-limited`. The package refused 32 of 10,000 replicates, all with the key `truncation_active`, a rate of 0.32 percent. Every other key refused none. The SE-ratio interval is 1.0288 to 1.0683, inside the band, and the SE ratio is 1.0479. The coverage is 0.9620, with a 99% interval of 0.9568 to 0.9667. The SE-ratio leg of the failure accounting reads 0.0017 on the complete case, which passes, and -0.0048 on the worst case, which fails. The failure bound of 0.01 holds. Rule 2 found agreement with the jackknife and the sandwich, as for the `X26-plugin-conservative` cell, and the refusal rates by key are in `refusal-reading.csv`. The rerun at $n = 4000$ with 5,000 replicates lost no replicate, and the cell reads an SE ratio of 1.002, with a 99% interval of 0.977 to 1.027, and coverage 0.9534 (`rerun-reading.csv`). The owner closes when a re-declared cell passes its worst-case clause at a budget fixed before its run. Until then the cell stays published red under `reporting` |
 | `F28` | [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) parts (d), (f) and (g), for the finite-sample limits of clustered intervals: the fold-evaluated covariate pair of `clustered-unequal-cvtmle`, and the fold-evaluated bias cells and cross-fitted `DRTMLE` IID controls of `clustered-few-cluster-tmle` | each group closes on its own registered study that passes. The fold-evaluated pair of `clustered-unequal-cvtmle` at 40 clusters in 10 folds: a fold-evaluated degrees-of-freedom rule $t(\min(J-2, J-V))$ at 40 clusters or more. The three `tmle_cv_evaluation__unequal_informative` cells: a cluster-size-weighted fold average or another fold-evaluated point whose bias stays inside the margin. The stacked report is the remedy today. The four `drtmle_crossfit` `iid_t_control` cells: a calibrated cross-fitted `DRTMLE` cluster variance, or an IID control that compares the two SEs and not the IID SE with the empirical SD ([X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes)) |
 | `mtp-pricing-calibration` | the `ey_regimen[price_down]` and `ate_regimen[price_down vs natural_prices]` truth rows of `pricing_ltmle_tau5` and `pricing_sdr_tau5` in `mtp-pricing` | reading `finite-sample, influence-curve variance`. At n = 5,000 the coverage is 0.9160 to 0.9230 and the SE ratio is 0.9310 to 0.9518. The standardized bias is at most 0.0342, so the point estimate is not the cause. Each fit reads the exact ratio on the classifier route. The first run at n = 2,000 read coverage 0.903 to 0.912 and an SE ratio near 0.93. A probe on fresh draws read an SE ratio of 0.887 at n = 2,000 and 0.968 at n = 4,000 ([`tests/studies/canonical_mtp_pricing.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/studies/canonical_mtp_pricing.py) declares the move to n = 5,000). The `price_up` rows at five nodes pass. The owner closes when a re-declared five-node `price_down` cell passes, with its size fixed before its run. Until then the four cells stay published red under `reporting`, and the support rows `G39.ltmle.tau5` and `G39.sdr.tau5` label the fits experimental |
 | `mtp-pricing-learned-density` | the three `interval_calibration/up_learned_density_tau{2,3,5}__correctly_specified` cells of `mtp-pricing` | reading `finite-sample, conservative`. The declared 320-bin density gives an SE ratio of 1.0265 to 1.1162 at tau 2, 1.0493 to 1.1408 at tau 3 and 1.0428 to 1.1323 at tau 5. The coverage is 0.9473 to 0.9747. The study declared the three cells `reporting` before the run, after a screen of 2,000 draws per arm read 1.052, 1.105 and 1.079. The interval errs on the safe side. The owner closes when a re-declared learned-density cell passes its band, with its size fixed before its run. Until then the cells stay published red under `reporting` |
@@ -668,41 +677,6 @@ Acceptance:
 - exact-law witnesses with a nonzero targeting step;
 - a mutation control that drops the propensity targeting;
 - a registered study against the pinned `drtmle` that reuses the DR-TMLE laws.
-
-### X26. Plug-in omitted-variable limits with a declared parametric mechanism
-
-`ci_lower`, `ci_upper`, `robustness_value_ci` and `rva` refuse under `nu2_estimator="plugin"`
-(`_PLUGIN_LIMITS_REFUSAL` in `src/cleverly/sensitivity/omitted_variable.py`). This item opens them
-for one declared mechanism. The
-[natural-extension verdicts](technical-reference/natural-extension-verdicts.md) record the review
-as part (h).
-
-| item | contract |
-| --- | --- |
-| base results | Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis (2026), the bound and its Theorem 4 limits. Saul and Hudgens (2020), *Journal of Statistical Software* 92(2), for stacked estimating equations and the sandwich variance |
-| step | a stacked estimating equation of (i) the mechanism score $s(\gamma) = X\{A - \mathrm{expit}(X\gamma)\}$, or the multinomial score, (ii) the second-moment equation $\alpha(O; \gamma)^2 - \nu^2 = 0$, and (iii) the curves of $\theta$ and $\sigma^2$ that ship. The curve of the plug-in $\nu^2$ is $\alpha^2 - \nu^2 + \partial_\gamma E[\alpha^2] \cdot \{-J_\gamma^{-1} s\}$. The chain rule and the delta method carry it into the bound |
-| objection search | [F26](#f26-confidence-limits-of-the-plug-in-omitted-variable-bound) records no curve for an arbitrary learner, and that case stays refused. DoubleML calls the plug-in "non-orthogonal", which describes the arbitrary-learner case and not the parametric stack |
-| inherited conditions | a correctly specified mechanism model, because otherwise the plug-in estimates $\nu^2(\gamma^*) \neq \nu^2_0$; smoothness; an invertible Jacobian. `g_bounds` makes $\alpha$ differentiable almost everywhere only, so the contract either requires no active clip at the fit or states that the derivative is zero on clipped rows |
-| learner rule | the bound reads the fit's own $\hat g$. So the stack is valid only when the fit's own treatment learner is the declared unpenalized logistic or multinomial model, or a declared known mechanism. A Super Learner whose library contains that model is refused |
-
-A fit with `treatment_adjustment=` different from `adjustment` fits its mechanism on the declared
-subset $W_g$. The first inherited condition then has two parts: the restriction that the treatment
-mechanism depends on `adjustment` only through $W_g$, and a correct parametric model on $W_g$.
-
-A declared known mechanism is the degenerate case of the stack. The fit reads
-$\hat\alpha = \alpha(g_0)$, so $E_n[\alpha(g_0)^2]$ is a sample mean of a known function with curve
-$\alpha^2 - \nu^2$. The ATT and ATC share term follows by the delta method. The
-[hard-stop review](technical-reference/hard-stop-review.md) moved this case from F26.
-
-Acceptance:
-
-- a mechanism-score interface for an unpenalized `LogisticRegression`, binary and multinomial;
-- an exact-law Jacobian witness, and a mutation control that drops the $\gamma$ term and fails;
-- the four limits open only under the learner rule, with a refusal test for a Super Learner that
-  contains the model;
-- a known-mechanism witness: on a finite law with a declared known mechanism, the reported curve
-  of $\nu^2$ equals $\alpha(g_0)^2 - \nu^2$ row by row;
-- a registered coverage study.
 
 ### X58. Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome
 
@@ -1298,7 +1272,7 @@ term.
 
 | item | contract |
 | --- | --- |
-| learners | unpenalized parametric learners, read from the fit's own learners, as in X26 |
+| learners | unpenalized parametric learners, read from the fit's own learners, as in the [plug-in learner rule](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule) |
 | bounds | `g_bounds` inactive at the limit |
 | coverage, part (a) | coverage of $\psi_0$ needs the outcome GLM correct, or the candidate mechanism equal to $g_0$. Otherwise the interval covers the pseudo-true limit |
 | coverage, parts (b) and (c) | coverage of $\psi_0$ needs the outcome GLM correct. Otherwise the interval covers the pseudo-true limit |
@@ -1348,7 +1322,7 @@ its run.
 
 | part | request | base | conditions |
 | --- | --- | --- | --- |
-| (a) | the natural-course, PAR and PAF bootstrap with missing outcomes, in sample | the bootstrap of a smooth M-estimator, Tang and Westling (2024), arXiv:2404.03064v2, Theorem 3.4 | finite-dimensional nuisances, read off the fit's own learners, as in X26; a registered study |
+| (a) | the natural-course, PAR and PAF bootstrap with missing outcomes, in sample | the bootstrap of a smooth M-estimator, Tang and Westling (2024), arXiv:2404.03064v2, Theorem 3.4 | finite-dimensional nuisances, read off the fit's own learners, as in the [plug-in learner rule](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule); a registered study |
 | (b) | the HAL-TMLE bootstrap | Cai and van der Laan (2020), arXiv:1905.10299, Section 3.6, Theorem 4 | in sample; a HAL learner, which does not ship; $C$ fixed at the selected value; a per-replicate update |
 | (c) | the model-based targeted bootstrap | Coyle (2017), Berkeley dissertation, Section 1.4 and Appendix A.3, Theorem 9 (thesis numbering). The book chapter of Coyle and van der Laan (2018) was not read | resampling from the targeted fit, with Super Learner and TMLE refitted and retargeted on each sample. Theorem 9 needs the efficient score solved to the order it states, a negligible remainder, a uniform Donsker class, and $L_2$ convergence of $D^*$. The local read records that order as $o_P(1/n)$, and the row confirms it against Theorem 9 before it ships. The nuisance rates $o_P(n^{-1/4})$ under the targeted fit, positivity and bounded sectional variation come from Lemma 2 and Corollary 1, for the treatment-specific mean only. Other targets need their own rate lemma |
 
@@ -1970,7 +1944,10 @@ cells, and an intermediate-axis law that flips or shifts $Z$ and shifts $Y$ with
 `nu2_estimator="plugin"` estimates the Riesz second moment as $E_n[\hat\alpha^2]$. That value moves
 at first order with the fitted treatment mechanism, because
 $E[\hat\alpha^2] - \nu_0^2 = 2E[\alpha_0(\hat\alpha - \alpha_0)] + E[(\hat\alpha - \alpha_0)^2]$.
-Its curve $\hat\alpha^2 - \hat\nu^2$ has no term for that fit.
+Its curve $\hat\alpha^2 - \hat\nu^2$ has no term for that fit. The shipped limits add that term
+for one admitted set, which the
+[learner rule](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
+defines.
 
 On `tests/discrete_law.py` with the oracle nuisances, that curve differs from the Gateaux
 derivative of $\nu^2$ by up to 21.3 for the ATE and 45.9 for the ATC. Chernozhukov et al. (2018),
@@ -1978,15 +1955,17 @@ arXiv:1608.00060v7, Section 1.1, record that bias for a non-orthogonal plug-in. 
 
 | kept claim | kind | missing argument |
 | --- | --- | --- |
-| confidence limits of the plug-in bound for a learned mechanism other than the declared model of X26 | regularity | a learner-specific argument, such as an undersmoothing rule, that removes the first-order term. No standard step carries it |
+| confidence limits of the plug-in bound for a learned mechanism other than the admitted set: a declared known mechanism, or a `LogisticRegression` with no penalty or a fixed L2 penalty, bare or after `StandardScaler`, fitted in sample or cross-fitted | regularity | a learner-specific argument, such as an undersmoothing rule, that removes the first-order term. No standard step carries it |
 
 The orthogonal estimator is the alternative. `nu2_estimator="doubly_robust"` estimates $\nu^2$
 through the orthogonal score of Chernozhukov, Cinelli, Newey, Sharma and Syrgkanis,
 arXiv:2112.13398v5, Section 4, Lemma 2. The repository's earlier citation of version 6, not re-read here, numbers that lemma Lemma 3. Their Theorem 4 gives the limits for
 any mechanism learner at its rates. The refusal names this alternative.
-[X26](#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism) holds the
-declared unpenalized logistic or multinomial mechanism and the declared known mechanism. A Super
-Learner that contains that model stays here, because the bound reads the fit's own $\hat g$.
+
+The [learner rule](technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
+opens the limits for the declared known mechanism and for the admitted `LogisticRegression`, fitted in sample or cross-fitted. A
+Super Learner that contains that model stays here, because the bound reads the fit's own $\hat g$.
+So do `LogisticRegressionCV`, an L1 or elastic-net penalty, and every other learner.
 
 ### F2. Targeted bootstrap inference
 
