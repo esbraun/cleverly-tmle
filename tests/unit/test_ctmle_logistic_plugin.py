@@ -326,7 +326,9 @@ class TestRefusals:
             .single()
         )
         self._refused(
-            result, "is not a selector C-TMLE fit (strategy 'greedy', 'ordered' or 'discrete')"
+            result,
+            "is not a selector C-TMLE fit (strategy 'greedy', 'ordered', 'discrete', 'lasso' "
+            "or 'learners')",
         )
 
     def test_an_oat_fit(self) -> None:

@@ -782,6 +782,13 @@ $\lVert \hat\alpha - \alpha_0 \rVert^2$. The bounds then read too narrow, and th
 reads too large. The plug-in estimate can fall on either side of $\nu_0^2$. Witness 5 in
 `tests/unit/test_omitted_variable_refusals.py` gives the plug-in 5.32 against $\nu_0^2 = 4.4$.
 
+A plain `TMLE` fit with `treatment_adjustment=` is admitted. The fitted representer uses the
+mechanism $g_n(W_g)$, which is the fit of the restricted model. So the bound is claimed only under
+the declared [statistical-model restriction](point-treatment-tmle.md#treatment-mechanism-covariates).
+The fit's summary prints that restriction. `tests/unit/test_treatment_covariates_collaborative.py` fits the
+bound on such a fit and asserts the restriction in its summary. A collaborative fit stays refused,
+including a fit that selects nothing.
+
 `cleverly` refuses every operation in this group on the fits below. The
 refusal runs in `sensitivity_elements()` before any computation. Every entry point and the
 matching capability row therefore carry one reason.
@@ -789,7 +796,7 @@ matching capability row therefore carry one reason.
 | refused fit | the result the package does not have |
 | --- | --- |
 | a `drtmle` fit | an estimate of $\nu^2$ for an estimator that does not assume a consistent treatment mechanism. $E[2 m(\hat\alpha) - \hat\alpha^2]$ equals $\nu_0^2 - \lVert \hat\alpha - \alpha_0 \rVert^2$, so it falls where that mechanism is wrong |
-| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate |
+| a `collaborative_tmle` fit | the same estimate. The working mechanism conditions on a function $V$ of the covariates. $V$ is the selected set $W_S$ on the greedy, ordered, and discrete paths, and the fitted outcome regression under `strategy="oat"`. Where the working mechanism is $P(A \mid V)$ in the limit, the representer is $E[\alpha_W \mid A, V]$. Its second moment cannot exceed that of $\alpha_W$, while $\sigma^2$ reads every declared covariate. `CTMLE(strategy="derivative")` is not refused. Its mechanism reads every declared covariate, as a `TMLE` mechanism does |
 | a fit with a response mechanism | an implementation. The identified mean is a linear functional of the regression of $\Delta Y$ on $(A, \Delta, W)$, so Theorem 2 of the cited paper covers it. The implemented representer omits $\Delta$. $\sigma^2$ averages the respondents, and the theorem needs $E[\Delta (Y - \bar{Q})^2]$. $c_D$ would combine the treatment and response mechanisms. The missingness tilt remains the sensitivity analysis for response |
 | a fit with a declared missing treatment | a derivation. The representer of the implemented bound is derived for a recorded treatment. This fit divides by the composite mechanism $P(A = a, \Delta_A = 1 \mid W)$, or $P(A = a, \Delta_A = 1, \Delta = 1 \mid W)$ with `delta=`, and no representer or confounding strength is derived for it. See [X9](../roadmap.md#x9-omitted-variable-bounds-on-the-other-linear-functionals) |
 | a fit with an intermediate variable | an implementation. Each estimand at the level $z$ is a linear functional of the regression of $Y$ on $(A, Z, W)$, so Theorem 2 covers it. The representer carries the weight $1\{Z = z\} / P(Z = z \mid A, W)$, so $c_D$ would combine the treatment and intermediate mechanisms |
@@ -821,6 +828,31 @@ indicator keeps the Riesz identity above. `TestTheConditionalEffectScoreReadsThe
 `robustness_value()` inverts the bound for the single strength that flips the conclusion.
 `benchmark()` drops each named observed covariate, refits, and calibrates the strength scale
 against what that covariate was worth. `contour()` returns the grid a contour plot needs.
+
+`benchmark()` reports two gain statistics. The table defines them and the share that each
+stands for. Here "short" is the refit without the named covariates.
+
+| strength | `BenchmarkResult` field | bound parameter it stands for |
+| --- | --- | --- |
+| `cf_y` | `gain_y` $= \sigma^2_{\text{short}} / \sigma^2 - 1$, clipped to $[0, 1]$ | $\eta^2_{Y \sim U \mid D, X}$, in $[0, 1]$ |
+| `cf_d` | `gain_d` $= \nu^2 / \nu^2_{\text{short}} - 1$, clipped to $[0, 1]$ | $1 - R^2_{\alpha \sim \alpha_s}$, in $[0, 1)$ |
+
+Pass the gains to the bound unchanged. Remark 8 of Appendix E.5 of the cited paper states that the
+gains serve as proxies for the two shares when $k_Y = k_D = 1$. DoubleML uses the same
+convention. Do not convert a gain to the form $G / (1 + G)$. That form is a narrower calibration
+that the cited paper does not give.
+
+`omitted_variable_bounds(result, benchmark=record)` reads `cf_y` and `cf_d` from the record. It
+refuses a record of another estimand or another fit, and it refuses explicit `cf_y=` or `cf_d=`
+beside the record. The benchmark does not set `rho`. Pass `rho=record.rho` to use its alignment.
+
+| benchmark | what the bound does |
+| --- | --- |
+| `gain_y` above 1 | uses `cf_y = 1`. The bound is finite at $\eta^2 = 1$, which is the largest share. The summary of the record prints the unclipped gain |
+| `gain_d` of 1 or more | raises `ValueError`. The bound is unbounded at `cf_d = 1`, so this record calibrates no finite bound |
+
+`tests/unit/test_omitted_variable_benchmark_handoff.py` checks the hand-off against explicit
+strengths and against the share form.
 
 `benchmark()` is the only member of this group that refits. It reads the refusals above before it
 refits, so a refused fit pays for no second fit.
@@ -879,6 +911,7 @@ includes the null, its robustness threshold is zero.
 | estimate | the estimate's own influence curve. For the ATT and the ATC it includes the share term of $\theta_s$ | Online Appendix A, "Statistical Inference", Equation (15) |
 | $\sigma^2$ | $w ((Y - \bar Q^*)^2 - \sigma^2)$ | Lemma 3 |
 | $\nu^2$, doubly robust | $w (2 m(O, \alpha) - \alpha^2 - \nu^2) - 2 \nu^2 w (1\{A = c\} - p) / p$ | Lemma 3 for the first term. The second term is this package's derivation |
+| $\nu^2$, plug-in | $w (\alpha^2 - \nu^2) + \psi^\gamma - 2 \nu^2 w (1\{A = c\} - p) / p$. The mechanism term $\psi^\gamma$ is zero for a declared known mechanism. The last term applies to the ATT and the ATC only | Saul and Hudgens (2020), Section 2, Equation (1), for $\psi^\gamma$. The share term is this package's derivation, as for the doubly robust curve. [Plug-in limits](#plug-in-limits-and-the-learner-rule) defines $\psi^\gamma$ |
 | bias scale $S$ | $(\sigma^2 \psi_{\nu^2} + \nu^2 \psi_{\sigma^2}) / (2 \sqrt{\sigma^2 \nu^2})$ | Theorem 4 |
 
 The second term of the $\nu^2$ curve applies to the ATT and the ATC only. Here $c$ is the arm the
@@ -912,27 +945,13 @@ error on the two-arm exact law, with the curve before RM22 and with the exact cu
 The direction depends on the parameter and on the sampling design. This is one exact law, so the
 table shows that either direction occurs and not how often.
 
-`nu2_estimator="plugin"` reports no confidence limits. The plug-in $E_n[\hat\alpha^2]$ moves at
-first order with the fitted treatment mechanism, and its curve $\hat\alpha^2 - \nu^2$ has no term
-for that fit. The cited sources give no curve that covers every mechanism learner this API accepts.
-For a specified smooth, finite-dimensional mechanism model, stacked M-estimation can include its
-score and Jacobian. [X26](../roadmap.md#x26-plug-in-omitted-variable-limits-with-a-declared-parametric-mechanism)
-holds that specialization. `nu2_estimator="doubly_robust"` gives the limits for any mechanism
-learner, and the refusal names it.
+`nu2_estimator=` accepts `"auto"`, `"doubly_robust"` and `"plugin"`. The value `"auto"` resolves
+to `"doubly_robust"` for every functional the bound covers. Any other value raises `ValueError`
+before a refusal or a computation. The doubly robust estimator gives the limits for any mechanism
+learner. The plug-in estimator gives them only for the fits that the
+[plug-in learner rule](#plug-in-limits-and-the-learner-rule) admits.
 
-| under the plug-in | result |
-| --- | --- |
-| `lower`, `upper`, `max_bias`, `bias`, `robustness_value` | reported |
-| `benchmark()`, `contour()`, and `nu2` and `sigma2` of `elements()` | reported |
-| `ci_lower`, `ci_upper`, `robustness_value_ci`, and the three `plugin_interval_*` names | `CapabilityError`. The inference status is checked first |
-| `to_dict()` | carries `nu2_estimator` and omits the three limit keys |
-| `robustness_value()` | carries `nu2_estimator` and no `rva` under any name |
-| `psi_nu2` and `psi_max_bias` of `elements()` | `None` |
-
-[F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound)
-holds the missing result.
-
-The table gives each source this section cites, and the version read.
+The table gives each source this section and the plug-in section cite, and the version read.
 
 | source, and the version read | what it gives |
 | --- | --- |
@@ -940,10 +959,197 @@ The table gives each source this section cites, and the version read.
 | the same paper, the published Online Appendix A, read through the Internet Archive | Example 2 gives the ATT and the ATU weights $\ell(W_s)$. Item (2) of Theorem 5 writes $m$ and the representer. "Statistical Inference", Equation (15), gives the share term of $\theta_s$ |
 | `dml.sensemakr`, `R/short-parameters.R`, commit `d5293ecb` | the same $\nu^2$ share term, in code, with no derivation cited |
 | DoubleML, `doubleml/irm/irm.py`, commit `b69f86ef` | `_sensitivity_element_est` builds the $\nu^2$ curve without the share term |
+| Saul and Hudgens (2020), *Journal of Statistical Software* 92(2), doi:10.18637/jss.v092.i02 | Section 2, Equation (1), states the estimating equation, and Equation (2) the empirical sandwich variance. Section 2 also covers independent rows that are not identically distributed. Section 3.4 takes the independent clusters as the units. Section 3.5, Equation (4), stacks a propensity-model nuisance with the target. The paper refers to Boos and Stefanski (2013), Section 7.2, for the regularity conditions |
 
 The publisher's site refused access to the published main text, so this package did not read it.
 The main-text locators follow v6. The published appendix cites "C.7. Proof of Theorem 2" and
 "C.10. Proof of Lemma 3 and Theorem 4", which match the numbering of v6.
+
+### Plug-in limits and the learner rule
+
+**Why.** The plug-in $E_n[\hat\alpha^2]$ squares the fitted Riesz representer. It moves at first
+order with the fitted treatment mechanism, because
+$E[\hat\alpha^2] - \nu_0^2 = 2E[\alpha_0(\hat\alpha - \alpha_0)] + E[(\hat\alpha - \alpha_0)^2]$.
+The curve $w(\hat\alpha^2 - \nu^2)$ alone has no term for that fit. The doubly robust
+$\nu^2$ is insensitive to the fitted mechanism at first order, so it needs no such term.
+
+**What it tells you.** The limits open when the fit's own treatment mechanism is declared known,
+or is a qualifying scikit-learn `LogisticRegression`, fitted in sample or cross-fitted. Every
+other fit keeps the point bounds and refuses the limits. A qualifying fit on which the
+second-order correction does not hold refuses them too. The table gives both outcomes.
+
+| quantity | qualifying mechanism, correction holds | any other fit, or correction fails |
+| --- | --- | --- |
+| `lower`, `upper`, `max_bias`, `bias`, `robustness_value` | reported | reported |
+| `benchmark()`, `contour()`, and `nu2` and `sigma2` of `elements()` | reported | reported |
+| `ci_lower`, `ci_upper`, `robustness_value_ci`, and the three `plugin_interval_*` names | reported | `CapabilityError`, reason `inference_gap`. The inference status is checked first |
+| `to_dict()` | carries `nu2_estimator` and the three limit keys | carries `nu2_estimator` and `limit_refusal`, and omits the three limit keys |
+| `robustness_value()` | carries `nu2_estimator` and `rva` | carries `nu2_estimator`, `rv`, `max_bias` and `limit_refusal`, and no `rva` under any name |
+| `psi_nu2` and `psi_max_bias` of `elements()` | the curves below | `None` |
+| `summary()` | names the mechanism whose score the curve carries | prints the clause that refused |
+
+**How.** The curve of the plug-in $\nu^2$ adds the score of the mechanism to the sample mean.
+The reported $\nu^2$ subtracts a second-order bias, as the paragraph on the second-order correction states.
+The curve comes from a stacked estimating equation. It holds the mechanism score and the
+second-moment equation $w\{\alpha(O; \gamma)^2 - \nu^2\} = 0$ (Saul and Hudgens 2020, Section 2,
+Equations (1) and (2)). The mechanism score does not involve $\nu^2$ or $p$, so the stacked Jacobian is
+block-triangular. The delta method of Theorem 4 then carries the curve into the bound.
+
+$$
+\psi_{\nu^2, i} = w_i(\alpha_i^2 - \nu^2) + \psi^{\gamma}_i - 2\nu^2 w_i (1\{A_i = c\} - p)/p,
+\qquad
+\psi^{\gamma}_i = n \sum_k D_k J_k^{+} u_{k,i}.
+$$
+
+The last term of $\psi_{\nu^2, i}$ applies to the ATT and the ATC only, as in the table above. The
+table defines the symbols of $\psi^\gamma$ for fold $k$.
+
+| symbol | meaning |
+| --- | --- |
+| $\theta_k$ | the coefficients of the fold's model in reference form. The lowest arm is the reference, and $\theta_m = \beta_m - \beta_r$ for scikit-learn's symmetric `coef_` and `intercept_` |
+| $x_i$ | the design row after the pipeline's scaler steps, with the intercept first when the model fits one |
+| $u_{k,i}$ | the estimating function of row $i$: $w_i\, x_i \otimes (e_{A_i} - g_k(x_i))_{-r}\, 1\{i \in \mathrm{train}_k\} - (w_i/n)\, P\theta_k/C$. The second term allocates the fixed L2 penalty under the mean-one weight convention |
+| $J_k$ | the information $H_k + P/C$. Here $H_k = \sum_{j \in \mathrm{train}_k} w_j [\mathrm{diag}(g_{-r}) - g_{-r} g_{-r}^\top] \otimes x_j x_j^\top$. With no penalty, $P/C = 0$ |
+| $J_k^{+}$ | the pseudo-inverse on the range of the design, so an exactly collinear design passes |
+| $D_k$ | $n^{-1} \sum_{j \in \mathrm{test}_k} w_j\, \partial_\theta \alpha_j^2 |_{\theta_k}$, the derivative of the fold's contribution to $\nu^2$ |
+
+An in-sample fit is one fold with train and test equal to all rows. A cross-fitted fit stacks $K$
+fold scores for a fixed $K$. Saul and Hudgens
+(2020), Section 2, cover independent rows that are not identically distributed, which a fixed
+partition produces. A cluster is the unit of the
+variance, as in Section 3.4 of the same paper. Section 3.5, Equation (4), stacks a
+propensity-model nuisance with the target.
+
+A declared known mechanism (`treatment_probabilities=`) is the degenerate case. The fit reads
+$\hat\alpha = \alpha(g_0)$, so $E_n[\alpha(g_0)^2]$ is a sample mean of a known function and
+$\psi^\gamma = 0$. The fit refuses `g_bounds` that move a known probability. The bound repeats
+the check and refuses with the key `known_truncated` and reason `invalid_declaration`.
+
+**The clip.** The derivative of $\alpha$ in $g$ is zero on every cell that the truncation bounds
+moved. With fixed bounds, the curve is the exact curve of the truncated plug-in functional
+$\gamma \mapsto E[\alpha_b(g_\gamma)^2]$. The limits cover $E[\alpha_b^2]$. That value equals
+$\nu_0^2$ only when the truncation is asymptotically inactive.
+
+With `g_bounds="auto"` the bound of the mean family,
+$5/(\sqrt{n_{\mathrm{eff}}} \log n_{\mathrm{eff}})$, moves with $n$. The bound of the ATT and the
+ATC is fixed at 0.025. The second-order correction is a smooth expansion, and a clip puts a kink
+in $\alpha(g)^2$. The limits therefore refuse on an active clip, with the key `truncation_active`.
+The doubly robust path does not refuse so.
+[Truncation stability](#truncation-stability) reports the units that the bounds move.
+
+**The learner rule.** The bound reads the fit's own $\hat g$. Only the fit's own fitted models
+supply the score. The rule reads the fitted fold models that the fit recorded. A record survives
+a pickle round trip and `save`. The table compares the two classes of fit.
+
+| attribute | qualifying mechanism | refused as another learner |
+| --- | --- | --- |
+| model | a declared known mechanism, or `LogisticRegression` | `SuperLearner`, even with `LogisticRegression` in its library; `LogisticRegressionCV`; any other learner |
+| treatment classes | two arms, or more than two | none |
+| penalty | none (`C=numpy.inf` or `penalty=None`), or L2 with a fixed C | L1 or elastic net |
+| solver and weights | any solver except `liblinear`; `class_weight=None` | `solver="liblinear"`; any `class_weight` |
+| pipeline | none, or `StandardScaler` and `"passthrough"` steps before the model | any other step; `screen_treatment=True` |
+
+The bound checks the fit in this order. The fit-wide rules come first, then a declared known
+mechanism, then the keys in the table below. The reason of a learner key is `inference_gap`, and
+its roadmap item is [F26](../roadmap.md#f26-confidence-limits-of-the-plug-in-omitted-variable-bound).
+Each key gives the clause that the refusal quotes after the sentence "This fit does not
+qualify". The remedy of a key without its own remedy is `nu2_estimator="doubly_robust"`.
+
+| key | the refusal fires when | remedy |
+| --- | --- | --- |
+| `unrecorded` | the nuisance holds no per-fold record of the fitted treatment learner. No roadmap item | `nu2_estimator="doubly_robust"` |
+| `treatment_design` | the treatment model read a covariate set that differs from the design the stack rebuilds. No roadmap item | `nu2_estimator="doubly_robust"` |
+| `screened` | `screen_treatment=True` and the screen kept every covariate. A screen that drops a covariate gives `treatment_design` | `nu2_estimator="doubly_robust"` |
+| `cv_penalty` | the final model is `LogisticRegressionCV`, which selects C by cross-validation | pass `LogisticRegression` with a fixed C |
+| `super_learner` | the learner is a `SuperLearner` | `nu2_estimator="doubly_robust"` |
+| `other_learner` | the final model is any other learner | `nu2_estimator="doubly_robust"` |
+| `pipeline` | a step before the final model is not exactly `StandardScaler` or `"passthrough"` | transform the covariates before the fit, or pass the bare model |
+| `pipeline_intercept` | a `StandardScaler` centers the covariates and the model sets `fit_intercept=False` | set `fit_intercept=True` |
+| `l1_penalty` | the penalty resolves to neither none nor L2. A finite C with `penalty="l1"`, or an elastic net, resolves so | use `l1_ratio=0` for L2, or `C=numpy.inf` |
+| `liblinear` | `solver="liblinear"`, which penalizes the intercept | use another solver |
+| `class_weight` | `class_weight` is not `None`, which changes the score | declare observation weights with `weights=` |
+
+The fit-level keys read the record of the first fold. A numerical check then runs on each fold in
+fold order. The numerical keys carry the reason `inference_gap` and no roadmap item, because F26
+does not track a declared model that failed a check. The three correction keys follow them.
+
+| key | the refusal fires when | remedy |
+| --- | --- | --- |
+| `missing_arm` | the model of a fold has classes that differ from the fit's arms, for example because the training rows of the fold hold no unit of an arm | `nu2_estimator="doubly_robust"` |
+| `score_not_zero` | the Newton step from the captured coefficients to the root of the penalized score exceeds `ROOT_TOLERANCE`, 0.05 standard errors of a coefficient. The clause adds a note when the solver stopped at `max_iter` | lower `tol`, raise `max_iter`, or use `solver="newton-cholesky"` |
+| `singular` | the information $H_k + P/C$ loses rank against the design, or its condition number on the design's range exceeds `CONDITION_LIMIT`, $10^{10}$ | remove the covariates that separate the arms, or use a fixed C |
+| `mismatch` | the softmax of the recomputed linear predictor differs from the stored mechanism by more than `MISMATCH_TOLERANCE`, $10^{-8}$, or the fit holds a different number of records than folds | `nu2_estimator="doubly_robust"` |
+| `truncation_active` | a bound clips a cell that the representer reads, or a fitted logit lies within `TRUNCATION_MARGIN`, 3, standard errors of a bound | pass `g_bounds` that the fitted mechanism does not approach, or use `nu2_estimator="doubly_robust"` |
+| `correction_unstable` | the predicted remainder $\hat B^2/\hat\nu^2$ exceeds `CORRECTION_STABILITY`, 0.25, of the standard error of $\nu^2$ | collect more rows, or use `nu2_estimator="doubly_robust"` |
+| `corrected_nonpositive` | the corrected $\nu^2$ is not positive | `nu2_estimator="doubly_robust"` |
+
+**The second-order correction.** The plug-in $E_n[\hat\alpha^2]$ has a bias of order $1/n$. Its
+constant is large, because $\alpha^2$ grows like $g^{-2}$. Out of fold the bias reached 1.44
+standard deviations at $n = 1000$
+([`tests/diagnostics/x26_crossfit_bias/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x26_crossfit_bias)).
+A fixed L2 penalty adds to it.
+
+The root of the stacked estimating equation has the bias
+$\beta = Q\{\sum_c \nabla Z_c\, Q Z_c + \tfrac12 \sum_c \nabla^2 Z_c[V] + \mathrm{pen}(\eta)\}$,
+with $Q = -(\sum_c \nabla Z_c)^{-1}$ and $V = Q S Q^\top$ (Rilstone, Srivastava and Ullah 1996,
+Proposition 3.2; Newey and Smith 2004, Theorem 4.1). The $\nu$ coordinate of $\beta$ is $\hat B$.
+
+The bound reports $\hat\nu^2 - \hat B$. The curve is unchanged, and the variance is the influence
+variance of that curve. The package makes no correction of the variance. In a design pilot at
+$n = 1000$, a second-order correction of the variance estimate took a large share of the
+cross-fitted variance, so its expansion was not trusted.
+
+The correction of the point assumes a smooth mechanism, a small remainder and a positive result.
+The three correction keys refuse the limits when one assumption fails. The point bounds remain.
+
+The property study of the corrected limits has run. The reported standard error is calibrated in 46
+of 48 positive cells, and the other two read conservative. The
+[study page](method-evidence/omitted-variable-bound-plugin-standard-error.md) states the result.
+
+**Conditions.** The limits inherit the conditions of Theorem 4, and add the conditions in the
+table. The first two conditions have no check.
+
+| condition | how the package treats it |
+| --- | --- |
+| a correctly specified mechanism model | no check. Otherwise the plug-in estimates $\nu^2(\gamma^*) \neq \nu_0^2$, and the curve stays the curve of that functional |
+| truncation asymptotically inactive | checked at the fit, key `truncation_active`. The check reads the fitted logits, not the limit |
+| $E[\alpha^4] < \infty$ | no check. The curve of $\nu^2$ then has a finite variance |
+| a score root at the captured coefficients | checked on each fold, key `score_not_zero` |
+| a well-conditioned information matrix | checked on each fold, key `singular` |
+| the TMLE conditions of the bounded estimate | unchanged |
+| a smooth mechanism and a small remainder | checked, keys `truncation_active` and `correction_unstable` |
+| a positive corrected $\nu^2$ | checked, key `corrected_nonpositive` |
+
+**The ATE and `ey` identity.** For $\alpha = \sum_a c_a 1\{A = a\}/g_a$, the derivative of the
+square is $\partial_\theta \alpha^2 = -2\alpha^2 \partial_\theta \log g_A$. Here
+$\partial_\theta \log g_A$ is the score $s$ of the model, so $D = -2E[\alpha^2 s]$. At a correct
+model $J = E[s s^\top]$, and $\psi^\gamma = -2\Pi(\alpha^2 \mid \mathrm{span}\, s)$. Here $\Pi$ is
+the $L^2$ projection. The map $h \mapsto h - 2\Pi h$ is a reflection, so it keeps the variance of
+$h$.
+
+The standard error of a limit of an ATE or of an `ey` then equals the standard error without
+the mechanism term. This is projection geometry and not Neyman orthogonality, because
+$D \neq 0$.
+
+The identity concerns the curve. The bound reports the influence variance of that curve.
+
+The identity holds under four conditions: a correct model, constant weights, independent and
+identically distributed rows, and no active clip. The ATT and the ATC lack the form. The identity
+has one consequence for the evidence. A control that drops the mechanism term cannot detect the
+omission for an ATE or an `ey`. The exact-law witnesses carry that term.
+
+| witness | what it checks |
+| --- | --- |
+| `TestTheExactLawCurve` in `tests/unit/test_omitted_variable_plugin_limits.py` | on finite laws, two-arm and three-arm, with and without a ridge and a clipped cell, each row of $\psi_{\nu^2}$ equals the complex-step Gateaux derivative of the plug-in functional, for `ey`, `ate`, `att` and `atc`. A saturated model gives the doubly robust curve |
+| `TestTheKnownMechanism` and `TestTheClusteredLimit` | the known mechanism term is zero, and a clustered standard error sums the exact curve |
+| `TestTheInfinitesimalJackknife` | on a simulated fit with fixed folds and weights, the curve of each row equals $n\, d\hat\nu^2/d\epsilon_i$ from an independent refit of every fold, binary, multinomial, ridge, clipped and cross-fitted |
+| `TestTheFiniteDifferenceJacobians` and `TestTheNonzeroWitness` | the analytic information, $D_k$ and $\partial g/\partial\theta$ equal finite differences, and the mechanism term is not zero on the witness laws |
+| `TestTheDesignInvariances` and `TestTheReflectionIdentity` | a duplicated column and a scaler before an unpenalized model leave the curve unchanged. The reflection identity holds on a saturated model and fails on a misspecified one |
+| `TestTheNumericalSandwich` | the standard error equals the numerical stacked sandwich of Saul and Hudgens (2020), Equation (2), on a binary, a multinomial and a ridge fit |
+| `TestTheWitnessHasTeeth` | thirteen mutations, M0 to M12, each fail the witnesses that name them. M0 changes nothing and passes |
+| `tests/unit/test_omitted_variable_plugin_second_order.py` | the closed forms against central differences, the Cox and Snell bias of a saturated model, and $n\hat B$ against an exact binomial enumeration, in sample and cross-fitted. `TestTheCorrectionRefuses` checks the three correction keys. Eight mutations, M13 to M20, each fail the witnesses that name them |
+| `tests/unit/test_omitted_variable_plugin_refusals.py` | each key has a full-string test with its reason, roadmap item and remedy, a qualifying twin of each learner key, and a test of the capture |
+| [omitted-variable bound plug-in standard error](method-evidence/omitted-variable-bound-plugin-standard-error.md) | the registered study `omitted-variable-bound-plugin-se`. It compares the reported standard error of each bound with its sampling spread in eight scenarios, in sample and cross-fitted. The corrected $\nu^2$ is measured and not judged. The page states the declaration, the result and the two conservative cells |
 
 ### Simulated common-cause stress surface
 

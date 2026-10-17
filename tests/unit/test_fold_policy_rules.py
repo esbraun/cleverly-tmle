@@ -686,12 +686,12 @@ class TestTheCollaborativeRefusals:
             )
         assert "selection folds" not in str(exc.value)
 
-    def test_the_method_catalog_says_so_before_anyone_fits(self) -> None:
-        """A refusal a caller can read off the design, rather than meet at the fit.
+    def test_the_method_catalog_keeps_the_method_for_the_derivative_strategy(self) -> None:
+        """The catalog is per method name, and one strategy has a clustered result.
 
-        ``available_methods`` is what a caller asks before choosing, so a method the fit
-        will refuse has to be absent from it. The two must agree, which is why the test
-        for the refusal and the test for the catalog sit together.
+        ``strategy="derivative"`` (C-TMLE0) selects nothing and takes the ordinary TMLE's
+        clustered result, so the method stays available on a clustered design. Every other
+        strategy refuses ``id=`` before its first learner, as the test above shows.
         """
         from cleverly import ATE, CausalStudy, PointTreatment
 
@@ -702,8 +702,7 @@ class TestTheCollaborativeRefusals:
             for method in CausalStudy(frame, design=design).identify(ATE()).available_methods()
         }
         assert catalog["tmle"].available, "the ordinary TMLE has a clustered result"
-        assert not catalog["collaborative_tmle"].available
-        assert "no clustered result" in (catalog["collaborative_tmle"].reason or "")
+        assert catalog["collaborative_tmle"].available
 
     def test_the_catalog_still_offers_the_search_without_clusters(self) -> None:
         """The control. The same design without ``cluster=`` keeps the method."""
@@ -1785,7 +1784,7 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
     def test_a_declared_scale_meets_the_status_refusal(self) -> None:
         """The control: with the scale declared, the same clusters meet the status refusal."""
         frame, _ = make_linear_ate(n=240, seed=2)
-        frame["cluster"] = np.arange(len(frame)) % 3
+        frame["cluster"] = np.arange(len(frame)) % 2
         bounds = (float(frame["Y"].min()) - 1.0, float(frame["Y"].max()) + 1.0)
         estimator = TMLE(
             **linear_in_sample(cross_fit=True, n_folds=2, q_bounds=bounds, **never_fit_learners())
@@ -1796,5 +1795,5 @@ class TestVariableImportanceRefusesBeforeItsFirstFit:
                 estimator=estimator, id="cluster",
             )  # fmt: skip
         assert str(raised.value).startswith("variable_importance() is not defined here.")
-        assert "fewer than 10 clusters" in str(raised.value)
+        assert "fewer than 3 clusters" in str(raised.value)
         assert NeverFit.calls == 0

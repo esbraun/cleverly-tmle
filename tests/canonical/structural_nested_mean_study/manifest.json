@@ -1,0 +1,524 @@
+{
+  "schema_version": 2,
+  "study": "structural nested mean model",
+  "slug": "structural-nested-mean",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-structural-nested-mean",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "4f9038c0bf0130f38416be82c541fcb5391d69e8",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 2000,
+    "seed": 20261444,
+    "resampling_seed": 2026144401,
+    "scenario_seed_owners": {
+      "s2": "s2",
+      "s3": "s3",
+      "k": "k",
+      "c": "c",
+      "h": "h",
+      "p": "p",
+      "m": "m",
+      "l": "l",
+      "n": "n",
+      "s2w": "s2w",
+      "s2c": "s2c"
+    },
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-structural-nested-mean": 0.01,
+      "econml": 0.01
+    },
+    "scenarios": {
+      "s2": [
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "ey_reference",
+        "ey_regimen[r11]",
+        "ate_regimen[r11 vs r00]",
+        "ey_regimen[r10]"
+      ],
+      "s3": [
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "blip[A3:1.0:intercept]",
+        "ey_reference",
+        "ate_regimen[r111 vs r000]",
+        "ate_regimen[r101 vs r000]"
+      ],
+      "k": [
+        "blip[A1:1.0:intercept]",
+        "blip[A1:2.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "blip[A2:2.0:intercept]",
+        "ey_reference",
+        "ey_regimen[r12]",
+        "ate_regimen[r12 vs r00]",
+        "ate_regimen[r21 vs r00]"
+      ],
+      "c": [
+        "blip[A1:dose:intercept]",
+        "blip[A2:dose:intercept]",
+        "ey_reference",
+        "ey_regimen[dose_mid]",
+        "ate_regimen[dose_mid vs dose0]",
+        "ate_regimen[dose_high vs dose0]"
+      ],
+      "h": [
+        "blip[A1:1.0:intercept]",
+        "blip[A1:1.0:W]",
+        "blip[A2:1.0:intercept]",
+        "blip[A2:1.0:W]",
+        "blip[A2:1.0:A1]",
+        "ey_reference",
+        "ey_regimen[r11]",
+        "ate_regimen[r11 vs r00]",
+        "ate_regimen[r10 vs r00]"
+      ],
+      "p": [
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "blip[A2:1.0:A1]",
+        "ey_reference",
+        "ate_regimen[r11 vs r00]",
+        "ey_regimen[r01]"
+      ],
+      "m": [
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "ey_reference",
+        "ate_regimen[r11 vs r00]"
+      ],
+      "l": [
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "blip[A2:1.0:S2]",
+        "ey_reference"
+      ],
+      "n": [
+        "blip[A1:1.0:intercept]",
+        "blip[A2:1.0:intercept]",
+        "ey_reference",
+        "ate_regimen[r11 vs r00]"
+      ],
+      "s2w": [
+        "blip[A1:1.0:intercept]",
+        "ey_reference",
+        "ey_regimen[r11]",
+        "ate_regimen[r11 vs r00]"
+      ],
+      "s2c": [
+        "blip[A1:1.0:intercept]",
+        "ey_reference",
+        "ey_regimen[r11]",
+        "ate_regimen[r11 vs r00]"
+      ]
+    },
+    "estimator": "StructuralNestedMean",
+    "outcome_learner": {
+      "GLM setups": "GLM(family='gaussian', interactions=order); order 3",
+      "GLM orders": {
+        "S2": 2,
+        "H": 2,
+        "P": 2,
+        "L": 2,
+        "K": 2,
+        "S2W": 2,
+        "S2C": 2,
+        "C": 1,
+        "LU": 2,
+        "VB": 2
+      },
+      "N": "HistGradientBoostingRegressor(max_depth=None, max_leaf_nodes=15, learning_rate=0.1, max_iter=2000, l2_regularization=1.0, min_samples_leaf=20, early_stopping=True, validation_fraction=0.1, n_iter_no_change=20, random_state=0)"
+    },
+    "treatment_learner": {
+      "GLM setups": "GLM(interactions=order), the outcome order unless listed",
+      "GLM orders": {
+        "SP": 2
+      },
+      "N": "HistGradientBoostingClassifier(max_depth=None, max_leaf_nodes=15, learning_rate=0.1, max_iter=2000, l2_regularization=1.0, min_samples_leaf=20, early_stopping=True, validation_fraction=0.1, n_iter_no_change=20, random_state=0)"
+    },
+    "n_folds": {
+      "default": 10,
+      "N": 5
+    },
+    "model_check": {
+      "interactions": 2,
+      "n_splits": 5,
+      "cells": {
+        "s2_f2": [
+          "size",
+          "S2",
+          1000,
+          2
+        ],
+        "s2_f10": [
+          "size",
+          "S2",
+          1000,
+          10
+        ],
+        "h_f2": [
+          "size",
+          "H",
+          1000,
+          2
+        ],
+        "h_f10": [
+          "size",
+          "H",
+          1000,
+          10
+        ],
+        "s2_n2000_f2": [
+          "size",
+          "S2",
+          2000,
+          2
+        ],
+        "s2_n2000_f10": [
+          "size",
+          "S2",
+          2000,
+          10
+        ],
+        "h_n2000_f2": [
+          "size",
+          "H",
+          2000,
+          2
+        ],
+        "h_n2000_f10": [
+          "size",
+          "H",
+          2000,
+          10
+        ],
+        "sp_f2": [
+          "size",
+          "SP",
+          2000,
+          2
+        ],
+        "sp_f10": [
+          "size",
+          "SP",
+          2000,
+          10
+        ],
+        "lu_f2": [
+          "power",
+          "LU",
+          2000,
+          2
+        ],
+        "lu_f10": [
+          "power",
+          "LU",
+          2000,
+          10
+        ]
+      }
+    },
+    "ladder": {
+      "S2": [
+        500,
+        2000,
+        8000
+      ],
+      "H": [
+        500,
+        2000,
+        8000
+      ],
+      "K": [
+        1000,
+        4000,
+        16000
+      ],
+      "C": [
+        500,
+        2000,
+        8000
+      ],
+      "N": [
+        500,
+        2000,
+        8000
+      ]
+    },
+    "calibration_n": 2000,
+    "support_keys": {
+      "S2": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "S3": {
+        "treatment": [
+          "2",
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "K": {
+        "treatment": [
+          "3",
+          "3"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "C": {
+        "treatment": [
+          "continuous",
+          "continuous"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "H": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "P": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "M": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "L": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": true,
+        "regimens": false,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "N": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "HistGradientBoostingRegressor",
+          "treatment": "HistGradientBoostingClassifier"
+        }
+      },
+      "S2W": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "fixed",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "S2C": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "clustered",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "SP": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "LU": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      },
+      "VB": {
+        "treatment": [
+          "2",
+          "2"
+        ],
+        "weighting": "none",
+        "dependence": "iid",
+        "covariate_features": false,
+        "regimens": true,
+        "learners": {
+          "outcome": "GLM",
+          "treatment": "GLM"
+        }
+      }
+    },
+    "expected_red": [],
+    "reference": "none yet; the EconML 0.17.0 DynamicDML comparator is pending",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_structural_nested_mean.py": "445a2a7e9ae899af4633469824f7cac3d7782259a91d0143ee1a8d5f746747cf",
+    "tests/studies/structural_nested_mean_properties.py": "f00b9c528a6c557e2145c2c24fe9d73b854cfe60289b9e641dbef419965417f1",
+    "tests/studies/structural_nested_mean_laws.py": "809b32f607b3db3cdb93f489f8baa35d0749e37542aa4516d7870cde8fad7e83",
+    "tests/discrete_law_structural.py": "3254b27091063f548e3e3a8b5970a34e5407f0b5a7be83d59b8491456786491e",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
+    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "beeeccd1b932527a007dcf9b1b683f03e78daa014f500599103c7fd08df1d3b5",
+    "summary.csv": "c7cee48ebf373c8f4044641b4d13085997034bbecc196c90f2c510dae0dbd330",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "6a8662eef910ac773a98fc895ac10693eb4af993287e77fc1d4f3078c8ef3883",
+    "property-replicates.csv.gz": "1105a57ad3f1633fcb410f2f2c8ab2b840743157c9a4e909dbe4b2befc222ac8",
+    "properties.csv": "81192f5bcc71da3b108290ead3906fb3f91865dea1a7e19a913fe2483dcb53be",
+    "property-failures.csv": "8622819b7f347a09b3f325b21b8592f2b7b00d8b6f569b62d551b3b9e575822c",
+    "property-failure-accounting.csv": "20dc42e8466b84141e9c7fb25c32224041bfdd5c02416061dd81017dde83ac8c",
+    "property-failure-witnesses.csv": "2dada7f565d7a12096c48df4197bd2810e23dc749f197731979d6107217eccf4"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "econml",
+    "reason": "the EconML 0.17.0 DynamicDML runs are queued as Study queue row 43 in TRACKER.md, a local container phase (tests/canonical/econml_dynamic_dml); a method merges once its Python studies pass and a later change registers the comparator runs",
+    "metadata": {},
+    "declared_sources_sha256": {
+      "tests/canonical/econml_dynamic_dml/Dockerfile": "6a03b883deaa142f62a75c8f9469304fb3021981c30cb80d3061dec81b26325a",
+      "tests/canonical/econml_dynamic_dml/generate_parity_fixture.py": "070398b1e62b712887e819c779e44c6bb0d14008cd2451d5debc64f6c3a8ad8f",
+      "tests/canonical/econml_dynamic_dml/requirements.txt": "db82abfde18ad9373bc540c15863b0905b6b3a81e0946988bd0fb79c985cd10f"
+    }
+  }
+}

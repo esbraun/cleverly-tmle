@@ -3,10 +3,10 @@
 Each declared rule restates a verdict that a study's own ``summarize_properties`` computes.
 The differential perturbs every committed study's property rows, summarizes them with the
 study's own code, and requires the declared rules to give the same ``passed`` and
-``property_passed`` on every verdict row.  Two modules have no committed rows, so they run on
-synthetic rows built from their declared cells.  ``longitudinal_sdr_properties`` runs on both
-its committed rows and synthetic rows: its committed rows make no perturbation decide the
-``P_D`` two-size clause alone, and its synthetic rows do.
+``property_passed`` on every verdict row.  ``longitudinal_sdr_properties`` runs on both its
+committed rows and synthetic rows built from its declared cells: its committed rows make no
+perturbation decide the ``P_D`` two-size clause alone, and its synthetic rows do.  The three
+X40 modules run on synthetic rows until their declared runs commit their rows.
 
 | subject | rows |
 | --- | --- |
@@ -75,11 +75,14 @@ DIFFERENTIAL_BOOTSTRAP = 200
 
 #: The property modules that run on :func:`synthetic_rows`: each module with no committed rows,
 #: and ``longitudinal_sdr_properties``, whose committed rows leave the clause
-#: ``P_D large-size bias bound under the small`` without a binding witness.
+#: ``P_D large-size bias bound under the small`` without a binding witness. The three X40
+#: studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``) bind to their committed
+#: rows, so they are subjects by slug.
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
-    "tests.studies.longitudinal_incremental_properties",
-    "tests.studies.longitudinal_incremental_dropout_properties",
+    "tests.studies.long_horizon_ltmle_properties",
+    "tests.studies.long_horizon_categorical_ltmle_properties",
+    "tests.studies.long_horizon_sdr_properties",
 )
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.
@@ -593,7 +596,15 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
         ``(property, cell, clause, statistic, label, complete case, candidate)``.
     """
     module, record = subject_of(subject)
-    rows = subject_rows(subject)
+    rows = subject_rows(subject).copy()
+    # A subject with committed failures stamps its rows with the replicates it lost, and
+    # ``Context.k`` reads that stamp.  The candidates then fill the lost replicates, and they
+    # bound the complete case without equalling it.  Renumber the surviving replicates and
+    # restamp them as the requested set, so that ``k = 0`` holds for every cell.
+    cells = rows.groupby(["property", "cell"])["replicate"]
+    rows["replicate"] = cells.cumcount()
+    rows["requested_replicates"] = cells.transform("size")
+    rows["failed_replicates"] = 0
     wrong: list[tuple[Any, ...]] = []
     read = 0
     with reduced(record) as cheap:
@@ -606,6 +617,12 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
             for cell, judged in property_failures._judged(rule, family, summary, ctx).items():
                 selected = (summary["property"] == family) & (summary["cell"] == cell)
                 row = summary.loc[selected].iloc[0]
+                # A cell stamped with recorded failures fills its lost values, so its candidates
+                # are at k > 0 and differ from the complete case by design.  The fast tier
+                # recomputes that cell's accounting from the records instead.  Zeroing the stamp
+                # reads the candidates of the same cell at k = 0, where each is the complete case.
+                row = row.copy()
+                row["failed_replicates"] = 0
                 for clause, value in judged:
                     if clause.candidates is None:
                         continue

@@ -189,6 +189,17 @@ PLANS: dict[str, tuple[Any, Any, Any]] = {
 }
 
 
+def _declared_regimens() -> dict[str, Any]:
+    return {
+        label: (
+            DynamicRegimen(label, plan, rule_kind="known")
+            if any(callable(node) for node in plan)
+            else plan[0]
+        )
+        for label, plan in PLANS.items()
+    }
+
+
 def _ltmle(
     *, mechanism: str = "cell", outcome: str = "cell", estimator: type[LTMLE] | type[SDR] = LTMLE
 ) -> LTMLE | SDR:
@@ -198,16 +209,8 @@ def _ltmle(
     def q() -> Any:
         return CellMeans() if outcome == "cell" else DummyClassifier(strategy="prior")
 
-    regimens = {
-        label: (
-            DynamicRegimen(label, plan, rule_kind="known")
-            if any(callable(node) for node in plan)
-            else plan[0]
-        )
-        for label, plan in PLANS.items()
-    }
     return estimator(
-        regimens,
+        _declared_regimens(),
         reference="never",
         n_folds=1,
         random_state=0,
@@ -390,3 +393,47 @@ def test_the_restriction_text_is_pinned() -> None:
         "for them. The interval needs the restriction for both families and both families "
         "consistent at the usual product rate."
     )
+
+
+def test_the_parametric_g_formula_refuses_a_markov_order() -> None:
+    from cleverly.longitudinal import ParametricGFormula
+    from cleverly.longitudinal.estimator import GFORMULA_MARKOV_REFUSAL
+
+    data = LongitudinalTreatment(
+        outcome=THREE.outcome,
+        treatment=THREE.treatment,
+        baseline=THREE.baseline,
+        time_varying=THREE.time_varying,
+        markov_order=1,
+    ).prepare(law.frame("markov1"))
+    with pytest.raises(CapabilityError) as refused:
+        ParametricGFormula({"never": 0, "always": 1}).fit(data)
+    assert refused.value.refusal == GFORMULA_MARKOV_REFUSAL
+
+
+def _gcomp_errors(order: int) -> list[float]:
+    from cleverly.longitudinal import SequentialGComputation
+
+    data = LongitudinalTreatment(
+        outcome=THREE.outcome,
+        treatment=THREE.treatment,
+        baseline=THREE.baseline,
+        time_varying=THREE.time_varying,
+        markov_order=order,
+    ).prepare(law.frame("markov1"))
+    result = SequentialGComputation(
+        _declared_regimens(),
+        outcome_learner=CellMeans(),
+        pseudo_learner=CellMeans(),
+        simultaneous=False,
+    ).fit(data)
+    return [
+        abs(result.fits[label].psi_scaled - law.truth("markov1", plan))
+        for label, plan in PLANS.items()
+    ]
+
+
+def test_sequential_g_computation_reads_the_window() -> None:
+    """The order-1 window returns the truth on the order-1 law, and the order-0 window misses."""
+    assert max(_gcomp_errors(1)) < EXACT
+    assert max(_gcomp_errors(0)) > 1e-3

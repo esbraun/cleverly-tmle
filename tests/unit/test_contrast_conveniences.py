@@ -27,6 +27,7 @@ from cleverly.inference.results import linear_functional, ratio_contrast, smooth
 from cleverly.longitudinal import LTMLE
 from tests import discrete_law_competing as competing_law
 from tests import discrete_law_longitudinal as end_law
+from tests import discrete_law_point_survival as point_law
 from tests import discrete_law_survival as survival_law
 from tests.studies import survival_grid_law as grid
 from tests.studies.canonical_ltmle import declared_regimens
@@ -280,8 +281,17 @@ class TestInheritance:
         assert ratio.std_error == pytest.approx(float(np.sqrt(variance[0, 0])), rel=1e-12)
         assert ratio.n_clusters == result["ey1"].n_clusters
 
-    def test_a_few_cluster_ratio_refuses_its_interval(self) -> None:
-        # Three clusters, below the floor of four.
+    def test_a_few_cluster_ratio_shows_its_t_interval(self) -> None:
+        """Three clusters take ``few_cluster_plugin``, which shows a t(J - 2) interval.
+
+        The ratio inherits the status and the reference of its parents. Its interval is the
+        log-scale Wald interval on the t reference with one degree of freedom, so the ratio of
+        its half-width to the normal one is the ratio of the two quantiles.
+        """
+        from dataclasses import replace
+
+        from scipy import stats
+
         frame, _ = make_clustered(n=120, seed=6, cluster_size=40)
         result = (
             TMLE(
@@ -296,10 +306,16 @@ class TestInheritance:
         )
         ratio = result.ratio("ey1", "ey0")
         assert ratio.inference == "few_cluster_plugin"
-        with pytest.raises(CapabilityError):
-            _ = ratio.ci
-        with pytest.raises(CapabilityError):
-            ratio.wald_test(null=2.0)
+        assert ratio.reference_df == 1
+        assert ratio.support.label == "experimental"
+        low, high = ratio.ci
+        normal_low, normal_high = replace(ratio, reference_df=None).ci
+        half = np.log(high / low) / 2
+        normal_half = np.log(normal_high / normal_low) / 2
+        assert half / normal_half == pytest.approx(
+            stats.t.ppf(0.975, 1) / stats.norm.ppf(0.975), rel=1e-9
+        )
+        assert np.isfinite(ratio.wald_test(null=2.0).pvalue)
 
     def test_a_selector_ctmle_ratio_keeps_its_status(self) -> None:
         from cleverly.datasets import make_binary_outcome
@@ -932,3 +948,38 @@ def test_the_ratio_helpers_keep_their_domain_refusals() -> None:
         ratio_contrast(estimates, "c", "b", kind="or", n=4, name="or")
     assert log_odds_ratio_influence is not None
     assert smooth_contrast is not None
+
+
+class TestHazardRmst:
+    """RMST and RMTL read a hazard fit's curve as they read an iterated-mean one (X14)."""
+
+    @pytest.fixture(scope="class")
+    def hazard_fit(self) -> Any:
+        law = point_law.PointLaw("survival", 2)
+        result = LTMLE(
+            {"a0": 0, "a1": 1},
+            n_folds=1,
+            survival_model="hazard",
+            targeting="one_step",
+            step_size=2e-2,
+            outcome_learner=point_law.CellMeans(),
+            treatment_learner=point_law.CellProbabilities(),
+            censoring_learner=point_law.CellMeans(),
+        ).fit(law.frame(), **law.fit_columns())
+        return law, result
+
+    def test_rmst_is_the_enumeration_truth_and_its_curve_the_eif_sum(self, hazard_fit: Any) -> None:
+        law, result = hazard_fit
+        static = point_law.static
+        rows = law.first_row_of()
+        for label, arm in (("a0", 0), ("a1", 1)):
+            risks = {t: law.functional(law.probs, static(arm), t, 1) for t in (1, 2)}
+            truth = grid.enumerate_rmst(grid.event_time_pmf(risks), 3)
+            restricted = result.rmst(label, 3)
+            assert restricted.psi == pytest.approx(truth, abs=1e-12)
+            expected = -(law.eif(static(arm), 1, 1) + law.eif(static(arm), 2, 1))
+            np.testing.assert_allclose(
+                restricted.influence_curve[rows], expected, rtol=1e-10, atol=1e-12
+            )
+            total = restricted.psi + result.rmtl(label, 3).psi
+            assert total == pytest.approx(3.0, abs=1e-12)

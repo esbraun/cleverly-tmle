@@ -251,13 +251,20 @@ def linear_drtmle(**overrides: Any) -> dict[str, Any]:
     }
 
 
-#: One configuration per selector path, for a claim that must hold on all three.  Three
+#: One configuration per selector path, for a claim that must hold on all five.  Three
 #: selection folds keep each search in the fast tier.  The ordered path ranks by a
 #: logistic preorder, so a test can pass any covariate set without an explicit ``ordering``.
+#: The lasso grid ends above 0, so no small fixture meets a separated unpenalized end, and
+#: the learners path declares one candidate, so it selects.
 SELECTOR_CONFIGS: dict[str, dict[str, Any]] = {
     "greedy": {"selection_folds": 3},
     "ordered": {"selection_folds": 3, "preorder": "logistic"},
     "discrete": {"selection_folds": 3, "candidates": ((), ("W1",))},
+    "lasso": {"selection_folds": 3, "lambdas": (0.1, 0.03, 0.01)},
+    "learners": {
+        "selection_folds": 3,
+        "treatment_candidates": (LogisticRegression(C=0.01, max_iter=1000),),
+    },
 }
 
 
@@ -860,3 +867,28 @@ def assert_estimate_coherent(
         f"different branches, and this is where a scale confusion in either surfaces"
     )
     assert 0.0 <= pvalue <= 1.0, f"{name}: p={pvalue}"
+
+
+@pytest.fixture
+def exact_grid_law(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn off the undeclared-atom refusal (R-b4) for a fit on an exact grid law.
+
+    The exact oracles have finite support, so every grid dose is a recorded point mass and
+    R-b4 refuses the fit.  The fixture sets the private seam
+    ``cleverly.interventions.policy._ATOM_CHECK`` to ``False``.  The seam gates the refusal
+    only: the fit still runs the shipped density, ratio and design code.  No public object
+    reaches the seam (``tests/unit/test_mtp_atoms.py``, T-s1).
+    """
+    import cleverly.interventions.policy as policy_module
+
+    monkeypatch.setattr(policy_module, "_ATOM_CHECK", False)
+
+
+@pytest.fixture(scope="module")
+def exact_grid_law_module() -> Any:
+    """:func:`exact_grid_law` for a module-scoped fixture that fits a grid law."""
+    import cleverly.interventions.policy as policy_module
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(policy_module, "_ATOM_CHECK", False)
+        yield

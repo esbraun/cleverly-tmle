@@ -17,7 +17,9 @@ Three kinds of row can be red, and each is read the way the regeneration gates i
   out when the study declares an accepted reference failure, as ``regenerate.py`` does.
 * A **paired** row of ``equivalence.csv`` that fails.  The verdict is *recomputed* from the
   committed leg endpoints rather than read off ``passed``, and a disagreement is refused.  A
-  ledger that trusted the column would inherit any hand edit to it.
+  ledger that trusted the column would inherit any hand edit to it.  A study with
+  ``paired_role="descriptive"`` publishes no paired verdict, so none of its paired rows is
+  read.
 * A **property** row of ``properties.csv`` that fails its own rule *or* its family's joint
   clause, which is the rule ``claims.property_cells_passed`` counts by.  A diagnostic row
   states no verdict and is never red.  A row that only its property failure accounting
@@ -157,6 +159,15 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "selector_necessity/empty_control",
             "type_i_error/sharp_null",
             "interval_calibration/correctly_specified",
+        ),
+        # The declared expected red of X16: learners_collaborative fails its bias rule
+        # (design review S3), and the family's joint clause takes the other two cells.
+        *_keys(
+            "canonical-ctmle-sequences",
+            "property",
+            "selector_necessity/learners_collaborative",
+            "selector_necessity/lasso_collaborative",
+            "selector_necessity/empty_control",
         ),
     ),
     "F19": (
@@ -514,6 +525,20 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "mtp-point-calibration": (
         *_keys("policy-point-mtp", "property", "interval_calibration/halve__correctly_specified"),
     ),
+    # The one calibration cell of ``parametric-gformula`` whose SE ratio interval leaves the
+    # band, read as finite-sample under the study's declared reading.
+    "X45-finite-sample": _keys(
+        "parametric-gformula",
+        "property",
+        "interval_calibration/nice_g1_treat_all__correctly_specified",
+    ),
+    "X19-competing-calibration": (
+        *_keys(
+            "longitudinal-incremental-dropout",
+            "property",
+            "interval_calibration/competing_contrast_x2_h3__correctly_specified",
+        ),
+    ),
     "X13-finite-sample": (
         *_keys(
             "point-treatment-survival",
@@ -532,6 +557,65 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "longitudinal-sdr",
             "property",
             "sequential_double_robustness/both_correct__n_2000",
+        ),
+    ),
+    "X16-plugin-variance": (
+        *_keys(
+            "canonical-ctmle-sequences",
+            "truth",
+            "cleverly-ctmle-sequences/binary_lasso/ate",
+        ),
+    ),
+    # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.
+    "mtp-pricing-calibration": (
+        *_keys(
+            "mtp-pricing",
+            "truth",
+            *(
+                f"cleverly-mtp-pricing/pricing_{engine}_tau5/{estimand}"
+                for engine in ("ltmle", "sdr")
+                for estimand in (
+                    "ey_regimen[price_down]",
+                    "ate_regimen[price_down vs natural_prices]",
+                )
+            ),
+        ),
+    ),
+    # The learned-density arms of the price study, declared ``reporting`` before the run.
+    "mtp-pricing-learned-density": (
+        *_keys(
+            "mtp-pricing",
+            "property",
+            *(
+                f"interval_calibration/up_learned_density_tau{tau}__correctly_specified"
+                for tau in (2, 3, 5)
+            ),
+        ),
+    ),
+    # The ``reporting`` SDR arm of plan p4. X40 owns it: the interval is labelled experimental.
+    "X40-sdr-heavy-ratios": (
+        *_keys("mtp-boundaries", "property", "interval_calibration/p4_sdr__correctly_specified"),
+    ),
+    # The lower bound of the ATE of arm 2 against arm 0 on the cross-fitted three-arm fit.  Rule 8
+    # of the study's red-cell policy reads it as conservative, after rule 2 found the package
+    # curve in agreement with a jackknife and a sandwich.  The rerun at n = 4000 reads an SE ratio
+    # of 0.998 (99% interval 0.973 to 1.025), so the reading is "conservative, contracting".
+    "X26-plugin-conservative": (
+        *_keys(
+            "omitted-variable-bound-plugin-se",
+            "property",
+            "interval_calibration/multinomial_logistic_crossfit_ate_2v0_lower__correctly_specified",
+        ),
+    ),
+    # The lower bound of the ATT of arm 2 against arm 0 on the same fit.  Its endpoints are in
+    # band, and only the worst-case clause of the failure accounting turns it red, so rule 7
+    # reads it as refusal-limited.  The rerun at n = 4000 lost no replicate and reads an SE ratio
+    # of 1.002 (99% interval 0.977 to 1.027).
+    "X26-refusal-limited": (
+        *_keys(
+            "omitted-variable-bound-plugin-se",
+            "property",
+            "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
         ),
     ),
 }
@@ -580,6 +664,10 @@ EXCLUDED_HOOKS: dict[str, str] = {
     "mar-natural-course-tmle": "the exact-equality probe of the scale workaround",
     "mar-attributable-tmle": "the exact-equality probe of the scale workaround on both R paths",
     "stacked-mar-arm-indexed-cvtmle": "the exact-equality probe of the scale workaround",
+    "canonical-ctmle-sequences": (
+        "the replay gates, which compare the full-sample construction and the final step "
+        "with R on R's own arrays"
+    ),
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.
@@ -638,7 +726,9 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
     dict
         Each verdict table, keyed by its short name in :data:`FRAMES`, the failure
         accounting under ``accounting`` and the property failure accounting under
-        ``property_accounting``, each empty when the study recorded no failure.
+        ``property_accounting``, each empty when the study recorded no failure.  The paired
+        table of a record with ``paired_role="descriptive"`` is empty, because its rows
+        state no verdict.
 
     Raises
     ------
@@ -646,6 +736,10 @@ def frames(record: StudyRecord) -> dict[str, pd.DataFrame]:
         If a verdict column is missing or not boolean, as :func:`check_verdict_columns` says.
     """
     tables = {name: pd.read_csv(record.artifact(filename)) for name, filename in FRAMES.items()}
+    if record.paired_role == "descriptive":
+        # A descriptive paired row states no verdict, so the ledger reads none of them and
+        # counts none of them.  The study page publishes the rows themselves.
+        tables["equivalence"] = tables["equivalence"].iloc[0:0]
     check_verdict_columns(tables)
     path = record.artifact(failures.ACCOUNTING)
     tables["accounting"] = (
@@ -854,7 +948,8 @@ def red_rows(record: StudyRecord, tables: Mapping[str, pd.DataFrame]) -> list[Re
         )
 
     valid = performance.set_index(["implementation", "scenario", "estimand"])["passed"]
-    for row in tables["equivalence"].itertuples():
+    paired = tables["equivalence"] if record.paired_role == "gated" else tables["equivalence"][:0]
+    for row in paired.itertuples():
         subject_valid = bool(valid.loc[(record.implementation, row.scenario, row.estimand)])
         legs = paired_legs(row, record.margins, subject_valid)
         key = (str(row.scenario), str(row.estimand))

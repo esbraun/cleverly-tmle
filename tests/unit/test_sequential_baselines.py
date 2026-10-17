@@ -27,6 +27,7 @@ from cleverly.longitudinal import (
     LTMLE,
     DynamicRegimen,
     LongitudinalData,
+    ParametricGFormula,
     SequentialGComputation,
     SequentialIPW,
 )
@@ -37,7 +38,13 @@ from cleverly.longitudinal.sequential import (
     FoldRecursionCell,
     _untargeted_recursion_in_fold,
 )
-from cleverly.methods import GComputationMethod, IPWMethod, ModelSpec, Targeting
+from cleverly.methods import (
+    GComputationMethod,
+    IPWMethod,
+    ModelSpec,
+    ParametricGFormulaMethod,
+    Targeting,
+)
 
 from .. import discrete_law_competing as competing
 from .. import discrete_law_longitudinal as binary
@@ -254,7 +261,7 @@ def test_w3_the_policy_path_on_a_point_mass_is_the_regimen(
     monkeypatch.setattr(
         estimator_module,
         "resolve_plans",
-        lambda regimens, data: original(regimens, data, _collapse_point_masses=False),
+        lambda regimens, data, **kw: original(regimens, data, _collapse_point_masses=False, **kw),
     )
     point = DynamicRegimen("plan", (_one_hot(high), _one_hot(high)))
     stochastic = _fit(variant, {"plan": point}, multivalue.frame(), END_OF_STUDY)
@@ -920,7 +927,7 @@ def test_a_working_model_is_refused() -> None:
         SequentialGComputation({"a": 1}, msm=DOSE)
 
 
-@pytest.mark.parametrize("engine", [SequentialGComputation, SequentialIPW])
+@pytest.mark.parametrize("engine", [SequentialGComputation, SequentialIPW, ParametricGFormula])
 def test_a_ratio_trim_and_pooled_hazards_are_refused(engine: Any) -> None:
     from cleverly.methods import BASELINE_HAZARD_POOLING_REFUSAL, BASELINE_RATIO_TRIM_REFUSAL
 
@@ -934,7 +941,7 @@ def test_a_ratio_trim_and_pooled_hazards_are_refused(engine: Any) -> None:
     engine({"a": 1}, ratio_trim=None, hazard_pooling="node")
 
 
-@pytest.mark.parametrize("method", [GComputationMethod, IPWMethod])
+@pytest.mark.parametrize("method", [GComputationMethod, IPWMethod, ParametricGFormulaMethod])
 def test_the_methods_refuse_a_ratio_trim_and_pooled_hazards(method: Any) -> None:
     with pytest.raises(MethodConfigurationError, match="Omit ratio_trim="):
         method(targeting=Targeting(ratio_trim=0.9)).estimator_kwargs(longitudinal=True)

@@ -31,7 +31,7 @@ from cleverly import (
     Targeting,
     TMLEMethod,
 )
-from cleverly._inference_status import NON_INFERENTIAL, TRIMMED_RATIO_STATUS
+from cleverly._inference_status import STATUS_RECORDS, TRIMMED_RATIO_STATUS
 from cleverly.datasets import make_linear_ate
 from cleverly.exceptions import CapabilityError, DataError
 from cleverly.interventions import Incremental
@@ -395,7 +395,7 @@ class TestMutationControls:
 
 class TestTheStatus:
     def test_the_record_holds_the_pinned_texts(self) -> None:
-        record = NON_INFERENTIAL[TRIMMED_RATIO_STATUS]
+        record = STATUS_RECORDS[TRIMMED_RATIO_STATUS]
         assert record.reason.startswith(
             "A longitudinal fit that trims its per-node density ratios at a declared quantile "
             "(ratio_trim=) reports no confidence interval, no p-value and no standard error."

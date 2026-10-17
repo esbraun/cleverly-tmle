@@ -59,11 +59,14 @@ from typing import Any, Literal, NamedTuple
 import numpy as np
 
 from .._inference_status import (
-    T_REFERENCE_BOOTSTRAP_NOTE,
+    PARAMETER_STATUSES,
     InferenceStatus,
+    is_labelled,
+    precedent_status,
     status_record,
     supplies_inference,
 )
+from .._support import UNCLASSIFIED, Classification, Support, support_for
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import refuse_inference
 from ..fluctuation.iterative import InitialFit
@@ -101,6 +104,7 @@ __all__ = [
     "counterfactual_means",
     "has_t_reference",
     "ipsi_means",
+    "is_labelled",
     "make_estimate",
     "median_estimates",
     "minimum_reference_df",
@@ -113,9 +117,12 @@ __all__ = [
     "reduced_corrections",
     "reference_label",
     "regime_means",
+    "restamp_parameter_statuses",
     "spread_name",
     "stamp_inference",
     "supplies_inference",
+    "support_column",
+    "support_notes",
 ]
 
 Scale = Literal["level", "difference", "ratio", "fraction"]
@@ -212,13 +219,13 @@ def spread_name(name: str, status: InferenceStatus) -> str:
     return _DIAGNOSTIC_NAMES[name]
 
 
-def bootstrap_column(name: str, status: InferenceStatus, inferential: bool) -> str:
+def bootstrap_column(name: str, status: InferenceStatus, diagnostic: bool) -> str:
     """The name a bootstrap column is published under.
 
     A bootstrap column keeps its inferential name only when the estimate's status supplies
-    inference *and* a registered study licenses the percentile interval for the fit that
-    produced it (:attr:`BootstrapSummary.inferential`). Otherwise it takes the diagnostic
-    name of :data:`_DIAGNOSTIC_NAMES`. :func:`spread_name` keeps its one key, the status.
+    inference *and* the bootstrap is not a diagnostic (:func:`bootstrap_is_diagnostic`).
+    Otherwise it takes the diagnostic name of :data:`_DIAGNOSTIC_NAMES`.
+    :func:`spread_name` keeps its one key, the status.
 
     Parameters
     ----------
@@ -226,35 +233,46 @@ def bootstrap_column(name: str, status: InferenceStatus, inferential: bool) -> s
         The inferential name, such as ``"bootstrap_ci_lower"`` or ``"bootstrap se"``.
     status : str
         The inference status of the estimate. One of :data:`InferenceStatus`.
-    inferential : bool
-        Whether the bootstrap summary licenses its interval as inference.
+    diagnostic : bool
+        Whether the bootstrap is published as a diagnostic.
 
     Returns
     -------
     str
         ``name``, or its diagnostic name.
     """
-    if supplies_inference(status) and inferential:
+    if supplies_inference(status) and not diagnostic:
         return name
     return _DIAGNOSTIC_NAMES[name]
 
 
 #: Why a bootstrap percentile interval is printed as a range on a fit whose status
-#: supplies inference: no registered study licenses it for this kind of fit.
-UNLICENSED_BOOTSTRAP_NOTE = (
-    "a diagnostic: no registered study measures the coverage of this percentile interval "
-    "for this kind of fit"
+#: supplies inference: the fit declares the bootstrap a diagnostic.
+DIAGNOSTIC_BOOTSTRAP_NOTE = (
+    "a diagnostic: the collaborative fit selects its propensity model on each resample, and "
+    "no registered study measures the coverage of that interval"
+)
+
+#: The pointwise bootstrap interval: ``"percentile"`` (the ``np.quantile`` limits) or
+#: ``"bca"`` (bias-corrected and accelerated, read as order statistics).
+BootstrapInterval = Literal["percentile", "bca"]
+
+#: The printed name of each bootstrap interval.
+BOOTSTRAP_INTERVAL_LABELS: Mapping[str, str] = MappingProxyType(
+    {"percentile": "percentile", "bca": "BCa"}
 )
 
 
 def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
     """Whether the bootstrap of an estimate is published as a diagnostic.
 
-    The one rule. A bootstrap is a diagnostic when the estimate's status supplies no
-    inference, when the estimate carries a Student t reference
-    (:attr:`ParameterEstimate.reference_df`), or when no registered study licenses its
-    percentile interval (:attr:`BootstrapSummary.inferential`). No result validates the
-    cluster bootstrap below 40 clusters, which is where a t reference applies.
+    The one rule. A bootstrap is a diagnostic when the estimate's status withholds its
+    interval, when the fit declares the bootstrap a diagnostic
+    (:attr:`BootstrapSummary.diagnostic`), or when the fit reads fewer clusters than the
+    floor (:attr:`BootstrapSummary.below_floor`). The cluster count decides the last case, not
+    the status, so a fit with estimated weights and few clusters is a diagnostic too. A
+    bootstrap that none of these makes a diagnostic publishes the inferential names, and its
+    :attr:`BootstrapSummary.support` says whether a registered row measures it.
 
     Parameters
     ----------
@@ -268,18 +286,19 @@ def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
         diagnostic names.
     """
     summary = estimate.bootstrap
-    licensed = summary is not None and summary.inferential
-    return not (estimate.supplies_inference and estimate.reference_df is None and licensed)
+    return not estimate.supplies_inference or (
+        summary is not None and (summary.diagnostic or summary.below_floor)
+    )
 
 
 def bootstrap_line(estimate: ParameterEstimate) -> str:
-    """The printed bootstrap spread and percentile interval of one estimate.
+    """The printed bootstrap spread and interval of one estimate.
 
     One body for both result summaries. The labels come from
     :func:`~cleverly.inference.influence.bootstrap_column` under
     :func:`bootstrap_is_diagnostic`, so a fit whose status supplies no inference, an
     estimate with a t reference, or a bootstrap not licensed as inference prints
-    ``bootstrap sd`` and a percentile range.
+    ``bootstrap sd`` and a range.
 
     Parameters
     ----------
@@ -294,22 +313,22 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
     summary = estimate.bootstrap
     assert summary is not None
     low, high = summary.ci
-    label = bootstrap_column(
-        "bootstrap se", estimate.inference, not bootstrap_is_diagnostic(estimate)
-    )
+    label = bootstrap_column("bootstrap se", estimate.inference, bootstrap_is_diagnostic(estimate))
     spread = f"{label} {summary.std_error:.4g}  "
+    interval = BOOTSTRAP_INTERVAL_LABELS[summary.interval]
     if label == "bootstrap se":
-        return f"{spread}percentile CI [{low:.5g}, {high:.5g}]"
-    # A percentile interval is a confidence interval, and this estimate reports none. The
+        marker = " [experimental]" if summary.support.label == "experimental" else ""
+        return f"{spread}{interval} CI [{low:.5g}, {high:.5g}]{marker}"
+    # A bootstrap interval is a confidence interval, and this estimate reports none. The
     # same two numbers are printed as a range under the diagnostic framing, rather than
     # the bootstrap being refused outright.
     if not estimate.supplies_inference:
         note = status_record(estimate.inference).bootstrap_note
-    elif estimate.reference_df is not None:
-        note = T_REFERENCE_BOOTSTRAP_NOTE
+    elif summary.below_floor:
+        note = status_record("few_cluster_plugin").bootstrap_note
     else:
-        note = UNLICENSED_BOOTSTRAP_NOTE
-    return f"{spread}percentile range [{low:.5g}, {high:.5g}] ({note})"
+        note = DIAGNOSTIC_BOOTSTRAP_NOTE
+    return f"{spread}{interval} range [{low:.5g}, {high:.5g}] ({note})"
 
 
 @dataclass(frozen=True)
@@ -440,15 +459,21 @@ def stamp_inference(
     estimates: Mapping[str, ParameterEstimate],
     status: InferenceStatus,
     reference: ClusterReference | None = None,
+    classification: Classification | None = None,
 ) -> dict[str, ParameterEstimate]:
-    """Give each estimate of a report the status and the reference its configuration gives.
+    """Give each estimate of a report the status, reference and support its fit gives.
 
-    The one stamp. Under a non-inferential ``status`` every estimate declares ``status``
-    and keeps the normal reference of its diagnostic. Under ``"influence_curve"`` every
-    estimate keeps the status it was built with, and, when ``reference`` is given, takes
-    the degrees of freedom of the rows it reads. ``TMLE._retarget_detailed`` applies it to
-    the fit's estimates, and :meth:`~cleverly.estimators.CVTargeting.stamped` to both
-    fold-level reports.
+    The one stamp. Under a status that withholds its interval, every estimate declares
+    ``status`` and keeps the normal reference of its diagnostic. Under a status that shows its
+    interval, every estimate that carries no status of its own declares ``status`` and takes
+    the degrees of freedom of the rows it reads. Under ``"influence_curve"`` every estimate
+    keeps the status it was built with, and, when ``reference`` is given, takes the degrees of
+    freedom too. ``TMLE._retarget_detailed`` applies it to the fit's estimates, and
+    :meth:`~cleverly.estimators.CVTargeting.stamped` to both fold-level reports.
+
+    When ``classification`` is given, each estimate also takes the
+    :class:`~cleverly._support.Support` that :func:`~cleverly._support.support_for` computes
+    from its final status and reference.
 
     Parameters
     ----------
@@ -459,23 +484,38 @@ def stamp_inference(
     reference : ClusterReference or None, default=None
         The rows each estimate reads, on a clustered fit. ``None`` keeps every
         :attr:`ParameterEstimate.reference_df` as built.
+    classification : Classification or None, default=None
+        The classification of the fit. ``None`` keeps every :attr:`ParameterEstimate.support`
+        as built.
 
     Returns
     -------
     dict of str to ParameterEstimate
-        ``estimates`` in the same order. Under any other status each estimate is a copy
-        that declares ``status``. Every array and number is unchanged.
+        ``estimates`` in the same order. Every array and number is unchanged.
     """
+    stamped: dict[str, ParameterEstimate]
     if not supplies_inference(status):
-        return {
+        stamped = {
             name: replace(estimate, inference=status, reference_df=None)
             for name, estimate in estimates.items()
         }
-    if reference is None:
-        return dict(estimates)
+    else:
+        stamped = {}
+        for name, estimate in estimates.items():
+            changes: dict[str, Any] = {}
+            if is_labelled(status) and estimate.inference == "influence_curve":
+                changes["inference"] = status
+            if reference is not None:
+                changes["reference_df"] = reference.reference_df(name)
+            stamped[name] = replace(estimate, **changes) if changes else estimate
+    if classification is None:
+        return stamped
     return {
-        name: replace(estimate, reference_df=reference.reference_df(name))
-        for name, estimate in estimates.items()
+        name: replace(
+            estimate,
+            support=support_for(classification, estimate.inference, estimate.reference_df),
+        )
+        for name, estimate in stamped.items()
     }
 
 
@@ -574,9 +614,11 @@ class ParameterEstimate:
         :doc:`inference reference </technical-reference/inference>` lists each status
         and its reason.
         ``"influence_curve"`` is the ordinary case, and :attr:`std_error`, :attr:`ci`
-        and :attr:`pvalue` answer. At any other status those three accessors raise
-        with the status's reason, and :attr:`plugin_std_error` and
-        :attr:`plugin_interval` report the retained diagnostic.
+        and :attr:`pvalue` answer. A status whose record shows its interval answers the
+        same three accessors, and the estimate carries the experimental label. At any
+        other status those three accessors raise with the status's reason, and
+        :attr:`plugin_std_error` and :attr:`plugin_interval` report the retained
+        diagnostic.
     transform : Transform or None
         A monotone map that the interval and the test are computed on, set by
         ``contrast(..., transform=)``. ``None`` for every estimate a fit reports.
@@ -585,6 +627,12 @@ class ParameterEstimate:
         :attr:`plugin_interval`, or ``None`` for the normal reference. A clustered fit
         with fewer than 40 clusters with positive weight mass sets it to the cluster
         count minus 2, per estimate.
+    support : Support
+        What the package states about the evidence behind this estimate: the label
+        ``"supported"`` or ``"experimental"``, the reason, the evidence and the support row.
+        A fit sets it from its classification. An estimate built outside a classified fit
+        is experimental. ``repr`` and ``summary()`` print the word ``experimental`` for an
+        experimental estimate.
 
     Attributes
     ----------
@@ -650,6 +698,7 @@ class ParameterEstimate:
     inference: InferenceStatus = "influence_curve"
     transform: Transform | None = None
     reference_df: int | None = None
+    support: Support = UNCLASSIFIED
 
     def _plugin_std_error(self) -> float:
         """The plug-in standard error, under any inference status.
@@ -756,8 +805,8 @@ class ParameterEstimate:
     def supplies_inference(self) -> bool:
         """Whether the package supplies inference for this estimate.
 
-        ``True`` when :attr:`inference` is ``"influence_curve"``, which is when
-        :attr:`std_error`, :attr:`ci` and :attr:`pvalue` answer.
+        ``True`` when :attr:`inference` is ``"influence_curve"`` or a status that shows its
+        interval, which is when :attr:`std_error`, :attr:`ci` and :attr:`pvalue` answer.
         """
         return supplies_inference(self.inference)
 
@@ -934,18 +983,23 @@ class ParameterEstimate:
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation.
 
-        An estimate the package supplies inference for emits ``std_err``, ``ci_lower``,
-        ``ci_upper`` and ``p_value``. One whose :attr:`supplies_inference` is ``False``
-        emits ``inference`` naming its status, and
-        ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper`` in
-        their place. Its bootstrap columns are ``bootstrap_sd``, ``bootstrap_range_lower``
-        and ``bootstrap_range_upper`` rather than ``bootstrap_std_err``,
-        ``bootstrap_ci_lower`` and ``bootstrap_ci_upper``. The bootstrap columns take the
-        same diagnostic names when :attr:`BootstrapSummary.inferential` is ``False``. A
-        transformed estimate adds ``transform`` and ``transform_psi``, the estimate on the
-        transform's scale. An estimate with a Student t reference adds ``reference_df``,
-        and its bootstrap columns take the diagnostic names. Exactly one of ``std_err`` and
-        ``inference`` is always present, so a programmatic consumer has a total test.
+        ``support`` is always present, and is ``"supported"`` or ``"experimental"``. An
+        experimental estimate adds ``support_reason`` and ``support_evidence``, the evidence
+        joined by ``;``, and an estimate whose support states limits adds ``support_limits``.
+        ``inference`` is present for every status except ``"influence_curve"``, and names it.
+        An estimate the package supplies inference for, either at ``"influence_curve"`` or at a
+        status that shows its interval, emits ``std_err``, ``ci_lower``, ``ci_upper`` and
+        ``p_value``. One whose :attr:`supplies_inference` is ``False`` emits
+        ``plugin_std_err``, ``plugin_interval_lower`` and ``plugin_interval_upper`` in their
+        place, and no ``p_value``. Its bootstrap columns are ``bootstrap_sd``,
+        ``bootstrap_range_lower`` and ``bootstrap_range_upper`` rather than
+        ``bootstrap_std_err``, ``bootstrap_ci_lower`` and ``bootstrap_ci_upper``. The bootstrap
+        columns take the same diagnostic names when :func:`bootstrap_is_diagnostic` is
+        ``True``. A fit with a bootstrap adds ``bootstrap_support``, the label of the bootstrap
+        summary. A transformed estimate adds ``transform`` and ``transform_psi``, the estimate
+        on the transform's scale. An estimate with a Student t reference adds ``reference_df``,
+        and its bootstrap columns take the diagnostic names. ``std_err`` is present exactly when
+        :attr:`supplies_inference` is ``True``, so a programmatic consumer has a total test.
 
         Returns
         -------
@@ -953,7 +1007,13 @@ class ParameterEstimate:
             A JSON-compatible mapping of every reported field.
         """
         row: dict[str, Any] = {"estimand": self.name, "psi": self.psi}
-        if not self.supplies_inference:
+        row["support"] = self.support.label
+        if self.support.label == "experimental":
+            row["support_reason"] = self.support.reason
+            row["support_evidence"] = ";".join(self.support.evidence)
+        if self.support.limits:
+            row["support_limits"] = ";".join(self.support.limits)
+        if is_labelled(self.inference):
             row["inference"] = self.inference
         row.update(self.spread_columns())
         if self.reference_df is not None:
@@ -965,30 +1025,82 @@ class ParameterEstimate:
             row["transform"] = self.transform.name
             row["transform_psi"] = self.inference_value
         if self.bootstrap is not None:
-            licensed = not bootstrap_is_diagnostic(self)
+            diagnostic = bootstrap_is_diagnostic(self)
             for key, value in (
                 ("bootstrap_std_err", self.bootstrap.std_error),
                 ("bootstrap_ci_lower", self.bootstrap.ci[0]),
                 ("bootstrap_ci_upper", self.bootstrap.ci[1]),
             ):
-                row[bootstrap_column(key, self.inference, licensed)] = value
+                row[bootstrap_column(key, self.inference, diagnostic)] = value
+            row["bootstrap_support"] = self.bootstrap.support.label
+            row["bootstrap_interval"] = self.bootstrap.interval
+            if self.bootstrap.interval == "bca":
+                row["bootstrap_z0"] = self.bootstrap.z0
+                row["bootstrap_acceleration"] = self.bootstrap.acceleration
         return row
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        marker = " [experimental]" if self.support.label == "experimental" else ""
         if not self.supplies_inference:
             low, high = self.plugin_interval
             return (
                 f"{self.name}: {self.psi:.5g} ({status_record(self.inference).summary_label} "
                 f"{self.plugin_std_error:.4g}, plug-in interval [{low:.5g}, {high:.5g}]; "
-                "a diagnostic, and no confidence interval or p-value is reported)"
+                "a diagnostic, and no confidence interval or p-value is reported)" + marker
             )
         low, high = self.ci
         reference = "" if self.reference_df is None else f"t({self.reference_df}) "
         return (
             f"{self.name}: {self.psi:.5g} (se {self.std_error:.4g}, "
             f"{reference}{(1 - self.alpha) * 100:g}% CI [{low:.5g}, {high:.5g}], "
-            f"p={self._reported_pvalue():.3g})"
+            f"p={self._reported_pvalue():.3g})" + marker
         )
+
+
+def support_column(estimates: Mapping[str, ParameterEstimate]) -> list[str] | None:
+    """The ``support`` cell of each estimate, or ``None`` when every estimate is supported.
+
+    A summary adds the column only when an estimate is experimental, so a fully supported
+    report prints the table it always printed.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The report, keyed by estimand.
+
+    Returns
+    -------
+    list of str or None
+        ``"supported"`` or ``"experimental"`` per estimate, in report order, or ``None``.
+    """
+    labels: list[str] = [estimate.support.label for estimate in estimates.values()]
+    return labels if "experimental" in labels else None
+
+
+def support_notes(estimates: Mapping[str, ParameterEstimate]) -> list[str]:
+    """One ``experimental:`` note per distinct reason among the experimental estimates.
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The report, keyed by estimand.
+
+    Returns
+    -------
+    list of str
+        The notes in first-seen order. A reason that covers only some estimates names them.
+        The list is empty when every estimate is supported.
+    """
+    reasons: dict[str, list[str]] = {}
+    for name, estimate in estimates.items():
+        if estimate.support.label == "experimental":
+            reasons.setdefault(estimate.support.reason, []).append(name)
+    notes = []
+    for reason, names in reasons.items():
+        covers_all = len(names) == len(estimates)
+        head = "experimental" if covers_all else f"experimental ({', '.join(names)})"
+        notes.append(f"{head}: {reason}")
+    return notes
 
 
 @dataclass(frozen=True)
@@ -998,7 +1110,7 @@ class BootstrapSummary:
     The fields describe the construction. The inference status of the estimate decides
     the names that :meth:`ParameterEstimate.to_dict` and the result summary publish them
     under: at a status that supplies no inference, ``std_error`` is published as
-    ``bootstrap_sd`` and ``ci`` as a percentile range.
+    ``bootstrap_sd`` and ``ci`` as a range.
 
     Parameters
     ----------
@@ -1006,11 +1118,11 @@ class BootstrapSummary:
         Sample standard deviation of the finite replicate estimates, ``ddof=1``. ``nan``
         with fewer than two finite estimates, as every limit below.
     ci : tuple of float
-        Two-sided percentile limits of the replicate estimates.
+        Two-sided limits of the interval named by ``interval``.
     ci_one_sided_lower : float
-        Lower one-sided percentile limit.
+        Lower one-sided limit.
     ci_one_sided_upper : float
-        Upper one-sided percentile limit.
+        Upper one-sided limit.
     n_replicates : int
         Replicates with a finite estimate.
     n_failed : int
@@ -1018,10 +1130,28 @@ class BootstrapSummary:
         nonfinite, or out-of-domain derived values.
     draws : ndarray
         The finite replicate estimates.
-    inferential : bool, default=True
-        Whether a registered study licenses the percentile interval as inference for the
-        fit that produced it. ``False`` publishes the columns under their diagnostic
-        names, through :func:`bootstrap_column`, at every status.
+    diagnostic : bool, default=False
+        Whether the fit declares the bootstrap interval a diagnostic. ``True`` publishes
+        the columns under their diagnostic names, through :func:`bootstrap_column`, at every
+        status. Only the collaborative fit sets it.
+    below_floor : bool, default=False
+        Whether the fit reads fewer clusters with positive weight mass than the interval floor
+        (10 for a point fit, 20 for a longitudinal one). ``True`` publishes the columns under
+        their diagnostic names at every status, because no registered study measures a
+        bootstrap interval below the floor.
+    support : Support, default=UNCLASSIFIED
+        Whether a registered row measures the interval of the fit that produced it. A row
+        that lists the interval's kind (``bootstrap`` or ``bootstrap_bca``) makes it
+        ``supported``. Every other fit that publishes the interval makes it ``experimental``.
+    interval : {"percentile", "bca"}, default="percentile"
+        Which interval ``ci`` and the one-sided limits are: the ``np.quantile`` percentile
+        limits, or the bias-corrected and accelerated limits of
+        :func:`~cleverly.inference.bootstrap.bca_interval`.
+    z0 : float or None, default=None
+        The BCa bias correction, on a BCa summary.
+    acceleration : float or None, default=None
+        The BCa acceleration, from the estimate's own influence curve (summed within clusters
+        when clusters were resampled), on a BCa summary.
     """
 
     std_error: float
@@ -1031,7 +1161,12 @@ class BootstrapSummary:
     n_replicates: int
     n_failed: int
     draws: FloatArray
-    inferential: bool = True
+    diagnostic: bool = False
+    below_floor: bool = False
+    support: Support = UNCLASSIFIED
+    interval: BootstrapInterval = "percentile"
+    z0: float | None = None
+    acceleration: float | None = None
 
     @property
     def variance(self) -> float:
@@ -1059,6 +1194,7 @@ def make_estimate(
     covariance_rule: CovarianceRule = "centered",
     inference: InferenceStatus = "influence_curve",
     reference_df: int | None = None,
+    support: Support = UNCLASSIFIED,
 ) -> ParameterEstimate:
     """Assemble a :class:`ParameterEstimate`, computing its variance under its rule.
 
@@ -1099,11 +1235,15 @@ def make_estimate(
         Degrees of freedom of a Student t reference, which a derived estimate computes
         with :func:`minimum_reference_df`. ``None`` takes the normal reference. A fitted
         report's own estimates take theirs from :func:`stamp_inference`.
+    support : Support, default=UNCLASSIFIED
+        The support the estimate carries. A caller that builds an estimate inside a classified
+        fit passes the support of that fit.
 
     Returns
     -------
     ParameterEstimate
-        The estimate, declaring ``covariance_rule``, ``inference`` and ``reference_df``.
+        The estimate, declaring ``covariance_rule``, ``inference``, ``reference_df`` and
+        ``support``.
     """
     ic = np.asarray(influence_curve, dtype=float).reshape(-1)
     if covariance_rule == "second_moment":
@@ -1130,7 +1270,52 @@ def make_estimate(
         covariance_rule=covariance_rule,
         inference=inference,
         reference_df=reference_df if supplies_inference(inference) else None,
+        support=support,
     )
+
+
+def restamp_parameter_statuses(
+    per_repeat: Sequence[Mapping[str, ParameterEstimate]],
+) -> list[dict[str, ParameterEstimate]]:
+    """Give every draw of an estimand the precedent of its draws' parameter statuses.
+
+    A parameter status (:data:`~cleverly._inference_status.PARAMETER_STATUSES`) belongs to
+    one estimate of one draw, such as an arm whose stacked curve failed on that draw's
+    split. The median over draws reads every draw, so it takes the status of the most
+    restrictive draw. An estimate holds a parameter status only beside an
+    ``"influence_curve"`` fit status (:func:`stamp_inference`), so the restamp applies when
+    every other draw of the estimand also reports ``"influence_curve"``. Draws with
+    different fit statuses keep them, and :func:`median_estimates` refuses the
+    combination: that guard finds a real defect.
+
+    The order of the stamps on a repeated fit is this restamp, then the median. A label
+    that reads the final status, such as a support row, is computed after both.
+
+    Parameters
+    ----------
+    per_repeat : sequence of mappings
+        One estimate mapping per draw.
+
+    Returns
+    -------
+    list of dict
+        The draws, with each restamped estimate replaced. The input is not changed.
+    """
+    out = [dict(report) for report in per_repeat]
+    if len(out) < 2:
+        return out
+    shared = [name for name in out[0] if all(name in report for report in out)]
+    for name in shared:
+        statuses = [report[name].inference for report in out]
+        if not any(status in PARAMETER_STATUSES for status in statuses):
+            continue
+        fit_level = {status for status in statuses if status not in PARAMETER_STATUSES}
+        if not fit_level <= {"influence_curve"}:
+            continue
+        status = precedent_status(statuses)
+        for report in out:
+            report[name] = replace(report[name], inference=status)
+    return out
 
 
 def median_estimates(
@@ -1154,6 +1339,10 @@ def median_estimates(
     supports marginal diagnostics. The adjusted variance, not the curve's empirical
     variance, supplies the interval.
 
+    A draw whose estimate holds a parameter status passes it to the median
+    (:func:`restamp_parameter_statuses`). Draws that declare different fit statuses for one
+    estimate raise.
+
     Parameters
     ----------
     per_repeat : sequence of mappings
@@ -1168,6 +1357,7 @@ def median_estimates(
         raise ValueError("median_estimates needs at least one repeat")
     if len(per_repeat) == 1:
         return dict(per_repeat[0])
+    per_repeat = restamp_parameter_statuses(per_repeat)
 
     shared = [name for name in per_repeat[0] if all(name in report for report in per_repeat)]
     dropped = [name for name in per_repeat[0] if name not in shared]
@@ -1198,6 +1388,13 @@ def median_estimates(
                 f"{name} declares different inference statuses {sorted(statuses)} across "
                 "repeats; a median over draws is inferential output or it is not, and "
                 "combining the two would report one draw's refusal under another's name"
+            )
+        supports = {part.support for part in parts}
+        if len(supports) != 1:
+            raise ValueError(
+                f"{name} carries different support records across repeats; a median over "
+                "draws estimates one configuration, and combining two would label the median "
+                "with one draw's evidence"
             )
         scale = parts[0].scale
         if scale == "ratio":
@@ -1244,6 +1441,7 @@ def median_estimates(
             covariance_rule=parts[0].covariance_rule,
             inference=parts[0].inference,
             reference_df=minimum_reference_df(parts),
+            support=parts[0].support,
         )
     return out
 
@@ -1771,6 +1969,8 @@ def policy_means(
     weights: FloatArray,
     observed: BoolArray | None = None,
     mixing: FloatArray | None = None,
+    rows: BoolArray | None = None,
+    terms: FloatArray | None = None,
 ) -> dict[float, ArmMean]:
     r"""Each policy's mean and influence curve, keyed by policy code.
 
@@ -1823,18 +2023,52 @@ def policy_means(
     and ``targeted.arms[r]`` already holds :math:`\bar Q^*` at the shifted dose.  The
     bracket below is summed in the same association for the same reason the comment there
     gives.
+
+    **Data-tuned caps (X40 part (e)).**  ``rows`` restricts component ``c`` to the rows
+    ``rows[:, c]``: a fold-average policy's component ``k`` is the map fitted on fold
+    ``k``'s training rows, and its mean :math:`\hat\psi_k` is the weighted mean over fold
+    ``k``'s held-out rows.  Row ``i`` of fold ``k`` carries
+    :math:`(W / W_k) w_i (D_i - \hat\psi_k)`, with :math:`W` the total and :math:`W_k`
+    the fold's weight mass, so the policy's ``mixing`` row of :math:`1/V` gives Hubbard,
+    Kherad-Pajouh and van der Laan's (2016) Theorem 1 variance.  ``terms`` adds, to policy
+    ``s``'s curve, the chain-rule term :math:`\partial\Phi_n' \mathrm{IF}` of a
+    population target (``(n, S)``, zero for every other policy).
     """
     _expect(submodel, "mtp")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
 
     out: dict[float, ArmMean] = {}
-    for code in targeted.levels:
+    for index, code in enumerate(targeted.levels):
         prediction = targeted.arms[code]
-        psi = float(np.average(prediction, weights=w))
-        out[code] = ArmMean(psi, w * (submodel.column_for(code) * residual + prediction - psi))
-    if mixing is None:
+        if rows is None or bool(np.all(rows[:, index])):
+            psi = float(np.average(prediction, weights=w))
+            curve = w * (submodel.column_for(code) * residual + prediction - psi)
+        else:
+            held = np.asarray(rows[:, index], dtype=bool)
+            psi = float(np.average(prediction[held], weights=w[held]))
+            scale = float(np.sum(w)) / float(np.sum(w[held]))
+            curve = np.where(
+                held,
+                scale * w * (submodel.column_for(code) * residual + prediction - psi),
+                0.0,
+            )
+        out[code] = ArmMean(psi, np.asarray(curve, dtype=float))
+    if mixing is not None:
+        out = _mixed_policy_means(out, mixing)
+    if terms is None:
         return out
+    return {
+        code: ArmMean(
+            part.psi,
+            np.asarray(part.influence_curve, dtype=float) + np.asarray(terms[:, int(code)]),
+        )
+        for code, part in out.items()
+    }
+
+
+def _mixed_policy_means(out: dict[float, ArmMean], mixing: FloatArray) -> dict[float, ArmMean]:
+    """Each policy's mean and curve as the known-weight sum of its components'."""
     # A randomized policy's mean is the known-weight sum of its components' means, and so
     # is its curve: the randomizer law does not depend on P, so integrating it out is
     # linearity of expectation and adds no term (Diaz et al. 2023, Section 2).
@@ -1924,18 +2158,26 @@ def ipsi_means(
 
         \hat\Psi_r = \frac1n \sum_i m_r(W_i),
         \qquad
-        m_r(W) = \sum_a q_{\delta_r}(a \mid W)\, \bar Q^*(a, W)
+        m_r(W) = \sum_a q_{r}(a \mid W)\, \bar Q^*(a, W)
 
         D_r^*(O) = h_r(A, W)\,\{Y - \bar Q^*(A, W)\}
-                 + \frac{\delta_r\{\bar Q^*(1,W) - \bar Q^*(0,W)\}}{D_{\delta_r}^2}\,(A - g^*)
+                 + h_r(A, W)\,\{\bar Q^*(A, W) - m_r(W)\}
                  + m_r(W) - \Psi_r
+
+    with :math:`q_r(a) = \delta_{r,a} g(a)/D_r` and :math:`h_r(a) = \delta_{r,a}/D_r`.  The
+    middle term is the mechanism term: its coefficient is
+    :math:`\partial m_r/\partial g_b = h_r(b)\{\bar Q^*(b) - m_r\}`, evaluated on the
+    mechanism score :math:`1\{A=b\} - g_b` and summed over :math:`b`.  For two levels it is
+    :math:`\delta_r\{\bar Q^*(1,W) - \bar Q^*(0,W)\}(A - g^*)/D_r^2`, and that expression is
+    the one computed there, so the binary arrays are bit-identical to the ones the binary
+    path produced before the categorical form existed.
 
     **The middle term is the whole reason this is not** :func:`regime_means`.  A
     :class:`~cleverly.interventions.Stochastic` regime evaluated at the very same density
-    :math:`q_{\delta_r}` has the same mean and, entry for entry, the same clever
-    covariate; its influence curve is this one without the middle term.  Because
-    :math:`q_\delta` is built out of :math:`g`, the parameter moves when the mechanism
-    does, and that dependence is a pathwise derivative the regime curve has no term for.
+    :math:`q_{r}` has the same mean and, entry for entry, the same clever covariate; its
+    influence curve is this one without the middle term.  Because :math:`q_r` is built out of
+    :math:`g`, the parameter moves when the mechanism does, and that dependence is a pathwise
+    derivative the regime curve has no term for.
 
     The gap is not a wash.  The extra term is mean zero given :math:`W` and orthogonal to
     both halves of the regime curve -- the residual half is centred given :math:`(A, W)`,
@@ -1945,8 +2187,7 @@ def ipsi_means(
 
         \operatorname{Var}(D^*_{\text{ipsi}})
             = \operatorname{Var}(D^*_{\text{regime}})
-            + \operatorname{Var}\!\left(
-                \frac{\delta(\bar Q(1,W) - \bar Q(0,W))}{D_\delta^2}(A - g)\right),
+            + \operatorname{Var}\!\left(h_r(A)\{\bar Q(A) - m_r\}\right),
 
     an exact decomposition.  Treating an incremental intervention as the regime that
     induces it therefore does not merely report a different quantity: it reports a
@@ -1964,13 +2205,11 @@ def ipsi_means(
     A tilt of a **known** mechanism (:attr:`~cleverly.interventions.IPSISet.mechanism_known`)
     omits the middle term.  With :math:`g_0` known the model has no mechanism scores, so the
     efficient curve is the full-model curve projected off that tangent space, which removes
-    exactly the term in :math:`(A - g)`.  The result is the curve of the known stochastic
+    exactly the mechanism term.  The result is the curve of the known stochastic
     regime :math:`q_\delta(g_0)`.
     """
     _expect(submodel, "ipsi")
     density = np.asarray(incremental.values, dtype=float)
-    derivative = np.asarray(incremental.derivative, dtype=float)
-    mechanism = np.asarray(incremental.propensity, dtype=float).reshape(-1)
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
     levels = targeted.levels
@@ -1986,21 +2225,43 @@ def ipsi_means(
         )
     # (n, K) of the targeted predictions, columns in the same order the densities use.
     predictions = np.column_stack([targeted.arms[level] for level in levels])
-    # The blip is a contrast of arms, so it needs the two-arm layout the tilt declares;
-    # IPSISet.evaluate has already refused anything else.
-    blip = np.asarray(targeted.arms[1.0], dtype=float) - np.asarray(targeted.arms[0.0], dtype=float)
-    treated_residual = np.asarray(treatment, dtype=float).reshape(-1) - mechanism
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    # Two levels keep the expression the binary path has always used, so that its arrays are
+    # unchanged to the last bit.
+    term = _ipsi_term_binary if len(levels) == 2 else _ipsi_term_general
 
     out: dict[float, ArmMean] = {}
     for index in range(density.shape[2]):
         mixture = np.einsum("ij,ij->i", density[:, :, index], predictions)
         psi = float(np.average(mixture, weights=w))
         mechanism_term = (
-            0.0 if incremental.mechanism_known else derivative[:, index] * blip * treated_residual
+            0.0
+            if incremental.mechanism_known
+            else term(incremental, predictions, mixture, a, index)
         )
         curve = submodel.observed[:, index] * residual + mechanism_term + mixture - psi
         out[float(index)] = ArmMean(psi, w * curve)
     return out
+
+
+def _ipsi_term_binary(
+    incremental: Any, predictions: FloatArray, mixture: FloatArray, a: FloatArray, index: int
+) -> FloatArray:
+    r""":math:`\delta\{\bar Q^*(1,W) - \bar Q^*(0,W)\}(A - g^*)/D^2`, Kennedy's mechanism term."""
+    del mixture
+    blip = predictions[:, 1] - predictions[:, 0]
+    treated_residual = a - np.asarray(incremental.propensity, dtype=float)[:, 1]
+    return np.asarray(incremental.binary_derivative[:, index] * blip * treated_residual)
+
+
+def _ipsi_term_general(
+    incremental: Any, predictions: FloatArray, mixture: FloatArray, a: FloatArray, index: int
+) -> FloatArray:
+    r""":math:`h(A)\{\bar Q^*(A, W) - m(W)\}`: the mechanism term for any number of levels."""
+    at_observed = predictions[np.arange(a.size), np.rint(a).astype(int)]
+    # The tilt factor at the received level.  Not `submodel.observed`, which carries the
+    # missingness weight of the outcome half and has no place in this term.
+    return np.asarray(incremental.observed(a)[:, index] * (at_observed - mixture))
 
 
 def _raw_predictions(

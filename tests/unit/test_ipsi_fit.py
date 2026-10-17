@@ -79,7 +79,7 @@ class TestWhatItReports:
     def test_the_reported_mechanism_is_the_initial_one(self, fit) -> None:
         """The targeted g lives on the fluctuation, so the diagnostics stay honest."""
         initial = fit.nuisance.propensity.arm(1.0)
-        np.testing.assert_array_equal(fit.nuisance.incremental.propensity, initial)
+        np.testing.assert_array_equal(fit.nuisance.incremental.propensity[:, 1], initial)
         targeted = fit.repeats[0].fluctuations["ipsi"].mechanism.propensity
         assert not np.allclose(targeted, initial), "targeting must have moved something"
 
@@ -140,7 +140,7 @@ class TestTheRefusals:
         with pytest.raises(ValueError, match="indexed by"):
             TMLE(**FAST_KWARGS, estimands=["ey_ipsi"]).fit(frame, outcome="Y", treatment="A")
 
-    def test_a_multi_arm_treatment_is_refused(self) -> None:
+    def test_a_scalar_multiplier_on_a_multi_arm_treatment_is_refused(self) -> None:
         import pandas as pd
 
         rng = np.random.default_rng(0)
@@ -152,7 +152,7 @@ class TestTheRefusals:
                 "W1": rng.normal(size=n),
             }
         )
-        with pytest.raises(DataError, match="odds"):
+        with pytest.raises(DataError, match="scalar odds multiplier names two arms"):
             TMLE(**FAST_KWARGS, incremental=[Incremental(2.0)]).fit(
                 data, outcome="Y", treatment="A"
             )
@@ -278,7 +278,7 @@ class TestTheFitSurvivesARoundTrip:
         back = load(path)
         assert back.config.parameter_axis == "ipsi"
         assert back.nuisance.incremental.names == fit.nuisance.incremental.names
-        assert back.nuisance.incremental.deltas == fit.nuisance.incremental.deltas
+        assert back.nuisance.incremental.factors == fit.nuisance.incremental.factors
         for name, estimate in fit.estimates.items():
             np.testing.assert_array_equal(
                 back.estimates[name].influence_curve, estimate.influence_curve

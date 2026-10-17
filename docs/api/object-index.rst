@@ -44,6 +44,7 @@ categorized API tables.
    cleverly.LearnedRuleValue
    cleverly.ModifiedTreatmentPolicy
    cleverly.ModifiedTreatmentPolicyEffect
+   cleverly.targets.Interpretation
    cleverly.IncrementalMean
    cleverly.IncrementalEffect
    cleverly.MSMProjection
@@ -56,6 +57,7 @@ categorized API tables.
    cleverly.IPSIMethod
    cleverly.GComputationMethod
    cleverly.IPWMethod
+   cleverly.ParametricGFormulaMethod
    cleverly.ModelSpec
    cleverly.CrossFitting
    cleverly.SplitPlan
@@ -81,14 +83,19 @@ categorized API tables.
    cleverly.MethodConfigurationError
    cleverly.NotFittedError
    cleverly.ConvergenceWarning
+   cleverly.MonteCarloWarning
    cleverly.ParameterSpaceWarning
    cleverly.PositivityWarning
+   cleverly.SparseInfluenceWarning
    cleverly.VersionMismatchWarning
    cleverly.WeightingWarning
    cleverly.exceptions.Refusal
    cleverly.exceptions.RefusalReason
    cleverly.learners.SuperLearnerDiagnostics
    cleverly.learners.CorrelationScreener
+   cleverly.learners.ParametricOutcome
+   cleverly.learners.ParametricMechanism
+   cleverly.learners.ParametricFitDiagnostics
    cleverly.learners.CrossFitPlan
    cleverly.learners.Folds
    cleverly.learners.FoldOrigin
@@ -114,11 +121,16 @@ categorized API tables.
    cleverly.interventions.IPSISet
    cleverly.interventions.Shift
    cleverly.interventions.Scale
+   cleverly.interventions.DoseQuantile
+   cleverly.interventions.SupportBoundary
+   cleverly.interventions.LinearQuantileRegression
    cleverly.interventions.Piecewise
    cleverly.interventions.Piece
+   cleverly.interventions.Support
    cleverly.interventions.ModifiedPolicy
    cleverly.interventions.Randomizer
    cleverly.interventions.RiskRatioTilt
+   cleverly.interventions.JointPolicy
    cleverly.interventions.PolicySet
    cleverly.interventions.SupportReport
    cleverly.interventions.RegimeSupport
@@ -189,6 +201,7 @@ categorized API tables.
    cleverly.datasets.make_shift_dose
    cleverly.datasets.make_missing_outcome
    cleverly.datasets.make_missing_outcome_binary
+   cleverly.datasets.make_missing_outcome_bounded
    cleverly.datasets.make_cde
    cleverly.datasets.make_clustered
    cleverly.datasets.make_biased_sample
@@ -203,3 +216,12 @@ categorized API tables.
    cleverly.datasets.navigation_data
    cleverly.datasets.navigation_protocol
    cleverly.datasets.longitudinal_navigation_protocol
+   cleverly.datasets.make_sequential_offers
+   cleverly.datasets.offers_truth
+   cleverly.datasets.offers_protocol
+   cleverly.datasets.win_back
+   cleverly.datasets.win_back_then_ship
+   cleverly.datasets.make_sequential_pricing
+   cleverly.datasets.pricing_truth
+   cleverly.datasets.pricing_protocol
+   cleverly.datasets.price_rise

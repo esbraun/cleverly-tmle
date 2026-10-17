@@ -281,7 +281,8 @@ def test_the_controls_are_sized() -> None:
 def test_the_declared_cells_are_the_cells_a_run_publishes() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        rows = properties.generate_property_rows(n_jobs=1, budget=3)
+        # One replicate per fit set suffices: the cells a run publishes are fixed by the fit set.
+        rows = properties.generate_property_rows(n_jobs=1, budget=1)
     declared = {(family, cell): truth for family, cell, _, truth in properties.declared_truths()}
     assert {tuple(key) for key in rows.groupby(["property", "cell"]).groups} == set(declared)
     for (family, cell), truth in declared.items():

@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 from scipy import stats
 
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.data import CausalData
 from cleverly.estimators.ctmle import (
     CTMLE_SELECTOR_STRATEGIES,
@@ -79,7 +79,7 @@ from cleverly.utils.bounds import OutcomeScaler, expit
 from tests.conftest import binary_means
 
 #: The selector-path record, read where every raise and report reads it.
-WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
+WORKING_MECHANISM = STATUS_RECORDS["working_mechanism_plugin"]
 
 
 @pytest.fixture
@@ -1055,7 +1055,7 @@ class TestBootstrapResampling:
         samples: list[CausalData] = []
         result = run_bootstrap(
             data,
-            lambda sample: samples.append(sample) or {"ate": 0.0},
+            lambda sample: samples.append(sample) or {"ate": (0.0, 1.0)},
             n_replicates=4,
             resampling="cluster",
             random_state=17,
@@ -1098,7 +1098,7 @@ class TestBootstrapResampling:
         samples: list[CausalData] = []
         run_bootstrap(
             data,
-            lambda sample: samples.append(sample) or {"ate": 0.0},
+            lambda sample: samples.append(sample) or {"ate": (0.0, 1.0)},
             n_replicates=2,
             resampling="iid",
             random_state=23,
@@ -1556,22 +1556,21 @@ class TestTheInferenceStatus:
 
 
 class TestTheSelectorStrategyPartition:
-    """``CTMLE_SELECTOR_STRATEGIES`` and ``"oat"`` must exhaust ``CTMLEStrategy``.
+    """``CTMLE_SELECTOR_STRATEGIES``, ``"oat"`` and ``"derivative"`` exhaust ``CTMLEStrategy``.
 
-    Today's ``!= "oat"`` sites are correct only because the Literal has exactly four
-    members. A fifth strategy added later would join the *inferential* side under
-    ``!= "oat"`` and the *refused* side under the frozenset, and nothing else in the
-    package would notice. This test is what makes the predicate safer than the open
-    coding it replaced.
+    The two non-selector strategies select nothing.  A strategy added later would join the
+    *inferential* side under an open ``not in ("oat", "derivative")`` and the *refused* side
+    under the frozenset, and nothing else in the package would notice.  This test is what
+    makes the predicate safer than the open coding it replaced.
     """
 
     def test_the_two_sides_exhaust_the_literal_and_do_not_overlap(self) -> None:
         declared = set(get_args(CTMLEStrategy))
         assert declared >= CTMLE_SELECTOR_STRATEGIES
-        assert declared == CTMLE_SELECTOR_STRATEGIES | {"oat"}
+        assert declared == CTMLE_SELECTOR_STRATEGIES | {"oat", "derivative"}
 
     @pytest.mark.parametrize("strategy", sorted(get_args(CTMLEStrategy)))
     def test_the_predicate_agrees_with_the_open_coding_on_every_declared_value(
         self, strategy: str
     ) -> None:
-        assert is_selector_strategy(strategy) == (strategy != "oat")
+        assert is_selector_strategy(strategy) == (strategy not in ("oat", "derivative"))

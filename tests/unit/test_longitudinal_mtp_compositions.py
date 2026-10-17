@@ -30,6 +30,10 @@ from .. import discrete_law_longitudinal_policy as policy
 from .. import discrete_law_survival as survival
 from .. import longitudinal_mtp as mtp
 
+# The exact grid laws have recorded point masses at every dose, which R-b4 of X40 refuses;
+# the fixture turns that refusal off and leaves the ratio code as shipped.
+pytestmark = pytest.mark.usefixtures("exact_grid_law")
+
 CAUGHT = 1e-4
 NO_TRUNCATION = (1e-8, 1.0)
 
@@ -271,17 +275,6 @@ def test_r5_an_undeclared_policy() -> None:
     undeclared = ModifiedPolicy("u", apply=lambda a, h: a)
     with pytest.raises(CapabilityError, match="inspect a closure"):
         _refused({"u": undeclared}, continuous_treatment=())
-
-
-def test_r13_a_vector_node_with_a_continuous_component() -> None:
-    frame = law.frame(vector=True).assign(A1a=lambda f: f["A1a"] + 0.25)
-    with pytest.raises(CapabilityError, match="vector with continuous components"):
-        _refused(
-            {"natural": Shift(0.0, cap=None)},
-            frame=frame,
-            treatment=[["A1a", "A1b"], ["A2a", "A2b"]],
-            continuous_treatment=["A1a"],
-        )
 
 
 def test_the_point_working_model_refusal_names_the_longitudinal_route() -> None:

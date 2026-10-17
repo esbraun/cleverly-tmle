@@ -25,7 +25,7 @@ dropout happens at the grid times, and the risk at a grid time has a closed form
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -66,9 +66,18 @@ def _treated(arm: Any, dose: str | None) -> Any:
     return a / 5.0 if dose is not None else np.minimum(a, 1.0)
 
 
-def _hazard(node: int, arm: Any, w1: Any, w2: Any, l: Any, arms: int, dose: str | None) -> Any:
-    """``P(event at node k | at risk, A, W, L_k)``, all causes."""
-    return expit(
+def _hazard(
+    node: int,
+    arm: Any,
+    w1: Any,
+    w2: Any,
+    l: Any,
+    arms: int,
+    dose: str | None,
+    scale: Mapping[int, float] | None = None,
+) -> Any:
+    """``P(event at node k | at risk, A, W, L_k)``, all causes, times ``scale[k]``."""
+    hazard = expit(
         -2.3
         + 0.08 * (node - 1)
         + _arm_effect(arm, arms, dose)
@@ -76,6 +85,9 @@ def _hazard(node: int, arm: Any, w1: Any, w2: Any, l: Any, arms: int, dose: str 
         + 0.15 * np.asarray(w2, dtype=float)
         + 0.5 * np.asarray(l, dtype=float)
     )
+    if scale is None or node not in scale:
+        return hazard
+    return hazard * float(scale[node])
 
 
 def _first_cause(arm: Any, w1: Any, dose: str | None) -> Any:
@@ -178,6 +190,7 @@ def point_survival_truth(
     grid: Sequence[float] | None = None,
     end_of_study: bool = False,
     weight: Callable[[int, int], float] | None = None,
+    hazard_scale: Mapping[int, float] | None = None,
 ) -> FloatArray:
     r"""The exact truth of :func:`make_point_survival` under an intervention on :math:`A`.
 
@@ -207,6 +220,9 @@ def point_survival_truth(
     weight : callable or None
         ``weight(w1, w2)``, an observation weight of the baseline stratum.  The truth is then
         the parameter of the tilted law :math:`dP_w = w\,dP / E[w]`.  ``None`` is no tilt.
+    hazard_scale : mapping of int to float or None
+        A factor on the all-cause hazard at each listed node, as for
+        :func:`make_point_survival`.
 
     Returns
     -------
@@ -241,7 +257,9 @@ def point_survival_truth(
                 total += (
                     mass
                     * share
-                    * _discrete_curve(level, w1, w2, arms, causes, n_times, time_varying, dose)
+                    * _discrete_curve(
+                        level, w1, w2, arms, causes, n_times, time_varying, dose, hazard_scale
+                    )
                 )
     return total
 
@@ -255,6 +273,7 @@ def _discrete_curve(
     n_times: int,
     time_varying: bool,
     dose: str | None,
+    hazard_scale: Mapping[int, float] | None = None,
 ) -> FloatArray:
     """``(n_times, causes)`` incidences at one stratum and one assigned level."""
     out = np.zeros((n_times, causes))
@@ -271,7 +290,7 @@ def _discrete_curve(
             alive = moved
         survivors: dict[int, float] = {}
         for value, mass in alive.items():
-            h = float(_hazard(node, level, w1, w2, value, arms, dose))
+            h = float(_hazard(node, level, w1, w2, value, arms, dose, hazard_scale))
             share = float(_first_cause(level, w1, dose))
             split = np.array([share, 1.0 - share]) if causes == 2 else np.array([1.0])
             running = running + mass * h * split
@@ -308,6 +327,7 @@ def make_point_survival(
     end_of_study: bool = False,
     layout: str = "long",
     cluster_size: int | None = None,
+    hazard_scale: Mapping[int, float] | None = None,
     backend: Backend | str | None = None,
 ) -> tuple[Any, dict[str, float]]:
     """A baseline treatment, a discrete-time event, and dropout at the visits.
@@ -353,6 +373,11 @@ def make_point_survival(
         Rows per cluster.  ``W1`` and ``W2`` are then drawn once per cluster and shared by its rows,
         which correlates the rows of a cluster and leaves the law of one row unchanged.  The
         frame gains an ``id`` column.  ``None`` leaves the rows independent.
+    hazard_scale : mapping of int to float or None
+        A factor in ``(0, 1]`` on the all-cause hazard at each listed node, keyed by the
+        node counted from one.  It lowers the risk increment at that node, so a fit with
+        error can report a curve that decreases there.  ``None`` changes no draw.  A
+        discrete event time only.
     backend : {"pandas", "polars", "pyarrow"} or None, default=None
         Dataframe backend.
 
@@ -381,6 +406,15 @@ def make_point_survival(
         raise ValueError("time_varying=True and end_of_study=True need layout='wide'")
     if continuous_event_time and (layout != "long" or causes != 1 or time_varying):
         raise ValueError("continuous_event_time=True needs layout='long', one cause, no L")
+    if hazard_scale is not None:
+        if continuous_event_time or end_of_study:
+            raise ValueError("hazard_scale= needs a discrete event time")
+        for node, factor in hazard_scale.items():
+            if not (1 <= int(node) <= n_times) or not (0.0 < float(factor) <= 1.0):
+                raise ValueError(
+                    f"hazard_scale maps a node in 1..{n_times} to a factor in (0, 1]; "
+                    f"got {node!r}: {factor!r}"
+                )
     rng = np.random.default_rng(seed)
     if cluster_size is None:
         w1 = rng.binomial(1, 0.5, n).astype(float)
@@ -422,6 +456,7 @@ def make_point_survival(
             arms,
             dose,
             layout,
+            hazard_scale,
         )
 
     truth: dict[str, float] = {}
@@ -437,6 +472,7 @@ def make_point_survival(
                 continuous_event_time=continuous_event_time,
                 grid=grid,
                 end_of_study=end_of_study,
+                hazard_scale=hazard_scale,
             )
             for level, label in enumerate(labels)
         }
@@ -482,6 +518,7 @@ def _discrete(
     arms: int,
     dose: str | None,
     layout: str,
+    hazard_scale: Mapping[int, float] | None = None,
 ) -> None:
     n = a.shape[0]
     in_study = np.ones(n, dtype=bool)
@@ -503,7 +540,7 @@ def _discrete(
         leaving = in_study & drop
         observed_time[leaving] = times[node - 2] if node > 1 else 0.0
         stays = in_study & ~drop
-        fired = rng.uniform(size=n) < _hazard(node, a, w1, w2, current, arms, dose)
+        fired = rng.uniform(size=n) < _hazard(node, a, w1, w2, current, arms, dose, hazard_scale)
         first = rng.uniform(size=n) < _first_cause(a, w1, dose)
         cause = np.where(first, 1, 2) if causes == 2 else np.ones(n, dtype=np.int64)
         happened = stays & fired

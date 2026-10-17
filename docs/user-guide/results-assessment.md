@@ -61,6 +61,41 @@ The battery also owns `support` and `nuisance_models`, but neither one accepts a
 argument for either is a `TypeError` from the signature. An empty mapping applies nothing, so
 `assess()` accepts it for all three names.
 
+## Read the support label
+
+Every estimate carries a support label. The label says whether a registered study covers the
+configuration that produced the estimate. You do not request it, and no argument turns it off.
+
+| label | meaning |
+| --- | --- |
+| `supported` | a support row covers the configuration, and its study cells passed. The row names the study and states its limits |
+| `experimental` | the package computes the estimate, but no registered study covers this configuration, or a stated condition applies. The label makes no coverage claim |
+
+An `experimental` label does not mean the estimate is wrong. It means the package has no
+registered evidence for the interval, the band, or the derived value you read. A configuration
+that no row covers also reads `experimental`. A derived estimate, such as a ratio, a contrast, or
+a restricted mean, is `supported` only when its row lists the `derived` kind and every input is
+`supported`. Where a row, a status, or a condition makes the estimate experimental, the label
+carries the reason.
+
+| surface | where the label appears |
+| --- | --- |
+| `repr(estimate)` | the marker `[experimental]` after the estimate |
+| `result.summary()` | a `support` column, only when an estimate is experimental, and one `experimental:` note per distinct reason below the table |
+| `estimate.support` | a `Support` record with `label`, `reason`, `evidence`, `row` and `limits` |
+| `estimate.to_dict()` and `result.to_frame()` | `support` on every row. An experimental row adds `support_reason` and `support_evidence`. A row with limits adds `support_limits` |
+| `estimate.bootstrap.support` and `bootstrap_support` | the label of the percentile interval, which a row can license apart from the Wald interval |
+| `result.simultaneous.support` | the label of the band |
+| `result.config.support_key` | the key the fit was classified under. `result.save()` and `cleverly.load()` keep it with every label |
+
+The `evidence` of a `supported` estimate holds study slugs. The `evidence` of an experimental
+estimate holds roadmap ids, such as `X54`, that name the missing evidence.
+
+A fit with fewer clusters than the interval floor shows its interval under the experimental
+label. Its bootstrap prints as `bootstrap sd` and a percentile range. A fit that withholds its
+interval, such as a collaborative fit, keeps its point estimate and refuses `ci`. The
+[inference status](../technical-reference/inference.md#inference-status) table lists each case.
+
 ## Result structure
 
 `CausalResult` is a read-only mapping from stable aliases to `ParameterEstimate` objects.
@@ -76,8 +111,9 @@ print(point.psi, point.std_error, point.ci, point.pvalue)
 
 A collaborative fit refuses `std_error`, `ci`, and `pvalue` with `CapabilityError` at every
 `strategy`. A `DRTMLE` fit with a `guard` and varying weights declared estimated
-(`weights_estimated=True`) refuses them too. A clustered fit refuses them below 10 clusters, or 20 for longitudinal TMLE,
-with positive weight mass. The property `result.inference_status` gives the status of the fit, and
+(`weights_estimated=True`) reports them under the experimental label. A clustered fit refuses them
+below 3 clusters with positive weight mass, and reports them under the experimental label from 3
+to 9 clusters, or to 19 for longitudinal TMLE. The property `result.inference_status` gives the status of the fit, and
 `point.supplies_inference` gives it for one estimate.
 
 Read `point.plugin_std_error` and `point.plugin_interval` on such a fit. Each is a diagnostic of
@@ -149,6 +185,7 @@ validation = result.validate()
 support = result.diagnostics.support()
 nuisance = result.diagnostics.nuisance_models()
 scores = result.diagnostics.score_equations()
+influence = result.diagnostics.influence()
 corrections = (
     result.diagnostics.corrections()
     if result.diagnostics.capability("corrections").available
@@ -157,6 +194,11 @@ corrections = (
 stability = result.diagnostics.truncation_curve()
 all_cached = result.diagnostics.run_all()
 ```
+
+`influence()` reports how few rows carry each estimate's influence curve. It gives the Kish
+count, the skewness, the kurtosis, the relative standard deviation of the variance estimate, and
+the coverage loss of the Wald interval that the Edgeworth term predicts. This operation is a direct
+call. `run_all()` and the assessment battery do not include it.
 
 The correction diagnostic is available only for a DR-TMLE fit whose guard actually subtracts a
 correction term. Ordinary and collaborative TMLE report it as `not_applicable`.
@@ -568,6 +610,54 @@ Support and truncation stability live under `result.diagnostics`. Point-treatmen
 methods are explicit: `omitted_confounding()`, `robustness_value()`, `elements()`, `benchmark()`,
 `contour()`, `evalue()`, `missingness()`, `tipping_gamma()`, and `simulated_confounding()`. A
 simulated surface needs an explicit strength grid, so `run_all()` never starts it.
+
+The omitted-variable bound has two estimators of $\nu^2$. The default is doubly robust, and its
+one-sided limits hold for any treatment learner. The plug-in estimator gives the limits for a
+declared known mechanism and for a scikit-learn `LogisticRegression`, with no penalty or a fixed L2
+penalty, fitted in sample or cross-fitted. The example fits one, with the default `C=1`, and reads the limits.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import ATE, CausalStudy, PointTreatment
+from cleverly.datasets import make_linear_ate
+
+linear_frame, _ = make_linear_ate(1000, seed=1)
+linear_study = CausalStudy(
+    linear_frame,
+    design=PointTreatment(outcome="Y", treatment="A", adjustment=("W1", "W2", "W3", "W4")),
+)
+plugin_fit = linear_study.estimate(
+    ATE(),
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    cross_fit=False,
+    random_state=1,
+)
+plugin_bounds = plugin_fit.sensitivity.omitted_confounding(
+    cf_y=0.05, cf_d=0.05, nu2_estimator="plugin"
+)
+print(plugin_bounds.summary())
+print(plugin_bounds.ci_lower, plugin_bounds.robustness_value_ci)
+```
+
+The summary names the mechanism whose score the standard error carries. A treatment learner
+outside the admitted set, such as a random forest, makes `ci_lower`, `ci_upper`,
+`robustness_value_ci` raise `CapabilityError` with the roadmap item F26, and `robustness_value`
+omits `rva`. The bounds and the rest of `robustness_value` stay available.
+
+The plug-in $\nu^2$ has a bias of order $1/n$, and its constant grows with $g^{-2}$. The bound
+subtracts a second-order estimate of that bias. A fixed L2 penalty adds to the bias, and the same
+correction covers it. The correction needs a smooth mechanism. The standard error of the limits is
+the influence variance of the uncorrected curve, because the subtraction does not change the curve.
+
+The bound refuses its limits in three cases. A truncation bound clips a cell or lies within three
+standard errors of a fitted logit (`truncation_active`). The predicted remainder exceeds a quarter
+of the standard error of $\nu^2$ (`correction_unstable`). The corrected $\nu^2$ is not positive
+(`corrected_nonpositive`). More rows, or a `g_bounds` that the fitted mechanism does
+not approach, can clear the refusal. The
+[learner rule](../technical-reference/validation-methods.md#plug-in-limits-and-the-learner-rule)
+lists every key.
 
 The `missingness()` tilt and the `tipping_gamma()` search perturb the arm-indexed means and their
 linear contrasts. The table gives each missing-outcome fit where both are unavailable.

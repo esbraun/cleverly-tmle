@@ -157,6 +157,7 @@ def write_manifest(
         "configuration": {
             "replicates": record.replicates,
             "n": record.n,
+            **({"scenario_n": dict(record.scenario_n)} if record.scenario_n else {}),
             "seed": record.seed,
             **(
                 {"resampling_seed": record.resampling_seed}
@@ -170,6 +171,7 @@ def write_manifest(
             ),
             "publication_policy": record.publication_policy,
             **({"truth_varies_by_replicate": True} if record.truth_varies_by_replicate else {}),
+            **({"paired_role": record.paired_role} if record.paired_role != "gated" else {}),
             **({"failure_bound": dict(record.failure_bound)} if record.failure_bound else {}),
             **(
                 {"accepted_reference_failure": record.accepted_reference_failure}

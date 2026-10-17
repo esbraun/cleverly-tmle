@@ -52,6 +52,7 @@ __all__ = [
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LONGITUDINAL_NO_OUTCOME_REGRESSION",
+    "LONGITUDINAL_SIMULATED_MODELS",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
     "LongitudinalNuisanceOmission",
@@ -68,6 +69,13 @@ LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
 
 #: The estimator fits no outcome regression, as sequential IPW reads the mechanisms only.
 LONGITUDINAL_NO_OUTCOME_REGRESSION = "inverse probability weighting fits no outcome regression"
+
+#: The estimator fits no sequential regression, as the parametric g-formula fits the laws it
+#: simulates from.
+LONGITUDINAL_SIMULATED_MODELS = (
+    "the parametric g-formula fits no sequential regression; its models are listed in "
+    "result.simulation"
+)
 
 #: A continuous node on the classifier ratio route fits no density, so there is no
 #: treatment likelihood to report there.
@@ -118,8 +126,10 @@ class LongitudinalStageRow:
     max_weight: float
     effective_n: float
     share_truncated: float
+    #: The fitted fluctuation parameters; ``()`` on a node with no fluctuation.
     epsilon: tuple[float, ...]
-    converged: bool
+    #: Whether the fluctuation solved its score; ``None`` on a node with no fluctuation.
+    converged: bool | None
     share_trimmed: float | None = None
     #: On an SDR fit, the node's transform diagnostics; ``None`` on a TMLE fit.
     sdr: SDRNodeRow | None = None
@@ -161,18 +171,23 @@ class IPSINodeRow:
     Parameters
     ----------
     tilt_factor_min : float
-        The smallest node factor :math:`(\\delta A + 1 - A)/(\\delta\\pi + 1 - \\pi)` on the
-        rows at risk, ``nan`` off a tilt node.  It lies in
-        :math:`[\\min(\\delta, 1/\\delta), \\max(\\delta, 1/\\delta)]` by construction.
+        The smallest node factor :math:`\\delta_{t,A_t}/D_t` on the rows at risk, ``nan`` off a
+        tilt node, with :math:`D_t = \\sum_b \\delta_{t,b}\\pi_t(b \\mid H_t)`.  It lies in
+        :math:`[\\min_a \\delta_{t,a}/\\max_a \\delta_{t,a},
+        \\max_a \\delta_{t,a}/\\min_a \\delta_{t,a}]` by construction.  With two levels it is
+        :math:`(\\delta A + 1 - A)/(\\delta\\pi + 1 - \\pi)` with
+        :math:`\\delta = \\delta_{t,1}/\\delta_{t,0}`.
     tilt_factor_max : float
         The largest node factor on the rows at risk, ``nan`` off a tilt node.
     mechanism_share : float
         The variance of the node's mechanism term over the variance of the influence
         curve.  It is 0 off a tilt node and at a declared treatment mechanism.
     propensity_degenerate : float
-        The share of the rows at risk whose mechanism :math:`\\hat\\pi_t` is exactly 0 or 1,
-        ``nan`` off a tilt node.  A tilt needs no positivity, so this is reported and not
-        warned.
+        The share of the rows at risk where some level has mechanism
+        :math:`\\hat\\pi_t(a \\mid H_t)` exactly 0 (equivalently some tilted probability
+        :math:`q_t(a)` is 0 or 1), ``nan`` off a tilt node.  With two levels it is the share
+        whose :math:`\\hat\\pi_t` is exactly 0 or 1.  A tilt needs no positivity, so this is
+        reported and not warned.
     """
 
     tilt_factor_min: float
@@ -235,6 +250,13 @@ class LongitudinalDiagnostics:
 
     **On an SDR fit** the targeting columns ``epsilon`` and ``converged`` are absent,
     because the estimator fits no fluctuation.  Five columns take their place.
+    **On a fit with no fluctuation** the targeting columns ``epsilon`` and ``converged`` are
+    absent, because no node holds a fluctuation parameter or a solver verdict.  This holds
+    for ``SequentialGComputation`` and ``SequentialIPW``, whose nodes are untargeted, and for
+    SDR and IPSI.  A row of such a node has ``epsilon=()`` and ``converged=None``.  A frame
+    that mixes such rows with targeted rows holds ``nan`` and ``None`` in the bare rows.
+
+    **On an SDR fit** five columns replace the targeting columns.
     ``target_outside``, ``target_min`` and ``target_max`` describe the node's regression
     targets on its followers.  ``prediction_outside`` is the share of the node's predictions
     at the observed arm outside ``[0, 1]``.  ``bound_binding`` is the share of partial
@@ -297,9 +319,12 @@ class LongitudinalDiagnostics:
                 ):
                     payload[name] = [getattr(row.ipsi, name) for row in self.rows]
             return emit_frame(payload, data, backend=self.backend)
-        for position, name in enumerate(self.epsilon_names):
-            payload[name] = [row.epsilon[position] for row in self.rows]
-        payload["converged"] = [row.converged for row in self.rows]
+        if any(row.epsilon for row in self.rows):
+            for position, name in enumerate(self.epsilon_names):
+                payload[name] = [
+                    row.epsilon[position] if row.epsilon else float("nan") for row in self.rows
+                ]
+            payload["converged"] = [row.converged for row in self.rows]
         return emit_frame(payload, data, backend=self.backend)
 
 
@@ -605,58 +630,78 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     # One column shape for the whole frame rather than one per row: the level sets are a
     # property of the data, so whether a share is answerable by a single number is settled
     # before any node is read.
-    categorical = any(len(levels) > 2 for levels in result.data.treatment_levels)
+    # A mixed node has no level set (its components carry their own), and its policy is a
+    # joint MTP, so it reads no levels below.
+    data = result.data
+    categorical = any(
+        len(levels) > 2
+        for time, levels in enumerate(data.treatment_levels, start=1)
+        if data.node_kind(time) != "mixed"
+    )
     rows = []
     # Read off the fit's own fields rather than the key it is filed under: on a curve fit
     # that key is the regimen *and* the horizon, and a ``regimen`` column carrying both would
     # be the one column here nobody could group by.
     for fit in result.fits.values():
-        for step in fit.steps:
-            weights = (fit.obs_weights * step.clever)[step.trained_on]
-            assigned = fit.assignment[step.at_risk, step.time - 1]
-            kind = _node_kind(fit, step.time)
-            levels = result.data.treatment_levels[step.time - 1]
+        # A hazard fit has no fluctuation per node: one score per target sums over the
+        # nodes, so its node rows carry no fitted ``epsilon`` and the fit's own verdict.
+        hazard = fit.hazard
+        for step, node in zip(fit.steps or (None,) * fit.horizon, fit.scored_nodes, strict=True):
+            weights = (fit.obs_weights * node.clever)[node.trained_on]
+            assigned = fit.assignment[node.at_risk, node.time - 1]
+            kind = _node_kind(fit, node.time)
+            levels = (
+                () if data.node_kind(node.time) == "mixed" else data.treatment_levels[node.time - 1]
+            )
             assignment: float | str
             if kind == "mtp":
                 # A modified treatment policy assigns no arm; its column reports the mean
                 # raw ratio of the node over the at-risk rows, whose expectation is one when
                 # the policy preserves the support.
                 ratio = (
-                    float(np.mean(fit.node_ratio[step.at_risk, step.time - 1]))
-                    if fit.node_ratio is not None and step.at_risk.any()
+                    float(np.mean(fit.node_ratio[node.at_risk, node.time - 1]))
+                    if fit.node_ratio is not None and node.at_risk.any()
                     else float("nan")
                 )
                 assignment = f"mean ratio={ratio:.3g}" if categorical else ratio
             elif kind in ("policy", "tilt"):
-                density = fit.policy[step.time - 1][step.at_risk]
+                density = fit.policy[node.time - 1][node.at_risk]
                 assignment = _policy_shares(density, levels, categorical)
             elif categorical:
                 assignment = _assigned_shares(assigned, levels)
             else:
                 assignment = float(np.mean(assigned == 1.0)) if assigned.size else float("nan")
-            raw = fit.cumulative_unbounded[:, step.time - 1][step.trained_on]
-            bounded = fit.cumulative[:, step.time - 1][step.trained_on]
+            raw = fit.cumulative_unbounded[:, node.time - 1][node.trained_on]
+            bounded = fit.cumulative[:, node.time - 1][node.trained_on]
             rows.append(
                 LongitudinalStageRow(
                     regimen=fit.regimen.label,
                     cause=fit.cause,
                     horizon=fit.horizon if result.data.reports_curve else None,
-                    time=step.time,
+                    time=node.time,
                     node_kind=kind,
-                    n_followed=step.n_trained,
+                    n_followed=int(node.trained_on.sum()),
                     assignment=assignment,
                     max_weight=float(np.max(weights)) if weights.size else float("nan"),
                     effective_n=effective_sample_size(weights, on_degenerate=0.0),
                     share_truncated=float(np.mean(raw != bounded)) if raw.size else float("nan"),
                     epsilon=(
-                        ()
+                        (float("nan"),) * len(epsilon_names)
+                        if step is None
+                        else ()
                         if step.fluctuation is None
                         else tuple(float(value) for value in step.fluctuation.epsilon)
                     ),
-                    converged=step.fluctuation is None or bool(step.fluctuation.converged),
-                    sdr=_sdr_node_row(step),
-                    ipsi=_ipsi_node_row(result, fit, step),
-                    share_trimmed=_share_trimmed(fit, step),
+                    converged=(
+                        bool(hazard.converged)
+                        if step is None
+                        else None
+                        if step.fluctuation is None
+                        else bool(step.fluctuation.converged)
+                    ),
+                    sdr=None if step is None else _sdr_node_row(step),
+                    ipsi=None if step is None else _ipsi_node_row(result, fit, step),
+                    share_trimmed=None if step is None else _share_trimmed(fit, step),
                 )
             )
     return LongitudinalDiagnostics(
@@ -694,19 +739,29 @@ def _ipsi_node_row(result: Any, fit: Any, step: Any) -> IPSINodeRow | None:
     regimen = fit.regimen
     if not (hasattr(regimen, "is_tilt") and regimen.is_tilt(step.time)):
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
-    delta = float(regimen.plan[step.time - 1].delta)
-    q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk, 1]
-    # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
-    pi = q / (delta * (1.0 - q) + q)
-    arm = np.nan_to_num(result.data.treatment[step.at_risk, step.time - 1], nan=0.0)
-    factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+    odds = regimen.plan[step.time - 1].factors(result.data.treatment_levels[step.time - 1])
+    q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk]
+    arm = np.nan_to_num(result.data.node_codes(step.time)[step.at_risk], nan=0.0)
+    if q.shape[1] == 2:
+        delta = float(odds[1] / odds[0])
+        # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
+        q1 = q[:, 1]
+        pi = q1 / (delta * (1.0 - q1) + q1)
+        factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+        degenerate = (q1 == 0.0) | (q1 == 1.0)
+    else:
+        # The density inverts to the mechanism by pi_a proportional to q_a / delta_a, and
+        # sum_b q_b / delta_b = 1 / D, so the node factor delta_A / D is
+        # delta_A sum_b q_b / delta_b.
+        factor = odds[arm.astype(np.int64)] * (q / odds[None, :]).sum(axis=1)
+        degenerate = np.any((q == 0.0) | (q == 1.0), axis=1)
     if not factor.size:
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
     return IPSINodeRow(
         tilt_factor_min=float(np.min(factor)),
         tilt_factor_max=float(np.max(factor)),
         mechanism_share=share,
-        propensity_degenerate=float(np.mean((q == 0.0) | (q == 1.0))),
+        propensity_degenerate=float(np.mean(degenerate)),
     )
 
 
@@ -778,6 +833,35 @@ def _longitudinal_msm_scores(result: Any, *, tolerance: float) -> LongitudinalSc
     return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
 
 
+def _hazard_score_row(result: Any, fit: Any, *, tolerance: float) -> LongitudinalScoreRow:
+    """The one solver row of a hazard fit's target.
+
+    A hazard fit solves one score per regimen, cause and horizon, summed over the nodes up
+    to the horizon, so the row sits at the horizon node.  ``converged`` is the targeting
+    record's verdict over every target it solved together: a one-step walk and a
+    per-horizon Newton solve stop on the largest relative score of their targets.
+    """
+    record = fit.hazard
+    index = record.targets.index((fit.regimen.label, fit.cause, fit.horizon))
+    score = abs(float(record.score[index]))
+    relative = score / max(float(record.score_scale[index]), 1e-300)
+    converged = bool(record.converged)
+    return LongitudinalScoreRow(
+        fit.regimen.label,
+        fit.cause,
+        fit.horizon,
+        fit.horizon,
+        None,
+        "solver",
+        float(result.scaler.range * score),
+        relative,
+        converged,
+        converged and relative <= tolerance,
+        int(record.n_iter),
+        record.failure,
+    )
+
+
 def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreDiagnostics:
     """Every node's targeting verdicts: one row per question the node's fit poses.
 
@@ -801,6 +885,9 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
 
     rows = []
     for fit in result.fits.values():
+        if fit.hazard is not None:
+            rows.append(_hazard_score_row(result, fit, tolerance=tolerance))
+            continue
         for step in fit.steps:
             fluctuation = step.fluctuation
             horizon = fit.horizon if result.data.reports_curve else None
@@ -844,7 +931,7 @@ def _nuisance_row(
     :func:`~cleverly.validation.nuisance._binary_report` also emits.  ``frame["mse"].max()``
     therefore answers about node regressions alone.
     """
-    regression = role in {"outcome", "pseudo_outcome"}
+    regression = role in {"outcome", "pseudo_outcome", "hazard"}
     return LongitudinalNuisanceRow(
         regimen=regimen,
         cause=cause,
@@ -868,14 +955,46 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
     """Observed-law treatment report, including multinomial negative log likelihood.
 
     A continuous node reports the negative log likelihood of its binned density, and
-    ``None`` on the classifier route, which fits no density.
+    ``None`` on the classifier route, which fits no density.  A mixed node on the density
+    route reports the negative log likelihood of its joint law, the categorical factor times
+    each dose's density at the observed value, and ``None`` on the classifier route.
     """
     mechanism = result.mechanism
-    if result.data.is_continuous_node(time):
-        density = mechanism.densities.get(time)
+    data = result.data
+    if data.node_kind(time) == "mixed":
+        components = data.node_components(time)
+        doses = [component.name for component in components if component.continuous]
+        if (time, doses[0]) not in mechanism.densities or data.component_atoms(time):
+            # The classifier route fits no density.  A dose with declared atoms has a mixed
+            # factor whose atom probabilities the mechanism does not keep, so its
+            # likelihood against the dominating measure is not reported.
+            return None
+        natural = np.nan_to_num(data.node_values(time), nan=0.0)
+        # Every plan's denominator factor at a mixed node on the density route is the
+        # categorical factor at the observed cell.
+        observed = np.array(next(iter(mechanism.treatment[time - 1].values())), dtype=float)
+        for index, component in enumerate(components):
+            if component.continuous:
+                density = mechanism.densities[(time, component.name)]
+                observed = observed * density.density_at(natural[:, index])
+        values = np.clip(observed, 1e-300, None)
+        log_loss = float(-np.average(np.log(values[mask]), weights=data.weights[mask]))
+        learner_weights, learner_risks = _aggregate_learner_info(
+            mechanism.treatment_diagnostics[time - 1]
+        )
+        return NuisanceModelReport(
+            name=f"treatment[t={time}]",
+            kind="conditional density",
+            metrics={"log_loss": log_loss},
+            calibration={},
+            learner_weights=learner_weights,
+            learner_risks=learner_risks,
+        )
+    if data.is_continuous_node(time):
+        density = mechanism.densities.get((time, data.treatment_names[time - 1]))
         if density is None:
             return None
-        dose = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0)
+        dose = np.nan_to_num(data.node_codes(time), nan=0.0)
         values = np.clip(density.density_at(dose), 1e-300, None)
         log_loss = float(-np.average(np.log(values[mask]), weights=result.data.weights[mask]))
         learner_weights, learner_risks = _aggregate_learner_info(())
@@ -888,7 +1007,7 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
             learner_risks=learner_risks,
         )
     probabilities = np.asarray(mechanism.treatment_observed[time - 1], dtype=float)
-    actual = np.nan_to_num(result.data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+    actual = np.nan_to_num(result.data.node_codes(time), nan=0.0).astype(np.int64)
     diagnostics = (
         mechanism.treatment_diagnostics[time - 1]
         if time <= len(mechanism.treatment_diagnostics)
@@ -1014,6 +1133,11 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
             LongitudinalNuisanceOmission("outcome", None, LONGITUDINAL_NO_OUTCOME_REGRESSION)
         )
         return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend, tuple(omissions))
+    if result.config.estimator == "parametric_gformula":
+        omissions.append(
+            LongitudinalNuisanceOmission("outcome", None, LONGITUDINAL_SIMULATED_MODELS)
+        )
+        return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend, tuple(omissions))
 
     for fit in result.fits.values():
         for step in fit.steps:
@@ -1090,4 +1214,73 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                     horizon=fit.horizon if result.data.reports_curve else None,
                 )
             )
+    if result.initial_hazards is not None:
+        _hazard_nuisances(result, evaluation, rows, omissions)
     return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend, tuple(omissions))
+
+
+def _hazard_nuisances(
+    result: Any,
+    evaluation: EvaluationBasis,
+    rows: list[LongitudinalNuisanceRow],
+    omissions: list[LongitudinalNuisanceOmission],
+) -> None:
+    """One ``"hazard"`` row per node and cause of a hazard fit.
+
+    Each row scores the regression the learner fitted: the pseudo-hazard
+    :math:`\\rho_j = \\lambda_j / (1 - \\sum_{i < j} \\lambda_i)` at the observed level,
+    against the event of cause ``j``, on the rows at risk with no event of an earlier cause
+    at the node.  A node and cause whose training rows held no event fits no learner and
+    reports :data:`LONGITUDINAL_CONSTANT_TARGET`.
+    """
+    from ..longitudinal.hazard import event_indicators
+
+    initial = result.initial_hazards
+    at_risk, events = event_indicators(result.data)
+    observed = np.asarray(np.nan_to_num(result.data.treatment[:, 0], nan=0.0), dtype=np.int64)
+    hazards = initial.hazards[np.arange(result.data.n), :, observed, :]
+    causes: tuple[str | None, ...] = result.data.cause_labels or (None,)
+    empty = set(initial.no_event_nodes)
+    position = 0
+    for time in range(1, result.data.n_times + 1):
+        earlier = np.zeros(result.data.n, dtype=bool)
+        taken = np.zeros(result.data.n)
+        for index, cause in enumerate(causes):
+            mask = at_risk[:, time - 1] & ~earlier
+            event = events[:, time - 1, index]
+            target = event > 0
+            hazard = hazards[:, time - 1, index]
+            diagnostics = initial.diagnostics[position] if initial.diagnostics else ()
+            position += 1
+            if (time, index) in empty:
+                omissions.append(
+                    LongitudinalNuisanceOmission(
+                        "hazard", time, LONGITUDINAL_CONSTANT_TARGET, cause=cause
+                    )
+                )
+            else:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    rho = np.where(taken < 1.0, hazard / (1.0 - taken), 0.0)
+                report = _binary_report(
+                    f"hazard[t={time}" + (f", cause={cause}" if cause is not None else "") + "]",
+                    np.clip(rho, 0.0, 1.0),
+                    event,
+                    result.data.weights,
+                    diagnostics,
+                    mask=mask,
+                    folds=result.folds.assignment,
+                    cluster=result.data.cluster,
+                )
+                rows.append(
+                    _nuisance_row(
+                        role="hazard",
+                        time=time,
+                        report=report,
+                        loss_name="log_loss",
+                        evaluation=evaluation,
+                        n=int(mask.sum()),
+                        cause=cause,
+                    )
+                )
+            taken = taken + hazard
+            earlier = earlier | target

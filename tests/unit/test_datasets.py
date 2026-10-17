@@ -33,11 +33,13 @@ from cleverly.datasets import (
     make_linear_ate,
     make_missing_outcome,
     make_missing_outcome_binary,
+    make_missing_outcome_bounded,
     make_multi_arm,
     make_nonlinear_ate,
     make_nonlinear_bounded,
     make_shift_dose,
     make_weak_overlap,
+    missing_outcome_bounded_dgp,
     missing_outcome_dgp,
     multi_arm_dgp,
     navigation_data,
@@ -371,6 +373,34 @@ class TestSampling:
         assert truth["or"] == pytest.approx(
             (truth["ey1"] / (1 - truth["ey1"])) / (truth["ey0"] / (1 - truth["ey0"])), abs=1e-9
         )
+
+    def test_the_bounded_missing_outcome_law_keeps_the_mechanisms_on_a_known_support(
+        self,
+    ) -> None:
+        w = np.random.default_rng(3).normal(size=(50_000, 3))
+        base, bounded = missing_outcome_dgp(strength=2.0), missing_outcome_bounded_dgp()
+        for arm in (0.0, 1.0):
+            np.testing.assert_array_equal(bounded.missingness(w, arm), base.missingness(w, arm))
+            mean = bounded.outcome_mean(w, arm, None)
+            assert mean.min() > 0.06 and mean.max() < 0.94
+            # The map is increasing, so the order of the base law's means survives.
+            order = np.argsort(base.outcome_mean(w, arm, None))
+            assert np.all(np.diff(mean[order]) >= 0.0)
+        np.testing.assert_array_equal(bounded.propensity(w), base.propensity(w))
+        frame, truth = make_missing_outcome_bounded(n=1000, seed=5)
+        observed = frame["Y"].dropna().to_numpy()
+        assert observed.min() > 0.0 and observed.max() < 1.0
+        assert truth["att"] != pytest.approx(truth["atc"], abs=0.01)
+
+    def test_the_bounded_law_separates_the_respondent_effect_from_the_ate(self) -> None:
+        """Nonzero witness: complete-case standardization moves the target on this law."""
+        dgp = missing_outcome_bounded_dgp()
+        w = np.random.default_rng(4).normal(size=(400_000, 3))
+        g = dgp.propensity(w)
+        effect = dgp.outcome_mean(w, 1.0, None) - dgp.outcome_mean(w, 0.0, None)
+        response = g * dgp.missingness(w, 1.0) + (1.0 - g) * dgp.missingness(w, 0.0)
+        respondent_effect = float(np.average(effect, weights=response))
+        assert respondent_effect - float(effect.mean()) > 0.015
 
     def test_the_intermediate_responds_to_treatment(self) -> None:
         frame, _ = make_cde(n=4000, seed=0)

@@ -37,9 +37,11 @@ from .estimator import (
     SDR,
     LongitudinalConfig,
     LongitudinalResult,
+    ParametricGFormula,
     SequentialGComputation,
     SequentialIPW,
     gcomp,
+    gformula,
     ipsi,
     ipw,
     ltmle,
@@ -61,6 +63,12 @@ from .sequential import (
     fit_mechanism,
     fit_regimen,
 )
+from .structural import (
+    StructuralModelCheck,
+    StructuralNestedMean,
+    StructuralNestedMeanResult,
+    snmm,
+)
 
 __all__ = [
     "IPSI",
@@ -74,6 +82,7 @@ __all__ = [
     "Mechanism",
     "NodeRule",
     "PanelLayout",
+    "ParametricGFormula",
     "Plan",
     "Regimen",
     "RegimenFit",
@@ -82,14 +91,19 @@ __all__ = [
     "SequentialGComputation",
     "SequentialIPW",
     "SequentialStep",
+    "StructuralModelCheck",
+    "StructuralNestedMean",
+    "StructuralNestedMeanResult",
     "each_node",
     "fit_mechanism",
     "fit_regimen",
     "gcomp",
+    "gformula",
     "ipsi",
     "ipw",
     "ltmle",
     "resolve_plans",
     "resolve_regimens",
     "sdr",
+    "snmm",
 ]

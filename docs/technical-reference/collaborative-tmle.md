@@ -26,8 +26,8 @@ Collaborative TMLE is available for point-treatment, arm-axis fits whose target 
 before any model is fitted.
 
 A worked applied analysis is in the
-[collaborative TMLE tutorial](../examples/collaborative-tmle.ipynb). It shows both the
-comparison that discriminates and the one that does not.
+[collaborative TMLE tutorial](../examples/collaborative-tmle.ipynb). It compares the in-sample
+per-arm outcome-adaptive fit with an ordinary TMLE on a law with an instrument.
 
 The selector does not identify a causal adjustment set. Establish the eligible baseline set from
 the study design before the selector chooses an assignment nuisance model.
@@ -38,7 +38,9 @@ The implementation follows the published pooled construction step by step.
 
 | paper operation | implementation invariant | how it is validated |
 | --- | --- | --- |
-| build increasingly adaptive candidates | the greedy, preordered, and discrete paths retain nested candidate state | exact path and treatment-risk tests |
+| build increasingly adaptive candidates | the greedy, preordered, and discrete paths retain nested candidate state. The lasso and learners paths index a declared sequence of mechanisms | exact path and treatment-risk tests |
+| construct the indexed candidates (lasso, learners) | from the current initial fit, fluctuate with every remaining candidate and take the first smallest criterion. Stop when it does not improve on the best so far. Otherwise record the skipped candidates as fluctuations of the current fit, and continue from the accepted candidate's targeted fit | a scripted criterion table, and R `ctmleGeneral` and `ctmleGlmnet` on R's own propensity arrays |
+| take the C-TMLE1 final step (lasso) | fluctuate the selected candidate's targeted fit with each smaller penalty, and report the one with the smallest unpenalized loss | the R `ctmleGlmnet` final step on R's explicit-penalty columns |
 | target the outcome regression with each candidate | every candidate carries its complete targeted regression, its fluctuation, and its influence curve | longhand loss, penalty, and score equations |
 | cross-validate the stopping index | every selection fold refits the outcome regression, the auxiliary mechanisms, and every candidate. Training-row predictions are inner-fold out of fold, and validation-row predictions come from the full selection-training fit | row-identity spy learners, and the two-fold degeneracy case |
 | select the candidate estimator | the final fit persists both the selected mechanism and the selected targeted regression | a mutation test in which discarding the targeted regression fails |
@@ -90,10 +92,17 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 | `strategy="greedy"` | the package's scalable candidate path. The default |
 | `strategy="ordered"` | both scalable preorders from Ju et al. (2019). `preorder="logistic"` uses one-variable targeting loss and is the default. `preorder="partial_correlation"` conditions the residual-covariate correlation on one-hot treatment indicators rather than on numeric arm codes. Marginal correlation with the outcome is not a published preorder and is not used |
 | `strategy="discrete"` | selection among explicitly supplied candidate covariate sets |
+| `strategy="lasso"` | the L1-penalized logistic mechanism at each penalty of a decreasing grid, then the C-TMLE1 final step. The analogue of R `ctmleGlmnet(ctmletype = 1)`. See [candidate sequences](#candidate-sequences) |
+| `lambdas=` | the penalty grid of `strategy="lasso"`, with two or more penalties. The default is the `glmnet` rule: 100 log-spaced values from `lambda_max` down to `lambda_max` times `1e-4` (or `1e-2` when `n < p`), then 0. Under `strategy="derivative"` it is the pair `(mechanism_penalty, partner_penalty)` |
+| `strategy="learners"` | each declared treatment learner in the declared order, then `treatment_learner` on every covariate. The analogue of R `build_gn_seq` with `ctmleGeneral(ctmletype = 1)` |
+| `treatment_candidates=` | the declared entries of `strategy="learners"`, least adaptive first. An entry is an unfitted learner or a `PropensityArrays(full=..., cv=...)` pair. Under `strategy="derivative"` it is the pair `(mechanism, partner)`, each an unfitted learner or a full-sample array |
+| `strategy="derivative"` | C-TMLE0: one fluctuation that adds the derivative of each arm's clever covariate. It selects nothing and takes the ordinary TMLE status. The analogue of R `ctmleGlmnet(ctmletype = 3)` and `ctmleGeneral(ctmletype = 3)`. See [C-TMLE0](#c-tmle0-the-derivative-covariate) |
+| `selection_split=` | fold labels `0` to `V - 1`, one for each row, in place of the random selection split. Valid on every selector strategy. `selection_folds=` must equal `V` |
 | `strategy="oat"` | the outcome-adaptive mechanism, fitted on the arm-specific outcome predictions. It has no candidate path and no parameter-specific selector |
 | `oat_design=` | the design of `strategy="oat"`. `"per_arm"` (the default) fits one binary mechanism per arm on that arm's own prediction. `"shared"` fits the one categorical mechanism of the archived `ctmle3`. See [the per-arm outcome-adaptive design](#the-per-arm-outcome-adaptive-design) |
 | `candidates=`, `ordering=` | supply the candidate sets or the preorder explicitly. A refit that adds a covariate, such as the `random_common_cause` refutation, places it after the declared ordering. Independent noise has no prior relevance, so it ranks last |
 | `selection_folds=` | folds for the stopping-index cross-validation. Default 5. The draw is unstratified, and it reads the row count and the seed |
+| `patience=` | stop the cross-validated scoring of the candidate path after `patience` candidates that score worse than the best so far. `None`, the default, reads the whole path. See [patience](#patience) |
 | `selection_inner_folds=` | the explicit cost control. Default 2, so a selection path uses three fits per nuisance or candidate rather than silently borrowing the outer nuisance fold count. This draw is unstratified as well |
 | `loss=`, `penalty=` | the selection loss, and whether the variance-plus-squared-mean penalty is applied |
 | `selection_estimand=` | which parameter vector the selection optimizes |
@@ -102,24 +111,27 @@ Theory: van der Laan and Gruber (2010), Gruber and van der Laan (2010), and Ju e
 `cv_evaluation=True` are refused. Composing collaborative model selection with fold-targeted or
 canonical CV-TMLE changes the estimator and needs a separate derivation.
 
-**Two other refusals reach every collaborative fit.** The first is `id=`: C-TMLE has no clustered
-result. No reviewed result covers clustered inference for the outcome-adaptive mechanism.
-Selector-based fits also lack a result for grouped selection and nested folds or candidate-selection
-variance. [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets) part (e) holds the
-clustered point estimates, and [F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle)
-the clustered intervals. The message names two ways out: "Drop id= from fit (PointTreatment(cluster=None)), or use
-the ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." `available_methods` reports
-`collaborative_tmle` as unavailable with the same reason when the design declares `cluster=`, so a
-study reader sees it before anyone fits. The second is inherited from ordinary TMLE: a cross-fitted
-continuous outcome needs a declared `q_bounds`.
+**Two other refusals reach collaborative fits.** The first is `id=`, on every strategy except
+`"derivative"`: C-TMLE has no clustered result. No reviewed result covers clustered inference for
+the outcome-adaptive mechanism. Selector-based fits also lack a result for grouped selection and
+nested folds or candidate-selection variance. [X51](../roadmap.md#x51-c-tmle-point-estimates-for-further-targets)
+part (e) holds the clustered point estimates, and
+[F22](../roadmap.md#f22-grouped-cross-fitting-beyond-point-treatment-tmle) the clustered intervals.
+The message names two ways out: "Drop id= from fit (PointTreatment(cluster=None)), or use the
+ordinary TMLE (TMLE, or TMLEMethod), which has a clustered result." `strategy="derivative"` selects
+nothing, and it takes the clustered result of the ordinary TMLE. So `available_methods` keeps
+`collaborative_tmle` on a design that declares `cluster=`, and every other strategy refuses `id=`
+before its first learner. The second refusal reaches every strategy, and it is inherited from
+ordinary TMLE: a cross-fitted continuous outcome needs a declared `q_bounds`.
 
 **Retargeting holds the selection fixed.** A sensitivity analysis begins each perturbed targeting
 step from the selected candidate's own targeted regression, not from the initial one. Both the
 iterative and the one-step sweeps are checked to solve the perturbed score. Rerun the fit to redo
-selection.
+selection. A C-TMLE0 fit has no selection. Its retarget rebuilds the derivative columns at the
+requested bounds, as the [C-TMLE0](#c-tmle0-the-derivative-covariate) section states.
 
 **Omitted-variable outputs refuse a collaborative fit.** The robustness value, the bounds, and
-`elements()` raise `CapabilityError` on every strategy. The working mechanism conditions on a
+`elements()` raise `CapabilityError` on every strategy except `"derivative"`. The working mechanism conditions on a
 function $V$ of $W$: the selected set $W_S$ on the selector paths, and the fitted outcome
 regression under `oat`. Where the working mechanism is $P(A \mid V)$ in the limit, the
 representer is $E[\alpha_W \mid A, V]$. That representer averages the full representer $\alpha_W$
@@ -130,7 +142,7 @@ gives the full reason, and
 
 **A simulated common-cause surface reruns selection.** Binary complete-outcome fits accept fixed
 probability weights for this operation. The operation refuses estimated weights. Its clustered
-refusal is now unreachable through C-TMLE, because the fit itself refuses `id=`.
+refusal reaches C-TMLE only through `strategy="derivative"`, the one strategy that admits `id=`.
 
 Each cell keeps the weight with its observed row and refits the complete collaborative estimator.
 Selector strategies use the normalized weights in their nuisance fits, losses, penalties,
@@ -144,6 +156,300 @@ This fixed-weight surface claims no numerical parity with either implementation.
 **`CTMLE` on an `incremental=` fit is wrong by construction**, not a gap. Each candidate mechanism
 defines a different estimand, so the search would select between estimands rather than between
 estimators.
+
+### Patience
+
+`patience=p` is the `patience` argument of R `ctmleDiscrete`. It applies to every strategy that
+selects a path position by cross-validated risk: `"greedy"`, `"ordered"`, `"discrete"`, `"lasso"`
+and `"learners"`. With the default `None`, the fit builds every fold's whole path first, as before.
+
+The fit scores each position `k` by the summed held-out loss plus the penalty from the pooled
+influence. The counter then reads the risk of `k`.
+
+| step | rule |
+| --- | --- |
+| pointer | the smallest risk seen so far |
+| a risk above the pointer | the count rises by one. The search stops when the count reaches `p` |
+| a risk at or below the pointer | the pointer takes that risk, and the count returns to zero. A tie resets |
+| a risk that is not finite | counts as worse |
+| selection | the position of the smallest scored risk, the first of ties |
+
+The count is not a run length. A worse risk after a reset adds one, and a later worse risk adds
+another. This matches the counter in `functions_discrete.R` of R `ctmle`.
+
+The path is lazy under `patience`. The fit builds each fold's path one position at a time, in step
+over the folds. So the stop is a function of the summed fold risk. No position after the stop is
+scored, and one stop position applies to the full-sample path too. Every stored array
+ends at the stop. `CTMLESelection.patience` records the setting. `CTMLESelection.stopped_at`
+records the index where the counter fired. The summary prints one line that states which case
+occurred.
+
+Under `greedy`, `ordered` and `discrete`, no position after the stop is fitted. Under `lasso` and
+`learners` the later positions are fitted. `lasso` fits its whole penalty grid before the path
+starts, and an indexed pass fluctuates every remaining candidate before it yields. The summary
+line says which case applies.
+
+Two differences from R are declared.
+
+| id | R `ctmle` | `cleverly` |
+| --- | --- | --- |
+| D7 | takes the last tied minimum of the scored risks | takes the first tied minimum |
+| D7b | scores the rest of its batch after the counter fires | stops at the counter |
+
+With `preOrder = TRUE` a batch holds one covariate, so neither difference shows in the R fixture
+`ctmle_patience.json`. On that fixture, R's counter stops after 6 of 7 candidates. Applied to the
+package's own whole-path scores, the same counter stops where the package stops. A mutation
+control that stops one candidate late fails the fixture. The scores themselves differ from R's for
+the two reasons in [candidate sequences](#candidate-sequences).
+
+The inference status does not change. A fit with `patience=` keeps `working_mechanism_plugin`.
+
+| check | what `tests/unit/test_patience.py` asserts |
+| --- | --- |
+| the counter | it equals a transcription of the R loop on nine risk sequences, ties and non-finite risks included, for four values of `p` |
+| the lazy path | it equals the eager path at every position when `p` exceeds the path, for every strategy |
+| the witness | a law whose global minimum lies past the stop changes `selected` and the estimate |
+| mutation controls | `>=` for `>`, and no reset on a tie. Each fails the counter test |
+| refusals | R-g1 refuses a malformed `patience`. R-g2 refuses a strategy that scores no path |
+
+### Treatment-mechanism covariates and the candidate pool
+
+A design with `PointTreatment(treatment_adjustment=...)` fixes the candidate pool of every
+selector strategy to the declared subset $W_g$. The outcome regression keeps the full set.
+
+| part of the search | reads |
+| --- | --- |
+| the pool of `"greedy"` | $W_g$ |
+| the preorders of `"ordered"`, both `"logistic"` and `"partial_correlation"` | $W_g$. An explicit `ordering=` or `candidates=` must lie inside $W_g$ (R-h5) |
+| the candidates of `"discrete"` | $W_g$ |
+| the design and default penalty grid of `"lasso"`, and the learners of `"learners"` | $W_g$ |
+| `strategy="derivative"` | the mechanism and its partner read $W_g$ |
+| `strategy="oat"` | refused (R-h2). The mechanism is fitted on the outcome predictions, so it has no covariates to restrict |
+| the outcome regression, the missingness mechanisms | the full set |
+
+`CTMLESelection.covariates` is the pool. `CTMLESelection.restricted_pool` is set only when the
+design declares a subset, and the summary then prints "collaborative candidate pool: {Wg}".
+
+A fit that selects nothing takes the status of the ordinary TMLE. These are a `"discrete"` fit with
+one candidate equal to the pool and a `"learners"` fit with an empty declared list. The test
+`declares_no_selection` compares the candidate with $W_g$, and not with the full adjustment set.
+Such a fit prints the restriction text of the design and claims its interval under that
+restriction. Every other collaborative fit prints the same text and keeps
+`working_mechanism_plugin`.
+
+[Treatment-mechanism covariates](point-treatment-tmle.md#treatment-mechanism-covariates) gives the
+text, the remainder when the restriction fails, and the exact-law witnesses.
+`tests/unit/test_treatment_covariates_collaborative.py` checks the pool in three ways.
+
+| strategy | check |
+| --- | --- |
+| greedy, ordered, discrete | a spy learner sees $W_g$ only |
+| lasso, learners | the propensity of the $W_g$ fit equals that of a fit that omits the other covariates, to $10^{-12}$. A control shows that the full set moves it |
+| every strategy | a mutation control fails when the pool, the preorder, the lasso design or the learners names read the full set |
+
+On the R fixture `ctmle_wg.json`, the restricted path holds the pool's candidates in R's order
+and no other covariate. Both R and the package give the restricted fit and the whole-pool fit
+different estimates.
+
+### The targeting options on a collaborative fit
+
+`CTMLE` inherits `stopping=`, `step_bound=`, `step_search=`, `iterate=` and `outcome_by_arm=` from
+`TMLE`.
+
+| item | rule |
+| --- | --- |
+| a candidate solve | it gets the stop context of its training rows, so $n_u$ counts the units of those rows |
+| `outcome_by_arm=True` | it applies at the selection base and at the honest base of `oat` |
+| `strategy="derivative"` | it passes the stop context to its update and reads $W_g$. It raises when a step bound stops short of the derivative equation |
+
+`tests/unit/test_x22_derivative_strategy.py` covers these cases. It has mutation controls for the
+stop context and the $W_g$ design.
+
+## Candidate sequences
+
+The `lasso` and `learners` strategies index a declared sequence of treatment mechanisms. They do
+not search over covariate sets. The table gives the base result and the locator of each part.
+
+| item | content | locator |
+| --- | --- | --- |
+| general template | candidates over an index set, ordered by empirical fit. The most adaptive end is consistent for $g_0$. Each candidate gives a TMLE, and cross-validation selects the index | van der Laan and Gruber (2010), Section 2.4 |
+| ordering requirement | the empirical losses of the candidates decrease in the index, and the last candidate is consistent | Ju, Gruber et al. (2019), Section 4.1, Algorithm 1, step 2 |
+| indexed construction rule | from the current initial fit, fluctuate with every remaining candidate and take the smallest criterion. Record every skipped candidate as a fluctuation of the current fit. The accepted candidate's targeted fit becomes the next initial fit | Ju, Wyss et al. (2019), Appendix A, Algorithm 1, steps 5 to 12. R `ctmle` `construct_candidates_general` |
+| construction criterion and stop | the selection `risk`: the loss, plus the penalty when `penalty=True`. Construction stops when the best try does not improve on the best score so far. The remaining candidates then fluctuate the last initial fit. With `penalty=False` the stop never binds | R `ctmle` `R/functions_general.R`, lines 60 to 129 |
+| C-TMLE1 final step (`lasso` only) | after the cross-validation selects a penalty, fluctuate the selected candidate's targeted fit with each smaller penalty. Report the one with the smallest unpenalized loss. With no smaller penalty, report the selected candidate | Ju, Wyss et al. (2019), Section 4.2, and Appendix A, Algorithm 1, steps 13 to 16. R `ctmle` `R/ctmle_glmnet.R`, lines 265 to 325 |
+| lasso candidate | the `glmnet` objective: weighted mean binomial deviance over two, with the weights normalized to mean 1, columns standardized by the weighted population standard deviation, an unpenalized intercept, and an L1 penalty. At `K > 2` arms it is the symmetric `ungrouped` multinomial | Ju, Wyss et al. (2019), Section 4.2 |
+| declared candidates | each entry in the declared order, least adaptive first, then `treatment_learner` on every covariate | R `ctmle` `R/build_gn_seq.R` and `ctmleGeneral` |
+
+The final step of Ju, Wyss et al. (2019), Algorithm 1, fluctuates the selected candidate's
+*initial* fit. R `ctmleGlmnet` and this package fluctuate its *targeted* fit
+(`R/ctmle_glmnet.R`, line 291).
+
+**The solver has a residual contract.** `cleverly.learners._l1_logistic` solves the lasso by
+coordinate descent with a Newton polish on the active set, warm-started along the grid. Its
+Karush-Kuhn-Tucker residual is at most `1e-10` at every penalty. When the residual is larger, the
+fit raises `L1ConvergenceError`, and the message names the layer and the penalty. The usual cause
+is separation at penalty 0. A grid that ends above 0 avoids it.
+
+**The ends of the default grid hold on the analysis sample.** There, the first
+default candidate is the intercept-only mechanism exactly, and the last is the unpenalized
+main-terms logistic fit. The grid is fixed on the analysis sample. The training rows of a
+selection fold or an outer fold have their own `lambda_max`, so there the first candidate can
+have a nonzero coefficient.
+
+**A `PropensityArrays` pair is the `ctmleGeneral` input.** `full` holds the predictions of a fit on
+every row. `cv` holds out-of-fold predictions under the split that `selection_split=` declares. The
+analysis-sample path reads `full`. Inside each selection fold, the training and the validation
+rows read `cv`, as R does. The pair needs `selection_split=`, `cross_fit=False`, `repeats=1`, and
+`n_bootstrap=0`, and a refit refuses it.
+
+**The pair carries a declared exception.** Each training-row prediction in `cv` came from a fit
+that used the validation fold's treatment and covariates, though never its outcome. R `ctmle` has
+the same property. This is an exception to the rule that a selection-validation observation
+contributes to no nuisance fit that scores it. The package cannot check that `cv` respects
+`selection_split`, so the caller must make sure it does. A learner entry has no exception: the
+package fits it on the same rows a covariate-set candidate uses.
+
+**`CTMLESelection` records the sequence.** `labels` names each candidate, for example
+`"lambda=0.0123"`, `"lambda=0"`, `"LogisticRegression[2]"`, or `"arrays[1]"`. `final` is the
+final-step candidate, or `None` when no final step ran. `selected` stays the cross-validated index.
+The reported mechanism is `final` when it is set, and `selected` otherwise. Under `lasso`,
+`path[k]` holds the covariates with a nonzero coefficient in some fit of candidate `k`. `summary()`
+also reports whether the treatment risk decreases along the declared order, which the template
+requires. A fit does not refuse when it does not.
+
+**R `ctmle` differs in these ways.** The package does not reproduce them.
+
+| R behavior | locator | package behavior |
+| --- | --- | --- |
+| `cv_general` discards the supplied `folds` and draws new ones | `R/functions_general.R`, line 287 | `selection_split=` is used as given |
+| inside each fold, the evaluation refits the fluctuation on all rows before it scores the validation rows | `R/functions_glmnet.R`, lines 32 and 86 to 97; `R/functions_general.R`, lines 184 and 213 to 218 | the fluctuation uses the training rows only |
+| inside each fold, `glmnet` is refitted on every row | `R/functions_glmnet.R`, line 24 | each fold fits its own training rows |
+| `predict(s = )` interpolates the default path and clamps below its smallest penalty, and the default path can stop early | `glmnet` | each penalty is solved exactly |
+| the next accepted column is found by a squared distance below `1e-5` | `R/functions_general.R`, line 209 | candidates are matched by index |
+| `calc_varIC(ICg = TRUE)` reads only the first covariate column | `R/functions_general.R`, line 198 | not used |
+| type 1 has no branch for a selected last penalty | `R/ctmle_glmnet.R`, line 270 | the selected candidate is reported |
+| the construction criterion adds `var(D*)` whatever `PEN` is | `R/functions_glmnet.R`, lines 172 to 177; `R/functions_general.R`, lines 65 to 72 | the construction adds the penalty only when `penalty=True` |
+| the construction penalty carries the factor `n_train / n` inside each fold | `R/functions_glmnet.R`, line 172 | no factor |
+| the discrete cross-validation fits each candidate mechanism on every row, the validation rows included | `R/functions_discrete.R`, lines 32, 81, 508 and 557 | each fold fits its training rows |
+| the discrete path fluctuates with one ATE clever covariate `hAW` | `R/functions_discrete.R`, lines 33 and 82 | one column for each arm |
+
+Under `lasso`, `treatment_learner` remains the fallback for a missingness mechanism, and the lasso
+candidates do not use it. A scikit-learn `FrozenEstimator` passes as a learner entry and is not
+refitted, because `clone` returns it unchanged. This holds for every learner argument.
+
+**Evidence.** `tests/unit/test_ctmle_candidate_sequences.py` holds the scripted construction rule,
+the solver residual, the path ends, the row-identity audits, the refusals, and forced selection.
+`tests/unit/test_ctmle_sequence_witness.py` compares the solver with `glmnet`, and the construction
+and the final step with R `ctmleGeneral` and `ctmleGlmnet`, on the fixture in
+`tests/canonical/ctmle_sequence_witness/`. The registered study
+[C-TMLE candidate sequences](method-evidence/c-tmle-candidate-sequences.md) replays R `ctmle`'s
+construction and final step on R's own arrays over repeated samples. Its paired selected
+estimates are descriptive, because R's cross-validation leaks (quirk 2).
+
+## C-TMLE0: the derivative covariate
+
+`strategy="derivative"` is C-TMLE0. It is an ordinary TMLE whose logistic fluctuation adds one
+column for each arm: the derivative of that arm's clever covariate along a path of treatment
+mechanisms. A finite difference between the fitted mechanism $g$ and a partner mechanism $g^+$
+stands in for the derivative. Nothing is selected collaboratively. The fit has no candidate sequence
+and no selection cross-validation.
+
+| item | content | locator |
+| --- | --- | --- |
+| definition | C-TMLE0 "is exactly the same as the TMLE algorithm, except it updates the estimate by equation 6": $\operatorname{logit} \bar Q^* = \operatorname{logit} \bar Q + \epsilon_1 H_g + \epsilon_2 \tilde H_g$, with $\tilde H$ the derivative of $H$ in the penalty | Ju, Wyss et al. (2019), Section 4.2, equation (6) |
+| algorithm | the initial $\bar Q_n$, the mechanism at the cross-validated penalty, then one targeting step with $H$ and $\tilde H$ | Ju, Wyss et al. (2019), Appendix B, Algorithm 2 |
+| goal equation | $P_n \frac{d}{dh} D^*(\bar Q^*, G_h) = 0$ together with $P_n D^* = 0$ | Ju, Chambaz and van der Laan (2018), Section 4.2 |
+| lasso instance | the mechanism at `lambda.min`, and the partner at the nearest penalty of the grid | Ju, Chambaz and van der Laan (2018), Section 4.2, steps 1 to 3 |
+| R comparator | type 3 bounds `g1W` and `g1WPrev`, builds four columns, and fits one `glm` | R `ctmle` 0.1.2, `R/ctmle_glmnet.R`, lines 133 to 174 |
+
+The package builds the update as the table states.
+
+| part | package behavior |
+| --- | --- |
+| derivative column | $dh_a = h_a r_a$ with $r_a = (g_a - g^+_a)/g_a$. Both mechanisms are bounded at `g_bounds` first. With complete data it is $1\{A = a\}(g_a - g^+_a)/g_a^2$, which is R's `ddH1W` and `ddH0W`, sign included |
+| counterfactual block | arm $a$'s block gets $r_a / (g_a \pi_a)$. The factor $1/\pi_a$ is the chain rule for an in-sample missing outcome |
+| normalization | each $dh_a$ is divided by its root mean square over the rows with $A = a$ and an observed outcome. The fit does not change. `epsilon` is reported on R's scale |
+| solve | one solve of the $2K$ columns on every row, pooled over the outer folds, with the iterative logistic or linear solver |
+| reported curve | $D^*(\bar Q^*, g_n)$ with the bounded $g$ only. The derivative columns move $\bar Q^*$ and never enter the curve |
+| continuation | the ordinary $K$-column fluctuation from $\bar Q^*$. Its gradient is already below `tol`, so its `epsilon` is 0 |
+
+Three sources supply the two mechanisms.
+
+| call | mechanism $g$ | partner $g^+$ | R comparator |
+| --- | --- | --- | --- |
+| `lambdas=None` | the L1 logistic at the penalty that `learner_folds`-fold weighted deviance cross-validation chooses over the default grid, inside each training set | the nearest penalty of the grid in absolute distance. A tie goes to the larger penalty | C-LASSO Algorithm 2. Ju, Chambaz and van der Laan (2018), Section 4.2 |
+| `lambdas=(lam, lam_plus)` | the L1 logistic at `lam` | the L1 logistic at `lam_plus`, larger or smaller | `ctmleGlmnet(ctmletype = 3)` with `glmnet` at the two penalties |
+| `treatment_candidates=(g, plus)` | an unfitted learner, or a full-sample array | the same kinds | `ctmleGeneral(ctmletype = 3, g1W, g1WPrev)` |
+
+The partner is fitted on exactly the rows of the mechanism: every row in sample, and each outer
+fold's training rows when cross-fitted. The grid is fixed once on the analysis sample, and it reads
+the treatment and the covariates only. The fit stores the partner in
+`NuisanceEstimates.treatment_partner`. `CTMLEDerivativeFit` under `result.extra["ctmle"]` records
+the source, the penalty pair of each training set, the cross-validated risk, the $2K$ coefficients,
+and the derivative scores before and after the update.
+
+**The sources disagree in print, and the published derivation governs.** The goal equation
+$P_n \frac{d}{dh} D^* = 0$ resolves each discrepancy.
+
+| # | discrepancy | resolution |
+| --- | --- | --- |
+| D1 | Algorithm 2 prints $A/g\,(g_{\lambda+\delta} - g_\lambda)$, without the square. Equation (6) and R use $A/g^2$ | the square, because $\tilde H = dH/d\lambda$ |
+| D2 | JCvdL equation (33) prints the direction $C(G)\,G'$. The goal equation needs $\frac{d}{dh} C(G_h) = -G'/(lG)^2$. Per arm, (33) spans $A\,G'/G$, which is the D1 form | the derivative of the clever covariate, as R fits it |
+| D3 | equation (6) uses one combined $H$ and one $\tilde H$. R splits each by arm | the per-arm split, $2K$ columns. Its span contains every combined pair |
+| D4 | the partner is $\lambda + \delta$ (C-LASSO), the nearest grid value (JCvdL), $1.05\,\lambda$ interpolated (the `ctmle` README), or any `g1WPrev` (R) | the column enters only through its span, so its sign and scale do not matter. The internal default follows JCvdL step 2 |
+| D5 | Algorithm 2 prints $H$ as a sum of the two arm terms, not the ATE covariate | the per-arm split contains both combined forms |
+
+**The interval rests on the ordinary TMLE result.** C-TMLE0 selects nothing collaboratively, so
+the F18 boundary does not apply. The status is the TMLE status: `influence_curve`, or
+`few_cluster_plugin` as for `TMLE`.
+
+| item | content |
+| --- | --- |
+| base result in sample | van der Laan and Rubin (2006), Sections 1, 3 and 4.2: a fluctuation whose scores span the influence curve, with the expansion, the remainder, the Donsker condition and the $L_2$ conditions |
+| base result cross-fitted | Zheng and van der Laan (2011), Section 2, Theorems 1 and 2: a pooled TMLE with a finite-dimensional fluctuation over out-of-fold nuisances |
+| the efficient influence curve equation | the $2K$ columns contain the $K$ columns $h_a$. A logistic fit with an offset solves every column's score, so $P_n D^*(\bar Q^*, g_n) = 0$ |
+| the expansion | $\psi_n - \psi_0 = (P_n - P_0) D^*(\bar Q^*, g_n) + R_2$, with $R_2 = \sum_a P_0 (g_{0a}\pi_{0a}/(g_{na}\pi_{na}) - 1)(\bar Q_{0a} - \bar Q^*_a)$. It does not depend on how $\bar Q^*$ was built |
+| why the penalty is not an F18 selection | the cross-validated penalty minimizes a treatment deviance. It never reads $Y$ or a targeted fit, as a Super Learner treatment learner does not |
+| conditions | (i) the $h_a$ scores are solved. (ii) $\bar Q_n$ and $g_n$ are consistent, with a product of rates $o_p(n^{-1/2})$. (iii) the Donsker condition in sample, or cross-fitting. (iv) $g_0$ lies inside `g_bounds`. (v) each derivative column is neither zero nor a constant multiple of $h_a$, and the $2K$ solve converges. (vi) iid rows or independent clusters, and fixed weights |
+| what is not claimed | the collaborative claim that the interval holds when $\bar Q_n$ is inconsistent. That claim stays with [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
+| the sources' own warnings | C-LASSO Section 6.4, Table 3: C-TMLE0 covers 0.920 and 0.872 with $\bar Q$ fitted on 10 or 20 of 40 confounders. Section 6.5.1 names "its under-estimated standard error". JCvdL Section 5.4 names "the apparent failure in estimating well their variance". Each outcome regression there is misspecified, outside condition (ii) |
+
+Under condition (ii) the remainder $R_2$ is a product of the two errors, so the interval does not
+rest on a remainder linear in one nuisance error.
+
+**R `ctmle` type 3 differs in these ways.** The package does not reproduce them.
+
+| R behavior | locator | package behavior |
+| --- | --- | --- |
+| a zero finite difference becomes `1e-10` | `R/ctmle_glmnet.R`, lines 143 and 145 | the row keeps 0. Such a row has both mechanisms clipped at one bound |
+| `fluctuation=` and `family=` are ignored, and the logistic fit always runs | lines 111, 128 and 150 to 153 | `fluctuation="linear"` is honoured |
+| no bound after the update | lines 155 to 162 | predictions shrink at `alpha` |
+| a missing outcome enters as 0 | line 105 | `delta=` declares the missing outcome |
+| `var.psi` divides by $n - 1$ | lines 173 and 174 | `std_error` divides by $n$. Multiply its square by $n/(n-1)$ to compare |
+| `glm` drops an aliased column when `g1W` equals `g1WPrev`, and `est` becomes `NA` | `glm` | the fit refuses |
+
+**Retargeting rebuilds the update.** `retarget(g_bounds=b)` and each `truncation_curve` point
+recompute the derivative columns at `b` from the initial fit, the mechanism, and the stored partner,
+and then run the continuation. So each point is C-TMLE0 at its bound. The omitted-variable bound
+admits a C-TMLE0 fit, because the fit assumes a consistent mechanism as the TMLE does.
+
+**Refusals.** The [refusal reference](scope-and-refusals.md) lists each message. The fit refuses
+`targeting="one_step"`, `target_weights=True`, `screen_treatment=True`, baseline strata, a zero or collinear derivative
+column, and a $2K$ solve that does not converge. An array entry refuses cross-fitting, the
+bootstrap, and every refit, because it describes one fit on the original rows and columns.
+
+**Evidence.** The registered study [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md)
+validates the strategy on three scenarios. All three pass their truth tests. The R `ctmle` type 3
+comparator is declared, and its runs are pending, so the study has no parity result. The study
+reports Python property evidence, with comparator runs pending. All 21 property cells pass,
+including the both-wrong control, the cluster-robust cell against its IID control, and three
+wrong-outcome cells. Three test modules hold the C-TMLE0 checks.
+
+| test module | checks |
+| --- | --- |
+| `tests/unit/test_ctmle_derivative.py` | an independent transcription of R type 3; the solved derivative scores (W1); the move away from the TMLE estimate (W2); span invariance (W3); the counterfactual block (W4); three arms (W5) |
+| `tests/unit/test_ctmle_derivative_strategy.py` | the partner rule and the penalty cross-validation (W6); the row identity (W7); the refusals (W8); the status (W9); the retarget and the save round trip (W10); the omitted-variable and refit paths (W11) |
+| `tests/unit/test_ctmle_derivative_witness.py` | the update on R's own arrays from `tests/canonical/ctmle_derivative_witness/`, four blocks. The coefficients match R to a relative 1e-6. The targeted fits, the curve, the estimate and `var.psi` match to 1e-6. Block B fails with an unbounded partner, and block C fails with an unbounded mechanism |
 
 ## Validation issues special to this method
 
@@ -164,17 +470,19 @@ shared out-of-fold-nuisance and pooled-fluctuation architecture, and it localise
 that training rows use fold fits while new rows use a full-training refit. It does not implement
 C-TMLE selection. The candidate search is therefore accepted on the paper equations, the exact
 identities, the row-membership audits, the mutation controls, the score checks, and the registered
-studies. It is not accepted on numerical R parity.
+studies. It is not accepted on numerical R parity. The indexed construction rule and the final step
+are the exception. R `ctmle` implements both, and a fixture compares them on R's own arrays (see
+[candidate sequences](#candidate-sequences)).
 
 **Scoring only one contrast is a load-bearing mutation.** The multi-arm selector's joint penalty is
 checked by a mutation that scores only the first contrast. It changes the penalty by more than 100.
 
-**The selector paths publish no inference.** The greedy, ordered, and discrete paths refuse
-`ci`, `pvalue`, and `std_error`. Each accessor raises `CapabilityError`. One `discrete` fit is the
-exception, and the paragraph on a declared full candidate below states it. The refusal says that the
-reported curve is the ordinary efficient influence curve at the candidate the search stopped at,
-and that no result shows it is this estimator's influence curve when that working mechanism is not
-consistent for the treatment law.
+**The selector paths publish no inference.** The greedy, ordered, discrete, lasso, and learners
+paths refuse `ci`, `pvalue`, and `std_error`. Each accessor raises `CapabilityError`. Two declared
+fits are the exception, and the paragraph on a declared full candidate below states them. The
+refusal says that the reported curve is the ordinary efficient influence curve at the candidate the
+search stopped at, or at the final-step candidate. It also says that no result shows it is this
+estimator's influence curve when that working mechanism is not consistent for the treatment law.
 
 The point estimate, the selection path, and the curve remain. Two accessors report the retained
 diagnostic. `plugin_std_error` gives the plug-in standard error of that curve. `plugin_interval`
@@ -202,23 +510,30 @@ one emits `plugin_std_err`, `plugin_interval_lower`, and `plugin_interval_upper`
 the point estimate, and it answers for these paths.
 
 [F18](../roadmap.md#f18-selector-path-c-tmle-inference) is the condition that reopens this. It
-reopens when it supplies the estimator's influence curve.
+reopens when it supplies the estimator's influence curve. A result that reopens a path must bound
+the adaptive-mechanism term without conditioning on the outcome regression, or must show that the
+term is a product. A term that is linear in $g_n - g_0$ when $\bar Q$ is wrong does not qualify.
 
-**A declared full candidate is the ordinary TMLE.** A `discrete` fit whose declared list holds one
-candidate, equal to the full adjustment set, takes the ordinary TMLE status. It reports `ci`,
+**A declared full candidate is the ordinary TMLE.** Two declarations select nothing. A `discrete`
+fit whose declared list holds one candidate, equal to the full adjustment set, is the first. A
+`learners` fit with an empty `treatment_candidates=` list is the second: its one candidate is
+`treatment_learner` on every covariate. Each takes the ordinary TMLE status. It reports `ci`,
 `pvalue`, `std_error`, a simultaneous band, and every derived operation that the TMLE fit reports.
 The [natural-extension verdicts](natural-extension-verdicts.md) record this as part (j).
+
+A single declared `learners` entry gives two candidates. That fit selects and keeps the plug-in
+status.
 
 | item | content |
 | --- | --- |
 | base result | the TMLE interval result that [point-treatment TMLE](point-treatment-tmle.md) cites |
 | argument | the search has one candidate, so it selects nothing. The candidate is the full set, so the mechanism is the TMLE mechanism, and the estimator is the TMLE estimator |
-| key | `declares_full_adjustment_only` in `src/cleverly/estimators/ctmle.py`. It reads the strategy, the declared list, and the prepared covariate names. It never reads the fitted path |
+| key | `declares_no_selection` in `src/cleverly/estimators/ctmle.py`. It reads the strategy, the declared lists, and the prepared covariate names. It never reads the fitted path |
 | match rule | one candidate that holds each prepared covariate name once, in any order. A repeated candidate counts as two candidates. A repeated name is not the full set |
 | admitted configurations | every configuration that `CTMLE` accepts: in sample and cross-fitted, two or more arms, fixed weights, `delta=` in sample, `ey`, `ate`, `rr`, `or`, a simultaneous band, `repeats`, and `n_bootstrap` |
 | refit rule | a refit appends each covariate that `CausalData.with_extra_covariate` recorded to every candidate. So the `random_common_cause` refit of an admitted fit is the TMLE refit, and it keeps the status |
 | still refused | the omitted-variable bound. It keys on the fitted method, and its sentence tells the caller to fit `TMLE` |
-| evidence | `tests/unit/test_ctmle.py::TestEquivalenceWithPlainTmle` pins point, curve, standard error, interval, p-value, band, and bootstrap draws against `TMLE` to `1e-12` on ten configurations. The registered `TMLE` studies cover the identical estimator |
+| evidence | `tests/unit/test_ctmle.py::TestEquivalenceWithPlainTmle` pins point, curve, standard error, interval, p-value, band, and bootstrap draws against `TMLE` to `1e-12` on ten configurations. `tests/unit/test_ctmle_candidate_sequences.py::test_an_empty_learners_list_is_the_ordinary_tmle` does the same for the empty `learners` list. The registered `TMLE` studies cover the identical estimator |
 
 The key reads the declaration, so a caller knows the status before the fit. A key on the fitted path
 would admit a fit whose candidate list happened to stop at the full set. The caller cannot predict
@@ -270,7 +585,7 @@ especially important unresolved regime.
 
 | design | treatment mechanism | status |
 | --- | --- | --- |
-| `"per_arm"`, the default | for each arm $a$, a binary regression of $1\{A = a\}$ on the one column $\bar Q_n(a, W)$. Column $a$ holds $P(A = a \mid \bar Q_n(a, W))$, so the rows are not a distribution over the arms | `"generated_design_plugin"` on every fit. See [the applied revert](#the-applied-revert) |
+| `"per_arm"`, the default | for each arm $a$, a binary regression of $1\{A = a\}$ on the one column $\bar Q_n(a, W)$. Column $a$ holds $P(A = a \mid \bar Q_n(a, W))$, so the rows are not a distribution over the arms | `"generated_design_plugin"` on every fit that `per_arm_parametric_support` refuses. See [the applied revert](#the-applied-revert). An admitted fit reports `"influence_curve"`. See [parametric per-arm intervals](#parametric-per-arm-intervals) |
 | `"shared"` | one categorical regression of $A$ on the vector $[\bar Q_n(a, W) : a]$, as the archived `ctmle3` `LF_oat` fits it | `"generated_design_plugin"` on every fit |
 
 Both designs use the ordinary $K$-column mean fluctuation. Its columns $1\{A = a\}/g_a$ have
@@ -285,9 +600,10 @@ appendices inconsistently: the text cites "Appendix G" for the conditions, which
 Appendix F, and the Remark cites "Appendix F" for the direct ATE estimator, which is in
 Appendix D.
 
-The table states the construction of the per-arm curve. `plugin_std_error` and
-`plugin_interval` report it as a diagnostic. No fit reports it as an interval, because condition
-(v) fails for an estimated outcome regression.
+The table states the construction of the per-arm curve of Theorem 1. `plugin_std_error` and
+`plugin_interval` report it as a diagnostic. No fit that the predicate refuses reports it as an
+interval, because condition (v) fails for an estimated outcome regression. An admitted fit reports
+the [stacked curve](#parametric-per-arm-intervals) instead.
 
 | item | content |
 | --- | --- |
@@ -304,10 +620,10 @@ The table states the construction of the per-arm curve. `plugin_std_error` and
 | variance | in sample, the empirical variance of the reported curve. Cross-fitted, the variance of the stacked out-of-fold curve |
 | conditions | (i) the curve equation is solved to $o_P(n^{-1/2})$. (ii) $\bar Q_n$ and $Q^*_n$ converge at $o_P(n^{-1/4})$ in $L_2(P_0)$. (iii) the treatment learner is consistent for $P(A = a \mid \bar Q_n(a, W))$ at $o_P(n^{-1/4})$. A misspecified learner makes $R_{23}$ first order whenever $Q^*_n - \bar Q_0 = O_P(n^{-1/2})$, which includes every correctly specified parametric outcome model. (iv) the curve converges in $L_2$, and in sample its class is Donsker. (v) $G_0(\cdot \mid \bar Q_n, \bar Q_0)$ is differentiable in $\bar Q_0$ with a bounded derivative. This condition fails for a root-$n$ outcome regression on a continuous $W$, as the next section states. (vi) the term from fitting $G$ on the initial $\bar Q_n$ is negligible. Positivity: the projection $P(A = a \mid \bar Q_0(a, W))$ lies inside `g_bounds`. Also iid rows, or fixed known weights, and a consistent outcome regression. A correct $g$ alone does not give consistency |
 | the source's warnings | Section 4.1 (p. 12): "the estimated standard errors of CTMLE had poor performance, often underestimating the true variability of the estimator". The Discussion (pp. 17-18) calls the CTMLE "an irregular estimator, it may perform poorly for certain data generating distributions", and notes "the poor behavior of the confidence intervals in both simulations". The limit is pointwise at a fixed law. It is not locally uniform |
-| the key's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits withhold their interval while the revert flag is `False` |
-| withheld | every `strategy="oat"` fit, of either design. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the key excludes it even with the flag set |
+| the diagnostic's cases | `strategy="oat"`, `oat_design="per_arm"`, complete outcomes and treatment, no `strata=`, no weights or fixed weights, and `repeats >= 1`. In sample and cross-fitted, at any arm count. Estimands `ey`, `ey1`, `ey0`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf`. These fits report the diagnostic curve, and they withhold their interval unless `per_arm_parametric_support` admits them |
+| withheld | every `strategy="oat"` fit of either design that `per_arm_parametric_support` refuses. [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds the generated-design term of both designs. A per-arm fit with `strata=`, `delta=` or `treatment_delta=` reports a point estimate under [the contract below](#baseline-strata-and-missing-data-in-the-per-arm-design), and the predicate refuses it on the `strata`, `missing_outcome` or `missing_treatment` axis |
 | bootstrap | `n_bootstrap=` is a diagnostic on every `oat` fit. Theorem 1 does not cover the bootstrap of a superefficient estimator |
-| key | `per_arm_design_admits(estimator, data)` in `cleverly.estimators.ctmle`. It reads the strategy, the design, the missing outcomes and treatment, the strata and the revert flag, and never a fitted array |
+| predicate | `per_arm_parametric_support(estimator, data)` in `cleverly.estimators.ctmle` returns a `SupportVerdict` with `admitted`, `axis` and `detail`. It admits a per-arm fit with `outcome_learner` exactly `ParametricOutcome` and `treatment_learner` exactly `ParametricMechanism`, on an arm-coded treatment of any arm count, declared with `arm_columns` equal to the number of arms minus one, with complete and unstratified data, and with fixed observation weights or none. The fit is in sample, or cross-fitted inside the fold-count cap with any `repeats`. `axis` names the first unmet requirement. The predicate reads the configuration and the prepared data, and never a fitted array. An admitted fit reports `"influence_curve"` with the stacked-equation curve of [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome). An arm whose stack fails takes `"stack_failure_plugin"` on the estimates that read it |
 
 **The shared design publishes no inference.** It fits one categorical mechanism on the outcome
 predictions of every arm. Theorem 1 covers one scalar design, and no reviewed result supplies the
@@ -343,8 +659,11 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 | where to read the evidence | what is there |
 | --- | --- |
 | [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors, comparator-backed against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
+| [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md) | `strategy="derivative"` on three binary scenarios, at a declared penalty pair, at the package's own penalty cross-validation, and with a constant outcome regression. The R `ctmle` `ctmletype = 3` comparator is declared and its runs are pending. All three truth tests and all 21 property cells pass |
 | [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design, comparator-backed against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
-| [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
+| [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit with a scikit-learn learner withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
+| [outcome-adaptive per-arm C-TMLE (parametric)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | the stacked interval of the in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism`. Python property evidence, no comparator. Calibration on six laws, two negative controls that read red, the sharp null and power |
+| [outcome-adaptive per-arm C-TMLE (parametric crossfit)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) | the stacked interval of the cross-fitted per-arm fit at five folds, at one draw and at the median of three draws. Python property evidence, no comparator. Calibration from $n = 500$ to $n = 8000$, two negative controls that read red, and the sharp null |
 | `tests/diagnostics/x17_generated_design/` | the generated-design term $c^\top \mathrm{IF}_\beta$ restores the standard-error ratio on the binary law |
 | `tests/unit/test_outcome_adaptive_per_arm.py` | an exact law on which the two designs differ, the curve of Theorem 1 row by row, in-sample and cross-fitted longhands to `1e-8`, the joint covariance, and fixed weights against duplicated rows. Its class `TestEachMutationFailsItsCheck` applies 13 mutations by `monkeypatch`, and each one fails its check |
 | `tests/unit/test_shared_oat_replay.py` | the shared design refits replication 0 of each registered `ctmle3` study to its committed rows |
@@ -352,12 +671,15 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 
 ### The applied revert
 
-`OAT_PER_ARM_INFERENTIAL` in `cleverly.estimators.ctmle` is `False`. Every per-arm fit takes
-`"generated_design_plugin"`, and the reason names condition (v) and the registered study.
+A per-arm fit takes `"generated_design_plugin"` unless `per_arm_parametric_support` in
+`cleverly.estimators.ctmle` admits it. The predicate replaced the global per-arm
+flag. Every fit with a scikit-learn learner takes the status, and the reason
+names condition (v) and the registered study.
 
-The study `ctmle-oat-per-arm` declared its positive coverage and calibration cells as the cells
-that the flag reads. Before the run, it declared that a red cell with no defect sets the flag to
-`False`. The table gives the run at the declared budgets.
+The study `ctmle-oat-per-arm` fits scikit-learn learners. It declared its positive coverage and
+calibration cells as the revert cells. Before the run, it declared that a red cell with no defect
+withholds the interval of every fit the study measures. The table gives the run at the declared
+budgets.
 
 | cells | standard-error ratio | coverage |
 | --- | --- | --- |
@@ -370,8 +692,8 @@ that the flag reads. Before the run, it declared that a red cell with no defect 
 | type I error at the sharp null | 0.88 | 0.904 |
 | the default band over the three-arm family | not applicable | 0.871 joint coverage |
 
-The shipped fit builds no band. The study's band cell sets the flag for its own fit only, so it
-measures the band that the per-arm design would build from its stacked curves.
+The shipped fit with scikit-learn learners builds no band. The study's band cell calls `simultaneous_bands` on the plug-in
+curves of its own fit. It measures the band that the per-arm design would build from those curves.
 
 The deficit does not shrink with $n$. The comparator-backed comparison with R `drtmle` 1.1.2, with
 `adapt_g = TRUE`, shows agreement with `cleverly` to `1e-8` in each estimate and standard error. The bias is equivalent to zero in each
@@ -398,10 +720,325 @@ reported curve, with the true $g_0$, on the binary law. Its `reading.txt` gives 
 The term needs the full mechanism $g_0$ and the influence function of the outcome learner. The
 per-arm design exists to avoid the first, and no source read here gives it for a flexible learner.
 [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) holds it.
-[X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) plans a
-corrected interval for a regular parametric outcome model. Until it ships, and outside its support
-predicate afterward, a per-arm fit withholds its interval. The point estimate stands, so the per-arm
-design stays the default.
+
+[X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) part (a)
+ships a corrected interval for a regular parametric outcome model. See
+[parametric per-arm intervals](#parametric-per-arm-intervals). Outside its support predicate, a
+per-arm fit withholds its interval. The point estimate stands, so the per-arm design stays the
+default.
+
+### Parametric per-arm intervals
+
+A per-arm fit with `ParametricOutcome` and `ParametricMechanism` reports an interval, in sample or
+cross-fitted, when `per_arm_parametric_support` admits it. The reported curve is the curve of one stacked
+Z-estimator. It is not the curve of Theorem 1, and it carries the generated-design term that
+condition (v) lets Theorem 1 drop. The registered study
+[`ctmle-oat-per-arm-parametric`](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md)
+measures the in-sample fit, and [X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome)
+part (a) delivered it. Part (c) adds the cross-fitted fit, which the next paragraphs call the
+V-fold stack. Parts (b) and (d) add three or more arms, known observation weights, the targets
+`ey_obs`, `par` and `paf`, and the simultaneous band.
+
+The module `cleverly.estimators._oat_stack` computes the curve.
+
+**The stack.** Let $x(A, W)$ be the declared outcome feature row, $x_a(W) = x(a, W)$, and
+$\phi$ the declared mechanism basis. Write $q_a = \operatorname{expit}(x_a^\top \beta)$,
+$R_a = 1\{A = a\}$ and $G_a = \operatorname{expit}(\phi(q_a)^\top \gamma_a)$. The bounds $(lo, hi)$
+clip $G_a$ to $\tilde G_a$, and $H_a = 1 / \tilde G_a$. The fit has four stages.
+
+| stage | parameter | estimating function for one row |
+| --- | --- | --- |
+| outcome GLM | $\beta$ | $x(A, W)\,(Y - \operatorname{expit}(x(A, W)^\top \beta))$ |
+| mechanism of arm $a$ | $\gamma_a$ | $\phi(q_a)\,(R_a - G_a)$ |
+| fluctuation of arm $a$ | $\epsilon_a$ | $R_a H_a (Y - Q^*_a)$, with $Q^*_a = \operatorname{clip}\big(\operatorname{expit}(\operatorname{logit}(\operatorname{clip}(q_a, 1 - \alpha, \alpha)) + \epsilon_a H_a),\, 1 - \alpha,\, \alpha\big)$ |
+| mean of arm $a$ | $\psi_a$ | $Q^*_a - \psi_a$ |
+
+The parameter $\theta = (\beta, \gamma_0, \epsilon_0, \gamma_1, \epsilon_1, \psi_0, \psi_1)$ solves
+$P_n U(\theta) = 0$, a square system of fixed dimension. Its Jacobian
+$A = E[\partial U / \partial \theta^\top]$ is block lower triangular in that order
+(Stefanski and Boos, 2002, Section 3). The curve of $\psi_a$ is the $\psi_a$ row of
+$-A_n^{-1} U_i(\theta_n)$, with every block of $A_n$ analytic and evaluated at $\theta_n$ (Saul and
+Hudgens, 2020, equation 2). The ATE curve is the difference of the two arm rows. `rr` and `or`
+apply the delta method to the two rows, and the arm covariance is the sample covariance of the two
+rows over $n$.
+
+No block reads $g_0$. Each block is a sample average of observed quantities. Where a population
+term reads $g_0(a \mid W)$, the sample block reads $R_a$, whose conditional mean is $g_0(a \mid W)$.
+So the correction needs no full-mechanism model. The full-mechanism route, which would add
+$c_a^\top \mathrm{IF}_\beta$ from a declared $g_0$, is dominated: it is correct only when the
+outcome model is correct and $\kappa_a = 1$. It is not built, and the refusal of a declared
+`treatment_probabilities=` by `CTMLE` stays.
+
+**The closed form.** Write $q = q_a(W)$, $v = q(1 - q)$ and $G = \tilde G_a$ at the limit. Define
+$d_a = E[v\, x_a]$ and $e_a = E[(g_0 / G)\, v\, x_a]$. The sample form of $e_a$ is
+$P_n[R_a H_a v x_a]$. Define
+
+$$
+\kappa_a = \frac{E[v / G]}{E[g_0\, v / G^2]},
+$$
+
+with the sample form $P_n[v H_a] / P_n[R_a v H_a^2]$.
+
+When the outcome model is correct, $\bar Q_0(a, W) = \operatorname{expit}(x_a^\top \beta^*)$, so
+$\epsilon_a^* = 0$ and $Q^*_a = q$. The blocks that carry a factor $\epsilon^*$ or
+$E[Y - q \mid A = a, W]$ vanish. The block $A_{\epsilon, \beta}$ equals $-e_a$ exactly. The
+triangular solve then gives
+
+$$
+\mathrm{IF}_{\psi_a} = (q - \psi_a) + \kappa_a R_a H_a (Y - q) + (d_a - \kappa_a e_a)^\top \mathrm{IF}_\beta .
+$$
+
+When the mechanism model holds for the projection and no bound binds, $G = P(A = a \mid q)$. The
+tower property gives $\kappa_a = 1$, and $d_a - e_a = E[(1 - g_0 / G)\, v\, x_a] = c_a$. The curve
+is then the oracle diagnostic of [the applied revert](#the-applied-revert), with the observed $R_a$
+in place of $g_0$. When the outcome model is wrong, $\epsilon_a^* \ne 0$, every block enters, and
+the curve is the general $-A^{-1} U$.
+
+The generated-design term $c_a^\top \mathrm{IF}_\beta$ is large when the outcome design holds a
+covariate that predicts treatment and not the outcome. The instrument $W_3$ of `binary_active` is
+one. The study's shipped-curve control reads a standard-error ratio of 0.85 on that law. The
+quadrature module `tests/studies/oat_parametric_quadrature.py` and `tests/unit/test_oat_stack.py`
+give each block a witness on a law where the block is nonzero.
+
+**Conditions.** The claim holds under the conditions of van der Vaart (1998), Theorem 5.21
+(Section 5.3, p. 52) for the stacked equations.
+
+| condition | text |
+| --- | --- |
+| C-model | The feature map and the basis are fixed before the fit, from a fixed vocabulary. They have fixed dimension, and the GLMs are unpenalized |
+| C-id | A unique $\theta^*$ solves $P U(\theta) = 0$. $A(\theta^*)$ is nonsingular. The maximum likelihood fits exist with probability tending to one, so there is no separation |
+| C-consistency | $\theta_n \to \theta^*$ in probability. Each stage is a concave log-likelihood or a monotone one-dimensional score, so consistency follows stage by stage under C-id |
+| C-Lipschitz | On a neighbourhood of $\theta^*$, $\lVert U_{t_1} - U_{t_2} \rVert \le \dot U \lVert t_1 - t_2 \rVert$ with $P \dot U^2 < \infty$, and $P \lVert U_{\theta^*} \rVert^2 < \infty$. The outcome score needs $E\lVert x \rVert^4 < \infty$ and $E\lVert \phi \rVert^4 < \infty$. With `g_bounds="auto"`, $G^*_a$ stays away from 0 and 1 |
+| C-clip | No clip has positive probability at $\theta^*$. The paragraph on clips below states the cases |
+| C-solve | Each fluctuation score is solved to $o_P(n^{-1/2})$. The fit tests `Fluctuation.converged` |
+| C-psi0 | For coverage of $\psi_0$, the outcome model is correct, or $\tilde G^*_a = g_0(a \mid \cdot)$ for each arm |
+
+C-id and C-solve can fail on one sample. The failure status below handles each failure.
+
+**What the interval covers.** The limit is $\psi^*_a = E[Q^*_a(W)]$ at $\theta^*$, where
+$\epsilon^*_a$ solves $E[(g_0 / \tilde G^*_a)(\bar Q_0(a, \cdot) - Q^*_a)] = 0$. So
+
+$$
+\psi^*_a - \psi_{0,a} = E\big[(1 - g_0 / \tilde G^*_a)\,(Q^*_a - \bar Q_0(a, \cdot))\big].
+$$
+
+The gap is zero when the outcome model is correct, because then $Q^*_a = \bar Q_0$. It is also zero
+when $\tilde G^*_a = g_0(a \mid \cdot)$ after the clip. Otherwise it is nonzero. The interval covers
+the arm mean $\psi_0$ when the outcome model is correct, and its limit $\psi^*$ otherwise. Dropping
+$W_1$ from the outcome features of `binary_active` moves the arm means from $\psi_0 = (0.4407, 0.5593)$
+to $\psi^* = (0.4041, 0.5959)$. The pseudo-true cells of the study cover $\psi^*$ at the nominal
+rate and cover $\psi_0$ at 0.31 to 0.57.
+
+The map $\psi^*(P)$ is defined by smooth equations. It is pathwise differentiable in the
+nonparametric model under the conditions above, and the stack is asymptotically linear with that
+gradient. So the estimator is regular for $\psi^*$, and its coverage of $\psi^*$ is locally uniform
+near each law that meets the conditions. For $\psi_0$ off the outcome model, the claim is regular
+only inside the model where the outcome GLM holds.
+
+The interval is pointwise. F19 keeps uniformity over the nonparametric model. The package claims no
+efficiency gain. Inside the parametric outcome
+model, the g-computation plug-in has the curve $(q - \psi) + d_a^\top \mathrm{IF}_\beta$, so this
+estimator is not more efficient than it there.
+
+**The clips and the `"auto"` bound.** Four clips act on the stack: `g_bounds` on $G_a$, `alpha` on
+$q_a$ before the logit, the outer re-shrink of $Q^*_a$, and the basis clip of $\operatorname{logit} q$.
+Each clip is Lipschitz, and its derivative is 0 or 1 off the kink. The Jacobian carries the
+indicator of the unclipped side. A binding `g_bounds` limit is inside the theory, because it only
+changes $\kappa_a$. The study cell `bounds_active` measures calibration with a limit that clips a
+share of the rows.
+
+Condition C-clip needs $P(\tilde G_{\gamma^*}(q^*) \in \{lo, hi\}) = 0$, $P(q^* \in \{1 - \alpha, \alpha\}) = 0$
+and $P(Q^*_a \in \{1 - \alpha, \alpha\}) = 0$, and the same for the basis clip. A continuous $W$
+and a nonconstant index meet it. A discrete $W$ can fail it. Under C-clip the map
+$\theta \mapsto P U_\theta$ is differentiable at $\theta^*$, and $A_n$ is consistent for $A$.
+
+`g_bounds="auto"` resolves to $lo_n = 5 / (\sqrt{n} \log n)$ and its complement. The stack treats
+the resolved bounds as constants of the fit. This is exact for the fit.
+
+Two consequences follow. The limit needs $G^*_a$ bounded away from 0 and 1, because $lo_n \to 0$.
+With a wrong outcome model, $\psi^*_n$ can move with $n$ while a bound binds, and the summary says
+so. The study cell `auto_bounds` runs the default on `binary_active` at $n = 1500$.
+
+**The alpha caveat.** When the inner `alpha` clip binds with positive probability and the outcome
+model is correct, $\epsilon^*_a = 0$. On those rows the pre-clip value of $Q^*_a$ equals the outer
+bound $\alpha$. The rows sit on the kink of the outer re-shrink at the limit, so C-clip fails. The
+Jacobian takes one side of the kink on each such row. The sign of the solved $\epsilon_a$ decides
+which side, and that value is zero only to the solver tolerance.
+
+The effect scales with $\alpha(1 - \alpha)$, the slope of $Q^*_a$ on the logit scale at the bound.
+At the default $\alpha = 0.9995$ the factor is about $5 \times 10^{-4}$, and the effect is
+negligible. For a user value such as $\alpha = 0.9$ the factor is 0.09, and the effect is not
+negligible. The registered study runs the default $\alpha$ only, so no cell measures a user
+$\alpha$.
+
+**The V-fold stack.** A cross-fitted fit is one Z-estimator over every fold. Each fold $k$ has
+its own outcome coefficients $\beta_k$ and its own mechanism coefficients $\gamma_{a,k}$. Each arm
+has one pooled $\epsilon_a$ and one whole-sample mean $\psi_a$. Write $v(i)$ for the validation
+fold of row $i$. The curve is $-A_n^{-1} U_i$ of this finite system, as in sample.
+
+| equation | rows that enter it | coefficients that it reads |
+| --- | --- | --- |
+| outcome GLM of fold $k$ | the training rows of fold $k$ | $\beta_k$ |
+| mechanism of arm $a$, fold $k$ | the training rows of fold $k$ | $\gamma_{a,k}$, on $\phi(q^k_a)$ with $q^k_a = \operatorname{expit}(x_a^\top \beta_k)$ |
+| fluctuation of arm $a$ | every row | $\beta_{v(i)}$, $\gamma_{a,v(i)}$ and $\epsilon_a$, with the clip state of fold $v(i)$ |
+| mean of arm $a$ | every row | $\beta_{v(i)}$, $\gamma_{a,v(i)}$, $\epsilon_a$ and $\psi_a$ |
+
+So a row enters the outcome and mechanism equations of each fold $k \ne v(i)$. It enters the
+fluctuation and mean equations at its own fold. With `cross_fit=False` the system has one fold, and
+it is the in-sample stack. `tests/unit/test_oat_crossfit_stack.py` gives each block a witness, and
+`tests/unit/test_oat_repeated_stack.py` gives each repeated draw one.
+
+The claim needs a fold count that stays fixed as $n$ grows. The predicate withholds the interval
+above `MAX_STACK_FOLDS` (20) folds, or when a held-out fold holds fewer than `MIN_STACK_FOLD_ROWS`
+(30) rows. Such a fit takes `"generated_design_plugin"` on the `n_folds` axis and keeps its point
+estimate.
+
+| `repeats` | what the fit reports |
+| --- | --- |
+| 1 | the V-fold stack of one draw |
+| above 1 | the median over draws, with the split-adjusted variance of `median_estimates` (Chernozhukov et al., 2018, equation 3.14) |
+
+`result.repeats[r].inference` keeps the status, standard error and curve of draw $r$ for each
+estimand. It also keeps `shipped_se`, the standard error of the draw's uncorrected
+adaptive-propensity curve. When the stack of one arm fails on one draw, the median takes
+`"stack_failure_plugin"` on the estimates that read that arm. Draws with different fit statuses
+make the median raise `ValueError`.
+
+A fit with `repeats` above 1, at least two estimates and the default `simultaneous=True` raises
+`CapabilityError`. The band would use the curve of one central draw and not the split-adjusted
+median estimator. The alternative is `simultaneous=False`, one estimate, or one split. The study
+cells of the repeated fit set `simultaneous=False`.
+
+**Three or more arms, weights and the population targets.** The stack extends to these cases
+without a new construction. The table states what changes.
+
+| extension | what the stack does | what the user declares |
+| --- | --- | --- |
+| $K$ arms | the outcome features carry $K - 1$ arm indicators and the covariates. One outcome GLM is shared. Each arm has its own mechanism, fluctuation and mean. The shared coefficients $\beta$ couple the arm curves, so the cross-arm covariance comes from the stacked curves | `ParametricOutcome(arm_columns=K - 1)`. A fit with another width raises `MethodConfigurationError` with the code `invalid_declaration`, for `TMLE` and for `CTMLE` |
+| `reference` | a contrast reads its arm and the reference arm. `par` and `paf` read the reference arm | the label of the reference arm |
+| fixed weights $w_i$ | every equation carries the mass $w_i / \sum_j w_j$. The curve of a row is $w_i$ times the stacked row of $-A_n^{-1} U_i$, and the mean $\psi_a$ is the weighted mean. The interval conditions on the weights | `weights=` with `target_weights=False` |
+| estimated weights | the same curve as the fixed-weight fit. The status is `"estimated_weight_plugin"` and the label is `"experimental"` | `weights_estimated=True` |
+| `ey_obs` | the weighted mean of $Y$, with the curve $w_i (Y_i - \bar Y_w)$. It reads no arm | none |
+| `par` | $\bar Y_w - \psi_{\mathrm{ref}}$. The curve is the `ey_obs` curve minus the stacked curve of the reference arm | the reference arm |
+| `paf` | $1 - \psi_{\mathrm{ref}} / \bar Y_w$, by the delta method on the same two curves | the reference arm |
+
+The registered study `ctmle-oat-per-arm-parametric-extensions` measures these cases. Its
+[evidence page](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-extensions.md) reports
+the declared run, and every gated cell passes. The exact SD of each curve comes from the quadrature
+module `tests/studies/oat_multi_arm_quadrature.py`. The tests `tests/unit/test_oat_multi_arm_stack.py`,
+`tests/unit/test_oat_population_weighted.py` and `tests/unit/test_oat_per_arm_k_arm_support.py` give
+each extension a witness on a law where it is nonzero.
+
+**The simultaneous band.** An admitted fit with the default `simultaneous=True` builds the max-t
+multiplier band over the stacked curves of its estimates.
+
+The band covers the estimates that supply inference. An estimate with the status `"stack_failure_plugin"` stays out of the band, the band is a
+joint statement over the others, and the summary names the estimate left out. Below two such
+estimates the fit builds no band. The band of a fit with `repeats` above 1 is refused, as
+the paragraph on `repeats` states.
+
+The label of the band comes from the `band` kind of the support rows. A band over a set that no
+row measures reports the `"experimental"` label.
+
+**The support labels of the stack.** Three registered studies cover the rows in the table. The
+study `ctmle-oat-per-arm-parametric` measures the in-sample binary fit. The study
+`ctmle-oat-per-arm-parametric-crossfit` fits `binary_active` with `n_folds=5`, at `repeats=1` and
+`repeats=3`, and its [evidence page](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md)
+reports the declared run. The study `ctmle-oat-per-arm-parametric-extensions` measures the other
+rows. Every gated cell of the three studies passes. Another admitted fit reports its interval with
+the `"experimental"` label.
+
+| fit | support row | label |
+| --- | --- | --- |
+| in sample, binary treatment, no weights, a subset of `ey0`, `ey1`, `ate`, `rr`, `or` | `C11.binary` | `"supported"` |
+| the same fit with `ey_obs`, `par` or `paf`, and the band over `ey0`, `ey1`, `ate`, `ey_obs`, `par` and `paf` | `C11.binary` | `"supported"` |
+| in sample, three arms, no weights, with `ey`, `ate`, `rr`, `or`, `ey_obs`, `par` and `paf` | `C11.k_arms` | `"supported"`. The band covers `ey` and `ate` |
+| in sample, binary treatment, fixed weights | `C11.weighted` | `"supported"` |
+| cross-fitted, `n_folds=5`, `repeats=1`, binary treatment, a subset of `ey0`, `ey1`, `ate`, `rr` and `or` | `C11.stacked` | `"supported"` |
+| cross-fitted, `n_folds=5`, `repeats=3`, binary treatment, a subset of `ey0`, `ey1` and `ate` | `C11.repeated` | `"supported"` |
+| cross-fitted, `n_folds=5`, binary treatment, fixed weights, `ey0`, `ey1` and `ate` | `C11.weighted_stacked` | `"supported"` |
+| cross-fitted, `n_folds=5`, three arms, no weights, `ey`, `ate` and the band | `C11.stacked_k_arms` | `"supported"` |
+| cross-fitted, `n_folds=5`, three arms, fixed weights, `ey` and `ate` | `C11.stacked_k_arms_weighted` | `"supported"` |
+| another `n_folds` inside the cap, or another `repeats` | the row of the fit | `"experimental"`, interval shown |
+| four or more arms, a weighted in-sample three-arm fit, repeats with weights, or estimated weights | none | `"experimental"`, interval shown |
+| a band over `rr` or `or`, or over a set that no row measures | none | `"experimental"`, interval shown |
+| cross-fitted, `repeats=3`, with `rr` or `or` | none | `"experimental"`, interval shown |
+| cross-fitted, a continuous outcome with declared `q_bounds` | none | `"experimental"`, interval shown |
+
+The support key does not hold the fold count or the repeat count. So the `CTMLE` preflight adds a
+condition for a fold count other than 5 and for a repeat count other than 1 or 3. The condition
+makes the fit experimental, and its reason names the measured value. Its evidence is
+[X58](../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome).
+`tests/unit/test_oat_per_arm_crossfit_support.py` and `tests/unit/test_oat_per_arm_k_arm_support.py`
+check each line of the table.
+
+**The support predicate.** `per_arm_parametric_support(estimator, data)` returns a
+`SupportVerdict`. The verdict holds `admitted`, `axis` and `detail`. The predicate is an
+allow-list over every constructor option of `TMLE` and `CTMLE`, in `PER_ARM_PARAMETRIC_OPTIONS`,
+and over the data properties in the table. `axis` names the first unmet requirement. The predicate
+reads the configuration and the prepared data. It never reads a fitted array. It checks the
+learner classes exactly, with `type(learner) is ParametricOutcome`, so a subclass is refused.
+`tests/unit/test_oat_per_arm_support.py` fails when an option has no entry.
+
+| axis | admitted value | owner of the refused value |
+| --- | --- | --- |
+| `strategy`, `oat_design` | `"oat"` and `"per_arm"` | F19 for the shared design |
+| `outcome_learner`, `treatment_learner` | exactly `ParametricOutcome` and exactly `ParametricMechanism` | F19 for a flexible learner |
+| `cross_fit` | `True` or `False` | none |
+| `n_folds` | with `cross_fit=True`, at most 20 folds and held-out folds of at least 30 rows, checked on the data | none. Outside the cap the fixed fold-count argument does not apply |
+| `repeats` | any positive integer | none |
+| `split_plan` | `None`. A supplied partition can depend on the data, and the V-fold argument needs fold labels independent of the data | none. A data-dependent partition needs its own theory step |
+| `cv_evaluation`, `targeting_scheme` | `False` and `"pooled"`. The stack has no per-fold fluctuation $\epsilon_{a,k}$ | none. `CTMLE` refuses both values at construction |
+| `simultaneous` | any value. The fit builds the band over the estimates that supply inference. With `repeats` above 1 and at least two estimates, the default value raises `CapabilityError` | none |
+| `family`, `fluctuation`, `targeting` | `"auto"`, `"binomial"` or `"gaussian"`; `"logistic"`; `"iterative"` | none |
+| `q_bounds` | a declared tuple for an outcome that is not binary, checked on the data | none |
+| `target_weights`, `screen_treatment` | `False` | none |
+| `stopping`, `step_bound`, `iterate`, `outcome_by_arm`, `patience` | `"relative"`, `None`, `"last"`, `False`, `None`. The stacked equations assume the solved fluctuation and one outcome model | none |
+| `interventions`, `policies`, `incremental`, `msm`, `learned_rule`, `density_bins` | none declared | none. `CTMLE` does not combine them with this design |
+| `preorder`, `ordering`, `candidates`, `ctmle_estimand` | `None`, `None`, `None`, `"ate"` | none |
+| `estimands` | a subset of `ate`, `rr`, `or`, `ey`, `ey0`, `ey1`, `ey_obs`, `par` and `paf` | none |
+| `treatment` | arm-coded, one column, any arm count. `ParametricOutcome(arm_columns=K - 1)` | none |
+| `weights` | none, or fixed weights with `target_weights=False` | none |
+| `strata`, `missing_outcome` | none | X52 part (b) |
+| `cluster` | none | X52 part (d) |
+| `missing_treatment`, `intermediate`, `known_treatment` | none | none |
+
+Every other option accepts any value, because the stack never reads it. `g_bounds`,
+`alpha`, `nuisance_bound`, `n_bootstrap` and `max_iter` are examples. A fit outside the allow-list
+takes `"generated_design_plugin"`, with the axis in the reason.
+
+**The failure status.** A failed stack on one arm is not a refusal of the fit. It gives the
+estimates that read the arm the parameter status `"stack_failure_plugin"`. The arm stack fails when
+one of three conditions holds.
+
+| condition | test |
+| --- | --- |
+| the fluctuation did not converge | `Fluctuation.converged` is false |
+| a diagonal block is singular | the equilibrated reciprocal condition number of the $\beta$, $\gamma_a$ or $\epsilon_a$ block of the Jacobian is below $10^{-12}$ |
+| the solver path met the outer re-shrink | $Q^*_a$ recomputed from $\epsilon_a$ differs from the fit's targeted predictions by more than $10^{-10}$, or a `retarget` moved `g_bounds` away from the declared bounds |
+
+A fit whose nuisances lack the learner coefficients, such as one that a `retarget` perturbed, fails
+on every arm. A row on which the outer re-shrink binds, with a recomputed $Q^*_a$ that matches, is a
+clip and not a failure. Its indicator is in the Jacobian.
+
+The status keeps the point estimate. `plugin_std_error` and `plugin_interval` report the shipped
+curve, which omits the generated-design term.
+
+The fit emits a `DataWarning` that names the arm and the failed condition. The arm mean of a sound
+arm keeps `"influence_curve"`. Every contrast of a binary fit reads both arms, so `ate`, `rr` and
+`or` take the status. A learner that cannot converge, or that meets separation, raises `DataError`
+before the stack. That error is a refusal of the fit.
+[Inference status](inference.md#inference-status) gives the reports that withhold the interval.
+
+**Evidence.** The table lists the instruments and what each cannot see.
+
+| instrument | what it checks | what it cannot see |
+| --- | --- | --- |
+| `tests/unit/test_oat_stack.py` | the stacked equations at the fitted $\theta_n$ to solver tolerance, the analytic Jacobian against a central finite difference, the curve against an exact-law quadrature, and deliberate-mutation controls that fail when a block, a clip mask or an arm index is wrong | the sampling distribution |
+| `tests/unit/test_parametric_learners.py` | the point estimate against the `ctmle-oat-per-arm` pipelines to `4e-14` | the uncertainty |
+| `tests/unit/test_oat_per_arm_support.py` | the predicate on each axis, the status of a failed stack, and the round trip through `save()` and `load()` | the sampling distribution |
+| the registered [parametric study](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | calibration of the SE ratio and coverage on six laws, two negative controls, the sharp null and power. Python property evidence, no comparator | cross-fitting, repeats, weights, strata, missing data, more than two arms, the band, a user `alpha` |
+| the registered [cross-fitted study](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) | calibration of the SE ratio and coverage of the V-fold stack at five folds from $n = 500$ to $n = 8000$, the median of three draws, the generated-design pair, two negative controls and the sharp null. Python property evidence, no comparator | a fold count other than 5, a repeat count other than 1 and 3, weights, strata, missing data, more than two arms, the band, a user `alpha` |
 
 ### Baseline strata and missing data in the per-arm design
 

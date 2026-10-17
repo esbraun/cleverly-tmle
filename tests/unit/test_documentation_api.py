@@ -66,6 +66,7 @@ EXAMPLE_TARGETS = (
     "cleverly.IPSIMethod",
     "cleverly.GComputationMethod",
     "cleverly.IPWMethod",
+    "cleverly.ParametricGFormulaMethod",
     "cleverly.ModelSpec",
     "cleverly.CrossFitting",
     "cleverly.SplitPlan",
@@ -421,3 +422,27 @@ def test_the_task_spine_names_only_objects_the_index_publishes() -> None:
         )
     )
     assert not unknown, f"example targets outside docs/api/object-index.rst: {unknown}"
+
+
+#: Entry points a reader calls by name that the curated site does not render.  The Sphinx
+#: build checks a rendered page's parameter list; these pages are not rendered, so this
+#: test applies the same numpydoc checks to them.
+UNRENDERED_ENTRY_POINTS = (
+    "cleverly.estimators.tmle.TMLE.fit",
+    "cleverly.data.causal_data.CausalData.from_frame",
+)
+PARAMETER_CHECKS = frozenset({"PR01", "PR02", "PR04", "PR10", "RT01"})
+
+
+@pytest.mark.parametrize("name", UNRENDERED_ENTRY_POINTS)
+def test_an_unrendered_entry_point_documents_each_parameter_as_name_and_type(
+    name: str,
+) -> None:
+    """Each parameter has one ``name : type`` entry, as ``docs/conf.py`` requires."""
+    validate = pytest.importorskip("numpydoc.validate")
+    errors = [
+        f"{code}: {message}"
+        for code, message in validate.validate(name)["errors"]
+        if code in PARAMETER_CHECKS
+    ]
+    assert not errors, f"{name} docstring findings: {errors}"

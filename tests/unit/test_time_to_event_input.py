@@ -335,6 +335,8 @@ def test_r10_a_container_built_with_another_grid_cause_map_or_dose() -> None:
         CausalStudy(_build(_frame()), design=TimeToEvent(**roles, continuous_treatment=True))
 
 
+# A dose on a grid of four values, which R-b4 of X40 refuses; the fixture turns it off.
+@pytest.mark.usefixtures("exact_grid_law")
 def test_a_continuous_dose_on_the_long_path_equals_the_wide_held_fit() -> None:
     """``continuous_treatment=True`` holds a dose over the grid, as ``treatment="D"`` does."""
 
@@ -362,7 +364,7 @@ def test_a_continuous_dose_on_the_long_path_equals_the_wide_held_fit() -> None:
     long: Any = LTMLE(regimens, n_folds=1, **learners).fit(data)
     columns = {**LAW.fit_columns(), "treatment": "D", "continuous_treatment": ["D"]}
     wide: Any = LTMLE(regimens, n_folds=1, **learners).fit(LAW.frame().assign(D=dose), **columns)
-    assert sorted(long.mechanism.densities) == [1]
+    assert sorted(long.mechanism.densities) == [(1, "D")]
     for name in wide.estimates:
         _same(long[name].psi, wide[name].psi)
 

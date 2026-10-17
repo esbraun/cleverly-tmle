@@ -12,12 +12,15 @@ deterministic-regimes,root_n_and_efficiency,coverage resolves,fixed at size
 incremental-interventions,root_n_and_efficiency,coverage resolves,fixed at size
 known-treatment-mechanism,root_n_and_efficiency,coverage resolves,fixed at size
 learned-rule-cvtmle,root_n_and_efficiency,coverage resolves,fixed at size
+longitudinal-incremental,root_n_and_efficiency,coverage resolves,fixed at size
 mar-attributable-tmle,root_n_and_efficiency,coverage resolves,fixed at size
 mar-drtmle,root_n_and_efficiency,coverage resolves,fixed at size
 mar-natural-course-tmle,root_n_and_efficiency,coverage resolves,fixed at size
 mar-tmle,root_n_and_efficiency,coverage resolves,fixed at size
 multi-arm-mar-drtmle,root_n_and_efficiency,coverage resolves,fixed at size
 point-msm,root_n_and_efficiency,coverage resolves,fixed at size
+point-survival-hazard,root_n_and_efficiency,coverage resolves,fixed at size
+point-survival-curve,root_n_and_efficiency,coverage resolves,fixed at size
 point-treatment-survival,root_n_and_efficiency,coverage resolves,fixed at size
 shift-policies,root_n_and_efficiency,coverage resolves,fixed at size
 stochastic-categorical-ltmle,root_n_and_efficiency,coverage resolves,fixed at size
@@ -30,3 +33,7 @@ tests.studies.longitudinal_sdr_properties,interval_calibration,coverage in calib
 learned-weighted-tmle,learner_weight_necessity,bias discriminated,implied by: alternative bias equivalent
 weighted-tmle,weight_necessity,bias discriminated,implied by: alternative bias equivalent
 longitudinal-repeated-outcome,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent
+tests.studies.long_horizon_categorical_ltmle_properties,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
+tests.studies.long_horizon_ltmle_properties,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
+tests.studies.long_horizon_sdr_properties,root_n_and_efficiency,coverage resolves,"fixed at size: the rung carries no claim at R = 1,000 because its Clopper-Pearson interval is narrower than the 0.05 gap between the coverage floor and nominal"
+longitudinal-repeated-ipsi,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent

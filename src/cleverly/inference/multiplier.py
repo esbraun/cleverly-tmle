@@ -132,6 +132,7 @@ from typing import Literal
 import numpy as np
 
 from .._inference_status import FEW_CLUSTER_THRESHOLD
+from .._support import UNCLASSIFIED, Support, combine_support
 from .._typing import BoolArray, FloatArray, IntArray
 from ..exceptions import CapabilityError, Refusal, RefusalReason, refuse_inference
 from .cluster import cluster_sums
@@ -188,6 +189,9 @@ class SimultaneousBands:
         Multiplier draws behind the critical value.
     kind : str
         Distribution the multiplier weights were drawn from.
+    support : Support, default=UNCLASSIFIED
+        The combination of the support of the estimates the band covers. A fit narrows it
+        further when its row licenses no ``band`` kind for the fit.
     """
 
     critical_value: float
@@ -195,6 +199,7 @@ class SimultaneousBands:
     alpha: float
     n_replicates: int
     kind: str
+    support: Support = UNCLASSIFIED
 
     @property
     def pointwise_critical_value(self) -> float:
@@ -530,4 +535,5 @@ def simultaneous_bands(
         alpha=alpha,
         n_replicates=n_replicates,
         kind=kind,
+        support=combine_support([estimate.support for _, estimate in items]),
     )

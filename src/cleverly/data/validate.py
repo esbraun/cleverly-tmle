@@ -24,6 +24,7 @@ __all__ = [
     "MISSING_TREATMENT_DECLARATION",
     "RANDOMIZED_INTERCEPT",
     "arm_indicators",
+    "atom_block",
     "check_binary",
     "check_covariates",
     "check_delta",
@@ -32,6 +33,7 @@ __all__ = [
     "encode_binary",
     "encode_continuous_treatment",
     "encode_treatment",
+    "encode_vector_treatment",
     "infer_family",
     "missing_values",
     "resolve_family",
@@ -206,6 +208,54 @@ def encode_treatment(
     return _check_arms(codes, levels_obj, name, min_per_arm), levels_obj
 
 
+def encode_vector_treatment(
+    values: np.ndarray, name: str, *, what: str = "vector treatment", remedy: str | None = None
+) -> tuple[FloatArray, tuple[object, ...]]:
+    """Encode the tuples of a categorical vector treatment as one level per observed tuple.
+
+    A vector of categorical components is one categorical treatment over the observed tuples
+    of its components (a finite partition), so the level limit of a categorical treatment
+    applies to the tuples.  The levels are the tuples in sorted order, and a row's code is its
+    tuple's index.
+
+    Parameters
+    ----------
+    values : ndarray
+        ``(n,)`` object array, one tuple of component labels per row.
+    name : str
+        The treatment's name, for the refusals.
+    what : str
+        What the refusals call the treatment.
+    remedy : str or None
+        What to suggest when the tuples exceed :data:`MAX_TREATMENT_LEVELS`.
+
+    Returns
+    -------
+    tuple
+        The ``(n,)`` float codes and the tuple levels.
+
+    Raises
+    ------
+    DataError
+        If the rows take more than :data:`MAX_TREATMENT_LEVELS` tuples, or one tuple only.
+    """
+    observed = list(np.asarray(values, dtype=object).reshape(-1).tolist())
+    try:
+        levels = tuple(sorted(set(observed)))
+    except TypeError:
+        levels = tuple(sorted(set(observed), key=repr))
+    if len(levels) > MAX_TREATMENT_LEVELS:
+        raise DataError(
+            f"{what} {name!r} takes {len(levels)} distinct tuples, more than the "
+            f"{MAX_TREATMENT_LEVELS} levels a categorical node accepts. "
+            + (CONTINUOUS_REMEDY if remedy is None else remedy)
+        )
+    if len(levels) < 2:
+        raise DataError(f"{what} {name!r} takes a single tuple {levels!r}")
+    lookup = {level: float(code) for code, level in enumerate(levels)}
+    return np.asarray([lookup[value] for value in observed], dtype=float), levels
+
+
 #: Below this many distinct values, a treatment declared continuous is *probably* a set of
 #: arms the caller forgot to declare -- so it warns.  It does not refuse, because a
 #: coarse support is not an obstacle to the estimator: the density on a handful of points
@@ -255,6 +305,41 @@ def encode_continuous_treatment(values: np.ndarray, name: str) -> FloatArray:
             stacklevel=3,
         )
     return numeric
+
+
+#: Two doses are the same declared atom when they agree to this tolerance, relative to the
+#: atom.  :func:`cleverly.interventions.policy._atom_index` reads the same value.
+ATOM_TOLERANCE = 1e-12
+
+
+def atom_block(dose: np.ndarray, atoms: Sequence[float]) -> FloatArray:
+    """A dose as a design block: the dose, then the indicator of each declared atom.
+
+    **The one place a declared atom enters a design matrix**, for a dose of one column and
+    for each continuous component of a vector.  The indicators are read from the values
+    given, so a counterfactual design reads the assigned dose.  A regression on a
+    positive-mass cell can then differ from its limit beside the atom, and a classifier
+    can represent the jump of the odds there.  Without atoms the block is the dose as one
+    column.
+
+    Parameters
+    ----------
+    dose : ndarray
+        ``(n,)`` doses.
+    atoms : sequence of float
+        The declared atoms of the dose.
+
+    Returns
+    -------
+    ndarray
+        ``(n, 1 + K)`` block, with ``K`` the number of declared atoms.
+    """
+    values = np.asarray(dose, dtype=float).reshape(-1)
+    columns = [values]
+    for atom in atoms:
+        tolerance = ATOM_TOLERANCE * max(1.0, abs(float(atom)))
+        columns.append((np.abs(values - float(atom)) <= tolerance).astype(float))
+    return np.column_stack(columns)
 
 
 def arm_indicators(codes: np.ndarray, n_levels: int) -> FloatArray:
