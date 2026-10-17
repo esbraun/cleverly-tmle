@@ -50,7 +50,7 @@ from .longitudinal import (
     SequentialIPW,
 )
 from .longitudinal import estimator as _sequential
-from .longitudinal.data import check_markov_order
+from .longitudinal.data import check_markov_order, markov_restriction
 from .longitudinal.estimator import (
     BASELINE_MSM_REFUSAL,
     BASELINE_TILT_REFUSAL,
@@ -3801,18 +3801,28 @@ class ExplicitAdjustmentProvider:
             longitudinal=True,
             history=history,
         )
+        identification = (
+            _LONGITUDINAL_TILT_IDENTIFICATION
+            if declares_tilt(regimens)
+            else _LONGITUDINAL_MTP_IDENTIFICATION
+            if declares_mtp(regimens)
+            else _LONGITUDINAL_POLICY_IDENTIFICATION
+            if declares_policy(regimens)
+            else _LONGITUDINAL_IDENTIFICATION
+        )
+        markov_order = getattr(design, "markov_order", None)
+        if markov_order is not None:
+            identification = replace(
+                identification,
+                model_restrictions=(
+                    *identification.model_restrictions,
+                    markov_restriction(markov_order),
+                ),
+            )
         return IdentifiedEffect(
             estimand=estimand,
             functional=functional,
-            identification=(
-                _LONGITUDINAL_TILT_IDENTIFICATION
-                if declares_tilt(regimens)
-                else _LONGITUDINAL_MTP_IDENTIFICATION
-                if declares_mtp(regimens)
-                else _LONGITUDINAL_POLICY_IDENTIFICATION
-                if declares_policy(regimens)
-                else _LONGITUDINAL_IDENTIFICATION
-            ),
+            identification=identification,
             provider=self,
             _study=study,
         )

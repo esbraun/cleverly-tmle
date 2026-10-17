@@ -382,6 +382,22 @@ def test_the_study_path_fits_the_windowed_designs() -> None:
     assert estimate.psi == pytest.approx(law.truth("markov1", (1, 1, 1)), abs=EXACT)
 
 
+@pytest.mark.parametrize("order", [None, 1])
+def test_the_identification_states_the_restriction(order: int | None) -> None:
+    design = LongitudinalTreatment(
+        outcome="Y",
+        treatment=["A1", "A2", "A3"],
+        baseline=["W"],
+        time_varying=[["L1"], ["L2"], ["L3"]],
+        markov_order=order,
+    )
+    identified = CausalStudy(law.frame("markov1"), design=design).identify(
+        RegimeMean({"always": 1})
+    )
+    expected = () if order is None else (markov_restriction(order),)
+    assert identified.identification.model_restrictions == expected
+
+
 def test_the_restriction_text_is_pinned() -> None:
     assert markov_restriction(1) == (
         "statistical-model restriction, Markov order 1: at every node the outcome regression "
