@@ -5,24 +5,54 @@ they read :mod:`tests.studies.survival_node_bounds_law` and fits on its 80 weigh
 The pilot numbers are records, not checks.  Each pilot drew from a ``SeedSequence`` label that
 no declared stream reads (``X33-study-design.md`` beside the plan names the scripts).
 
-* **n.**  The declared rule takes the smallest n in {1,000, 2,000, 4,000} with at least 40
-  expected events per arm by visit 5.  Arm 0 has 30.8 at 1,000 and 61.6 at 2,000.
+**The declaration** (this module, the study modules and the design note are one commit):
+
+* **Law.**  The declared law with two changes.  **D1**: the declaration names no marginal for
+  ``W``, and the study sets ``P(W1 = 1) = 0.3`` and ``P(W2 = 1) = 0.5``.  **D9**: the
+  treatment intercept is -0.5, not 0.3.  Together they balance the arms and thin the binding
+  cell ``(a = 1, W1 = 1, W2 = 0)``, so that no node of either arm is in the
+  ``constant_node_plugin`` regime at the declared n.
+* **n.**  The smallest n in {1,000, 2,000, 4,000} with at least 40 expected events per arm by
+  visit 5, and an exact union bound of at most 1e-6 on the chance that some arm has no event at
+  some visit.  The 40-event rule alone picks 1,000 (:func:`test_the_primary_n_follows_the_rule`).
+  The union bound at 1,000 is 2.0e-3 and at 2,000 is 5.3e-7, so n = 2,000.
+* **Failure bound.**  0.01 for each implementation, as the shipped studies declare.  A cell may
+  lose ``floor(0.01 R)`` replicates, and the accounting fills each lost value at its adverse
+  support bound.  A draw with no event for an arm at a visit reports ``constant_node_plugin``,
+  and the study translates it into a ``DataError``, which the driver records as a lost
+  replicate.  Conditioning on that event would change any statistic in [0, 1] by at most its
+  probability, so the recorded loss is stricter than conditioning.
 * **The factor.**  The declared factor 1.5 drops to 1.1 when the unbounded mean fit leaves the
   1.5 bounds on fewer than half of the draws.  The pilot rate is :data:`EXCEEDANCE_PILOT`.
-* **R.**  The smallest multiple of 200 at which the arm-pooled predictive rule on the
-  calibration pilot (:data:`CALIBRATION_PILOT`) gives the four gated calibration positives a
-  family-wise pass probability of at least 0.95.  It is 7,200, also a multiple of 400.  At
-  nominal behaviour 2,800 suffices.
-* **N.**  The control's exact-law limit at :data:`NECESSITY_N` clears the margin, the positive
-  arm's limit is zero, and the root pilot (:data:`ROOT_PILOT`) records no draw whose lowered
-  bound sat below the follower mean of the pseudo-outcome.
-* **W.**  The gated exceedance share is :data:`WITNESS_PILOT`, two Monte Carlo errors above one
-  half.  At n = 4,000 it falls below one half (:data:`WITNESS_PILOT_4000`).
+* **R.**  The smallest multiple of 400 at which the family-wise product over every gated cell
+  is at least 0.95: K by the arm-pooled predictive rule on :data:`CALIBRATION_PILOT`, W by its
+  predictive pass probability, and N.  The K rule alone gives the same value.  The pre-queue
+  review's pilot gave 6,400 and the pilot under the committed law code gave 7,200.  The
+  pilots are not pooled, and the larger value, 7,200, is declared.
+* **N.**  The control lowers every node (D6) at n = 16,000 (D7).  Its exact-law limit clears
+  the margin, the positive arm's limit is zero, and the root pilot (:data:`ROOT_PILOT`)
+  records no draw whose lowered bound sat below the follower mean of the pseudo-outcome.
+* **W.**  The gated exceedance and moved shares are :data:`WITNESS_PILOT`, several Monte Carlo
+  errors above one half.  The moved share reads ``F(5 | 1)`` and ``RD(5)`` (D5).
+* **D10.**  Node 1 retains every unit.  The container declares that factor known, as
+  ``survtmle`` sets ``g_dC = 1`` at the first time, so the pooled censoring model is correctly
+  specified.  No P-cell routes a convention gap; the comparator is pending.
 
-**Open blocker.**  At n = 2,000 an arm can have no event at a visit.  The shipped fit then
-refuses the standard errors that read that node, and the driver does not record that refusal,
-so the run stops.  The declared calibration stream reaches such a draw at replicate 1,245
-(:data:`REFUSED_CALIBRATION_REPLICATES`, a data-only scan).  The pre-queue review decides n.
+======  ==========================================================================
+id      deviation from the declaration
+======  ==========================================================================
+D1      ``P(W1 = 1) = 0.3``, ``P(W2 = 1) = 0.5``: the declaration names no marginal
+D2      the reported cells form the diagnostic family ``reported_calibration``
+D3      the hazard-model W cell is diagnostic: its moved share is about 0.1
+D4      the 1% unconverged rule is a cell verdict over a ``converged`` column
+D5      W exceedance reads targeted predictions (mean) and initial hazards (hazard); the
+        moved share reads ``F(5 | 1)`` and ``RD(5)``
+D6      N lowers every node, share 0.5
+D7      N at n = 16,000
+D8      one R for primary, K, W, C3 and N
+D9      the treatment intercept is -0.5
+D10     node 1 retention declared known; no convention gap is routed
+======  ==========================================================================
 
 Seeds: ``SEED`` and ``RESAMPLING_SEED`` are new, and no other registered study uses either.
 """
@@ -36,15 +66,17 @@ import numpy as np
 import pytest
 from scipy.stats import norm
 
+from cleverly.exceptions import DataError
+from cleverly.validation._failures import recordable
 from tests.studies import canonical_survival_node_bounds as study
 from tests.studies import survival_node_bounds_law as law
 from tests.studies import survival_node_bounds_properties as properties
 from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
 from tests.studies.evidence.registry import Margins, registered
-from tests.studies.evidence.seeds import stream_seed
 from tests.studies.mtp_study_tools import (
     CELL_TARGET,
     FAMILY_TARGET,
+    equivalence_power,
     necessity_power,
     pass_probabilities,
     pilot_sigma,
@@ -57,49 +89,36 @@ pytestmark = pytest.mark.xdist_group("survival_node_bounds_design")
 
 Z = float(norm.ppf(0.995))
 
-#: A record, not a check: the share of 800 pilot draws at n = 2,000 on which the unbounded fit
-#: leaves the valid bounds of each factor (``pilot_w.py``, ``SeedSequence([3333, n, draw])``).
-EXCEEDANCE_PILOT = {
-    ("mean_model", 1.5): 0.0512,
-    ("mean_model", 1.1): 0.5175,
-    ("hazard_model", 1.5): 0.0025,
-    ("hazard_model", 1.1): 0.4288,
+#: The pilot labels (``SeedSequence([label, n, draw])``); no declared stream reads them.  The
+#: declared streams spawn from ``SEED`` (``stream_seed``, ``replicate_seed``).
+PILOT_LABELS = {"exceedance": 7101, "calibration": 7102, "necessity": 7103}
+
+#: A record, not a check: the share of 1,200 pilot draws at n = 2,000 on which the unbounded fit
+#: leaves the valid bounds of each factor (``x33_pilot_w.py``).
+EXCEEDANCE_PILOT: dict[tuple[str, float], float] = {
+    ("mean_model", 1.5): 0.1125,
+    ("mean_model", 1.1): 0.5892,
+    ("hazard_model", 1.5): 0.0233,
+    ("hazard_model", 1.1): 0.4700,
 }
-#: A record, not a check: the share of the same draws on which the bounded and unbounded
-#: estimates differ by more than ``1e-4`` on some reported parameter.
-MOVED_PILOT = {
-    ("mean_model", 1.5): 0.3875,
-    ("mean_model", 1.1): 0.6787,
-    ("hazard_model", 1.5): 0.0037,
-    ("hazard_model", 1.1): 0.0612,
-}
-#: A record, not a check: the calibration pilot (``pilot_k.py``, ``SeedSequence([3336, draw])``)
-#: at the declared factor.  It drew 4,000 samples.  One (draw 1,626) has no arm-0 event at visit
-#: 3, and the shipped fit refuses its standard errors, so 3,999 are read.
-CALIBRATION_PILOT_DRAWS = 3_999
+#: A record, not a check: the calibration pilot (``x33_pilot_k.py``) at the declared factor.
+#: It drew 4,000 samples at n = 2,000.
+CALIBRATION_PILOT_DRAWS = 4_000
 #: The SE ratios of the four gated positives, in ``properties.CALIBRATION_LABELS`` order.
-CALIBRATION_PILOT = (0.990024, 1.00948, 0.989353, 1.008846)
-#: The W shares of the gated mean model on the same draws.
-WITNESS_PILOT = {"exceeds_bound": 0.5164, "estimate_moved": 0.6832}
-#: A record, not a check: the same pilot at n = 4,000 (2,000 draws,
-#: ``SeedSequence([3336, 4000, draw])``).
-WITNESS_PILOT_4000 = {"exceeds_bound": 0.3755, "estimate_moved": 0.5795}
-#: A record, not a check: the root pilot of N's control at ``NECESSITY_N`` (``pilot_n.py``,
-#: ``SeedSequence([3334, n, draw])``, 600 draws).  The gap is the lowered bound minus the
-#: clever-covariate-weighted follower mean of the pseudo-outcome.  ``worst_z`` is the smallest
-#: mean gap over its standard deviation, at arm 1, horizon 5, node 5.
-ROOT_PILOT = {"draws": 600, "negative_gaps": 0, "unconverged": 0, "worst_z": 3.71}
-#: A record, not a check: the positive arm's mean error at ``NECESSITY_N`` over the same 600
-#: draws, in its empirical standard deviations, and its Monte Carlo standard error.
-NECESSITY_POSITIVE_BIAS = (0.086, 0.041)
+CALIBRATION_PILOT = (0.9962, 0.9915, 0.9959, 0.9915)
+#: The W shares of the gated mean model on the same draws: the exceedance share and the share
+#: of ``F(5 | 1)`` and ``RD(5)`` that moved by more than ``1e-4``.
+WITNESS_PILOT = {"exceeds_bound": 0.5923, "estimate_moved": 0.6518}
+#: A record, not a check: the root pilot of N's control at ``NECESSITY_N`` (``x33_pilot_n.py``,
+#: 600 draws).  The gap is the lowered bound minus the clever-covariate-weighted follower mean
+#: of the pseudo-outcome.  ``worst_z`` is the smallest mean gap over its standard deviation.
+ROOT_PILOT = {"draws": 600, "negative_gaps": 0, "unconverged": 0, "worst_z": 3.85}
+#: A record, not a check: the positive arm's mean error at ``NECESSITY_N`` over the same draws,
+#: in its empirical standard deviations, and its Monte Carlo standard error.
+NECESSITY_POSITIVE_BIAS = (0.027, 0.041)
 NECESSITY_N = properties.NECESSITY_N
 #: The control's exact-law limit in the positive arm's standard deviations at ``NECESSITY_N``.
-NECESSITY_LIMIT = 0.5849
-#: A record, not a check: a data-only scan of the declared calibration stream
-#: (``stream_seed(STUDY, "property_sample", "calibration", r)``, r < 8,000).  No fit was read.
-#: In each of these replicates one arm has no event at one visit: ``replicate -> (arm, visit)``.
-#: The primary streams of both models hold no such draw below 8,000.
-REFUSED_CALIBRATION_REPLICATES = {1245: (0, 3), 7589: (0, 2), 7906: (0, 2)}
+NECESSITY_LIMIT = 0.604
 
 
 def _weighted_fit(model: str, **kwargs: Any) -> Any:
@@ -117,8 +136,10 @@ def test_the_declared_numbers() -> None:
     assert record.margins == Margins()
     assert (study.PRIMARY_N, study.SEED, study.RESAMPLING_SEED) == (2_000, 20263391, 2026339101)
     assert study.FAILURE_BOUND == properties.FAILURE_BOUND == 0.01
+    assert record.failure_bound == {"cleverly": 0.01, "survtmle": 0.01}
     assert record.pending_reference == "survtmle"
     assert "#302" in str(record.pending_reason)
+    assert "TODO" in str(record.pending_reason)
     assert properties.EFFICIENCY_RATIO_BAND == (0.90, 1.10)
     assert properties.SHRUNKEN_SE_FACTOR == 0.70
     assert (properties.WITNESS_SHARE, properties.WITNESS_MOVEMENT) == (0.5, 1e-4)
@@ -126,6 +147,7 @@ def test_the_declared_numbers() -> None:
     assert properties.UNCONVERGED_SHARE == 0.01
     assert (properties.NECESSITY_N, properties.NECESSITY_SHARE) == (16_000, 0.5)
     assert properties.NECESSITY_DISPLACEMENT == 0.25
+    assert (law.P_W1, law.P_W2, law.G_INTERCEPT) == (0.3, 0.5, -0.5)
 
 
 def test_the_study_draws_from_its_own_seeds() -> None:
@@ -148,6 +170,9 @@ def test_the_two_cell_maps_agree() -> None:
         f"{family}/{cell}" for family, cells in study.PROPERTY_CELLS.items() for cell in cells
     }
     assert named == declared
+    assert {(c.property, c.cell) for c in properties.declared_cells()} == {
+        tuple(name.split("/", 1)) for name in declared
+    }
 
 
 # ------------------------------------------------------------------ the law
@@ -174,29 +199,72 @@ def test_the_truths_by_the_observed_hazards() -> None:
             assert risks[arm] == pytest.approx(law.TRUTH[name], abs=1e-14)
         contrast = law.TRUTH[law.contrast_name(horizon)]
         assert risks[1] - risks[0] == pytest.approx(contrast, abs=1e-14)
-    assert law.TRUTH[law.risk_name("arm1", 5)] == pytest.approx(0.133619, abs=5e-7)
-    assert law.TRUTH[law.contrast_name(5)] == pytest.approx(0.049509, abs=5e-7)
+    expected = {
+        law.risk_name("arm1", 5): 0.119298,
+        law.risk_name("arm0", 5): 0.074794,
+        law.contrast_name(5): 0.044504,
+        law.risk_name("arm1", 3): 0.066562,
+        law.risk_name("arm0", 3): 0.041193,
+    }
+    for name, value in expected.items():
+        assert law.TRUTH[name] == pytest.approx(value, abs=5e-7), name
 
 
 def test_the_efficiency_bounds() -> None:
     expected = {
-        law.risk_name("arm1", 3): 0.3457,
-        law.risk_name("arm0", 3): 0.3470,
-        law.contrast_name(3): 0.4890,
-        law.risk_name("arm1", 5): 0.4579,
-        law.risk_name("arm0", 5): 0.4653,
-        law.contrast_name(5): 0.6509,
+        law.risk_name("arm1", 3): 0.4119,
+        law.risk_name("arm0", 3): 0.2602,
+        law.contrast_name(3): 0.4865,
+        law.risk_name("arm1", 5): 0.5481,
+        law.risk_name("arm0", 5): 0.3501,
+        law.contrast_name(5): 0.6488,
     }
     for name, value in expected.items():
         assert law.EFFICIENCY_SD[name] == pytest.approx(value, abs=5e-5), name
 
 
-def test_the_primary_n_is_the_smallest_with_forty_events_per_arm() -> None:
-    passing = [n for n in (1_000, 2_000, 4_000) if min(law.expected_events(n).values()) >= 40]
+def _event_cells(n: float) -> dict[tuple[int, int], float]:
+    """The expected events of each ``(arm, visit)`` cell in a sample of ``n``."""
+    mass: dict[tuple[int, int], float] = {}
+    for probability, a, _, _, history in law.records():
+        if history.event == 1:
+            key = (a, history.time)
+            mass[key] = mass.get(key, 0.0) + probability
+    return {key: n * value for key, value in mass.items()}
+
+
+def test_the_law_balances_the_arms_and_keeps_positivity() -> None:
+    """D1 and D9: no (arm, visit) is thin, and no unit is near the treatment boundary."""
+    events = _event_cells(study.PRIMARY_N)
+    assert len(events) == 10
+    low = min(events, key=lambda key: events[key])
+    assert low == (0, 1)
+    assert events[low] == pytest.approx(15.28, abs=0.01)
+    assert min(law.g(1, *cell) for cell in law.CELLS) == pytest.approx(0.289, abs=1e-3)
+    assert min(law.g(0, *cell) for cell in law.CELLS) == pytest.approx(0.5, abs=1e-3)
+    total = law.expected_events(study.PRIMARY_N)
+    assert total[0] == pytest.approx(85.6, abs=0.05)
+    assert total[1] == pytest.approx(86.8, abs=0.05)
+
+
+def test_the_primary_n_follows_the_rule() -> None:
+    """At least 40 expected events per arm by visit 5, and a union bound of at most 1e-6."""
+    forty = [n for n in (1_000, 2_000, 4_000) if min(law.expected_events(n).values()) >= 40]
+    assert forty[0] == 1_000
+    passing = [n for n in forty if law.no_event_bound(n) <= 1e-6]
     assert passing[0] == study.PRIMARY_N
-    events = law.expected_events(study.PRIMARY_N)
-    assert events[0] == pytest.approx(61.6, abs=0.05)
-    assert events[1] == pytest.approx(150.6, abs=0.05)
+    assert law.no_event_bound(1_000) == pytest.approx(2.0e-3, rel=0.01)
+    assert law.no_event_bound(2_000) == pytest.approx(5.3e-7, rel=0.01)
+    assert law.no_event_bound(4_000) < 1e-13
+
+
+def test_the_union_bound_matches_the_exact_law() -> None:
+    """The bound adds ``(1 - m)^n`` over the ten cells; it is the cell-level miss probability."""
+    events = _event_cells(1.0)
+    n = study.PRIMARY_N
+    assert law.no_event_bound(n) == pytest.approx(sum((1.0 - m) ** n for m in events.values()))
+    # Over a ~21,600-draw run the chance of any such draw stays near 1%.
+    assert 21_600 * law.no_event_bound(n) < 0.012
 
 
 @pytest.mark.parametrize("model", study.MODELS)
@@ -208,30 +276,54 @@ def test_the_exact_law_fit_returns_the_truth(model: str) -> None:
         assert standardized / law.EFFICIENCY_SD[name] < 1e-3, name
 
 
-def _no_event_probability(n: int) -> float:
-    """The chance that some arm has no event at some visit in a sample of ``n``."""
-    keep = 1.0
-    for arm in law.ARMS:
-        for visit in range(1, law.K + 1):
-            mass = sum(
-                probability
-                for probability, a, _, _, history in law.records()
-                if a == arm and history.event == 1 and history.time == visit
-            )
-            keep *= 1.0 - (1.0 - mass) ** n
-    return 1.0 - keep
+# ------------------------------------------------------------------ refusals
 
 
-def test_the_declared_calibration_stream_holds_refused_draws() -> None:
-    """The open blocker: at n = 2,000 the calibration stream reaches a refused draw."""
-    assert _no_event_probability(study.PRIMARY_N) == pytest.approx(3.03e-5, rel=0.01)
-    assert _no_event_probability(4_000) < 1e-9
-    for replicate, (arm, visit) in REFUSED_CALIBRATION_REPLICATES.items():
-        seed = stream_seed(study.STUDY, "property_sample", "calibration", replicate)
-        frame = law.draw(study.PRIMARY_N, seed)
-        events = (frame["A"] == arm) & (frame["time"] == visit) & (frame["event"] == 1)
-        assert not events.any()
-    assert min(REFUSED_CALIBRATION_REPLICATES) < study.REPLICATES
+def _without_events(arm: int, visit: int) -> Any:
+    frame = law.draw(study.PRIMARY_N, 20263391)
+    keep = ~((frame["A"] == arm) & (frame["time"] == visit) & (frame["event"] == 1))
+    return frame.loc[keep].reset_index(drop=True)
+
+
+@pytest.mark.parametrize("model", study.MODELS)
+def test_a_node_with_no_event_is_a_recordable_failure(model: str) -> None:
+    """The fit translates ``constant_node_plugin`` into a ``DataError`` the driver records."""
+    frame = _without_events(0, 3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(DataError, match="constant_node_plugin") as caught:
+            study.fit(model, frame)
+        # The same draw through the primary runner's replicate: it raises the same error.
+        truth = dict(law.TRUTH)
+        with pytest.raises(DataError, match="constant_node_plugin"):
+            study._replicate((model, 0, study.PRIMARY_N), (frame, truth))
+    assert recordable(caught.value)
+
+
+def test_a_draw_with_events_everywhere_is_not_refused() -> None:
+    frame = law.draw(study.PRIMARY_N, 20263391)
+    events = frame.loc[frame["event"] == 1].groupby(["A", "time"]).size()
+    assert len(events) == 10
+    for model in study.MODELS:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = study.fit(model, frame)
+        assert {result[name].inference for name in study.ESTIMANDS[model]} == {"influence_curve"}
+
+
+# ------------------------------------------------------------------ D10
+
+
+def test_node_one_retention_is_declared_known() -> None:
+    """No unit is censored before node 1, so the pooled censoring fit reads nodes 2 to 5."""
+    data = law.container(law.draw(500, 1))
+    known = data.known_mechanisms
+    assert known is not None
+    first, *rest = known.censoring
+    assert np.array_equal(np.asarray(first), np.ones(500))
+    assert all(item is None for item in rest)
+    assert len(rest) == law.K - 1
+    assert known.treatment == ()
 
 
 # ------------------------------------------------------------------ bounds
@@ -266,32 +358,56 @@ def test_the_factor_rule() -> None:
 # ------------------------------------------------------------------ R
 
 
-def _arm_pooled_replicates(step: int) -> int:
+def _predictive_share(replicates: int, rate: float, draws: int) -> float:
+    """The probability that a share of ``replicates`` draws reaches one half, over the pilot."""
+    spread = np.sqrt(rate * (1.0 - rate) * (1.0 / draws + 1.0 / replicates))
+    return float(norm.cdf((rate - properties.WITNESS_SHARE) / spread))
+
+
+def _positive_equivalence(replicates: int) -> float:
+    """The positive arm of N is equivalent to zero, predictive over its pilot error."""
+    bias, error = NECESSITY_POSITIVE_BIAS
+    grid = norm.ppf(np.linspace(0.005, 0.995, 199))
+    return float(np.mean([equivalence_power(bias + g * error, replicates) for g in grid]))
+
+
+def _calibration_pass(replicates: int) -> tuple[float, float]:
+    """The per-cell and the family-wise pass probability of the four calibration positives."""
     pilot = CALIBRATION_PILOT_DRAWS
     arms = len(CALIBRATION_PILOT)
     mean = float(np.mean(CALIBRATION_PILOT))
     shared = pilot_sigma(pilot) ** 2 / arms
     tau = max(tau_upper(pilot, arms), tau_from_pilot(CALIBRATION_PILOT, pilot))
-    for replicates in range(step, 40_001, step):
-        cell, family = pass_probabilities(replicates, mean, shared, tau, arms)
-        if family >= FAMILY_TARGET and cell >= CELL_TARGET:
-            return replicates
-    raise AssertionError("no R up to 40,000")
+    cell, family = pass_probabilities(replicates, mean, shared, tau, arms)
+    return float(cell), float(family)
 
 
-def test_the_replicates_follow_the_arm_pooled_rule() -> None:
+def _family_wise(replicates: int) -> float:
+    """The product over every gated cell: K, W and N."""
+    witness = _predictive_share(
+        replicates, WITNESS_PILOT["exceeds_bound"], CALIBRATION_PILOT_DRAWS
+    ) * _predictive_share(replicates, WITNESS_PILOT["estimate_moved"], CALIBRATION_PILOT_DRAWS)
+    necessity = necessity_power(NECESSITY_LIMIT, replicates) * _positive_equivalence(replicates)
+    return _calibration_pass(replicates)[1] * witness * necessity
+
+
+def test_the_replicates_follow_the_family_wise_product() -> None:
+    """R is the smallest multiple of 400 at which the product over every gated cell is 0.95."""
     assert len(CALIBRATION_PILOT) == len(properties.CALIBRATION_LABELS) == 4
+    first = next(r for r in range(400, 40_001, 400) if _family_wise(r) >= FAMILY_TARGET)
+    assert first == study.REPLICATES == 7_200
+    assert _family_wise(6_800) < FAMILY_TARGET <= _family_wise(7_200)
     rule = replicates_from_pilot(CALIBRATION_PILOT, CALIBRATION_PILOT_DRAWS)
     assert rule["screened"] == [True] * 4
     assert not rule["suspect"]
     assert rule["R"] == 7_200
-    assert _arm_pooled_replicates(200) == _arm_pooled_replicates(400) == 7_200
     assert study.REPLICATES == study.PRIMARY_REPLICATES == properties.CALIBRATION_REPLICATES
-    assert study.REPLICATES == properties.NECESSITY_REPLICATES == 7_200
+    assert study.REPLICATES == properties.NECESSITY_REPLICATES
+    assert study.REPLICATES % 400 == 0
 
 
 def test_the_nominal_calibration_rule() -> None:
-    """At nominal behaviour R = 2,800 suffices; the arm-pooled rule asks for more."""
+    """At nominal behaviour R = 2,800 suffices; the pilot-based rule asks for more."""
 
     def family(replicates: int) -> float:
         spread = np.sqrt(1.0 / (2.0 * (replicates - 1)))
@@ -307,16 +423,16 @@ def test_the_nominal_calibration_rule() -> None:
     assert family(study.REPLICATES) > 0.999
 
 
-def test_the_witness_is_marginal_at_the_declared_n() -> None:
-    """W's exceedance share sits two Monte Carlo errors above one half at n = 2,000."""
-    rate = WITNESS_PILOT["exceeds_bound"]
-    replicates = study.REPLICATES
-    point = norm.cdf((rate - 0.5) / np.sqrt(rate * (1 - rate) / replicates))
-    spread = np.sqrt(rate * (1 - rate) * (1 / CALIBRATION_PILOT_DRAWS + 1 / replicates))
-    assert point > 0.99
-    assert 0.94 < norm.cdf((rate - 0.5) / spread) < 0.96
-    assert WITNESS_PILOT["estimate_moved"] > 0.65
-    assert WITNESS_PILOT_4000["exceeds_bound"] < properties.WITNESS_SHARE
+def test_the_witness_clears_one_half_by_several_errors() -> None:
+    """W's gated shares sit several Monte Carlo errors above one half at n = 2,000."""
+    draws = CALIBRATION_PILOT_DRAWS
+    for key in ("exceeds_bound", "estimate_moved"):
+        rate = WITNESS_PILOT[key]
+        error = np.sqrt(rate * (1.0 - rate) / draws)
+        assert (rate - properties.WITNESS_SHARE) / error > 5.0, key
+        assert _predictive_share(study.REPLICATES, rate, draws) > 0.99, key
+    assert _family_wise(study.REPLICATES) >= FAMILY_TARGET
+    assert _calibration_pass(study.REPLICATES)[0] >= CELL_TARGET
 
 
 # ------------------------------------------------------------------ N

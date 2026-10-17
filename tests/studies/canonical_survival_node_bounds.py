@@ -19,11 +19,15 @@ model              construction
 =================  ==============================================================================
 
 Both models fit the treatment mechanism by an unpenalized logistic regression on ``W1 + W2``
-and the censoring mechanism by one unpenalized logistic regression pooled over every node, on
-``trt + W1 + W2 + t`` (``hazard_pooling="pooled"``).  Every fit is in sample (``n_folds=1``).
-The declared law is in each family, so every nuisance model is correctly specified, except that
-the additive logit of the scaled iterated mean is not saturated.  Its exact-law standardized
-bias is below ``1e-3`` SD at n = 2,000 (``tests/unit/test_survival_node_bounds_design.py``).
+and the censoring mechanism by one unpenalized logistic regression pooled over nodes 2 to 5, on
+``trt + W1 + W2 + t`` (``hazard_pooling="pooled"``).  No unit is censored before node 1, so the
+container declares node 1's retention known, with probability one
+(:func:`~tests.studies.survival_node_bounds_law.container`).  A declared-known node stays out of
+the pooled fit, which is ``survtmle``'s ``g_dC = 1`` at the first time.  Every fit is in sample
+(``n_folds=1``).  The declared law is in each family, so every nuisance model is correctly
+specified, except that the additive logit of the scaled iterated mean is not saturated.  Its
+exact-law standardized bias is below ``1e-3`` SD at n = 2,000
+(``tests/unit/test_survival_node_bounds_design.py``).
 
 **Valid bounds.**  ``l_t = 0`` and ``u_t = f`` times the largest at-risk iterated mean at node
 ``t`` over ``(a, W)`` and the horizons 3 and 5 (mean model), or ``f`` times the largest true
@@ -37,17 +41,21 @@ P2) on the same samples.  Its runs are pending (#302): the record declares
 comparator-pending label.  The R runner is written with the runs, on the local queue.  The
 Python cells K, N, W and C3 gate under the Python-studies rule.
 
-**Publication policy** is ``reporting``.  The red-cell route is declared in the declaration
-commit, before any run.  A dropped or failed replicate fails the run.  More than 1 per cent of
-unconverged replicates in a cell fails the run; N's control converges by design.  A red cell
-goes to the red-cell ledger, and an owner row enters the roadmap only for a red cell.  No re-run
-uses a new budget, margin or law.
+**Failure bound.**  ``failure_bound`` is 0.01 for each implementation (``FAILURE_BOUND``).  A
+cell may lose ``floor(0.01 R)`` replicates, and the accounting fills each lost value at its
+adverse support bound (``docs/development/method-benchmarking.md``).  More lost replicates turn
+the cell red.  A fit whose arm has no event at some visit reports ``constant_node_plugin``,
+and :func:`refuse_constant_nodes` records it as a lost replicate.  The design test bounds that
+chance by 5.3e-7 per draw at n = 2,000.
 
-**Not registered.**  The record is not in ``registered()`` and no run is queued.  At n = 2,000
-an arm can have no event at a visit, and the shipped fit then refuses that node's standard
-errors.  The driver does not record that refusal, so the run stops.  The declared calibration
-stream reaches such a draw at replicate 1,245 (``tests/unit/test_survival_node_bounds_design.py``).
-The pre-queue review decides n before the declaration commit.
+**Publication policy** is ``reporting``.  The red-cell route is declared in the declaration
+commit, before any run.  More than 1 per cent of unconverged replicates in a cell turns the cell
+red; N's control converges by design.  A red cell goes to the red-cell ledger, and an owner row
+enters the roadmap only for a red cell.  No re-run uses a new budget, margin or law.
+
+**Not registered.**  The record is not in ``registered()``, because a registered study needs
+its committed artifacts, and no run is queued.  The R runner and the ``survtmle`` image digest
+are not written (see ``pending_reason``).
 """
 
 from __future__ import annotations
@@ -60,6 +68,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.linear_model import LogisticRegression
 
+from cleverly.exceptions import DataError
 from cleverly.longitudinal import LTMLE
 from tests.parallel import STUDY_JOBS
 from tests.studies import survival_node_bounds_law as law
@@ -73,11 +82,12 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 from tests.studies.fractional_glm import QuasiBinomialGLM
 
-#: The smallest n in {1,000, 2,000, 4,000} with at least 40 expected events per arm by visit 5.
+#: The smallest n in {1,000, 2,000, 4,000} with at least 40 expected events per arm by visit 5
+#: and a union bound of at most 1e-6 on the chance that some arm has no event at some visit.
 PRIMARY_N = 2_000
-#: The smallest multiple of 200 (and of 400) at which the arm-pooled predictive rule on the
-#: 4,000-draw calibration pilot gives the four gated calibration positives a family-wise pass
-#: probability of at least 0.95 (``tests/unit/test_survival_node_bounds_design.py``).
+#: The smallest multiple of 400 at which the family-wise product over every gated cell (K by the
+#: arm-pooled predictive rule, W and N) is at least 0.95
+#: (``tests/unit/test_survival_node_bounds_design.py``).
 REPLICATES = 7_200
 PRIMARY_REPLICATES = REPLICATES
 SEED = 20263391
@@ -206,7 +216,27 @@ def fit(
     """One fit of ``model``: with the declared bounds, other bounds, or ``bounds=None``."""
     chosen = declared_bounds(model) if bounds == "declared" else bounds
     assert not isinstance(chosen, str)
-    return _estimator(model, chosen, **learners).fit(law.container(frame, weights=weights))
+    result = _estimator(model, chosen, **learners).fit(law.container(frame, weights=weights))
+    refuse_constant_nodes(model, result)
+    return result
+
+
+def refuse_constant_nodes(model: str, result: Any) -> None:
+    """Turn a ``constant_node_plugin`` estimate into a recorded failure of the replicate.
+
+    A node where an arm has no event has a constant regression target, and the shipped fit then
+    reports the plug-in without an interval.  The study measures the influence-curve interval,
+    so such a draw is a lost replicate, recorded by the driver at the shipped worst-case fill
+    (a study-local translation, as ``canonical_ctmle_oat_per_arm_parametric`` does for its
+    stacked curve).  The design test bounds the chance of the draw
+    (:func:`~tests.studies.survival_node_bounds_law.no_event_bound`).
+    """
+    for name in ESTIMANDS[model]:
+        status = result[name].inference
+        if status != "influence_curve":
+            raise DataError(
+                f"{name} reports the inference status {status!r}, not the influence curve"
+            )
 
 
 def initial_estimates(model: str, result: Any, names: Sequence[str]) -> dict[str, float]:
@@ -288,8 +318,11 @@ STUDY = StudyRecord(
     implementation="cleverly",
     pending_reference="survtmle",
     pending_reason=(
-        "the survtmle P1 and P2 runs are queued on the local study queue (#302); the runner "
-        "R script and the survtmle image digest are written and gated with them"
+        "the survtmle P1 and P2 runs are queued on the local study queue (#302). TODO: write "
+        "tests/canonical/survival_node_bounds_runner.R and pin the survtmle image digest; the "
+        "driver hashes the declared runner into the manifest, so both files must exist before "
+        "the Python run. D10 (node-1 pooled censoring) is declared known in the container, so "
+        "no convention gap is routed; the P-cells stay comparator pending"
     ),
     comparison="matching implementation",
     comparison_overrides={f"{HAZARD_MODEL}:*": "different estimator"},
@@ -331,8 +364,8 @@ REFERENCE_METADATA = {
     ),
     "pairing": (
         "the shipped default margins (paired difference 0.15 SD, RMSE ratio 1.10, coverage "
-        "-0.025, calibration 0.05), declared a priori; a convention gap above a default found "
-        "by the smoke routes that P-cell under reporting (D10)"
+        "-0.025, calibration 0.05), declared a priori; D10 (node-1 pooled censoring) is handled "
+        "by declaring node 1 known, and none is routed (comparator pending)"
     ),
 }
 
@@ -346,7 +379,8 @@ CONFIGURATION = {
     "outcome_learner": "quasibinomial IRLS on W1, W2 per arm (mean); logistic trt*(W1+W2)+t "
     "pooled (hazard)",
     "treatment_learner": "unpenalized logistic regression on W1, W2",
-    "censoring_learner": "unpenalized logistic regression on W1, W2, A, t pooled over nodes",
+    "censoring_learner": "unpenalized logistic regression on W1, W2, A, t pooled over nodes 2 to 5; "
+    "node 1 declared known (probability one)",
     "regimens": list(law.REGIMENS),
     "horizons": list(law.HORIZONS),
 }

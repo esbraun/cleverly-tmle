@@ -17,8 +17,9 @@ family                          cells, replications and size
                                 fits on the same draws (diagnostic, no verdict)
 ``binding_witness`` (W)         per model: the share of draws on which the unbounded fit leaves
                                 the declared bounds on some node-``t`` follower, and the share
-                                on which the bounded and unbounded estimates differ by more than
-                                :data:`WITNESS_MOVEMENT`; each share at least
+                                on which the bounded and unbounded estimates of ``F(5 | 1)`` or
+                                ``RD(5)`` differ by more than :data:`WITNESS_MOVEMENT`; each
+                                share at least
                                 :data:`WITNESS_SHARE`.  The mean model gates; the hazard model
                                 reports (:data:`WITNESS_GATED`)
 ``unbounded_fit`` (C3)          ``F(5 | 1)`` and ``RD(5)`` of each unbounded fit on the same
@@ -69,7 +70,7 @@ from tests.parallel import STUDY_JOBS
 from tests.studies import canonical_survival_node_bounds as study
 from tests.studies import survival_node_bounds_law as law
 from tests.studies.evidence import property_failures, property_verdicts
-from tests.studies.evidence.properties import REPLICATE_COLUMNS, replicate_row
+from tests.studies.evidence.properties import REPLICATE_COLUMNS, PropertyCell, replicate_row
 from tests.studies.evidence.property_verdicts import (
     DIAGNOSTIC_ROLE,
     apply_shared_verdicts,
@@ -213,6 +214,80 @@ NECESSITY = property_verdicts.Necessity(
 
 
 # ---------------------------------------------------------------------------- the grid
+
+
+class DeclaredLaw:
+    """The law a declared cell reads: the study's one law, with its exact truths.
+
+    Parameters
+    ----------
+    stream : str
+        The property stream the cell draws from.
+    """
+
+    def __init__(self, stream: str) -> None:
+        self.stream = stream
+        self.name = f"survival_node_bounds__{stream}"
+
+    def truth(self) -> dict[str, float]:
+        return dict(law.TRUTH)
+
+
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every sampled cell, with its role, estimand, size and replicate count.
+
+    A derived control (``shrunken_se_control``, ``noise_control``) is a cell of its positive
+    arm's draws, so it carries that arm's size and count.
+    """
+    cells: list[PropertyCell] = []
+
+    def add(family: str, cell: str, role: str, name: str, n: int, stream: str) -> None:
+        cells.append(
+            PropertyCell(
+                property=family,
+                cell=cell,
+                dgp=DeclaredLaw(stream),
+                outcome_learner=lambda: None,
+                treatment_learner=lambda: None,
+                n=n,
+                replicates=REPLICATES_OF[stream],
+                seed=stream_seed(STUDY, "property_sample", stream, 0),
+                role=role,
+                estimand=name,
+            )
+        )
+
+    for family, names in PROPERTY_CELLS.items():
+        for cell in names:
+            if family == "bound_necessity":
+                add(
+                    family,
+                    cell,
+                    "control" if cell.endswith("excluding_bound") else "positive",
+                    F5_ARM1,
+                    NECESSITY_N,
+                    "bound_necessity",
+                )
+                continue
+            label = cell.split("__")[0]
+            model = label.split("_model")[0] + "_model"
+            if family == "interval_calibration":
+                role = "positive" if cell.endswith("correctly_specified") else "control"
+            elif family == "binding_witness":
+                role = "positive" if model in WITNESS_GATED else DIAGNOSTIC_ROLE
+            else:
+                role = DIAGNOSTIC_ROLE
+            name = (
+                {**CALIBRATION, **REPORTED}[label][1]
+                if label in {**CALIBRATION, **REPORTED}
+                else F5_ARM1
+            )
+            add(family, cell, role, name, CALIBRATION_N, "calibration")
+    return tuple(cells)
+
+
+#: The replicate count of each stream.
+REPLICATES_OF = {"calibration": CALIBRATION_REPLICATES, "bound_necessity": NECESSITY_REPLICATES}
 
 #: Every fit set: ``(family, stream, n, replicates)``.
 FIT_SETS: tuple[tuple[str, str, int, int], ...] = (
@@ -364,7 +439,7 @@ def fit_drawn(payload: _Payload, frame: pd.DataFrame) -> list[dict[str, Any]]:
                 if model == mean
                 else study.hazard_exceedance(free, frame, bounds)
             )
-            moved = max(abs(bounded.psi(k) - free.psi(k)) for k in study.ESTIMANDS[model])
+            moved = max(abs(bounded.psi(k) - free.psi(k)) for k in (F5_ARM1, RD5))
             witness = _row(
                 "binding_witness",
                 f"{model}__binding",

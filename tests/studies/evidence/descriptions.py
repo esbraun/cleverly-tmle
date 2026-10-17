@@ -519,6 +519,27 @@ ARMS: dict[str, str] = {
     "msm_log_delta": "slope of the identity-link working model in log odds multiplier",
     "weighted_contrast_x0_5": "odds-x0.5 contrast on the law weighted by 1 + A1 + W/2",
     "survival_grid": "three plans by three horizons, the risks and six contrasts",
+    # ``survival-node-bounds`` (X33): the labels of its calibration, witness and necessity cells.
+    **{
+        f"{model}_{key}": f"{fit}, {words}"
+        for model, fit in (
+            ("mean_model", "iterated-mean fit with valid node bounds"),
+            ("hazard_model", "hazard fit with valid node bounds"),
+        )
+        for key, words in (
+            ("f5_arm1", "risk by visit 5 under arm 1"),
+            ("rd5", "risk difference by visit 5"),
+            ("f3_arm1", "risk by visit 3 under arm 1"),
+            ("f3_arm0", "risk by visit 3 under arm 0"),
+            ("f5_arm0", "risk by visit 5 under arm 0"),
+        )
+    },
+    "mean_model": "iterated-mean fit with valid node bounds, five visits",
+    "hazard_model": "hazard fit with valid node bounds, five visits",
+    "f5_arm1": (
+        "risk by visit 5 under arm 1 of the iterated-mean fit at n = 16,000, with a saturated "
+        "outcome regression and an intercept-only treatment mechanism"
+    ),
 }
 
 #: The labels of ``sequential-baselines``: an estimator, a law and a target.  Mirrored from
@@ -4180,6 +4201,73 @@ CELLS.update(
             "a main-terms model of a law with a quadratic dose term, fitted and extrapolated to "
             "a fixed dose",
             "reported only",
+        ),
+    }
+)
+
+
+# ``survival-node-bounds`` (X33): a point-treatment survival law with five visits and node bounds.
+SCENARIOS.update(
+    {
+        "mean_model": (
+            "point-treatment survival law with five visits, binary arm and two binary baseline "
+            "covariates; the iterated-mean fit, every node bounded"
+        ),
+        "hazard_model": (
+            "the same law; the pooled-hazard fit with per-horizon targeting, every node's hazard "
+            "bounded"
+        ),
+    }
+)
+PROPERTIES.update(
+    {
+        "reported_calibration": (
+            "the bounded fits' intervals for the parameters the bounds do not gate, reported "
+            "without a verdict"
+        ),
+        "binding_witness": (
+            "the declared bounds bind: the unbounded fit leaves them on at least half of the "
+            "draws, and the bounded estimates differ from the unbounded ones on at least half"
+        ),
+        "unbounded_fit": (
+            "the same fits without node bounds on the same draws, with the RMSE of the bounded "
+            "and unbounded fits side by side, reported without a verdict"
+        ),
+        "bound_necessity": (
+            "bounds that exclude the truth bias the bounded estimate beyond the margin, and valid "
+            "bounds do not"
+        ),
+    }
+)
+CELLS.update(
+    {
+        ("reported_calibration", "reported"): (
+            "the bounded fit on the draws of the calibration cells, for a parameter the bounds "
+            "do not gate",
+            "reported with no verdict",
+        ),
+        ("binding_witness", "binding"): (
+            "the share of draws on which the unbounded fit leaves the valid bounds on a node "
+            "follower, and the share on which the bounded and unbounded estimates of the risk "
+            "by visit 5 under arm 1 or of the risk difference differ by more than 1e-4",
+            "both shares at least one half for the iterated-mean fit; the hazard fit reports "
+            "its shares without a verdict",
+        ),
+        ("unbounded_fit", "unbounded"): (
+            "the identical fit with no node bounds, on the draws of the calibration cells",
+            "reported with no verdict",
+        ),
+        ("bound_necessity", "valid_bounds"): (
+            "the valid bounds, a saturated outcome regression and an intercept-only treatment "
+            "mechanism",
+            "bias interval must fall inside the margin",
+        ),
+        ("bound_necessity", "excluding_bound"): (
+            "the upper bound at every node lowered to half the way from the arm-1 follower mean "
+            "of the true iterated mean to its largest value, so it excludes the truth in the "
+            "high-risk covariate cells",
+            "the displacement from the valid-bounds fit must reach one quarter of the "
+            "valid-bounds standard deviation, and the bias interval must fall beyond the margin",
         ),
     }
 )

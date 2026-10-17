@@ -7,13 +7,16 @@ The law is the declaration of ``X22-plan.md`` II-3.4: a point treatment, binary 
 factor                          law
 ==============================  =============================================================
 ``W1``, ``W2``                  independent Bernoulli(:data:`P_W1`), Bernoulli(:data:`P_W2`)
-treatment                       :math:`g(1 \mid W) = \operatorname{expit}(0.3 + 0.5 W_1 - 0.4 W_2)`
+treatment                       :math:`g(1 \mid W) = \operatorname{expit}(-0.5 + 0.5 W_1 - 0.4 W_2)`
 event hazard at visit ``t``     :math:`h_t = \operatorname{expit}(-4.5 + 0.5 A + 0.6 W_1 - 0.4 W_2 + 0.1 t)`
 censoring hazard at ``t``       :math:`c_t = \operatorname{expit}(-4.0 + 0.2 A + 0.3 W_1 + 0.15 t)`
 ==============================  =============================================================
 
-The declaration names no marginal law for ``W``.  This module fixes both at one half
-(:data:`P_W1`, :data:`P_W2`); the design note records the choice.
+The declaration names no marginal law for ``W``.  This module fixes
+:math:`P(W_1 = 1) = 0.3` and :math:`P(W_2 = 1) = 0.5` (:data:`P_W1`, :data:`P_W2`; deviation D1),
+and lowers the treatment intercept from the declared 0.3 to -0.5 (deviation D9).  Together they
+balance the arms and thin the binding cell ``(a = 1, W1 = 1, W2 = 0)``, so that no node of either
+arm is in the ``constant_node_plugin`` regime at the declared n.  The design note records both.
 
 At visit ``t`` an event is checked first, and then a unit without an event is censored with
 probability :math:`c_t`.  A unit censored at visit ``t`` has ``time = t`` and ``event = 0``, so
@@ -22,6 +25,8 @@ probability :math:`c_t`.  A unit censored at visit ``t`` has ``time = t`` and ``
 censoring at one time).  Censoring at visit 5 ends nothing, because the study ends there.  So
 node ``t`` retains a unit at risk with probability :math:`1 - c_{t-1}`, and node 1 retains
 every unit.
+The fit declares that retention known (:func:`container`), as ``survtmle`` sets
+:math:`g_{dC} = 1` at the first visit.
 
 Every truth, iterated mean, bound and efficiency bound below is a finite sum over the four
 covariate cells, the two arms and the ten observed histories.  None of it calls the estimator.
@@ -44,9 +49,11 @@ from cleverly.longitudinal import LongitudinalData
 #: The node count and the grid of the time-to-event layout.
 K = 5
 GRID = tuple(float(t) for t in range(1, K + 1))
-#: The marginal laws of the two baseline covariates (not named by the declaration).
-P_W1 = 0.5
+#: The marginal laws of the two baseline covariates (not named by the declaration; D1).
+P_W1 = 0.3
 P_W2 = 0.5
+#: The intercept of the treatment mechanism (the declaration's 0.3 changed to -0.5; D9).
+G_INTERCEPT = -0.5
 #: The horizons the declared bounds read, and the horizons every fit reports.
 BOUND_HORIZONS = (3, 5)
 HORIZONS = (3, 5)
@@ -67,7 +74,9 @@ def p_w(w1: int, w2: int) -> float:
 
 def g1(w1: Any, w2: Any) -> Any:
     """:math:`P(A = 1 \\mid W)`."""
-    return expit(0.3 + 0.5 * np.asarray(w1, dtype=float) - 0.4 * np.asarray(w2, dtype=float))
+    return expit(
+        G_INTERCEPT + 0.5 * np.asarray(w1, dtype=float) - 0.4 * np.asarray(w2, dtype=float)
+    )
 
 
 def g(a: int, w1: int, w2: int) -> float:
@@ -354,6 +363,22 @@ def expected_events(n: int, horizon: int = K) -> dict[int, float]:
     return out
 
 
+def no_event_bound(n: int) -> float:
+    """The union bound on the chance that some arm has no event at some visit in ``n`` units.
+
+    An arm that has no event at a visit has a constant regression target there, and the shipped
+    fit reports the plug-in without an interval (``constant_node_plugin``).  The bound adds
+    :math:`(1 - m_{a,t})^n` over the ten ``(arm, visit)`` cells, where :math:`m_{a,t}` is the
+    probability that a unit is in arm ``a`` and has its event at visit ``t``.
+    """
+    mass: dict[tuple[int, int], float] = {}
+    for probability, a, _, _, history in records():
+        if history.event == 1:
+            key = (a, history.time)
+            mass[key] = mass.get(key, 0.0) + probability
+    return float(sum((1.0 - m) ** n for m in mass.values()))
+
+
 def draw(n: int, seed: int) -> pd.DataFrame:
     """One sample of ``n`` units: ``W1``, ``W2``, ``A``, ``time`` and ``event``."""
     rng = np.random.default_rng(seed)
@@ -377,8 +402,14 @@ def draw(n: int, seed: int) -> pd.DataFrame:
 
 
 def container(frame: pd.DataFrame, *, weights: str | None = None) -> LongitudinalData:
-    """The fit's container: the time-to-event converter on the integer grid."""
-    return LongitudinalData.from_time_to_event(
+    """The fit's container: the time-to-event converter on the integer grid.
+
+    Node 1 retains every unit, because no unit is censored before the first visit.  The
+    container declares that factor known (probability one), so the pooled censoring fit reads
+    nodes 2 to 5 only.  That is ``survtmle``'s ``g_dC = 1`` at the first time, and it makes the
+    pooled model correctly specified (D10).
+    """
+    data = LongitudinalData.from_time_to_event(
         frame,
         time="time",
         event="event",
@@ -386,6 +417,9 @@ def container(frame: pd.DataFrame, *, weights: str | None = None) -> Longitudina
         baseline=["W1", "W2"],
         grid=GRID,
         weights=weights,
+    )
+    return data.with_known_mechanisms(
+        censoring_probabilities={data.censoring_names[0]: np.ones(len(frame))}
     )
 
 
