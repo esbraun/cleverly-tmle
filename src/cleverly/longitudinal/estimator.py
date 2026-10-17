@@ -191,9 +191,12 @@ from ..methods import (
     IPSI_POINT_REFUSAL,
     IPSI_RATIO_TRIM_REFUSAL,
     LTMLE_TILT_REFUSAL,
+    NODE_BOUNDS_HAZARD_REFUSAL,
+    NODE_BOUNDS_MSM_REFUSAL,
     REPEATED_OUTCOME_REFUSAL,
     SDR_TILT_REFUSAL,
     baseline_no_fluctuation_refusal,
+    node_bounds_refusal,
     sdr_no_fluctuation_refusal,
 )
 from ..msm import MSM, refuse_msm_functions
@@ -265,6 +268,7 @@ from .regimen import (
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
 from .sequential import (
     Mechanism,
+    NodeBound,
     RegimenFit,
     _filled_matrix,
     constant_nodes,
@@ -1185,6 +1189,9 @@ class _LongitudinalReplayRecipe:
     #: Whether every regression a baseline estimator reads is a GLM, which decides its
     #: status.  Always ``True`` on a targeted fit, which does not read it.
     parametric: bool = True
+    #: The resolved node bounds of a TMLE fit by cause, ``None`` unless the fit declared any.
+    #: A replay refits the bounded nodes with the same bounds.
+    node_bounds: dict[str | None, dict[int, NodeBound]] | None = None
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a persisted recipe, then retake ownership of its plan matrices.
@@ -1261,6 +1268,7 @@ def _replay_recipe(
     step_search: bool = True,
     iterate: str = "last",
     normalization: str | None = None,
+    node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
 ) -> _LongitudinalReplayRecipe:
     """Freeze resolved plans and clone the unfitted recursive learner specifications.
 
@@ -1296,6 +1304,7 @@ def _replay_recipe(
         step_search=step_search,
         iterate=iterate,
         normalization=normalization,
+        node_bounds=node_bounds,
     )
 
 
@@ -1376,6 +1385,10 @@ class LongitudinalConfig:
     #: Whether each curve's reported levels and band limits were projected onto
     #: non-decreasing curves.
     isotonic: bool = False
+    #: The declared node bounds on the reported outcome scale, as
+    #: ``(cause, grid time, lower, upper)`` in declaration order.  ``cause`` is ``None`` unless
+    #: the fit declared competing risks.  Empty on a fit that declared none.
+    node_bounds: tuple[tuple[str | None, float, float, float], ...] = ()
     #: ``"tmle"`` for :class:`LTMLE`, ``"sdr"`` for :class:`SDR`, ``"ipsi"`` for
     #: :class:`IPSI`, ``"gcomp"`` for :class:`SequentialGComputation`, ``"ipw"`` for
     #: :class:`SequentialIPW` and ``"parametric_gformula"`` for :class:`ParametricGFormula`.
@@ -1582,6 +1595,15 @@ class LongitudinalConfig:
             lines.append(
                 f"known factors (declared, no learner): {', '.join(self.known_factors)}; no "
                 "truncation bound moved a declared value"
+            )
+        if self.node_bounds:
+            lines.append(
+                "node_bounds: "
+                + "; ".join(
+                    f"{'' if cause is None else f'{cause} '}t={time:g} in [{lower:g}, {upper:g}]"
+                    for cause, time, lower, upper in self.node_bounds
+                )
+                + " (bounded logistic fluctuation at the named nodes)"
             )
         if self.q_bounds is not None:
             lines.append(f"q_bounds: [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}]")
@@ -3241,6 +3263,7 @@ def _run_recursion(
     normalization: str | None = None,
     parametric: bool = True,
     gformula: GFormulaSettings | None = None,
+    node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
 ) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
     """Run the backward recursion over every reported cell, and file the fits by key.
 
@@ -3309,6 +3332,10 @@ def _run_recursion(
         the same flag, so the two agree.
     gformula : GFormulaSettings or None
         On a parametric g-formula fit, the simulation settings.
+    node_bounds : dict or None
+        On a TMLE fit, the resolved bound of each bounded node, by cause (``None`` is the
+        one cause of a fit without competing risks) and one-based node.  Only a TMLE fit
+        reads it.
 
     Returns
     -------
@@ -3395,7 +3422,15 @@ def _run_recursion(
     if msm is None:
         return {
             _fit_key(plan.label, cause, horizon, data.reports_curve): _with_node_ratio(
-                fit_regimen(data, plan, mechanism, horizon=horizon, cause=cause, **recursion),
+                fit_regimen(
+                    data,
+                    plan,
+                    mechanism,
+                    horizon=horizon,
+                    cause=cause,
+                    node_bounds=None if node_bounds is None else node_bounds.get(cause),
+                    **recursion,
+                ),
                 ratios[plan.label],
                 mechanism,
             )
@@ -4202,6 +4237,8 @@ class _SequentialEstimator:
     targeting: str = "iterative"
     step_size: float = 1e-3
     isotonic: bool = False
+    #: The declared node bounds.  Only :class:`LTMLE` takes them.
+    node_bounds: Mapping[Any, Any] | None = None
 
     #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
     #: regimen this estimator fits.  Only a model-based estimator accepts one.
@@ -4399,6 +4436,7 @@ class _SequentialEstimator:
             "step_bound": None,
             "step_search": True,
             "iterate": "last",
+            "node_bounds": None,
         }
 
     def _normalization(self) -> str | None:
@@ -4799,6 +4837,8 @@ class _SequentialEstimator:
         # clusters.
         check_integrity(folds, cluster=prepared.cluster)
         scaler = self._scaler(prepared)
+        # Before any learner: a bound the data cannot hold is a declaration error.
+        resolved_bounds, declared_bounds = self._resolve_node_bounds(prepared, scaler)
         # A cumulative path probability is not a point-treatment propensity.  There is no
         # automatic rule here: the constructor default is the visible fixed R ``ltmle``
         # heuristic, and every other accepted value is an explicit scalar or pair.
@@ -4815,6 +4855,7 @@ class _SequentialEstimator:
         # Build this record before the first backward pass. It holds only cloneable
         # unfitted templates and the already-resolved plan matrices, never a fitted Q.
         targeting = self._targeting()
+        targeting["node_bounds"] = resolved_bounds
         replay_recipe = _replay_recipe(
             plans,
             outcome_learner,
@@ -5025,6 +5066,7 @@ class _SequentialEstimator:
             targeting=self.targeting,
             step_size=float(self.step_size),
             isotonic=self.isotonic,
+            node_bounds=declared_bounds,
         )
         status = _trimmed_status(
             _inference_status(prepared, folds, estimator=self._estimator, parametric=parametric),
@@ -5248,6 +5290,7 @@ class _SequentialEstimator:
             self._estimator in ("tmle", "sdr")
             and not hazard
             and not self.isotonic
+            and self.node_bounds is None
             and model is None
             and folds.is_single
             and prepared.cluster is None
@@ -5585,6 +5628,107 @@ class _SequentialEstimator:
                 classification, status, (estimate.support for estimate in estimates.values())
             ),
         )
+
+    def _resolve_node_bounds(
+        self, data: LongitudinalData, scaler: OutcomeScaler
+    ) -> tuple[
+        dict[str | None, dict[int, NodeBound]] | None,
+        tuple[tuple[str | None, float, float, float], ...],
+    ]:
+        """Check the declared node bounds against the fit, before any learner.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel, whose grid and causes the keys must name.
+        scaler : OutcomeScaler
+            The outcome transformation, whose range the bounds must lie in.
+
+        Returns
+        -------
+        resolved : dict or None
+            The bound of each bounded node on the ``[0, 1]`` scale, by cause (``None`` for a
+            fit without competing risks) and one-based node.  ``None`` when no node is bounded.
+            A node whose bounds equal the outcome range is the shipped node and is left out.
+        declared : tuple
+            ``(cause, grid time, lower, upper)`` on the reported scale, in declaration order.
+
+        Raises
+        ------
+        ValueError
+            When a key is not a grid time or a declared cause, when ``lower >= upper``, or when
+            a bound lies outside the outcome range.
+        """
+        if self.node_bounds is None:
+            return None, ()
+        grid = (
+            tuple(data.time_grid)
+            if data.time_grid is not None
+            else tuple(range(1, data.n_times + 1))
+        )
+        causes = tuple(data.cause_labels)
+        if causes:
+            entries: list[tuple[str | None, Any, Any]] = []
+            for cause, mapping in self.node_bounds.items():
+                if cause not in causes:
+                    raise ValueError(
+                        f"node_bounds names cause {cause!r}; this fit declared {list(causes)}"
+                    )
+                if not isinstance(mapping, Mapping):
+                    raise ValueError(
+                        f"node_bounds for cause {cause!r} must map grid times to (lower, upper) "
+                        f"pairs; got {type(mapping).__name__}"
+                    )
+                entries.extend((cause, key, value) for key, value in mapping.items())
+        else:
+            entries = [(None, key, value) for key, value in self.node_bounds.items()]
+        resolved: dict[str | None, dict[int, NodeBound]] = {}
+        declared: list[tuple[str | None, float, float, float]] = []
+        for cause, key, value in entries:
+            node = next(
+                (
+                    index
+                    for index, point in enumerate(grid, start=1)
+                    if isinstance(key, (int, float, np.number)) and float(key) == float(point)
+                ),
+                None,
+            )
+            if node is None:
+                raise ValueError(
+                    f"node_bounds names grid time {key!r}, which is not a node of this fit; "
+                    f"its grid is {list(grid)}"
+                )
+            try:
+                lower, upper = (float(bound) for bound in value)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"node_bounds at {key!r} must be a (lower, upper) pair of numbers; "
+                    f"got {value!r}"
+                ) from None
+            if not lower < upper:
+                raise ValueError(
+                    f"node_bounds at {key!r} needs lower < upper; got ({lower!r}, {upper!r})"
+                )
+            if lower < scaler.lower or upper > scaler.upper:
+                raise ValueError(
+                    f"node_bounds at {key!r} lies outside the outcome range "
+                    f"[{scaler.lower:g}, {scaler.upper:g}]"
+                )
+            declared.append((cause, float(grid[node - 1]), lower, upper))
+            scaled = (
+                float((lower - scaler.lower) / scaler.range),
+                float((upper - scaler.lower) / scaler.range),
+            )
+            if scaled == (0.0, 1.0):
+                continue
+            resolved.setdefault(cause, {})[node] = NodeBound(
+                lower=scaled[0],
+                upper=scaled[1],
+                time=key,
+                reported=(lower, upper),
+                outcome=scaler,
+            )
+        return (resolved or None), tuple(declared)
 
     def _scaler(self, data: LongitudinalData) -> OutcomeScaler:
         """The outcome transformation, refusing a bound that cannot apply.
@@ -5982,6 +6126,22 @@ class LTMLE(_SequentialEstimator):
         time as a column (:mod:`cleverly.longitudinal.pooled_hazards`).  Under
         ``survival_model="hazard"`` it also fits each cause's hazard once over the eligible
         rows of every node.
+    node_bounds : mapping or None
+        A declared outcome range for chosen nodes of an iterated-mean fit.  The keys are grid
+        times, the values are ``(lower, upper)`` pairs on the reported outcome scale, and a
+        competing-risk fit takes one such mapping for each cause name.  A named node regresses
+        ``(Y - lower) / (upper - lower)`` with the pseudo-outcome learner, clips the prediction
+        to ``[0, 1]`` and maps it back into the bounds.  It fluctuates along the logit of the
+        rescaled prediction (Gruber and van der Laan 2010), so its targeted prediction stays
+        inside the bounds.  A node with no entry, and ``None``, give the shipped fit bit for
+        bit, and so does a node whose bounds equal the outcome range.  The score equation of
+        a bounded node has a root only when the weighted mean outcome of the node's followers
+        lies strictly inside the bounds.  Otherwise the node runs no Newton step, the fit warns
+        with :class:`~cleverly.exceptions.ConvergenceWarning`, and the node reports
+        ``failure="bound_excludes_data"`` and ``converged=False``.  A grid time that is not a
+        node, a cause the fit did not declare, ``lower >= upper`` and bounds outside the outcome
+        range raise ``ValueError`` before any learner.  ``survival_model="hazard"`` and ``msm=``
+        raise :class:`~cleverly.exceptions.CapabilityError`.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
@@ -6029,8 +6189,10 @@ class LTMLE(_SequentialEstimator):
         isotonic: bool = False,
         ratio_trim: float | None = None,
         hazard_pooling: str = "node",
+        node_bounds: Mapping[Any, Any] | None = None,
         **refused: Any,
     ) -> None:
+        self.node_bounds = node_bounds
         self.alpha = alpha
         self.max_iter = max_iter
         self.tol = tol
@@ -6085,6 +6247,16 @@ class LTMLE(_SequentialEstimator):
         check_iterate(self.iterate, "logistic")
         check_stopping_rule(self.stopping, "logistic")
         check_step_bound(self.step_bound, self.step_search, "logistic")
+        if self.node_bounds is not None:
+            if not isinstance(self.node_bounds, Mapping):
+                raise ValueError(
+                    "node_bounds must map grid times to (lower, upper) pairs, or one such "
+                    f"mapping to each cause; got {type(self.node_bounds).__name__}"
+                )
+            if self.survival_model == "hazard":
+                raise CapabilityError(refusal=NODE_BOUNDS_HAZARD_REFUSAL)
+            if self.msm is not None:
+                raise CapabilityError(refusal=NODE_BOUNDS_MSM_REFUSAL)
 
     def _targeting(self) -> dict[str, Any]:
         """The logistic shrink, the iteration limit, the score tolerance and the step rules."""
@@ -6096,6 +6268,7 @@ class LTMLE(_SequentialEstimator):
             "step_bound": self.step_bound,
             "step_search": self.step_search,
             "iterate": self.iterate,
+            "node_bounds": None,
         }
 
 
@@ -6257,6 +6430,8 @@ class SDR(_SequentialEstimator):
         hazard_pooling: str = "node",
         **refused: Any,
     ) -> None:
+        if "node_bounds" in refused:
+            raise MethodConfigurationError.from_refusal(node_bounds_refusal("the SDR estimator"))
         named = [name for name in SDR_REFUSED_SETTINGS if name in refused]
         if named:
             raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(named[0]))
@@ -6512,6 +6687,8 @@ class IPSI(_SequentialEstimator):
         hazard_pooling: str = "node",
         **refused: Any,
     ) -> None:
+        if "node_bounds" in refused:
+            raise MethodConfigurationError.from_refusal(node_bounds_refusal("IPSI"))
         if any(name in refused for name in IPSI_REFUSED_SETTINGS):
             raise MethodConfigurationError.from_refusal(IPSI_NO_FLUCTUATION)
         if refused.pop("ratio_trim", None) is not None:
@@ -6745,6 +6922,10 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         msm: MSM | None = None,
         **refused: Any,
     ) -> None:
+        if "node_bounds" in refused:
+            raise MethodConfigurationError.from_refusal(
+                node_bounds_refusal("the sequential g-computation and IPW estimators")
+            )
         named = [name for name in SDR_REFUSED_SETTINGS if name in refused]
         if named:
             raise MethodConfigurationError.from_refusal(baseline_no_fluctuation_refusal(named[0]))
@@ -7879,6 +8060,7 @@ def _refit_bound(
             iterate=recipe.iterate,
             normalization=recipe.normalization,
             parametric=recipe.parametric,
+            node_bounds=recipe.node_bounds,
         )
     # The fit reports the projected levels, so the replay projects them too.
     if recipe.isotonic:

@@ -1710,6 +1710,10 @@ treatments cover censored fits.
 Acceptance: the registered cells, and a support case in `tests/studies/support_cases.py`. This
 row ships after the beta release (owner decision, 2026-10-16).
 
+### X78. Bounded hazards and targeting rules on the hazard walk
+
+The hazard walk of survival_model="hazard" takes no node_bounds=, stopping=, iterate= or step_bound=.
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
