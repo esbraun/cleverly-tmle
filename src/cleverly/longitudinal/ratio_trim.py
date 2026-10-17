@@ -168,7 +168,12 @@ def node_ratio_entries(data: LongitudinalData, plan: Plan, mechanism: Mechanism)
     rows = np.arange(data.n)
     for time in range(1, data.n_times + 1):
         observed = mechanism.treatment_observed[time - 1]
-        if observed.shape[1]:
+        if data.node_kind(time) == "mixed":
+            # The slot of a mixed node holds 0.0 on every present row, so it is no cell code.
+            # The mechanism's factor is the observed cell's probability on the density route
+            # and one on the classifier route, both at the observed history.
+            treatment = np.asarray(mechanism.treatment[time - 1][plan.label], dtype=float)
+        elif observed.shape[1]:
             codes = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
             treatment = observed[rows, codes]
         else:

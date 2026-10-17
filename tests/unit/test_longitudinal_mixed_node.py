@@ -1094,3 +1094,78 @@ def test_cross_fitted_sdr_at_mixed_nodes_is_exact_when_each_fold_is_the_law(
     """Two folds, each one exact copy: the training-fold recursion reads ``fit_rows``."""
     result = _sdr_fit(ratio, copies=2, monkeypatch=monkeypatch)
     assert sdr_deviation(result, copies=2) < EXACT
+
+
+# ------------------------------------------------------------------ ratio_trim (X33 part d)
+
+
+@pytest.mark.parametrize("ratio", ["classifier", "density"])
+@pytest.mark.parametrize("design", ["end", "censored"])
+def test_the_per_node_ratio_of_a_trim_reads_the_observed_cell(ratio: str, design: str) -> None:
+    """``node_ratio_entries`` at a mixed node is ``q / (g_C(C_t) c_t)`` at the observed cell.
+
+    On the density route the categorical factor :math:`g_C` sits in the denominator.  The
+    slot of a mixed node holds ``0.0`` on present rows, so a reader that indexed the cell
+    matrix with it divided by the probability of cell zero.  The nonzero witness is the rows
+    whose flag is one, where the two cell probabilities differ.  On the classifier route the
+    whole treatment factor is the numerator, so the denominator is the retention alone.
+    """
+    exact = mtp.exact_bins() if ratio == "density" else contextlib.nullcontext()
+    with exact:
+        result = fit(design=design, ratio=ratio, ratio_trim=0.99)
+    mechanism = result.mechanism
+    frame = law.mixed_frame(design)
+    rows = np.arange(len(frame))
+    witnessed = 0
+    for time in (1, 2):
+        cells = mechanism.treatment_observed[time - 1]
+        flag = frame[f"F{time}"].to_numpy(dtype=float)
+        present = ~np.isnan(flag)
+        if ratio == "density":
+            assert cells.shape == (len(frame), 2)
+            g_cell = cells[rows, np.nan_to_num(flag, nan=0.0).astype(np.int64)]
+            moved = present & (flag == 1.0) & ~np.isclose(cells[:, 1], cells[:, 0])
+            witnessed += int(np.count_nonzero(moved))
+        else:
+            assert cells.shape == (len(frame), 0)
+            g_cell = np.ones(len(frame))
+        if design == "censored":
+            stayed = frame[f"C{time}"].to_numpy(dtype=float) == 1.0
+            retention = mechanism.censoring_observed[time - 1]
+        else:
+            stayed = np.ones(len(frame), dtype=bool)
+            retention = np.ones(len(frame))
+        for label in LABELS:
+            numerator = mechanism.policy_numerators[label][time]
+            denominator = g_cell * retention
+            safe = np.where(denominator > 0.0, denominator, 1.0)
+            hand = np.where(present & stayed & (denominator > 0.0), numerator / safe, 0.0)
+            trim = result.fits[label].ratio_trim
+            assert trim is not None
+            np.testing.assert_allclose(trim.entries[:, time - 1], hand, rtol=1e-12, atol=0.0)
+    if ratio == "density":
+        assert witnessed > 0
+
+
+# ------------------------------------------------------------------ markov_order (X33 part e)
+
+
+def test_a_markov_window_reads_a_mixed_node_as_a_policy_block() -> None:
+    """A mixed node is a policy node of every plan, never a rule node of the window design.
+
+    The window design adds a rule node's level indicators from ``treatment_levels``, which a
+    mixed node does not hold.  A mixed node holds a joint policy, which resolves as a policy
+    node and never collapses to a rule, so its block is every component of the node.
+    """
+    from cleverly.longitudinal.regimen import resolve_plans, resolve_regimens
+    from cleverly.longitudinal.sequential import _is_rule_node, outcome_design
+
+    data = _exact_fit().data.with_markov_order(0)
+    plans = resolve_plans(resolve_regimens(mtp.mixed_regimens(LABELS), data.n_times), data)
+    for plan in plans:
+        for time in (1, 2):
+            assert data.node_kind(time) == "mixed"
+            assert plan.is_policy_node(time)
+            assert not _is_rule_node(plan, time)
+        expected = np.hstack([data.window_covariates(2), data.component_design(2)])
+        np.testing.assert_array_equal(outcome_design(data, plan, 2), expected)
