@@ -15,7 +15,8 @@ repeated fits on seeds outside every declared stream.
   deficit as :math:`(1 - \\min(r, 1)) n_0 / n`.  Every primary row passes its bias rule with
   probability at least 0.95 at 1,600 replications.  Every calibration cell passes with
   probability at least 0.90 at 24,000, and the nine pass jointly, as the independent product,
-  with probability at least 0.95.  3,600 and 4,800 replications fail the family rule, and 24,000 is declared for a joint predictive pass near 0.89.
+  with probability at least 0.95.  3,600 and 4,800 replications fail the family rule, and
+  24,000 is declared for a joint predictive pass near 0.89.
 * **The joint predictive family.**  A bootstrap of the pilot samples draws the nine readings
   jointly, so the D pairs and the two law-I contrasts keep their correlation.  The nine
   cells then pass together with probability about 0.89 at 24,000 replications.  That is

@@ -38,10 +38,11 @@ family                      cells, replications and size
 **Rules.**  ``interval_calibration``, ``simultaneous_coverage``, ``root_n_and_efficiency`` and
 ``root_n_rate`` read the shared verdicts.  ``repeat_stability`` passes when the 99% upper
 endpoint of the paired spread ratio is below 1 (:mod:`tests.studies.repeated_crossfit_properties`
-reads the same rule) and the one-draw split variance is above :data:`STABILITY_SPREAD_FLOOR`.  ``repeat_increment`` passes when the 99% upper endpoint of the paired
-increment is below :data:`INCREMENT_CEILING`; its control passes when its own endpoint is at or
-above it.  ``ipsi_primary`` reads the three primary rules: the bias interval inside the margin,
-the coverage lower endpoint above the floor, and the SE-ratio interval inside the sanity band.
+reads the same rule) and the one-draw split variance is above :data:`STABILITY_SPREAD_FLOOR`.
+``repeat_increment`` passes when the 99% upper endpoint of the paired increment is below
+:data:`INCREMENT_CEILING`; its control passes when its own endpoint is at or above it.
+``ipsi_primary`` reads the three primary rules: the bias interval inside the margin, the coverage
+lower endpoint above the floor, and the SE-ratio interval inside the sanity band.
 
 **What each family can see.**  The split adjustment of (3.14) moves a reported SE by at most
 half of the median displacement share, which the pilot reads at 1.2e-4 to 0.0050 on the
@@ -64,7 +65,8 @@ recordable error, or returns a row with a non-finite estimate or a non-positive 
 is recorded and costs every cell of :func:`cells_of` one replicate; the run goes on.  The
 regeneration driver stamps ``failed_replicates`` from the records, summarizes the survivors and
 reads each cell under :data:`FAILURE_BOUND` by the worst case of its clauses in
-:data:`PROPERTY_RULES` (``property-failure-accounting.csv``).  A checkpointed failure replays on
+:data:`PROPERTY_RULES` or in the shared rule of its family
+(``property-failure-accounting.csv``).  A checkpointed failure replays on
 resume, so the summary can be re-read without refitting.
 
 **Declared red-cell reading.**  :data:`RED_CELL_POLICY`, declared before the run; the owner of
@@ -170,9 +172,11 @@ RED_CELL_POLICY = (
     "goes on. It is a defect suspect: the records in property-failures.csv are diagnosed, and "
     "the summary is re-read from the checkpoints without refitting. A cell that lost at most "
     "floor(0.01 * replicates) replicates (FAILURE_BOUND) keeps its verdict only when every "
-    "declared clause (PROPERTY_RULES) holds at its worst case in "
-    "property-failure-accounting.csv; one more is bound exceeded and red. A red cell with no "
-    f"defect found is reported with owner {RED_CELL_OWNER}.",
+    "declared clause (PROPERTY_RULES or the shared rule of its family) holds at its worst "
+    "case in property-failure-accounting.csv; one more is bound exceeded and red. The primary "
+    "phase writes failures.csv and failure-accounting.csv under STUDY.failure_bound 0.01 "
+    "(RM39 a2). A red cell with no defect found is reported with owner "
+    f"{RED_CELL_OWNER}.",
     "10. A control that does not fail where it is declared to have power is a design defect "
     "and is fixed before any rerun.",
     "11. Each verdict is read beside its declared pass probability (PASS_PROBABILITIES). The "

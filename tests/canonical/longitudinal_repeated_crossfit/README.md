@@ -61,8 +61,8 @@ machine can be lost. To resume elsewhere, put them back under the same key, dele
 every `.started`, `.kills` and `.tmp` marker, and run the part again.
 
 Each calibration part fits 24,000 replicates. `calibration_i` (n = 80,000) takes about
-270 CPU-hours, and each of the other four takes 5 to 15. The whole declared run takes about
-330 CPU-hours. Run a calibration part in chunks of 6,000 with `--first`.
+290 CPU-hours, and each of the other four takes 5 to 15. The whole declared run takes about
+360 CPU-hours. Run a calibration part in chunks of 6,000 with `--first`.
 
 The parts are `primary`, `calibration_d`, `calibration_i`, `calibration_s`, `calibration_c`,
 `calibration_m`, `rate_2000`, `rate_8000`, `rate_32000`, `ipsi_primary`, `stability_d` and

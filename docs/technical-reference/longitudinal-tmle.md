@@ -1406,9 +1406,9 @@ record captured before the change. It checks that each draw of every design in
 for every rule in the tables above.
 
 A registry test maps every estimator keyword, result member, assessment
-capability, data declaration and `CausalStudy` step to a repeated-fit witness. No registered study
-measures the coverage of the median over draws yet.
-[X46](../roadmap.md#x46-repeated-cross-fitting-for-longitudinal-fits) tracks that study.
+capability, data declaration and `CausalStudy` step to a repeated-fit witness. The
+[repeated cross-fitted longitudinal study](method-evidence/repeated-cross-fitted-longitudinal.md)
+measures the coverage of the median over draws.
 
 ### Clusters
 
