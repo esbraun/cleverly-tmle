@@ -15,8 +15,8 @@ X40 modules run on synthetic rows until their declared runs commit their rows.
 
 The perturbations are
 :data:`~tests.studies.evidence.property_failures.PERTURBATIONS`, the graded kinds of
-:func:`~tests.studies.evidence.property_failures.binding_perturbations`, and a scaling and a
-shift per extra column and per cell
+:func:`~tests.studies.evidence.property_failures.binding_perturbations`, and a scaling, a shift
+and a floor per extra column and per cell
 (:func:`~tests.studies.evidence.property_failures.extra_perturbations`).  Each summary runs with
 the study record replaced by a copy whose ``bootstrap_replicates`` is
 :data:`DIFFERENTIAL_BOOTSTRAP`.  The rule and the module read the same summary columns, so the
@@ -664,7 +664,7 @@ def test_the_rules_agree_with_the_study_on_each_perturbation(subject: str, kind:
 
 @pytest.mark.parametrize("subject", [_by_subject(subject) for subject in SUBJECTS])
 def test_the_rules_agree_with_the_study_on_each_extra_column(subject: str) -> None:
-    """L10: a scaling and a shift of each extra column in each cell, such as a bootstrap count."""
+    """L10: a scaling, a shift and a floor of each extra column in each cell, such as a count."""
     extra = property_failures.extra_perturbations(subject_rows(subject))
     wrong = {kind: judge(subject, kind).wrong for kind in extra}
     disagreeing = {kind: frame.to_string() for kind, frame in wrong.items() if not frame.empty}

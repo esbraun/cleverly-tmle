@@ -1362,6 +1362,8 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+tests.studies.survival_node_bounds_properties,binding_witness,estimate moved share,extra|estimate_moved|binding_witness|mean_model__binding|floor
+tests.studies.survival_node_bounds_properties,binding_witness,exceeds bound share,extra|exceeds_bound|binding_witness|mean_model__binding|floor
 tests.studies.survival_node_bounds_properties,bound_necessity,bias discriminated,pair_collapse
 tests.studies.survival_node_bounds_properties,bound_necessity,bias equivalent,bias
 tests.studies.survival_node_bounds_properties,bound_necessity,least displacement over labels,control_concentrated
