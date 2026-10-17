@@ -60,6 +60,7 @@ from .validation.longitudinal import (
     LONGITUDINAL_NO_CENSORING,
     LONGITUDINAL_NO_CENSORING_IN_FOLD,
     LONGITUDINAL_NO_OUTCOME_REGRESSION,
+    LONGITUDINAL_SIMULATED_MODELS,
     LongitudinalDiagnostics,
     LongitudinalNuisanceDiagnostics,
     LongitudinalNuisanceOmission,
@@ -83,6 +84,7 @@ __all__ = [
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LONGITUDINAL_NO_OUTCOME_REGRESSION",
+    "LONGITUDINAL_SIMULATED_MODELS",
     "SENSITIVITY_ROUTES",
     "VALIDATION_OPERATIONS",
     "AssessmentCapability",
@@ -334,7 +336,7 @@ def _capability(
             else (
                 ("tmle", "collaborative_tmle", "drtmle")
                 if family == "point"
-                else ("tmle", "sdr", "ipsi", "gcomp", "ipw")
+                else ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula")
             )
         ),
         available=available,
@@ -540,8 +542,8 @@ SDR_SCORE_EQUATIONS_REFUSAL = Refusal(
 #: Why a sequential baseline fit has no score-equation report.
 BASELINE_SCORE_EQUATIONS_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
-    "the sequential g-computation and IPW estimators fit no fluctuation, so no node solves a "
-    "score equation.",
+    "the sequential g-computation, IPW and parametric g-formula estimators fit no fluctuation, "
+    "so no node solves a score equation.",
     alternative="diagnostics.support() reports each node's weights and bound share.",
 )
 
@@ -589,7 +591,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     estimator = getattr(result.config, "estimator", "tmle") if family == "longitudinal" else None
-    if estimator in ("sdr", "ipsi", "gcomp", "ipw"):
+    if estimator in ("sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"):
         # An SDR, IPSI or baseline fit has no fluctuation, so no node solves a score
         # equation.  The support report carries its weights and bound shares instead.
         refusal = {
@@ -597,6 +599,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             "ipsi": IPSI_SCORE_EQUATIONS_REFUSAL,
             "gcomp": BASELINE_SCORE_EQUATIONS_REFUSAL,
             "ipw": BASELINE_SCORE_EQUATIONS_REFUSAL,
+            "parametric_gformula": BASELINE_SCORE_EQUATIONS_REFUSAL,
         }[estimator]
         rows = tuple(
             replace(
@@ -609,16 +612,20 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
-    if estimator == "gcomp":
-        # A g-computation estimate reads no treatment mechanism, so no bound moves it.
-        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL
+    if estimator in ("gcomp", "parametric_gformula"):
+        # A g-computation or g-formula estimate reads no treatment mechanism, so no bound
+        # moves it.
+        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL, GFORMULA_TRUNCATION_REFUSAL
 
+        truncation = (
+            GCOMP_TRUNCATION_REFUSAL if estimator == "gcomp" else GFORMULA_TRUNCATION_REFUSAL
+        )
         rows = tuple(
             replace(
                 row,
                 available=False,
                 status=AssessmentStatus.UNAVAILABLE,
-                refusal=GCOMP_TRUNCATION_REFUSAL,
+                refusal=truncation,
             )
             if row.operation == "truncation_curve"
             else row
@@ -2566,6 +2573,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                 check_policy_support,
                 check_support,
             )
+            from .interventions.policy import declared_support_bounds
             from .sensitivity.positivity import positivity_report
 
             def score_arguments(group: str) -> dict[str, Any]:
@@ -2612,12 +2620,14 @@ class DiagnosticsFacade(_CapabilityFacade):
                     propensity=(nuisance.propensity.values if self._result.data.has_arms else None),
                     mechanisms=mechanisms,
                     folds=nuisance.folds,
+                    declared_support=declared_support_bounds(self._result.data),
                     **score_arguments("mtp"),
                 )
             if nuisance.incremental is not None:
                 return check_incremental_support(
                     nuisance.incremental,
                     self._result.data.treatment,
+                    levels=self._result.data.treatment_levels,
                     **score_arguments("ipsi"),
                 )
             return positivity_report(self._result)
@@ -2644,6 +2654,59 @@ class DiagnosticsFacade(_CapabilityFacade):
             return nuisance_diagnostics(self._result)
 
         return _cached(self._result, "diagnostics.nuisance_models", (), {}, compute)
+
+    def influence(self) -> Any:
+        """How few rows carry each estimate's influence curve.
+
+        A direct call only. The operation is not part of :meth:`run_all` or the assessment
+        battery, so adding it moves no combined report. The fit already warns with
+        :class:`~cleverly.exceptions.SparseInfluenceWarning` when a Wald fit needs it.
+        With clusters every measure reads the cluster sums of the curve.
+
+        Returns
+        -------
+        InfluenceReport
+            One row per estimate (:mod:`cleverly.inference.sparse`): the Kish count, the
+            skewness, the raw kurtosis, the relative SD of the variance estimate, the
+            Edgeworth-predicted Wald coverage loss, and, with an attached bootstrap, the BCa
+            bias correction and acceleration.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_longitudinal
+        >>> from cleverly.longitudinal import LTMLE
+        >>> frame, _ = make_longitudinal(n=200, seed=0)
+        >>> result = LTMLE(
+        ...     {"always": 1, "never": 0},
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     censoring_learner=LogisticRegression(max_iter=1000),
+        ... ).fit(
+        ...     frame,
+        ...     outcome="Y",
+        ...     treatment=["A1", "A2"],
+        ...     baseline=["W1", "W2"],
+        ...     time_varying=[[], ["L2"]],
+        ...     censoring=["C1", "C2"],
+        ... )
+        >>> report = result.diagnostics.influence()
+        >>> report.sparse
+        ('ey_regimen[always]', 'ey_regimen[never]', 'ate_regimen[never vs always]')
+        """
+
+        def compute() -> Any:
+            from .inference.sparse import influence_report
+
+            alpha = float(getattr(self._result.config, "alpha_sig", 0.05))
+            return influence_report(
+                self._result.estimates,
+                alpha=alpha,
+                backend=self._result.data.backend,
+                cluster=getattr(self._result.data, "cluster", None),
+            )
+
+        return _cached(self._result, "diagnostics.influence", (), {}, compute)
 
     def score_equations(self, *, tolerance: float = DEFAULT_TOLERANCE) -> Any:
         """Whether targeting solved the score equations this fit relies on.
@@ -3389,7 +3452,7 @@ def _robustness_item(
     # non-inferential status in the report itself, so a saved report reads the same name
     # and prints the same noun with no fit at hand.
     # Imported here because the sensitivity module imports this one.
-    from .sensitivity.omitted_variable import _UNREACHABLE_RV, limit_refusal_reason
+    from .sensitivity.omitted_variable import _UNREACHABLE_RV
 
     status = report.get("inference", "influence_curve")
     point = (
@@ -3402,15 +3465,6 @@ def _robustness_item(
             "robustness_value",
             AssessmentStatus.COMPLETED,
             f"{point}; no confidence-limit value: {report['limit_refusal']}",
-        )
-    if "nu2_estimator" in report:
-        # A report names its estimator only when no confidence-limit value exists under any
-        # name, so the row gives the bound's own reason rather than reading an absent key.
-        return AssessmentItem(
-            "robustness_value",
-            AssessmentStatus.COMPLETED,
-            f"{point}; no confidence-limit value under "
-            f"{limit_refusal_reason(report['nu2_estimator'])}",
         )
     limit_value = report[spread_name("rva", status)]
     limit_detail = (

@@ -10,10 +10,10 @@ Read the pages in this order.
 
 | page | what it gives you |
 | --- | --- |
-| [Implementation validation grid](validation-grid.md) | the seventy validation studies in one table, with the counts and the declared limits |
+| [Implementation validation grid](validation-grid.md) | the eighty-five validation studies in one table, with the counts and the declared limits |
 | [How to read these studies](how-to-read.md) | the three questions, the verdict rules, and the terms every study below applies |
 | [The red-cell ledger](red-cells.md) | every red verdict the studies publish, and the roadmap ask that owns each one |
-| the seventy-one study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
+| the eighty-seven study pages | one row per committed test, with what it checked and the verdict its own endpoints produced |
 
 A validation study declares property cells or names a reference. A study that names a reference
 is comparator-backed, and its agreement block names the comparison kind of each row. The
@@ -55,6 +55,8 @@ outcome-adaptive-multi-arm-c-tmle
 outcome-adaptive-per-arm-c-tmle
 outcome-adaptive-per-arm-c-tmle-strata-missing
 outcome-adaptive-per-arm-c-tmle-parametric
+outcome-adaptive-per-arm-c-tmle-parametric-crossfit
+outcome-adaptive-per-arm-c-tmle-parametric-extensions
 canonical-dr-tmle
 multi-arm-dr-tmle
 ordinary-missing-outcome-tmle
@@ -81,7 +83,11 @@ stochastic-categorical-longitudinal-tmle
 longitudinal-modified-treatment-policies
 longitudinal-incremental-interventions
 longitudinal-incremental-interventions-dropout
+categorical-incremental
 vector-modified-treatment-policies
+mtp-boundaries
+mtp-pricing
+mtp-tuning
 sequentially-doubly-robust-estimation
 ordinary-longitudinal-msm-projection
 cross-fitted-longitudinal-msm-projection
@@ -103,8 +109,13 @@ known-mechanism-dr-tmle
 dr-tmle-one-inconsistent-nuisance
 known-node-mechanisms-ltmle
 sequential-baselines
+structural-nested-mean
+parametric-gformula
 repeated-outcome-longitudinal-tmle
+repeated-outcome-ipsi
+repeated-outcome-sdr
 omitted-variable-bound-standard-error
+omitted-variable-bound-plugin-standard-error
 calibration-slope-warning
 default-simultaneous-bands
 full-refit-bootstrap-and-derived-contrasts

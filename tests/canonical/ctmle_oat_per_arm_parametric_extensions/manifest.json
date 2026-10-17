@@ -1,0 +1,237 @@
+{
+  "schema_version": 2,
+  "study": "K-arm, weighted and population-target outcome-adaptive per-arm C-TMLE with a parametric outcome",
+  "slug": "ctmle-oat-per-arm-parametric-extensions",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ctmle-oat-per-arm-parametric-extensions",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "11b4579b8c1fc16217ea3573b5fbaa1c07706a09",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 1500,
+    "seed": 20261178,
+    "resampling_seed": 2026117801,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-ctmle-oat-per-arm-parametric-extensions": 0.01
+    },
+    "scenarios": {
+      "binary_active": [
+        "par",
+        "paf"
+      ],
+      "three_arm_active": [
+        "ey[0]",
+        "ey[1]",
+        "ey[2]",
+        "ate[1 vs 0]",
+        "ate[2 vs 0]",
+        "rr[1 vs 0]",
+        "rr[2 vs 0]",
+        "or[1 vs 0]",
+        "or[2 vs 0]"
+      ]
+    },
+    "strategy": "oat",
+    "oat_design": "per_arm",
+    "n_folds_cross_fitted": 5,
+    "repeats": 1,
+    "simultaneous_intervals": "only the band fits of three_arm, binary_population and three_arm_crossfit",
+    "outcome_learner": "ParametricOutcome(arm_columns=K - 1): unpenalized logistic GLM on [A indicators, W, A x W]; one fit per fold when cross-fitted",
+    "treatment_learner": "ParametricMechanism: per arm (and fold), unpenalized logistic regression of 1{A = a} on the cubic in l = logit(clip(Qbar_k(a, W), 1e-6, 1 - 1e-6))",
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "max_iter": 100,
+    "tol": 1e-10,
+    "random_state": 0,
+    "reference_by_group": {
+      "three_arm": "1",
+      "three_arm_shared": "1",
+      "binary_population": null,
+      "three_arm_crossfit": "0",
+      "three_arm_generated_design": "0",
+      "weighted": null,
+      "weighted_crossfit": null,
+      "composition": "1",
+      "three_arm_null": "1"
+    },
+    "weights": "wt = 0.5 + 1{W1 > 0}, known, on binary_active_weighted and three_arm_active_weighted",
+    "band_sets": {
+      "three_arm": [
+        "ey[0]",
+        "ey[1]",
+        "ey[2]",
+        "ate[0 vs 1]",
+        "ate[2 vs 1]"
+      ],
+      "binary_population": [
+        "ey0",
+        "ey1",
+        "ate",
+        "ey_obs",
+        "par",
+        "paf"
+      ],
+      "three_arm_crossfit": [
+        "ey[0]",
+        "ey[1]",
+        "ey[2]",
+        "ate[1 vs 0]",
+        "ate[2 vs 0]"
+      ]
+    },
+    "primary": {
+      "scenarios": {
+        "binary_active": [
+          "par",
+          "paf"
+        ],
+        "three_arm_active": [
+          "ey[0]",
+          "ey[1]",
+          "ey[2]",
+          "ate[1 vs 0]",
+          "ate[2 vs 0]",
+          "rr[1 vs 0]",
+          "rr[2 vs 0]",
+          "or[1 vs 0]",
+          "or[2 vs 0]"
+        ]
+      },
+      "n": 1500,
+      "replicates_per_law": 1600,
+      "fit": "in sample; three_arm_active at reference 0"
+    },
+    "comparator": "none: Python property evidence, no comparator",
+    "comparator_reason": "drtmle's adapt_g reports the shipped curve, so no R program measures the corrected curve; the point estimate of the in-sample form agrees with the registered pipelines through test_parametric_learners.py",
+    "budgets": {
+      "three_arm": 29200,
+      "three_arm_shared": 14000,
+      "binary_population": 11200,
+      "three_arm_crossfit": 18800,
+      "three_arm_generated_design": 80000,
+      "weighted": 17600,
+      "weighted_crossfit": 11600,
+      "composition": 17600,
+      "three_arm_null": 1600
+    },
+    "units": {
+      "calibration_groups": 8,
+      "type_i_groups": 1,
+      "primary_phase": 1,
+      "negative_controls": 9
+    },
+    "budget_rule": "plan 13.6 (rev 3.1) expected budgets, each a multiple of 400; the study-wise rule of plan section 12 with G = 19 gated units, each sized to pass with probability >= 0.95 ** (1 / 19) = 0.99730; binary_population (11,200) and three_arm_crossfit (18,800) are raised to the smallest multiple of 400 that reaches the target on the pooled pilot of steps 2 and 4; three_arm_generated_design is set to 80,000, the largest size searched, where the predicted pass probability is 0.9932 and still below the target (the pooled tau_80 of 0.0106 applied to oracle-design ratios near 1.03 caps it); three_arm_null is sized at 1,600 (at most 129 rejections pass, and the target holds at every allowed loss count at a true rate of 0.05); the primary phase runs 1,600 replicates per law, which holds the target down to a true coverage of 0.945 on every row and gives 0.99592 at 0.94, where the smallest size at 0.95 is 1,200 and gives 0.93764 at 0.94",
+    "failure_bounds": {
+      "declared": 0.01,
+      "applied": "0.01 in both phases: a cell may lose floor(0.01 R) replicates, and each clause is judged by its worst case over the lost values; one more lost replicate reads bound exceeded. A fit that raises, and an admitted fit with an estimate whose status is not influence_curve, both count as failed replicates"
+    },
+    "shrunken_se_factor": 0.7,
+    "calibration_efficiency_ratio": "False: the noise control reads the SE-ratio rule, and no cell claims a ratio against an efficiency bound",
+    "declared_reading": "A red calibration row is finite-sample only under the AGENT-BRIEF rule (its 99% SE-ratio interval contains 1, its coverage is consistent with 0.95, and diagnosis finds no defect). The nine negative controls must be red on their declared side: the SE-ratio interval of a shipped-curve control leaves the calibration band below, that of the cross_term_dropped control leaves it above, and the joint-coverage interval of a pointwise or shipped-band control lies below 0.95. The harness publishes passed=True for such a control. If one stays inside or straddles its threshold, its cell cannot see its term, the study is invalid, and it is redesigned before any reading. The Monte Carlo covariance of the two arm means of three_arm_shared against the mean reported covariance and the paired deficit of the generated-design pair are reported and gate nothing.",
+    "negative_controls": {
+      "three_arm__ey_1__shipped_curve__shrunken_se_control": "below",
+      "three_arm__pointwise_joint_control": "below",
+      "three_arm__shipped_curve_band_control": "below",
+      "three_arm_shared__ate_0_vs_1__cross_term_dropped__inflated_se_control": "above",
+      "binary_population__par__shipped_curve__shrunken_se_control": "below",
+      "binary_population__pointwise_joint_control": "below",
+      "binary_population__shipped_curve_band_control": "below",
+      "three_arm_crossfit__ey_1__shipped_curve__shrunken_se_control": "below",
+      "weighted__ey0__shipped_curve__shrunken_se_control": "below"
+    },
+    "negative_control_expected": {
+      "three_arm__ey_1__shipped_curve__shrunken_se_control": {
+        "se_ratio": 0.78
+      },
+      "three_arm__pointwise_joint_control": {
+        "joint_coverage": 0.826
+      },
+      "three_arm__shipped_curve_band_control": {
+        "joint_coverage": 0.861
+      },
+      "three_arm_shared__ate_0_vs_1__cross_term_dropped__inflated_se_control": {
+        "se_ratio": 1.163
+      },
+      "binary_population__par__shipped_curve__shrunken_se_control": {
+        "se_ratio": 0.766
+      },
+      "binary_population__pointwise_joint_control": {
+        "joint_coverage": 0.841
+      },
+      "binary_population__shipped_curve_band_control": {
+        "joint_coverage": 0.872
+      },
+      "three_arm_crossfit__ey_1__shipped_curve__shrunken_se_control": {
+        "se_ratio": 0.78
+      },
+      "weighted__ey0__shipped_curve__shrunken_se_control": {
+        "se_ratio": 0.819
+      }
+    },
+    "publication_reading": "gated: every row must pass, and a negative control passes by being red",
+    "family_mapping": "the groups are interval_calibration cells named <group>__<estimate>__corrected, so the shared calibration verdict applies per estimate; the bands are simultaneous_coverage cells",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ctmle_oat_per_arm_parametric_extensions.py": "b874dfbb2d2fd5822ce205a997034be12aca2105bac1fd5dcc02d99e70d0eb0d",
+    "tests/studies/ctmle_oat_per_arm_parametric_extensions_properties.py": "10fddc1e882d1e3225c677a9b0c8cb44a1b146dbcf3b70ca4d817c7ab56978b2",
+    "tests/studies/oat_multi_arm_quadrature.py": "600f7bdecb5f38ae483677d9b339b452af9c98c54fd85eea50cea5d0b5ea4568",
+    "tests/studies/oat_parametric_quadrature.py": "9358f2a257638e339c9a02db127db0bd82e93ae39ac9609226bd7a96830d3ad2",
+    "tests/studies/oat_per_arm_laws.py": "fcfd60b1eb55433fd4ebe0301d606a80a6228d98ab4ed5d426df731721c4acf5",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577",
+    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
+    "tests/studies/evidence/simultaneous.py": "7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "c4491588a4340b4990339870838a0626b711622cb024fdc29ddc31e0b434a32c",
+    "summary.csv": "e52a672b8236fbbfcdda5ac15cf231ab42be6b215e682e909feb93aa731e0db8",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "803a52803e8d3c3365d397adc9453648d98d114e6e955fea752859320ea07e54",
+    "property-replicates.csv.gz": "ff53191a6d5c37a71ad5ffe19fef1fce040ae12866e65a5f99954ac6b6cf118d",
+    "properties.csv": "08486775967cbd6a829add16a2743daf12fcaebf9625691ccf528d8db72d4011"
+  }
+}

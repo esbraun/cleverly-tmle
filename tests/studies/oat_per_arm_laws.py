@@ -435,8 +435,47 @@ THREE_ARM_ACTIVE = OatLaw(
     v=((0.0, 0.0), (0.9, 1.0), (-0.3, -1.0)),
 )
 
+#: :data:`THREE_ARM_ACTIVE` under the declared known weight (X58b2, ``composition``).
+THREE_ARM_ACTIVE_WEIGHTED = OatLaw(
+    name="three_arm_active_weighted",
+    c=THREE_ARM_ACTIVE.c,
+    u=THREE_ARM_ACTIVE.u,
+    v=THREE_ARM_ACTIVE.v,
+    weighted=True,
+)
+
+#: The mechanism of :data:`THREE_ARM_ACTIVE` with one strong shared prognosis,
+#: ``logit Qbar_0(a, W) = c_a + 3.5 W1 + 0.8 W2`` (X58b2).  The arm curves correlate at 0.25 to
+#: 0.26, so a standard error built without the cross-arm covariance is 1.163 times the stacked one
+#: on ``ate[0 vs 1]``.
+THREE_ARM_SHARED = OatLaw(
+    name="three_arm_shared",
+    c=THREE_ARM_ACTIVE.c,
+    u=((3.5, 0.8), (3.5, 0.8), (3.5, 0.8)),
+    v=THREE_ARM_ACTIVE.v,
+)
+
+#: The three-arm sharp null (X58b2): every arm reads ``c = -0.3`` and ``u = (0.8, -0.8)``, so every
+#: arm mean is equal and every contrast is zero.  The mechanism is that of
+#: :data:`THREE_ARM_ACTIVE`.
+THREE_ARM_NULL = OatLaw(
+    name="three_arm_null",
+    c=(-0.3, -0.3, -0.3),
+    u=((0.8, -0.8), (0.8, -0.8), (0.8, -0.8)),
+    v=THREE_ARM_ACTIVE.v,
+)
+
 LAWS: Mapping[str, OatLaw] = {
-    law.name: law for law in (BINARY_ACTIVE, BINARY_NULL, BINARY_WEIGHTED, THREE_ARM_ACTIVE)
+    law.name: law
+    for law in (
+        BINARY_ACTIVE,
+        BINARY_NULL,
+        BINARY_WEIGHTED,
+        THREE_ARM_ACTIVE,
+        THREE_ARM_ACTIVE_WEIGHTED,
+        THREE_ARM_SHARED,
+        THREE_ARM_NULL,
+    )
 }
 
 

@@ -6,10 +6,13 @@ At a tilt node :math:`t` the plan draws the arm from
 
 .. math::
 
-    q_t(1 \mid H_t) = \frac{\delta_t \pi_t(H_t)}{\delta_t \pi_t(H_t) + 1 - \pi_t(H_t)},
+    q_t(a \mid H_t) = \frac{\delta_{t,a}\, \pi_t(a \mid H_t)}{D_t(H_t)},
+    \qquad D_t(H_t) = \sum_b \delta_{t,b}\, \pi_t(b \mid H_t),
 
-Equation (1) of Kennedy (2019), with :math:`\pi_t` the treatment mechanism.  A plan can
-hold label, rule and known-policy nodes beside its tilt nodes.
+with :math:`\pi_t` the treatment mechanism.  With two levels and
+:math:`(\delta_{t,0}, \delta_{t,1}) = (1, \delta_t)` this is Equation (1) of Kennedy (2019),
+:math:`q_t(1 \mid H_t) = \delta_t \pi_t / (\delta_t \pi_t + 1 - \pi_t)`.  A plan can hold
+label, rule and known-policy nodes beside its tilt nodes.
 
 **The recursion.**  From the horizon down to the first node, the regression
 :math:`m_t(H_t, A_t)` of :math:`Z_{t+1}` is fitted on the rows that follow the plan through
@@ -25,17 +28,30 @@ nuisances is
 
     \varphi = \bar m_1(H_1) + \sum_{t=1}^{h} W_t \{Z_{t+1} - m_t(H_t, A_t)\}
         + \sum_{t \in \text{tilt}} W_{t-1}
-          \frac{\delta_t \{m_t(H_t, 1) - m_t(H_t, 0)\}(A_t - \pi_t)}
-               {(\delta_t \pi_t + 1 - \pi_t)^2},
+          \frac{\delta_{t,A_t}}{D_t} \{m_t(H_t, A_t) - \bar m_t(H_t)\},
 
 Kennedy (2019, Theorem 2 and Appendix Lemmas 2 to 4) and Kim et al. (2021, Theorem 4.1).
 The weight :math:`W_t` multiplies one factor per node up to :math:`t`: the cancelled tilt
-factor :math:`(\delta_s A_s + 1 - A_s)/(\delta_s \pi_s + 1 - \pi_s)` at a tilt node, the
-plan's intervention density over the mechanism at any other node, and the censoring
-factor :math:`1\{C_s = 1\}/\omega_s` at every node.  ``g_bounds`` bounds the cumulative
-product of the non-tilt mechanism factors alone, and the tilt product multiplies in after
-the bound.  The tilt factor is never computed as :math:`q_t / \pi_t`.  The last sum is the
-*mechanism term*.  It is absent at a node whose treatment mechanism is declared known.
+factor :math:`\delta_{s,A_s}/D_s` at a tilt node, the plan's intervention density over the
+mechanism at any other node, and the censoring factor :math:`1\{C_s = 1\}/\omega_s` at every
+node.  ``g_bounds`` bounds the cumulative product of the non-tilt mechanism factors alone, and
+the tilt product multiplies in after the bound.  The tilt factor is never computed as
+:math:`q_t / \pi_t`.  The last sum is the *mechanism term*.  With two levels it is Kennedy's
+:math:`\delta_t \{m_t(H_t, 1) - m_t(H_t, 0)\}(A_t - \pi_t)/D_t^2`.  It is absent at a node
+whose treatment mechanism is declared known.
+
+**Two levels dispatch to the binary arithmetic.**  At a node with two levels the density, the
+tilt factor and the mechanism term are computed in Kennedy's form with
+:math:`\delta_t = \delta_{t,1}/\delta_{t,0}`, so the binary surface is bit-identical to the one
+it had before the factor form existed.  The general form runs at a node with three or more
+levels.
+
+**A repeated outcome.**  The recursion of horizon :math:`h` is the end-of-study recursion of the
+panel truncated after node :math:`h`.  The seed :math:`Z_{h+1}` is :math:`Y_h` on the rows
+uncensored through :math:`h`.  Each earlier :math:`Y_s` enters only through the history
+:math:`H_{s+1}`, as a covariate of the regressions and of both mechanisms.  Theorem 3.1 of Kim
+et al. (2021) at :math:`t = h` is then the functional of cell :math:`h`.  Only the seed reads the
+repeated outcome array.
 
 **The estimate** is :math:`\hat\psi = \sum_i w_i \varphi_i / \sum_i w_i`, and the curve is
 :math:`w_i (\varphi_i - \hat\psi)`.  Nothing is fluctuated.
@@ -104,11 +120,13 @@ class IPSICell:
 def tilt_propensities(
     data: LongitudinalData, plan: Plan, mechanism: Mechanism
 ) -> dict[int, FloatArray]:
-    r"""By tilt node, the mechanism :math:`\pi_t(H_t)` of the plan's second level.
+    r"""By tilt node, the mechanism :math:`\pi_t(a \mid H_t)` of every level.
 
     It is read at the observed history, which on the rows at risk under the plan is the
     plan's history: a tilt node keeps every row, and a label or rule node keeps the rows
-    whose observed arm is the assigned one.
+    whose observed arm is the assigned one.  A row with no mechanism at the node (a unit
+    that left the study, or has no treatment there) holds the point mass on the first level,
+    which on two levels is the zero second-level probability the binary form always held.
 
     Parameters
     ----------
@@ -122,14 +140,20 @@ def tilt_propensities(
     Returns
     -------
     dict of int to FloatArray
-        One ``(n,)`` probability per tilt node, counted from one.
+        One ``(n, K_t)`` mechanism per tilt node, counted from one, columns in arm-code order.
     """
     out: dict[int, FloatArray] = {}
     for time in range(1, data.n_times + 1):
         if not plan.is_tilt_node(time):
             continue
-        matrix = np.asarray(mechanism.treatment_observed[time - 1], dtype=float)
-        out[time] = np.nan_to_num(matrix[:, 1], nan=0.0)
+        matrix = np.nan_to_num(
+            np.asarray(mechanism.treatment_observed[time - 1], dtype=float), nan=0.0
+        )
+        absent = matrix.sum(axis=1) == 0.0
+        if absent.any():
+            matrix = matrix.copy()
+            matrix[absent, 0] = 1.0
+        out[time] = matrix
     return out
 
 
@@ -156,6 +180,113 @@ def tilted_plans(
         plan.with_tilts(tilt_propensities(data, plan, mechanism)) if plan.has_tilt else plan
         for plan in plans
     )
+
+
+def tilt_product_binary(
+    tilt: FloatArray, arm: FloatArray, pi: FloatArray, delta: float
+) -> FloatArray:
+    r"""The running product times Kennedy's two-level node factor.
+
+    The factor is :math:`(\delta A + 1 - A)/(\delta \pi + 1 - \pi)`.  The operations run in the
+    order of the binary code, ``(tilt * numerator) / denominator``.
+    """
+    return np.asarray(tilt * (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi))
+
+
+def tilt_factor_binary(arm: FloatArray, pi: FloatArray, delta: float) -> FloatArray:
+    r"""Kennedy's node factor :math:`(\delta A + 1 - A)/(\delta \pi + 1 - \pi)` on two levels."""
+    return np.asarray((delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi))
+
+
+def tilt_factor_general(arm: FloatArray, g: FloatArray, factors: FloatArray) -> FloatArray:
+    r"""The node factor :math:`\delta_{A}/D` for any number of levels.
+
+    Parameters
+    ----------
+    arm : FloatArray
+        ``(n,)`` arm codes.
+    g : FloatArray
+        ``(n, K)`` mechanism.
+    factors : FloatArray
+        ``(K,)`` odds factors.
+
+    Returns
+    -------
+    FloatArray
+        ``(n,)`` :math:`\delta_{A}/D` with :math:`D = \sum_b \delta_b g_b`.
+    """
+    return np.asarray(factors[arm.astype(np.int64)] / (g @ factors))
+
+
+def mechanism_term_binary(
+    arm: FloatArray, pi: FloatArray, by_arm: FloatArray, delta: float
+) -> FloatArray:
+    r"""Kennedy's :math:`\delta\{m(1) - m(0)\}(A - \pi)/D^2` on two levels."""
+    blip = by_arm[:, 1] - by_arm[:, 0]
+    return np.asarray(delta * blip * (arm - pi) / (delta * pi + 1.0 - pi) ** 2)
+
+
+def mechanism_term_general(
+    arm: FloatArray, g: FloatArray, by_arm: FloatArray, marginal: FloatArray, factors: FloatArray
+) -> FloatArray:
+    r"""The mechanism term :math:`(\delta_A/D)\{m(A) - \bar m\}` for any number of levels.
+
+    Parameters
+    ----------
+    arm : FloatArray
+        ``(n,)`` arm codes.
+    g : FloatArray
+        ``(n, K)`` mechanism.
+    by_arm : FloatArray
+        ``(n, K)`` regression :math:`m_t(H_t, a)`.
+    marginal : FloatArray
+        ``(n,)`` :math:`\bar m_t = \sum_a q_t(a) m_t(H_t, a)`.
+    factors : FloatArray
+        ``(K,)`` odds factors.
+
+    Returns
+    -------
+    FloatArray
+        ``(n,)`` the term, before the weight :math:`W_{t-1}`.
+    """
+    code = arm.astype(np.int64)
+    observed = by_arm[np.arange(by_arm.shape[0]), code]
+    return np.asarray(factors[code] / (g @ factors) * (observed - marginal))
+
+
+def _extend_tilt(
+    tilt: FloatArray, data: LongitudinalData, plan: Plan, propensity: FloatArray, time: int
+) -> FloatArray:
+    r"""The running tilt product times :math:`\delta_{t,A_t}/D_t`, the cancelled tilt factor.
+
+    Two levels keep Kennedy's form, with :math:`\delta = \delta_{t,1}/\delta_{t,0}`, and the
+    order of the operations of the binary code: ``(tilt * numerator) / denominator``.  A
+    product ``tilt * (numerator / denominator)`` differs from it by one unit in the last
+    place, which would move the binary estimates.
+    """
+    g = np.clip(np.asarray(propensity, dtype=float), 0.0, 1.0)
+    factors = plan.tilt_factors(time)
+    arm = np.nan_to_num(data.node_codes(time), nan=0.0)
+    if g.shape[1] == 2:
+        return tilt_product_binary(tilt, arm, g[:, 1], factors[1] / factors[0])
+    return np.asarray(tilt * tilt_factor_general(arm, g, factors))
+
+
+def _mechanism_term(
+    data: LongitudinalData,
+    plan: Plan,
+    propensity: FloatArray,
+    by_arm: FloatArray,
+    marginal: FloatArray,
+    time: int,
+) -> FloatArray:
+    r""":math:`\frac{\delta_{t,A_t}}{D_t}\{m_t(H_t, A_t) - \bar m_t(H_t)\}`, before the weight."""
+    g = np.clip(np.asarray(propensity, dtype=float), 0.0, 1.0)
+    factors = plan.tilt_factors(time)
+    arm = np.nan_to_num(data.node_codes(time), nan=0.0)
+    if g.shape[1] == 2:
+        return mechanism_term_binary(arm, g[:, 1], by_arm, factors[1] / factors[0])
+    return mechanism_term_general(arm, g, by_arm, marginal, factors)
 
 
 @dataclass(frozen=True)
@@ -187,10 +318,7 @@ def _weights(
     binding = []
     for time in range(1, horizon + 1):
         if plan.is_tilt_node(time):
-            delta = plan.tilt_delta(time)
-            pi = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
-            arm = np.nan_to_num(data.node_codes(time), nan=0.0)
-            tilt = tilt * (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+            tilt = _extend_tilt(tilt, data, plan, propensity[time], time)
         else:
             numerator = numerator * _node_numerator(plan, data, time)
         following = masks.following(time)
@@ -287,12 +415,16 @@ def _recursion(
         term = None
         if plan.is_tilt_node(time) and time not in known:
             assert regression.initial_by_arm is not None
+            assert regression.initial_marginal is not None
             with phase("influence_curve"):
-                delta = plan.tilt_delta(time)
-                pi = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
-                arm = np.nan_to_num(data.node_codes(time), nan=0.0)
-                blip = regression.initial_by_arm[:, 1] - regression.initial_by_arm[:, 0]
-                derivative = delta * blip * (arm - pi) / (delta * pi + 1.0 - pi) ** 2
+                derivative = _mechanism_term(
+                    data,
+                    plan,
+                    propensity[time],
+                    regression.initial_by_arm,
+                    regression.initial_marginal,
+                    time,
+                )
                 term = np.where(at_risk, weights.weights[time - 1] * derivative, 0.0)
         nodes.append(
             _Node(

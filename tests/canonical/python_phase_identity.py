@@ -133,7 +133,10 @@ else:
         raise SystemExit(f"{slug}: a fit failed: {result.failures.to_dict('records')}")
     if fail != "none" and result.failures is None:
         raise SystemExit(f"{slug}: the forced failure was not recorded")
-    frames = {"rows": result.rows, "samples": result.samples, "truths": result.truths}
+    from tests.studies.evidence.replication import load_samples
+
+    samples = None if result.samples is None else load_samples(result.samples)
+    frames = {"rows": result.rows, "samples": samples, "truths": result.truths}
 out = Path(out)
 out.mkdir(parents=True, exist_ok=True)
 if fail != "none" and result.reference_input_from_fit:

@@ -155,6 +155,40 @@ by up to `1.7e-3`, which is 8% of one sampling standard deviation. Act on a
 is the one the loop stopped at. Read it beside `score_check`, which says whether the scores the
 fit left are small enough to matter.
 
+## The exits under a declared stopping rule
+
+`Targeting(stopping="scaled_var")` and `"sample_size"` change how the loop judges the outcome
+equation. The alternation tests the outcome equation by the rule ratio, the largest score over its
+threshold, and it keeps `tol` for equations (9) and (10).
+[Stopping rules](../point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate) defines the
+ratio. The default `stopping="relative"` keeps each exit as it was.
+
+A ratio is valid only at the pair of fit and score where it was computed. The `"benkeser"` order
+moves the regression and the mechanism after the outcome solve, and so does each round of the
+missing-outcome reduction. So these paths restate the score at the pair they judge.
+
+| site | outcome test under a declared rule |
+| --- | --- |
+| the outer exit and the stall rule, both orders | the ratio restated at the pair after the last move. The outcome entry of the stall score is `tol` times that ratio, so every round uses one ruler |
+| the closing judgements, `unsolved` and `converged` | the ratio of the record each one judges, computed at that record's pair. Equation (10) is judged by the ratio of its own columns, because the closing joint solve stops by the rule over them. Equation (9) keeps `tol` |
+| the missing-outcome reduction | the ratio restated from the stacked standard and extra scores. The outcome record holds that stacked ratio, and the reduction record holds the extra block's part of it. The drift blocks keep `tol` |
+| `"drtmle"` order | the restatement is a no-op, so the restated ratio equals the solver's |
+| the closing pass at frozen reductions | no outer outcome test. The outcome solves apply the rule themselves |
+
+`tests/unit/test_stopping_rule_engines.py` recomputes the ratio by hand at every round and compares
+it with the ratio the exit read. Under `update_order="benkeser"`, seed 5 and a step of 0.01, the
+restated ratio reaches 1.75 while the solver's own ratio is 0.966. An exit that read the solver's
+ratio would judge the rule met there. A mutation control that reads it fails the audit.
+`score_check()` under a declared rule judges the `(reduced)` row by the reduction record's rule
+ratio, and it reports the `D*_Q` and `D*_Y` correction rows as diagnostics. The mechanism rows keep
+the default bar. `TestRuleGovernedRows` in `tests/unit/test_stopping_rule_report.py` checks a
+one-step fit in each order and a missing-outcome fit, with a mutation control that restores the
+default bar. `score_check()` reports no `rule_bound_se` for a DR-TMLE fit, because the corrected
+curve carries terms that the outcome columns do not.
+
+The result summary also carries the pinned line for `treatment_adjustment=`, described in
+[treatment-mechanism covariates](../point-treatment-tmle.md#treatment-mechanism-covariates).
+
 ## The canonical `cvFolds` mapping
 
 R `drtmle`'s `cvFolds` path maps to `cross_fit=True, reduced_crossfit="pooled",

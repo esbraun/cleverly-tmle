@@ -14,6 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from cleverly._refusal import RefusalReason
 from cleverly.data import CausalData
 from cleverly.exceptions import DataError
 from cleverly.interventions import Incremental, IPSISet, check_incremental_support
@@ -111,7 +112,7 @@ def test_the_derivative_is_the_pathwise_one() -> None:
     tilts = IPSISet.evaluate((Incremental(delta),), data, g)
     one = g[:, 1]
     d = delta * one + (1.0 - one)
-    np.testing.assert_allclose(tilts.blip_weight(0.0), delta / d**2, atol=1e-14, rtol=0)
+    np.testing.assert_allclose(tilts.binary_derivative[:, 0], delta / d**2, atol=1e-14, rtol=0)
 
 
 def test_the_observed_covariate_reads_the_arm_the_unit_got() -> None:
@@ -153,20 +154,18 @@ def test_recomputing_at_a_new_mechanism_keeps_the_declaration() -> None:
     """What the mechanism fluctuation calls: the tilt is unchanged, its evaluation moves."""
     data, g = make_data(), mechanism()
     tilts = IPSISet.evaluate((Incremental(2.5), Incremental(0.4)), data, g, reference="odds x0.4")
-    moved = tilts.at(np.clip(g[:, 1] + 0.02, 1e-6, 1 - 1e-6))
+    one = np.clip(g[:, 1] + 0.02, 1e-6, 1 - 1e-6)
+    moved = tilts.at(np.column_stack([1.0 - one, one]))
     assert moved.names == tilts.names
-    assert moved.deltas == tilts.deltas
+    assert moved.factors == tilts.factors
     assert moved.reference == tilts.reference
     assert not np.allclose(moved.values, tilts.values)
     # `at` and `evaluate` must agree, or the alternating loop would chase two definitions.
     again = IPSISet.evaluate(
-        (Incremental(2.5), Incremental(0.4)),
-        data,
-        np.column_stack([1.0 - moved.propensity, moved.propensity]),
-        reference="odds x0.4",
+        (Incremental(2.5), Incremental(0.4)), data, moved.propensity, reference="odds x0.4"
     )
     np.testing.assert_array_equal(again.values, moved.values)
-    np.testing.assert_array_equal(again.derivative, moved.derivative)
+    np.testing.assert_array_equal(again.normaliser, moved.normaliser)
 
 
 def test_a_subset_slices_rather_than_re_evaluates() -> None:
@@ -191,11 +190,13 @@ def test_codes_and_labels_follow_the_declaration_order() -> None:
 # ------------------------------------------------------------------ the refusals
 
 
-def test_a_multi_arm_treatment_is_refused_with_the_derivation_it_would_need() -> None:
+def test_a_scalar_multiplier_on_a_multi_arm_treatment_is_refused_with_the_mapping_form() -> None:
     data = make_data(levels=("low", "mid", "high"))
     g = np.full((data.n, 3), 1 / 3)
-    with pytest.raises(DataError, match="odds"):
+    with pytest.raises(DataError, match=r"scalar odds multiplier names two arms") as raised:
         IPSISet.evaluate((Incremental(2.0),), data, g)
+    assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
+    assert "Incremental({'high': 2.0})" in str(raised.value)
 
 
 def test_no_interventions_is_refused() -> None:
@@ -227,7 +228,7 @@ def test_a_mechanism_of_the_wrong_width_is_refused() -> None:
 def test_the_support_report_states_the_bound_and_the_realised_maximum() -> None:
     data, g = make_data(), mechanism()
     tilts = IPSISet.evaluate((Incremental(1.0), Incremental(3.0)), data, g)
-    reports = check_incremental_support(tilts, data.treatment)
+    reports = check_incremental_support(tilts, data.treatment, levels=data.treatment_levels)
     assert set(reports) == {"natural course", "odds x3"}
 
     natural = reports["natural course"]

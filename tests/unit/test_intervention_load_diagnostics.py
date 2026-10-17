@@ -439,7 +439,9 @@ def _bare_support_reports() -> dict[str, Mapping[str, Any]]:
         ).regimes,
         "check_policy_support": check_policy_support(shifts, density, continuous.treatment),
         "check_incremental_support": check_incremental_support(
-            IPSISet.evaluate((Incremental(2.0),), arms, propensity), arms.treatment
+            IPSISet.evaluate((Incremental(2.0),), arms, propensity),
+            arms.treatment,
+            levels=arms.treatment_levels,
         ),
     }
 

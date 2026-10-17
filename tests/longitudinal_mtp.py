@@ -104,6 +104,42 @@ def regimens(labels: tuple[str, ...]) -> dict[str, Any]:
     return {label: table[label] for label in labels}
 
 
+#: The atom plans of :data:`tests.discrete_law_longitudinal_mtp.PLANS` at node 2, with the
+#: dose 3 declared an atom (X40 part (b)).  "to atom" is a ``ModifiedPolicy`` whose middle
+#: piece collapses ``[1.5, 2.5)`` onto the atom; "hold atom" is a capped ``Shift`` whose
+#: identity region holds 2 and the atom; "atom random" mixes the two pieces.
+TO_ATOM_PIECES = (
+    Piece(-INF, 1.5, lambda a, h: a + 1.0, lambda b, h: b - 1.0, lambda b, h: 1.0),
+    Piece(1.5, 2.5, to_atom=3.0),
+    Piece(2.5, INF),
+)
+HOLD_ATOM_PIECES = (
+    Piece(-INF, 1.5, lambda a, h: a + 1.0, lambda b, h: b - 1.0, lambda b, h: 1.0),
+    Piece(1.5, INF),
+)
+TO_ATOM = ModifiedPolicy("to atom", pieces=TO_ATOM_PIECES, policy_kind="known")
+HOLD_ATOM = Shift(1.0, cap=2.5)
+ATOM_RANDOM = ModifiedPolicy(
+    "atom random",
+    pieces={"to": TO_ATOM_PIECES, "hold": HOLD_ATOM_PIECES},
+    randomizer=Randomizer(("to", "hold"), (0.4, 0.6)),
+    policy_kind="known",
+)
+#: The declaration the atom plans need.
+ATOMS = {"A2": (law.ATOM_DOSE,)}
+
+
+def atom_regimens(labels: tuple[str, ...]) -> dict[str, Any]:
+    """The atom plans, and the natural course, with node 1 left alone."""
+    table = {
+        "natural": NATURAL,
+        "to atom": DynamicRegimen("to atom", (NATURAL, TO_ATOM)),
+        "hold atom": DynamicRegimen("hold atom", (NATURAL, HOLD_ATOM)),
+        "atom random": DynamicRegimen("atom random", (NATURAL, ATOM_RANDOM)),
+    }
+    return {label: table[label] for label in labels}
+
+
 def scaled_regimens() -> dict[str, Any]:
     """The natural course and ``Scale(2, cap=8)`` at node 2 of the scaled law."""
     return {

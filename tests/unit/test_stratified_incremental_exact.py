@@ -269,7 +269,9 @@ class TestAnAbsentArm:
     def test_an_all_control_stratum_refuses_before_any_learner(self) -> None:
         frame = law.sample(600, SEED).assign(A=lambda rows: np.where(rows["V"] == 2, 0, rows["A"]))
         Counting.calls = 0
-        with pytest.raises(DataError, match="treatment-mechanism score equation has no finite"):
+        with pytest.raises(
+            DataError, match="treatment-mechanism score equation may have no finite"
+        ):
             TMLE(
                 incremental=[Incremental(2.0)],
                 outcome_learner=CountingLogistic(max_iter=1000),

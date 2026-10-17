@@ -309,9 +309,9 @@ the committed results and checked at the precision printed.
 
 | limit | what it means |
 | --- | --- |
-| In sample, one split, one draw | The fit is not cross-fitted, and `repeats` is 1. The predicate refuses `cross_fit=True` and `repeats > 1`. [X58](../../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) part (c) holds them |
-| Two arms | The treatment is binary. More than two arms, `ey_obs`, `par`, `paf` and the simultaneous band are refused or withheld. X58 part (b) holds them |
-| Complete, unweighted, unstratified, unclustered data | The study measures no weight, stratum, missing outcome, missing treatment or cluster. X58 part (d) holds fixed weights and X52 holds the rest |
+| In sample, one split, one draw | The fit is not cross-fitted, and `repeats` is 1. This study measures no cross-fitted or repeated fit. The [cross-fitted study](outcome-adaptive-per-arm-c-tmle-parametric-crossfit.md) of [X58](../../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) part (c) measures them |
+| Two arms | The treatment is binary. The [extensions study](outcome-adaptive-per-arm-c-tmle-parametric-extensions.md) of [X58](../../roadmap.md#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) part (b) measures three arms, `ey_obs`, `par`, `paf` and the simultaneous band |
+| Complete, unweighted, unstratified, unclustered data | The study measures no weight, stratum, missing outcome, missing treatment or cluster. The [extensions study](outcome-adaptive-per-arm-c-tmle-parametric-extensions.md) of X58 part (d) measures a known fixed weight, and X52 holds the rest |
 | Two parametric learners only | Only `ParametricOutcome` and `ParametricMechanism` are admitted, as exact classes. A scikit-learn learner keeps the `"generated_design_plugin"` status, and [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) owns its interval |
 | The interval covers $\psi^*$ | Under a wrong outcome model the interval covers the limit $\psi^*$ and not $\psi_0$. The pseudo-true cells report the coverage of $\psi_0$ and gate nothing on it. The claim is pointwise, not locally uniform over the nonparametric model |
 | Default `alpha` only | Every cell runs at the default `alpha`. No cell sets `alpha` below it. The [clip caveat](../collaborative-tmle.md#parametric-per-arm-intervals) for a user `alpha` such as 0.9 has no study cell |

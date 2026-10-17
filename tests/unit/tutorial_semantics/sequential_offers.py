@@ -248,9 +248,9 @@ def _check_design(namespace: dict[str, Any]) -> None:
     protocol, study = namespace["protocol"], namespace["study"]
     # The protocol step uses the shipped helper unchanged.
     assert protocol == offers_protocol()
-    assert protocol.fingerprint == "94024dfd011817af"
+    assert protocol.fingerprint == "91f189a988d70fec"
     assert len(protocol.treatment_strategies) == len(protocol.treatment_versions) == 5
-    assert "94024dfd011817af" in stored_output(NOTEBOOK, "protocol")
+    assert "91f189a988d70fec" in stored_output(NOTEBOOK, "protocol")
     assert_protocol_recorded(
         NOTEBOOK,
         "protocol",

@@ -548,7 +548,11 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     if "missingness_necessity" in record.property_cells:
         declared["margin:missingness_displacement"] = record.properties().MISSINGNESS_DISPLACEMENT
-    if "correction_necessity" in record.property_cells:
+    # Two studies use the family name.  The DR-TMLE studies compare a closed score with the
+    # initial score, and their cells end in ``closed_score``.  A study with a corrected and an
+    # uncorrected arm publishes the displacement of the pair instead.
+    correction_cells = record.property_cells.get("correction_necessity", ())
+    if any(cell.endswith("__closed_score") for cell in correction_cells):
         properties = record.properties()
         declared.update(
             {
@@ -556,7 +560,12 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                 "margin:uncorrected_score_floor": properties.UNCORRECTED_SCORE_FLOOR,
             }
         )
+    elif correction_cells:
+        declared["margin:correction_displacement"] = record.properties().CORRECTION_DISPLACEMENT
     if set(record.property_cells) & {
+        "atom_necessity",
+        "classifier_split",
+        "branch_necessity",
         "cap_necessity",
         "density_necessity",
         "image_necessity",
@@ -602,7 +611,17 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
     # what settles a disagreement between two implementations.  Two implementations
     # reporting the same number establishes only that they agree.
     for estimand, deviation in sorted(record.efficiency_bounds.items()):
-        declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(record.n)
+        sizes = {
+            record.n_of(scenario)
+            for scenario, names in record.scenarios.items()
+            if estimand in names
+        } or {record.n}
+        if len(sizes) > 1:
+            raise ValueError(
+                f"{record.slug}: the bound of {estimand} is reported by scenarios of sizes "
+                f"{sorted(sizes)}, so one bound cannot be published"
+            )
+        declared[f"bound:{estimand}_standard_error"] = float(deviation) / math.sqrt(sizes.pop())
     # Each side's fitting-failure bound that the committed run applied, and the failed fits it
     # allows per cell.  A record declares its bound for the next run; the page describes the
     # committed run, so it quotes the bound once a run's manifest records it.

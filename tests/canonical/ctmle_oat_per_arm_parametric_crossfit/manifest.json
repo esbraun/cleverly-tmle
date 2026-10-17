@@ -1,0 +1,168 @@
+{
+  "schema_version": 2,
+  "study": "cross-fitted outcome-adaptive per-arm C-TMLE with a parametric outcome",
+  "slug": "ctmle-oat-per-arm-parametric-crossfit",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ctmle-oat-per-arm-parametric-crossfit",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "a1a87015c4a7f258385391bc846037d021a9a04f",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1200,
+    "n": 1500,
+    "seed": 20261168,
+    "resampling_seed": 2026116801,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-ctmle-oat-per-arm-parametric-crossfit": 0.01
+    },
+    "scenarios": {
+      "binary_active": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ]
+    },
+    "strategy": "oat",
+    "oat_design": "per_arm",
+    "cross_fit": true,
+    "n_folds": 5,
+    "repeats_by_group": {
+      "repeats": 3
+    },
+    "simultaneous_intervals": false,
+    "outcome_learner": "ParametricOutcome: unpenalized logistic GLM on [A indicators, W, A x W], one fit per fold",
+    "treatment_learner": "ParametricMechanism: per arm and fold, unpenalized logistic regression of 1{A = a} on the cubic in l = logit(clip(Qbar_k(a, W), 1e-6, 1 - 1e-6))",
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "covariates_by_group": {
+      "crossfit_pseudo_true": [
+        "W2",
+        "W3"
+      ]
+    },
+    "max_iter": 100,
+    "tol": 1e-10,
+    "random_state": 0,
+    "primary": {
+      "scenario": "binary_active",
+      "n": 1500,
+      "replicates": 1200,
+      "estimands": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ],
+      "law": "binary_active of tests.studies.oat_per_arm_laws"
+    },
+    "comparator": "none: Python property evidence, no comparator",
+    "comparator_reason": "drtmle's adapt_g reports the shipped curve, so no R program measures the corrected curve; the point estimate of the in-sample form agrees with the registered pipelines through test_parametric_learners.py",
+    "budgets": {
+      "crossfit_1500": 15200,
+      "crossfit_500": 64800,
+      "crossfit_8000": 10000,
+      "crossfit_pseudo_true": 10000,
+      "crossfit_generated_design": 10800,
+      "repeats": 10800,
+      "crossfit_null": 1200
+    },
+    "units": {
+      "calibration_groups": 6,
+      "type_i_groups": 1,
+      "primary_phase": 1,
+      "negative_controls": 2
+    },
+    "budget_rule": "plan 13.6 (rev 3.1) expected budgets, each a multiple of 400; the study-wise rule of plan section 12 with G = 10 gated units, each sized to pass with probability >= 0.95 ** (1 / 10); crossfit_null and the primary phase are sized at 1,200 (at most 93 rejections pass in crossfit_null)",
+    "failure_bounds": {
+      "declared": 0.01,
+      "applied": "0.01 in both phases: a cell may lose floor(0.01 R) replicates, and each clause is judged by its worst case over the lost values; one more lost replicate reads bound exceeded. A fit that raises, and an admitted fit whose stack status is not influence_curve, both count as failed replicates"
+    },
+    "shrunken_se_factor": 0.7,
+    "calibration_efficiency_ratio": "False: the noise control reads the SE-ratio rule, and no cell claims a ratio against an efficiency bound",
+    "declared_reading": "A red calibration row is finite-sample only under the AGENT-BRIEF rule (its 99% SE-ratio interval contains 1, its coverage is consistent with 0.95, and diagnosis finds no defect). crossfit_1500__ate__shipped_curve__shrunken_se_control and repeats__ate__shipped_curve__shrunken_se_control must be red, that is, their SE-ratio intervals must leave the calibration band below. The harness publishes passed=True for such a control. If either control stays inside or straddles the band, its cell cannot see its term, the study is invalid, and it is redesigned before any reading. The coverage of psi_0 in the pseudo-true group, the sqrt(n) SD of the groups at n = 500 and n = 8,000, the per-draw spread of the repeated fits and the paired deficit of the generated-design pair are reported and gate nothing. The coverage of psi_0 is declared at 0.5646, 0.5646 and 0.2963 (psi0_coverage_expected).",
+    "negative_controls": {
+      "crossfit_1500__ate__shipped_curve__shrunken_se_control": "below",
+      "repeats__ate__shipped_curve__shrunken_se_control": "below"
+    },
+    "negative_control_expected_se_ratio": {
+      "crossfit_1500__ate__shipped_curve__shrunken_se_control": {
+        "exact": 0.845,
+        "pilot": 0.852
+      },
+      "repeats__ate__shipped_curve__shrunken_se_control": {
+        "exact": 0.845,
+        "pilot": 0.853
+      }
+    },
+    "psi0_coverage_expected": {
+      "ey0": 0.5646,
+      "ey1": 0.5646,
+      "ate": 0.2963
+    },
+    "publication_reading": "gated: every row must pass, and a negative control passes by being red",
+    "family_mapping": "the groups are interval_calibration cells named <label>__<estimand>__corrected, so the shared calibration verdict applies per estimand",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ctmle_oat_per_arm_parametric_crossfit.py": "a2782fd8b42d30c3c6b2a3775cbdf69b0eecc27b7bc6b01cded978ce419671b6",
+    "tests/studies/ctmle_oat_per_arm_parametric_crossfit_properties.py": "5f5c268facdc16d96235eff3cefff90f30036eb2192809af0d37083f489a771c",
+    "tests/studies/oat_parametric_quadrature.py": "9358f2a257638e339c9a02db127db0bd82e93ae39ac9609226bd7a96830d3ad2",
+    "tests/studies/oat_per_arm_laws.py": "081894d3d80766dbef1ea2ab44b39020ac3006ce604d1a732f0a3a414a197c2c",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
+    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "ac6a0fcced4574a8fef74b34c029e60c7ce4385cdcb5b0f67ee6a1611eb51c2d",
+    "summary.csv": "779aaf0653f1fb842b4a634ae071fd546bf1a77826eaa5adfdb1540e1d5a692a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "8f9619957f8e532cd2ceff69d9e7a47cad50d357af6d9ce93d33d59f28a6bfcb",
+    "property-replicates.csv.gz": "fa430b0576d23298fbaff4cc3674900a0e6d662959cfeccd933cd44b34145176",
+    "properties.csv": "7e0a0c14cd1e2d9a17b7333ab64f558c1790e453943ab2749d7ef665d47fa07e"
+  }
+}

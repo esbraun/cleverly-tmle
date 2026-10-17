@@ -52,7 +52,7 @@ The policy was declared before the run, in `RED_CELL_POLICY` of
 | --- | --- | --- |
 | 1 | always | the study publishes under `reporting`. No budget, margin, law or learner changes after a verdict is seen |
 | 2 | a red ratio or RMST cell | the exact-law tests are checked first. A defect is fixed and the study is regenerated once. A red cell that the exact tests cannot explain is published red with owner `X20-derived` |
-| 3 | a longitudinal bootstrap cell | a design kind enters `LICENSED_BOOTSTRAP_DESIGNS` only when all its bootstrap cells are green. A red cell keeps its own kind a diagnostic, with owner `X20-bootstrap`, and moves no other kind |
+| 3 | a longitudinal bootstrap cell | a design kind enters `LICENSED_BOOTSTRAP_DESIGNS` only when all its bootstrap cells are green. A red cell keeps its own kind a diagnostic, with owner `X20-bootstrap`, and moves no other kind. This is the rule as declared. Since RM42b the `bootstrap` kind of a support row does this job, and a kind without a row prints `experimental` |
 | 4 | a red point-TMLE bootstrap cell | the cell is published red with owner `X20-point-bootstrap`, and rule 3 applies to `TMLEResult` |
 | 5 | a control that does not fail | the control is reported as underpowered by design, and its positive cell claims no verdict |
 

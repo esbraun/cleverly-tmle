@@ -75,7 +75,7 @@ class TestTheOracleAndTheLibraryDescribeTheSameTilts:
         tilts = exact_fit.nuisance.incremental
         levels = np.rint(exact_fit.data.covariates[:, 0]).astype(int)
         g = law.G_EXACT[levels]
-        np.testing.assert_allclose(tilts.propensity, g, atol=1e-12, rtol=0)
+        np.testing.assert_allclose(tilts.propensity[:, 1], g, atol=1e-12, rtol=0)
         for index, delta in enumerate(law.IPSI_DELTAS.values()):
             expected = delta * g / (delta * g + 1.0 - g)
             np.testing.assert_allclose(tilts.values[:, 1, index], expected, atol=1e-12, rtol=0)

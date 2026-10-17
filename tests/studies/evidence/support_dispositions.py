@@ -68,6 +68,11 @@ LIMIT_OWNERS = frozenset(
         "X8-drtmle-small-stratum",
         "X16-plugin-variance",
         "RM18-comparator-density",
+        "X19-competing-calibration",
+        "X45-finite-sample",
+        "mtp-pricing-learned-density",
+        "X26-plugin-conservative",
+        "X26-refusal-limited",
     }
 )
 #: The owners whose red rows default to experimental, and the owner decides (flagged).
@@ -77,6 +82,14 @@ FLAGGED_EXPERIMENTAL = {
     "RM18-one-sided-bias": "the one-sided bias of the DR-TMLE cell",
     "F28": "the informative-size t cells read a bias of 0.11 to 0.13 and an SE ratio of 0.83",
     "F27": "the boundary truth rows read a coverage of 0.894 and an SE ratio of 0.82",
+    "mtp-pricing-calibration": (
+        "X40: the five-node price_down rows read a coverage of 0.916 to 0.923 and an SE ratio of "
+        "0.93 to 0.95"
+    ),
+    "X40-sdr-heavy-ratios": (
+        "X40: SDR under the two-branch plan p4 reads an SE ratio of 0.9408 and a coverage of 0.9357 "
+        "at n = 4,000"
+    ),
 }
 #: The studies whose interval calibration cells use a t reference, so a Wald row there is ``wald_t``.
 T_REFERENCE_SLUGS = frozenset({"clustered-few-cluster-tmle", "few-cluster-cross-fitted-ltmle"})
@@ -1366,12 +1379,146 @@ _TABLE: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...]
         "",
         "",
     ),
+    (
+        "parametric-gformula",
+        "property",
+        "interval_calibration/nice_g1_treat_all__correctly_specified",
+        "G29.g1",
+        ("wald",),
+        LIMIT,
+        "X45-finite-sample: coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000",
+        "",
+    ),
+    (
+        "longitudinal-incremental-dropout",
+        "property",
+        "interval_calibration/competing_contrast_x2_h3__correctly_specified",
+        "G34.competing",
+        ("wald",),
+        LIMIT,
+        "X19-competing-calibration: coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, empirical efficiency ratio 0.9239 to 0.9884, reported efficiency ratio 1.0005 to 1.0007",
+        "",
+    ),
+)
+
+#: X40 (continuous-policy validation). The owner chose ``experimental`` with the measured number
+#: (the RM42b measured-shortfall standard) for the four red price_down cells of the five-node
+#: price study on 2026-10-16. To flip it to a stated
+#: limit, set this to ``LIMIT``. Then move each sentence of
+#: ``SHORTFALLS`` for ``G39.ltmle.tau5`` and ``G39.sdr.tau5`` in ``src/cleverly/_support_rows.py``
+#: to ``MEASURED_LIMITS`` under the same row id, with the text of ``_PRICE_DOWN_LIMIT``.
+_X40_PRICE_DOWN: Choice = EXPERIMENTAL
+_PRICE_DOWN_LIMIT = {
+    "G39.ltmle.tau5": "mtp-pricing-calibration: coverage 0.9160 to 0.9170, SE ratio 0.9310 to 0.9479",
+    "G39.sdr.tau5": "mtp-pricing-calibration: coverage 0.9190 to 0.9230, SE ratio 0.9339 to 0.9518",
+}
+_X40_PRICING: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
+    *(
+        (
+            "mtp-pricing",
+            "truth",
+            f"cleverly-mtp-pricing/{scenario}/{estimand}",
+            row,
+            ("wald",),
+            _X40_PRICE_DOWN,
+            _PRICE_DOWN_LIMIT[row] if _X40_PRICE_DOWN == LIMIT else "",
+            "X40",
+        )
+        for scenario, row in (
+            ("pricing_ltmle_tau5", "G39.ltmle.tau5"),
+            ("pricing_sdr_tau5", "G39.sdr.tau5"),
+        )
+        for estimand in ("ate_regimen[price_down vs natural_prices]", "ey_regimen[price_down]")
+    ),
+    # The learned-density arms read conservative intervals and a coverage above nominal, so the
+    # decision is a stated limit.
+    (
+        "mtp-pricing",
+        "property",
+        "interval_calibration/up_learned_density_tau2__correctly_specified",
+        "G10.continuous",
+        ("wald",),
+        LIMIT,
+        "mtp-pricing-learned-density: coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162",
+        "",
+    ),
+    (
+        "mtp-pricing",
+        "property",
+        "interval_calibration/up_learned_density_tau3__correctly_specified",
+        "G40.tau3",
+        ("wald",),
+        LIMIT,
+        "mtp-pricing-learned-density: coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408",
+        "",
+    ),
+    (
+        "mtp-pricing",
+        "property",
+        "interval_calibration/up_learned_density_tau5__correctly_specified",
+        "G40.tau5",
+        ("wald",),
+        LIMIT,
+        "mtp-pricing-learned-density: coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323",
+        "",
+    ),
+)
+
+#: X40 S1 (``mtp-boundaries``). The ``p4_sdr`` calibration cell is a declared ``reporting`` arm
+#: at n = 4,000. The ``boundaries_ltmle`` p4 truth rows pass at the n = 5,000 primary, so they
+#: have no line here.
+_X40_BOUNDARIES: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
+    (
+        "mtp-boundaries",
+        "property",
+        "interval_calibration/p4_sdr__correctly_specified",
+        "G24.mtp.in_sample",
+        ("wald",),
+        EXPERIMENTAL,
+        "",
+        "X40",
+    ),
+)
+
+#: X26 (``omitted-variable-bound-plugin-se``). Both red cells are lower bounds on the cross-fitted
+#: three-arm fit. The owners read a finite-sample effect and no defect: ``X26-plugin-conservative``
+#: reads an interval above nominal, and ``X26-refusal-limited`` reads an interval inside the band
+#: that only the worst-case fill of 32 lost replicates puts outside it. Each decision is a stated
+#: limit with the measured number.
+_X26: tuple[tuple[str, str, str, str, tuple[str, ...], Choice, str, str], ...] = (
+    (
+        "omitted-variable-bound-plugin-se",
+        "property",
+        "interval_calibration/multinomial_logistic_crossfit_ate_2v0_lower__correctly_specified",
+        "T36.three_arm_stacked",
+        ("wald",),
+        LIMIT,
+        "X26-plugin-conservative: coverage 0.9556 to 0.9657, SE ratio 1.0332 to 1.0723, "
+        "failures 32 of 10000 (complete case fails)",
+        "",
+    ),
+    (
+        "omitted-variable-bound-plugin-se",
+        "property",
+        "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
+        "T36.three_arm_stacked",
+        ("wald",),
+        LIMIT,
+        "X26-refusal-limited: coverage 0.9568 to 0.9667, SE ratio 1.0288 to 1.0683, "
+        "failures 32 of 10000 (worst case fails)",
+        "",
+    ),
 )
 
 #: The committed decisions, one per positive red row.
 DISPOSITIONS: Mapping[RedKey, Disposition] = {
     RedKey(slug, kind, key): Disposition(row, kinds, disposition, limit, flag)
-    for slug, kind, key, row, kinds, disposition, limit, flag in _TABLE
+    for slug, kind, key, row, kinds, disposition, limit, flag in (
+        *_TABLE,
+        *_X40_PRICING,
+        *_X40_BOUNDARIES,
+        *_X26,
+    )
 }
 
 #: The owner's answer for each flagged key (RM42b-progress.md, "Eric's answers", 2026-10-15).
@@ -1379,8 +1526,13 @@ DECISIONS: Mapping[RedKey, str] = {
     key: (
         "Q1: keep the withheld status; the row prints its reason and a point estimate only"
         if entry.flag == "Q1"
-        else "Q6: experimental, with the measured number in the reason"
-        + (" (F27: supported inside C3, refused outside)" if "learned-rule" in key.slug else "")
+        else (
+            "X40: experimental, with the measured number in the reason (the owner's recommended "
+            "default, pending his confirmation)"
+            if entry.flag == "X40"
+            else "Q6: experimental, with the measured number in the reason"
+            + (" (F27: supported inside C3, refused outside)" if "learned-rule" in key.slug else "")
+        )
     )
     for key, entry in DISPOSITIONS.items()
     if entry.flag
@@ -1404,6 +1556,18 @@ NO_SHORTFALL: Mapping[RedKey, str] = {
         key: "the cell is a cross-fitted or clustered bootstrap, outside the configuration of the row"
         for key, entry in DISPOSITIONS.items()
         if entry.row == "T01.binary" and entry.disposition == EXPERIMENTAL
+    },
+    **{
+        key: "the cell is the two-branch plan p4 under SDR with heavy cumulative ratios, which "
+        "the key of the fit cannot read; the SDR caveat of longitudinal-tmle.md states the measured reading"
+        for key, entry in DISPOSITIONS.items()
+        if key.slug == "mtp-boundaries" and key.kind == "property"
+    },
+    **{
+        key: "the cell measures a hypothesis test, and the label has no test kind; the row's "
+        "coverage cells carry its interval limit"
+        for key, entry in DISPOSITIONS.items()
+        if entry.disposition == EXPERIMENTAL and key.key.startswith(("type_i_error/", "power/"))
     },
 }
 

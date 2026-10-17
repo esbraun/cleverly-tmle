@@ -21,6 +21,7 @@ from .base import (
     OUTCOME_REGRESSION,
     TREATMENT_MECHANISM,
     Identification,
+    Interpretation,
     Target,
     TargetContext,
     parameter_name,
@@ -192,9 +193,10 @@ _IPSI_ID = Identification(
         "consistency: Y = Y^a when A = a",
         *_NO_INTERFERENCE,
         "no unmeasured confounding: Y^a is independent of A given W",
-        "*no positivity assumption*: the clever covariate is delta/D at A=1 and 1/D at "
-        "A=0 with D = delta*g + 1 - g, so it lies between min(delta, 1/delta) and "
-        "max(delta, 1/delta) however small g is. This is the estimand's reason for "
+        "*no positivity assumption*: the clever covariate is delta_a/D at level a with "
+        "D = sum_b delta_b*g_b (delta_a = delta and D = delta*g + 1 - g for A=1 and 1/D "
+        "for A=0 on two levels), so it lies between min(delta)/max(delta) and "
+        "max(delta)/min(delta) however small g is. This is the estimand's reason for "
         "existing, not an oversight in the list",
         "the intervention is a functional of the observed-data law: q_delta is built "
         "out of g, so the influence function carries a term for the pathwise derivative "
@@ -207,6 +209,8 @@ _IPSI_ID = Identification(
         "(ghat - g0) as a factor. The remainder vanishes identically when the mechanism "
         "is consistent whatever Qbar does, and no accuracy in Qbar rescues an "
         "inconsistent mechanism -- there the remainder is "
+        "E[(mhat - m0)(Dhat - D0)/Dhat] with m the tilted mean and D = sum_b delta_b*g_b, "
+        "which on two levels with Qbar correct is "
         "(delta - 1) delta E[(g0 - ghat)^2 (Qbar(1,W) - Qbar(0,W)) / (D0 Dhat^2)], "
         "second order but not zero. Read the interval as conditional on g being right. "
         "With delta= even that is not sufficient: the remainder gains a cross term in the "
@@ -215,6 +219,45 @@ _IPSI_ID = Identification(
     references=("Kennedy (2019)",),
 )
 
+
+#: The two readings of the point policy functional (X40 part (d)).  Díaz, Williams, Hoffman
+#: and Schenck (2023), Theorem 1: under strong sequential randomization (Assumption 3) the
+#: functional is the policy effect, and under standard sequential randomization (Assumption
+#: 2) it is the mean under the stochastic intervention that draws the dose from the law of
+#: d(A, W).  At one node Assumption 3 has no later dose, so it reduces to Assumption 2, and
+#: the two readings rest on one exchangeability assumption.
+_ONE_NODE = (
+    "at one node the strong and the standard sequential randomization coincide: Díaz, "
+    "Williams, Hoffman & Schenck (2023), Assumption 3, has no later dose, so it reduces to "
+    "Assumption 2"
+)
+_POLICY_INTERPRETATIONS = (
+    Interpretation(
+        label="modified treatment policy effect",
+        meaning="the mean outcome had each unit's own dose a been replaced by d(a, w)",
+        assumptions=(
+            "strong sequential randomization: Y^b is independent of A given W for every "
+            "dose b, so every common cause of the dose and the outcome is in W (the strong "
+            f"exchangeability of Williams & Díaz 2025); {_ONE_NODE}",
+        ),
+        references=(
+            "Diaz, Williams, Hoffman & Schenck (2023), Theorem 1 (ii) and Assumption 3",
+            "Williams & Díaz (2025)",
+        ),
+    ),
+    Interpretation(
+        label="stochastic intervention (LMTP-SI)",
+        meaning=(
+            "the mean outcome had each unit's dose been drawn from the law of d(A, W) "
+            "given its covariates"
+        ),
+        assumptions=(
+            "standard sequential randomization: the dose and the outcome have no common "
+            f"cause outside W; {_ONE_NODE}",
+        ),
+        references=("Diaz, Williams, Hoffman & Schenck (2023), Theorem 1 (i) and Assumption 2",),
+    ),
+)
 
 _POLICY_ID = Identification(
     assumptions=(
@@ -230,8 +273,10 @@ _POLICY_ID = Identification(
         "it does not establish true conditional support or identification",
         "the policy is a known function of (A, W), and of a randomizer of known law when "
         "it is randomized: d does not depend on the observed-data law, so the influence "
-        "function carries no term for estimating it. A cap fitted from the data would "
-        "break this, which is why cap= is required rather than defaulted to max(A)",
+        "function carries no term for estimating it. A cap read from the data is a "
+        "declared tuner with a declared target instead (X40 part (e)): the population "
+        "target adds the tuner's term to the curve, and the fold-average target fits each "
+        "fold's map on its training rows. cap= is never defaulted to max(A)",
         "on a continuous treatment, d is piecewise smooth invertible (Diaz, Williams, "
         "Hoffman & Schenck 2023, Assumption 4): a policy that maps an interval to one dose "
         "is not pathwise differentiable and is refused",
@@ -257,6 +302,7 @@ _POLICY_ID = Identification(
         "Haneuse & Rotnitzky (2013)",
         "Diaz, Williams, Hoffman & Schenck (2023)",
     ),
+    interpretations=_POLICY_INTERPRETATIONS,
 )
 
 
@@ -329,7 +375,11 @@ def _ey(ctx: TargetContext) -> list[ParameterEstimate]:
     """
     return [
         ctx.finish(
-            parameter_name("ey", arm=ctx.label(arm)), mean.psi, mean.influence_curve, "level"
+            parameter_name("ey", arm=ctx.label(arm)),
+            mean.psi,
+            mean.influence_curve,
+            "level",
+            reads=(arm,),
         )
         for arm, mean in sorted(ctx.means.items())
     ]
@@ -337,18 +387,18 @@ def _ey(ctx: TargetContext) -> list[ParameterEstimate]:
 
 def _ey1(ctx: TargetContext) -> list[ParameterEstimate]:
     mean = ctx.means[1.0]
-    return [ctx.finish("ey1", mean.psi, mean.influence_curve, "level")]
+    return [ctx.finish("ey1", mean.psi, mean.influence_curve, "level", reads=(1.0,))]
 
 
 def _ey0(ctx: TargetContext) -> list[ParameterEstimate]:
     mean = ctx.means[0.0]
-    return [ctx.finish("ey0", mean.psi, mean.influence_curve, "level")]
+    return [ctx.finish("ey0", mean.psi, mean.influence_curve, "level", reads=(0.0,))]
 
 
 def _ey_obs(ctx: TargetContext) -> list[ParameterEstimate]:
     r"""The natural-course mean :math:`E[Y]`."""
     mean = ctx.observed_mean
-    return [ctx.finish("ey_obs", mean.psi, mean.influence_curve, "level")]
+    return [ctx.finish("ey_obs", mean.psi, mean.influence_curve, "level", reads=())]
 
 
 def _par(ctx: TargetContext) -> list[ParameterEstimate]:
@@ -362,6 +412,7 @@ def _par(ctx: TargetContext) -> list[ParameterEstimate]:
             observed.psi - intervention.psi,
             observed.influence_curve - intervention.influence_curve,
             "difference",
+            reads=(ctx.reference,),
         )
     ]
 
@@ -377,7 +428,11 @@ def _paf(ctx: TargetContext) -> list[ParameterEstimate]:
         -intervention.influence_curve / observed.psi
         + intervention.psi * observed.influence_curve / observed.psi**2
     )
-    return [ctx.finish_unscaled(ctx.name_for("paf", ctx.reference), psi, curve, "fraction")]
+    return [
+        ctx.finish_unscaled(
+            ctx.name_for("paf", ctx.reference), psi, curve, "fraction", reads=(ctx.reference,)
+        )
+    ]
 
 
 def _difference_against_reference(ctx: TargetContext, stem: str) -> list[ParameterEstimate]:
@@ -395,6 +450,7 @@ def _difference_against_reference(ctx: TargetContext, stem: str) -> list[Paramet
             ctx.means[arm].psi - reference.psi,
             ctx.means[arm].influence_curve - reference.influence_curve,
             "difference",
+            reads=(arm, ctx.reference),
         )
         for arm in ctx.contrast_arms
     ]
@@ -528,6 +584,7 @@ def _ratio_contrasts(
                 ic,
                 "ratio",
                 log_psi=log_psi,
+                reads=(arm, ctx.reference),
             )
         )
     return out
@@ -743,11 +800,10 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         build=_ey_ipsi,
         identification=_IPSI_ID,
         parameter_axis="ipsi",
-        requires_binary_treatment=True,
         in_default_set=True,
         description=(
             "counterfactual mean under each declared tilt of the treatment mechanism, "
-            "E[Y^{q_delta}] with q_delta the odds of g multiplied by delta"
+            "E[Y^{q_delta}] with q_delta the odds of each level of g multiplied by its factor"
         ),
     ),
     Target(
@@ -757,7 +813,6 @@ BUILTIN_TARGETS: tuple[Target, ...] = (
         build=_ate_ipsi,
         identification=_IPSI_ID,
         parameter_axis="ipsi",
-        requires_binary_treatment=True,
         in_default_set=True,
         description="contrast of each tilt against the reference tilt",
     ),

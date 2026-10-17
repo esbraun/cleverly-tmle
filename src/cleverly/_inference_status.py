@@ -283,10 +283,11 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
             diagnostic_noun="generated-design plug-in diagnostic",
             reopened_by="F19",
             alternative=(
-                "For an interval, fit TMLE, or fit the in-sample per-arm design with "
-                "ParametricOutcome and ParametricMechanism (X58). "
+                "For an interval, fit TMLE, or fit the per-arm design with "
+                "ParametricOutcome and ParametricMechanism (X58), in sample or cross-fitted. "
                 "per_arm_parametric_support(estimator, data) in cleverly.estimators.ctmle "
-                "names the first requirement a fit does not meet."
+                "names the first requirement a fit does not meet. That fit admits any number "
+                "of arms and observation weights."
             ),
         ),
         "estimated_weight_plugin": StatusRecord(
@@ -298,12 +299,12 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "and no result read here gives the contribution of the weight estimate to its "
                 "curve. X50 in docs/roadmap.md reopens this for DRTMLE: the conditional reading "
                 "of the weights does not use efficiency, so it covers the fixed-weight DR-TMLE "
-                "curve. A per-arm outcome-adaptive C-TMLE fit (strategy='oat', "
-                "oat_design='per_arm') with estimated weights takes the generated_design_plugin "
-                "status, because per_arm_parametric_support refuses observation weights, and "
-                "F19 in docs/roadmap.md holds its interval. A sequential g-computation or IPW "
-                "fit with estimated weights takes this status too, because its stacked "
-                "estimating-equation curve conditions on the weights."
+                "curve. A sequential g-computation or IPW fit, and a per-arm outcome-adaptive "
+                "C-TMLE fit (strategy='oat', oat_design='per_arm') that "
+                "per_arm_parametric_support admits, take this status too with estimated "
+                "weights, because each one's stacked estimating-equation curve conditions on "
+                "the weights. A StructuralNestedMean fit with estimated weights takes it for the "
+                "same reason: its curve treats the weights as known."
             ),
             assessment_note=(
                 "the reported interval conditions on the weights and is experimental: no "
@@ -338,7 +339,11 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "plugin_interval: for g-computation it is the efficient influence curve at the "
                 "untargeted fits, and for IPW it is the fixed-mechanism curve. F35 in "
                 "docs/roadmap.md reopens this when a result supplies the asymptotic linearity "
-                "of these estimators with data-adaptive nuisances."
+                "of these estimators with data-adaptive nuisances. A StructuralNestedMean fit "
+                "with n_folds=1 and a learner other than GLM takes this status too, because no "
+                "result read here covers in-sample adaptive nuisances in a g-estimating "
+                "equation. Cross-fitting, which is the default, gives that estimator its "
+                "interval."
             ),
             assessment_note=(
                 "the reported curve is a baseline diagnostic: no confidence interval or "

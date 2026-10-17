@@ -59,6 +59,7 @@ from typing import Any, Literal, NamedTuple
 import numpy as np
 
 from .._inference_status import (
+    PARAMETER_STATUSES,
     InferenceStatus,
     is_labelled,
     precedent_status,
@@ -116,6 +117,7 @@ __all__ = [
     "reduced_corrections",
     "reference_label",
     "regime_means",
+    "restamp_parameter_statuses",
     "spread_name",
     "stamp_inference",
     "supplies_inference",
@@ -248,7 +250,16 @@ def bootstrap_column(name: str, status: InferenceStatus, diagnostic: bool) -> st
 #: supplies inference: the fit declares the bootstrap a diagnostic.
 DIAGNOSTIC_BOOTSTRAP_NOTE = (
     "a diagnostic: the collaborative fit selects its propensity model on each resample, and "
-    "no registered study measures the coverage of that percentile interval"
+    "no registered study measures the coverage of that interval"
+)
+
+#: The pointwise bootstrap interval: ``"percentile"`` (the ``np.quantile`` limits) or
+#: ``"bca"`` (bias-corrected and accelerated, read as order statistics).
+BootstrapInterval = Literal["percentile", "bca"]
+
+#: The printed name of each bootstrap interval.
+BOOTSTRAP_INTERVAL_LABELS: Mapping[str, str] = MappingProxyType(
+    {"percentile": "percentile", "bca": "BCa"}
 )
 
 
@@ -281,13 +292,13 @@ def bootstrap_is_diagnostic(estimate: ParameterEstimate) -> bool:
 
 
 def bootstrap_line(estimate: ParameterEstimate) -> str:
-    """The printed bootstrap spread and percentile interval of one estimate.
+    """The printed bootstrap spread and interval of one estimate.
 
     One body for both result summaries. The labels come from
     :func:`~cleverly.inference.influence.bootstrap_column` under
     :func:`bootstrap_is_diagnostic`, so a fit whose status supplies no inference, an
     estimate with a t reference, or a bootstrap not licensed as inference prints
-    ``bootstrap sd`` and a percentile range.
+    ``bootstrap sd`` and a range.
 
     Parameters
     ----------
@@ -304,10 +315,11 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
     low, high = summary.ci
     label = bootstrap_column("bootstrap se", estimate.inference, bootstrap_is_diagnostic(estimate))
     spread = f"{label} {summary.std_error:.4g}  "
+    interval = BOOTSTRAP_INTERVAL_LABELS[summary.interval]
     if label == "bootstrap se":
         marker = " [experimental]" if summary.support.label == "experimental" else ""
-        return f"{spread}percentile CI [{low:.5g}, {high:.5g}]{marker}"
-    # A percentile interval is a confidence interval, and this estimate reports none. The
+        return f"{spread}{interval} CI [{low:.5g}, {high:.5g}]{marker}"
+    # A bootstrap interval is a confidence interval, and this estimate reports none. The
     # same two numbers are printed as a range under the diagnostic framing, rather than
     # the bootstrap being refused outright.
     if not estimate.supplies_inference:
@@ -316,7 +328,7 @@ def bootstrap_line(estimate: ParameterEstimate) -> str:
         note = status_record("few_cluster_plugin").bootstrap_note
     else:
         note = DIAGNOSTIC_BOOTSTRAP_NOTE
-    return f"{spread}percentile range [{low:.5g}, {high:.5g}] ({note})"
+    return f"{spread}{interval} range [{low:.5g}, {high:.5g}] ({note})"
 
 
 @dataclass(frozen=True)
@@ -1021,6 +1033,10 @@ class ParameterEstimate:
             ):
                 row[bootstrap_column(key, self.inference, diagnostic)] = value
             row["bootstrap_support"] = self.bootstrap.support.label
+            row["bootstrap_interval"] = self.bootstrap.interval
+            if self.bootstrap.interval == "bca":
+                row["bootstrap_z0"] = self.bootstrap.z0
+                row["bootstrap_acceleration"] = self.bootstrap.acceleration
         return row
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -1094,7 +1110,7 @@ class BootstrapSummary:
     The fields describe the construction. The inference status of the estimate decides
     the names that :meth:`ParameterEstimate.to_dict` and the result summary publish them
     under: at a status that supplies no inference, ``std_error`` is published as
-    ``bootstrap_sd`` and ``ci`` as a percentile range.
+    ``bootstrap_sd`` and ``ci`` as a range.
 
     Parameters
     ----------
@@ -1102,11 +1118,11 @@ class BootstrapSummary:
         Sample standard deviation of the finite replicate estimates, ``ddof=1``. ``nan``
         with fewer than two finite estimates, as every limit below.
     ci : tuple of float
-        Two-sided percentile limits of the replicate estimates.
+        Two-sided limits of the interval named by ``interval``.
     ci_one_sided_lower : float
-        Lower one-sided percentile limit.
+        Lower one-sided limit.
     ci_one_sided_upper : float
-        Upper one-sided percentile limit.
+        Upper one-sided limit.
     n_replicates : int
         Replicates with a finite estimate.
     n_failed : int
@@ -1115,18 +1131,27 @@ class BootstrapSummary:
     draws : ndarray
         The finite replicate estimates.
     diagnostic : bool, default=False
-        Whether the fit declares the percentile interval a diagnostic. ``True`` publishes
+        Whether the fit declares the bootstrap interval a diagnostic. ``True`` publishes
         the columns under their diagnostic names, through :func:`bootstrap_column`, at every
         status. Only the collaborative fit sets it.
     below_floor : bool, default=False
         Whether the fit reads fewer clusters with positive weight mass than the interval floor
         (10 for a point fit, 20 for a longitudinal one). ``True`` publishes the columns under
         their diagnostic names at every status, because no registered study measures a
-        percentile interval below the floor.
+        bootstrap interval below the floor.
     support : Support, default=UNCLASSIFIED
-        Whether a registered row measures the percentile interval of the fit that produced it.
-        A row that lists ``bootstrap`` makes it ``supported``. Every other fit that publishes
-        the interval makes it ``experimental``.
+        Whether a registered row measures the interval of the fit that produced it. A row
+        that lists the interval's kind (``bootstrap`` or ``bootstrap_bca``) makes it
+        ``supported``. Every other fit that publishes the interval makes it ``experimental``.
+    interval : {"percentile", "bca"}, default="percentile"
+        Which interval ``ci`` and the one-sided limits are: the ``np.quantile`` percentile
+        limits, or the bias-corrected and accelerated limits of
+        :func:`~cleverly.inference.bootstrap.bca_interval`.
+    z0 : float or None, default=None
+        The BCa bias correction, on a BCa summary.
+    acceleration : float or None, default=None
+        The BCa acceleration, from the estimate's own influence curve (summed within clusters
+        when clusters were resampled), on a BCa summary.
     """
 
     std_error: float
@@ -1139,6 +1164,9 @@ class BootstrapSummary:
     diagnostic: bool = False
     below_floor: bool = False
     support: Support = UNCLASSIFIED
+    interval: BootstrapInterval = "percentile"
+    z0: float | None = None
+    acceleration: float | None = None
 
     @property
     def variance(self) -> float:
@@ -1320,6 +1348,50 @@ def with_precedent_status(
     return out
 
 
+def restamp_parameter_statuses(
+    per_repeat: Sequence[Mapping[str, ParameterEstimate]],
+) -> list[dict[str, ParameterEstimate]]:
+    """Give every draw of an estimand the precedent of its draws' parameter statuses.
+
+    A parameter status (:data:`~cleverly._inference_status.PARAMETER_STATUSES`) belongs to
+    one estimate of one draw, such as an arm whose stacked curve failed on that draw's
+    split. The median over draws reads every draw, so it takes the status of the most
+    restrictive draw. An estimate holds a parameter status only beside an
+    ``"influence_curve"`` fit status (:func:`stamp_inference`), so the restamp applies when
+    every other draw of the estimand also reports ``"influence_curve"``. Draws with
+    different fit statuses keep them, and :func:`median_estimates` refuses the
+    combination: that guard finds a real defect.
+
+    The order of the stamps on a repeated fit is this restamp, then the median. A label
+    that reads the final status, such as a support row, is computed after both.
+
+    Parameters
+    ----------
+    per_repeat : sequence of mappings
+        One estimate mapping per draw.
+
+    Returns
+    -------
+    list of dict
+        The draws, with each restamped estimate replaced. The input is not changed.
+    """
+    out = [dict(report) for report in per_repeat]
+    if len(out) < 2:
+        return out
+    shared = [name for name in out[0] if all(name in report for report in out)]
+    for name in shared:
+        statuses = [report[name].inference for report in out]
+        if not any(status in PARAMETER_STATUSES for status in statuses):
+            continue
+        fit_level = {status for status in statuses if status not in PARAMETER_STATUSES}
+        if not fit_level <= {"influence_curve"}:
+            continue
+        status = precedent_status(statuses)
+        for report in out:
+            report[name] = replace(report[name], inference=status)
+    return out
+
+
 def median_estimates(
     per_repeat: Sequence[Mapping[str, ParameterEstimate]],
 ) -> dict[str, ParameterEstimate]:
@@ -1343,6 +1415,10 @@ def median_estimates(
     supports marginal diagnostics. The adjusted variance, not the curve's empirical
     variance, supplies the interval.
 
+    A draw whose estimate holds a parameter status passes it to the median
+    (:func:`restamp_parameter_statuses`). Draws that declare different fit statuses for one
+    estimate raise.
+
     Parameters
     ----------
     per_repeat : sequence of mappings
@@ -1363,6 +1439,7 @@ def median_estimates(
         raise ValueError("median_estimates needs at least one repeat")
     if len(per_repeat) == 1:
         return dict(per_repeat[0])
+    per_repeat = restamp_parameter_statuses(per_repeat)
 
     shared = [name for name in per_repeat[0] if all(name in report for report in per_repeat)]
     dropped = [name for name in per_repeat[0] if name not in shared]
@@ -1982,6 +2059,8 @@ def policy_means(
     weights: FloatArray,
     observed: BoolArray | None = None,
     mixing: FloatArray | None = None,
+    rows: BoolArray | None = None,
+    terms: FloatArray | None = None,
 ) -> dict[float, ArmMean]:
     r"""Each policy's mean and influence curve, keyed by policy code.
 
@@ -2034,18 +2113,52 @@ def policy_means(
     and ``targeted.arms[r]`` already holds :math:`\bar Q^*` at the shifted dose.  The
     bracket below is summed in the same association for the same reason the comment there
     gives.
+
+    **Data-tuned caps (X40 part (e)).**  ``rows`` restricts component ``c`` to the rows
+    ``rows[:, c]``: a fold-average policy's component ``k`` is the map fitted on fold
+    ``k``'s training rows, and its mean :math:`\hat\psi_k` is the weighted mean over fold
+    ``k``'s held-out rows.  Row ``i`` of fold ``k`` carries
+    :math:`(W / W_k) w_i (D_i - \hat\psi_k)`, with :math:`W` the total and :math:`W_k`
+    the fold's weight mass, so the policy's ``mixing`` row of :math:`1/V` gives Hubbard,
+    Kherad-Pajouh and van der Laan's (2016) Theorem 1 variance.  ``terms`` adds, to policy
+    ``s``'s curve, the chain-rule term :math:`\partial\Phi_n' \mathrm{IF}` of a
+    population target (``(n, S)``, zero for every other policy).
     """
     _expect(submodel, "mtp")
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
 
     out: dict[float, ArmMean] = {}
-    for code in targeted.levels:
+    for index, code in enumerate(targeted.levels):
         prediction = targeted.arms[code]
-        psi = float(np.average(prediction, weights=w))
-        out[code] = ArmMean(psi, w * (submodel.column_for(code) * residual + prediction - psi))
-    if mixing is None:
+        if rows is None or bool(np.all(rows[:, index])):
+            psi = float(np.average(prediction, weights=w))
+            curve = w * (submodel.column_for(code) * residual + prediction - psi)
+        else:
+            held = np.asarray(rows[:, index], dtype=bool)
+            psi = float(np.average(prediction[held], weights=w[held]))
+            scale = float(np.sum(w)) / float(np.sum(w[held]))
+            curve = np.where(
+                held,
+                scale * w * (submodel.column_for(code) * residual + prediction - psi),
+                0.0,
+            )
+        out[code] = ArmMean(psi, np.asarray(curve, dtype=float))
+    if mixing is not None:
+        out = _mixed_policy_means(out, mixing)
+    if terms is None:
         return out
+    return {
+        code: ArmMean(
+            part.psi,
+            np.asarray(part.influence_curve, dtype=float) + np.asarray(terms[:, int(code)]),
+        )
+        for code, part in out.items()
+    }
+
+
+def _mixed_policy_means(out: dict[float, ArmMean], mixing: FloatArray) -> dict[float, ArmMean]:
+    """Each policy's mean and curve as the known-weight sum of its components'."""
     # A randomized policy's mean is the known-weight sum of its components' means, and so
     # is its curve: the randomizer law does not depend on P, so integrating it out is
     # linearity of expectation and adds no term (Diaz et al. 2023, Section 2).
@@ -2135,18 +2248,26 @@ def ipsi_means(
 
         \hat\Psi_r = \frac1n \sum_i m_r(W_i),
         \qquad
-        m_r(W) = \sum_a q_{\delta_r}(a \mid W)\, \bar Q^*(a, W)
+        m_r(W) = \sum_a q_{r}(a \mid W)\, \bar Q^*(a, W)
 
         D_r^*(O) = h_r(A, W)\,\{Y - \bar Q^*(A, W)\}
-                 + \frac{\delta_r\{\bar Q^*(1,W) - \bar Q^*(0,W)\}}{D_{\delta_r}^2}\,(A - g^*)
+                 + h_r(A, W)\,\{\bar Q^*(A, W) - m_r(W)\}
                  + m_r(W) - \Psi_r
+
+    with :math:`q_r(a) = \delta_{r,a} g(a)/D_r` and :math:`h_r(a) = \delta_{r,a}/D_r`.  The
+    middle term is the mechanism term: its coefficient is
+    :math:`\partial m_r/\partial g_b = h_r(b)\{\bar Q^*(b) - m_r\}`, evaluated on the
+    mechanism score :math:`1\{A=b\} - g_b` and summed over :math:`b`.  For two levels it is
+    :math:`\delta_r\{\bar Q^*(1,W) - \bar Q^*(0,W)\}(A - g^*)/D_r^2`, and that expression is
+    the one computed there, so the binary arrays are bit-identical to the ones the binary
+    path produced before the categorical form existed.
 
     **The middle term is the whole reason this is not** :func:`regime_means`.  A
     :class:`~cleverly.interventions.Stochastic` regime evaluated at the very same density
-    :math:`q_{\delta_r}` has the same mean and, entry for entry, the same clever
-    covariate; its influence curve is this one without the middle term.  Because
-    :math:`q_\delta` is built out of :math:`g`, the parameter moves when the mechanism
-    does, and that dependence is a pathwise derivative the regime curve has no term for.
+    :math:`q_{r}` has the same mean and, entry for entry, the same clever covariate; its
+    influence curve is this one without the middle term.  Because :math:`q_r` is built out of
+    :math:`g`, the parameter moves when the mechanism does, and that dependence is a pathwise
+    derivative the regime curve has no term for.
 
     The gap is not a wash.  The extra term is mean zero given :math:`W` and orthogonal to
     both halves of the regime curve -- the residual half is centred given :math:`(A, W)`,
@@ -2156,8 +2277,7 @@ def ipsi_means(
 
         \operatorname{Var}(D^*_{\text{ipsi}})
             = \operatorname{Var}(D^*_{\text{regime}})
-            + \operatorname{Var}\!\left(
-                \frac{\delta(\bar Q(1,W) - \bar Q(0,W))}{D_\delta^2}(A - g)\right),
+            + \operatorname{Var}\!\left(h_r(A)\{\bar Q(A) - m_r\}\right),
 
     an exact decomposition.  Treating an incremental intervention as the regime that
     induces it therefore does not merely report a different quantity: it reports a
@@ -2175,13 +2295,11 @@ def ipsi_means(
     A tilt of a **known** mechanism (:attr:`~cleverly.interventions.IPSISet.mechanism_known`)
     omits the middle term.  With :math:`g_0` known the model has no mechanism scores, so the
     efficient curve is the full-model curve projected off that tangent space, which removes
-    exactly the term in :math:`(A - g)`.  The result is the curve of the known stochastic
+    exactly the mechanism term.  The result is the curve of the known stochastic
     regime :math:`q_\delta(g_0)`.
     """
     _expect(submodel, "ipsi")
     density = np.asarray(incremental.values, dtype=float)
-    derivative = np.asarray(incremental.derivative, dtype=float)
-    mechanism = np.asarray(incremental.propensity, dtype=float).reshape(-1)
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
     levels = targeted.levels
@@ -2197,21 +2315,43 @@ def ipsi_means(
         )
     # (n, K) of the targeted predictions, columns in the same order the densities use.
     predictions = np.column_stack([targeted.arms[level] for level in levels])
-    # The blip is a contrast of arms, so it needs the two-arm layout the tilt declares;
-    # IPSISet.evaluate has already refused anything else.
-    blip = np.asarray(targeted.arms[1.0], dtype=float) - np.asarray(targeted.arms[0.0], dtype=float)
-    treated_residual = np.asarray(treatment, dtype=float).reshape(-1) - mechanism
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    # Two levels keep the expression the binary path has always used, so that its arrays are
+    # unchanged to the last bit.
+    term = _ipsi_term_binary if len(levels) == 2 else _ipsi_term_general
 
     out: dict[float, ArmMean] = {}
     for index in range(density.shape[2]):
         mixture = np.einsum("ij,ij->i", density[:, :, index], predictions)
         psi = float(np.average(mixture, weights=w))
         mechanism_term = (
-            0.0 if incremental.mechanism_known else derivative[:, index] * blip * treated_residual
+            0.0
+            if incremental.mechanism_known
+            else term(incremental, predictions, mixture, a, index)
         )
         curve = submodel.observed[:, index] * residual + mechanism_term + mixture - psi
         out[float(index)] = ArmMean(psi, w * curve)
     return out
+
+
+def _ipsi_term_binary(
+    incremental: Any, predictions: FloatArray, mixture: FloatArray, a: FloatArray, index: int
+) -> FloatArray:
+    r""":math:`\delta\{\bar Q^*(1,W) - \bar Q^*(0,W)\}(A - g^*)/D^2`, Kennedy's mechanism term."""
+    del mixture
+    blip = predictions[:, 1] - predictions[:, 0]
+    treated_residual = a - np.asarray(incremental.propensity, dtype=float)[:, 1]
+    return np.asarray(incremental.binary_derivative[:, index] * blip * treated_residual)
+
+
+def _ipsi_term_general(
+    incremental: Any, predictions: FloatArray, mixture: FloatArray, a: FloatArray, index: int
+) -> FloatArray:
+    r""":math:`h(A)\{\bar Q^*(A, W) - m(W)\}`: the mechanism term for any number of levels."""
+    at_observed = predictions[np.arange(a.size), np.rint(a).astype(int)]
+    # The tilt factor at the received level.  Not `submodel.observed`, which carries the
+    # missingness weight of the outcome half and has no place in this term.
+    return np.asarray(incremental.observed(a)[:, index] * (at_observed - mixture))
 
 
 def _raw_predictions(

@@ -57,7 +57,12 @@ from .. import longitudinal_mtp as mtp
 from . import test_point_vector_treatment as point_tests
 from .test_longitudinal_mixed_node import NeverFit
 
-pytestmark = pytest.mark.xdist_group("vector_study_spine")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("vector_study_spine"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 EXACT = 1e-10
 NO_TRUNCATION = (1e-8, 1.0 - 1e-8)

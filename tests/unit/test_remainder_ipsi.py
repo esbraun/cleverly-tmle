@@ -69,19 +69,19 @@ TILTED = tuple(name for name, delta in law.IPSI_DELTAS.items() if delta != 1.0)
 def _tilt_set(covariate: np.ndarray, g_hat: np.ndarray) -> IPSISet:
     """An :class:`IPSISet` at an arbitrary mechanism, without going through a fit."""
     one = g_hat[covariate]
-    values, weights, derivative = [], [], []
+    values, weights, normaliser = [], [], []
     for delta in DELTAS:
         d = delta * one + (1.0 - one)
         values.append(np.column_stack([(1.0 - one) / d, delta * one / d]))
         weights.append(np.column_stack([1.0 / d, np.full_like(d, delta) / d]))
-        derivative.append(delta / d**2)
+        normaliser.append(d)
     return IPSISet(
         NAMES,
-        DELTAS,
+        tuple((1.0, delta) for delta in DELTAS),
         np.stack(values, axis=2),
         np.stack(weights, axis=2),
-        np.column_stack(derivative),
-        one,
+        np.column_stack(normaliser),
+        np.column_stack([1.0 - one, one]),
     )
 
 
@@ -101,7 +101,7 @@ def _expansion(g_hat: np.ndarray, q_hat: np.ndarray) -> dict[str, float]:
     submodel = submodel_for(
         "ipsi",
         treatment,
-        np.column_stack([1.0 - tilts.propensity, tilts.propensity]),
+        tilts.propensity,
         incremental=tilts.weights,
     )
     means = ipsi_means(outcome, initial, submodel, tilts, treatment, np.ones(law.N))

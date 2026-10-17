@@ -253,7 +253,7 @@ def test_w3_the_policy_path_on_a_point_mass_is_the_regimen(
     monkeypatch.setattr(
         estimator_module,
         "resolve_plans",
-        lambda regimens, data: original(regimens, data, _collapse_point_masses=False),
+        lambda regimens, data, **kw: original(regimens, data, _collapse_point_masses=False, **kw),
     )
     point = DynamicRegimen("plan", (_one_hot(high), _one_hot(high)))
     stochastic = _fit(variant, {"plan": point}, multivalue.frame(), END_OF_STUDY)

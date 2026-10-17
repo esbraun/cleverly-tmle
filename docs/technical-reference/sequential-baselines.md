@@ -135,7 +135,7 @@ unchanged. No study measures that floor for the baselines.
 | --- | --- | --- |
 | default learners | `GLM()` for every regression | `GLM()` for the treatment and censoring mechanisms |
 | `n_folds` | `1`. `n_folds > 1` raises `CapabilityError` | the same |
-| `alpha=`, `max_iter=`, `tol=` | `TypeError`. No fluctuation exists | the same |
+| `alpha=`, `max_iter=`, `tol=`, `stopping=`, `step_bound=`, `step_search=`, `iterate=` | `MethodConfigurationError` with code `invalid_declaration`. No fluctuation exists | the same |
 | `g_bounds=` | moves only the diagnostics and the diagnostic curve | bounds each cumulative mechanism probability. A bounded prefix has derivative 0 |
 | `treatment_learner=`, `censoring_learner=` | fit the diagnostic mechanism only | fit the estimate |
 | `outcome_learner=`, `pseudo_learner=` | fit the estimate | `CapabilityError`. IPW fits no outcome regression |

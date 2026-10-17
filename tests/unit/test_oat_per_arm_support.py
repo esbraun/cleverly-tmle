@@ -1,6 +1,6 @@
 """The support predicate and the statuses of the stacked per-arm interval (X58).
 
-:func:`~cleverly.estimators.ctmle.per_arm_parametric_support` admits an in-sample per-arm
+:func:`~cleverly.estimators.ctmle.per_arm_parametric_support` admits a per-arm
 outcome-adaptive fit with :class:`~cleverly.learners.ParametricOutcome` and
 :class:`~cleverly.learners.ParametricMechanism`. An admitted fit reports the stacked curve of
 :mod:`cleverly.estimators._oat_stack` under ``"influence_curve"``. A failed arm stack stamps
@@ -28,7 +28,12 @@ from cleverly.estimators.ctmle import (
     SupportVerdict,
     per_arm_parametric_support,
 )
-from cleverly.exceptions import CapabilityError, DataWarning
+from cleverly.exceptions import (
+    CapabilityError,
+    DataWarning,
+    MethodConfigurationError,
+    RefusalReason,
+)
 from cleverly.learners import ParametricMechanism, ParametricOutcome
 from tests.studies import oat_parametric_quadrature as quad
 from tests.studies import oat_per_arm_laws as laws
@@ -127,23 +132,19 @@ class TestTheAllowList:
             ("outcome_learner", _SubclassedOutcome()),
             ("treatment_learner", LogisticRegression()),
             ("fluctuation", "linear"),
-            ("cross_fit", True),
-            ("repeats", 2),
             ("target_weights", True),
             ("screen_treatment", True),
         ],
         ids=lambda v: v if isinstance(v, str) else type(v).__name__,
     )
     def test_each_refused_option_names_its_axis(self, option: str, value: Any) -> None:
-        options = _options(**{option: value})
-        if option == "cross_fit":
-            options["n_folds"] = 2
-        if option == "repeats":
-            options.update(cross_fit=True, n_folds=2)
-        estimator = CTMLE(**options)
+        # The fold-count cap and a repeat count that is not a positive integer have their own
+        # tests in test_oat_per_arm_crossfit_support.py; every other fold or repeat count is
+        # admitted (X58 plan, D6).
+        estimator = CTMLE(**_options(**{option: value}))
         verdict = per_arm_parametric_support(estimator, _prepared(estimator))
         assert not verdict.admitted
-        assert verdict.axis == ("cross_fit" if option == "repeats" else option)
+        assert verdict.axis == option
         assert verdict.detail.startswith("the stacked interval needs")
 
     def test_the_refused_option_keeps_the_generated_design_status(self) -> None:
@@ -162,27 +163,39 @@ class TestTheArmColumns:
         assert "arm_columns=1" in verdict.detail
         assert "got arm_columns=2" in verdict.detail
 
-    def test_the_mismatched_fit_keeps_the_generated_design_status(self) -> None:
-        result = _fit(outcome_learner=ParametricOutcome(arm_columns=2))
-        assert {estimate.inference for estimate in result.estimates.values()} == {
-            "generated_design_plugin"
-        }
+    def test_the_mismatched_fit_is_refused_before_any_learner_runs(self) -> None:
+        # Q8: the TMLE preflight refuses the declaration; the predicate stays the interval's
+        # own guard for a caller that reads it on prepared data.
+        with pytest.raises(MethodConfigurationError, match="arm_columns=1") as raised:
+            _fit(outcome_learner=ParametricOutcome(arm_columns=2))
+        assert raised.value.refusal.reason is RefusalReason.INVALID_DECLARATION
 
 
 class TestTheDataAxes:
     def test_three_arms(self) -> None:
         frame = _frame()
         frame.loc[frame.index[:300], "A"] = 2
-        estimator = CTMLE(**_options(estimands=("ey0", "ey1", "ey2")))
-        assert per_arm_parametric_support(estimator, _prepared(estimator, frame)).axis == (
-            "treatment"
+        estimator = CTMLE(
+            **_options(estimands=("ey", "ate"), outcome_learner=ParametricOutcome(arm_columns=2))
         )
+        verdict = per_arm_parametric_support(estimator, _prepared(estimator, frame))
+        assert verdict.admitted
+        assert verdict.detail.endswith("on a 3-arm treatment")
+
+    def test_three_arms_read_two_arm_columns(self) -> None:
+        frame = _frame()
+        frame.loc[frame.index[:300], "A"] = 2
+        estimator = CTMLE(**_options(estimands=("ey", "ate")))
+        verdict = per_arm_parametric_support(estimator, _prepared(estimator, frame))
+        assert verdict.axis == "outcome_learner"
+        assert "arm_columns=2" in verdict.detail
 
     def test_weights(self) -> None:
         frame = _frame().assign(w=1.0 + np.arange(1500) % 3)
         estimator = CTMLE(**_options())
         verdict = per_arm_parametric_support(estimator, _prepared(estimator, frame, weights="w"))
-        assert verdict.axis == "weights"
+        assert verdict.admitted
+        assert verdict.detail.endswith("with fixed weights")
 
     def test_cluster(self) -> None:
         frame = _frame().assign(cid=np.arange(1500) // 5)
@@ -208,9 +221,10 @@ class TestTheDataAxes:
 
     def test_a_continuous_outcome_needs_q_bounds(self) -> None:
         frame = quad.sample(quad.BINARY_ACTIVE, 1500, 33, bounded=(2.0, 10.0))
-        bare = CTMLE(**_options())
+        means = ("ey0", "ey1", "ate")
+        bare = CTMLE(**_options(estimands=means))
         assert per_arm_parametric_support(bare, _prepared(bare, frame)).axis == "q_bounds"
-        bounded = CTMLE(**_options(q_bounds=(2.0, 10.0)))
+        bounded = CTMLE(**_options(q_bounds=(2.0, 10.0), estimands=means))
         assert per_arm_parametric_support(bounded, _prepared(bounded, frame)).admitted
 
     def test_one_estimand_named_by_a_string(self) -> None:
@@ -218,9 +232,14 @@ class TestTheDataAxes:
         assert per_arm_parametric_support(estimator, _prepared(estimator)).admitted
 
     def test_an_unlisted_estimand(self) -> None:
-        estimator = CTMLE(**_options(estimands=("ate", "ey_obs")))
+        estimator = CTMLE(**_options(estimands=("ate", "att")))
         verdict = per_arm_parametric_support(estimator, _prepared(estimator))
         assert verdict.axis == "estimands"
+        assert verdict.detail.endswith("got att")
+
+    def test_the_population_targets_are_admitted(self) -> None:
+        estimator = CTMLE(**_options(estimands=("ate", "ey_obs", "par", "paf")))
+        assert per_arm_parametric_support(estimator, _prepared(estimator)).admitted
 
 
 class TestTheAdmittedFit:
@@ -404,9 +423,12 @@ def _fit_warning() -> Any:
 class TestTheSummary:
     def test_an_admitted_fit_states_what_its_interval_covers(self, admitted_fit: Any) -> None:
         text = admitted_fit.summary()
-        assert "stacked parametric curve of ParametricOutcome(features='arm_interactions')" in text
+        assert (
+            "stacked parametric curve of ParametricOutcome(features='arm_interactions', "
+            "arm_columns=1)" in text
+        )
         assert "covers the arm mean when the outcome model is correct" in text
-        assert "No simultaneous band" in text
+        assert "A simultaneous band is joint over the reported estimates" in text
 
     def test_a_refused_per_arm_fit_names_the_unmet_requirement(self) -> None:
         text = _fit(screen_treatment=True).summary()
@@ -415,24 +437,18 @@ class TestTheSummary:
 
 
 class TestTheDefaultBand:
-    """``simultaneous=True``, the default, keeps the pointwise intervals and builds no band."""
+    """``simultaneous=True``, the default, builds the band over the stacked curves."""
 
-    def test_the_default_keeps_the_intervals_and_builds_no_band(self) -> None:
+    def test_the_default_keeps_the_intervals_and_builds_the_band(self) -> None:
         result = _fit(simultaneous=True)
         assert {estimate.inference for estimate in result.estimates.values()} == {"influence_curve"}
-        assert result.simultaneous is None
-        assert "No simultaneous band" in result.summary()
+        assert result.simultaneous is not None
+        assert set(result.simultaneous.bands) == set(ESTIMANDS)
 
     def test_a_single_ate_takes_the_default_inference(self) -> None:
         result = _fit(estimands=("ate",), simultaneous=True)
         assert result["ate"].inference == "influence_curve"
-
-    def test_a_hook_that_builds_the_band_fails_the_check(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The control: without the hook, the default builds a band over the stacked curves."""
-        monkeypatch.setattr(CTMLE, "_builds_default_band", lambda self, data: True)
-        assert _fit(simultaneous=True).simultaneous is not None
+        assert result.simultaneous is None
 
     def test_the_refusal_names_the_parametric_route(self, admitted_fit: Any) -> None:
         result = _fit(outcome_learner=LogisticRegression())
@@ -513,11 +529,12 @@ class TestRecomputation:
             out, _ = estimator.retarget(data, fit.nuisance, estimands=(estimand,))
         assert out[estimand].inference == "generated_design_plugin"
 
-    def test_a_retarget_to_an_uncovered_estimand_withholds_every_interval(self) -> None:
+    def test_a_retarget_to_the_population_targets_reads_the_stack(self) -> None:
         estimator = CTMLE(**_options())
         data = _prepared(estimator)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             fit = estimator.fit(data).single()
             out, _ = estimator.retarget(data, fit.nuisance, estimands=("ate", "ey_obs", "par"))
-        assert {estimate.inference for estimate in out.values()} == {"generated_design_plugin"}
+        assert {estimate.inference for estimate in out.values()} == {"influence_curve"}
+        assert out["ate"].std_error == pytest.approx(fit["ate"].std_error, rel=1e-9)

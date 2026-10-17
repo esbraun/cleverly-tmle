@@ -27,14 +27,23 @@ from dataclasses import dataclass
 from typing import Any, Literal, TypeAlias, cast
 
 import numpy as np
+from scipy.optimize import minimize_scalar
 
 from .._typing import BoolArray, FloatArray, FluctuationKind, IntArray
-from ..exceptions import ConvergenceWarning
+from ..exceptions import ConvergenceWarning, MethodConfigurationError
 from ..utils.bounds import expit, logit, shrink_probabilities
 from ._score import (
+    LINEAR_RULE_REFUSAL,
+    STOP_CONTEXT_MISSING,
+    BestIterate,
+    StopContext,
     absolute_score_weights,
+    iterate_norm,
     quasi_loglik,
     relative_score,
+    rule_contributions,
+    rule_ratio_at,
+    ruled_warning,
     score_columns,
     score_scale,
 )
@@ -241,6 +250,15 @@ class FoldFluctuation:
     score_scale : ndarray or None
         Per-column largest score this fold's rows could produce, or ``None`` when the
         solver reported no scale.
+    thresholds : ndarray or None
+        Under a declared stopping rule, the threshold of each score column on this fold's
+        rows, whose unit count is the fold's own; ``None`` under ``"relative"``.
+    rule_ratio : float or None
+        Under a declared rule, the largest score over its threshold on this fold; the fold
+        met the rule when it is at most one.  ``None`` under ``"relative"``.
+    best_iterate : int or None
+        Under ``iterate="best"``, the index of the iterate this fold reports, as
+        :attr:`Fluctuation.best_iterate`; ``None`` under ``iterate="last"``.
 
     Attributes
     ----------
@@ -263,6 +281,11 @@ class FoldFluctuation:
     trace: tuple[float, ...] = ()
     #: Component-wise scale used to decide whether this fold reached its score root.
     score_scale: FloatArray | None = None
+    #: The fold's thresholds and rule ratio under a declared stopping rule.
+    thresholds: FloatArray | None = None
+    rule_ratio: float | None = None
+    #: The index of the reported iterate under ``iterate="best"``.
+    best_iterate: int | None = None
 
     @property
     def n(self) -> int:
@@ -371,6 +394,23 @@ class Fluctuation:
         the clever covariate depend on the coefficients.  It solves one score block per
         stratum at that stratum's coefficients, and the stratum estimates read it.  This
         fluctuation then holds the marginal solve.  ``None`` for every other fit.
+    stopping : str
+        The rule that judged ``converged``: ``"relative"`` (the shipped test against
+        ``tol``), ``"scaled_var"`` or ``"sample_size"``.
+    thresholds : ndarray or None
+        Under a declared rule, the threshold of each score column at the reported fit,
+        in the outcome's units; the rule is met when ``|score| * span`` is at most the
+        threshold in every column.  ``None`` under ``"relative"``.
+    rule_ratio : float or None
+        Under a declared rule, ``max_j |P_n S_j| * span / threshold_j`` at the reported fit
+        (:func:`~cleverly.fluctuation._score.rule_ratio_at`); the rule is met when it is at
+        most one.  The outer exits of the alternating engines read it.  A ratio is valid
+        only at the pair it was computed at, so an engine that moves the fit after a solve
+        restates it.  ``None`` under ``"relative"``.
+    best_iterate : int or None
+        Under ``iterate="best"``, the index of the iterate the fit reports (``0`` is the
+        initial fit, taken only when the walk took no step).  ``n_iter`` and ``trace`` describe
+        the whole walk.  ``None`` under ``iterate="last"``.
 
     Attributes
     ----------
@@ -436,6 +476,17 @@ class Fluctuation:
     #: ``I(S = s) H(beta_s) / P_n(S = s)`` per stratum.  Each stratum block reads its own
     #: coefficients, so one fluctuation cannot solve both.  ``None`` for every other fit.
     stratified: Fluctuation | None = None
+    #: The stopping rule that judged ``converged``.  ``"relative"`` is the shipped test of
+    #: the relative score norm against ``tol``.
+    stopping: str = "relative"
+    #: The per-column threshold of a declared rule at the reported fit, in the outcome's
+    #: units.  ``None`` under ``"relative"``.
+    thresholds: FloatArray | None = None
+    #: The largest score over its threshold at the reported fit, under a declared rule.
+    #: ``None`` under ``"relative"``.
+    rule_ratio: float | None = None
+    #: The index of the reported iterate under ``iterate="best"``; ``None`` under ``"last"``.
+    best_iterate: int | None = None
 
     @property
     def score_norm(self) -> float:
@@ -495,6 +546,11 @@ def solve_fluctuation(
     tol: float = 1e-10,
     warn: bool = True,
     carry: Sequence[CarryItem] = (),
+    stopping: str = "relative",
+    stop: StopContext | None = None,
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> Fluctuation:
     """Run the targeting step.
 
@@ -526,7 +582,64 @@ def solve_fluctuation(
         ``(fit, submodel)`` pair along one of its own -- see :data:`CarryItem`.  And see
         :attr:`Fluctuation.carried` for why an endpoint plus an ``epsilon`` is not a
         substitute for either.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides the score equation is solved.  ``"relative"`` runs the
+        shipped solver below, untouched.  A declared rule runs
+        :func:`_solve_fluctuation_ruled`.
+    stop : StopContext, optional
+        The units and outcome range a declared rule computes its threshold from.  A
+        declared rule without one raises ``ValueError``.
+    step_bound : float, optional
+        The longest step of one outer iteration, in ``epsilon`` units.  ``None`` runs the
+        shipped solver below, untouched.  A bound runs :func:`_solve_fluctuation_bounded`, which
+        replaces the Newton step by the constrained step of ``tmle3``.
+    step_search : bool
+        Under a bound, ``True`` minimises the quasi-loss along the step's direction over
+        ``[0, step_bound]``, and ``False`` takes the whole bound.
+    iterate : {"last", "best"}
+        Which iterate of the walk is reported.  ``"last"`` runs the shipped solver below,
+        untouched, unless a rule or a bound routes the call.  ``"best"`` keeps the iterate
+        ``k >= 1`` whose raw score vector has the smallest 2-norm, the first of any tie
+        (:class:`~cleverly.fluctuation._score.BestIterate`), and judges ``converged`` there.
     """
+    if step_bound is not None:
+        return _solve_fluctuation_bounded(
+            outcome,
+            initial,
+            submodel,
+            weights,
+            observed,
+            kind=kind,
+            target_weights=target_weights,
+            alpha=alpha,
+            max_iter=max_iter,
+            tol=tol,
+            warn=warn,
+            carry=carry,
+            stopping=stopping,
+            stop=stop,
+            step_bound=step_bound,
+            step_search=step_search,
+            iterate=iterate,
+        )
+    if stopping != "relative" or iterate == "best":
+        return _solve_fluctuation_ruled(
+            outcome,
+            initial,
+            submodel,
+            weights,
+            observed,
+            kind=kind,
+            target_weights=target_weights,
+            alpha=alpha,
+            max_iter=max_iter,
+            tol=tol,
+            warn=warn,
+            carry=carry,
+            stopping=stopping,
+            stop=stop,
+            iterate=iterate,
+        )
     y = np.asarray(outcome, dtype=float).reshape(-1)
     n = y.shape[0]
     mask = np.ones(n, dtype=bool) if observed is None else np.asarray(observed, dtype=bool)
@@ -614,6 +727,445 @@ def solve_fluctuation(
         loglik=detail.loglik,
         absolute_score_weights=absolute_score_weights(scoring_submodel.observed, w, mask),
     )
+
+
+def _rule_state(
+    y: FloatArray,
+    current: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    mask: BoolArray,
+    score: FloatArray,
+    stop: StopContext,
+    stopping: str,
+) -> tuple[FloatArray, float]:
+    """Thresholds and the largest score over its threshold, at the fit ``current``.
+
+    A column of the ``"mean"`` group that targets one arm, under unit weights, takes the full
+    arm curve as its contribution.  Every other column, and every weighted fit, takes the
+    score column (declared difference D4 of the targeting-options plan).
+    """
+    arm_curves = None
+    if (
+        submodel.group == "mean"
+        and submodel.arm_columns
+        and np.allclose(weights, 1.0, rtol=0.0, atol=1e-12)
+    ):
+        arm_curves = {column: current.arms[level] for level, column in submodel.arm_columns.items()}
+    contributions = rule_contributions(
+        y, current.observed, submodel.observed, weights, mask, stop.span, arm_curves
+    )
+    return rule_ratio_at(score, contributions, stop, stopping)
+
+
+def _solve_fluctuation_ruled(
+    outcome: FloatArray,
+    initial: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    observed: BoolArray | None,
+    *,
+    kind: FluctuationKind,
+    target_weights: bool,
+    alpha: float,
+    max_iter: int,
+    tol: float,
+    warn: bool,
+    carry: Sequence[CarryItem],
+    stopping: str,
+    stop: StopContext | None,
+    iterate: str = "last",
+) -> Fluctuation:
+    """:func:`solve_fluctuation` under a declared stopping rule, a best iterate, or both.
+
+    The inner Newton solve is the shipped one, with its own ``tol``.  Under a declared rule the
+    outer test changes: the step loop ends when the largest score over its threshold is at most
+    one (:func:`~cleverly.fluctuation._score.rule_ratio_at`), or when a Newton step moves
+    nothing, and ``converged`` is the rule's verdict at the reported fit.  The trace stays the
+    relative score norm, so it reads the same under every rule.
+
+    Under ``iterate="best"`` each iterate ``k >= 1`` is offered to a
+    :class:`~cleverly.fluctuation._score.BestIterate` by the 2-norm of its raw score vector, and
+    the walk reports the snapshot: its ``epsilon``, predictions, carried fits, score, thresholds,
+    ratio and Newton detail.  The loop still stops by the rule (``tol`` on the relative score
+    under ``stopping="relative"``), so ``n_iter`` and ``trace`` describe the whole walk, and
+    ``converged`` is judged at the reported iterate.
+    """
+    declared = stopping != "relative"
+    if declared and stop is None:
+        raise ValueError(STOP_CONTEXT_MISSING)
+    if kind == "linear":
+        raise MethodConfigurationError.from_refusal(LINEAR_RULE_REFUSAL)
+    y = np.asarray(outcome, dtype=float).reshape(-1)
+    n = y.shape[0]
+    mask = np.ones(n, dtype=bool) if observed is None else np.asarray(observed, dtype=bool)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    if submodel.n != n or w.shape[0] != n or initial.n != n:
+        raise ValueError(
+            "outcome, initial fit, submodel and weights must all have the same length; got "
+            f"{n}, {initial.n}, {submodel.n}, {w.shape[0]}"
+        )
+    if not mask.any():
+        raise ValueError("no observed outcomes: the fluctuation has nothing to fit")
+
+    fit_submodel, fit_weights = weighted_form(submodel, w) if target_weights else (submodel, w)
+
+    current = initial.shrunk(alpha)
+    carry_fits, carry_submodels = split_carry(carry, fit_submodel)
+    carried = tuple(fit.shrunk(alpha) for fit in carry_fits)
+    epsilon = np.zeros(fit_submodel.dim)
+    scale = score_scale(submodel.observed, w, mask)
+    score_before = score_columns(y, current.observed, submodel.observed, w, mask)
+    trace: list[float] = [relative_score(score_before, scale)]
+    score = score_before
+    iterations = 0
+    detail = NewtonDetail()
+    thresholds: FloatArray | None = None
+    ratio: float | None = None
+    if stop is not None and declared:
+        thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+    best = BestIterate() if iterate == "best" else None
+
+    for iterations in range(1, max_iter + 1):
+        step, step_converged, detail = _newton_logistic(
+            fit_submodel.observed[mask],
+            y[mask],
+            logit(current.observed[mask]),
+            fit_weights[mask],
+            tol=min(tol, 1e-12),
+        )
+        epsilon = epsilon + step
+        current = apply_logistic(current, fit_submodel, step, alpha)
+        carried = tuple(
+            apply_logistic(fit, own, step, alpha)
+            for fit, own in zip(carried, carry_submodels, strict=True)
+        )
+        score = score_columns(y, current.observed, submodel.observed, w, mask)
+        trace.append(relative_score(score, scale))
+        if stop is not None and declared:
+            thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+            met = ratio <= 1.0
+        else:
+            met = trace[-1] <= tol
+        if best is not None:
+            best.offer(
+                iterations,
+                iterate_norm(score),
+                (epsilon, current, carried, score, thresholds, ratio, detail),
+            )
+        if met or (step_converged and np.max(np.abs(step)) <= tol):
+            break
+
+    reported: int | None = None
+    if best is not None:
+        reported = iterations
+        if best.state is not None and best.k is not None:
+            reported = best.k
+            epsilon, current, carried, score, thresholds, ratio, detail = best.state
+
+    if ratio is not None:
+        converged = bool(ratio <= 1.0)
+    else:
+        converged = bool(relative_score(score, scale) <= tol)
+    failure = (
+        None
+        if converged
+        else _classify(epsilon, current, detail, alpha, iterations, max_iter, mask)
+    )
+    if not converged and warn:
+        cause = _FAILURE_TEXT[failure] if failure else "cause not identified"
+        if ratio is not None:
+            message = ruled_warning(stopping, iterations, ratio, cause)
+        else:
+            message = (
+                f"targeting step did not drive the relative score below {tol:g} after "
+                f"{iterations} iteration(s) (relative score = {relative_score(score, scale):.3g}): "
+                f"{cause}"
+            )
+        warnings.warn(
+            message + ". Inspect res.fluctuations[group].failure and res.diagnostics.support().",
+            ConvergenceWarning,
+            stacklevel=3,
+        )
+    return Fluctuation(
+        epsilon=epsilon,
+        targeted=current,
+        carried=carried,
+        score=score,
+        converged=converged,
+        n_iter=iterations,
+        trace=tuple(trace),
+        method="iterative",
+        names=submodel.names,
+        score_scale=scale,
+        score_initial=score_before,
+        failure=failure,
+        hessian_condition=detail.hessian_condition,
+        epsilon_std_error=detail.epsilon_std_error,
+        loglik=detail.loglik,
+        absolute_score_weights=absolute_score_weights(submodel.observed, w, mask),
+        stopping=stopping,
+        thresholds=thresholds,
+        rule_ratio=ratio,
+        best_iterate=reported,
+    )
+
+
+#: The tolerance of the bounded line search on ``t``, ``sqrt(eps)`` as in ``tmle3``'s ``optim``.
+#: A looser one moves the step by up to its own size, which the exact tests of the step catch.
+_STEP_SEARCH_XATOL = 1.4901161193847656e-08
+
+
+def _bounded_step(
+    x: FloatArray,
+    y: FloatArray,
+    offset: FloatArray,
+    weights: FloatArray,
+    score: FloatArray,
+    delta: float,
+    search: bool,
+) -> tuple[FloatArray, float]:
+    r"""The constrained step of ``tmle3``: along the normalised score, at most ``delta`` long.
+
+    With ``s`` the current score and :math:`d = s / \lVert s \rVert_2`, the step is
+    :math:`t^* d`.  The collapsed clever covariate is :math:`H d`.  With one column
+    :math:`d = \operatorname{sign}(s)`.  Under ``search`` the length :math:`t^*` minimises the
+    weighted mean quasi-loss :math:`-\sum_i w_i [y_i \log p_i + (1-y_i)\log(1-p_i)] / \sum_i w_i`
+    with :math:`p_i = \operatorname{expit}(\mathrm{offset}_i + t\,(Hd)_i)` over
+    :math:`t \in [0, \delta]`, by bounded Brent search with ``xatol`` of
+    :data:`_STEP_SEARCH_XATOL`.  The derivative of the loss along :math:`d` at 0 is
+    proportional to :math:`-\lVert s \rVert < 0`, so the minimiser lies in
+    :math:`(0, \delta]` and the lower bound needs no sign.  Without ``search`` the length is
+    :math:`\delta`.
+
+    Parameters
+    ----------
+    x : ndarray
+        The fit's clever covariates on the observed rows, one column per ``epsilon``
+        coordinate (the weighted form's signs when ``target_weights`` is on).
+    y : ndarray
+        The outcome on the observed rows.
+    offset : ndarray
+        ``logit`` of the current predictions on the observed rows.
+    weights : ndarray
+        The loss weights of the observed rows.
+    score : ndarray
+        The current score, one entry per column.  Its norm must be positive.
+    delta : float
+        The step bound.
+    search : bool
+        Whether to minimise the loss along the direction.
+
+    Returns
+    -------
+    step : ndarray
+        :math:`t^* d`, to add to ``epsilon``.
+    length : float
+        :math:`t^*`.
+    """
+    direction = score / np.linalg.norm(score)
+    if not search:
+        return delta * direction, delta
+    total = float(weights.sum())
+    covariate = x @ direction
+    if total <= 0.0 or not np.any(covariate):
+        return np.zeros_like(direction), 0.0
+
+    def loss(t: float) -> float:
+        return -quasi_loglik(y, expit(offset + t * covariate), weights) / total
+
+    found = minimize_scalar(
+        loss,
+        bounds=(0.0, delta),
+        method="bounded",
+        options={"xatol": _STEP_SEARCH_XATOL},
+    )
+    length = float(found.x)
+    return length * direction, length
+
+
+def _solve_fluctuation_bounded(
+    outcome: FloatArray,
+    initial: InitialFit,
+    submodel: Submodel,
+    weights: FloatArray,
+    observed: BoolArray | None,
+    *,
+    kind: FluctuationKind,
+    target_weights: bool,
+    alpha: float,
+    max_iter: int,
+    tol: float,
+    warn: bool,
+    carry: Sequence[CarryItem],
+    stopping: str,
+    stop: StopContext | None,
+    step_bound: float,
+    step_search: bool,
+    iterate: str = "last",
+) -> Fluctuation:
+    """:func:`solve_fluctuation` with every Newton step replaced by a bounded step.
+
+    Each outer iteration takes :func:`_bounded_step` from the current fit, moves the fit, the
+    carried fits and ``epsilon`` by it, and recomputes the score.  The walk ends when the rule
+    is met (``tol`` on the relative score under ``stopping="relative"``, the rule ratio under a
+    declared rule), when the score is exactly zero, when a step moves nothing, or after
+    ``max_iter`` iterations.  A walk that has not met the rule reports ``converged=False`` and
+    ``failure="max_iter_reached"``, which the caller reads as for any unconverged step.
+
+    The score and the quasi-loss are the shipped ones: the score is ``mean(w h (Y - Q*))`` on the
+    unweighted covariate, and the loss uses the fit's own covariate and weights (the weighted
+    form's under ``target_weights``).  The Hessian condition number and the coefficient standard
+    errors are read at the reported fit, because the walk forms no Newton Hessian.
+
+    Under ``iterate="best"`` each iterate ``k >= 1`` is offered to a
+    :class:`~cleverly.fluctuation._score.BestIterate` by the 2-norm of its raw score vector, and
+    the walk reports the snapshot.  The walk still ends by the rule, so ``n_iter`` and ``trace``
+    describe the whole walk, and ``converged`` is judged at the reported iterate.  A fixed-length
+    step lands within one bound of the root and then oscillates around it, which is where the
+    best iterate differs from the last.
+    """
+    if kind == "linear":
+        raise MethodConfigurationError.from_refusal(LINEAR_RULE_REFUSAL)
+    declared = stopping != "relative"
+    if declared and stop is None:
+        raise ValueError(STOP_CONTEXT_MISSING)
+    y = np.asarray(outcome, dtype=float).reshape(-1)
+    n = y.shape[0]
+    mask = np.ones(n, dtype=bool) if observed is None else np.asarray(observed, dtype=bool)
+    w = np.asarray(weights, dtype=float).reshape(-1)
+    if submodel.n != n or w.shape[0] != n or initial.n != n:
+        raise ValueError(
+            "outcome, initial fit, submodel and weights must all have the same length; got "
+            f"{n}, {initial.n}, {submodel.n}, {w.shape[0]}"
+        )
+    if not mask.any():
+        raise ValueError("no observed outcomes: the fluctuation has nothing to fit")
+
+    fit_submodel, fit_weights = weighted_form(submodel, w) if target_weights else (submodel, w)
+
+    current = initial.shrunk(alpha)
+    carry_fits, carry_submodels = split_carry(carry, fit_submodel)
+    carried = tuple(fit.shrunk(alpha) for fit in carry_fits)
+    epsilon = np.zeros(fit_submodel.dim)
+    scale = score_scale(submodel.observed, w, mask)
+    score_before = score_columns(y, current.observed, submodel.observed, w, mask)
+    trace: list[float] = [relative_score(score_before, scale)]
+    score = score_before
+    thresholds: FloatArray | None = None
+    ratio: float | None = None
+    if stop is not None and declared:
+        thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+    met = ratio <= 1.0 if ratio is not None else trace[0] <= tol
+    iterations = 0
+    detail = NewtonDetail()
+    best = BestIterate() if iterate == "best" else None
+
+    while iterations < max_iter and not met and float(np.linalg.norm(score)) > 0.0:
+        step, _ = _bounded_step(
+            fit_submodel.observed[mask],
+            y[mask],
+            logit(current.observed[mask]),
+            fit_weights[mask],
+            score,
+            step_bound,
+            step_search,
+        )
+        iterations += 1
+        epsilon = epsilon + step
+        current = apply_logistic(current, fit_submodel, step, alpha)
+        carried = tuple(
+            apply_logistic(fit, own, step, alpha)
+            for fit, own in zip(carried, carry_submodels, strict=True)
+        )
+        score = score_columns(y, current.observed, submodel.observed, w, mask)
+        trace.append(relative_score(score, scale))
+        if stop is not None and declared:
+            thresholds, ratio = _rule_state(y, current, submodel, w, mask, score, stop, stopping)
+            met = ratio <= 1.0
+        else:
+            met = trace[-1] <= tol
+        if best is not None:
+            best.offer(
+                iterations,
+                iterate_norm(score),
+                (epsilon, current, carried, score, thresholds, ratio),
+            )
+        if not met and float(np.max(np.abs(step))) <= tol:
+            break
+
+    reported: int | None = None
+    if best is not None:
+        reported = iterations if best.k is None else best.k
+        if best.state is not None:
+            epsilon, current, carried, score, thresholds, ratio = best.state
+            met = ratio <= 1.0 if ratio is not None else relative_score(score, scale) <= tol
+    relative = trace[-1] if best is None else relative_score(score, scale)
+    converged = bool(met)
+    _observe_at_fit(detail, fit_submodel, fit_weights, current, y, mask)
+    failure = (
+        None
+        if converged
+        else _classify(epsilon, current, detail, alpha, iterations, max_iter, mask)
+    )
+    if not converged and warn:
+        cause = _FAILURE_TEXT[failure] if failure else "cause not identified"
+        bounded = (
+            f"; step_bound={step_bound:g} limits each iteration, so a larger max_iter or "
+            "step_bound may help"
+        )
+        if ratio is not None:
+            message = ruled_warning(stopping, iterations, ratio, cause + bounded)
+        else:
+            message = (
+                f"targeting step did not drive the relative score below {tol:g} after "
+                f"{iterations} iteration(s) (relative score = {relative:.3g}): {cause}{bounded}"
+            )
+        warnings.warn(
+            message + ". Inspect res.fluctuations[group].failure and res.diagnostics.support().",
+            ConvergenceWarning,
+            stacklevel=3,
+        )
+    return Fluctuation(
+        epsilon=epsilon,
+        targeted=current,
+        carried=carried,
+        score=score,
+        converged=converged,
+        n_iter=iterations,
+        trace=tuple(trace),
+        method="iterative",
+        names=submodel.names,
+        score_scale=scale,
+        score_initial=score_before,
+        failure=failure,
+        hessian_condition=detail.hessian_condition,
+        epsilon_std_error=detail.epsilon_std_error,
+        loglik=detail.loglik,
+        absolute_score_weights=absolute_score_weights(submodel.observed, w, mask),
+        stopping=stopping,
+        thresholds=thresholds,
+        rule_ratio=ratio,
+        best_iterate=reported,
+    )
+
+
+def _observe_at_fit(
+    detail: NewtonDetail,
+    fit_submodel: Submodel,
+    fit_weights: FloatArray,
+    current: InitialFit,
+    y: FloatArray,
+    mask: BoolArray,
+) -> None:
+    """Fill ``detail`` from the logistic Hessian and the quasi-loglik at a reported fit."""
+    x = fit_submodel.observed[mask]
+    p = current.observed[mask]
+    detail.loglik = quasi_loglik(y[mask], p, fit_weights[mask])
+    if x.size == 0 or np.allclose(x, 0.0):
+        return
+    variance = fit_weights[mask] * p * (1.0 - p)
+    detail.observe(x.T @ (x * variance[:, None]))
 
 
 def _classify(

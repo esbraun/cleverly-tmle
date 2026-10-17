@@ -3,10 +3,10 @@
 Each declared rule restates a verdict that a study's own ``summarize_properties`` computes.
 The differential perturbs every committed study's property rows, summarizes them with the
 study's own code, and requires the declared rules to give the same ``passed`` and
-``property_passed`` on every verdict row.  Two modules have no committed rows, so they run on
-synthetic rows built from their declared cells.  ``longitudinal_sdr_properties`` runs on both
-its committed rows and synthetic rows: its committed rows make no perturbation decide the
-``P_D`` two-size clause alone, and its synthetic rows do.
+``property_passed`` on every verdict row.  ``longitudinal_sdr_properties`` runs on both its
+committed rows and synthetic rows built from its declared cells: its committed rows make no
+perturbation decide the ``P_D`` two-size clause alone, and its synthetic rows do.  The three
+X40 modules run on synthetic rows until their declared runs commit their rows.
 
 | subject | rows |
 | --- | --- |
@@ -75,20 +75,15 @@ DIFFERENTIAL_BOOTSTRAP = 200
 
 #: The property modules that run on :func:`synthetic_rows`: each module with no committed rows,
 #: and ``longitudinal_sdr_properties``, whose committed rows leave the clause
-#: ``P_D large-size bias bound under the small`` without a binding witness.
-#: ``vector_mtp_properties`` stays here until its declared run commits its rows.
+#: ``P_D large-size bias bound under the small`` without a binding witness. The three X40
+#: studies (``mtp-boundaries``, ``mtp-pricing`` and ``mtp-tuning``) bind to their committed
+#: rows, so they are subjects by slug.
 SYNTHETIC_MODULES = (
     "tests.studies.longitudinal_sdr_properties",
-    "tests.studies.longitudinal_repeated_crossfit_properties",
-    "tests.studies.vector_mtp_properties",
+    "tests.studies.long_horizon_ltmle_properties",
+    "tests.studies.long_horizon_categorical_ltmle_properties",
+    "tests.studies.long_horizon_sdr_properties",
 )
-
-#: The synthetic modules whose ``interval_calibration`` cells draw at the module's own
-#: efficiency bound, ``EFFICIENCY_SD[label] / sqrt(n)``, instead of ``n ** -0.5``.  At
-#: ``n ** -0.5`` every calibration positive of ``vector_mtp_properties`` reads an empirical
-#: efficiency ratio of 1.09 to 2.05, outside its band of 0.90 to 1.10, so no perturbation lets
-#: ``coverage in calibration band`` decide a verdict alone.
-EFFICIENCY_SCALED = frozenset({"tests.studies.vector_mtp_properties"})
 
 #: The seed root of :func:`synthetic_rows`, and a control cell's bias in standard errors.
 SYNTHETIC_SEED = 20_261_016
@@ -181,8 +176,8 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     The module's ``fit_properties`` is replaced by a function that returns, for each key, one
     row per cell the key fills, at the declared budget.  Each row's truth is zero and its
     estimate a seeded normal draw with standard error ``n ** -0.5``, centred on zero in a
-    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control.  A module
-    of :data:`EFFICIENCY_SCALED` draws its calibration cells at its efficiency bound.  The
+    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control, or on
+    the centre that the module's ``SYNTHETIC_CENTRES`` names.  The
     module's own code then derives its calibration controls and orders the rows, so the rows
     have the shape a run publishes.  They are no run's output: the differential reads only
     whether a rule and the module agree on them.
@@ -198,8 +193,11 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
         The rows.
     """
     declared = {(cell.property, cell.cell): cell for cell in module.declared_cells()}
-    bounds = module.EFFICIENCY_SD if module.__name__ in EFFICIENCY_SCALED else {}
     critical = float(norm.ppf(1.0 - module.STUDY.margins.alpha / 2.0))
+    # A control that must reach an exact alternative target is centred on it, so that its
+    # clauses can each decide a verdict alone.  The module names those cells in
+    # ``SYNTHETIC_CENTRES``, as ``property/cell`` to centre.
+    centres: dict[str, float] = dict(getattr(module, "SYNTHETIC_CENTRES", {}))
 
     def fit_properties(
         keys: Any, fit_one: Any, *, cells_of: Any, replicate_of: Any, **options: Any
@@ -221,12 +219,9 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
                 rng = np.random.default_rng(
                     [SYNTHETIC_SEED, property_failures.cell_key(family, cell), replicate]
                 )
-                label = cell.rsplit("__", 1)[0]
-                if family == "interval_calibration" and label in bounds:
-                    scale = float(bounds[label]) * float(spec.n) ** -0.5
-                else:
-                    scale = float(spec.n) ** -0.5
+                scale = float(spec.n) ** -0.5
                 centre = SYNTHETIC_CONTROL_BIAS * scale if spec.role == "control" else 0.0
+                centre = centres.get(name, centre)
                 estimate = rng.normal(centre, scale)
                 std_error = scale * rng.uniform(0.9, 1.1)
                 rows.append(
@@ -250,10 +245,17 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
 
     original = getattr(module, "fit_properties")  # noqa: B009
     setattr(module, "fit_properties", fit_properties)  # noqa: B010
+    # A module that refuses a declared run while its pilot tables are placeholders
+    # (``require_recorded_pilots``) fits nothing here, so the guard has nothing to protect.
+    guard = getattr(module, "require_recorded_pilots", None)
+    if guard is not None:
+        setattr(module, "require_recorded_pilots", lambda what: None)  # noqa: B010
     try:
         rows: pd.DataFrame = module.generate_property_rows(n_jobs=1)
     finally:
         setattr(module, "fit_properties", original)  # noqa: B010
+        if guard is not None:
+            setattr(module, "require_recorded_pilots", guard)  # noqa: B010
     return rows
 
 
@@ -607,7 +609,15 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
         ``(property, cell, clause, statistic, label, complete case, candidate)``.
     """
     module, record = subject_of(subject)
-    rows = subject_rows(subject)
+    rows = subject_rows(subject).copy()
+    # A subject with committed failures stamps its rows with the replicates it lost, and
+    # ``Context.k`` reads that stamp.  The candidates then fill the lost replicates, and they
+    # bound the complete case without equalling it.  Renumber the surviving replicates and
+    # restamp them as the requested set, so that ``k = 0`` holds for every cell.
+    cells = rows.groupby(["property", "cell"])["replicate"]
+    rows["replicate"] = cells.cumcount()
+    rows["requested_replicates"] = cells.transform("size")
+    rows["failed_replicates"] = 0
     wrong: list[tuple[Any, ...]] = []
     read = 0
     with reduced(record) as cheap:
@@ -620,6 +630,12 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
             for cell, judged in property_failures._judged(rule, family, summary, ctx).items():
                 selected = (summary["property"] == family) & (summary["cell"] == cell)
                 row = summary.loc[selected].iloc[0]
+                # A cell stamped with recorded failures fills its lost values, so its candidates
+                # are at k > 0 and differ from the complete case by design.  The fast tier
+                # recomputes that cell's accounting from the records instead.  Zeroing the stamp
+                # reads the candidates of the same cell at k = 0, where each is the complete case.
+                row = row.copy()
+                row["failed_replicates"] = 0
                 for clause, value in judged:
                     if clause.candidates is None:
                         continue

@@ -257,6 +257,11 @@ def _property_verdict(row: Any) -> str:
     return _verdict(row.passed)
 
 
+def _reads_score(row: Any) -> bool:
+    """Whether a ``correction_necessity`` cell is one of the closed-score and initial-score pair."""
+    return str(row.cell).endswith(("__closed_score", "__initial_score_control"))
+
+
 def measured(row: Any) -> str:
     """The endpoint a cell's own verdict was read from, named and valued.
 
@@ -275,7 +280,9 @@ def measured(row: Any) -> str:
         The endpoint, named and rendered as a published table cell prints it.
     """
     family = str(row.property)
-    if family in _BIAS_GATED:
+    # ``correction_necessity`` names two kinds of cell.  The DR-TMLE kind reads a score, and the
+    # kind with a corrected and an uncorrected arm reads the bias of the pair.
+    if family in _BIAS_GATED or (family == "correction_necessity" and not _reads_score(row)):
         measured = (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
             f"margin {render(float(row.bias_margin))}"
@@ -332,7 +339,7 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
-    if family == "adaptive_learners":
+    if family in {"adaptive_learners", "positivity_reporting"}:
         # Reported with no verdict: the bias interval and the coverage of a plug-in diagnostic.
         return (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
@@ -456,6 +463,16 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {render(float(row.se_ratio))}"
         )
+    if family in {"ice_necessity", "ice_reported", "shared_target", "extrapolation_report"}:
+        # Accuracy of one fit on one plan.  The necessity pairs print the bias margin beside the
+        # interval, because the NICE arm answers to it and the ICE control must exceed it.
+        measured = f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
+        if family == "ice_necessity":
+            measured += f", margin {render(float(row.bias_margin))}"
+        return (
+            f"{measured}, coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {render(float(row.se_ratio))}"
+        )
     if family == "bootstrap_coverage":
         return f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}"
     if family == "variance_direction":
@@ -522,7 +539,17 @@ def measured(row: Any) -> str:
         )
     if family == "sdr_tmle_agreement":
         return f"mean absolute difference / SE {render(float(row.mean_abs_difference_over_se))}"
-    if family in {"single_robustness", "censoring_complete_case"}:
+    if family == "mechanism_targeting":
+        # A positive cell answers to its bias and its SE-ratio interval, the outcome-only
+        # control to a bias interval beyond the margin.
+        measured = (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"margin {render(float(row.bias_margin))}"
+        )
+        if str(row.role) != "control":
+            measured += f", SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        return measured
+    if family in {"single_robustness", "censoring_complete_case", "in_sample_fit"}:
         # A bias reading at a declared size: the robust cells answer to their margin, and the
         # complete-case and constant-mechanism rows report the same endpoint with no verdict.
         return (
@@ -568,6 +595,9 @@ _BIAS_GATED = frozenset(
         "cde_robustness",
         "double_robustness",
         "mechanism_requirement",
+        "atom_necessity",
+        "classifier_split",
+        "branch_necessity",
         "cap_necessity",
         "competing_risk_recursion_necessity",
         "density_necessity",
@@ -595,6 +625,7 @@ _BIAS_GATED = frozenset(
         "targeting_necessity",
         "treatment_complete_case",
         "weight_necessity",
+        "blip_feature_control",
     }
 )
 

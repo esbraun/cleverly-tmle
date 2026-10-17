@@ -44,6 +44,10 @@ from cleverly.learners.crossfit import Folds
 from cleverly.learners.density import ConditionalDensity
 from tests.discrete_law_longitudinal import CellMeans
 
+# The exact grid laws have recorded point masses at every dose, which R-b4 of X40 refuses;
+# the fixture turns that refusal off and leaves the ratio code as shipped.
+pytestmark = pytest.mark.usefixtures("exact_grid_law")
+
 INF = np.inf
 
 
