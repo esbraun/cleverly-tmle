@@ -956,7 +956,7 @@ class TestTheCaptureSurvivesTheRoutesAFitTakes:
         )
         nuisance = result.repeats[0].nuisance
         assert nuisance.treatment_fits is not None
-        again = nuisance.retilted(nuisance.propensity.values[:, 1])
+        again = nuisance.retilted(nuisance.propensity.values)
         assert again.treatment_fits is nuisance.treatment_fits
 
 

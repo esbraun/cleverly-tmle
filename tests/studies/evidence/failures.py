@@ -946,7 +946,9 @@ def _rows(
             "leg": leg.name,
             "complete_case": leg.complete_case,
             "worst_case": leg.worst_case,
-            "imputation": leg.imputation,
+            # A bound leg names no imputation.  The CSV writes NaN as an empty cell, and the
+            # artifact reads back NaN, so the in-memory frame matches the committed one.
+            "imputation": leg.imputation or math.nan,
             "leg_passed": leg.passed,
             "gate_passed": passed,
             "reason": reason,
