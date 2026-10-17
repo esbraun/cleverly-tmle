@@ -233,6 +233,12 @@ def _one_study_at_a_time(function: Any) -> Any:
 
 
 @_one_study_at_a_time
+def _artifacts(slug: str) -> dict[str, pd.DataFrame]:
+    """Every committed artifact of a study (:func:`claims.load`), read once per study."""
+    return load(STUDY_BY_SLUG[slug])
+
+
+@_one_study_at_a_time
 def _replication_rows(slug: str) -> pd.DataFrame:
     """Load immutable primary rows once per study and worker."""
     return pd.read_csv(STUDY_BY_SLUG[slug].artifact("replicates.csv.gz"))
@@ -517,14 +523,14 @@ class TestArtifacts:
     @pytest.mark.parametrize("name", ["summary", "equivalence", "performance", "properties"])
     def test_reader_facing_tables_are_not_empty(self, study: StudyRecord, name: str) -> None:
         if name == "equivalence" and study.reference is None:
-            assert load(study)[name].empty
+            assert _artifacts(study.slug)[name].empty
             return
         # A study that declares no property cell is a reporting study, not a validation row
         # (``method-benchmarking.md``, "Adding a method row"), and its properties table is empty.
         if name == "properties" and not study.property_cells:
-            assert load(study)[name].empty
+            assert _artifacts(study.slug)[name].empty
             return
-        assert not load(study)[name].empty
+        assert not _artifacts(study.slug)[name].empty
 
 
 class TestPublishedVerdicts:
@@ -2235,7 +2241,7 @@ class TestTheMethodEvidenceGrid:
             assert "descriptive" in cell, f"{column!r} must say the comparison is descriptive"
             return
         assert len(found) == 1, f"{column!r} should carry exactly one count, found {found}"
-        data = load(study)
+        data = _artifacts(study.slug)
         passed, total = (int(part) for part in found[0])
         assert total == int(value(study, total_name, data)), (
             f"{column!r} claims {total} tests; {total_name} is "
@@ -2314,7 +2320,7 @@ class TestTheMethodEvidenceGrid:
         if not study.property_cells:
             assert not _mentions_efficiency(_grid()[study.name]["theory properties"])
             return
-        properties = load(study)["properties"]
+        properties = _artifacts(study.slug)["properties"]
         columns = [name for name in properties if name.startswith("efficiency_")]
         has_bound = bool(columns) and bool(properties[columns].notna().any().any())
         claim = _mentions_efficiency(_grid()[study.name]["theory properties"])
@@ -2373,7 +2379,7 @@ class TestTheMethodEvidenceGrid:
     def test_the_headline_results_are_the_committed_ones(self, study: StudyRecord) -> None:
         """The one grid column carrying measured numbers rather than verdicts."""
         cell = _grid()[study.name]["study design and headline results"]
-        data = load(study)
+        data = _artifacts(study.slug)
         missing = [
             f"{label} {render(value(study, quantity, data))}"
             for label, quantity in HEADLINE.items()
@@ -2414,7 +2420,7 @@ class TestTheQuotedMeasurements:
         Precision is the generator's decision alone now, and a study whose claim needs a
         longer one declares it in ``quoted_decimals`` rather than typing it into the table.
         """
-        data = load(study)
+        data = _artifacts(study.slug)
         wrong = []
         quoted = set()
         for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
@@ -2577,7 +2583,7 @@ class TestThePublishedTestTables:
         if name == "properties" and not study.property_cells:
             pytest.skip("study declares no property cell")
         published = _published_block(study, name)
-        rendered = GENERATED[name](study, load(study))
+        rendered = GENERATED[name](study, _artifacts(study.slug))
         assert published == rendered, (
             f"{study.slug}'s {name} table is not what its artefacts render. Run "
             f"`python -m tests.studies.evidence.document` rather than editing it by hand"
@@ -2588,7 +2594,7 @@ class TestThePublishedTestTables:
     ) -> None:
         if not study.property_cells:
             pytest.skip("study declares no property cell")
-        properties = load(study)["properties"]
+        properties = _artifacts(study.slug)["properties"]
         columns = [name for name in properties if name.startswith("efficiency_")]
         has_bound = bool(columns) and bool(properties[columns].notna().any().any())
         rows = pipe_table(study.document_path, PROPERTY_COLUMNS, section=study.anchor)
@@ -2683,7 +2689,7 @@ class TestThePublishedTestTables:
         if name == "properties" and not study.property_cells:
             pytest.skip("study declares no property cell")
         rows = pipe_table(study.document_path, columns, section=study.anchor)
-        frame = load(study)[artifact]
+        frame = _artifacts(study.slug)[artifact]
         assert len(rows) == len(frame), (
             f"{study.slug}'s {name} table publishes {len(rows)} rows against {len(frame)} "
             f"committed tests"
@@ -2701,7 +2707,7 @@ class TestThePublishedTestTables:
 
     def test_every_key_a_result_file_uses_has_a_description(self, study: StudyRecord) -> None:
         """The one hand-written column, required to cover every key that can reach a table."""
-        data = load(study)
+        data = _artifacts(study.slug)
         undescribed: list[str] = []
         for frame, resolvers in (
             (
@@ -3108,7 +3114,7 @@ class TestTheQuantityVocabulary:
             assert declared[f"bound:{estimand}_standard_error"] == deviation / math.sqrt(study.n)
         # And every one of them resolves through the same entry point a document quotes.
         for name, expected in declared.items():
-            assert value(study, name) == expected
+            assert value(study, name, _artifacts(study.slug)) == expected
 
     def test_every_declared_threshold_is_published_in_the_study_s_own_table(
         self, study: StudyRecord
