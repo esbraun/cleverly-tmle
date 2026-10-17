@@ -2415,6 +2415,55 @@ def _long_rows() -> tuple[SupportRow, ...]:
             cells=["mean_x2__cluster_robust"],
         ),
     ]
+    # ``SDR`` on a repeated outcome (X32b): the study fits three nodes with the three plans.
+    # The key carries no learner class, so the cell-means, quasi-binomial and booster arms of
+    # the study share the row of their splitting and outcome scale.
+    sdr_repeated = ["longitudinal-repeated-sdr"]
+    sdr_repeated_limit = (
+        "The study's lmtp comparator runs are pending, so the evidence is Python property "
+        "evidence only."
+    )
+    rows += [
+        long_row(
+            "G38.in_sample",
+            sdr_repeated,
+            outcome_kind="repeated",
+            engine="sdr",
+            treatment=("2",) * 3,
+            kinds=_LONG_BAND,
+            cells=["interval_calibration", "simultaneous_coverage"],
+            limits=[
+                "Calibrated at n = 32,000 with cell-means regressions and quasi-binomial "
+                "mechanisms. " + sdr_repeated_limit
+            ],
+        ),
+        long_row(
+            "G38.cross_fitted",
+            sdr_repeated,
+            outcome_kind="repeated",
+            engine="sdr",
+            treatment=("2",) * 3,
+            splitting=xf,
+            cells=["interval_calibration"],
+            limits=[
+                "Calibrated at five folds and n = 8,000, with cell-means regressions and with "
+                "a shallow regularized booster, at horizon 3. " + sdr_repeated_limit
+            ],
+        ),
+        long_row(
+            "G38.continuous",
+            sdr_repeated,
+            outcome_kind="repeated",
+            engine="sdr",
+            outcome=BOUNDED,
+            treatment=("2",) * 3,
+            cells=["interval_calibration"],
+            limits=[
+                "Calibrated at n = 32,000, at horizon 3, with q_bounds=(0, 1). "
+                + sdr_repeated_limit
+            ],
+        ),
+    ]
     baselines = ["sequential-baselines"]
     for law, regimens, treatment, outcome in (
         ("d2", ("static", "stochastic"), ("2", "3"), BINARY),

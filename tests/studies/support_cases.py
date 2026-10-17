@@ -1768,6 +1768,24 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, frame, configuration=configuration: study.fit(frame, configuration),
         )
 
+    # ``SDR`` on a repeated outcome (X32b): the property study's own fit at 400 rows.
+    sr, sr_slug = "sdr_repeated_properties.py:415", "longitudinal-repeated-sdr"
+    for row, configuration, joint in (
+        ("G38.in_sample", "in_sample", True),
+        ("G38.cross_fitted", "crossfit", False),
+        ("G38.continuous", "continuous", False),
+    ):
+        observed(
+            row,
+            sr_slug,
+            "interval_calibration",
+            sr,
+            lambda study, configuration=configuration: study.sample(configuration, 0, 400),
+            lambda study, frame, configuration=configuration, joint=joint: study.fit(
+                frame, configuration, simultaneous=joint
+            ),
+        )
+
     # The structural nested mean study (X44): one primary scenario for each key it fits.
     for row, scenario in (
         ("G42.two_nodes", "s2"),

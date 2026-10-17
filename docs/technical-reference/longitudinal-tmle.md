@@ -1546,11 +1546,12 @@ contrast. It is the multiplier band over the stacked influence curves.
 | maximum-likelihood mechanisms in a correctly specified parametric model, no binding `g_bounds`, and an inconsistent regression | the Wald interval is conservative, not calibrated. The default `SuperLearner` mechanisms do not meet these conditions. The influence function of $\hat\psi$ is $\varphi(\bar m, r)$ minus its projection on the mechanism scores. The Wald variance reads $\operatorname{Var}\varphi(\bar m, r)$, which is at least the true variance. This is the projection argument for a doubly robust estimator with maximum-likelihood mechanisms |
 | sequential double robustness alone | the estimate is consistent (Lemma 4). The stacked curve is not the influence function of $\hat\psi$, so no interval claim |
 
-No registered study measures the coverage of this curve yet. The interval at $(d, h)$ is an
-asymptotic statement under the conditions above, and the conservative claim in the table is an
-argument, not a measurement. The exact-law witnesses E1 to E3, E2b and E8, and the eleven mutation
-controls in `tests/unit/test_repeated_outcome_sdr_mutations.py`, stand behind the point estimate
-and the curve.
+The registered study [SDR on a repeated outcome](method-evidence/repeated-outcome-sdr.md)
+measures the coverage of this curve. In its 28 positive interval cells, the coverage intervals span
+0.9357 to 0.9549 and the SE-ratio intervals span 0.9459 to 1.0169. The lmtp comparator runs are
+pending, so the evidence is Python property evidence only. The exact-law witnesses E1 to E3, E2b
+and E8, and the eleven mutation controls in `tests/unit/test_repeated_outcome_sdr_mutations.py`,
+stand behind the point estimate and the curve.
 
 ## Incremental interventions over time
 

@@ -568,6 +568,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as POINT_SURVIVAL_POLICIES,
     )
     from tests.studies.canonical_policy_point_mtp import STUDY as POLICY_POINT_MTP
+    from tests.studies.canonical_sdr_repeated import STUDY as CANONICAL_SDR_REPEATED
     from tests.studies.canonical_sequential_baselines import STUDY as SEQUENTIAL_BASELINES
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_categorical_ltmle import (
@@ -670,6 +671,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
         CANONICAL_LTMLE_REPEATED,
         CANONICAL_IPSI_REPEATED,
+        CANONICAL_SDR_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,

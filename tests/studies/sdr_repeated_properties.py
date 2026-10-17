@@ -938,10 +938,11 @@ def _role(family: str, cell: str, configuration: str) -> str:
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every sampled cell with its law, role, size, replicates and seed.
 
-    The calibration controls are derived from the positive arm's rows, so they are not here
-    (:data:`DERIVED_CELLS`).  The failure differential
+    The calibration controls are derived from the positive arm's rows (:data:`DERIVED_CELLS`).
+    They are listed here with the positive arm's law, so that a committed truth can be read back
+    against the cell it came from.  The failure differential
     (``tests/canonical/property_differential.py``) reads this list to build synthetic rows
-    while the study holds no committed rows.
+    while the study holds no committed rows, and it skips the derived controls.
     """
     cells: list[PropertyCell] = []
     controls = {name for names in DERIVED_CELLS.values() for name in names}
@@ -950,7 +951,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
         n = fit_n(family, configuration)
         key = ((family, configuration, 0, replicates, seed, n),)
         for name in _cells_of(key):
-            if name in controls or name.startswith(f"{JOINT_FAMILY}/"):
+            if name.startswith(f"{JOINT_FAMILY}/"):
                 continue
             _, cell = name.split("/", 1)
             label = cell.split("__", 1)[0]
@@ -966,7 +967,7 @@ def declared_cells() -> tuple[PropertyCell, ...]:
                     n=n,
                     replicates=replicates,
                     seed=seed,
-                    role=_role(family, cell, configuration),
+                    role="control" if name in controls else _role(family, cell, configuration),
                     estimand=estimand,
                 )
             )

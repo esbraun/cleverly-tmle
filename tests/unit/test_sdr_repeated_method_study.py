@@ -52,22 +52,23 @@ def _truth(name: str) -> float:
 
 
 def test_the_record_declares_a_pending_lmtp_comparator() -> None:
-    """The record is not in ``registered()`` yet: registration needs the committed artifacts."""
+    """The record is registered: its artifacts are committed, and its comparator is pending."""
     record = study.STUDY
     assert record.slug == "longitudinal-repeated-sdr"
     assert record.reference is None
     assert record.pending_reference == "lmtp"
     assert record.comparator_state == "pending"
-    assert record not in registered()
+    assert record in registered()
     # The reason names the change and the queue row that own the runs.
     assert "X32b PR C" in record.pending_reason
     assert "TRACKER Study queue" in record.pending_reason
 
 
 def test_the_study_seeds_are_unique() -> None:
-    seeds = [record.seed for record in registered()]
+    others = [record for record in registered() if record is not study.STUDY]
+    seeds = [record.seed for record in others]
     assert study.STUDY.seed not in seeds
-    resampling = [record.resampling_seed for record in registered()]
+    resampling = [record.resampling_seed for record in others]
     assert study.STUDY.resampling_seed not in resampling
 
 
@@ -1318,8 +1319,7 @@ def test_the_pilot_summaries_read_synthetic_rows() -> None:
 # ---------------------------------------------------------------------------- the failure contract
 #
 # RM39b2 (#304) checks the contract of a registered study: the bound, the declared rules and the
-# clause-binding witnesses.  This study is not registered yet, so those checks skip it.  The tests
-# below hold it to the same contract until the registering change.
+# clause-binding witnesses.  The tests below hold this study to the same contract by name.
 
 
 def test_the_property_module_declares_the_failure_bound_and_the_witness() -> None:
@@ -1358,14 +1358,15 @@ def test_the_necessity_rules_read_the_declarations_the_verdicts_read() -> None:
         assert rule.group == "family"
 
 
-def test_the_failure_differential_covers_the_unregistered_module() -> None:
-    """Without a committed run, the job reads the module's synthetic rows (``SYNTHETIC_MODULES``)."""
-    assert properties.__name__ in property_differential.SYNTHETIC_MODULES
-    assert properties.__name__ in UNCOMMITTED_MODULES
+def test_the_failure_differential_reads_the_committed_rows() -> None:
+    """With a committed run, the job reads the study's rows and no synthetic rows."""
+    assert study.STUDY.slug in property_differential.SUBJECTS
+    assert properties.__name__ not in property_differential.SYNTHETIC_MODULES
+    assert properties.__name__ not in UNCOMMITTED_MODULES
 
 
 def test_each_clause_the_module_uses_has_a_witness_in_the_binding_table() -> None:
-    subject = properties.__name__
+    subject = study.STUDY.slug
     judged = property_differential.judge(subject, "none")
     assert judged.wrong.empty, judged.wrong.to_string()
     bound = property_differential._pairs(property_differential.read_bindings(), subject)

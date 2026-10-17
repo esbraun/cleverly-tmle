@@ -104,8 +104,8 @@ Pilot state
 :mod:`tests.studies.sdr_repeated_properties` hold their results, and the sizes in this module
 are the rules applied to them.  :func:`require_recorded_pilots` refuses a declared run while the
 state is ``"placeholder"``.  The disposable smoke run with explicit ``--replicates`` and ``--n``
-is not a declared run.  The study stays unregistered until its artifacts and its row of the
-implementation validation grid exist.
+is not a declared run.  The declared run has finished and its artifacts are committed, so the
+study is registered with its comparator pending.
 """
 
 from __future__ import annotations

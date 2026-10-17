@@ -7,7 +7,7 @@ Hoffman and Schenck 2023, Equation (4), Lemmas 3 and 4 and Theorem 4).
 
 The truths come from the exact law in `tests/studies/ltmle_repeated_law.py`.
 
-## State: comparator pending, partly recorded pilots
+## State: registered, comparator pending
 
 The study declares `pending_reference="lmtp"`. No reference process runs in this change. The
 change that registers the R `lmtp` 1.5.4 rows adds them as the TRACKER Study queue item of
@@ -27,8 +27,9 @@ not one CSV of about 12 GB. `pairing_sample` in `canonical_sdr_repeated.py` buil
 replicate's frame. The `shift__` columns are `int8` arm codes.
 
 Pilots P1, P2 and P3 are recorded in `tests/studies/sdr_repeated_properties.py`. The marker
-`PILOT_STATE` in `tests/studies/canonical_sdr_repeated.py` reads `"recorded"`. The study stays
-unregistered until its artifacts and its row of the implementation validation grid exist.
+`PILOT_STATE` in `tests/studies/canonical_sdr_repeated.py` reads `"recorded"`. The declared
+Python run has finished. Its artifacts are committed beside this file, and the study is
+registered with the comparator pending.
 
 ## Finding of pilot P2: the in-sample n doubles
 
@@ -82,7 +83,7 @@ To record the pilots:
 1. Run P1, P2 and P3 with the commands below.
 2. Run `assemble` for each pilot. It prints the tables and the sizes the rules give.
 3. Paste the tables into `sdr_repeated_properties.py` and set the size constants to the printed
-   values. Set `PILOT_STATE` to `"recorded"`.
+   values.
 4. Run the declared study (the last section).
 
 ## Pilots
@@ -214,5 +215,6 @@ uv run python -m tests.canonical.sdr_repeated.regenerate
 uv run python -m tests.studies.evidence.document --slug longitudinal-repeated-sdr
 ```
 
-The manifest records every result-determining module. No grid row or evidence page exists for
-this study yet. A later change adds them with the artifacts.
+The manifest records every result-determining module. The evidence page is
+`docs/technical-reference/method-evidence/repeated-outcome-sdr.md`, and the validation grid has
+a row for the study.
