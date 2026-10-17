@@ -182,13 +182,14 @@ must establish whether the tilted parameter is still the shift parameter.
 
 ### Targeting and fitting option refusals
 
-These options are `Targeting(stopping=, step_bound=, step_search=, iterate=)`,
+These options are `Targeting(stopping=, step_bound=, step_search=, iterate=, node_bounds=)`,
 `ModelSpec(outcome_by_arm=)`, `CollaborativeTMLEMethod(patience=)` and
 `PointTreatment(treatment_adjustment=)`. A refusal is raised before any learner fits, unless the
 row says otherwise. A malformed value raises `ValueError` with no record. Every other row carries
 the code shown.
 `tests/unit/test_stopping_rule.py`, `test_step_bound.py`, `test_best_iterate.py`,
-`test_outcome_by_arm.py`, `test_patience.py`, `test_treatment_covariates.py`,
+`test_longitudinal_node_bounds.py`, `test_outcome_by_arm.py`, `test_patience.py`,
+`test_treatment_covariates.py`,
 `test_treatment_covariates_collaborative.py` and `test_hazard_x22_refusal.py` assert each text
 with `pytest.raises(match=re.escape(...))`.
 
@@ -205,6 +206,11 @@ with `pytest.raises(match=re.escape(...))`.
 | R-abc3 | the same settings on `IPSI`, `IPSIMethod` | `MethodConfigurationError`, `invalid_declaration` | `IPSI fits no fluctuation: Kennedy's estimator averages the influence function at the fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or submodel.` |
 | R-abc3a | the same settings on `GComputationMethod`, `IPWMethod`, `SequentialGComputation`, `SequentialIPW` | `MethodConfigurationError`, `invalid_declaration` | `the sequential g-computation and IPW estimators fit no fluctuation, so they have no logistic shrink, iteration limit or score tolerance. LTMLE takes stopping=, so pass the setting there.` |
 | R-abc4 | `iterate=`, `stopping=` or `step_bound=` with `survival_model="hazard"`. `LTMLE` raises it when it validates its settings, after the malformed-value checks | `CapabilityError`, `implementation_gap`, roadmap X33 | `survival_model='hazard' walks its own path in steps of step_size, so iterate=, stopping= and step_bound= do not apply to it. X33 in docs/roadmap.md tracks this. survival_model='iterated_mean' with targeting='iterative' applies iterate=, stopping= and step_bound= at each node.` The list names only the settings declared, in the condition and in the alternative |
+| R-i1 | `node_bounds=` that names a grid time outside the fit, a cause the fit did not declare, a pair with `lower >= upper`, or a bound outside the outcome range. The check runs at fit time before any learner. A value that is not a pair of numbers, or a `node_bounds=` that is not a mapping, raises `ValueError` with its own text | `ValueError` | `node_bounds names grid time {t!r}, which is not a node of this fit; its grid is {grid}`, `node_bounds names cause {c!r}; this fit declared {causes}`, `node_bounds at {t!r} needs lower < upper; got ({l!r}, {u!r})`, `node_bounds at {t!r} lies outside the outcome range [{a:g}, {b:g}]` |
+| R-i2 | `node_bounds=` with `survival_model="hazard"`. `LTMLE` raises it when it validates its settings | `CapabilityError`, `implementation_gap`, roadmap X78 | `node_bounds= bounds the logistic fluctuation of each iterated-mean node. The bounded hazard walk of survival_model='hazard' is not built. Fit node_bounds= with survival_model='iterated_mean'.` |
+| R-i3 | `node_bounds=` with `msm=` | `CapabilityError`, `implementation_gap`, roadmap X78 | `node_bounds= bounds the intercept fluctuation of a per-regimen mean. A working model over regimens pools one fluctuation across the regimens, and its bounded form is not built. Fit node_bounds= without msm=, and report the regimen levels.` |
+| R-i4 | `node_bounds=` on `SDR`, `IPSI`, `SequentialGComputation`, `SequentialIPW`, `ParametricGFormula`, `SDRMethod`, `IPSIMethod`, `GComputationMethod` or `IPWMethod` | `MethodConfigurationError`, `invalid_declaration` | `{estimator} fits no logistic node fluctuation, so a node bound has nothing to bound. LTMLE(node_bounds=...) bounds the logistic fluctuation of each node.` |
+| R-i5 | `node_bounds=` on a point-treatment functional | method configuration, `MethodConfigurationError`, `invalid_declaration` | `node_bounds= bounds the logistic fluctuation of each node of a longitudinal iterated-mean fit, and a point-treatment functional has no such nodes. Remove it, or declare a longitudinal or TimeToEvent design` |
 | R-f1 | `outcome_by_arm=True` with a continuous dose, including a dose MSM and a shift policy on a dose. The check runs before any learner fits | `CapabilityError`, `invalid_declaration` | `outcome_by_arm=True fits one outcome regression per treatment arm, so it needs an arm-coded treatment. A continuous dose has no arms. Use outcome_by_arm=False, which fits one regression on the dose.` |
 | R-f2 | an arm with no training row in a fold. It is raised at fit time | `DataError` | `outcome_by_arm=True found no row with {treatment} = {arm!r} and an observed outcome in {where}, so that arm's outcome regression has nothing to fit. Use fewer folds, or outcome_by_arm=False`. `{where}` reads "training fold {k}" or "the training sample" |
 | R-f3 | `outcome_by_arm=` on a longitudinal design | `MethodConfigurationError`, `invalid_declaration` | `longitudinal TMLE cannot apply point-treatment option(s): ['outcome_by_arm']. Remove them or use a PointTreatment design.` |
@@ -216,6 +222,8 @@ with `pytest.raises(match=re.escape(...))`.
 | R-h4 | `treatment_adjustment=` with a known `treatment_probabilities=` | `DataError` | `treatment_adjustment= restricts a fitted treatment mechanism, and treatment_probabilities= supplies a known one. Remove one of them` |
 | R-h5 | a C-TMLE `candidates=` or `ordering=` that names a covariate outside the declared subset | `ValueError` | `{arg} names {cols} outside treatment_adjustment=` |
 | R-h6 | a repeated name in `treatment_adjustment=` | `DataError` | `treatment_adjustment repeats {cols}` |
+
+[X78](../roadmap.md#x78-bounded-hazards-and-targeting-rules-on-the-hazard-walk) tracks R-i2 and R-i3.
 
 `TMLE.fit(treatment_covariates=)` raises R-h1, R-h4 and R-h6 with the argument named
 `treatment_covariates` in place of `treatment_adjustment`. The row R-abc4 names the

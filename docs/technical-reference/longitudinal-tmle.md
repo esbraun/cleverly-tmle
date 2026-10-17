@@ -167,7 +167,7 @@ The solver applies the options at each node of each regimen.
 | repeated outcomes | each horizon applies the options at its own nodes |
 | long panels | the same node solver, so each node applies them |
 | the one-column node | the node with one clever covariate. Under `step_bound=` its direction is $\operatorname{sign}(s)$ |
-| `survival_model="hazard"` | refuses `iterate=`, `stopping=` and `step_bound=`. See [hazard-based survival targeting](#hazard-based-survival-targeting) |
+| `survival_model="hazard"` | refuses `iterate=`, `stopping=`, `step_bound=` and `node_bounds=`. See [hazard-based survival targeting](#hazard-based-survival-targeting) |
 | `fluctuation="linear"` | refuses all three, as for a point fit |
 | truncation replay | the replay recipe repeats the options, so a replay reruns the same node solve |
 
@@ -184,6 +184,61 @@ witness uses confident-wrong offsets. The shipped test takes 3 iterations there 
 drop the cluster code, the span or the MSM tile. `tests/unit/test_step_bound.py` checks every node
 against a SciPy walk from the node's own pseudo-outcome. `tests/unit/test_best_iterate.py` covers
 the best iterate per node.
+
+### Node bounds
+
+`LTMLE(node_bounds=)` and `Targeting(node_bounds=)` declare an outcome range for chosen nodes of an
+iterated-mean fit. The value maps a grid time to a pair $(l_t, u_t)$ on the reported outcome scale.
+A competing-risk fit takes one such mapping for each cause name. The fit maps the bounds through
+the outcome scaler. A node with no entry runs the shipped fit, bit for bit. So do `None`, `{}` and
+bounds that equal the outcome range.
+
+| item | rule |
+| --- | --- |
+| regression | the node regresses $\tilde Y_t = (Y_t - l_t) / (u_t - l_t)$ with `pseudo_learner`. The prediction $p$ is clipped to $[0, 1]$ and maps to $l_t + (u_t - l_t)\,p$ |
+| fluctuation | the logistic submodel $\operatorname{logit}\{(Q - l_t)/(u_t - l_t)\} + \epsilon H$ with outcome $\tilde Y_t$, the bounded fluctuation of Gruber and van der Laan (2010), Section 2 and Lemma 1. The targeted prediction stays inside $[l_t, u_t]$ |
+| score | the node solves $P_n H (Y_t - Q^*_t) = 0$ over its followers. The reported score is in the units of the $[0, 1]$ outcome scale. It equals $(u_t - l_t)$ times the score of the rescaled problem |
+| solver | the shipped node solver runs on the rescaled outcome. So `stopping=`, `step_bound=`, `step_search=` and `iterate=` act as they do at an unbounded node. The threshold of a declared rule stays in outcome units |
+| cross-fitting | the fold regressions and the pooled fluctuation of a named node are bounded |
+| replay and bootstrap | the replay recipe holds the bounds, so a truncation replay and each bootstrap replicate refit the same bounded nodes |
+| competing risks | a cause mapping applies to the recursion of that cause only |
+| report | `res.summary()` prints `node_bounds:` with the declared pairs. `res.config.node_bounds` holds `(cause, grid time, lower, upper)` |
+
+The score equation has a root only when the weighted mean of $\tilde Y_t$ over the followers lies in
+$(0, 1)$. The weight is the observation weight times the clever covariate. That condition says the
+weighted mean outcome lies inside $(l_t, u_t)$. Without a root the quasi-likelihood has no
+maximiser, and Newton steps run away. The solver checks the condition first. A node that already
+equals its one target value, 0 or 1 on the rescaled outcome, has a zero score and skips the check.
+
+When the check fails, the node runs no Newton step. The fit warns with `ConvergenceWarning` and
+reports the node as not converged. The node keeps the bounded initial regression. Its fluctuation
+has `failure="bound_excludes_data"`, `converged=False` and `n_iter=0`. The warning reads as
+follows. The text names the regimen label, the weighted mean on the reported scale and the
+declared pair.
+
+```text
+the declared node bound at {t!r} excludes the data: the weighted mean outcome of the {arm}
+followers at that node, {m:.4g}, lies outside ({l:g}, {u:g}), so no fluctuation inside the bound
+solves the score equation. Widen node_bounds at {t!r}.
+```
+
+The refusals are in [targeting and fitting option refusals](scope-and-refusals.md#targeting-and-fitting-option-refusals)
+(R-i1 to R-i5). A bound that excludes the data is a result and not a refusal.
+
+`tests/unit/test_longitudinal_node_bounds.py` checks the claims on the exact laws of
+`tests/discrete_law_longitudinal.py`, `tests/discrete_law_survival.py` and
+`tests/discrete_law_competing.py`.
+
+| claim | test |
+| --- | --- |
+| $Q^*$ lies in $[l_t, u_t]$, and the score is below $10^{-9}$ | `TestBoundedNodesAreExact`, on bounds that bind the saturated regression |
+| bounds that hold the truth return it to $10^{-10}$ and leave the regression at the oracle | `check_exact_truth`, for the end-of-study, survival and competing-risk laws |
+| the root check and the pinned text | `check_root_check` |
+| the unbounded regression leaves the bounds and the estimates differ by more than $10^{-4}$ | `TestBoundsChangeTheFit`, on a finite sample with estimated mechanisms |
+| mutation controls: invert the map, apply the bounds of node $t$ at node $t - 1$, skip the root check | `TestMutationControls`. Each mutant fails one of the tests above |
+
+An exact law cannot show the witness. With exact mechanisms the estimate is the truth for any
+initial regression, so a bound changes no estimate there. The witness uses a finite sample.
 
 ### Survival and competing risks
 
