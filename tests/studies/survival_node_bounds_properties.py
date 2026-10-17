@@ -233,6 +233,29 @@ class DeclaredLaw:
         return dict(law.TRUTH)
 
 
+def synthetic_scale(cell: PropertyCell) -> float:
+    """The standard deviation of a synthetic cell's estimates for the property differential.
+
+    A calibration positive carries an exact-EIF efficiency band, so its synthetic estimates
+    spread at the efficient influence function's standard deviation over ``sqrt(n)``.  N's
+    arms spread at the intercept-only curve's.
+    """
+    if cell.property == "bound_necessity":
+        sd = law.efficiency_sd(F5_ARM1, intercept_only=True)
+    else:
+        sd = law.EFFICIENCY_SD[cell.estimand]
+    return float(sd / np.sqrt(cell.n))
+
+
+def synthetic_columns(cell: PropertyCell, rng: np.random.Generator) -> dict[str, Any]:
+    """The extra columns of a synthetic row: the convergence flag and W's two indicators."""
+    columns: dict[str, Any] = {CONVERGENCE_COLUMN: 1}
+    if cell.property == "binding_witness":
+        columns["exceeds_bound"] = int(rng.random() < 0.6)
+        columns["estimate_moved"] = int(rng.random() < 0.65)
+    return columns
+
+
 def declared_cells() -> tuple[PropertyCell, ...]:
     """Every sampled cell, with its role, estimand, size and replicate count.
 

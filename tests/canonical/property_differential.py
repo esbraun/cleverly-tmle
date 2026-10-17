@@ -186,6 +186,9 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     ----------
     module : module
         A property module that declares ``declared_cells`` and fits through ``fit_properties``.
+        It may also declare ``synthetic_scale(cell)``, the standard deviation of a cell's
+        estimates when the default ``n ** -0.5`` is not its efficiency bound over ``sqrt(n)``,
+        and ``synthetic_columns(cell, rng)``, the extra row columns of a cell.
 
     Returns
     -------
@@ -216,11 +219,16 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
                     [SYNTHETIC_SEED, property_failures.cell_key(family, cell), replicate]
                 )
                 scale = float(spec.n) ** -0.5
+                spread = getattr(module, "synthetic_scale", None)
+                if spread is not None:
+                    scale = float(spread(spec))
                 centre = SYNTHETIC_CONTROL_BIAS * scale if spec.role == "control" else 0.0
                 estimate = rng.normal(centre, scale)
                 std_error = scale * rng.uniform(0.9, 1.1)
+                extras = getattr(module, "synthetic_columns", None)
                 rows.append(
                     {
+                        **({} if extras is None else extras(spec, rng)),
                         "property": family,
                         "cell": cell,
                         "role": spec.role,

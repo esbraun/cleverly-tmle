@@ -3,7 +3,7 @@
 This study fits `LTMLE(node_bounds=..., hazard_pooling="pooled")` on a point-treatment survival law
 with five visits. It is Python only for now. The `survtmle` 1.1.1 comparator (P1 with
 `method="mean"`, P2 with `method="hazard"`) is declared and pending (`STUDY.pending_reference`).
-A later change writes the R runner and registers the comparator runs.
+A later change runs the R runner and registers the comparator runs.
 
 | file | role |
 | --- | --- |
@@ -19,8 +19,9 @@ a registered study needs its committed artifacts. The property module is listed 
 `SYNTHETIC_MODULES` of `tests/canonical/property_differential.py`. The change that commits the run
 artifacts also adds the registry line, the evidence page and the red-cell owners.
 
-The driver hashes the declared reference sources into the manifest. The runner
-`tests/canonical/survival_node_bounds_runner.R` does not exist yet. Write it before a declared run.
+The driver hashes the declared reference sources into the manifest. The R runner is
+`tests/canonical/survival_node_bounds/run_study.R`. It is written by inspection and has not run,
+because the cloud container has no R.
 
 ## Run
 

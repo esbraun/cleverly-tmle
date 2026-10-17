@@ -1362,6 +1362,15 @@ tests.studies.longitudinal_sdr_properties,type_i_error,rejection ceiling,rejecti
 tests.studies.longitudinal_sdr_properties,weighted_calibration,coverage in calibration band,bias
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio below band,se_high
 tests.studies.longitudinal_sdr_properties,weighted_calibration,se ratio in calibration band,se/0.05
+tests.studies.survival_node_bounds_properties,bound_necessity,bias discriminated,pair_collapse
+tests.studies.survival_node_bounds_properties,bound_necessity,bias equivalent,bias
+tests.studies.survival_node_bounds_properties,bound_necessity,least displacement over labels,control_concentrated
+tests.studies.survival_node_bounds_properties,interval_calibration,coverage in calibration band,shift/0.7
+tests.studies.survival_node_bounds_properties,interval_calibration,efficiency above band,pair_collapse
+tests.studies.survival_node_bounds_properties,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+tests.studies.survival_node_bounds_properties,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+tests.studies.survival_node_bounds_properties,interval_calibration,se ratio below band,se_high
+tests.studies.survival_node_bounds_properties,interval_calibration,se ratio in calibration band,se/0.95
 parametric-gformula,ice_necessity,bias discriminated,pair_collapse
 parametric-gformula,ice_necessity,bias equivalent,bias
 parametric-gformula,ice_necessity,least displacement over labels,control_concentrated

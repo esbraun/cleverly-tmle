@@ -54,8 +54,8 @@ red; N's control converges by design.  A red cell goes to the red-cell ledger, a
 enters the roadmap only for a red cell.  No re-run uses a new budget, margin or law.
 
 **Not registered.**  The record is not in ``registered()``, because a registered study needs
-its committed artifacts, and no run is queued.  The R runner and the ``survtmle`` image digest
-are not written (see ``pending_reason``).
+its committed artifacts, and no run is queued.  The R runner is written and has not run, and the
+``survtmle`` image digest is not pinned (see ``pending_reason``).
 """
 
 from __future__ import annotations
@@ -318,11 +318,11 @@ STUDY = StudyRecord(
     implementation="cleverly",
     pending_reference="survtmle",
     pending_reason=(
-        "the survtmle P1 and P2 runs are queued on the local study queue (#302). TODO: write "
-        "tests/canonical/survival_node_bounds_runner.R and pin the survtmle image digest; the "
-        "driver hashes the declared runner into the manifest, so both files must exist before "
-        "the Python run. D10 (node-1 pooled censoring) is declared known in the container, so "
-        "no convention gap is routed; the P-cells stay comparator pending"
+        "the survtmle P1 and P2 runs are queued on the local study queue (#302). TODO: run "
+        "tests/canonical/survival_node_bounds/run_study.R, which is written by inspection and "
+        "has not run, and pin the survtmle image digest. D10 (node-1 pooled censoring) is "
+        "declared known in the container, so no convention gap is routed; the P-cells stay "
+        "comparator pending"
     ),
     comparison="matching implementation",
     comparison_overrides={f"{HAZARD_MODEL}:*": "different estimator"},

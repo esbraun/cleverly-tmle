@@ -59,6 +59,7 @@ Seeds: ``SEED`` and ``RESAMPLING_SEED`` are new, and no other registered study u
 
 from __future__ import annotations
 
+import re
 import warnings
 from typing import Any
 
@@ -72,7 +73,7 @@ from tests.studies import canonical_survival_node_bounds as study
 from tests.studies import survival_node_bounds_law as law
 from tests.studies import survival_node_bounds_properties as properties
 from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
-from tests.studies.evidence.registry import Margins, registered
+from tests.studies.evidence.registry import ROOT, Margins, registered
 from tests.studies.mtp_study_tools import (
     CELL_TARGET,
     FAMILY_TARGET,
@@ -84,6 +85,8 @@ from tests.studies.mtp_study_tools import (
     tau_from_pilot,
     tau_upper,
 )
+
+RUNNER = ROOT / "tests" / "canonical" / "survival_node_bounds" / "run_study.R"
 
 pytestmark = pytest.mark.xdist_group("survival_node_bounds_design")
 
@@ -309,6 +312,35 @@ def test_a_draw_with_events_everywhere_is_not_refused() -> None:
             warnings.simplefilter("ignore")
             result = study.fit(model, frame)
         assert {result[name].inference for name in study.ESTIMANDS[model]} == {"influence_curve"}
+
+
+# ------------------------------------------------------------------ the R runner
+
+
+def _runner_vector(name: str) -> list[float]:
+    text = RUNNER.read_text(encoding="utf-8")
+    match = re.search(rf"^{name} <- c\((?P<body>[^)]*)\)", text, re.M)
+    assert match is not None, name
+    return [float(item) for item in match.group("body").replace("\n", " ").split(",")]
+
+
+def test_the_runner_carries_the_python_bounds() -> None:
+    """The survtmle runner is written by hand from the Python bounds; this reads them back."""
+    text = RUNNER.read_text(encoding="utf-8")
+    assert f"bound_factor <- {study.BOUND_FACTOR}" in text
+    mean = _runner_vector("mean_upper")
+    hazard = _runner_vector("hazard_upper")
+    np.testing.assert_allclose(mean, [u for _, u in study.MEAN_BOUNDS.values()], rtol=1e-15)
+    np.testing.assert_allclose(hazard, [u for _, u in study.HAZARD_BOUNDS.values()], rtol=1e-15)
+    assert "reported <- c(3, 5)" in text
+    assert "method = methods[[scenario]]" in text
+    assert 'mean_model = "mean", hazard_model = "hazard"' in text
+    assert 'ctime_formula <- "trt + W1 + W2 + t"' in text
+    assert 'hazard_model = "trt*(W1 + W2) + t"' in text
+    names = set(study.ESTIMANDS[study.MEAN_MODEL])
+    assert {law.risk_name("arm1", 5), law.contrast_name(3)} <= names
+    assert 'sprintf("risk_regimen[%s @ t=%d]", arm, horizon)' in text
+    assert "ate_regimen[arm1 vs %s @ t=%d]" in text
 
 
 # ------------------------------------------------------------------ D10
