@@ -206,13 +206,39 @@ def _accounting(study: StudyRecord) -> pd.DataFrame:
     return pd.read_csv(path, keep_default_na=False, na_values=[""])
 
 
-@functools.cache
+_STUDY_CACHES: list[Any] = []
+_CACHED_STUDY: dict[str, str] = {}
+
+
+def _one_study_at_a_time(function: Any) -> Any:
+    """Cache ``function`` per study, and hold the frames of one study at a time.
+
+    ``conftest.py`` keeps a study's tests together on one xdist worker, so the worker meets
+    each study in one run of tests. A plain ``functools.cache`` kept every study's frames until
+    the worker exited, and a worker grew past 4 GB (more than a 16 GB container holds for 3
+    workers). The first call for a new study clears every cache that this decorator wraps.
+    """
+    cached = functools.cache(function)
+    _STUDY_CACHES.append(cached)
+
+    @functools.wraps(function)
+    def wrapper(slug: str) -> Any:
+        if _CACHED_STUDY.get("slug") != slug:
+            for each in _STUDY_CACHES:
+                each.cache_clear()
+            _CACHED_STUDY["slug"] = slug
+        return cached(slug)
+
+    return wrapper
+
+
+@_one_study_at_a_time
 def _replication_rows(slug: str) -> pd.DataFrame:
     """Load immutable primary rows once per study and worker."""
     return pd.read_csv(STUDY_BY_SLUG[slug].artifact("replicates.csv.gz"))
 
 
-@functools.cache
+@_one_study_at_a_time
 def _property_rows(slug: str) -> pd.DataFrame:
     """Load immutable property rows once per study and worker."""
     return pd.read_csv(STUDY_BY_SLUG[slug].artifact("property-replicates.csv.gz"))
@@ -231,14 +257,26 @@ def _property_accounting(study: StudyRecord) -> pd.DataFrame:
     return pd.read_csv(path, keep_default_na=False, na_values=[""])
 
 
-@functools.cache
+def _worst_case_only(study: StudyRecord) -> set[tuple[str, str]]:
+    """The ``(property, cell)`` pairs whose accounting reads ``worst case fails``.
+
+    Such a cell passes on the complete case and fails only because the filled values of its
+    lost replicates can move a clause out of its band.  The published ``passed`` of the cell is
+    False, and the complete-case summary of the module reads True.
+    """
+    accounting = _property_accounting(study)
+    reasons = accounting.loc[accounting["reason"] == failures.WORST_CASE_FAILS]
+    return set(zip(reasons["property"], reasons["cell"], strict=True))
+
+
+@_one_study_at_a_time
 def _complete_case_summary(slug: str) -> pd.DataFrame:
     """The study's own property verdicts on the committed rows, before any accounting."""
     study = STUDY_BY_SLUG[slug]
     return study.properties().summarize_properties(_property_rows(slug))
 
 
-@functools.cache
+@_one_study_at_a_time
 def _property_summary(slug: str) -> pd.DataFrame:
     """Recompute an immutable property summary once per study and worker.
 
@@ -921,6 +959,11 @@ class TestPublishedVerdicts:
                 if (noise_declared and study.calibration_efficiency_ratio)
                 else None
             )
+            # A row can be red only through the worst case of the failure accounting: its own
+            # endpoints are in band, and the replicates the package refused could move the
+            # ratio out of it.  ``passed`` then reads False beside endpoints that pass, and
+            # the accounting row names ``worst case fails`` as the reason.
+            worst_case = _worst_case_only(study)
             for row in calibration.itertuples():
                 # The trailing suffix, not ``split("__", 1)[1]``.  ``canonical-tmle`` names its
                 # cell ``correctly_specified`` and ``shift-policies`` names its control
@@ -970,6 +1013,8 @@ class TestPublishedVerdicts:
                             <= row.efficiency_reported_ci_upper
                             <= band[1]
                         )
+                if ("interval_calibration", row.cell) in worst_case:
+                    expected = False
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
                 )
@@ -1592,6 +1637,13 @@ class TestNegativeControls:
         changed = [(family, cell) for cell in positive_cells]
         assert not summary.loc[changed, "passed"].any()
         untouched = summary.index.drop(changed)
+        # A cell that is red only through the worst case of the failure accounting reads True in
+        # the module's summary, which has no accounting, and False in the published table.  The
+        # summary must still read True there, so that the mutation moved nothing.
+        worst_case = [key for key in untouched if key in _worst_case_only(study)]
+        assert summary.loc[worst_case, "passed"].all()
+        assert not published.loc[worst_case, "passed"].any()
+        untouched = untouched.drop(worst_case)
         assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
             "corrupting the calibration cell moved a verdict somewhere else"
         )

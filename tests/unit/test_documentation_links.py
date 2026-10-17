@@ -357,13 +357,24 @@ def test_the_evalue_refusal_cites_a_roadmap_item_that_exists() -> None:
 def test_the_plugin_limit_refusal_cites_a_roadmap_item_that_exists() -> None:
     """The plug-in bound's refused limits name the item that holds the missing derivation.
 
-    Read from the text the caller receives, for the reason the E-value test above gives.
+    Read from the text the caller receives, for the reason the E-value test above gives.  A
+    learner clause carries the stem's F26 sentence and the record names F26.  A fold clause
+    carries neither, because F26 does not track a declared model that failed a numerical
+    check.
     """
-    from cleverly.sensitivity.omitted_variable import _PLUGIN_LIMITS_REFUSAL
+    from cleverly.sensitivity._mechanism_stack import _refusal
 
-    cited = ROADMAP_CITATION.findall(_PLUGIN_LIMITS_REFUSAL)
-    assert cited == ["F26", "X26"]
+    learner = _refusal(
+        "other_learner", "the treatment learner is Forest, not LogisticRegression", learner=True
+    )
+    cited = ROADMAP_CITATION.findall(learner.text)
+    assert cited == ["F26"]
     assert set(cited) <= set(ROADMAP_ITEMS)
+    assert learner.roadmap == "F26"
+
+    fold = _refusal("singular", "the information matrix of the mechanism in fold 0 is singular")
+    assert ROADMAP_CITATION.findall(fold.text) == []
+    assert fold.roadmap is None
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))

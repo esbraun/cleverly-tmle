@@ -55,6 +55,7 @@ from ..learners.super_learner import SuperLearnerDiagnostics
 from ..msm import MSMSet
 from ..utils.bounds import OutcomeScaler, bound
 from ..utils.parallel import map_parallel
+from ._mechanism_fit import MechanismFit, describe_mechanism
 from .direct_effect import check_level
 
 if TYPE_CHECKING:  # `reduced` imports this module, so the dependency only goes one way
@@ -523,6 +524,11 @@ class NuisanceEstimates:
     #: :func:`tilt_missingness` is the one accessor.
     tilt_missingness: FloatArray | None = None
     treatment_covariates: tuple[str, ...] = ()
+    #: One record of the fitted treatment learner per fold, in fold order, when the fit
+    #: estimated a discrete mechanism with a learner, else ``None``.  The plug-in
+    #: omitted-variable bound reads it for the mechanism score of its standard error
+    #: (:mod:`cleverly.sensitivity._mechanism_stack`).
+    treatment_fits: tuple[MechanismFit, ...] | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
     outcome_task: Task = "regression"
     #: Outcome regression evaluated at every requested level of the intermediate
@@ -904,6 +910,7 @@ def cross_fit_companion(
     remedy: str = _CROSS_FIT_REMEDY,
     constant_folds: list[int] | None = None,
     models: list[Any] | None = None,
+    mechanisms: list[MechanismFit] | None = None,
 ) -> tuple[dict[str, FloatArray], dict[str, FloatArray], list[SuperLearnerDiagnostics]]:
     """:func:`cross_fit_predictions`, and each fold's model evaluated at further rows.
 
@@ -925,6 +932,10 @@ def cross_fit_companion(
 
     A companion design may be one matrix, used for every fold, or one matrix **per fold** --
     see :data:`CompanionDesign`.
+
+    ``mechanisms``, when given, receives one :class:`MechanismFit` per fold, in fold order.
+    :func:`describe_mechanism` runs inside the fold worker, where the fitted model exists,
+    so the record survives a process pool.  The predictions do not change.
 
     Returns ``(predictions, companion, diagnostics)``.  With no companion designs the first
     and last are what :func:`cross_fit_predictions` returns and the middle is empty; that
@@ -978,16 +989,21 @@ def cross_fit_companion(
             constant_folds.append(0)
         if models is not None:
             models.append(model)
+        if mechanisms is not None:
+            mechanisms.append(describe_mechanism(model))
         predictions = {name: predict(model, matrix) for name, matrix in predict_designs.items()}
         companion = {name: values[None, ...] for name, values in companion_at(model, 0).items()}
         diagnostics = getattr(model, "diagnostics_", None)
         return predictions, companion, [diagnostics] if diagnostics is not None else []
 
     jobs = [(fold, train, test) for fold, (train, test) in enumerate(folds)]
+    describe = mechanisms is not None
 
     def run_fold(
         fold: int, train: IntArray, test: IntArray
-    ) -> tuple[int, IntArray, dict[str, FloatArray], dict[str, FloatArray], Any]:
+    ) -> tuple[
+        int, IntArray, dict[str, FloatArray], dict[str, FloatArray], Any, MechanismFit | None
+    ]:
         rows = train[mask[train]]
         if rows.size == 0:
             raise ValueError(
@@ -1003,6 +1019,7 @@ def cross_fit_companion(
             predictions,
             companion_at(model, fold),
             getattr(model, "diagnostics_", None),
+            describe_mechanism(model) if describe else None,
         )
 
     results = map_parallel(run_fold, jobs, n_jobs=n_jobs)
@@ -1011,7 +1028,9 @@ def cross_fit_companion(
     slabs: dict[str, list[FloatArray]] = {name: [] for name in companion_designs}
     order: list[int] = []
     diagnostics_list: list[SuperLearnerDiagnostics] = []
-    for fold, test, predictions, companion_values, diagnostics in results:
+    records: dict[int, MechanismFit | None] = {}
+    for fold, test, predictions, companion_values, diagnostics, record in results:
+        records[fold] = record
         # Read from the rows, by the test ``fit`` applies, rather than from the workers'
         # models, which a process pool does not hand back.
         if constant_folds is not None and one_value(jobs[fold][1][mask[jobs[fold][1]]]) is not None:
@@ -1030,6 +1049,11 @@ def cross_fit_companion(
     companion = {
         name: np.stack([values[index] for index in rank]) for name, values in slabs.items()
     }
+    if mechanisms is not None:
+        for fold in sorted(records):
+            record = records[fold]
+            assert record is not None
+            mechanisms.append(record)
     return out, companion, diagnostics_list
 
 
@@ -1805,6 +1829,7 @@ def fit_nuisances(
     if outcome_by_arm:
         _refuse_by_arm_dose(data)
     diagnostics: dict[str, Any] = {}
+    treatment_fits: tuple[MechanismFit, ...] | None = None
     groups = data.cluster
     recorded = data.treatment_recorded if data.has_missing_treatment else None
     fill = data.arm_codes[0] if recorded is not None else None
@@ -1956,6 +1981,7 @@ def fit_nuisances(
                 tuple(policies), data, propensity=propensity.values, reference=policy_reference
             )
     elif fit_treatment:
+        fold_mechanisms: list[MechanismFit] = []
         propensity_out, propensity_companion, propensity_diagnostics = cross_fit_companion(
             treatment_model,
             data.mechanism_covariates,
@@ -1970,8 +1996,10 @@ def fit_nuisances(
             clip=(0.0, 1.0),
             classes=arms,
             n_jobs=n_jobs,
+            mechanisms=fold_mechanisms,
         )
         propensity = Propensity(propensity_out["g"], arms)
+        treatment_fits = tuple(fold_mechanisms)
         if propensity_diagnostics:
             diagnostics["propensity"] = propensity_diagnostics
         if incremental:
@@ -2225,6 +2253,7 @@ def fit_nuisances(
         intermediate=intermediate,
         treatment_observation=treatment_observation,
         treatment_covariates=tuple(retained),
+        treatment_fits=treatment_fits,
         diagnostics=diagnostics,
         outcome_task=outcome_task,
         density=density,

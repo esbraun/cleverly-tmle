@@ -556,6 +556,89 @@ ARMS.update(
     }
 )
 
+#: The calibration labels of the plug-in omitted-variable bound study (X26): one per scenario,
+#: parameter and row.  Mirrored from ``tests.studies.omitted_variable_bound_plugin``, which this
+#: module cannot import; ``tests/unit/test_omitted_variable_plugin_design.py`` pins that every
+#: cell resolves.
+_PLUGIN_SCENARIOS = {
+    "binary_logistic": "in-sample logistic mechanism",
+    "binary_logistic_crossfit": "five-fold cross-fitted logistic mechanism",
+    "binary_logistic_ridge": "logistic mechanism with a fixed L2 penalty, C = 1",
+    "binary_logistic_ridge_crossfit": (
+        "five-fold cross-fitted logistic mechanism with a fixed L2 penalty, C = 1"
+    ),
+    "multinomial_logistic": "three-arm multinomial logistic mechanism",
+    "multinomial_logistic_crossfit": (
+        "five-fold cross-fitted three-arm multinomial logistic mechanism"
+    ),
+    "binary_known": "declared known mechanism",
+    "binary_unbalanced": "in-sample logistic mechanism, treated share about 0.19",
+}
+_PLUGIN_PARAMETERS = {
+    "binary_logistic": ("ate", "att", "atc"),
+    "binary_logistic_crossfit": ("ate", "att", "atc"),
+    "binary_logistic_ridge": ("ate", "att", "atc"),
+    "binary_logistic_ridge_crossfit": ("ate", "att", "atc"),
+    "multinomial_logistic": ("ate_2v0", "att_2v0", "atc_1v0"),
+    "multinomial_logistic_crossfit": ("ate_2v0", "att_2v0", "atc_1v0"),
+    "binary_known": ("ate", "att", "atc"),
+    "binary_unbalanced": ("ate", "att", "atc"),
+}
+_PLUGIN_TOKENS = {
+    "ate": "the ATE",
+    "att": "the ATT",
+    "atc": "the ATC",
+    "ate_2v0": "the ATE of arm 2 versus arm 0",
+    "att_2v0": "the ATT of arm 2 versus arm 0",
+    "atc_1v0": "the ATC of arm 1 versus arm 0",
+}
+_PLUGIN_ROWS = {
+    "lower": "lower plug-in omitted-variable bound on",
+    "upper": "upper plug-in omitted-variable bound on",
+}
+ARMS.update(
+    {
+        f"{scenario}_{token}_{row}": f"{row_words} {_PLUGIN_TOKENS[token]}, {words}"
+        for scenario, words in _PLUGIN_SCENARIOS.items()
+        for token in _PLUGIN_PARAMETERS[scenario]
+        for row, row_words in _PLUGIN_ROWS.items()
+    }
+)
+
+#: The laws of the primary scenarios of the plug-in study (X26): one per scenario and parameter,
+#: because a refusal of one parameter must lose that parameter's rows only.  Mirrored from
+#: ``tests.studies.omitted_variable_bound_plugin.PRIMARY``.
+_PLUGIN_LAWS = {
+    "binary_logistic": (
+        "`make_linear_ate`, in-sample TMLE with an unpenalized logistic treatment model"
+    ),
+    "binary_logistic_crossfit": (
+        "`make_linear_ate`, five-fold cross-fitted TMLE with an unpenalized logistic treatment "
+        "model"
+    ),
+    "binary_logistic_ridge": (
+        "`make_linear_ate`, in-sample TMLE with a logistic treatment model under a fixed L2 "
+        "penalty, C = 1"
+    ),
+    "binary_logistic_ridge_crossfit": (
+        "`make_linear_ate`, five-fold cross-fitted TMLE with a logistic treatment model under a "
+        "fixed L2 penalty, C = 1"
+    ),
+    "multinomial_logistic": (
+        "three-arm law with a multinomial logistic mechanism, in-sample TMLE with an "
+        "unpenalized multinomial logistic treatment model"
+    ),
+    "multinomial_logistic_crossfit": (
+        "three-arm law with a multinomial logistic mechanism, five-fold cross-fitted TMLE with "
+        "an unpenalized multinomial logistic treatment model"
+    ),
+    "binary_known": "`make_linear_ate`, in-sample TMLE with its own mechanism declared known",
+    "binary_unbalanced": (
+        "`make_linear_ate` with the treatment intercept moved to -1.5 (about 19 percent "
+        "treated), in-sample TMLE with an unpenalized logistic treatment model"
+    ),
+}
+
 #: The labels of ``structural-nested-mean``: a setup and one estimand of it.  Mirrored from
 #: ``tests.studies.canonical_structural_nested_mean.CALIBRATION_LABELS``, which this module
 #: cannot import; ``tests/unit/test_structural_nested_mean_design.py`` pins that every cell
@@ -836,6 +919,9 @@ IMPLEMENTATIONS: dict[str, str] = {
     "cleverly-fold-targeted-cvtmle": "`cleverly` fold-targeted CV-TMLE",
     "cleverly-repeated-cvtmle": "`cleverly` repeated stacked CV-TMLE",
     "cleverly-omitted-variable-bound": "`cleverly` omitted-variable bound",
+    "cleverly-omitted-variable-bound-plugin": (
+        "`cleverly` omitted-variable bound with the plug-in nu^2"
+    ),
     "cleverly-calibration-slope-rule": "`cleverly` calibration-slope rule",
     "cleverly-default-bands": "`cleverly` shipped TMLE() default fit",
     "cleverly-stratified-incremental": "`cleverly` incremental TMLE with baseline strata",
@@ -1006,6 +1092,11 @@ SCENARIOS: dict[str, str] = {
     ),
     "end_of_study_ratio": "two-node end-of-study law, saturated cell-mean learners",
     "linear": "linear Gaussian-outcome law with a constant effect, `make_linear_ate`",
+    **{
+        f"{scenario}_{token}": law
+        for scenario, law in _PLUGIN_LAWS.items()
+        for token in _PLUGIN_PARAMETERS[scenario]
+    },
     "calibrated_weak": "known propensity, logit g0 = 0.15 W1",
     # The four learned-rule laws of RM30, by their blip b(W) on the logit scale.
     "non_exceptional": "learned-rule law with the blip 0.1 + W1, correctly specified learners",
@@ -1168,6 +1259,11 @@ ESTIMANDS: dict[str, str] = {
     "att": "average effect on the treated",
     "att_lower": "lower omitted-variable bound on the ATT, at cf_y 0.5, cf_d 0.3, rho 1",
     "att_upper": "upper omitted-variable bound on the ATT, at cf_y 0.5, cf_d 0.3, rho 1",
+    **{
+        f"plugin_{token}_{row}": f"{row_words} {_PLUGIN_TOKENS[token]}, at cf_y 0.5, cf_d 0.5, rho 1"
+        for token in _PLUGIN_TOKENS
+        for row, row_words in _PLUGIN_ROWS.items()
+    },
     "ey0": "counterfactual mean under no treatment",
     "tmle_ate": "average treatment effect of the composite TMLE, paired with R `drtmle`'s out$tmle",
     "tmle_ate_mid": (
@@ -2811,6 +2907,36 @@ STUDY_ARM_CELLS: dict[tuple[str, str, str, str], tuple[str, str]] = {
     )
     for label in ("clustered_t5", "clustered_t5_per_horizon")
 }
+STUDY_ARM_CELLS.update(
+    {
+        ("omitted-variable-bound-plugin-se", "interval_calibration", label, kind): words
+        for scenario in _PLUGIN_SCENARIOS
+        for token in _PLUGIN_PARAMETERS[scenario]
+        if not token.startswith("ate")
+        for row in _PLUGIN_ROWS
+        for label in (f"{scenario}_{token}_{row}",)
+        for kind, words in (
+            (
+                "inflated_se_control",
+                (
+                    "the standard errors come from the package curve of nu^2 minus the "
+                    "mechanism term the study rebuilt, which is too wide at a correct model",
+                    "the SE-ratio interval must fall above the calibration band",
+                ),
+            ),
+            (
+                "shrunken_se_control",
+                (
+                    "the standard errors come from the known-mechanism curve plus the "
+                    "mechanism term of a study-side logistic fit, which is too narrow for a "
+                    "declared mechanism",
+                    "the SE-ratio interval must fall below the calibration band",
+                ),
+            ),
+        )
+        if (kind == "shrunken_se_control") == (scenario == "binary_known")
+    }
+)
 
 
 #: The ``longitudinal-repeated-ipsi`` cells, keyed by label, which only this study publishes.
