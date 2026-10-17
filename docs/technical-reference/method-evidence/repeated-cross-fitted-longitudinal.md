@@ -221,7 +221,9 @@ is conservative: the reported interval is slightly wide, not narrow.
 
 A separate single-draw probe of cross-fitted `LTMLE` on the same survival law reads the same sign
 (row 25a, not committed to this repository). At n = 8,000 the reported SE is 1.034 to 1.039 times
-the Monte Carlo SD, and the coverage is 0.956 to 0.961. The Monte Carlo SD equals the efficient SE
+the Monte Carlo SD, and the coverage is 0.956 to 0.961.
+
+The Monte Carlo SD equals the efficient SE
 within its Monte Carlo error from n = 8,000. The reported-SE excess shrinks about as 1/n between
 n = 2,000 and n = 32,000. The reading is a finite-sample property of the variance estimate, not a
 defect of the repeat layer. This study does not isolate its cause. It commits no

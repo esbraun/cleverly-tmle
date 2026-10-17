@@ -32,6 +32,7 @@ tests.studies.longitudinal_repeated_crossfit_properties,root_n_and_efficiency,co
 tests.studies.longitudinal_sdr_properties,crossfit_overfitting,coverage gain,same module as: longitudinal-sdr
 tests.studies.longitudinal_sdr_properties,interval_calibration,coverage in calibration band,same module as: longitudinal-sdr
 learned-weighted-tmle,learner_weight_necessity,bias discriminated,implied by: alternative bias equivalent
+longitudinal-repeated-crossfit,root_n_and_efficiency,coverage resolves,fixed at size
 weighted-tmle,weight_necessity,bias discriminated,implied by: alternative bias equivalent
 longitudinal-repeated-outcome,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent
 longitudinal-repeated-sdr,repeated_outcome_necessity,bias discriminated,implied by: alternative bias equivalent

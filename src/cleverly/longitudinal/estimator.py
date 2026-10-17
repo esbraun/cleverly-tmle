@@ -1772,17 +1772,6 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         The studentized bootstrap sup-t band over the estimates that supply inference.
         ``None`` without a bootstrap, with ``simultaneous=False``, or with fewer than two
         such estimates.
-    isotonic_moves : tuple of tuple
-        The levels an ``isotonic=True`` projection moved, as
-        ``(regimen, cause, horizon, before, after)``.
-    initial_hazards : InitialHazards or None
-        The initial cause-specific hazards of a ``survival_model="hazard"`` fit.
-    fold_mechanisms : tuple of FoldMechanism
-        Each outer fold's own mechanism on a cross-fitted SDR fit, empty otherwise.
-        Keyword-only.
-    replay_recipe : object
-        Unfitted recursive learner templates and resolved plans for deterministic refits.
-        Keyword-only.
     simulation : GFormulaReport or None
         On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
         models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
