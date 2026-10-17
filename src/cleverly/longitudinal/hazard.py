@@ -604,7 +604,7 @@ def _fit_pooled_hazards(
     designs[observed_key] = stacked_design(data, nodes)
     hazards = np.zeros((n, n_times, len(levels), n_causes))
     no_events: list[tuple[int, int]] = []
-    diagnostics: list[tuple[object, ...]] = []
+    by_cause: list[tuple[object, ...]] = []
     earlier = np.zeros((n, n_times), dtype=bool)
     taken = np.zeros((n, n_times, len(levels)))
     for cause in range(n_causes):
@@ -612,7 +612,7 @@ def _fit_pooled_hazards(
         target = events[:, :, cause]
         if not np.any((target * data.weights[:, None])[rows] > 0):
             no_events.extend((time, cause) for time in nodes)
-            diagnostics.append(())
+            by_cause.append(())
             rho = np.zeros((n, n_times, len(levels)))
         else:
             # Node-major stacking, as stacked_design orders its blocks.
@@ -629,7 +629,7 @@ def _fit_pooled_hazards(
                 clip=(0.0, 1.0),
                 n_jobs=n_jobs,
             )
-            diagnostics.append(tuple(fold_diagnostics))
+            by_cause.append(tuple(fold_diagnostics))
             rho = np.stack(
                 [
                     np.asarray(predictions[plan.label], dtype=float).reshape(n_times, n).T
@@ -640,7 +640,10 @@ def _fit_pooled_hazards(
         hazards[:, :, :, cause] = rho * (1.0 - taken)
         taken = taken + hazards[:, :, :, cause]
         earlier = earlier | (target > 0)
-    return InitialHazards(hazards, tuple(no_events), tuple(diagnostics))
+    # The nuisance report reads one entry per node and cause, node-major, as the per-node
+    # path writes them. Each node of a cause repeats that cause's one pooled fit.
+    diagnostics = tuple(by_cause[cause] for _ in nodes for cause in range(n_causes))
+    return InitialHazards(hazards, tuple(sorted(no_events)), diagnostics)
 
 
 def hazard_inputs(

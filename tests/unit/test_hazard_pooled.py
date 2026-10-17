@@ -276,6 +276,11 @@ class TestTheTimeTrendWitness:
         assert pooled.hazards.max() < 1.0
         assert all(row.passed for row in fits["pooled"].diagnostics.score_equations().rows)
         assert fits["pooled"].converged
+        # The nuisance report reads one diagnostics entry per node and cause.
+        hazard_rows = [
+            row for row in fits["pooled"].diagnostics.nuisance_models().rows if row.role == "hazard"
+        ]
+        assert len(hazard_rows) == 5
 
 
 class TestMutationControls:
