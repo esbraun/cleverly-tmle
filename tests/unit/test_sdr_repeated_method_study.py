@@ -3,8 +3,9 @@
 Pilots P1, P2 and P3 are recorded, so the pilot state is ``"recorded"``, and these tests state
 that.  They assert that each declared size equals the declared rule applied to the pilot tables,
 that the declared run refuses to start, and that every control the study declares separates from
-the truth by a nonzero amount.  They also check the pending lmtp comparator declaration and the
-pairing columns that the later change reads.  The framework tests in
+the truth by a nonzero amount.  They also check the lmtp comparator declaration and the pairing
+columns that the comparator reads (the registration gates are in
+``tests/unit/test_sdr_repeated_pairing_gates.py``).  The framework tests in
 ``tests/unit/test_method_evidence.py`` recompute committed verdicts when artifacts exist.
 """
 
@@ -51,17 +52,15 @@ def _truth(name: str) -> float:
 # ---------------------------------------------------------------------------- the record
 
 
-def test_the_record_declares_a_pending_lmtp_comparator() -> None:
-    """The record is registered: its artifacts are committed, and its comparator is pending."""
+def test_the_record_declares_a_compared_lmtp_comparator() -> None:
+    """The queue-ready record compares against lmtp, and no pending state is left over."""
     record = study.STUDY
     assert record.slug == "longitudinal-repeated-sdr"
-    assert record.reference is None
-    assert record.pending_reference == "lmtp"
-    assert record.comparator_state == "pending"
+    assert record.reference == "lmtp"
+    assert record.pending_reference is None
+    assert not record.pending_reason
+    assert record.comparator_state == "compared"
     assert record in registered()
-    # The reason names the change and the queue row that own the runs.
-    assert "X32b PR C" in record.pending_reason
-    assert "TRACKER Study queue" in record.pending_reason
 
 
 def test_the_study_seeds_are_unique() -> None:
@@ -111,8 +110,8 @@ def test_the_module_list_holds_every_study_specific_import() -> None:
     assert "tests/studies/repeated_sizing.py" in study.STUDY.modules
 
 
-def test_the_driver_declares_the_pending_reference_and_its_files_exist() -> None:
-    """The manifest of a pending study records the declared runner bytes."""
+def test_the_driver_declares_the_reference_and_its_files_exist() -> None:
+    """The manifest records the runner bytes, so every file the reference names exists."""
     reference = regenerate.REFERENCE
     for path in reference.files(Path(regenerate.__file__).resolve().parent):
         assert path.exists(), path
@@ -932,11 +931,16 @@ def test_the_declared_property_run_is_refused_while_the_pilots_are_placeholders(
 # ---------------------------------------------------------------------------- the drivers
 
 
-def test_draw_and_fit_returns_a_phase_result_without_samples() -> None:
+def test_draw_and_fit_returns_a_phase_result_with_the_comparator_samples() -> None:
     result = study.draw_and_fit(replicates=1, n=SMALL_N, n_jobs=1)
     assert isinstance(result, replication.PhaseResult)
-    # PR B commits no samples: the study is pending and PR C re-runs the Python side.
-    assert result.samples is None
+    # The comparator reads one archive, replicate-major, that the workers spilled to disk.
+    assert isinstance(result.samples, Path)
+    archive = pd.read_csv(result.samples)
+    assert len(archive) == len(study.SCENARIOS) * SMALL_N
+    assert list(archive["scenario"].drop_duplicates()) == list(study.STUDY.scenarios)
+    assert {"scenario", "replicate", "fold", "row", "W", "Y3", "C3"} <= set(archive.columns)
+    assert result.reference_input_from_fit
     rows = result.rows
     assert set(rows["scenario"]) == set(study.SCENARIOS)
     for scenario in study.SCENARIOS:

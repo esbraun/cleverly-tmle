@@ -1,12 +1,23 @@
 """Regenerate repeated-outcome longitudinal SDR evidence (``longitudinal-repeated-sdr``).
 
-The study declares the lmtp comparator as pending, so this driver runs no reference process.
-The pending mechanism needs a ``Reference``, because the manifest records the declared source
-bytes and the type requires a runner path.  The runner is ``longitudinal_sdr_runner.R``, with
-the adapter ``lmtp_sdr_adapter.R`` and the ``lmtp_crossfit`` Dockerfile, which plan X32b section
-K12 reuses unchanged.  An edit to that runner for ``longitudinal-sdr`` is result-neutral for this
-pending study until PR C replaces it (``tests/canonical/provenance-revisions.md``).  The change
-that registers the lmtp rows moves the study's ``pending_reference`` to ``reference``.
+The study pairs with R ``lmtp`` 1.5.4.  The driver runs the Python phase on the declared seeds,
+spills each replicate's sample (the draw, the fold assignment and the ``ratio__`` and
+``shift__`` columns) to one archive, and hands it to ``longitudinal_repeated_sdr_runner.R``.
+That runner calls ``lmtp_sdr_with_folds`` once per plan and horizon on the panel truncated after
+node ``h``.  It sources ``lmtp_sdr_repeated_adapter.R`` (the pairing learner
+``SL.cellmeans.outcomes``), ``lmtp_sdr_adapter.R`` and ``lmtp_crossfit_adapter.R`` (both
+unchanged, because ``longitudinal-sdr`` gates their hashes) and ``study_harness.R``.
+
+Queue command, on the owner's machine (Docker and the ``lmtp_crossfit`` build context)::
+
+    python -m tests.canonical.sdr_repeated.gates --replicates 5 --timing-only   # P0
+    python -m tests.canonical.sdr_repeated.gates                                # G1r
+    python -m tests.canonical.sdr_repeated.regenerate --skip-properties --jobs 12
+
+``--skip-properties`` reuses the committed property artifacts, which PR B's declared run wrote.
+The Python phase runs again, because the samples come from the fits, on the same seeds.  The
+fast test ``test_the_python_rows_of_this_run_equal_the_rows_pr_b_committed`` requires its rows
+to equal PR B's to 1e-10.
 """
 
 from pathlib import Path
@@ -17,9 +28,14 @@ from tests.studies.evidence.registry import ROOT
 
 REFERENCE = Reference(
     image="cleverly-lmtp-crossfit:1.5.4",
-    runner="longitudinal_sdr_runner.R",
+    runner="longitudinal_repeated_sdr_runner.R",
     mount_runner=True,
-    extra_files=("lmtp_sdr_adapter.R", "study_harness.R"),
+    extra_files=(
+        "lmtp_sdr_repeated_adapter.R",
+        "lmtp_sdr_adapter.R",
+        "lmtp_crossfit_adapter.R",
+        "study_harness.R",
+    ),
     build_context=ROOT / "tests" / "canonical" / "lmtp_crossfit",
     runner_root=ROOT / "tests" / "canonical",
 )
