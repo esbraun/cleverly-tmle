@@ -1,0 +1,181 @@
+{
+  "schema_version": 2,
+  "study": "node bounds on survival fits",
+  "slug": "survival-node-bounds",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "0cea45d9e940e1fd003d8cd314c7043be84e63c9",
+      "cleverly_worktree_clean": false,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 7200,
+    "n": 2000,
+    "seed": 20263391,
+    "resampling_seed": 2026339101,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly": 0.01,
+      "survtmle": 0.01
+    },
+    "scenarios": {
+      "mean_model": [
+        "risk_regimen[arm1 @ t=3]",
+        "risk_regimen[arm1 @ t=5]",
+        "risk_regimen[arm0 @ t=3]",
+        "risk_regimen[arm0 @ t=5]",
+        "ate_regimen[arm1 vs arm0 @ t=3]",
+        "ate_regimen[arm1 vs arm0 @ t=5]"
+      ],
+      "hazard_model": [
+        "risk_regimen[arm1 @ t=3]",
+        "risk_regimen[arm1 @ t=5]",
+        "risk_regimen[arm0 @ t=3]",
+        "risk_regimen[arm0 @ t=5]",
+        "ate_regimen[arm1 vs arm0 @ t=3]",
+        "ate_regimen[arm1 vs arm0 @ t=5]"
+      ]
+    },
+    "construction": "held point-treatment survival with node bounds, in sample",
+    "models": [
+      "mean_model",
+      "hazard_model"
+    ],
+    "bound_factor": 1.1,
+    "mean_bounds": {
+      "1": [
+        0.0,
+        0.21933370796098725
+      ],
+      "2": [
+        0.0,
+        0.1868519456870831
+      ],
+      "3": [
+        0.0,
+        0.14963001843473187
+      ],
+      "4": [
+        0.0,
+        0.10681660878643615
+      ],
+      "5": [
+        0.0,
+        0.05736891938625957
+      ]
+    },
+    "hazard_bounds": {
+      "1": [
+        0.0,
+        0.0391283081998998
+      ],
+      "2": [
+        0.0,
+        0.04308229507644081
+      ],
+      "3": [
+        0.0,
+        0.047417980435194754
+      ],
+      "4": [
+        0.0,
+        0.05216846049532346
+      ],
+      "5": [
+        0.0,
+        0.057368919386259515
+      ]
+    },
+    "hazard_pooling": "pooled",
+    "outcome_learner": "quasibinomial IRLS on W1, W2 per arm (mean); logistic trt*(W1+W2)+t pooled (hazard)",
+    "treatment_learner": "unpenalized logistic regression on W1, W2",
+    "censoring_learner": "unpenalized logistic regression on W1, W2, A, t pooled over nodes 2 to 5; node 1 declared known (probability one)",
+    "regimens": [
+      "arm1",
+      "arm0"
+    ],
+    "horizons": [
+      3,
+      5
+    ],
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_survival_node_bounds.py": "ea093f275f5f00b8877edcec97c0d18924b6606380d823014e5f9716a54babfd",
+    "tests/studies/survival_node_bounds_properties.py": "e48974690bb7d28589faa739214f2bec0ad5df83d83bd42150b083076e91f770",
+    "tests/studies/survival_node_bounds_law.py": "906155f22bf79288a1a4136ae9233c46c022579ad383dbf5c4026ece6a73ed10",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/studies/canonical_point_survival.py": "290d9ee0efd175df4ebe4ea774b937058b0c05ebc8d592c78ae86c3600e8fec8",
+    "tests/studies/canonical_point_survival_hazard.py": "704257f43927b81036ecb4a64a956c8be18cf679c2f75998460627a6b2900dc5",
+    "tests/studies/point_survival_common.py": "62af3d7ffb412864671a6bf2d0b5eda54420a0ca98775f7c657bf5fe160dac2b",
+    "tests/studies/point_survival_properties.py": "fe1988fbdb87a39c4d91174fd1474ff62bff677e504502dee46dba36649c711f",
+    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
+    "src/cleverly/longitudinal/hazard.py": "7c7b7c9fdfb0501b456c6821ba8c89288312263fb27b5a2cee2c408f6f5d4529",
+    "src/cleverly/longitudinal/pooled_hazards.py": "9c0bfb2aed960b404b1eeec4cb9b889c4762721966acf603723e9745c1424450",
+    "src/cleverly/longitudinal/sequential.py": "629425bddf1287487c447aaa8d9209bc0f6d92ac56a3d9f224031629221961e1",
+    "src/cleverly/fluctuation/iterative.py": "76646fece08d2b0ab1bd8da21dd563512de551dc3c0ecf33edda0832fc312d49",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "7bd6b0ec6a2fcbf477977a69eeb8ca28dbbea1c442482f3d02287e499950711d",
+    "summary.csv": "3d6fc023fcca6d2b80d2ca400bc6d93f26524787ba7abfbb98361016c0e6a1ab",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "765cc41ef4da1a692885985f39b9bb6fa25cb88fa17b656fd15ace3fe80747fd",
+    "property-replicates.csv.gz": "16c7ea0f6dd0b4142ae0ebfd62bab088f8404ef502ac566039e06a8f77ed4afe",
+    "properties.csv": "8cf47372834107cc2e8befb4ec05f1b10a899fba21eada5bfc4c630e6b51e940"
+  },
+  "comparator": {
+    "status": "pending",
+    "implementation": "survtmle",
+    "reason": "the survtmle P1 and P2 runs are queued on the local study queue (#302). TODO: run tests/canonical/survival_node_bounds/run_study.R, which is written by inspection and has not run, and pin the survtmle image digest. D10 (node-1 pooled censoring) is declared known in the container, so no convention gap is routed; the P-cells stay comparator pending",
+    "metadata": {
+      "survtmle_version": "1.1.1",
+      "reference_construction": "P1: survtmle(method='mean', bounds=valid, glm.trt='W1 + W2', glm.ftime='trt*(W1 + W2)', glm.ctime='trt + W1 + W2 + t'); P2: survtmle(method='hazard', bounds=hazard-valid, glm.ftime='trt*(W1 + W2) + t'), one t0 per call; runs pending",
+      "pairing": "the shipped default margins (paired difference 0.15 SD, RMSE ratio 1.10, coverage -0.025, calibration 0.05), declared a priori; D10 (node-1 pooled censoring) is handled by declaring node 1 known, and none is routed (comparator pending)"
+    },
+    "declared_sources_sha256": {
+      "tests/canonical/survtmle/Dockerfile": "97177ff7e76f3544acad0f8fde5ee77eae2c84f484a58d00558253518532f513",
+      "tests/canonical/survival_node_bounds/run_study.R": "b5135da06fcbccb7fe745feb858b8ba8fae7e99e3015b3d9e5390999e79fcbf6",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+    }
+  }
+}
