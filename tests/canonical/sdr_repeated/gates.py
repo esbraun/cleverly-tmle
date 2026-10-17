@@ -250,7 +250,9 @@ def g1r_cells(table: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------- the run
 
 
-def _collect(replicates: int, n: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, list]:
+def _collect(
+    replicates: int, n: int
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict, list]:
     samples, truths, rows, curves, timing = [], [], [], {}, []
     for replicate in range(replicates):
         for scenario in study.STUDY.scenarios:
@@ -301,8 +303,8 @@ def _run_reference(work: Path, cores: int) -> float:
 
 def _read_curves(work: Path, rows: pd.DataFrame) -> dict[tuple[str, int, str], np.ndarray]:
     out: dict[tuple[str, int, str], np.ndarray] = {}
-    for scenario, replicate in rows[["scenario", "replicate"]].drop_duplicates().itertuples(
-        index=False
+    for scenario, replicate in (
+        rows[["scenario", "replicate"]].drop_duplicates().itertuples(index=False)
     ):
         frame = pd.read_csv(
             work / "ic" / f"ic-{scenario}-{int(replicate)}.csv.gz", float_precision="round_trip"
