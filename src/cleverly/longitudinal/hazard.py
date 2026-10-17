@@ -75,7 +75,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 import numpy as np
@@ -107,6 +107,7 @@ from .regimen import Plan
 from .sequential import NodeBound, RegimenFit
 
 __all__ = [
+    "HAZARD_BOUND_EXCLUDES_DATA",
     "HAZARD_STEP_BOUND_ONE_STEP_REFUSAL",
     "SIGMA_FLOOR",
     "WALK_LOSS_TOLERANCE",
@@ -116,6 +117,8 @@ __all__ = [
     "HazardInputs",
     "HazardState",
     "InitialHazards",
+    "check_hazard_node_bounds",
+    "clipped_shares",
     "fit_hazards",
     "hazard_bounds",
     "hazard_inputs",
@@ -144,7 +147,7 @@ HAZARD_STEP_BOUND_ONE_STEP_REFUSAL = Refusal(
     "step_bound= bounds the steps of targeting='iterative'.",
 )
 
-#: The scale :math:`u_j - l_j` below which a bounded hazard node warns: its fluctuation moves
+#: The width :math:`u_j - l_j` below which a bounded hazard node warns: its fluctuation moves
 #: the hazard by at most that much, so the score there barely responds to a step.
 SMALL_SCALE = 1e-4
 
@@ -239,6 +242,75 @@ def hazard_bounds(
             lower[node - 1, j] = bound.lower
             scale[node - 1, j] = bound.upper - bound.lower
     return HazardBounds(bounded, lower, scale)
+
+
+def check_hazard_node_bounds(
+    by_node: dict[int, dict[str | None, tuple[float, float]]],
+    grid: Sequence[float],
+    causes: Sequence[str | None],
+) -> None:
+    """Refuse hazard-scale node bounds that the bounded fluctuation cannot hold (R-i2, R-i3).
+
+    A bounded node holds every cause on the fixed scale :math:`s_j = u_j - l_j`.  A cause left
+    unbounded would share the mass the bounded causes leave, so its scale would move with
+    theirs (R-i3).  The clip keeps each hazard below its upper bound, so upper bounds that sum
+    to at most one keep :math:`\\sum_j \\lambda_j < 1` (R-i2).  A width below
+    :data:`SMALL_SCALE` warns.
+
+    Parameters
+    ----------
+    by_node : dict
+        The declared ``(lower, upper)`` of each cause, by one-based node.
+    grid : sequence of float
+        The grid time of each node.
+    causes : sequence of str or None
+        The cause labels, ``(None,)`` for one cause.
+
+    Raises
+    ------
+    CapabilityError
+        When a node bounds some causes and not others, or when its upper bounds sum to more
+        than one.
+    """
+    for node in sorted(by_node):
+        bounds = by_node[node]
+        time = grid[node - 1]
+        missing = [cause for cause in causes if cause not in bounds]
+        if missing:
+            named = [cause for cause in causes if cause in bounds]
+            raise CapabilityError(
+                refusal=Refusal(
+                    RefusalReason.INVALID_DECLARATION,
+                    f"node_bounds bounds cause(s) {named} at {time!r} and not {missing}; a "
+                    "hazard fit bounds every cause of a node or none. A bounded node holds each "
+                    "cause on a fixed scale, and an unbounded cause there would share the mass "
+                    "the bounded causes leave.",
+                    alternative=f"Bound every cause at {time!r}, or none of them.",
+                )
+            )
+        total = float(sum(upper for _, upper in bounds.values()))
+        if total > 1.0:
+            raise CapabilityError(
+                refusal=Refusal(
+                    RefusalReason.INVALID_DECLARATION,
+                    f"node_bounds at {time!r} has upper bounds summing to {total:g}; a hazard "
+                    "fit needs them to sum to at most 1, so that the bounded hazards leave room "
+                    "for no event.",
+                    alternative=(
+                        f"Lower the upper bounds at {time!r} so that they sum to at most 1."
+                    ),
+                )
+            )
+        for cause, (lower, upper) in bounds.items():
+            if upper - lower < SMALL_SCALE:
+                which = "" if cause is None else f" for cause {cause!r}"
+                warnings.warn(
+                    f"node_bounds at {time!r}{which} has a width of {upper - lower:.3g} on the "
+                    f"hazard scale, below {SMALL_SCALE:g}. The fluctuation moves that hazard by "
+                    "at most the width, so its score barely responds to a step.",
+                    ConvergenceWarning,
+                    stacklevel=4,
+                )
 
 
 @dataclass(frozen=True)
@@ -1075,9 +1147,7 @@ def direction(
     return step
 
 
-def _quasi_terms(
-    events: FloatArray, logits: FloatArray, bounds: HazardBounds
-) -> FloatArray:
+def _quasi_terms(events: FloatArray, logits: FloatArray, bounds: HazardBounds) -> FloatArray:
     """``(n, K)`` quasi-binomial log-likelihood of the ``K`` bounded nodes, summed over causes.
 
     The outcome of cause :math:`j` is :math:`(dN_j - l_j) / s_j` and its mean is
@@ -1683,6 +1753,87 @@ def project_curves(values: FloatArray) -> FloatArray:
 # ------------------------------------------------------------------------- the driver
 
 
+#: The warning of a bounded hazard fit with a cell that its bound excludes.
+HAZARD_BOUND_EXCLUDES_DATA = (
+    "the declared node bound at node(s) {nodes} excludes the data: {count} cell(s) of a "
+    "treatment level and a cause hold no event under a positive lower bound, or an event in "
+    "every row at risk. The hazard of such a cell is pinned at the clip of its bound, and "
+    "HazardFit.bound_excludes_data lists the cells. Widen node_bounds at those nodes."
+)
+
+
+def clipped_shares(hazards: FloatArray, inputs: HazardInputs) -> tuple[tuple[int, int, float], ...]:
+    """The share of initial hazards that the bound clips, at every bounded node and cause.
+
+    At a bounded node the clipped logit keeps the hazard of cause :math:`j` in
+    :math:`[l_j + (1 - \\alpha) s_j, u_j - (1 - \\alpha) s_j]`.  The share counts the
+    ``(unit, level)`` initial hazards outside that interval.  A cell held at zero is not
+    clipped and is left out of both counts.
+
+    Parameters
+    ----------
+    hazards : FloatArray
+        ``(n, T, L, J)`` initial hazards.
+    inputs : HazardInputs
+        The targeting inputs of a bounded fit.
+
+    Returns
+    -------
+    tuple of tuple
+        ``(node, cause index, share)`` with the node counted from one, in node then cause
+        order.  Empty when no node is bounded.
+    """
+    bounds = inputs.node_bounds
+    if bounds is None or not bounds.active:
+        return ()
+    out: list[tuple[int, int, float]] = []
+    alpha = inputs.alpha
+    for k in np.flatnonzero(bounds.bounded):
+        for j in range(inputs.n_causes):
+            lower = bounds.lower[k, j] + (1.0 - alpha) * bounds.scale[k, j]
+            upper = bounds.lower[k, j] + alpha * bounds.scale[k, j]
+            values = np.asarray(hazards[:, k, :, j], dtype=float)
+            counted = ~np.broadcast_to(inputs.empty[k, :, j][None, :], values.shape)
+            outside = counted & ((values < lower) | (values > upper))
+            total = int(np.count_nonzero(counted))
+            share = float(np.count_nonzero(outside)) / total if total else 0.0
+            out.append((int(k) + 1, j, share))
+    return tuple(out)
+
+
+def _bounded_records(
+    reports: dict[int, tuple[HazardState, HazardFit]],
+    hazards: FloatArray,
+    inputs: HazardInputs,
+    data: LongitudinalData,
+) -> dict[int, tuple[HazardState, HazardFit]]:
+    """Stamp the clipped shares and the excluded cells on every record, and warn once."""
+    shares = clipped_shares(hazards, inputs)
+    excluded: tuple[tuple[int, int, int], ...] = ()
+    if inputs.excluded is not None:
+        excluded = tuple(
+            (int(k) + 1, int(level), int(j)) for k, level, j in np.argwhere(inputs.excluded)
+        )
+    if excluded:
+        grid = data.time_grid
+        nodes = sorted({cell[0] for cell in excluded})
+        named = ", ".join(f"{grid[k - 1] if grid is not None else k:g}" for k in nodes)
+        warnings.warn(
+            HAZARD_BOUND_EXCLUDES_DATA.format(nodes=named, count=len(excluded)),
+            ConvergenceWarning,
+            stacklevel=3,
+        )
+    stamped: dict[int, HazardFit] = {}
+    out: dict[int, tuple[HazardState, HazardFit]] = {}
+    for t, (state, record) in reports.items():
+        if id(record) not in stamped:
+            stamped[id(record)] = replace(
+                record, bound_excludes_data=excluded, share_clipped=shares
+            )
+        out[t] = (state, stamped[id(record)])
+    return out
+
+
 def target_regimens(
     data: LongitudinalData,
     plans: Sequence[Plan],
@@ -1696,8 +1847,17 @@ def target_regimens(
     max_iter: int,
     tol: float,
     step_size: float,
+    node_bounds: HazardBounds | None = None,
+    stopping: str = "relative",
+    stop: StopContext | None = None,
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> dict[tuple[str, str | None, int], RegimenFit]:
     """Target the hazards and report one fit per regimen, cause and horizon.
+
+    At a bounded node the initial hazards are clipped into the bound, and every record holds
+    the clipped share and the cells the bound excludes.  A fit with such a cell warns once.
 
     Parameters
     ----------
@@ -1724,6 +1884,19 @@ def target_regimens(
         Relative-score tolerance.
     step_size : float
         The first step of a one-step walk.
+    node_bounds : HazardBounds or None
+        The bounded nodes, from :func:`hazard_bounds`.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The stopping rule of both algorithms.
+    stop : StopContext or None
+        The units and the span a declared rule reads.
+    step_bound : float or None
+        The longest per-horizon step in :math:`\\epsilon`.  The caller refuses it beside
+        the one-step walk.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate each algorithm reports.
 
     Returns
     -------
@@ -1731,8 +1904,10 @@ def target_regimens(
         One :class:`~cleverly.longitudinal.sequential.RegimenFit` per
         ``(regimen, cause, horizon)``, regimen-outer, then cause, then horizon.
     """
-    inputs = hazard_inputs(data, plans, cumulative, alpha=alpha)
-    start = HazardState.from_hazards(initial.hazards, inputs.bounds, inputs.empty, inputs.full)
+    inputs = hazard_inputs(data, plans, cumulative, alpha=alpha, node_bounds=node_bounds)
+    start = HazardState.from_hazards(
+        initial.hazards, inputs.bounds, inputs.empty, inputs.full, node_bounds
+    )
     causes: tuple[str | None, ...] = data.cause_labels or (None,)
     horizons = tuple(horizons)
     reports: dict[int, tuple[HazardState, HazardFit]] = {}
@@ -1740,12 +1915,36 @@ def target_regimens(
         targets = tuple(
             (plan.label, cause, t) for plan in plans for cause in causes for t in horizons
         )
-        shared = walk_curve(start, inputs, horizons, targets, step_size=step_size, tol=tol)
+        shared = walk_curve(
+            start,
+            inputs,
+            horizons,
+            targets,
+            step_size=step_size,
+            tol=tol,
+            stopping=stopping,
+            stop=stop,
+            iterate=iterate,
+        )
         reports = dict.fromkeys(horizons, shared)
     else:
         for t in horizons:
             targets = tuple((plan.label, cause, t) for plan in plans for cause in causes)
-            reports[t] = solve_per_horizon(start, inputs, t, targets, max_iter=max_iter, tol=tol)
+            reports[t] = solve_per_horizon(
+                start,
+                inputs,
+                t,
+                targets,
+                max_iter=max_iter,
+                tol=tol,
+                stopping=stopping,
+                stop=stop,
+                step_bound=step_bound,
+                step_search=step_search,
+                iterate=iterate,
+            )
+    if inputs.node_bounds is not None:
+        reports = _bounded_records(reports, initial.hazards, inputs, data)
     inverse = inputs.inverse_observed()
     q = inputs.q_observed()
     out: dict[tuple[str, str | None, int], RegimenFit] = {}
@@ -1782,33 +1981,6 @@ def target_regimens(
 # ------------------------------------------------------------------------ refusals
 
 
-def hazard_rules_refusal(names: Sequence[str]) -> Refusal:
-    """The refusal of a targeting rule the hazard walk does not read (R-abc4).
-
-    Parameters
-    ----------
-    names : sequence of str
-        The declared rules, each as the keyword the caller wrote, such as ``"stopping="``.
-
-    Returns
-    -------
-    Refusal
-        An implementation gap tracked by :data:`HAZARD_RULES_ROADMAP`.  The alternative is
-        the iterated-mean survival fit, which applies each of these settings at every node.
-    """
-    listed = ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0]
-    return Refusal(
-        RefusalReason.IMPLEMENTATION_GAP,
-        f"survival_model='hazard' walks its own path in steps of step_size, so {listed} do not "
-        "apply to it.",
-        alternative=(
-            f"survival_model='iterated_mean' with targeting='iterative' applies {listed} at "
-            "each node."
-        ),
-        roadmap=HAZARD_RULES_ROADMAP,
-    )
-
-
 def refuse_hazard_settings(
     *,
     survival_model: str,
@@ -1817,11 +1989,13 @@ def refuse_hazard_settings(
     isotonic: bool,
     msm: bool,
     pseudo_learner: bool,
-    iterate: str = "last",
-    stopping: str = "relative",
     step_bound: float | None = None,
 ) -> None:
-    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H6, H8, R-abc4).
+    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H6, H8, R-c2).
+
+    ``iterate=`` and ``stopping=`` apply to both hazard algorithms, and ``step_bound=`` to
+    ``targeting="iterative"``.  The one-step walk takes its steps in ``step_size``, so a step
+    bound beside it is refused as a redirection.
 
     Parameters
     ----------
@@ -1837,10 +2011,6 @@ def refuse_hazard_settings(
         Whether ``msm=`` was passed.
     pseudo_learner : bool
         Whether ``pseudo_learner=`` was passed.
-    iterate : str, default="last"
-        The ``iterate=`` value. The caller has validated it.
-    stopping : str, default="relative"
-        The ``stopping=`` value. The caller has validated it.
     step_bound : float or None, default=None
         The ``step_bound=`` value. The caller has validated it.
 
@@ -1850,6 +2020,8 @@ def refuse_hazard_settings(
         On a malformed setting.
     CapabilityError
         On a combination that is not built.
+    MethodConfigurationError
+        On ``step_bound=`` beside the one-step hazard walk.
     """
     if survival_model not in ("iterated_mean", "hazard"):
         raise ValueError(
@@ -1884,18 +2056,8 @@ def refuse_hazard_settings(
                 "the curve and take contrasts."
             ),
         )
-    if survival_model == "hazard":
-        declared = [
-            name
-            for name, differs in (
-                ("iterate=", iterate != "last"),
-                ("stopping=", stopping != "relative"),
-                ("step_bound=", step_bound is not None),
-            )
-            if differs
-        ]
-        if declared:
-            raise CapabilityError(refusal=hazard_rules_refusal(declared))
+    if survival_model == "hazard" and targeting == "one_step" and step_bound is not None:
+        raise MethodConfigurationError.from_refusal(HAZARD_STEP_BOUND_ONE_STEP_REFUSAL)
     if pseudo_learner and survival_model == "hazard":
         raise ValueError(
             "pseudo_learner= is not used with survival_model='hazard'. A hazard fit "

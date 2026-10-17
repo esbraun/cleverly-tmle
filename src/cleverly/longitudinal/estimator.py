@@ -121,6 +121,7 @@ from ..exceptions import (
     RefusalReason,
 )
 from ..fluctuation._score import (
+    StopContext,
     check_iterate,
     check_step_bound,
     check_stopping_rule,
@@ -191,7 +192,6 @@ from ..methods import (
     IPSI_POINT_REFUSAL,
     IPSI_RATIO_TRIM_REFUSAL,
     LTMLE_TILT_REFUSAL,
-    NODE_BOUNDS_HAZARD_REFUSAL,
     NODE_BOUNDS_MSM_REFUSAL,
     REPEATED_OUTCOME_REFUSAL,
     SDR_TILT_REFUSAL,
@@ -234,7 +234,9 @@ from .gformula import (
 from .hazard import (
     HazardAlgorithm,
     InitialHazards,
+    check_hazard_node_bounds,
     fit_hazards,
+    hazard_bounds,
     level_plans,
     project_curves,
     refuse_hazard_design,
@@ -1603,7 +1605,11 @@ class LongitudinalConfig:
                     f"{'' if cause is None else f'{cause} '}t={time:g} in [{lower:g}, {upper:g}]"
                     for cause, time, lower, upper in self.node_bounds
                 )
-                + " (bounded logistic fluctuation at the named nodes)"
+                + (
+                    " (bounded cause-specific hazards at the named nodes, on the hazard scale)"
+                    if self.survival_model == "hazard"
+                    else " (bounded logistic fluctuation at the named nodes)"
+                )
             )
         if self.q_bounds is not None:
             lines.append(f"q_bounds: [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}]")
@@ -3166,6 +3172,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     def _declared_rule(self) -> str:
         """The stopping rule the fit declared, ``"relative"`` when it declared none."""
         for fit in self.fits.values():
+            if fit.hazard is not None and fit.hazard.stopping != "relative":
+                return fit.hazard.stopping
             for step in fit.steps:
                 if step.fluctuation is not None and step.fluctuation.stopping != "relative":
                     return step.fluctuation.stopping
@@ -3180,6 +3188,19 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         seen: set[int] = set()
         missed: list[str] = []
         for key, fit in self.fits.items():
+            record = fit.hazard
+            if (
+                record is not None
+                and id(record) not in seen
+                and record.rule_ratio is not None
+                and record.rule_ratio > 1.0
+            ):
+                seen.add(id(record))
+                where = "every horizon" if record.algorithm == "one_step" else f"t={fit.horizon}"
+                missed.append(
+                    f"the hazard targeting of {where} is {record.rule_ratio:.3g} times its "
+                    "threshold"
+                )
             for step in fit.steps:
                 fluctuation = step.fluctuation
                 if (
@@ -3217,6 +3238,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 lines.append(
                     f"hazard targeting: per horizon over {len(records)} horizon(s), at most "
                     f"{steps} iteration(s), largest relative score {largest:.2g}, {verdict}"
+                )
+            if first.share_clipped:
+                node, cause, share = max(first.share_clipped, key=lambda item: item[2])
+                lines.append(
+                    f"hazard node bounds: largest clipped share of initial hazards "
+                    f"{100 * share:.1f}% (node {node}, cause {cause + 1}); "
+                    f"{len(first.bound_excludes_data)} cell(s) excluded by a bound"
                 )
         if self.config.isotonic:
             lines.append(f"isotonic projection moved {len(self.isotonic_moves)} level(s)")
@@ -3469,6 +3497,11 @@ def _run_hazard(
     max_iter: int,
     tol: float,
     step_size: float,
+    node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> dict[str, RegimenFit]:
     """Target the initial hazards and file one fit per regimen, cause and horizon.
 
@@ -3501,6 +3534,18 @@ def _run_hazard(
         Relative-score tolerance.
     step_size : float
         The first step of a one-step walk.
+    node_bounds : dict or None
+        The resolved hazard-scale bounds by cause and one-based node, ``None`` when no node
+        is bounded.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The stopping rule of the targeting.  A declared rule reads the data's clusters as
+        its units, with a span of one, since a hazard lies on the ``[0, 1]`` scale.
+    step_bound : float or None
+        The longest per-horizon step in ``epsilon``.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate the targeting reports.
 
     Returns
     -------
@@ -3524,6 +3569,12 @@ def _run_hazard(
         max_iter=max_iter,
         tol=tol,
         step_size=step_size,
+        node_bounds=hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,)),
+        stopping=stopping,
+        stop=None if stopping == "relative" else StopContext(data.cluster, 1.0),
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
     )
     return {
         _fit_key(label, cause, horizon, True): fit for (label, cause, horizon), fit in fits.items()
@@ -4371,8 +4422,6 @@ class _SequentialEstimator:
             isotonic=self.isotonic,
             msm=self.msm is not None,
             pseudo_learner=self.pseudo_learner is not None,
-            iterate=getattr(self, "iterate", "last"),
-            stopping=getattr(self, "stopping", "relative"),
             step_bound=getattr(self, "step_bound", None),
         )
         if self.msm is not None and self.reference is not None:
@@ -4990,6 +5039,11 @@ class _SequentialEstimator:
                 max_iter=targeting["max_iter"],
                 tol=targeting["tol"],
                 step_size=self.step_size,
+                node_bounds=resolved_bounds,
+                stopping=targeting["stopping"],
+                step_bound=targeting["step_bound"],
+                step_search=targeting["step_search"],
+                iterate=targeting["iterate"],
             )
             msm_fits = ()
         else:
@@ -5650,6 +5704,8 @@ class _SequentialEstimator:
             The bound of each bounded node on the ``[0, 1]`` scale, by cause (``None`` for a
             fit without competing risks) and one-based node.  ``None`` when no node is bounded.
             A node whose bounds equal the outcome range is the shipped node and is left out.
+            On a fit with ``survival_model="hazard"`` the bounds are on the hazard scale, and
+            the range they must lie in is ``[0, 1]``.
         declared : tuple
             ``(cause, grid time, lower, upper)`` on the reported scale, in declaration order.
 
@@ -5658,6 +5714,9 @@ class _SequentialEstimator:
         ValueError
             When a key is not a grid time or a declared cause, when ``lower >= upper``, or when
             a bound lies outside the outcome range.
+        CapabilityError
+            On a hazard fit, when a node bounds some causes and not others (R-i3), or when the
+            upper bounds of a node sum to more than one (R-i2).
         """
         if self.node_bounds is None:
             return None, ()
@@ -5682,8 +5741,13 @@ class _SequentialEstimator:
                 entries.extend((cause, key, value) for key, value in mapping.items())
         else:
             entries = [(None, key, value) for key, value in self.node_bounds.items()]
+        hazard = self.survival_model == "hazard"
+        # A hazard is a probability, so a hazard fit reads its bounds on [0, 1] whatever the
+        # outcome transformation is.
+        low, high = (0.0, 1.0) if hazard else (float(scaler.lower), float(scaler.upper))
         resolved: dict[str | None, dict[int, NodeBound]] = {}
         declared: list[tuple[str | None, float, float, float]] = []
+        by_node: dict[int, dict[str | None, tuple[float, float]]] = {}
         for cause, key, value in entries:
             node = next(
                 (
@@ -5709,15 +5773,20 @@ class _SequentialEstimator:
                 raise ValueError(
                     f"node_bounds at {key!r} needs lower < upper; got ({lower!r}, {upper!r})"
                 )
-            if lower < scaler.lower or upper > scaler.upper:
+            if lower < low or upper > high:
                 raise ValueError(
-                    f"node_bounds at {key!r} lies outside the outcome range "
-                    f"[{scaler.lower:g}, {scaler.upper:g}]"
+                    f"node_bounds at {key!r} lies outside the "
+                    f"{'hazard' if hazard else 'outcome'} range [{low:g}, {high:g}]"
                 )
             declared.append((cause, float(grid[node - 1]), lower, upper))
+            by_node.setdefault(node, {})[cause] = (lower, upper)
             scaled = (
-                float((lower - scaler.lower) / scaler.range),
-                float((upper - scaler.lower) / scaler.range),
+                (lower, upper)
+                if hazard
+                else (
+                    float((lower - scaler.lower) / scaler.range),
+                    float((upper - scaler.lower) / scaler.range),
+                )
             )
             if scaled == (0.0, 1.0):
                 continue
@@ -5728,6 +5797,8 @@ class _SequentialEstimator:
                 reported=(lower, upper),
                 outcome=scaler,
             )
+        if hazard:
+            check_hazard_node_bounds(by_node, grid, causes or (None,))
         return (resolved or None), tuple(declared)
 
     def _scaler(self, data: LongitudinalData) -> OutcomeScaler:
@@ -6038,13 +6109,19 @@ class LTMLE(_SequentialEstimator):
         standard deviation of the node's per-unit score contribution.  A node stops at the
         first Newton iterate that meets the rule, so a declared rule changes ``converged``,
         ``n_iter`` and the warning, and it moves the estimate by the part of the last Newton
-        step it skips.
+        step it skips.  Under ``survival_model="hazard"`` the rule judges the score vector of
+        each horizon (``targeting="iterative"``) or of every target (``"one_step"``), with
+        each target's influence curve as its contribution.
     step_bound : float or None
         The longest step of one iteration of a node's targeting, in the units of the
         fluctuation coefficient.  ``None`` takes the full Newton step.  A positive number takes
         the ``tmle3`` constrained step: the node's single coefficient moves by ``sign(s)`` times
         a length in ``(0, step_bound]``, where ``s`` is the node's score.  A bounded node may
-        stop short of ``tol``, and then it warns and reports ``converged=False``.
+        stop short of ``tol``, and then it warns and reports ``converged=False``.  Under
+        ``survival_model="hazard"`` and ``targeting="iterative"`` each horizon steps along
+        ``s / ||s||``, with ``s`` its score vector.  The one-step hazard walk takes its steps
+        in ``step_size``, so a step bound beside it raises
+        :class:`~cleverly.exceptions.MethodConfigurationError`.
     step_search : bool
         With ``step_bound``, ``True`` takes the length that minimises the node's weighted mean
         quasi-loss over ``(0, step_bound]``, and ``False`` takes the whole bound.  It needs
@@ -6054,7 +6131,8 @@ class LTMLE(_SequentialEstimator):
         which the walk stopped.  ``"best"`` reports the iterate ``k >= 1`` whose score has the
         smallest 2-norm, the first of any tie, and judges the node's ``converged`` there.  A
         bounded step without a search can oscillate around the root, which is where the two
-        differ.
+        differ.  The one-step hazard walk ranks its steps by the norm it walks on and takes the
+        last of any tie, so ``"best"`` there reports the last accepted step.
     random_state : int or None
         The seed of the outer split.  A default learner, and a
         :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
@@ -6140,8 +6218,14 @@ class LTMLE(_SequentialEstimator):
         with :class:`~cleverly.exceptions.ConvergenceWarning`, and the node reports
         ``failure="bound_excludes_data"`` and ``converged=False``.  A grid time that is not a
         node, a cause the fit did not declare, ``lower >= upper`` and bounds outside the outcome
-        range raise ``ValueError`` before any learner.  ``survival_model="hazard"`` and ``msm=``
-        raise :class:`~cleverly.exceptions.CapabilityError`.
+        range raise ``ValueError`` before any learner.  ``msm=`` raises
+        :class:`~cleverly.exceptions.CapabilityError`.  Under ``survival_model="hazard"`` the
+        bounds are on the cause-specific hazard, inside ``[0, 1]``, and a named node bounds
+        every cause.  Cause :math:`j` there fluctuates along
+        :math:`\\operatorname{logit}((\\lambda_j - l_j) / (u_j - l_j))`, the initial hazards
+        are clipped into the bounds, and the record holds the clipped share.  A node that
+        bounds some causes and not others, or whose upper bounds sum to more than one, raises
+        :class:`~cleverly.exceptions.CapabilityError` before any learner.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
@@ -6253,8 +6337,6 @@ class LTMLE(_SequentialEstimator):
                     "node_bounds must map grid times to (lower, upper) pairs, or one such "
                     f"mapping to each cause; got {type(self.node_bounds).__name__}"
                 )
-            if self.survival_model == "hazard":
-                raise CapabilityError(refusal=NODE_BOUNDS_HAZARD_REFUSAL)
             if self.msm is not None:
                 raise CapabilityError(refusal=NODE_BOUNDS_MSM_REFUSAL)
 
@@ -8030,6 +8112,11 @@ def _refit_bound(
             max_iter=recipe.hazard.max_iter,
             tol=recipe.hazard.tol,
             step_size=recipe.hazard.step_size,
+            node_bounds=recipe.node_bounds,
+            stopping=recipe.stopping,
+            step_bound=recipe.step_bound,
+            step_search=recipe.step_search,
+            iterate=recipe.iterate,
         )
         msm_fits = ()
     else:

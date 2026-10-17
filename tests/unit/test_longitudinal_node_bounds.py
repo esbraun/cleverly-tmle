@@ -542,14 +542,9 @@ class TestRefusals:
         with pytest.raises(ValueError, match="node_bounds must map grid times"):
             LTMLE({"always": 1}, node_bounds=[(0.0, 1.0)])
 
-    def test_the_hazard_walk_is_a_gap_with_a_roadmap_item(self) -> None:
-        with pytest.raises(CapabilityError) as caught:
-            LTMLE({"always": 1}, survival_model="hazard", node_bounds={1: (0.0, 0.5)})
-        refusal = caught.value.refusal
-        assert refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-        assert refusal.roadmap == "X78"
-        assert refusal.alternative == "Fit node_bounds= with survival_model='iterated_mean'."
-        assert "bounded hazard walk" in refusal.condition
+    def test_the_hazard_walk_accepts_the_keyword(self) -> None:
+        """``tests/unit/test_hazard_node_bounds.py`` checks the bounded hazard fit."""
+        LTMLE({"always": 1}, survival_model="hazard", node_bounds={1: (0.0, 0.5)})
 
     def test_a_working_model_is_a_gap_with_a_roadmap_item(self) -> None:
         with pytest.raises(CapabilityError) as caught:

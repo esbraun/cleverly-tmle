@@ -36,7 +36,6 @@ __all__ = [
     "IPSI_POINT_REFUSAL",
     "IPSI_RATIO_TRIM_REFUSAL",
     "LTMLE_TILT_REFUSAL",
-    "NODE_BOUNDS_HAZARD_REFUSAL",
     "NODE_BOUNDS_MSM_REFUSAL",
     "REPEATED_OUTCOME_REFUSAL",
     "SDR_POINT_REFUSAL",
@@ -158,14 +157,6 @@ _NODE_BOUNDS_NO_FLUCTUATION = Refusal(
     RefusalReason.INVALID_DECLARATION,
     "{estimator} fits no logistic node fluctuation, so a node bound has nothing to bound.",
     alternative="LTMLE(node_bounds=...) bounds the logistic fluctuation of each node.",
-)
-#: Why ``node_bounds=`` meets ``survival_model="hazard"`` today (X33 part (i)).
-NODE_BOUNDS_HAZARD_REFUSAL = Refusal(
-    RefusalReason.IMPLEMENTATION_GAP,
-    "node_bounds= bounds the logistic fluctuation of each iterated-mean node. The bounded "
-    "hazard walk of survival_model='hazard' is not built.",
-    alternative="Fit node_bounds= with survival_model='iterated_mean'.",
-    roadmap="X78",
 )
 #: Why ``node_bounds=`` meets a working model over regimens (``msm=``) today.
 NODE_BOUNDS_MSM_REFUSAL = Refusal(
@@ -559,7 +550,7 @@ class Targeting:
         point estimate with the ``"trimmed_ratio_plugin"`` status and no interval. ``None``
         trims nothing. A point-treatment fit refuses it.
     node_bounds : mapping or None, default=None
-        A declared outcome range for chosen nodes of a longitudinal iterated-mean fit.
+        A declared outcome range for chosen nodes of a longitudinal fit.
         The keys are grid times and the values are ``(lower, upper)`` pairs on the reported
         outcome scale. A competing-risk fit takes one such mapping for each cause name.
         A named node regresses the outcome rescaled to ``[0, 1]`` by its bounds. It fluctuates
@@ -568,9 +559,10 @@ class Targeting:
         with no entry takes the shipped fit, bit for bit. The fit warns and reports the node
         as not converged, with ``failure="bound_excludes_data"``, when the weighted mean
         outcome of the node's followers lies outside the bounds, because no fluctuation
-        inside the bounds solves the score equation. ``node_bounds`` needs
-        ``survival_model="iterated_mean"`` and no ``msm=``. A point-treatment fit, ``SDR``,
-        ``IPSI`` and the baselines refuse it. See :class:`~cleverly.longitudinal.LTMLE`.
+        inside the bounds solves the score equation. ``node_bounds`` needs no ``msm=``. Under
+        ``survival_model="hazard"`` the bounds are on each cause-specific hazard, and a named
+        node bounds every cause. A point-treatment fit, ``SDR``, ``IPSI`` and the baselines
+        refuse it. See :class:`~cleverly.longitudinal.LTMLE`.
 
     See Also
     --------
