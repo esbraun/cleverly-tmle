@@ -1710,9 +1710,10 @@ treatments cover censored fits.
 Acceptance: the registered cells, and a support case in `tests/studies/support_cases.py`. This
 row ships after the beta release (owner decision, 2026-10-16).
 
-### X78. Bounded hazards and targeting rules on the hazard walk
+### X78. Bounded node fits under a working model
 
-The hazard walk of survival_model="hazard" takes no node_bounds=, stopping=, iterate= or step_bound=.
+`LTMLE` refuses `node_bounds=` beside `msm=` (R-i3). A working model over regimens pools one
+fluctuation across the regimens, and that fluctuation has no bounded form yet.
 
 ### P1. EP learner
 

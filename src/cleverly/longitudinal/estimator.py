@@ -5715,7 +5715,7 @@ class _SequentialEstimator:
             When a key is not a grid time or a declared cause, when ``lower >= upper``, or when
             a bound lies outside the outcome range.
         CapabilityError
-            On a hazard fit, when a node bounds some causes and not others (R-i3), or when the
+            On a hazard fit, when a node bounds some causes and not others (R-i6), or when the
             upper bounds of a node sum to more than one (R-i2).
         """
         if self.node_bounds is None:

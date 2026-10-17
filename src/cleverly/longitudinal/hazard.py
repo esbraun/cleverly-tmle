@@ -249,11 +249,11 @@ def check_hazard_node_bounds(
     grid: Sequence[float],
     causes: Sequence[str | None],
 ) -> None:
-    """Refuse hazard-scale node bounds that the bounded fluctuation cannot hold (R-i2, R-i3).
+    """Refuse hazard-scale node bounds that the bounded fluctuation cannot hold (R-i2, R-i6).
 
     A bounded node holds every cause on the fixed scale :math:`s_j = u_j - l_j`.  A cause left
     unbounded would share the mass the bounded causes leave, so its scale would move with
-    theirs (R-i3).  The clip keeps each hazard below its upper bound, so upper bounds that sum
+    theirs (R-i6).  The clip keeps each hazard below its upper bound, so upper bounds that sum
     to at most one keep :math:`\\sum_j \\lambda_j < 1` (R-i2).  A width below
     :data:`SMALL_SCALE` warns.
 
@@ -1991,7 +1991,7 @@ def refuse_hazard_settings(
     pseudo_learner: bool,
     step_bound: float | None = None,
 ) -> None:
-    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H6, H8, R-c2).
+    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H6, H8, H13).
 
     ``iterate=`` and ``stopping=`` apply to both hazard algorithms, and ``step_bound=`` to
     ``targeting="iterative"``.  The one-step walk takes its steps in ``step_size``, so a step

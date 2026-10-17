@@ -2,7 +2,7 @@
 
 ``stopping=`` and ``iterate=`` act on both hazard algorithms, and ``step_bound=`` acts on the
 per-horizon fit.  The one-step walk takes its steps in ``step_size``, so ``LTMLE`` refuses a step
-bound beside it as a redirection (R-c2), before any data or learner.
+bound beside it as a redirection (R-c4), before any data or learner.
 
 The witnesses run the wrong hazard learner of ``tests/unit/test_hazard_survival_law.py`` with the
 exact mechanism, so the targeting has steps to take.  A declared rule stops at the first iterate
@@ -35,7 +35,7 @@ REGIMENS = {"a0": 0, "a1": 1, "a2": 2}
 ARMS = {"a0": 0, "a1": 1, "a2": 2}
 ALGORITHMS = ("iterative", "one_step")
 
-#: The pinned text of R-c2 beside the one-step hazard walk.
+#: The pinned text of R-c4 beside the one-step hazard walk.
 ONE_STEP_MESSAGE = (
     "targeting='one_step' with survival_model='hazard' already walks the universal "
     "least-favorable submodel in steps of step_size. step_bound= bounds the steps of "
@@ -84,10 +84,10 @@ def _truth(fit: Any) -> float:
     return LAW.functional(LAW.probs, static(ARMS[fit.regimen.label]), fit.horizon, 1)
 
 
-# ----------------------------------------------------------------------------- R-c2
+# ----------------------------------------------------------------------------- R-c4
 
 
-def test_r_c2_a_step_bound_beside_the_one_step_walk_is_a_redirection() -> None:
+def test_r_c4_a_step_bound_beside_the_one_step_walk_is_a_redirection() -> None:
     with pytest.raises(MethodConfigurationError, match=re.escape(ONE_STEP_MESSAGE)) as raised:
         LTMLE(
             REGIMENS, survival_model="hazard", targeting="one_step", step_bound=0.5, **_refusing()
@@ -98,7 +98,7 @@ def test_r_c2_a_step_bound_beside_the_one_step_walk_is_a_redirection() -> None:
     assert refusal.alternative == "step_bound= bounds the steps of targeting='iterative'."
 
 
-def test_r_c2_the_refusal_precedes_the_data_and_every_learner() -> None:
+def test_r_c4_the_refusal_precedes_the_data_and_every_learner() -> None:
     estimator = None
     with pytest.raises(MethodConfigurationError):
         estimator = LTMLE(

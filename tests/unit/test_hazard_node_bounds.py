@@ -221,7 +221,7 @@ class TestRefusals:
         assert caught.value.refusal.reason is RefusalReason.INVALID_DECLARATION
         assert caught.value.refusal.alternative is not None
 
-    def test_r_i3_a_node_that_bounds_some_causes_is_refused_before_any_learner(self) -> None:
+    def test_r_i6_a_node_that_bounds_some_causes_is_refused_before_any_learner(self) -> None:
         message = (
             "node_bounds bounds cause(s) ['relapse'] at 1 and not ['death']; a hazard fit "
             "bounds every cause of a node or none. A bounded node holds each cause on a fixed "

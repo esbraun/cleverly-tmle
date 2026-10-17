@@ -192,7 +192,8 @@ the code shown.
 `tests/unit/test_stopping_rule.py`, `test_step_bound.py`, `test_best_iterate.py`,
 `test_longitudinal_node_bounds.py`, `test_outcome_by_arm.py`, `test_patience.py`,
 `test_treatment_covariates.py`,
-`test_treatment_covariates_collaborative.py` and `test_hazard_x22_refusal.py` assert each text
+`test_treatment_covariates_collaborative.py`, `test_hazard_targeting_rules.py` and
+`test_hazard_node_bounds.py` assert each text
 with `pytest.raises(match=re.escape(...))`.
 
 | id | refused | class and code | message |
@@ -203,16 +204,17 @@ with `pytest.raises(match=re.escape(...))`.
 | R-c1a | `step_search=` that is not a `bool` | `ValueError` | `step_search must be True or False; got {v!r}` |
 | R-c2 | `step_bound=` with `algorithm="one_step"` | `MethodConfigurationError`, `api_redirection` | `algorithm='one_step' already walks the universal least-favorable submodel in steps of step_size. step_bound= bounds the steps of algorithm='iterative'.` |
 | R-c3 | `step_search=False` without `step_bound=` | `MethodConfigurationError`, `invalid_declaration` | `step_search= chooses how a bounded step is taken, so it needs step_bound=` |
+| R-c4 | `step_bound=` with `survival_model="hazard"` and `targeting="one_step"`. `LTMLE` raises it when it validates its settings, after the malformed-value checks | `MethodConfigurationError`, `api_redirection` | `targeting='one_step' with survival_model='hazard' already walks the universal least-favorable submodel in steps of step_size. step_bound= bounds the steps of targeting='iterative'.` |
 | R-abc1 | `iterate="best"`, a declared `stopping=` or `step_bound=` with `fluctuation="linear"` | `MethodConfigurationError`, `invalid_declaration` | `fluctuation='linear' solves the score equation in one closed-form step, so it has no iterate, stopping rule or step bound to choose. Remove iterate=, stopping= and step_bound=, or use fluctuation='logistic'` |
 | R-abc2 | a non-default `stopping=`, `step_bound=`, `step_search=` or `iterate=` on `SDR`, `SDRMethod` | `MethodConfigurationError`, `invalid_declaration` | `the SDR estimator fits no fluctuation, so it has no logistic shrink, iteration limit or score tolerance. LTMLE takes stopping=, so pass the setting there.` The text names the keyword that was declared |
 | R-abc3 | the same settings on `IPSI`, `IPSIMethod` | `MethodConfigurationError`, `invalid_declaration` | `IPSI fits no fluctuation: Kennedy's estimator averages the influence function at the fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or submodel.` |
 | R-abc3a | the same settings on `GComputationMethod`, `IPWMethod`, `SequentialGComputation`, `SequentialIPW` | `MethodConfigurationError`, `invalid_declaration` | `the sequential g-computation and IPW estimators fit no fluctuation, so they have no logistic shrink, iteration limit or score tolerance. LTMLE takes stopping=, so pass the setting there.` |
-| R-abc4 | `iterate=`, `stopping=` or `step_bound=` with `survival_model="hazard"`. `LTMLE` raises it when it validates its settings, after the malformed-value checks | `CapabilityError`, `implementation_gap`, roadmap X33 | `survival_model='hazard' walks its own path in steps of step_size, so iterate=, stopping= and step_bound= do not apply to it. X33 in docs/roadmap.md tracks this. survival_model='iterated_mean' with targeting='iterative' applies iterate=, stopping= and step_bound= at each node.` The list names only the settings declared, in the condition and in the alternative |
-| R-i1 | `node_bounds=` that names a grid time outside the fit, a cause the fit did not declare, a pair with `lower >= upper`, or a bound outside the outcome range. The check runs at fit time before any learner. A value that is not a pair of numbers, or a `node_bounds=` that is not a mapping, raises `ValueError` with its own text | `ValueError` | `node_bounds names grid time {t!r}, which is not a node of this fit; its grid is {grid}`, `node_bounds names cause {c!r}; this fit declared {causes}`, `node_bounds at {t!r} needs lower < upper; got ({l!r}, {u!r})`, `node_bounds at {t!r} lies outside the outcome range [{a:g}, {b:g}]` |
-| R-i2 | `node_bounds=` with `survival_model="hazard"`. `LTMLE` raises it when it validates its settings | `CapabilityError`, `implementation_gap`, roadmap X78 | `node_bounds= bounds the logistic fluctuation of each iterated-mean node. The bounded hazard walk of survival_model='hazard' is not built. Fit node_bounds= with survival_model='iterated_mean'.` |
+| R-i1 | `node_bounds=` that names a grid time outside the fit, a cause the fit did not declare, a pair with `lower >= upper`, or a bound outside the outcome range. On a fit with `survival_model="hazard"` the range is $[0, 1]$, the hazard scale. The check runs at fit time before any learner. A value that is not a pair of numbers, or a `node_bounds=` that is not a mapping, raises `ValueError` with its own text | `ValueError` | `node_bounds names grid time {t!r}, which is not a node of this fit; its grid is {grid}`, `node_bounds names cause {c!r}; this fit declared {causes}`, `node_bounds at {t!r} needs lower < upper; got ({l!r}, {u!r})`, `node_bounds at {t!r} lies outside the outcome range [{a:g}, {b:g}]`, and on a hazard fit `node_bounds at {t!r} lies outside the hazard range [0, 1]` |
+| R-i2 | a node of a fit with `survival_model="hazard"` whose upper bounds sum to more than one. The check runs at fit time before any learner | `CapabilityError`, `invalid_declaration` | `node_bounds at {t!r} has upper bounds summing to {s:g}; a hazard fit needs them to sum to at most 1, so that the bounded hazards leave room for no event. Lower the upper bounds at {t!r} so that they sum to at most 1.` |
 | R-i3 | `node_bounds=` with `msm=` | `CapabilityError`, `implementation_gap`, roadmap X78 | `node_bounds= bounds the intercept fluctuation of a per-regimen mean. A working model over regimens pools one fluctuation across the regimens, and its bounded form is not built. Fit node_bounds= without msm=, and report the regimen levels.` |
 | R-i4 | `node_bounds=` on `SDR`, `IPSI`, `SequentialGComputation`, `SequentialIPW`, `ParametricGFormula`, `SDRMethod`, `IPSIMethod`, `GComputationMethod` or `IPWMethod` | `MethodConfigurationError`, `invalid_declaration` | `{estimator} fits no logistic node fluctuation, so a node bound has nothing to bound. LTMLE(node_bounds=...) bounds the logistic fluctuation of each node.` |
 | R-i5 | `node_bounds=` on a point-treatment functional | method configuration, `MethodConfigurationError`, `invalid_declaration` | `node_bounds= bounds the logistic fluctuation of each node of a longitudinal iterated-mean fit, and a point-treatment functional has no such nodes. Remove it, or declare a longitudinal or TimeToEvent design` |
+| R-i6 | a competing-risk fit with `survival_model="hazard"` that bounds some causes of a node and not others. The check runs at fit time before any learner | `CapabilityError`, `invalid_declaration` | `node_bounds bounds cause(s) {named} at {t!r} and not {missing}; a hazard fit bounds every cause of a node or none. A bounded node holds each cause on a fixed scale, and an unbounded cause there would share the mass the bounded causes leave. Bound every cause at {t!r}, or none of them.` |
 | R-f1 | `outcome_by_arm=True` with a continuous dose, including a dose MSM and a shift policy on a dose. The check runs before any learner fits | `CapabilityError`, `invalid_declaration` | `outcome_by_arm=True fits one outcome regression per treatment arm, so it needs an arm-coded treatment. A continuous dose has no arms. Use outcome_by_arm=False, which fits one regression on the dose.` |
 | R-f2 | an arm with no training row in a fold. It is raised at fit time | `DataError` | `outcome_by_arm=True found no row with {treatment} = {arm!r} and an observed outcome in {where}, so that arm's outcome regression has nothing to fit. Use fewer folds, or outcome_by_arm=False`. `{where}` reads "training fold {k}" or "the training sample" |
 | R-f3 | `outcome_by_arm=` on a longitudinal design | `MethodConfigurationError`, `invalid_declaration` | `longitudinal TMLE cannot apply point-treatment option(s): ['outcome_by_arm']. Remove them or use a PointTreatment design.` |
@@ -225,12 +227,10 @@ with `pytest.raises(match=re.escape(...))`.
 | R-h5 | a C-TMLE `candidates=` or `ordering=` that names a covariate outside the declared subset | `ValueError` | `{arg} names {cols} outside treatment_adjustment=` |
 | R-h6 | a repeated name in `treatment_adjustment=` | `DataError` | `treatment_adjustment repeats {cols}` |
 
-[X78](../roadmap.md#x78-bounded-hazards-and-targeting-rules-on-the-hazard-walk) tracks R-i2 and R-i3.
+[X78](../roadmap.md#x78-bounded-node-fits-under-a-working-model) tracks R-i3.
 
 `TMLE.fit(treatment_covariates=)` raises R-h1, R-h4 and R-h6 with the argument named
-`treatment_covariates` in place of `treatment_adjustment`. The row R-abc4 names the
-iterated-mean survival fit as its alternative, and the roadmap item X33 tracks the gap.
-`tests/unit/test_hazard_x22_refusal.py` fits that alternative with each refused setting.
+`treatment_covariates` in place of `treatment_adjustment`.
 
 A declared stopping rule can leave a fit unconverged. That is a result and not a refusal. The
 fit warns, reports `converged=False`, and `score_check()` fails it.
@@ -504,7 +504,7 @@ policy and four data contracts. `TestTheRefitSlotReadsTheRefitPreflight` in
 [Hazard-based survival targeting](longitudinal-tmle.md#hazard-based-survival-targeting) and
 [the isotonic projection](longitudinal-tmle.md#the-isotonic-projection) refuse each composition
 below by name. Each refusal is raised before any learner. `tests/unit/test_hazard_refusals.py` pins
-the type and the message of each one, with learners that raise if they are fitted. `tests/unit/test_hazard_x22_refusal.py` pins H13.
+the type and the message of each one, with learners that raise if they are fitted. `tests/unit/test_hazard_targeting_rules.py` pins H13.
 
 | id | trigger | when | type and code | message |
 | --- | --- | --- | --- | --- |
@@ -521,7 +521,7 @@ the type and the message of each one, with learners that raise if they are fitte
 | H10 | `survival_model="hazard"` or `isotonic=True` on a point-treatment functional | method configuration | `MethodConfigurationError` | "survival_model= and isotonic= apply to a survival curve over time nodes, and a point-treatment functional has no curve. Remove them, or declare a longitudinal or TimeToEvent design" |
 | H11 | `survival_model="hazard"` with a continuous baseline treatment, or a vector with a dose | `fit` | `CapabilityError`, `implementation_gap` | "survival_model='hazard' needs a categorical baseline treatment, and treatment {name!r} is continuous. The hazard plug-in would need the treatment density at every dose, and that construction is not built. X70 in docs/roadmap.md tracks this. Use survival_model='iterated_mean'." A vector with a dose reads "is a vector with a dose" in place of "is continuous" |
 | H12 | a non-default `survival_model`, `targeting`, `step_size` or `isotonic` on `SDRMethod`, `IPSIMethod`, `GComputationMethod` or `IPWMethod` | method configuration | `MethodConfigurationError` | "survival_model=, a hazard targeting= algorithm, step_size= and isotonic= are settings of the targeted fit, method='tmle'. The {method} estimator fits no hazard, and no registered study measures its projected curve. Fit method='tmle', or remove them". The `SDR`, `IPSI`, `SequentialGComputation` and `SequentialIPW` engines do not take these keywords, and raise `TypeError` |
-| H13 | `iterate=`, `stopping=` or `step_bound=` with `survival_model="hazard"` (R-abc4) | construction | `CapabilityError`, `implementation_gap`, roadmap X33 | "survival_model='hazard' walks its own path in steps of step_size, so iterate=, stopping= and step_bound= do not apply to it. X33 in docs/roadmap.md tracks this. survival_model='iterated_mean' with targeting='iterative' applies iterate=, stopping= and step_bound= at each node." The list names the settings declared. `tests/unit/test_hazard_x22_refusal.py` pins it |
+| H13 | `step_bound=` with `targeting="one_step"` (R-c4) | construction | `MethodConfigurationError`, `api_redirection` | "targeting='one_step' with survival_model='hazard' already walks the universal least-favorable submodel in steps of step_size. step_bound= bounds the steps of targeting='iterative'." |
 
 The fit checks H3 first, then H1, H2, H11 and H7. So a continuous treatment meets H11 before a
 modified treatment policy meets H7.
