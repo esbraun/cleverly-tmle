@@ -499,7 +499,8 @@ def _dose(
 def marginal_ipsi(result: Any, frame: pd.DataFrame, name: str, stratum: int) -> float:
     """The stratum average of an unstratified incremental fit's targeted mixture."""
     fluctuation = result.fluctuations["ipsi"]
-    tilts = result.nuisance.incremental.at(fluctuation.mechanism.propensity)
+    treated = np.asarray(fluctuation.mechanism.propensity, dtype=float)
+    tilts = result.nuisance.incremental.at(np.column_stack([1.0 - treated, treated]))
     arms = np.column_stack(
         [result.nuisance.scaler.unscale_levels(fluctuation.targeted.arms[a]) for a in (0.0, 1.0)]
     )

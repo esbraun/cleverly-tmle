@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "study": "parametric g-formula",
+  "slug": "parametric-gformula",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-parametric-gformula",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "96074e49601337ea3513739d341bbb2a0bb68b23",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 8000,
+    "seed": 20264501,
+    "resampling_seed": 2026450101,
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-parametric-gformula": 0.01
+    },
+    "scenarios": {
+      "g1_nice": [
+        "ey_regimen[treat_all]",
+        "ey_regimen[treat_none]",
+        "ey_regimen[rule]",
+        "ey_regimen[odds x2]",
+        "ate_regimen[treat_all vs treat_none]"
+      ],
+      "g2_nice": [
+        "ey_regimen[treat_all]",
+        "ey_regimen[treat_none]",
+        "ey_regimen[policy_b]",
+        "ate_regimen[treat_all vs treat_none]"
+      ],
+      "g3_nice": [
+        "cif_regimen[treat_all_4, relapse @ t=2]",
+        "cif_regimen[treat_all_4, relapse @ t=4]",
+        "cif_regimen[treat_all_4, death @ t=4]",
+        "ate_regimen[treat_all_4 vs treat_none_4, relapse @ t=4]"
+      ],
+      "g4_nice": [
+        "ey_regimen[shift_half]",
+        "ey_regimen[dose_half]",
+        "ey_regimen[rule_dose]",
+        "ate_regimen[shift_half vs natural course]"
+      ],
+      "g5_nice": [
+        "ey_regimen[treat_all]",
+        "ey_regimen[treat_none]",
+        "ey_regimen[odds x2]",
+        "ate_regimen[treat_all vs treat_none]"
+      ]
+    },
+    "estimator": "ParametricGFormula",
+    "covariate_learner": "GLM() main terms, one model per covariate and node",
+    "outcome_learner": "GLM() of the outcome's family",
+    "treatment_learner": "GLM()",
+    "n_draws": 10,
+    "monte_carlo_control": {
+      "n_draws": 1,
+      "m_prime": 500
+    },
+    "simulation_stream": "Philox keyed by the primary_simulation stream (scenario, replicate) in the primary phase and the property_simulation stream (fit set, replicate) in the property fit sets",
+    "ladder": [
+      2000,
+      4000,
+      8000
+    ],
+    "calibration_n": 2000,
+    "reference": "none; pygformula 1.2.0 runs on the fixtures of compare_pygformula.py",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_parametric_gformula.py": "45887dc64d2570bf78d9a93224600bacd76488a3bd3e36be99dae4ddccc5168e",
+    "tests/studies/parametric_gformula_properties.py": "4f3a8bdb072524305c3b034e1d93bf5f0ebda9963f9b18c80b1330485f70a675",
+    "tests/studies/parametric_gformula_laws.py": "039123ae4e42310c4481c4228fd5c75adc5ef651b54810130094ba998ccdc988",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
+    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "2d6e50361e70263f8b12cd4c65a644cf7c3094164a3ef5a0a90f5180097298ae",
+    "summary.csv": "daca70a51c2ac50a0d10f2605ef5e58d7f073a3957f318df9c05c336dec255ec",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "051e17ef24c6556c12be5ec40ae34051600ffcceeff818adeb134a9fc4abb82b",
+    "property-replicates.csv.gz": "d28fe63a15a82e74f784b023fc246838352a949dd78d3be2279c93ee3016b90e",
+    "properties.csv": "13e01a556a4f109ba060929902d292c1c53879354f7b88595375d055f6d2d04b",
+    "property-failures.csv": "66d79a8021b76b4745069ced330b04ac23952a7b83ee90b35bb5ff78b5eeee0e",
+    "property-failure-accounting.csv": "39ddceffc0284ae9286fd25e10ffb5af4ecded326e670a13267a26d68d20c586",
+    "property-failure-witnesses.csv": "decfb19e9691cae6d54fdd9a9c5657321ad1b17e946ced4ca539c62ee53ed0cc"
+  }
+}

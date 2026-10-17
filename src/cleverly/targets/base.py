@@ -27,7 +27,8 @@ assumptions written down where ``summary()`` can print them.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal
@@ -61,15 +62,23 @@ __all__ = [
     "MISSINGNESS_MECHANISM",
     "OUTCOME_REGRESSION",
     "POINT_NUISANCES",
+    "READS_SINK",
     "TREATMENT_MECHANISM",
     "TREATMENT_OBSERVATION_MECHANISM",
     "Identification",
+    "Interpretation",
     "Target",
     "TargetContext",
     "parameter_name",
     "parameter_stem",
     "stratum_alias",
 ]
+
+#: Where :meth:`~cleverly.TMLE._estimates_for` copies :attr:`TargetContext.reads` after it
+#: builds the estimates of one fluctuation. ``None`` copies nothing. The per-arm
+#: :class:`~cleverly.CTMLE` sets it to learn which arm means each estimate reads, so that a
+#: failed arm withholds only the estimates that read it (X58 plan, 13.2, D4).
+READS_SINK: ContextVar[dict[str, frozenset[float]] | None] = ContextVar("READS_SINK", default=None)
 
 
 def parameter_name(stem: str, *, arm: Any = None, versus: Any = None) -> str:
@@ -195,29 +204,69 @@ POINT_NUISANCES = (
 
 
 @dataclass(frozen=True)
+class Interpretation:
+    """One causal reading of an identified functional, with the assumptions it adds.
+
+    A functional can identify two causal parameters under two different exchangeability
+    assumptions.  The modified treatment policy functional of Díaz, Williams, Hoffman and
+    Schenck (2023) is the policy effect under strong sequential randomization (Theorem 1
+    (ii)) and the mean under a stochastic intervention under standard sequential
+    randomization (Theorem 1 (i)).  :attr:`Identification.assumptions` holds what both
+    readings need, and each reading holds its own exchangeability assumption.
+
+    Parameters
+    ----------
+    label : str
+        The name of the causal parameter.
+    meaning : str
+        What the number is under this reading.
+    assumptions : tuple of str
+        What this reading adds to the shared assumptions.
+    references : tuple of str
+        Where the reading is proved.
+    """
+
+    label: str
+    meaning: str
+    assumptions: tuple[str, ...]
+    references: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Identification:
     """The assumptions under which a target is the causal quantity it claims to be.
 
-    Attributes
+    Parameters
     ----------
-    assumptions:
+    assumptions : tuple of str
         What must hold for the observed-data functional to equal the causal
-        parameter.  Written for a reader, not for a parser.
-    required_nuisances:
+        parameter.  Written for a reader, not for a parser.  With ``interpretations``,
+        what every reading needs.
+    required_nuisances : tuple of str
         Which nuisance estimates enter the influence function.
-    dr_condition:
+    dr_condition : str
         What double robustness actually buys for *this* estimand.  It is not the
         same sentence for every one: adding a missingness mechanism turns "``Qbar``
         right or ``g`` right" into "``Qbar`` right or the *product* ``g * pi``
         right", which is a strictly stronger requirement on the mechanism half.
-    references:
+    references : tuple of str
         Where the influence function is derived.
+    interpretations : tuple of Interpretation
+        The causal readings of the functional, each with the exchangeability assumption
+        it adds.  Empty when the functional has one reading, whose assumptions are all in
+        ``assumptions``.
+    model_restrictions:
+        Restrictions a design places on the observed-data model.  They do not change the
+        estimand, and the interval is claimed only under them.  Empty by default, and a
+        summary prints nothing for an empty tuple.
     """
 
     assumptions: tuple[str, ...]
     required_nuisances: tuple[str, ...]
     dr_condition: str
     references: tuple[str, ...] = ()
+    interpretations: tuple[Interpretation, ...] = ()
+    model_restrictions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -390,6 +439,14 @@ class TargetContext:
     policies: FloatArray | None = None
     #: ``(S, C)`` known component weights of a randomized policy set, or ``None``.
     policy_mixing: FloatArray | None = None
+    #: ``(n, C)`` the rows each policy component reads, or ``None`` when every component
+    #: reads every row: a fold-average policy's component reads its fold's held-out rows
+    #: (:attr:`~cleverly.interventions.PolicySet.component_rows`).
+    policy_rows: BoolArray | None = None
+    #: ``(n, S)`` the term each policy's curve adds, or ``None``: the chain-rule term of a
+    #: population target with a tuned cap
+    #: (:attr:`~cleverly.interventions.PolicySet.curve_terms`).
+    policy_terms: FloatArray | None = None
     #: ``(n, K, p)`` working-model design and ``(n, K)`` weights, for the ``msm``
     #: fluctuation; ``None`` otherwise.  Two arrays rather than one product because the
     #: projection needs them apart: the Gram matrix is ``h * phi * phi'`` and the fitted
@@ -419,6 +476,12 @@ class TargetContext:
     #: ``paf`` beside the arm means.  ``None`` on every other fit.  Any estimator whose
     #: natural-course fluctuation returns an :class:`ArmMean` uses this one hook.
     natural_course: ArmMean | None = None
+    #: The codes of :attr:`means` that each finished estimate reads, keyed by its name.
+    #: A target records them through the ``reads`` argument of :meth:`finish`, from its own
+    #: definition: ``ey[a]`` reads ``a``, a contrast reads its arm and the reference,
+    #: ``par`` and ``paf`` read the reference, and ``ey_obs`` reads none. An estimate whose
+    #: target records nothing is absent, and a reader takes it to read every code.
+    reads: dict[str, frozenset[float]] = field(default_factory=dict)
 
     @cached_property
     def observed_mean(self) -> ArmMean:
@@ -504,6 +567,8 @@ class TargetContext:
                 self.weights,
                 self.observed,
                 self.policy_mixing,
+                rows=self.policy_rows,
+                terms=self.policy_terms,
             )
         if self.regimes is not None:
             return regime_means(
@@ -558,8 +623,12 @@ class TargetContext:
         scale: Scale,
         *,
         log_psi: float | None = None,
+        reads: Iterable[float] | None = None,
     ) -> ParameterEstimate:
         """Map back to the outcome's own units and attach inference.
+
+        ``reads`` names the codes of :attr:`means` the estimate is a function of, and
+        :attr:`reads` records them under ``name``. ``None`` records nothing.
 
         ``psi`` and ``ic`` are on the *scaled* outcome scale -- which is the outcome's
         own scale for a binary outcome, and ``[0, 1]`` for a bounded continuous one
@@ -575,6 +644,7 @@ class TargetContext:
         declare ``requires_family="binomial"``, where the scaler is the identity and the
         question does not arise.  The ratios do the latter.
         """
+        self._record_reads(name, reads)
         if log_psi is None:
             value, curve = unscale(psi, ic, self.scaler, scale)
         else:
@@ -591,8 +661,19 @@ class TargetContext:
             covariance_rule=self.covariance_rule,
         )
 
+    def _record_reads(self, name: str, reads: Iterable[float] | None) -> None:
+        """Record the codes the estimate ``name`` reads, when its target names them."""
+        if reads is not None:
+            self.reads[name] = frozenset(float(code) for code in reads)
+
     def finish_unscaled(
-        self, name: str, psi: float, ic: FloatArray, scale: Scale
+        self,
+        name: str,
+        psi: float,
+        ic: FloatArray,
+        scale: Scale,
+        *,
+        reads: Iterable[float] | None = None,
     ) -> ParameterEstimate:
         """Attach inference to an estimate that is *already* in the outcome's own units.
 
@@ -601,8 +682,9 @@ class TargetContext:
         be unscaled again.  The ``msm`` target is the built-in case -- a coefficient vector
         has no single :class:`Scale` to map back with, so
         :func:`~cleverly.inference.influence.msm_coefficients` solves the projection where
-        the coefficients are reported.
+        the coefficients are reported. ``reads`` is as in :meth:`finish`.
         """
+        self._record_reads(name, reads)
         return make_estimate(
             name,
             psi,

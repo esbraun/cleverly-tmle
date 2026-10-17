@@ -11,9 +11,10 @@ theorem needs its condition (v), which fails for an estimated outcome regression
 registered study ``ctmle-oat-per-arm`` found the reported standard errors 8 to 24 percent
 too small. So a per-arm fit takes ``"generated_design_plugin"`` unless
 :func:`~cleverly.estimators.ctmle.per_arm_parametric_support` admits it. The predicate admits
-an in-sample fit with ``ParametricOutcome`` and ``ParametricMechanism`` on a binary treatment
-with complete, unweighted, unstratified data. Its stacked curve includes the generated-design
-term, and the status follows the verdict.
+a fit with ``ParametricOutcome`` and ``ParametricMechanism`` on an arm-coded treatment with
+complete, unclustered, unstratified data, in sample or cross-fitted, weighted or not. Its
+stacked curve includes the generated-design term, and the status follows the verdict. A fit
+with sklearn learners and estimated weights is not admitted, so it withholds.
 
 The class marked "parametric" fits that admitted design and checks its outputs. Every
 sklearn-learner fit stays withheld, and the predicate names the axis that refuses it.
@@ -253,13 +254,14 @@ class TestAParametricPerArmFitReportsItsInterval:
         report = result.sensitivity.evalue("ate")
         assert np.isfinite(report.limit)
 
-    def test_a_default_band_keeps_the_interval_and_is_not_built(self) -> None:
-        """``simultaneous=True`` is admitted; the fit reports its intervals and builds no band."""
+    def test_a_default_band_keeps_the_interval_and_is_built(self) -> None:
+        """``simultaneous=True`` is admitted; the fit reports its intervals and its band."""
         estimator = _parametric(estimands=("ey", "ate"), simultaneous=True)
         result = estimator.fit(_binary(), outcome="Y", treatment="A").single()
         assert per_arm_parametric_support(estimator, result.data).admitted
         assert result.inference_status == "influence_curve"
-        assert result.simultaneous is None
+        assert result.simultaneous is not None
+        assert set(result.simultaneous.bands) == set(result.estimates)
 
 
 def _estimated_weight_fit() -> Any:

@@ -94,6 +94,7 @@ from ..data.validate import (
     MIN_CONTINUOUS_LEVELS,
     MIN_OBSERVATIONS,
     arm_indicators,
+    atom_block,
     check_covariates,
     check_weights,
     encode_clusters,
@@ -159,6 +160,8 @@ _ROW_FIELDS: tuple[str, ...] = (
     "unit_ids",
 )
 _SHARED_FIELDS: tuple[str, ...] = (
+    "dose_supports",
+    "dose_atoms",
     "baseline_names",
     "treatment_names",
     "treatment_levels",
@@ -422,6 +425,14 @@ class LongitudinalData:
     #: factor is estimated.  A data field, so a bootstrap replicate carries the rows it drew.
     #: See :class:`~cleverly.data.known_mechanism.KnownNodeMechanisms`.
     known_mechanisms: KnownNodeMechanisms | None = None
+    #: Per node, the declared conditional support of a continuous dose, a
+    #: :class:`~cleverly.interventions.Support`, and ``None`` elsewhere.  Empty when no node
+    #: declares one.  Declared by the mapping form of ``continuous_treatment=``.
+    dose_supports: tuple[Any, ...] = ()
+    #: Per node, the declared atoms of a continuous dose (the doses with a recorded point
+    #: mass), and ``()`` elsewhere.  A vector node holds ``(component, atoms)`` pairs in
+    #: column order.  Empty when no node declares one.  Declared by ``dose_atoms=``.
+    dose_atoms: tuple[tuple[Any, ...], ...] = ()
     #: ``(n, T)`` outcome at each node of a repeated outcome (:class:`Repeated`), ``nan``
     #: where the unit was censored at or before that node, and ``None`` otherwise.  Each
     #: column is the outcome of one horizon.  Column ``s`` is also the first covariate of
@@ -453,9 +464,10 @@ class LongitudinalData:
         weights_type: str = "probability",
         weights_estimated: bool = False,
         family: str = "auto",
-        continuous_treatment: Sequence[str] = (),
+        continuous_treatment: Sequence[str] | Mapping[str, Any] = (),
         treatment_probabilities: Any = None,
         censoring_probabilities: Any = None,
+        dose_atoms: Mapping[str, Sequence[float]] | None = None,
     ) -> LongitudinalData:
         """Build from one wide dataframe: a row per unit, a column per node.
 
@@ -512,7 +524,14 @@ class LongitudinalData:
             modified treatment policy at every regimen (Díaz, Williams, Hoffman and Schenck
             2023).  A component of a vector node may be named too.  The node is then mixed:
             it takes a :class:`~cleverly.interventions.JointPolicy` at every regimen, and the
-            fit estimates its policy ratio with ``ratio="classifier"``.
+            fit estimates its policy ratio with ``ratio="classifier"``.  A mapping
+            ``{name: Support(lower, upper) or None}`` also declares the conditional support
+            of each dose (:class:`~cleverly.interventions.Support`).  The fit then refuses,
+            before any learner, an observed dose outside it and a policy that assigns a row
+            at risk a dose outside it (Díaz et al. 2023, Assumption 1).  The support of a
+            component is given the history, the node's categorical components and its
+            doses before it in column order, and each branch of a joint policy is
+            checked on the components it assigns.
         treatment_probabilities:
             The known treatment mechanism of a sequentially randomized design, which the fit
             then reads in place of a treatment learner.  The preferred form maps each node
@@ -526,9 +545,24 @@ class LongitudinalData:
             The known retention probabilities ``P(C_t = 1 | observed past)``: a mapping of
             censoring column to the column that holds them, or an ``(n, T)`` array.  It may
             be given alone or beside ``treatment_probabilities``.
+        dose_atoms:
+            A mapping of continuous dose column to its declared atoms, the doses with a
+            recorded point mass, such as a list price: ``{"A2": (3.0,)}``.  The policy
+            ratio at that node is then taken against Lebesgue plus counting measure on the
+            atoms, and a piece may send an interval to one of them with
+            ``Piece(lower, upper, to_atom=value)``.  A continuous node with an undeclared
+            point mass is refused before any learner.
         """
         if not is_dataframe(data):
             raise DataError("LongitudinalData.from_frame expects a pandas or polars DataFrame")
+        supports: dict[str, Any] = {}
+        if isinstance(continuous_treatment, Mapping):
+            supports = {
+                str(name): value
+                for name, value in continuous_treatment.items()
+                if value is not None
+            }
+            continuous_treatment = tuple(str(name) for name in continuous_treatment)
         frame = as_frame(data)
         columns = list(frame.columns)
 
@@ -720,6 +754,7 @@ class LongitudinalData:
             backend=backend_of(frame),
             treatment_held=held,
         )
+        built = built.with_dose_declarations(supports, dose_atoms or {})
         if treatment_probabilities is None and censoring_probabilities is None:
             return built
         return built._declare_known(
@@ -753,6 +788,221 @@ class LongitudinalData:
             treatment_columns=treatment_columns,
             censoring_columns=censoring_columns,
         )
+
+    def with_dose_declarations(
+        self,
+        supports: Mapping[str, Any],
+        atoms: Mapping[str, Sequence[float]],
+    ) -> LongitudinalData:
+        """Return a copy that declares the support and the atoms of each continuous dose.
+
+        Parameters
+        ----------
+        supports : mapping of str to Support
+            The declared conditional support of each named dose column.
+        atoms : mapping of str to sequence of float
+            The declared atoms of each named dose column.
+
+        Returns
+        -------
+        LongitudinalData
+            The same panel with the declarations attached, or itself when both are empty.
+
+        Raises
+        ------
+        DataError
+            If a name is not a continuous treatment node or component, an entry is
+            malformed, or an atom is declared twice.
+
+        Notes
+        -----
+        A continuous component of a vector node takes a declared support and declared
+        atoms.  The support is given the history, the node's categorical components and its
+        doses before the component in column order, the conditioning set of the component's
+        factor in the joint density.  The atoms make that factor mixed: it is taken against
+        Lebesgue measure plus counting measure on the atoms.
+        """
+        from ..interventions.policy import Support
+
+        if not supports and not atoms:
+            return self
+        names = {name: time for time, name in enumerate(self.treatment_names, start=1)}
+        components = {
+            name: time
+            for time, block in enumerate(self.treatment_components, start=1)
+            if len(block) > 1
+            for name in block
+        }
+        node_supports: list[Any] = [None] * self.n_times
+        node_atoms: list[tuple[Any, ...]] = [()] * self.n_times
+        component_supports: dict[int, dict[str, Any]] = {}
+        component_atoms: dict[int, dict[str, tuple[float, ...]]] = {}
+        for keyword, declared in (("continuous_treatment", supports), ("dose_atoms", atoms)):
+            for name, value in declared.items():
+                if name in components:
+                    node = components[name]
+                    index = self.treatment_components[node - 1].index(name)
+                    if self.component_levels[node - 1][index]:
+                        what = "a support" if keyword == "continuous_treatment" else "atoms"
+                        raise DataError(
+                            f"{keyword}= declares {what} for {name!r}, a categorical component "
+                            "of a vector node. A declaration of the dose applies to a "
+                            "continuous component"
+                        )
+                    if keyword == "dose_atoms":
+                        values = tuple(float(atom) for atom in value)
+                        if (
+                            not values
+                            or not all(np.isfinite(atom) for atom in values)
+                            or len(set(values)) != len(values)
+                        ):
+                            raise DataError(
+                                f"dose_atoms= for {name!r} holds distinct finite doses; got "
+                                f"{list(values)!r}"
+                            )
+                        component_atoms.setdefault(node, {})[name] = tuple(sorted(values))
+                        continue
+                    if value is None:
+                        continue
+                    if not isinstance(value, Support):
+                        raise DataError(
+                            f"continuous_treatment= maps {name!r} to {value!r}; a declared "
+                            "support is Support(lower, upper) or None"
+                        )
+                    component_supports.setdefault(node, {})[name] = value
+                    continue
+                time = names.get(name)
+                if time is None or self.node_kind(time) != "continuous":
+                    raise DataError(
+                        f"{keyword}= declares {name!r}, which is not a continuous treatment "
+                        "node. Declare the node in continuous_treatment= first"
+                    )
+                if keyword == "dose_atoms":
+                    values = tuple(float(atom) for atom in value)
+                    if (
+                        not values
+                        or not all(np.isfinite(atom) for atom in values)
+                        or len(set(values)) != len(values)
+                    ):
+                        raise DataError(
+                            f"dose_atoms= for {name!r} holds distinct finite doses; got "
+                            f"{list(values)!r}"
+                        )
+                    node_atoms[time - 1] = tuple(sorted(values))
+                else:
+                    if not isinstance(value, Support):
+                        raise DataError(
+                            f"continuous_treatment= maps {name!r} to {value!r}; a declared "
+                            "support is Support(lower, upper) or None"
+                        )
+                    node_supports[time - 1] = value
+        for time, declared in component_supports.items():
+            order = self.treatment_components[time - 1]
+            node_supports[time - 1] = tuple(
+                (name, declared[name]) for name in order if name in declared
+            )
+        for time, declared_atoms in component_atoms.items():
+            order = self.treatment_components[time - 1]
+            node_atoms[time - 1] = tuple(
+                (name, declared_atoms[name]) for name in order if name in declared_atoms
+            )
+        if self.treatment_held:
+            node_supports = [node_supports[0]] * self.n_times
+            node_atoms = [node_atoms[0]] * self.n_times
+        return replace(
+            self,
+            dose_supports=tuple(node_supports) if any(v is not None for v in node_supports) else (),
+            dose_atoms=tuple(node_atoms) if any(node_atoms) else (),
+        )
+
+    def node_support(self, time: int) -> Any:
+        """The declared support of node ``time``, or ``None``.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        Support or None
+            The declaration.  A vector node returns ``None``; its components' supports are
+            :meth:`component_supports`.
+        """
+        value = self.dose_supports[time - 1] if self.dose_supports else None
+        return None if isinstance(value, tuple) else value
+
+    def component_supports(self, time: int) -> dict[str, Any]:
+        """The declared support of each continuous component of vector node ``time``.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        dict of str to Support
+            Empty at a node of one column, or when no component declares one.
+        """
+        value = self.dose_supports[time - 1] if self.dose_supports else None
+        return dict(value) if isinstance(value, tuple) else {}
+
+    def node_atoms(self, time: int) -> tuple[float, ...]:
+        """The declared atoms of node ``time``, or ``()``.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        tuple of float
+            The declared atoms, in increasing order.  A vector node returns ``()``; its
+            components' atoms are :meth:`component_atoms`.
+        """
+        value = self.dose_atoms[time - 1] if self.dose_atoms else ()
+        return () if value and isinstance(value[0], tuple) else tuple(value)
+
+    def component_atoms(self, time: int) -> dict[str, tuple[float, ...]]:
+        """The declared atoms of each continuous component of vector node ``time``.
+
+        Parameters
+        ----------
+        time : int
+            The treatment node, counted from one.
+
+        Returns
+        -------
+        dict of str to tuple of float
+            Empty at a node of one column, or when no component declares atoms.
+        """
+        value = self.dose_atoms[time - 1] if self.dose_atoms else ()
+        if not value or not isinstance(value[0], tuple):
+            return {}
+        return {str(name): tuple(atoms) for name, atoms in value}
+
+    def dose_block(self, time: int, dose: FloatArray) -> FloatArray:
+        """A continuous node's design block: the dose and the indicator of each declared atom.
+
+        Without declared atoms it is the dose as one column, as before.  With them each
+        indicator is read from the dose given, so a counterfactual design reads the
+        assigned dose.
+
+        Parameters
+        ----------
+        time : int
+            A continuous node, counted from one.
+        dose : ndarray
+            ``(n,)`` doses.
+
+        Returns
+        -------
+        ndarray
+            ``(n, 1 + K)`` block, with ``K`` the number of declared atoms.
+        """
+        return atom_block(dose, self.node_atoms(time))
 
     @classmethod
     def from_long_panel(
@@ -1860,11 +2110,12 @@ class LongitudinalData:
     def component_design(self, time: int, values: FloatArray | None = None) -> FloatArray:
         """The design block of mixed node ``time``: doses as themselves, labels as indicators.
 
-        A continuous component enters as its dose, one column.  A categorical component
-        enters as :func:`~cleverly.data.validate.arm_indicators` of its own codes, drop-first,
-        as a categorical node does in :meth:`history_design`.  The joint level code of the
-        components is never a column.  A missing value fills with zero, on rows no fit
-        reads.
+        A continuous component enters as its dose, one column, and the indicator of each of
+        its declared atoms (:func:`~cleverly.data.validate.atom_block`).  A categorical
+        component enters as :func:`~cleverly.data.validate.arm_indicators` of its own codes,
+        drop-first, as a categorical node does in :meth:`history_design`.  The joint level
+        code of the components is never a column.  A missing value fills with zero, on rows
+        no fit reads.
 
         Parameters
         ----------
@@ -1880,11 +2131,15 @@ class LongitudinalData:
             The block, one row per unit.
         """
         observed = self.node_values(time) if values is None else np.asarray(values, dtype=float)
+        atoms = self.component_atoms(time)
+        names = self.component_names(time)
         columns = []
         for index, levels in enumerate(self.component_levels[time - 1]):
             column = np.nan_to_num(observed[:, index], nan=0.0)
             if not levels:
-                columns.append(column.reshape(-1, 1))
+                # A dose with declared atoms adds the indicator of each atom, read from the
+                # values given, as a dose of one column does (:meth:`dose_block`).
+                columns.append(atom_block(column, atoms.get(names[index], ())))
             else:
                 columns.append(arm_indicators(column, len(levels)))
         return np.hstack(columns)
@@ -2525,8 +2780,9 @@ class LongitudinalData:
             else:
                 codes = np.nan_to_num(plan[:, t - 1], nan=0.0)
             if self.is_continuous_node(t):
-                # A dose enters as itself, one column, as a point treatment's dose does.
-                columns.append(np.asarray(codes, dtype=float).reshape(-1, 1))
+                # A dose enters as itself, one column, as a point treatment's dose does, and
+                # beside it the indicator of each declared atom.
+                columns.append(self.dose_block(t, codes))
                 continue
             columns.append(arm_indicators(codes, len(self.treatment_levels[t - 1])))
         return np.hstack(columns)

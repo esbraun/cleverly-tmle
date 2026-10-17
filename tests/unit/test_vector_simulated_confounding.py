@@ -32,7 +32,12 @@ from . import test_point_vector_treatment as point_tests
 from . import test_vector_study_spine as spine
 from ._source_mutation import mutate
 
-pytestmark = pytest.mark.xdist_group("vector_simulated_confounding")
+#: The mixed laws put every dose on a grid, so R-b4 would refuse each fit; the
+#: fixture turns that refusal off and leaves every other check on (X40 step H).
+pytestmark = [
+    pytest.mark.xdist_group("vector_simulated_confounding"),
+    pytest.mark.usefixtures("exact_grid_law"),
+]
 
 #: The module, which the function ``cleverly.sensitivity.simulated_confounding`` shadows.
 surface_module = importlib.import_module("cleverly.sensitivity.simulated_confounding")

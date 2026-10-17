@@ -9,11 +9,14 @@ from ._typing import (
     FluctuationKind,
     FoldStrata,
     GBounds,
+    IterateChoice,
+    StoppingRule,
     SurvivalModel,
     TargetingMethod,
     TargetingScheme,
 )
 from .exceptions import MethodConfigurationError, Refusal, RefusalReason
+from .fluctuation._score import check_iterate, check_step_bound, check_stopping_rule
 from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
@@ -41,6 +44,7 @@ __all__ = [
     "Inference",
     "MethodAvailability",
     "ModelSpec",
+    "ParametricGFormulaMethod",
     "Runtime",
     "SDRMethod",
     "TMLEMethod",
@@ -77,10 +81,12 @@ _BASELINE_NO_FLUCTUATION = Refusal(
     "logistic shrink, iteration limit or score tolerance.",
     alternative="LTMLE takes {name}=, so pass the setting there.",
 )
-#: Why a point-treatment functional refuses ``method="gcomp"`` and ``method="ipw"``.
+#: Why a point-treatment functional refuses ``method="gcomp"``, ``method="ipw"`` and
+#: ``method="parametric_gformula"``.
 BASELINE_POINT_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
-    "sequential g-computation and sequential IPW are the baselines of a longitudinal fit.",
+    "sequential g-computation, sequential IPW and the parametric g-formula are the baselines "
+    "of a longitudinal fit.",
     alternative="A point-treatment functional fits tmle, drtmle or collaborative_tmle.",
 )
 #: Why a point-treatment functional refuses ``method="sdr"`` (R4).
@@ -245,6 +251,11 @@ class ModelSpec:
         Absolute correlation threshold used by screening.
     min_retain : int or None
         Minimum number of covariates retained by screening.
+    outcome_by_arm : bool
+        Whether to fit one outcome regression per treatment arm, each on the arm's rows and
+        the covariates alone (R's ``drtmle(stratify=TRUE)``).  The default fits one regression
+        on the covariates and the treatment.  A continuous dose has no arms and is refused,
+        and so is a longitudinal design.
     survival_model : {"iterated_mean", "hazard"}
         How a longitudinal fit models a survival curve.  ``"hazard"`` targets the
         cause-specific hazards of a held baseline treatment; see
@@ -264,6 +275,11 @@ class ModelSpec:
     >>> models = ModelSpec(outcome_learner=LinearRegression())
     >>> type(models.outcome_learner).__name__
     'LinearRegression'
+
+    Fit one outcome regression for each treatment arm, as ``drtmle(stratify=TRUE)`` does:
+
+    >>> ModelSpec(outcome_learner=LinearRegression(), outcome_by_arm=True).outcome_by_arm
+    True
     """
 
     outcome_learner: Any = None
@@ -277,6 +293,7 @@ class ModelSpec:
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
+    outcome_by_arm: bool = False
     survival_model: SurvivalModel = "iterated_mean"
 
     def __post_init__(self) -> None:
@@ -408,7 +425,47 @@ class Targeting:
     max_iter : int, default=20
         Maximum targeting iterations.
     tol : float, default=1e-10
-        Score-equation convergence tolerance.
+        Score-equation convergence tolerance. It is the bar of ``stopping="relative"``,
+        and the tolerance of the inner Newton solve under every rule.
+    stopping : {"relative", "scaled_var", "sample_size"}, default="relative"
+        The rule that decides the score equation is solved. ``"relative"`` is the
+        shipped test: the largest score over the mean absolute clever covariate is at
+        most ``tol``. ``"scaled_var"`` and ``"sample_size"`` are the ``tmle3``
+        ``convergence_type`` rules. Each compares the score, in the outcome's units, with
+        ``sd / (sqrt(n_u) * min(log(n_u), 10))`` or ``1 / n_u``, where ``n_u`` counts the
+        distinct units among the rows the solver receives and ``sd`` is the sample SD of
+        the column's per-unit influence curve. A declared rule is refused beside
+        ``fluctuation="linear"``, which has no iteration to stop.
+    step_bound : float or None, default=None
+        The longest step of one targeting iteration, in the units of the fluctuation
+        coefficient. ``None`` takes the full Newton step. A positive number replaces the
+        Newton step by the ``tmle3`` constrained step: the iteration moves along the
+        normalised score vector ``s / ||s||`` and goes no further than ``step_bound``.
+        It needs ``algorithm="iterative"`` and ``fluctuation="logistic"``. A bounded walk
+        can stop short of ``tol``. Then the fit warns, reports ``converged=False`` and
+        ``failure="max_iter_reached"``, and ``score_check`` fails it. The ``tmle3`` pairing
+        is ``stopping="sample_size"`` with a larger ``max_iter``. Under
+        ``stopping="relative"`` the walk reaches ``tol=1e-10`` only with
+        ``step_search=True`` and well over the default ``max_iter``: 25 to 190 iterations on
+        the six arm-mean fits of
+        ``tests/unit/test_step_bound.py::TestRelativeReachability``.
+        A fit whose initial regression already meets the rule takes no step.
+    step_search : bool, default=True
+        Under ``step_bound``, ``True`` takes the length in ``(0, step_bound]`` that
+        minimises the weighted mean quasi-loss along the step, as ``tmle3`` does with
+        ``optim_delta_epsilon``. ``False`` takes the whole bound, as ``delta_epsilon`` does.
+        It needs ``step_bound``.
+    iterate : {"last", "best"}, default="last"
+        Which iterate of the targeting walk the fit reports. ``"last"`` reports the iterate
+        at which the walk stopped. ``"best"`` is ``use_best`` of ``tmle3``: it reports the
+        iterate ``k >= 1`` whose raw score vector has the smallest 2-norm, the first of any
+        tie. The initial fit is never reported while a step exists. The walk still stops by
+        the rule, ``n_iter`` and ``trace`` describe the whole walk, and ``converged`` is
+        judged at the reported iterate. ``Fluctuation.best_iterate`` records the index. The
+        best iterate differs from the last on a walk that oscillates, such as
+        ``step_search=False``. On ``algorithm="one_step"`` the norm never rises, so the best
+        iterate is the last. It is refused beside ``fluctuation="linear"``, which has no
+        iterates.
     isotonic : bool, default=False
         Whether a longitudinal survival fit projects each curve's levels and band limits
         onto a non-decreasing curve; see :class:`~cleverly.longitudinal.LTMLE`.  A
@@ -430,6 +487,12 @@ class Targeting:
 
     >>> Targeting().g_bounds
     'auto'
+
+    Stop the targeting step by the ``tmle3`` ``scaled_var`` rule instead of the shipped
+    relative score:
+
+    >>> Targeting(stopping="scaled_var").stopping
+    'scaled_var'
     """
 
     fluctuation: FluctuationKind = "logistic"
@@ -442,7 +505,16 @@ class Targeting:
     step_size: float = 1e-3
     max_iter: int = 20
     tol: float = 1e-10
+    stopping: StoppingRule = "relative"
+    step_bound: float | None = None
+    step_search: bool = True
+    iterate: IterateChoice = "last"
     isotonic: bool = False
+
+    def __post_init__(self) -> None:
+        check_iterate(self.iterate, self.fluctuation)
+        check_stopping_rule(self.stopping, self.fluctuation)
+        check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.algorithm)
 
 
 @dataclass(frozen=True)
@@ -623,6 +695,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "screen_treatment": "screen_treatment",
         "screen_threshold": "screen_threshold",
         "min_retain": "min_retain",
+        "outcome_by_arm": "outcome_by_arm",
         "survival_model": "survival_model",
     },
     "cross_fitting": {
@@ -646,6 +719,10 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "step_size": "step_size",
         "max_iter": "max_iter",
         "tol": "tol",
+        "stopping": "stopping",
+        "step_bound": "step_bound",
+        "step_search": "step_search",
+        "iterate": "iterate",
         "isotonic": "isotonic",
     },
     "inference": {
@@ -675,6 +752,7 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "screen_treatment", "screen_treatment"),
     ("models", "screen_threshold", "screen_threshold"),
     ("models", "min_retain", "min_retain"),
+    ("models", "outcome_by_arm", "outcome_by_arm"),
     ("cross_fitting", "repeats", "repeats"),
     ("cross_fitting", "stratify_by", "stratify_folds"),
     ("cross_fitting", "targeting_scheme", "targeting_scheme"),
@@ -904,6 +982,10 @@ class TMLEMethod:
                     "censoring_learner": models.censoring_learner,
                     "n_bootstrap": inference.n_bootstrap,
                     "bootstrap_resampling": inference.bootstrap_resampling,
+                    "stopping": targeting.stopping,
+                    "step_bound": targeting.step_bound,
+                    "step_search": targeting.step_search,
+                    "iterate": targeting.iterate,
                     "density_bins": models.density_bins,
                     "ratio": models.ratio,
                     "survival_model": models.survival_model,
@@ -937,6 +1019,7 @@ class TMLEMethod:
                 "screen_treatment": models.screen_treatment,
                 "screen_threshold": models.screen_threshold,
                 "min_retain": models.min_retain,
+                "outcome_by_arm": models.outcome_by_arm,
                 "cross_fit": cross.enabled,
                 "repeats": cross.repeats,
                 "split_plan": split_plan,
@@ -948,6 +1031,10 @@ class TMLEMethod:
                 "nuisance_bound": targeting.nuisance_bound,
                 "target_weights": targeting.target_weights,
                 "step_size": targeting.step_size,
+                "stopping": targeting.stopping,
+                "step_bound": targeting.step_bound,
+                "step_search": targeting.step_search,
+                "iterate": targeting.iterate,
                 "n_bootstrap": inference.n_bootstrap,
                 "bootstrap_resampling": inference.bootstrap_resampling,
             }
@@ -978,11 +1065,12 @@ default="greedy"
         Collaborative search strategy. ``"greedy"``, ``"ordered"``, ``"discrete"``,
         ``"lasso"`` and ``"learners"`` report no confidence interval, no p-value and no
         standard error, with two exceptions that the Notes state. F18 in the roadmap holds
-        the reason. ``"oat"`` reports no interval, for the reason F19 holds, except on an
-        in-sample per-arm fit with ``ParametricOutcome`` and ``ParametricMechanism`` that
-        ``cleverly.estimators.ctmle.per_arm_parametric_support`` admits (X58). That fit
-        reports pointwise intervals. ``"derivative"`` is C-TMLE0. It selects nothing and
-        reports the ordinary TMLE interval.
+        the reason. ``"oat"`` reports no interval, for the reason F19 holds, except on a
+        per-arm fit with ``ParametricOutcome`` and ``ParametricMechanism`` that
+        ``cleverly.estimators.ctmle.per_arm_parametric_support`` admits (X58), in sample or
+        cross-fitted, with any number of arms and with observation weights. That fit reports
+        pointwise intervals and a simultaneous band. ``"derivative"`` is C-TMLE0. It
+        selects nothing and reports the ordinary TMLE interval.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.
     ordering : tuple of str or None, default=None
@@ -1019,6 +1107,11 @@ default="greedy"
     selection_split : tuple of int or None, default=None
         Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
         selection split. ``selection_folds`` must equal ``V``.
+    patience : int or None, default=None
+        Stop the cross-validated scoring of the candidate path after this many candidates
+        score worse than the best so far, as ``patience`` does in R ``ctmle``. ``None`` reads
+        the whole path. It applies to ``"greedy"``, ``"ordered"``, ``"discrete"``,
+        ``"lasso"`` and ``"learners"``. The fit keeps its ``working_mechanism_plugin`` status.
 
     See Also
     --------
@@ -1055,6 +1148,11 @@ default="greedy"
     >>> method.name, method.selection_folds
     ('collaborative_tmle', 3)
 
+    Stop the scoring of the candidate path once two candidates score worse than the best so far:
+
+    >>> CollaborativeTMLEMethod(strategy="greedy", patience=2).patience
+    2
+
     The collaborative fields are additions.  Everything :class:`TMLEMethod` configures is
     still configured the same way:
 
@@ -1085,6 +1183,7 @@ default="greedy"
     lambdas: tuple[float, ...] | None = None
     treatment_candidates: tuple[Any, ...] | None = None
     selection_split: tuple[int, ...] | None = None
+    patience: int | None = None
     name: str = "collaborative_tmle"
 
     def __post_init__(self) -> None:
@@ -1135,6 +1234,7 @@ default="greedy"
             "lambdas": self.lambdas,
             "treatment_candidates": self.treatment_candidates,
             "selection_split": self.selection_split,
+            "patience": self.patience,
         }
 
 
@@ -1274,8 +1374,9 @@ class SDRMethod(TMLEMethod):
         Sample-splitting settings.  Above one fold, each fold fits every nuisance on its
         training rows.
     targeting : Targeting
-        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
-        refused, because the estimator fits no fluctuation.
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter``, ``tol``,
+        ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
+        estimator fits no fluctuation.
     inference : Inference
         Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
         with no percentile inference.
@@ -1328,6 +1429,10 @@ class SDRMethod(TMLEMethod):
             ("submodel_alpha", "alpha"),
             ("max_iter", "max_iter"),
             ("tol", "tol"),
+            ("stopping", "stopping"),
+            ("step_bound", "step_bound"),
+            ("step_search", "step_search"),
+            ("iterate", "iterate"),
         ):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
@@ -1339,6 +1444,10 @@ class SDRMethod(TMLEMethod):
             "alpha",
             "max_iter",
             "tol",
+            "stopping",
+            "step_bound",
+            "step_search",
+            "iterate",
             "survival_model",
             "targeting",
             "step_size",
@@ -1349,7 +1458,11 @@ class SDRMethod(TMLEMethod):
 
 
 #: The engine each baseline method configures, as the curve-setting refusal names it.
-_BASELINE_ENGINES = {"gcomp": "SequentialGComputation", "ipw": "SequentialIPW"}
+_BASELINE_ENGINES = {
+    "gcomp": "SequentialGComputation",
+    "ipw": "SequentialIPW",
+    "parametric_gformula": "ParametricGFormula",
+}
 
 
 @dataclass(frozen=True)
@@ -1388,6 +1501,10 @@ class _BaselineMethod(TMLEMethod):
             ("submodel_alpha", "alpha"),
             ("max_iter", "max_iter"),
             ("tol", "tol"),
+            ("stopping", "stopping"),
+            ("step_bound", "step_bound"),
+            ("step_search", "step_search"),
+            ("iterate", "iterate"),
         ):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
@@ -1401,6 +1518,10 @@ class _BaselineMethod(TMLEMethod):
             "alpha",
             "max_iter",
             "tol",
+            "stopping",
+            "step_bound",
+            "step_search",
+            "iterate",
             "survival_model",
             "targeting",
             "step_size",
@@ -1431,8 +1552,9 @@ class GComputationMethod(_BaselineMethod):
         than one fold.
     targeting : Targeting
         ``g_bounds`` and ``q_bounds``.  ``g_bounds`` moves the positivity diagnostics only.
-        ``submodel_alpha``, ``max_iter`` and ``tol`` are refused, because the estimator
-        fits no fluctuation.
+        ``submodel_alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``,
+        ``step_search`` and ``iterate`` are refused, because the estimator fits no
+        fluctuation.
     inference : Inference
         Interval and resampling settings.
     runtime : Runtime
@@ -1481,8 +1603,9 @@ class IPWMethod(_BaselineMethod):
         Sample-splitting settings.  The default is in sample, and the engine refuses more
         than one fold.
     targeting : Targeting
-        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
-        refused, because the estimator fits no fluctuation.
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter``, ``tol``,
+        ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because
+        the estimator fits no fluctuation.
     inference : Inference
         Interval and resampling settings.
     runtime : Runtime
@@ -1538,6 +1661,103 @@ class IPWMethod(_BaselineMethod):
 
 
 @dataclass(frozen=True)
+class ParametricGFormulaMethod(_BaselineMethod):
+    """Configure the parametric g-formula of a longitudinal regimen.
+
+    Forward simulation of fitted covariate, outcome and hazard laws (Robins 1986; McGrath et
+    al. 2020), fitted by :class:`cleverly.longitudinal.ParametricGFormula`.  The method fits in
+    sample, so ``cross_fitting`` defaults to ``CrossFitting(enabled=False)``, and above one fold
+    the engine refuses.  It fits no fluctuation, so the fluctuation settings of
+    :class:`Targeting` stay at their defaults.  A point-treatment functional and a working model
+    over regimens refuse the method.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners.  ``outcome_learner`` fits the outcome model, and
+        ``treatment_learner`` fits the natural-treatment models.  ``pseudo_learner`` is refused.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.  The default is in sample, and the engine refuses more
+        than one fold.
+    targeting : Targeting
+        ``g_bounds`` and ``q_bounds``.  ``g_bounds`` moves the positivity diagnostics only.
+    inference : Inference
+        Interval and resampling settings.
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+    n_draws : int
+        The simulated histories per unit behind the estimate.
+    n_derivative_draws : int or None
+        The simulated histories per unit behind the derivatives.  ``None`` takes the larger of
+        ``n_draws`` and ten.
+    covariate_types : mapping or None
+        The type of each time-varying column at nodes ``2..T``.
+    covariate_learner : estimator or None
+        The template of every covariate model.  ``None`` is a main-terms GLM.
+    hazard_learner : estimator or None
+        The template of every hazard model of a survival outcome.  ``None`` is a GLM.
+
+    See Also
+    --------
+    GComputationMethod : The iterated conditional expectation form of the same parameter.
+    cleverly.longitudinal.ParametricGFormula : The engine this configuration is translated for.
+    cleverly.LongitudinalTreatment : The design whose functionals take this method.
+
+    Examples
+    --------
+    >>> from cleverly import ParametricGFormulaMethod
+    >>> method = ParametricGFormulaMethod(n_draws=20)
+    >>> method.name, method.cross_fitting.enabled
+    ('parametric_gformula', False)
+    >>> kwargs = method.estimator_kwargs(longitudinal=True)
+    >>> kwargs["n_draws"], kwargs["n_folds"], "alpha" in kwargs
+    (20, 1, False)
+    """
+
+    name: str = "parametric_gformula"
+    n_draws: int = 10
+    n_derivative_draws: int | None = None
+    covariate_types: Any = None
+    covariate_learner: Any = None
+    hazard_learner: Any = None
+
+    def __post_init__(self) -> None:
+        _validate_learner(self.covariate_learner, "covariate_learner")
+        _validate_learner(self.hazard_learner, "hazard_learner")
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the longitudinal g-formula engine.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be true, because the estimator is longitudinal.
+
+        Returns
+        -------
+        dict of str to Any
+            Engine keyword arguments, with the simulation settings.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is false, or when a fluctuation setting differs from its
+            default.
+        """
+        kwargs = super().estimator_kwargs(longitudinal=longitudinal)
+        kwargs.update(
+            n_draws=self.n_draws,
+            n_derivative_draws=self.n_derivative_draws,
+            covariate_types=self.covariate_types,
+            covariate_learner=self.covariate_learner,
+            hazard_learner=self.hazard_learner,
+        )
+        return kwargs
+
+
+@dataclass(frozen=True)
 class IPSIMethod(TMLEMethod):
     """Configure Kennedy's estimator of incremental propensity-score interventions.
 
@@ -1557,8 +1777,9 @@ class IPSIMethod(TMLEMethod):
         Sample-splitting settings.  Above one fold, each fold fits every nuisance on its
         training rows.
     targeting : Targeting
-        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter`` and ``tol`` are
-        refused, because the estimator fits no fluctuation.
+        ``g_bounds`` and ``q_bounds``.  ``submodel_alpha``, ``max_iter``, ``tol``,
+        ``stopping``, ``step_bound``, ``step_search`` and ``iterate`` are refused, because the
+        estimator fits no fluctuation.
     inference : Inference
         Interval and resampling settings.  The bootstrap runs and reports a bootstrap sd,
         with no percentile inference.
@@ -1621,7 +1842,15 @@ class IPSIMethod(TMLEMethod):
         if not longitudinal:
             raise MethodConfigurationError.from_refusal(IPSI_POINT_REFUSAL)
         defaults = Targeting()
-        for field_name in ("submodel_alpha", "max_iter", "tol"):
+        for field_name in (
+            "submodel_alpha",
+            "max_iter",
+            "tol",
+            "stopping",
+            "step_bound",
+            "step_search",
+            "iterate",
+        ):
             if _differs_from_default(
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
@@ -1632,6 +1861,10 @@ class IPSIMethod(TMLEMethod):
             "alpha",
             "max_iter",
             "tol",
+            "stopping",
+            "step_bound",
+            "step_search",
+            "iterate",
             "survival_model",
             "targeting",
             "step_size",

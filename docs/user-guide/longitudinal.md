@@ -405,11 +405,122 @@ print(bootstrapped.summary())
 ```
 
 The [bootstrap contract](../technical-reference/longitudinal-tmle.md#the-full-refit-bootstrap)
-states what each replicate resamples and refits. The registered study measures the percentile
-interval with correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$. A
-design is licensed as inference only after its cells are green. Until then the summary prints
-`bootstrap sd` and a percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of
-their inputs.
+states what each replicate resamples and refits. The percentile interval carries the support label
+of the fit. A registered support row decides the label. The `bootstrap` kind of the row covers an
+in-sample end-of-study or survival fit with static regimens. Any other fit prints
+`[experimental]`.
+
+The registered study measures correctly specified cell-mean nuisances on finite
+binary laws, at $n = 1000$. A fit with fewer than 20 clusters prints `bootstrap sd` and a
+percentile range, a diagnostic. `ratio` and `rmst` carry the bootstrap of their inputs.
+
+### Bootstrap for sparse regimens
+
+This feature is **experimental**. The X39 long-horizon studies have not run, so every item in this
+section prints `experimental`. The label makes no coverage claim. The roadmap row
+[X39](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) holds the pending
+studies.
+
+Use the refit bootstrap for `LTMLE` or `SDR` when few units follow a regimen, or when the
+influence curve has heavy tails. The Wald interval reads its variance from those few rows. The
+interval then under-covers, because the variance estimate is noisy and the sampling distribution is
+skewed.
+
+A Wald fit warns with `SparseInfluenceWarning` when this happens. A fit with a percentile
+bootstrap warns too, because the percentile interval keeps the skew. A fit with BCa does not warn.
+The bootstrap is opt in. A fit never turns it on.
+
+| option | what it does | label today |
+| --- | --- | --- |
+| `n_bootstrap=B` | refits the whole estimator on `B` resamples and attaches an interval to each estimate | `supported` only for a covered fit, otherwise `experimental` |
+| `bootstrap_interval="percentile"` | takes the quantiles of the `B` draws. This is the default | as above |
+| `bootstrap_interval="bca"` | reads bias-corrected and accelerated limits from the draws. It needs `n_bootstrap` | `experimental` on every fit |
+| `simultaneous=True` | adds a studentized bootstrap sup-t band to the fit, for two or more estimates | `experimental` on every fit |
+| `result.diagnostics.influence()` | reports how few rows carry each influence curve. Call it directly: `run_all()` does not include it | a diagnostic, with no label |
+
+Pass these options to `LTMLE` or `SDR`. The `CausalStudy.estimate` route does not accept
+`bootstrap_interval`.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly.datasets import make_longitudinal
+from cleverly.longitudinal import LTMLE
+
+frame, _ = make_longitudinal(n=300, seed=0)
+result = LTMLE(
+    {"always": 1, "never": 0},
+    outcome_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(max_iter=1000),
+    censoring_learner=LogisticRegression(max_iter=1000),
+    n_folds=1,
+    n_bootstrap=20,
+    bootstrap_interval="bca",
+    simultaneous=True,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+print(result.summary())
+print(result.bootstrap_band.critical_value)
+```
+
+The example uses 20 resamples to run fast. Use at least 199 in an analysis. With `B` resamples a
+BCa limit is an order statistic of the draws, so a small `B` gives a coarse limit.
+
+**Percentile or BCa.** The percentile interval takes the 2.5% and 97.5% quantiles of the draws. It
+assumes the draws are symmetric about the estimate. The BCa interval shifts both limits by a bias
+correction, from the share of draws below the estimate, and by an acceleration, from the skew of
+the influence curve. Choose BCa when `diagnostics.influence()` reports a large skewness. For a
+symmetric curve the two intervals are close.
+
+**The sup-t band.** Pass `simultaneous=True` with `n_bootstrap` to get `result.bootstrap_band`.
+Each replicate records its own standard error. The band takes the largest studentized deviation
+across the estimates in each replicate. Its critical value is a high order statistic of those
+maxima.
+
+The band is $\hat\psi_j \pm c^* \widehat{SE}_j$ for each estimate. The multiplier band in
+`result.simultaneous` does not change. The summary lists both.
+
+**The influence report.** `result.diagnostics.influence()` returns one row for each estimate.
+
+| column | meaning |
+| --- | --- |
+| `kish` | the effective number of rows that carry the curve, $n / \hat\kappa$. With `id=` the unit is the cluster, and $n$ counts clusters |
+| `skewness`, `kurtosis` | the third and fourth standardized moments of the curve. A normal curve has kurtosis 3 |
+| `variance_rel_sd` | the relative standard deviation of the variance estimate |
+| `edgeworth_loss` | the Wald coverage shortfall that the second-order Edgeworth term predicts. A positive value is a loss and a negative value is a predicted excess. The flag does not read this column |
+| `bca_z0`, `bca_acceleration` | the BCa bias correction and acceleration. They are `nan` without a bootstrap |
+
+The warning fires when `variance_rel_sd` is above 0.125, which is close to a Kish count of 64. The
+warning lists the relative SD of each flagged row, with its Kish count and Edgeworth loss. A
+flagged row can show a negative loss, because the skew term can predict an excess while the noisy
+variance estimate still triggers the flag. The
+X39 work set that threshold after it read the pilot runs, so it is not a pre-registered rule.
+A cross-fitted fit, a hazard-model fit and an isotonic fit warn too, but the message does not
+advise the bootstrap. For the cross-fitted fit the bootstrap over-covers, and the roadmap owner
+`X20-bootstrap` in the roadmap holds that result.
+
+**Cost.** Each resample refits every nuisance. A fit of 64,000 rows and five decisions takes about
+0.2 seconds for each resample on the fast path, a development measurement that no committed
+artifact records yet. The X39 studies plan `B = 199`, so one such fit costs about 40 seconds of
+bootstrap time.
+
+The fast path fits the distinct rows with the resample counts as weights. It
+applies to an in-sample, unclustered, unweighted fit with declared treatment and censoring
+mechanisms, categorical treatment, and learners that declare `frequency_exact`. Any other fit
+refits each materialized resample, which costs much more. Set `n_jobs` to run resamples in
+parallel.
+
+**Evidence.** The code ships as experimental. The long-horizon Python studies over three to five
+decisions are pending, as a follow-up. The R comparators (`ltmle` and `lmtp`) are deferred to
+[X59](../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr). No coverage result for
+BCa, the sup-t band or the warning threshold exists in this repository yet.
 
 ## Repeated outcomes
 
@@ -447,7 +558,7 @@ print(means.curve(scale="mean")[["estimand", "psi", "ci_lower", "ci_upper"]])
 | survival view | not available. A repeated outcome has no absorbing event |
 | missing `Y_t` on an uncensored row | refused. Encode the loss as `C_t = 0` |
 | `SDR` | fits. Each horizon is the end-of-study fit of the truncated panel |
-| `IPSI` | refused before any learner |
+| `IPSI` | fits. Each horizon is the end-of-study fit of the truncated panel |
 
 `truth` holds the exact mean at each horizon, under the names the fit reports. In the generator, `W`
 takes three values and every later node is binary. The fit can therefore check its curve against
@@ -456,6 +567,9 @@ takes three values and every later node is binary. The fit can therefore check i
 estimator, its conditions, and its evidence. The
 [repeated-outcome study](../technical-reference/method-evidence/repeated-outcome-longitudinal-tmle.md)
 checks its intervals against exact truths. Its comparison with R `ltmle` 1.3-0 is pending.
+
+The [repeated-outcome `IPSI` study](../technical-reference/method-evidence/repeated-outcome-ipsi.md)
+does the same for `IPSI`. It has no comparator.
 
 ## Competing risks
 
@@ -678,11 +792,157 @@ the estimators, the stacked influence curve, the settings, and the refusals. The
 [sequential offers tutorial](../examples/sequential-offers.ipynb) fits g-computation and `LTMLE`
 with the same misspecified outcome model on one campaign.
 
+## Estimate structural blips
+
+`StructuralNestedMean` fits a linear structural nested mean model. Use it to report the effect of
+each treatment node on the end-of-study outcome, and to let that effect vary with declared
+features. It is a separate method. `LTMLE` and `SDR` fit no model for the effect.
+
+| you want | fit |
+| --- | --- |
+| the effect of node $t$ with later treatment at the reference, as a coefficient matrix | `StructuralNestedMean` |
+| the mean outcome under a static regimen, with no model for the effect | `LTMLE` or `SDR` |
+| the value of a rule, a policy or an incremental intervention | `LTMLE`, `SDR` or `IPSI` |
+
+Declare the features of each node in `blip_features`. A key is a node counted from one, or its
+treatment column. A value lists columns. A tuple of columns declares a product. The intercept is
+always a feature. A feature may read the baseline columns, the covariates through its node, and
+the earlier treatments.
+
+```python
+from cleverly.datasets import make_longitudinal
+from cleverly.learners import GLM
+from cleverly.longitudinal import StructuralNestedMean
+
+frame, _ = make_longitudinal(n=300, seed=0, censoring=False)
+result = StructuralNestedMean(
+    {"always": 1, "never": 0},
+    reference="never",
+    blip_features={1: ["W1"], 2: ["W1", "A1"]},
+    outcome_learner=GLM(family="binomial"),
+    treatment_learner=GLM(family="binomial"),
+    n_folds=2,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+)
+print(result.summary())
+print(result.blip(2))
+```
+
+`snmm()` is the one-call form. `result.blip(node)` returns the coefficients of a node as a matrix
+with one row per feature and one column per coding component. It is the transpose of the matrix
+$\Psi_t$ of the
+[technical page](../technical-reference/structural-dynamic-effects.md#the-model). A categorical node has one column for each level
+after the first sorted level. A continuous node has one column, the dose. The regimen levels and
+contrasts follow from the blips and the mean outcome at the reference level `ey_reference`.
+
+Pass `regression_learner=` when the outcome is binary and a node holds a dose or a feature is
+continuous. A classifier takes no target outside $\{0, 1\}$, and `regression_learner` fits those
+targets. It defaults to `outcome_learner`.
+
+Read the result with this condition. The intervals are valid under the linear structural nested
+mean model with the declared blip features. Every row of the summary and of `to_frame()` carries
+that label. A blip that depends on an undeclared earlier treatment or covariate makes the
+coefficients answer a different question.
+
+The evidence label is "Python property evidence, with comparator runs pending". The
+[structural nested mean study](../technical-reference/method-evidence/structural-nested-mean.md)
+covers cross-fitted fits with `GLM` nuisances on binary, three-level and dose nodes. It also
+covers known weights and 40 or more clusters. A fit inside those rows reads `supported`. Any other fit, such as an in-sample fit, reads `experimental`. The summary
+prints a `support` column and the reason.
+
+Check the model against `LTMLE`.
+
+```python
+check = result.check_model()
+print(check.summary())
+```
+
+`check_model()` fits `LTMLE` on the same rows and folds. A cross-fitted check refits both
+estimators on `n_splits` seeded splits (default 5) and averages the difference. It reports a joint
+Wald statistic on the difference of the contrasts. A rejection says that the model fails for these contrasts. A
+non-rejection does not confirm the model.
+
+| the fit | what it reports |
+| --- | --- |
+| `n_folds > 1` | the influence-curve intervals |
+| `n_folds=1` and every learner a `GLM` | the influence-curve intervals, valid when every `GLM` is correct |
+| `n_folds=1` and another learner | the point estimate, with a diagnostic standard error |
+
+The estimator refuses a rule, a policy, censoring, survival and repeated outcomes. It refuses a
+static level, a contrast and `check_model` when a feature reads a time-varying covariate.
+[Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
+each refusal and its alternative.
+
+## Simulate the parametric g-formula
+
+`ParametricGFormula` estimates the same regimen levels and contrasts as `LTMLE`. It fits a model for
+each time-varying covariate and for the outcome. It then simulates each unit forward under each
+regimen and averages the simulated outcomes. `SequentialGComputation` reaches the same target by
+regression backward through the nodes.
+
+| reason | choose |
+| --- | --- |
+| you need the forward-simulation form that `gfoRmula` and `pygformula` report, with an analytic interval | `ParametricGFormula` |
+| a plan fixes a continuous dose at a node, or sets it by a known rule | `ParametricGFormula`. `LTMLE` and `SequentialGComputation` refuse both |
+| you doubt the law of a time-varying covariate | `SequentialGComputation`, `LTMLE` or `SDR`. They model no covariate law |
+| you want a fit that a misspecified model of one kind cannot bias | `LTMLE` or `SDR` |
+
+The parametric g-formula needs a correct model for every covariate and for the outcome. It reads
+more models than the backward form, and each one must be right.
+
+```python
+from cleverly.datasets import make_longitudinal
+from cleverly.longitudinal import ParametricGFormula
+
+frame, _ = make_longitudinal(n=300, seed=0)
+result = ParametricGFormula(
+    {"always": 1, "never": 0},
+    reference="never",
+    covariate_types={"L2": "normal"},
+    n_draws=20,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+    censoring=["C1", "C2"],
+)
+print(result.summary())
+print(result.simulation.monte_carlo_share)
+```
+
+`gformula()` is the one-call form. The fit refuses an undeclared time-varying column that is not
+coded 0/1, before any learner. Declare it in `covariate_types=` as `"binary"`, `"categorical"` or
+`"normal"`.
+
+The interval includes the simulation error. `result.simulation.monte_carlo_share` gives the share
+of each variance that the simulation contributes, and the fit warns above 10%. Raise `n_draws=` to
+lower it. A fit with the same `random_state=` repeats exactly.
+
+A data-adaptive learner for any model that the estimate reads gives the status
+`adaptive_baseline_plugin`: the point estimate only. A fixed number at a continuous treatment node
+is a fixed dose, and a `DynamicRegimen` rule with `rule_kind="known"` there sets the dose from the
+simulated history. The result then states its model reliance and reports a support diagnostic. No
+published analytic variance exists for the simulation form, so the interval is a natural
+extension. [Parametric g-formula](../technical-reference/parametric-gformula.md) gives the
+estimator, the argument, the settings, the refusals and the validation.
+
 ## Estimate an incremental intervention over time
 
 Pass `IncrementalEffect` to `identify()` and `method="ipsi"` to `estimate()`. Each
 `Incremental(delta)` multiplies every unit's odds of treatment by `delta` at every node.
-`Incremental(1.0)` is the natural course, and the example uses it as the reference.
+`Incremental(1.0)` is the natural course, and the example uses it as the reference. A node with
+three or more levels takes one factor for each level, such as
+`Incremental({"high": 2.0, "low": 0.5})`. A level that the mapping does not name keeps the
+factor 1.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -728,13 +988,17 @@ reason.
 | fit the engine directly | `IPSI([Incremental(1.0), Incremental(2.0)], ...)` from `cleverly.longitudinal` |
 | use one tilt per node | `DynamicRegimen("ramp", (Incremental(1.5), Incremental(2.0)))` |
 | tilt one node and fix another | `DynamicRegimen("tilt then stop", (Incremental(2.0), 0))` |
+| tilt a node with three levels | `Incremental({"high": 2.0, "low": 0.5})`. A scalar there is refused before any learner, and so is a key that is not a level of the node |
 | declare a known treatment mechanism | pass `treatment_probabilities=` to the design. The tilt is then a known policy |
 
 A level can leave the outcome range, because the estimate is an average of influence-function
 values. The fit then warns with `ParameterSpaceWarning`. A risk curve can also be non-monotone
 across horizons. A mean of a non-absorbing outcome $Y_t$ is the end-of-study estimand on the panel
 truncated after node $t$. Earlier $Y_s$ are covariates there (Kim et al. 2021, Theorem 3.1).
-`IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
+
+A fit with a node of three or more levels carries the label of the registered study
+[categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md)
+when it matches that study's rows. Any other such fit is labelled `experimental`. `IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
 [Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
 the contract.
 

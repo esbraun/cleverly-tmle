@@ -182,8 +182,8 @@ def clip_grid() -> quad.PopulationFit:
 def _drop_mask(monkeypatch: pytest.MonkeyPatch, field: str) -> None:
     original = StackProblem._arm_state
 
-    def mutated(self: StackProblem, theta: np.ndarray, j: int) -> Any:
-        state = original(self, theta, j)
+    def mutated(self: StackProblem, theta: np.ndarray, j: int, k: int = 0) -> Any:
+        state = original(self, theta, j, k)
         return replace(state, **{field: np.ones_like(getattr(state, field))})
 
     monkeypatch.setattr(StackProblem, "_arm_state", mutated)

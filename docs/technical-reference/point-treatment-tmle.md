@@ -546,7 +546,7 @@ These requests with `strata=` refuse before any learner:
 | --- | --- |
 | `targeting_scheme="fold"` | fold targeting fits the fluctuation on the validation rows. Montoya et al. (2023), Section 3.2, Step 2(c), publish that update, and the package does not implement it with strata. [X61](../roadmap.md#x61-fold-targeting-and-fold-evaluation) part (b) holds this composition |
 | `cv_evaluation=True` | the fold-evaluated estimate needs stratum shares and a stratum-indexed fold average in each validation fold ([X28](../roadmap.md#x28-fold-evaluated-cv-tmle-with-baseline-strata)) |
-| an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation has no finite root |
+| an incremental target with a stratum that lacks a treatment arm | the stratum's treatment-mechanism equation may have no finite root. It has none only if some direction of the covariate separates, which depends on the fitted outcome regression, so the guard reads the data alone |
 | an MSM whose design is singular inside a stratum | the stratum projection is not one coefficient vector; the shipped rank rule decides |
 | a `DRTMLE` stratum with no trainable rows of an arm in some training complement | its reduced regressions cannot be fitted inside the stratum |
 | a stacked PAR, PAF, or `ey_obs` beside arm targets | the arm-indexed stacked contract refuses strata. The step qualifies, and it needs a witness and a registered cell ([X53](../roadmap.md#x53-missing-outcome-cv-tmle-variants) part (e)) |
@@ -581,10 +581,450 @@ counts, so each arm must appear in two distinct clusters. See
 | `g_bounds=` | the treatment-mechanism truncation. `"auto"` is target-aware | it changes the finite-sample procedure. Report it with the support diagnostics |
 | `q_bounds=`, `submodel_alpha=` | the outcome scaling, and the logistic submodel bound | no. A cross-fitted fit of a continuous outcome refuses `q_bounds=None` |
 | `screen_treatment=`, `screen_threshold=`, `min_retain=` | covariate screening for the treatment mechanism | no |
+| `stopping=` | the rule that decides the score equation is solved. `"relative"` is the shipped test | it changes when the targeting stops and how the result judges the residual. See [stopping rules](#stopping-rules-step-bound-and-best-iterate) |
+| `step_bound=`, `step_search=` | the longest step of one iteration, and whether a line search sets its length | it changes the path of the iteration. The score equation is the same |
+| `iterate=` | which iterate of the walk the fit reports | it changes the reported fit only when the walk oscillates |
+| `outcome_by_arm=` | one outcome regression for each treatment arm | it changes the nuisance estimator. See [per-arm outcome regression](#per-arm-outcome-regression) |
+| `treatment_adjustment=` | the adjustment columns the treatment mechanism reads | **yes.** It restricts the statistical model. See [treatment-mechanism covariates](#treatment-mechanism-covariates) |
 | `cross_fit=`, `n_folds=`, `repeats=` | sample splitting for the nuisances | **yes.** See [CV-TMLE](cv-tmle.md). `cross_fit=True` with fewer than two folds is refused at construction |
 
 `submodel_alpha` bounds the logistic submodel. `alpha` is the interval's significance level. The
 two are separate keywords because they once shared a name and a fit read one as the other.
+
+### Stopping rules, step bound and best iterate
+
+`Targeting` carries four options of the `tmle3` updater. Each default runs the shipped code path
+unchanged.
+
+| option | values | `tmle3` option | what it decides |
+| --- | --- | --- | --- |
+| `stopping=` | `"relative"` (default), `"scaled_var"`, `"sample_size"` | `convergence_type` | when the score equation counts as solved |
+| `step_bound=` | `None` (default) or a positive number | `constrain_step`, `delta_epsilon` | the longest step of one outer iteration |
+| `step_search=` | `True` (default) or `False` | `optim_delta_epsilon` | whether a line search sets the length of a bounded step |
+| `iterate=` | `"last"` (default), `"best"` | `use_best` | which iterate the fit reports |
+
+The tests in `tests/unit/test_stopping_rule.py`, `test_step_bound.py` and `test_best_iterate.py`
+assert that a written-out default gives the same fit as an omitted option. The
+[architecture invariants](../architecture-invariants.md#option-defaults-keep-the-shipped-code-path)
+state the rule that holds the defaults.
+
+#### The three rules
+
+A rule compares the score of each fluctuation column with a threshold. Let $n_u$ be the number of
+distinct units among the rows the solver receives. A unit is a cluster when `id=` is set, and a
+row otherwise. Let "span" be the range of the outcome.
+
+| rule | statistic of column $j$ | threshold |
+| --- | --- | --- |
+| `relative` | $\lvert P_n S_j\rvert / \operatorname{mean}\lvert w h_j\rvert$ | `tol`. This is the shipped test |
+| `sample_size` | $\lvert P_n S_j\rvert \cdot \text{span}$ | $1/n_u$ |
+| `scaled_var` | $\lvert P_n S_j\rvert \cdot \text{span}$ | $\mathrm{sd}_j / (\sqrt{n_u}\,\min(\log n_u, 10))$ |
+
+The fit meets a declared rule when the largest ratio of statistic to threshold is at most one.
+`Fluctuation.rule_ratio` holds that ratio, and `Fluctuation.thresholds` holds the thresholds.
+Both are `None` under `relative`.
+
+The standard deviation $\mathrm{sd}_j$ is the sample standard deviation, with `ddof=1`, of the
+per-unit curve $IC_{uj} = (n_u / n)\sum_{i \in u} c_{ij}$. The contribution $c_{ij}$ depends on the
+column.
+
+| column | contribution $c_{ij}$ |
+| --- | --- |
+| one arm mean of the `mean` group, with unit weights | the full arm curve $\text{span}\,\{w h (Y - Q^*) + Q^*_a(W) - P_n Q^*_a\}$, as `tmle3` uses |
+| every other column, and every weighted fit | the score column $\text{span}\, w h (Y - Q^*)$ |
+
+The second row is a declared difference from `tmle3` (D4). The score column has no
+$Q^*_a(W)$ term, so the threshold of such a column is about the one an arm column would have.
+`tests/unit/test_stopping_rule.py` computes each threshold by hand with `pandas` group sums for a
+clustered continuous fixture.
+
+The rule decides the outer test of the solver. The inner Newton step keeps `tol=min(tol, 1e-12)`.
+On an unbounded iterative fit the rule therefore changes `converged`, `failure`, `n_iter` and the
+warning. It moves the estimate when the shrink binds after the first step, under `step_bound=`,
+and under `algorithm="one_step"`. The witnesses are in `tests/unit/test_stopping_rule.py`.
+
+| fit | what the witness shows |
+| --- | --- |
+| one-step walk, `sample_size` | the estimate differs from the full walk by more than $10^{-6}$. The walk stops at the index the hand count gives |
+| iterative fit with separation and `submodel_alpha=0.99` | `sample_size` converges at iteration 1. The shipped test stays unconverged after 20 iterations |
+
+A fit under `fluctuation="linear"` solves the score equation in one closed-form step. It has no
+iterate, rule or step bound, so `Targeting` refuses all three beside it.
+
+When a fit misses its rule, it warns with a pinned text:
+
+> targeting step did not meet the {rule} stopping rule after {k} iteration(s) (largest score over
+> its threshold = {x:.3g}): ...
+
+#### What a declared rule leaves in the estimate
+
+A declared rule leaves a score residual by design. The residual is a score residual and not a
+nuisance remainder, so it is not a linear-remainder term. Write $c = 1/\min(\log n_u, 10)$.
+
+| column | bound on the residual of a fit that met `scaled_var` |
+| --- | --- |
+| one arm-mean column with unit weights | $\lvert r_j\rvert \le c\, \mathrm{se}_j$, so the residual is at most $c$ standard errors |
+| a score-column arm row (D4) | about $c$. The score part and $Q^*_a(W)$ are uncorrelated in the population and not exactly in the sample |
+| a contrast $g$ | $\lvert g\cdot r\rvert \le c \sum_j \lvert g_j\rvert\, \mathrm{se}_j$, so $b \le c \sum_j \lvert g_j\rvert\, \mathrm{se}_j / \mathrm{se}_{\text{contrast}}$ |
+
+A contrast has no small a priori bound. The threshold of each column uses the full arm curve. The
+two arm curves share the $Q^*_a(W)$ terms, and the contrast cancels them. So the ratio
+$\sum_j \lvert g_j\rvert\, \mathrm{se}_j / \mathrm{se}_{\text{contrast}}$ can be large.
+
+The witness is the law $W \sim N(0,1)$, $A \sim \text{Bern}(0.5)$, $Y = W + A + 0.1\varepsilon$.
+`TestTheRuleBound` in `tests/unit/test_stopping_rule_report.py` fits it with seed 3 and
+$n = 2{,}000$. The ratio is 9.95, so the `ate` row has a `rule_bound_se` of 1.31 against
+$\sqrt{2}\,c = 0.19$. The same file pins `wald_coverage_bound(1.009, 0.05)` at 0.8277. At the
+ratio 9.95 and $c = 0.1$, the residual is $b = 0.995$ standard errors and the bound is about 0.831.
+Marginal structural model columns are contrasts in this sense.
+
+The coverage bound is $\Phi(z - b) - \Phi(-z - b)$ at a residual of $b$ standard errors.
+`wald_coverage_bound` computes it. The table gives the 95% bound for one arm-mean column at the
+residual $c$.
+
+| $n_u$ | $c$ | 95% interval, one arm-mean column |
+| ---: | ---: | ---: |
+| 50 | 0.256 | 0.9425 |
+| 100 | 0.217 | 0.9446 |
+| 500 | 0.161 | 0.9470 |
+| 1,000 | 0.145 | 0.9476 |
+| 22,026 and above | 0.100 | 0.9489 |
+
+`tests/unit/test_stopping_rule_report.py` checks the table against `scipy.stats.norm`. The bound
+is conditional on the residual being the only error. It does not replace the interval's own
+conditions.
+
+`sample_size` leaves a residual of at most $1/(n_u\, \mathrm{se})$ standard errors. That is
+$o(n^{-1/2})$, and it depends on the outcome's units. For a rare binary outcome or a narrow
+`span` it can reach about one standard error at $n = 100$. The realised line reports the exact
+value on every fit.
+
+#### What the result reports
+
+| output | content |
+| --- | --- |
+| `res.summary()` | one pinned line: "stopping rule {rule}: the largest score residual is {b:.3g} standard errors, on {name}. At that residual a {level:.0%} Wald interval keeps at least {bound:.4f} coverage." |
+| `res.summary()`, rule missed | the pinned line "the targeting did not meet the {rule} stopping rule; {detail}" |
+| `score_check()`, fluctuation rows | the bar is `Fluctuation.thresholds`. A row passes when the rule ratio is at most one. The rule also judges the `(strata)` row of a stratified working model and the `(reduced)` row of a `DRTMLE` fit, because the rule stops those outcome solves too. A `(mechanism)` row keeps the default bar |
+| `score_check()`, `DRTMLE` correction rows | under a declared rule, a `D*_Q` or `D*_Y` row is a `"diagnostic"`, because it restates the outcome columns that the `(reduced)` row judges. A `D*_g`, `D*_A` or `D*_M` row and every identity row keep their bars |
+| `score_check()`, estimand rows | kind `"diagnostic"`. They cannot fail. They carry `residual_se`, `coverage_bound` and, under `scaled_var`, `rule_bound_se` |
+| `score_check().to_frame()` | the columns `stopping`, `residual_se`, `coverage_bound` and `rule_bound_se`, only under a declared rule |
+
+The residual in standard errors is $\lvert P_n IC\rvert / \mathrm{se}$ on the scale of the
+estimate. The bound before the fit is read is
+$\texttt{rule\_bound\_se} = c \sum_j \lvert g_j\rvert\, \mathrm{se}_j / \mathrm{se}$. Here $g$ holds
+the column weights of the estimand. The term $\mathrm{se}_j = \mathrm{sd}_j / \sqrt{n_u}$ is the
+standard error of the threshold's own column. It equals the package variance for the same curve
+(`inference/cluster.py`).
+
+| estimand row | `rule_bound_se` |
+| --- | --- |
+| arm mean, unit weights | $c$, to $10^{-12}$ |
+| `att`, `atc` | about $c$ |
+| `ate` and other contrasts | $c \sum_j \lvert g_j\rvert\, \mathrm{se}_j / \mathrm{se}$, with no a priori value |
+| weighted arm row | computed by hand in the test, and not asserted at most $c$ |
+| stratified fit, marginal row | $\sum_s w_s\, \mathrm{threshold}_s / \mathrm{se}$ over the stratum blocks. $w_s$ is $P_n(S=s)$ for an arm mean or a difference, times $P_n(A=a \mid S=s) / P_n(A=a)$ for `att` or `atc` |
+| stratified fit, stratum row | the thresholds of that stratum's block over the stratum standard error |
+| `DRTMLE`, and a fit with several draws | `nan`. The corrected curve carries terms that the outcome columns do not |
+| incremental tilt | `nan`. The curve also carries the treatment-mechanism equation, which the rule does not govern |
+| working-model coefficient | `nan`. The curve is the score columns times the inverse normalising matrix, which the result does not carry |
+| shift, policy, regime, ratio | `nan`. The result does not map these estimates to score columns |
+
+A stratified block uses the score column as its contribution (declared difference D4), so its
+marginal row is not $c$. `TestTheRuleBound` computes the stratified rows by hand. It also checks
+that the weights reproduce the mean of each reported curve to $10^{-10}$ on a one-step walk.
+
+For a fit that met its rule, `residual_se` is at most `rule_bound_se`. An unconverged fit can
+exceed it. `TestTheRuleBound` asserts the inequality only on fits that met the rule. It also holds two
+mutation controls. One computes `rule_bound_se` as $\sqrt{2}\,c$, and the other drops the weight of
+the second arm. Each fails the contrast test.
+
+#### Alternating engines
+
+Three engines alternate between the outcome equation and another equation. Their outer exits
+judge the outcome equation by the rule ratio under a declared rule. Each other equation keeps
+`tol`.
+
+| engine | outer exit under a declared rule |
+| --- | --- |
+| point IPSI | the outcome entry is `tol` times the solver's ratio, and the mechanism score keeps `tol`. The solver's ratio is current, because the outcome solve ends each round |
+| `DRTMLE` | the ratio restated at the pair after the last move, in both update orders. Equations (9) and (10) keep `tol` |
+| `DRTMLE` with a missing outcome | the outcome entry of the worst score is `tol` times the ratio restated from the stacked scores. The drift blocks keep `tol` |
+
+A ratio is valid only at the pair of fit and score where it was computed. The `"benkeser"` order
+and the missing-outcome reduction both move the regression or the mechanism after the outcome
+solve. So `_restated_outcome_score` recomputes thresholds and ratio at the restated pair. No exit
+reads a stale ratio. The scaled quantity $\texttt{tol} \cdot \text{ratio}$ is one ruler on every
+round, so the stall rule still compares like with like.
+
+`tests/unit/test_stopping_rule_engines.py` audits each exit. It recomputes the ratio by hand at
+every round of the trace with `pandas`, and asserts that the ratio the exit read equals it. In the
+stale-ratio witness (`order="benkeser"`, seed 5, step 0.01) the restated ratio reaches 1.75 while
+the solver's own ratio is 0.966. Six mutation controls fail the audit, among them an exit that
+reads the solver's ratio and a restatement that keeps the old thresholds.
+
+The projection exits of an MSM test the shift in $\beta$. They are not outcome-score tests, and
+the rule does not change them.
+
+#### Where the rule applies
+
+| engine | (a) to (c) | $n_u$ counts |
+| --- | --- | --- |
+| `TMLE`, every point group | yes | the clusters among the solver's rows, else the rows |
+| point IPSI, `DRTMLE`, `CTMLE` | yes | as `TMLE`. A C-TMLE candidate counts the units of its training rows |
+| CV-TMLE, pooled, fold-targeted or repeated | yes | the units of the rows each solve receives. A fold-targeted fit counts its fold's units, so the bound is per fold |
+| `LTMLE`, per node | yes | the clusters of the panel, else the rows of the panel. The node solver receives every row. See [longitudinal targeting options](longitudinal-tmle.md#targeting-options-at-each-node) |
+| `SDR`, longitudinal `IPSI`, the sequential baselines | refused | none. They fit no fluctuation |
+
+The estimator builds the context once, in `_retarget_detailed`. So `TMLE.retarget`, the truncation
+curve and the bootstrap use the same context. `tests/unit/test_stopping_rule_engines.py` fits every
+point group of the table under both rules. It also covers a fold solve, a candidate solve, a
+truncation curve and a bootstrap.
+
+#### The step bound
+
+`step_bound=delta` needs `algorithm="iterative"` and `fluctuation="logistic"`. Each outer
+iteration takes the `tmle3` constrained step.
+
+1. Read the score $s$. Stop when $\lVert s\rVert_2 = 0$.
+2. Set the direction $d = s/\lVert s\rVert_2$. The collapsed covariate is $Hd$. A single column has $d = \operatorname{sign}(s)$.
+3. With `step_search=True`, find $t^*$ in $(0, \delta]$ that minimises the weighted mean quasi-loss along $d$. The search is bounded Brent search with `xatol` $1.49 \times 10^{-8}$.
+4. With `step_search=False`, take $t^* = \delta$.
+5. Add $t^* d$ to $\epsilon$. Carried fits move by the same step.
+
+At unit weights the loss is the unweighted loss of `tmle3`. With weights, it is the weighted
+extension. Under `target_weights` the loss is the fit's own weighted form. The direction $d$ comes
+from the unweighted score of the same equation.
+
+`tests/unit/test_step_bound.py` checks the whole path against a SciPy walk written from the
+`tmle3` description, at $10^{-7}$. The first step binds at 0.15 and is below the Newton step of
+0.2157. The second step is interior at 0.0657. Six mutation controls fail the reference: an
+un-normalised $Hs$, a reversed direction, `xatol=1e-3`, an upper bound of $2\delta$, the Newton
+direction and an unweighted loss.
+
+A bounded walk whose initial fit already meets its rule takes no step. Under a loose declared
+rule this can mean no targeting at all. In `tests/unit/test_step_bound.py`, `scaled_var` on a
+point TMLE with seed 2 gives `n_iter=0`. A step that moves nothing also ends the walk. The Newton
+path under a declared rule takes one step before it tests the rule, as `tmle3` does.
+
+**Is `relative` reachable under a step bound?** With `stopping="relative"` the walk reaches
+`tol=1e-10` only under conditions. `TestRelativeReachability` measured it on arm-mean fits with
+`step_bound` in $\{0.01, 0.05, 0.25\}$.
+
+| setting | result |
+| --- | --- |
+| `step_search=True`, default `max_iter=20` | never reached. 0 of 6 point fits and 0 of 32 solver cells. The unconverged walk ends at $1.3\times10^{-9}$ to $8.2\times10^{-9}$ |
+| `step_search=True`, `max_iter=100` | 5 of 6 point fits (35 to 92 iterations), 20 of 32 solver cells |
+| `step_search=True`, `max_iter=1000` | 6 of 6 point fits (35 to 145 iterations, median 65), 28 of 32 solver cells (21 to 444 iterations, median 52). The 4 misses plateau at $1.1\times10^{-10}$ to $4\times10^{-10}$ |
+| `step_search=False`, any `max_iter` up to 1,000 | never reached. 0 of 38 cells. The walk lands within one bound of the root and oscillates, with a relative score of $5\times10^{-4}$ to $10^{-2}$ on the point fits |
+| `LTMLE` nodes (one column), `step_bound=0.05`, search on | 3 of 4 nodes reach `relative` within `max_iter=20`, and 4 of 4 within 200. With search off, 0 of 4 |
+| `stopping="sample_size"` or `"scaled_var"`, `step_bound=0.05`, search on | met in 0 to 4 iterations. The point fits take 1 and 0. With search off, 3 of 4 `LTMLE` nodes meet it |
+
+Each outer iteration is one line search along the steepest-ascent direction, so convergence is
+linear and takes tens of iterations. The search stops within $1.5\times10^{-8}$ of the minimiser.
+That leaves a relative score of about $10^{-10}$ to $10^{-9}$ at the root, at the edge of `tol`.
+Near that edge, floating-point rounding sets the iteration count. On a CI runner with Python 3.13,
+two of the six point fits took 25 and 190 iterations.
+
+The `tmle3` pairing is therefore a declared rule with a larger `max_iter`. A bounded walk that stops
+short of its rule warns, reports `converged=False` and `failure="max_iter_reached"`, and fails
+`score_check()`. On a binary outcome with a linear learner the label is `bounds_pinned` when more
+than 1% of the predictions sit at the shrink bounds. The Newton path reports the same label.
+
+#### The best iterate
+
+`iterate="best"` keeps a snapshot of the best iterate $k \ge 1$. It ranks the iterates by the
+2-norm of the raw score vector, and it keeps the first of tied iterates, as `tmle3` does. The
+initial fit is never a candidate while a step exists. With no step, `best_iterate` is 0.
+
+The loop still stops by the rule. `n_iter` and `trace` describe the whole walk. `converged` is
+judged at the reported iterate. `Fluctuation.best_iterate` holds the index.
+
+| path | what `"best"` does |
+| --- | --- |
+| the iterative walk with Newton steps | the norm falls at each step, so best equals last in the usual case |
+| a walk that oscillates, such as `step_search=False` | best differs from last, and the estimates differ by more than $10^{-6}$ in `tests/unit/test_best_iterate.py` |
+| `algorithm="one_step"` | the walk rejects every norm increase, so best equals last. A tie takes the last iterate |
+
+`tests/unit/test_best_iterate.py` replays $k^*$ steps on an oscillating fixed-step walk and
+compares the result. Four mutation controls fail it. They report $k^*+1$, rank by the relative
+statistic, include iterate 0, or take the first of ties on the one-step path.
+
+#### Declared differences from `tmle3`
+
+| difference | what `cleverly` does |
+| --- | --- |
+| D4 | a column that is not one unit-weight arm mean uses the score column as its contribution, not the full curve |
+| first step | `tmle3_Update$update` takes a step before it first tests the rule. The Newton path of `solve_fluctuation` under a declared rule also steps first. The bounded walk (`step_bound=`) and the one-step walk test first, so a fit whose initial score meets the rule takes no step there |
+| unconstrained update | `tmle3` takes one maximum-likelihood step. `cleverly` solves the Newton equation, not a walk |
+| ranking | `use_best` ranks by the raw score vector. The relative statistic of the default test is not used |
+| weights | a weighted fit uses the weighted loss in the line search, which `tmle3` does not define |
+
+The R fixture `tmle3_updater.json` compares the updater steps, epsilons and estimates at the
+default `alpha`. All ten updater runs agree with R at the tolerances of the fixture README. See the
+[evidence manifest](evidence.md#targeting-and-fitting-options).
+
+### Per-arm outcome regression
+
+`ModelSpec(outcome_by_arm=True)` fits one outcome regression for each treatment arm. The R
+comparator is `drtmle(stratify=TRUE)`. The default fits one regression on the covariates and the
+treatment.
+
+| item | rule |
+| --- | --- |
+| training rows | in each fold, the rows with an observed outcome, a recorded treatment, and $A = a$ |
+| design | the covariates alone, plus the intermediate under `intermediate=`. The treatment column is absent |
+| prediction at the observed arm | the model of the row's own arm |
+| prediction at a counterfactual $a$ | the model of arm $a$, on every row |
+| arm-coded modified treatment policy | each row reads the model of its shifted arm |
+| companion predictions | the same rule, for the evaluation companion of a doubly robust fit |
+
+`_fit_outcome_by_arm` serves four sites: the primary nuisances, the nested inner designs of
+`DRTMLE`, the C-TMLE selection base, and the honest base of `CTMLE(strategy="oat")`. Each site
+runs the shipped call when the option is off.
+
+The option composes with missing outcomes and missing treatment, an intermediate, strata,
+clusters, weights, arm MSMs, point IPSI, C-TMLE base fits, OAT and `DRTMLE`. It adds a diagnostic
+for each arm and fold under `diagnostics["outcome"]`. A Super Learner asks its split rule of each
+arm's rows.
+
+| refusal | trigger |
+| --- | --- |
+| R-f1 | a continuous dose. It has no arms. The error is a `CapabilityError` with code `invalid_declaration` |
+| R-f2 | an arm with no training row in a fold. The error is a `DataError` that names the fold |
+| R-f3 | a longitudinal design. The point-only message of the method applies |
+
+[Scope and refusals](scope-and-refusals.md#targeting-and-fitting-option-refusals) gives each text.
+
+`tests/unit/test_outcome_by_arm.py` compares the predictions with a hand fit of
+`LogisticRegression` for each arm and fold at $10^{-12}$. It covers 12 compositions, among them
+three arms, weights, clusters, strata, an arm MSM, point IPSI and a controlled direct effect. The
+witness is an $A \times W$ interaction law. There the per-arm and pooled predictions differ by more
+than $10^{-3}$ at the primary, nested, selection and OAT sites.
+
+Mutation controls swap the arm models, drop the arm from the mask, and read the observed arm for a
+shifted arm. Each fails the hand comparison. On the R fixture `drtmle_stratify.json`, the arm
+regressions agree with `drtmle(stratify = TRUE)` to $10^{-8}$ and the estimates to $10^{-6}$.
+
+### Treatment-mechanism covariates
+
+`PointTreatment(treatment_adjustment=[...])` lets the treatment mechanism read a subset $W_g$ of the
+adjustment set $W$. `TMLE.fit(treatment_covariates=)` is the low-level entry. The R comparator is
+`ctmle` with `Wg=`. The subset may be empty. The outcome regression and every other nuisance keep
+the full set.
+
+| nuisance | covariates it reads |
+| --- | --- |
+| treatment mechanism, including the dose density and the classifier ratio | $W_g$ |
+| covariate screening and the retained set | $W_g$ |
+| outcome regression | $W$ |
+| outcome and treatment observation | $W$ |
+| policy rule evaluation | $W$ |
+
+The declaration restricts the observed-data model, and it does not change the estimand. The
+design carries a pinned text in `Identification.model_restrictions`. Every estimator on the design
+prints it after the assumptions, and a low-level fit prints the same text from the data. The text
+reads, with $W_g$ written as `{name, name}`:
+
+> statistical-model restriction, treatment-mechanism covariates {Wg}: the treatment mechanism
+> depends on the adjustment covariates only through {Wg}. It restricts the observed-data model and
+> does not change the estimand. The fit is consistent when the treatment mechanism fitted on {Wg}
+> is consistent, which needs the restriction, or when the outcome regression is consistent. The
+> interval needs the restriction and both nuisances consistent at the usual product rate. When the
+> restriction fails, the remainder is first order in the outcome-regression error. To exclude
+> instruments, omit them from adjustment= instead: the outcome regression and the treatment
+> mechanism then both use {Wg}.
+
+The inference status stays `influence_curve`, claimed under the declared restriction.
+
+#### The remainder when the restriction fails
+
+Write $Z = W \setminus W_g$ and $\bar g(W_g) = E[g_0(W) \mid W_g]$. A fit on $W_g$ has
+$g_n \to \bar g$. For the arm-1 mean the remainder splits in two:
+
+$$
+R_2 = P_0\big[(1 - g_0/\bar g)(Q^* - Q_0)\big] + P_0\big[(g_0/\bar g - g_0/g_n)(Q^* - Q_0)\big].
+$$
+
+Because $E[1 - g_0/\bar g \mid W_g] = 0$, the first part equals
+$P_0[(1 - g_0/\bar g)\{(Q^* - Q_0) - E[Q^* - Q_0 \mid W_g]\}]$. So it is linear in the part of the
+outcome error that varies with $Z$ given $W_g$, and its factor does not shrink. The second part is
+a product, and it is first order in $g_n - \bar g$ when $Q$ is wrong, which is the ordinary
+one-wrong case.
+
+| case | first part | interval |
+| --- | --- | --- |
+| A: $g_0$ depends on $W$ only through $W_g$ | 0 (the H1 analogue) | covered at the product rate |
+| B: instruments in $Z$, $Q_0$ free of $Z$ given $(A, W_g)$, $Q_n$ on the full $W$ | linear in the $Z$-varying outcome error | **not covered** |
+| B, with $Z$ also removed from `adjustment=` | 0 (the H2 analogue: a TMLE of $(W_g, A, Y)$) | covered |
+| $Z$ holds confounders | linear | not covered |
+
+For $Q = Q_0 + \delta k$ the identity $\text{error} = P_0[(1 - g_0/\bar g)\,\delta k]$ is exact only for
+`fluctuation="linear"`. There targeting moves $Q$ by $\epsilon/\bar g$, a function of $W_g$, which
+the factor annihilates. Under the default logistic fluctuation the update is not a function of
+$W_g$. The exact identity is $\text{error} = P_0[(1 - g_0/\bar g)(Q^* - Q_0)]$ with the targeted
+$Q^*$.
+
+The exact-law check draws $W_1$ and $Z$ as independent Bernoulli(1/2) variables.
+
+| quantity | value |
+| --- | --- |
+| true mechanism $g_0$ | $0.25 + 0.25 W_1 + 0.25 Z$ |
+| projected mechanism $\bar g$ | $0.375 + 0.25 W_1$ |
+| true outcome regression $Q_0(a, W_1)$ | $0.2 + 0.3a + 0.2W_1$ |
+| fitted outcome regression $Q$ | $Q_0 + 0.1Z$ |
+
+The cell probabilities are multiples of 1/16, so $16m$ rows give $P_n = P_0$ exactly.
+
+| case | linear fluctuation, arm-1 error | logistic fluctuation, arm-1 error |
+| --- | --- | --- |
+| $k = Z$ | $-0.0133333$ ($-1/75$, equal to the $\delta$-formula) | $-0.0138815$ (equal to the $Q^*$ formula) |
+| $k = W_1$ | 0 | 0 |
+| $g_0 = \bar g$ | 0 | 0 |
+
+`tests/unit/test_treatment_covariates.py` reproduces the table with $m = 64$ (1,024 rows),
+`cross_fit=False`, `q_bounds=(0, 1)` and `g_bounds=(0.01, 0.99)`. The default `q_bounds` widen the
+outcome range by 10%, which moves the errors to $-0.0080000$ and $-0.0069586$. The test uses a
+cell-mean classifier, which returns $\bar g$ on $\{W_1\}$ and $g_0$ on $\{W_1, Z\}$ exactly, and a
+raw-scale outcome stub.
+
+| test | assertion |
+| --- | --- |
+| witness, linear | the error equals $P_0[(1 - g_0/\bar g)\,\delta k]$ at $10^{-10}$, and $\lvert\text{error}\rvert > 10^{-3}$ |
+| witness, logistic | the error equals the $Q^*$ formula at $10^{-10}$, and $\lvert\text{error}\rvert > 10^{-3}$ |
+| vanishing controls | $k = W_1$ and $g_0 = \bar g$ give 0 at $10^{-10}$ |
+| case B with $Z$ out of `adjustment=` | the error is 0 at $10^{-10}$ |
+| mutation: fit $g$ on the full set | the classifier then returns $g_0$, the error becomes 0, and the witness fails |
+| spy learner | the mechanism learner sees exactly $W_g$ at every site. The other learners see the full set |
+
+**Advice.** To exclude instruments, omit them from `adjustment=`. Then the outcome regression and
+the treatment mechanism both use $W_g$, and the interval is covered. Use `treatment_adjustment=`
+when the outcome regression needs the columns and the treatment mechanism does not.
+
+#### Compositions
+
+| composition | result |
+| --- | --- |
+| `DRTMLE` | the design prints the restriction. The summary adds a pinned line: "DRTMLE with treatment-mechanism covariates {Wg}: when the restriction fails, the treatment mechanism is inconsistent, and the mechanism-wrong rows of the one-wrong table in docs/technical-reference/dr-tmle/theorem.md decide the interval." See the [case table](dr-tmle/theorem.md#the-conditioning-terms-are-linear-in-one-error) |
+| `CTMLE` | the pool, the ordering, the candidates and the lasso design read $W_g$. See [collaborative TMLE](collaborative-tmle.md#treatment-mechanism-covariates-and-the-candidate-pool) |
+| the omitted-variable bound | admitted on a plain `TMLE` fit, under the restriction. The fitted Riesz representer uses $g_n(W_g)$. See [the bound](validation-methods.md#omitted-variable-bounds-robustness-value-benchmark-and-contours) |
+| `with_extra_covariate`, used by the common-cause refutation | the new column joins $W_g$, so the refit keeps the restriction on the old columns |
+| `without_covariates` | the field is intersected with the remaining columns |
+
+A refusal covers each composition that has no meaning.
+
+| refusal | trigger |
+| --- | --- |
+| R-h1 | a column outside `adjustment=` |
+| R-h2 | `CTMLE(strategy="oat")` |
+| R-h3 | point `incremental=`, because the shift is a function of the fitted propensity score |
+| R-h4 | a known `treatment_probabilities` |
+| R-h5 | a C-TMLE `candidates=` or `ordering=` outside the subset |
+| R-h6 | a repeated name |
+
+[Scope and refusals](scope-and-refusals.md#targeting-and-fitting-option-refusals) gives each text.
+The R fixture `ctmle_wg.json` checks the candidate pool of the restriction. See
+[treatment-mechanism covariates and the candidate pool](collaborative-tmle.md#treatment-mechanism-covariates-and-the-candidate-pool).
 
 ### Known treatment mechanism
 
@@ -602,7 +1042,9 @@ treatment learner.
 
 The declaration is a data field (`CausalData.known_treatment`), not an estimator setting.
 `TMLE.fit` accepts it beside a dataframe, and the array forms beside a prepared `CausalData`. A
-container that already declares a mechanism refuses a second declaration.
+container that already declares a mechanism refuses a second declaration. A known mechanism also
+refuses `treatment_adjustment=`, because the declaration restricts a fitted mechanism and a known
+one is not fitted.
 
 The claims below hold when every mechanism the fit divides by is declared. For a
 point treatment, that is complete data with no `intermediate=`.
@@ -619,7 +1061,7 @@ the curve each fit reports.
 | arm means, ATE, RR, OR, PAR, PAF, regimes and MSMs, on complete data | the ordinary curve at $g_0$, which is the exact influence curve | Moore and van der Laan (2009), Sections 2 and 5 |
 | missing outcomes (`delta=`) and a controlled direct effect (`intermediate=`) | the ordinary curve at $g_0$ and at the estimated second mechanism. The declaration replaces the treatment mechanism only. The observation mechanism $\hat\pi$, or the intermediate mechanism $\hat q_z$, is still estimated. The remainder is the product of that mechanism's error and the outcome error, so the ordinary TMLE conditions apply. The interval is established when both are consistent at a product rate. It is not established for a wrong outcome regression | the missing-outcome and controlled-direct-effect contracts above |
 | ATT and ATC | the shipped ATT and ATC curve at $g_0$. It is exact, and it is not the known-score efficient curve | the algebra below; Hahn (1998) |
-| `incremental=` | the curve of the known stochastic regime $q_\delta(g_0)$, with no term in $(A-g)$ | Kennedy (2019), the remark after Corollary 2 |
+| `incremental=` | the curve of the known stochastic regime $q_\delta(g_0)$, with no mechanism term, for any number of levels | Kennedy (2019), the remark after Corollary 2 |
 | `learned_rule=` | the shipped learned-rule curve. The rule reads the outcome regression only | the learned-rule contract above |
 | `DRTMLE` | see the [DR-TMLE contract](dr-tmle/theorem.md#a-known-treatment-mechanism) | Benkeser et al. (2017), Theorem 1 |
 | `LTMLE` | see [known node mechanisms](longitudinal-tmle.md#known-node-mechanisms) | van der Laan and Gruber (2012), Theorem 2 and Section 4 |
@@ -655,7 +1097,7 @@ remainder algebra above, the g-weighted plug-in $P_n\{g_0(\bar Q^*_1-\bar Q^*_0)
 the smaller curve. The package does not ship it.
 
 **Incremental interventions.** With $g_0$ known, $q_\delta(g_0)=\delta g_0/(\delta g_0+1-g_0)$ is
-a known stochastic regime. The model with a known mechanism has no mechanism scores, so the
+a known stochastic regime. With $K$ levels it is $q_\delta(a\mid W)=\delta_a g_0(a\mid W)/D_\delta(W)$. The model with a known mechanism has no mechanism scores, so the
 efficient curve is Kennedy's curve projected off that tangent space. The projection removes the
 middle term in $(A-g)$ and leaves the regime curve. Kennedy (2019), arXiv v3, states it after
 Corollary 2: "If the propensity scores were known, the efficient influence function would just be
@@ -1015,7 +1457,10 @@ and
 
 A vector treatment holds several treatment columns. Díaz, Williams, Hoffman and Schenck (2023),
 Section 2, let the treatment be a vector $A = (C, D)$. The components $C$ are categorical and the
-components $D$ are continuous. Theorem 1 identifies the policy mean for such a vector.
+components $D$ are continuous. Theorem 1 identifies the policy mean for such a vector. Part (ii)
+reads the mean as the modified treatment policy effect, and part (i) reads it as a stochastic
+intervention. At one decision both parts need the same exchangeability assumption.
+`Identification.interpretations` records the two readings (`tests/unit/test_mtp_interpretations.py`).
 
 Hoffman et al. (2024), Introduction, name interventions on several exposures at once. This
 section covers the point treatment. The
@@ -1026,6 +1471,7 @@ node of `LTMLE` and `SDR`.
 | --- | --- | --- |
 | `treatment=["A1", "A2"]`, all columns categorical | one categorical treatment over the observed tuples. Each tuple is a level, and there are at most 20 | every estimand of a categorical treatment, with tuple levels. `policies=` takes a `JointPolicy` or a `ModifiedPolicy` that maps tuples |
 | `treatment=["flag", "dose"]` with `continuous_treatment=["dose"]` | the components in an $(n, d)$ array, with `treatment_kind == "vector"` | `ey_policy` and `ate_policy` of `TMLE(policies=[JointPolicy(...)])`, and nothing else |
+| the same, with `treatment_support={"dose": Support(lower, upper)}` | the declared support of the dose, given the covariates, the categorical components and the earlier doses | the same estimands. Before any learner, the fit refuses an observed dose outside the support and a branch that assigns a dose outside the support at the components the branch assigns (`tests/unit/test_mtp_vector_support.py`) |
 
 `from_arrays` and `PointTreatment` take the same two keywords. A vector names two or more
 distinct columns. `treatment_kind=` describes a treatment of one column, so a vector refuses it.
@@ -1143,8 +1589,88 @@ $$
 The denominator keeps the clever covariate bounded even when the observed propensity approaches
 zero, so this parameter does not need conventional treatment positivity.
 
+**Categorical treatment.** A treatment with $K$ levels takes one factor $\delta_a>0$ for each level. The intervention
+draws the level from the exponential tilt of the observed mechanism:
+
+$$
+q_\delta(a\mid W)=\frac{\delta_a\, g_P(a\mid W)}{D_\delta(W)},
+\qquad D_\delta(W)=\sum_b \delta_b\, g_P(b\mid W).
+$$
+
+Multiplying every factor by one constant changes nothing. The family therefore has $K-1$ free
+parameters: the odds of level $a$ against level $b$ are multiplied by $\delta_a/\delta_b$. With
+$K=2$ and $(\delta_0,\delta_1)=(1,\delta)$ the formula is the binary one above.
+
+The package declares the factors as `Incremental({label: factor})`. A level that the mapping does
+not name keeps the factor 1. A scalar `Incremental(delta)` names two arms, so a treatment with
+other than two levels refuses it before any learner. The table lists the declarations.
+
+| declaration | two levels | three or more levels |
+| --- | --- | --- |
+| `Incremental(2.0)` | the odds of the second sorted level times 2 | refused with `invalid_declaration` |
+| `Incremental({"high": 2.0, "low": 0.5})` | the factors of the named levels, the others keep 1 | the same |
+| `Incremental({"nope": 2.0})` | refused when `"nope"` is not a level | refused when `"nope"` is not a level |
+
+Keys are the treatment labels that `CausalData.treatment_levels` reports. A vector treatment
+whose components are all categorical is one categorical treatment over its observed tuples. Its
+keys are the tuples. A vector with a continuous component is refused.
+
+Identification is Kennedy (2019), Theorem 1, applied to a finite partition of the treatment. It
+needs consistency and exchangeability. It needs no positivity, because
+$q_\delta(a\mid W)=0$ wherever $g_P(a\mid W)=0$.
+
+The derivative of $m(W)=\sum_a q_\delta(a\mid W)Q(a,W)$ in the mechanism is
+$\partial m/\partial g_b=\delta_b\{Q(b,W)-m\}/D_\delta$. The mechanism score of level $b$ is
+$1\{A=b\}-g_b$. Because $\sum_b \delta_b g_b\{Q(b,W)-m\}/D_\delta=0$, the sum collapses and
+the efficient influence function is
+
+$$
+D=\frac{\delta_A}{D_\delta}\{Y-Q(A,W)\}+\frac{\delta_A}{D_\delta}\{Q(A,W)-m(W)\}+m(W)-\psi(\delta)
+ =\frac{\delta_A}{D_\delta}\{Y-m(W)\}+m(W)-\psi(\delta).
+$$
+
+At $K=2$ the middle term is Kennedy's $\delta\{Q(1,W)-Q(0,W)\}(A-g)/D_\delta^2$. The clever
+covariate $\delta_A/D_\delta$ lies in $[\min\delta/\max\delta,\ \max\delta/\min\delta]$, so it never
+divides by $g$. `IncrementalSupport.guaranteed` reports this interval.
+
+**The remainder is exact.** Let $\hat m$ and $\hat D$ be the tilted mean and normaliser at the
+fitted nuisances, and $m_0$ and $D_0$ the values at the truth. Then
+
+$$
+R=E_0\!\left[(\hat m-m_0)\,\frac{\hat D-D_0}{\hat D}\right],
+\qquad \hat D-D_0=\sum_b \delta_b(\hat g_b-g_{0b}).
+$$
+
+Every term of $R$ carries $(\hat g-g_0)$. Hence $R$ is zero when $\hat g=g_0$. No term is linear
+in the error of one nuisance alone, so the construction exposes no linear remainder. The interval
+holds under $\|\hat g-g_0\|(\|\hat g-g_0\|+\|\hat Q-Q_0\|)=o_P(n^{-1/2})$ with the
+$L_2(P_0)$ norm over the levels. `tests/unit/test_categorical_incremental_exact.py` checks $R$
+against the closed form to $10^{-12}$.
+
+**The mechanism fluctuation is a softmax.** With three or more levels the treatment-mechanism
+submodel is $g_\epsilon(a)\propto \hat g(a)\exp\{\epsilon^\top H(a)\}$. The covariate of
+tilt $r$ is $H_r(a,W)=\{\delta_{r,a}/D_{\delta_r}\}\{Q^*(a,W)-m_r(W)\}$, the coefficient of level
+$a$ in the mechanism score. The weighted log-likelihood is concave in $\epsilon$. A damped Newton
+step with backtracking solves it and keeps every row on the simplex. Two levels keep the logistic
+submodel and Kennedy's arithmetic bit for bit, with $\delta=\delta_1/\delta_0$. This is the binary
+surface rule in [the architecture invariants](../architecture-invariants.md).
+
+**Evidence class.** The estimator is validated by Python property evidence: exact-law checks of
+the estimate, the curve and the remainder, deliberate-mutation controls, and the registered study
+[categorical incremental policies](method-evidence/categorical-incremental.md). The rows `T35` match a three-level treatment, in sample or cross-fitted. The study fitted saturated learners, in sample and at five folds, and the rows match any learner and fold count. A categorical fit outside
+those rows has the support label `experimental`. No external comparator exists for the categorical
+tilt.
+
+`tests/unit/test_categorical_incremental_compositions.py` checks four compositions against
+identities. Integer weights equal row duplication. Singleton clusters equal the iid fit, and
+clusters of four give the cluster standard error written longhand. Five exact copies of the sample
+as five folds give the exact cross-fitted fit. A bootstrap replicate equals the fit on the
+resampled rows. The mutation controls clear a margin of $10^{-4}$, except one that rescales the
+rows of $g^*$, which clears $10^{-5}$ because it leaves the estimate unchanged.
+
 **This is the one axis that targets the treatment mechanism.** The intervention is a functional of
-$P$, so the efficient influence function carries a term for the pathwise derivative through $g$:
+$P$, so the efficient influence function carries a term for the pathwise derivative through $g$.
+For binary treatment it is:
 
 $$
 D = \frac{\delta A + 1 - A}{D_\delta}\{Y-Q(A,W)\}
@@ -1153,11 +1679,17 @@ D = \frac{\delta A + 1 - A}{D_\delta}\{Y-Q(A,W)\}
 $$
 
 The middle term lives in the tangent space of the treatment mechanism, so no fluctuation of $Q$
-reaches it. The mechanism therefore gets a logistic submodel of its own whose score is exactly that
-term. Each covariate reads the other's fitted value, so the two alternate. The alternation is
+reaches it. The mechanism therefore gets a submodel of its own whose score is exactly that
+term. The submodel is logistic for two levels and a softmax for more. Each covariate reads the other's fitted value, so the two alternate. The alternation is
 coordinate ascent on one joint likelihood, because the outcome and treatment quasi-likelihoods are
 separate factors, so the joint value never decreases. `score_check()` reports two rows for such a
 fit rather than one.
+
+Under a declared `stopping=` rule the outer exit judges the outcome equation by the rule ratio.
+The mechanism equation keeps `tol`. [Stopping rules](#stopping-rules-step-bound-and-best-iterate)
+gives the exit. A `treatment_adjustment=` declaration is refused beside `incremental=`. The shift
+is a function of the fitted propensity score. A mechanism on a subset would define the shift on
+that subset, and that changes the estimand.
 
 **It is the only estimand here that is not doubly robust.** Because $g$ appears in the estimand,
 every term of the second-order remainder carries $(\hat g - g_0)$ as a factor. A consistent
@@ -1171,7 +1703,12 @@ everything else.
 
 With `strata=`, the outcome and mechanism equations each take one block per stratum, so each
 stratum's mechanism is tilted along its own covariate. A stratum that holds no row of some arm
-refuses before any learner, because its mechanism equation then has no finite root. Kennedy (2019),
+refuses before any learner, because its mechanism equation may then have no finite root. The root is
+missing only if some direction separates: every observed level maximises the covariate in its row.
+That condition depends on the fitted outcome regression, so the guard reads the data alone and is
+conservative, as the binary guard was.
+
+Kennedy (2019),
 arXiv v3, Section 6, lists "how mean outcomes under different interventions vary with covariates" as future
 work. That is a conditional curve in the covariates. A fixed finite partition is the marginal
 result applied inside each stratum, so the passage records no objection to it.

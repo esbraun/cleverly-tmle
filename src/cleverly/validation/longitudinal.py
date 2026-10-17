@@ -52,6 +52,7 @@ __all__ = [
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LONGITUDINAL_NO_OUTCOME_REGRESSION",
+    "LONGITUDINAL_SIMULATED_MODELS",
     "LongitudinalDiagnostics",
     "LongitudinalNuisanceDiagnostics",
     "LongitudinalNuisanceOmission",
@@ -68,6 +69,13 @@ LONGITUDINAL_CENSORING_NOT_FITTED = "complete data has no censoring learner"
 
 #: The estimator fits no outcome regression, as sequential IPW reads the mechanisms only.
 LONGITUDINAL_NO_OUTCOME_REGRESSION = "inverse probability weighting fits no outcome regression"
+
+#: The estimator fits no sequential regression, as the parametric g-formula fits the laws it
+#: simulates from.
+LONGITUDINAL_SIMULATED_MODELS = (
+    "the parametric g-formula fits no sequential regression; its models are listed in "
+    "result.simulation"
+)
 
 #: A continuous node on the classifier ratio route fits no density, so there is no
 #: treatment likelihood to report there.
@@ -162,18 +170,23 @@ class IPSINodeRow:
     Parameters
     ----------
     tilt_factor_min : float
-        The smallest node factor :math:`(\\delta A + 1 - A)/(\\delta\\pi + 1 - \\pi)` on the
-        rows at risk, ``nan`` off a tilt node.  It lies in
-        :math:`[\\min(\\delta, 1/\\delta), \\max(\\delta, 1/\\delta)]` by construction.
+        The smallest node factor :math:`\\delta_{t,A_t}/D_t` on the rows at risk, ``nan`` off a
+        tilt node, with :math:`D_t = \\sum_b \\delta_{t,b}\\pi_t(b \\mid H_t)`.  It lies in
+        :math:`[\\min_a \\delta_{t,a}/\\max_a \\delta_{t,a},
+        \\max_a \\delta_{t,a}/\\min_a \\delta_{t,a}]` by construction.  With two levels it is
+        :math:`(\\delta A + 1 - A)/(\\delta\\pi + 1 - \\pi)` with
+        :math:`\\delta = \\delta_{t,1}/\\delta_{t,0}`.
     tilt_factor_max : float
         The largest node factor on the rows at risk, ``nan`` off a tilt node.
     mechanism_share : float
         The variance of the node's mechanism term over the variance of the influence
         curve.  It is 0 off a tilt node and at a declared treatment mechanism.
     propensity_degenerate : float
-        The share of the rows at risk whose mechanism :math:`\\hat\\pi_t` is exactly 0 or 1,
-        ``nan`` off a tilt node.  A tilt needs no positivity, so this is reported and not
-        warned.
+        The share of the rows at risk where some level has mechanism
+        :math:`\\hat\\pi_t(a \\mid H_t)` exactly 0 (equivalently some tilted probability
+        :math:`q_t(a)` is 0 or 1), ``nan`` off a tilt node.  With two levels it is the share
+        whose :math:`\\hat\\pi_t` is exactly 0 or 1.  A tilt needs no positivity, so this is
+        reported and not warned.
     """
 
     tilt_factor_min: float
@@ -704,19 +717,29 @@ def _ipsi_node_row(result: Any, fit: Any, step: Any) -> IPSINodeRow | None:
     regimen = fit.regimen
     if not (hasattr(regimen, "is_tilt") and regimen.is_tilt(step.time)):
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
-    delta = float(regimen.plan[step.time - 1].delta)
-    q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk, 1]
-    # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
-    pi = q / (delta * (1.0 - q) + q)
+    odds = regimen.plan[step.time - 1].factors(result.data.treatment_levels[step.time - 1])
+    q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk]
     arm = np.nan_to_num(result.data.node_codes(step.time)[step.at_risk], nan=0.0)
-    factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+    if q.shape[1] == 2:
+        delta = float(odds[1] / odds[0])
+        # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
+        q1 = q[:, 1]
+        pi = q1 / (delta * (1.0 - q1) + q1)
+        factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+        degenerate = (q1 == 0.0) | (q1 == 1.0)
+    else:
+        # The density inverts to the mechanism by pi_a proportional to q_a / delta_a, and
+        # sum_b q_b / delta_b = 1 / D, so the node factor delta_A / D is
+        # delta_A sum_b q_b / delta_b.
+        factor = odds[arm.astype(np.int64)] * (q / odds[None, :]).sum(axis=1)
+        degenerate = np.any((q == 0.0) | (q == 1.0), axis=1)
     if not factor.size:
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
     return IPSINodeRow(
         tilt_factor_min=float(np.min(factor)),
         tilt_factor_max=float(np.max(factor)),
         mechanism_share=share,
-        propensity_degenerate=float(np.mean((q == 0.0) | (q == 1.0))),
+        propensity_degenerate=float(np.mean(degenerate)),
     )
 
 
@@ -919,7 +942,10 @@ def _treatment_report(result: Any, time: int, mask: BoolArray) -> NuisanceModelR
     if data.node_kind(time) == "mixed":
         components = data.node_components(time)
         doses = [component.name for component in components if component.continuous]
-        if (time, doses[0]) not in mechanism.densities:
+        if (time, doses[0]) not in mechanism.densities or data.component_atoms(time):
+            # The classifier route fits no density.  A dose with declared atoms has a mixed
+            # factor whose atom probabilities the mechanism does not keep, so its
+            # likelihood against the dominating measure is not reported.
             return None
         natural = np.nan_to_num(data.node_values(time), nan=0.0)
         # Every plan's denominator factor at a mixed node on the density route is the
@@ -1083,6 +1109,11 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
     if result.config.estimator == "ipw":
         omissions.append(
             LongitudinalNuisanceOmission("outcome", None, LONGITUDINAL_NO_OUTCOME_REGRESSION)
+        )
+        return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend, tuple(omissions))
+    if result.config.estimator == "parametric_gformula":
+        omissions.append(
+            LongitudinalNuisanceOmission("outcome", None, LONGITUDINAL_SIMULATED_MODELS)
         )
         return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend, tuple(omissions))
 

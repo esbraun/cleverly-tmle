@@ -132,6 +132,7 @@ class StudyRecord:
     #: Scenario name -> the estimands that scenario reports.
     scenarios: Mapping[str, tuple[str, ...]]
     replicates: int
+    #: The sample size of every scenario that :attr:`scenario_n` does not name.
     n: int
     seed: int
     #: Number of nuisance functions the study's correctly specified calibration cell fits.
@@ -140,6 +141,12 @@ class StudyRecord:
     #: observed law reported under several intervention levels: each exported scenario keeps
     #: its own rows, while all mapped scenarios draw the owner's realized sample.
     scenario_seed_owners: Mapping[str, str] = field(default_factory=dict)
+    #: Scenario -> its own sample size, for a study whose scenarios run at different sizes.
+    #:
+    #: A scenario this mapping omits runs at :attr:`n`, so an empty mapping is a single-size
+    #: study, which every reader treats exactly as before the field existed.  Read a scenario's
+    #: size through :meth:`n_of`, and the sizes a run draws through :meth:`sizes`.
+    scenario_n: Mapping[str, int] = field(default_factory=dict)
     #: Optional independent entropy for bootstrap and Monte Carlo summary intervals.  The
     #: realized samples still use ``seed``; this exists to avoid changing costly raw rows
     #: when a newly registered study discovers a cross-study resampling-stream collision.
@@ -354,6 +361,26 @@ class StudyRecord:
             raise ValueError(f"a failure bound must lie in [0, 0.05]; got {outside}")
         if self.nuisance_count < 1:
             raise ValueError("nuisance_count must be positive")
+        unknown_sizes = set(self.scenario_n) - set(self.scenarios)
+        if unknown_sizes:
+            raise ValueError(f"scenario_n names unknown scenarios: {sorted(unknown_sizes)}")
+        wrong_sizes = {
+            name: size
+            for name, size in self.scenario_n.items()
+            if isinstance(size, bool) or not isinstance(size, int) or size < 1
+        }
+        if wrong_sizes:
+            raise ValueError(f"scenario_n sizes must be positive integers; got {wrong_sizes}")
+        owners_apart = {
+            scenario: owner
+            for scenario, owner in self.scenario_seed_owners.items()
+            if self.n_of(scenario) != self.n_of(owner)
+        }
+        if owners_apart:
+            raise ValueError(
+                "a scenario that draws its owner's sample must run at the owner's size; "
+                f"scenario_n separates {owners_apart}"
+            )
         scenarios = set(self.scenarios)
         unknown = set(self.scenario_seed_owners) | set(self.scenario_seed_owners.values())
         unknown -= scenarios
@@ -369,6 +396,20 @@ class StudyRecord:
                 "scenario_seed_owners must point directly to an owning scenario; "
                 f"found chained owners {chained}"
             )
+
+    def n_of(self, scenario: str) -> int:
+        """The sample size of ``scenario``: its :attr:`scenario_n` entry, else :attr:`n`."""
+        return int(self.scenario_n.get(scenario, self.n))
+
+    def sizes(self, n: int) -> dict[str, int]:
+        """Scenario -> the size a run at ``n`` draws.
+
+        At the declared ``n`` each scenario takes :meth:`n_of`.  Any other ``n`` is an
+        override, such as a smoke run, and every scenario takes it.
+        """
+        if n == self.n:
+            return {scenario: self.n_of(scenario) for scenario in self.scenarios}
+        return {scenario: int(n) for scenario in self.scenarios}
 
     def comparison_kind(self, scenario: str, estimand: str) -> str | None:
         """The kind of one equivalence row: an exact override, a scenario override, or the default."""
@@ -424,6 +465,7 @@ def registered() -> tuple[StudyRecord, ...]:
     estimator configuration, and so a study module can import the framework.
     """
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
+    from tests.studies.canonical_categorical_incremental import STUDY as CATEGORICAL_INCREMENTAL
     from tests.studies.canonical_categorical_ltmle import STUDY as CANONICAL_CATEGORICAL_LTMLE
     from tests.studies.canonical_categorical_ltmle_crossfit import (
         STUDY as CANONICAL_CATEGORICAL_LTMLE_CROSSFIT,
@@ -440,6 +482,12 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_ctmle_oat_per_arm_parametric import (
         STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC,
     )
+    from tests.studies.canonical_ctmle_oat_per_arm_parametric_crossfit import (
+        STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC_CROSSFIT,
+    )
+    from tests.studies.canonical_ctmle_oat_per_arm_parametric_extensions import (
+        STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC_EXTENSIONS,
+    )
     from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
         STUDY as CTMLE_OAT_PER_ARM_STRATA_MISSING,
     )
@@ -454,6 +502,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.canonical_incremental_interventions import (
         STUDY as CANONICAL_INCREMENTAL_INTERVENTIONS,
     )
+    from tests.studies.canonical_ipsi_repeated import STUDY as CANONICAL_IPSI_REPEATED
     from tests.studies.canonical_known_mechanism import STUDY as KNOWN_MECHANISM
     from tests.studies.canonical_known_mechanism_drtmle import STUDY as KNOWN_MECHANISM_DRTMLE
     from tests.studies.canonical_known_node_mechanisms import STUDY as KNOWN_NODE_MECHANISMS
@@ -490,6 +539,9 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_MAR_NATURAL_COURSE_CVTMLE,
     )
     from tests.studies.canonical_mar_tmle import STUDY as CANONICAL_MAR_TMLE
+    from tests.studies.canonical_mtp_boundaries import STUDY as MTP_BOUNDARIES
+    from tests.studies.canonical_mtp_pricing import STUDY as MTP_PRICING
+    from tests.studies.canonical_mtp_tuning import STUDY as MTP_TUNING
     from tests.studies.canonical_multi_arm_ctmle_oat import (
         STUDY as CANONICAL_MULTI_ARM_CTMLE_OAT,
     )
@@ -501,6 +553,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_MULTI_ARM_MAR_DRTMLE,
     )
     from tests.studies.canonical_multi_arm_tmle import STUDY as CANONICAL_MULTI_ARM_TMLE
+    from tests.studies.canonical_parametric_gformula import STUDY as PARAMETRIC_GFORMULA
     from tests.studies.canonical_point_msm import STUDY as CANONICAL_POINT_MSM
     from tests.studies.canonical_point_survival import STUDY as POINT_SURVIVAL
     from tests.studies.canonical_point_survival_crossfit import (
@@ -529,6 +582,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_STRATIFIED_MSM_IDENTITY,
     )
     from tests.studies.canonical_stratified_tmle import STUDY as CANONICAL_STRATIFIED_TMLE
+    from tests.studies.canonical_structural_nested_mean import STUDY as STRUCTURAL_NESTED_MEAN
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.canonical_vector_mtp import STUDY as VECTOR_MTP
     from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
@@ -598,9 +652,13 @@ def registered() -> tuple[StudyRecord, ...]:
         STOCHASTIC_CATEGORICAL_LTMLE,
         LONGITUDINAL_MTP,
         VECTOR_MTP,
+        MTP_BOUNDARIES,
+        MTP_PRICING,
+        MTP_TUNING,
         LONGITUDINAL_SDR,
         LONGITUDINAL_IPSI,
         LONGITUDINAL_IPSI_DROPOUT,
+        CATEGORICAL_INCREMENTAL,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,
@@ -611,6 +669,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_COMPETING,
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
         CANONICAL_LTMLE_REPEATED,
+        CANONICAL_IPSI_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,
@@ -622,8 +681,12 @@ def registered() -> tuple[StudyRecord, ...]:
         DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
+        STRUCTURAL_NESTED_MEAN,
+        PARAMETRIC_GFORMULA,
         CTMLE_OAT_PER_ARM,
         CTMLE_OAT_PER_ARM_PARAMETRIC,
+        CTMLE_OAT_PER_ARM_PARAMETRIC_CROSSFIT,
+        CTMLE_OAT_PER_ARM_PARAMETRIC_EXTENSIONS,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
         CALIBRATION_SLOPE_WARNING,

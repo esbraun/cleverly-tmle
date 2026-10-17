@@ -32,7 +32,7 @@ from cleverly.utils.bounds import OutcomeScaler
 
 from .. import discrete_law_repeated as laws
 from .test_influence_gateaux_repeated import COLUMNS as LAW_COLUMNS
-from .test_influence_gateaux_repeated import oracle_fit, sdr_fit
+from .test_influence_gateaux_repeated import ipsi_fit, oracle_fit, sdr_fit
 from .test_repeated_outcome import panel
 
 ROLES: dict[str, Any] = {
@@ -60,7 +60,7 @@ def _estimator(**overrides: Any) -> LTMLE:
 
 
 def _fresh(kind: type[Any], **overrides: Any) -> Any:
-    """``LTMLE`` or ``SDR`` with parametric learners and one fold."""
+    """``LTMLE``, ``SDR`` or ``IPSI`` with parametric learners and one fold."""
     return _estimator(**overrides) if kind is LTMLE else _sequential(kind, **overrides)
 
 
@@ -130,11 +130,13 @@ class CellGrid:
     """The (plan, horizon) cells of one estimator kind on the exact laws, and their oracles."""
 
     kind: str
-    plans: tuple[str, ...] = ("never", "always")
-    high: str = "always"
-    #: How closely the trend coefficients meet the written-out projection.  ``SDR`` fits no
-    #: fluctuation, and ``solve_projection`` stops at a relative tolerance of 1e-10.  The
-    #: observed gap is at most 2.1e-12, so 1e-11 holds with a margin of five.
+    plans: tuple[str, ...]
+    high: str
+    delta: dict[str, float]
+    #: How closely the trend coefficients meet the written-out projection.  ``SDR`` and ``IPSI``
+    #: fit no fluctuation, and ``solve_projection`` stops at a relative tolerance of 1e-10.  The
+    #: observed gap is at most 2.1e-12 for ``SDR`` and 4.4e-12 for ``IPSI``, so 1e-11 holds
+    #: with a margin of two.
     trend_tolerance: float = 1e-12
 
     @property
@@ -144,6 +146,16 @@ class CellGrid:
     @property
     def terms(self) -> tuple[str, ...]:
         return tuple(f"{d}@{h}" for d, h in self.cells)
+
+    def truth(self, law: laws.RepeatedLaw, plan: str, horizon: int) -> float:
+        if self.kind in ("LTMLE", "SDR"):
+            return law.truth[f"ey_regimen[{plan} @ t={horizon}]"]
+        return law.tilt_functional(law.probs, self.delta[plan], horizon)
+
+    def eif(self, law: laws.RepeatedLaw, plan: str, horizon: int) -> np.ndarray:
+        if self.kind in ("LTMLE", "SDR"):
+            return law.eif(f"ey_regimen[{plan} @ t={horizon}]")
+        return law.tilt_eif(self.delta[plan], horizon)
 
     def fit(self, design: Any, terms: tuple[str, ...]) -> Any:
         """The exact-law fit with a working model: the kind's own estimator, saturated."""
@@ -157,13 +169,26 @@ class CellGrid:
                     reference=None,
                     msm=msm,
                 )
-            return sdr_fit(laws.BINARY, regimens={"never": 0, "always": 1}, reference=None, msm=msm)
+            if self.kind == "SDR":
+                return sdr_fit(
+                    laws.BINARY, regimens={"never": 0, "always": 1}, reference=None, msm=msm
+                )
+            return ipsi_fit(laws.BINARY, tilts=(0.5, 2.0), reference=None, msm=msm)
 
 
-#: ``SDR`` joins the grid with its own PR.  With saturated regressions and estimated
-#: mechanisms its cells are the g-formula and its curves the efficient curves (E1), so the
-#: oracles are the law's truths and complex-step derivatives, as for ``LTMLE``.
-GRIDS = (CellGrid("LTMLE"), CellGrid("SDR", trend_tolerance=1e-11))
+GRIDS = (
+    CellGrid("LTMLE", ("never", "always"), "always", {}),
+    #: With saturated regressions and estimated mechanisms the ``SDR`` cells are the g-formula
+    #: and its curves the efficient curves (E1), so the oracles are those of ``LTMLE``.
+    CellGrid("SDR", ("never", "always"), "always", {}, trend_tolerance=1e-11),
+    CellGrid(
+        "IPSI",
+        ("odds x0.5", "odds x2"),
+        "odds x2",
+        {"odds x0.5": 0.5, "odds x2": 2.0},
+        trend_tolerance=1e-11,
+    ),
+)
 GRID_IDS = [grid.kind for grid in GRIDS]
 
 
@@ -193,11 +218,10 @@ def check_w7_saturated(grid: CellGrid) -> None:
     rows = law.first_row_of()
     for (d, h), term in zip(grid.cells, grid.terms, strict=True):
         name = f"msm_regimen[{term}]"
-        truth = f"ey_regimen[{d} @ t={h}]"
-        assert fit.psi(name) == pytest.approx(law.truth[truth], abs=1e-12), f"estimate: {name}"
+        assert fit.psi(name) == pytest.approx(grid.truth(law, d, h), abs=1e-12), f"estimate: {name}"
         np.testing.assert_allclose(
             fit.influence_curves[name][rows],
-            law.eif(truth),
+            grid.eif(law, d, h),
             atol=1e-11,
             rtol=0,
             err_msg=f"curve: {name}",
@@ -215,8 +239,8 @@ def check_w7_trend(grid: CellGrid) -> None:
     fit = grid.fit(_trend(grid), ("(intercept)", "always", "t"))
     phi = np.array([[1.0, float(d == grid.high), float(h)] for d, h in grid.cells])
     projection = np.linalg.solve(phi.T @ phi, phi.T)
-    means = np.array([law.truth[f"ey_regimen[{d} @ t={h}]"] for d, h in grid.cells])
-    curves = np.array([law.eif(f"ey_regimen[{d} @ t={h}]") for d, h in grid.cells])
+    means = np.array([grid.truth(law, d, h) for d, h in grid.cells])
+    curves = np.array([grid.eif(law, d, h) for d, h in grid.cells])
     beta = projection @ means
     influence = projection @ curves
     rows = law.first_row_of()
@@ -236,7 +260,10 @@ def check_w7_trend(grid: CellGrid) -> None:
 
 @pytest.mark.parametrize("grid", GRIDS, ids=GRID_IDS)
 def test_w7_a_saturated_model_reproduces_each_cell(grid: CellGrid) -> None:
-    """W7 (``LTMLE``) and W7s (``SDR``)."""
+    """W7 (``LTMLE``), W7s (``SDR``) and W7i (``IPSI``).
+
+    For ``IPSI`` the oracles are the tilt functional and its complex-step derivative.
+    """
     check_w7_saturated(grid)
 
 
@@ -324,20 +351,20 @@ def test_w10_a_screened_constant_outcome_copy_does_not_refuse_the_design() -> No
 
 
 def test_w10_the_study_withholds_the_kinds_that_have_no_reduction() -> None:
-    """The fit refuses IPSI on a repeated outcome (R7), so the listing withholds it."""
+    """The listing withholds the kinds that the allowlist omits, and lists the kinds in it."""
     design = LongitudinalTreatment(**ROLES)
     study = CausalStudy(design.prepare(panel()), design=design)
     effect = study.identify(RegimeContrast({"always": 1, "never": 0}, reference="never"))
     methods = {record.name: record for record in effect.available_methods()}
-    assert methods["tmle"].available and methods["sdr"].available
-    assert not methods["ipsi"].available
-    assert methods["ipsi"].refusal == sequential.repeated_outcome_refusal("IPSI")
+    for name in ("tmle", "sdr", "ipsi"):
+        assert methods[name].available, name
+    assert set(sequential.REPEATED_OUTCOME_KINDS) == {"tmle", "sdr", "ipsi"}
 
 
 # ---------------------------------------------------------------- W11 and W12
 
 
-@pytest.mark.parametrize("kind", [LTMLE, SDR], ids=["LTMLE", "SDR"])
+@pytest.mark.parametrize("kind", [LTMLE, SDR, IPSI], ids=["LTMLE", "SDR", "IPSI"])
 def test_w11_the_bootstrap_is_a_diagnostic_on_a_repeated_fit(kind: type[Any]) -> None:
     data = LongitudinalData.from_frame(panel(), **ROLES)
     result = _quiet_fit(_fresh(kind, n_bootstrap=3), data)
@@ -348,7 +375,7 @@ def test_w11_the_bootstrap_is_a_diagnostic_on_a_repeated_fit(kind: type[Any]) ->
         )
 
 
-@pytest.mark.parametrize("kind", [LTMLE, SDR], ids=["LTMLE", "SDR"])
+@pytest.mark.parametrize("kind", [LTMLE, SDR, IPSI], ids=["LTMLE", "SDR", "IPSI"])
 def test_w12_the_truncation_replay_reproduces_the_fit(kind: type[Any]) -> None:
     seeded = {
         name: LogisticRegression(random_state=0)
@@ -437,16 +464,13 @@ def _linear_in_horizon(label: Any, horizon: int, frame: Any) -> np.ndarray:
 @pytest.mark.parametrize("kind", [SDR, IPSI], ids=["SDR", "IPSI"])
 @pytest.mark.parametrize("working_model", [False, True], ids=["cells", "msm"])
 def test_wk_a_fit_holds_one_key_for_each_plan_and_horizon(
-    kind: type[Any], working_model: bool, monkeypatch: pytest.MonkeyPatch
+    kind: type[Any], working_model: bool
 ) -> None:
     """A repeated outcome is not survival, yet every horizon needs its own fit key.
 
-    Both kinds are added to the allowlist here, because the allowlist refuses ``IPSI`` until
-    its own evidence exists.  Keyed by ``is_survival``, every horizon of a plan shares one
-    key: the fits of the later horizons overwrite the first, and a working model projects the
-    same fit for every cell.
+    Keyed by ``is_survival``, every horizon of a plan shares one key: the fits of the later
+    horizons overwrite the first, and a working model projects the same fit for every cell.
     """
-    monkeypatch.setattr(sequential, "REPEATED_OUTCOME_KINDS", frozenset({"tmle", "sdr", "ipsi"}))
     msm = (
         MSM(design=_linear_in_horizon, terms=("(intercept)", "t"), design_kind="known")
         if working_model

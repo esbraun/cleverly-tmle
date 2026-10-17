@@ -53,6 +53,7 @@ __all__ = [
     "classify_key",
     "classify_longitudinal_fit",
     "classify_point_fit",
+    "classify_structural_fit",
     "combine_support",
     "longitudinal_key",
     "point_key",
@@ -61,6 +62,7 @@ __all__ = [
     "recording_directory",
     "regimen_kinds",
     "registered_rows",
+    "structural_key",
     "support_for",
 ]
 
@@ -70,11 +72,14 @@ RECORD_ENVIRONMENT_VARIABLE: Final[str] = "CLEVERLY_SUPPORT_RECORD"
 SupportLabel = Literal["supported", "experimental"]
 
 #: What a support row can license for an estimate: a point estimate, a Wald interval on the
-#: normal or the t reference, a simultaneous band, a bootstrap interval, or a derived estimate.
+#: normal or the t reference, a simultaneous band, a percentile bootstrap interval, a BCa
+#: bootstrap interval, a studentized bootstrap sup-t band, or a derived estimate.
 #: A derived estimate is a ratio, a contrast, a restricted mean or an E-value built from
 #: estimates of one fit. No row lists a hypothesis-test kind, because a test statistic is the
 #: ``wald`` interval read against a null and carries the support of that interval.
-Kind = Literal["point", "wald", "wald_t", "band", "bootstrap", "derived"]
+Kind = Literal[
+    "point", "wald", "wald_t", "band", "bootstrap", "bootstrap_bca", "bootstrap_band", "derived"
+]
 
 
 @dataclass(frozen=True)
@@ -128,9 +133,9 @@ def combine_support(supports: Iterable[Support], kind: Kind | None = None) -> Su
     ----------
     supports : iterable of Support
         The support of each input estimate. At least one is required.
-    kind : {"point", "wald", "wald_t", "band", "bootstrap", "derived"} or None, default None
-        The kind the new estimate needs from the rows of its inputs. A derived estimate passes
-        ``"derived"``. ``None`` combines the inputs only.
+    kind : str or None, default None
+        A member of :data:`Kind`: the kind the new estimate needs from the rows of its
+        inputs. A derived estimate passes ``"derived"``. ``None`` combines the inputs only.
 
     Returns
     -------
@@ -676,6 +681,74 @@ def longitudinal_key(
     return key, learners
 
 
+def structural_key(
+    estimator: Any,
+    data: Any,
+    *,
+    cross_fitted: bool,
+    has_regimens: bool,
+    covariate_features: bool,
+) -> tuple[SupportKey, dict[str, type | None]]:
+    """The key and the learner classes of a structural nested mean fit.
+
+    The key reads the axes of a longitudinal key. The engine is ``("snmm",)``, and the family
+    holds the outcome kind ``end_of_study``, the flag ``blips`` and, with a declared regimen,
+    the flags ``regimens`` and ``static``. The estimator refuses censoring, a held decision, a
+    declared mechanism and a working model before it classifies, so the missing and qualifier
+    axes are fixed.
+
+    Parameters
+    ----------
+    estimator : StructuralNestedMean
+        The estimator. It is read and never modified.
+    data : LongitudinalData
+        The prepared panel.
+    cross_fitted : bool
+        Whether the outer split holds more than one fold.
+    has_regimens : bool
+        Whether the fit declares static regimens.
+    covariate_features : bool
+        Whether a blip feature reads a time-varying covariate.
+
+    Returns
+    -------
+    tuple of SupportKey and dict
+        The key, and the learner class per nuisance role (``None`` for a default learner).
+    """
+    levels = tuple(
+        kind if kind != "categorical" else str(len(node))
+        for kind, node in (
+            (data.node_kind(time), node) for time, node in enumerate(data.treatment_levels, 1)
+        )
+    )
+    key = SupportKey(
+        kind="longitudinal",
+        engine=("snmm",),
+        family=frozenset(
+            ("end_of_study", "blips", *(("regimens", "static") if has_regimens else ()))
+        ),
+        outcome=_outcome(data, None),
+        missing=("complete",),
+        treatment=levels,
+        weighting=_weighting(data),
+        splitting=("cross_fitted",) if cross_fitted else ("in_sample",),
+        dependence=_dependence(
+            _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
+        ),
+        qualifiers=frozenset(),
+        options=(
+            ("covariate_features", bool(covariate_features)),
+            ("multiplier_kind", _option(estimator.multiplier_kind)),
+        ),
+    )
+    learners = {
+        "outcome": _learner_type(estimator.outcome_learner),
+        "treatment": _learner_type(estimator.treatment_learner),
+        "regression": _learner_type(estimator.regression_learner),
+    }
+    return key, learners
+
+
 # ------------------------------------------------------------------ rows and classify
 
 
@@ -696,7 +769,8 @@ class SupportRow:
     cells : tuple of str
         The licensing cells or truth rows.
     learners : mapping of str to type or None, default None
-        The exact learner class per nuisance role, where the row needs one.
+        The exact learner class per nuisance role, where the row needs one. A ``None`` class
+        requires that the fit sets no learner for the role.
     limits : tuple of str, default ()
         The stated limits of the row.
     shortfalls : tuple of tuple of str, default ()
@@ -714,7 +788,7 @@ class SupportRow:
     kinds: frozenset[str]
     evidence: tuple[str, ...]
     cells: tuple[str, ...] = ()
-    learners: Mapping[str, type] | None = None
+    learners: Mapping[str, type | None] | None = None
     limits: tuple[str, ...] = ()
     shortfalls: tuple[tuple[str, str], ...] = ()
     kind_families: tuple[tuple[str, frozenset[str]], ...] = ()
@@ -859,6 +933,8 @@ _KIND_NAMES: Final[Mapping[str, str]] = {
     "wald_t": "Student t interval",
     "band": "simultaneous band",
     "bootstrap": "bootstrap interval",
+    "bootstrap_bca": "BCa bootstrap interval",
+    "bootstrap_band": "studentized bootstrap band",
     "derived": "derived estimate",
 }
 
@@ -898,7 +974,9 @@ def support_for(
         reference.
     kind : str or None, default None
         The kind the row must license instead of the one the status and the reference give:
-        ``"band"`` for a simultaneous band, ``"bootstrap"`` for a percentile interval.
+        ``"band"`` for a simultaneous band, ``"bootstrap"`` for a percentile interval,
+        ``"bootstrap_bca"`` for a BCa interval, and ``"bootstrap_band"`` for a studentized
+        bootstrap sup-t band.
 
     Returns
     -------
@@ -1002,6 +1080,7 @@ def band_support(
     classification: Classification | None,
     status: str,
     supports: Iterable[Support],
+    kind: Kind = "band",
 ) -> Support:
     """What a simultaneous band carries: its row's band kind, combined with its estimates.
 
@@ -1013,14 +1092,17 @@ def band_support(
         The inference status of the fit.
     supports : iterable of Support
         The support of each estimate the band covers.
+    kind : {"band", "bootstrap_band"}, default="band"
+        The band's kind: the influence-curve multiplier band, or the studentized bootstrap
+        sup-t band.
 
     Returns
     -------
     Support
-        ``supported`` only when the row licenses a ``band`` and every estimate is supported on
+        ``supported`` only when the row licenses ``kind`` and every estimate is supported on
         that row. ``experimental`` otherwise.
     """
-    kind_support = support_for(classification, status, None, kind="band")
+    kind_support = support_for(classification, status, None, kind=kind)
     return combine_support([kind_support, *supports])
 
 
@@ -1230,6 +1312,7 @@ def classify_longitudinal_fit(
     known_factors: Iterable[str],
     has_msm: bool,
     regimen_kinds: Iterable[str],
+    conditions: Sequence[Refusal] = (),
 ) -> Classification | None:
     """Classify a longitudinal fit before any mechanism is fitted.
 
@@ -1253,6 +1336,9 @@ def classify_longitudinal_fit(
         Whether the fit reports working-model coefficients.
     regimen_kinds : iterable of str
         The kinds of regimen the fit reports: members of :data:`REGIMEN_KINDS`.
+    conditions : sequence of Refusal, default ()
+        The conditions the fit meets, such as a declared stopping rule. Each one makes the fit
+        experimental.
 
     Returns
     -------
@@ -1268,6 +1354,57 @@ def classify_longitudinal_fit(
             known_factors=known_factors,
             has_msm=has_msm,
             regimen_kinds=regimen_kinds,
+        )
+        classification = classify_key(key, learners, conditions)
+    except Exception as error:
+        directory = recording_directory()
+        if directory is not None:
+            _record_error(directory, source, error)
+        return None
+    record_fit(classification, source=source)
+    return classification
+
+
+def classify_structural_fit(
+    estimator: Any,
+    data: Any,
+    *,
+    source: str,
+    cross_fitted: bool,
+    has_regimens: bool,
+    covariate_features: bool,
+) -> Classification | None:
+    """Classify a structural nested mean fit before any nuisance is fitted.
+
+    A classifier failure never reaches the caller, as in :func:`classify_point_fit`.
+
+    Parameters
+    ----------
+    estimator : StructuralNestedMean
+        The estimator.
+    data : LongitudinalData
+        The prepared panel.
+    source : str
+        The entry point.
+    cross_fitted : bool
+        Whether the outer split holds more than one fold.
+    has_regimens : bool
+        Whether the fit declares static regimens.
+    covariate_features : bool
+        Whether a blip feature reads a time-varying covariate.
+
+    Returns
+    -------
+    Classification or None
+        The classification, to pass to :func:`record_fit` with the finished result.
+    """
+    try:
+        key, learners = structural_key(
+            estimator,
+            data,
+            cross_fitted=cross_fitted,
+            has_regimens=has_regimens,
+            covariate_features=covariate_features,
         )
         classification = classify_key(key, learners)
     except Exception as error:

@@ -104,10 +104,14 @@ The test fails on four states.
 | [`mtp-point-calibration`](../../roadmap.md#red-cell-owners) | 1 | ordinary point modified treatment policies |
 | [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) | 1 | longitudinal incremental propensity-score interventions under dropout |
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
+| [`X45-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | parametric g-formula |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
+| [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) | 4 | boundary-binding price plans over follow-up lengths |
+| [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) | 3 | boundary-binding price plans over follow-up lengths |
+| [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) | 1 | modified treatment policies at declared boundaries |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 173 | 32 studies |
+| total | 182 | 35 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -183,6 +187,14 @@ same text as the "measured" column of its study page.
 | [ordinary weighted end-of-study longitudinal TMLE](ordinary-weighted-end-of-study-longitudinal-tmle.md) | property | `type_i_error/static__sharp_null` | positive | its own rule | rejection 0.0750, 0.0530 to 0.1022 | [`RM18-ordinary-weighted`](../../roadmap.md#red-cell-owners) |
 | [ordinary known stochastic categorical longitudinal TMLE](stochastic-categorical-longitudinal-tmle.md) | property | `power/mix__alternative` | positive | its own rule | rejection 0.5575, 0.5114 to 0.6029 | [`F1-power-design`](../../roadmap.md#red-cell-owners) |
 | [longitudinal modified treatment policies](longitudinal-modified-treatment-policies.md) | property | `interval_calibration/categorical_mtp__correctly_specified` | positive | its own rule | coverage 0.9289 to 0.9560, SE ratio 0.9432 to 1.0214, empirical efficiency ratio 1.0746 to 1.1643, reported efficiency ratio 1.0948 to 1.1006 | [`mtp-longitudinal-limits`](../../roadmap.md#red-cell-owners) |
+| [modified treatment policies at declared boundaries](mtp-boundaries.md) | property | `interval_calibration/p4_sdr__correctly_specified` | positive | its own rule | coverage 0.9233 to 0.9467, SE ratio 0.9060 to 0.9775 | [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_ltmle_tau5/ate_regimen[price_down vs natural_prices]` | cleverly-mtp-pricing | its truth gate | bias -0.000974 to 0.0024, coverage 0.9160, SE ratio 0.9310 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_ltmle_tau5/ey_regimen[price_down]` | cleverly-mtp-pricing | its truth gate | bias -0.000992 to 0.0023, coverage 0.9170, SE ratio 0.9479 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_sdr_tau5/ate_regimen[price_down vs natural_prices]` | cleverly-mtp-pricing | its truth gate | bias -0.000981 to 0.0024, coverage 0.9190, SE ratio 0.9339 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_sdr_tau5/ey_regimen[price_down]` | cleverly-mtp-pricing | its truth gate | bias -0.000997 to 0.0023, coverage 0.9230, SE ratio 0.9518 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | property | `interval_calibration/up_learned_density_tau2__correctly_specified` | positive | its own rule | coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | property | `interval_calibration/up_learned_density_tau3__correctly_specified` | positive | its own rule | coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | property | `interval_calibration/up_learned_density_tau5__correctly_specified` | positive | its own rule | coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) |
 | [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `sequential_double_robustness/both_correct__n_2000` | positive | its own rule | bias 0.000011 to 0.0112, margin 0.0172, coverage 0.8853 to 0.9327, SE ratio 0.9459 | [`X4-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [sequentially doubly robust longitudinal estimation](sequentially-doubly-robust-estimation.md) | property | `simultaneous_coverage/six_regimens__simultaneous_band` | positive | its own rule | joint coverage 0.9085 to 0.9394 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [longitudinal incremental propensity-score interventions under dropout](longitudinal-incremental-interventions-dropout.md) | property | `interval_calibration/competing_contrast_x2_h3__correctly_specified` | positive | its own rule | coverage 0.9491 to 0.9681, SE ratio 1.0124 to 1.0830, empirical efficiency ratio 0.9239 to 0.9884, reported efficiency ratio 1.0005 to 1.0007 | [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) |
@@ -197,6 +209,7 @@ same text as the "measured" column of its study page.
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/hajek_x_contrast__main_terms` | control | its own rule | bias 0.1306 to 0.1344, margin 0.0175, coverage 0.5072 to 0.5348, SE ratio 0.9970 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ht_x_contrast__main_terms` | control | its own rule | bias 0.1637 to 0.1682, margin 0.0208, coverage 0.4709 to 0.4984, SE ratio 0.9988 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
 | [sequential g-computation and IPW](sequential-baselines.md) | property | `misspecification_control/ice_x_contrast__main_terms` | control | its own rule | bias 0.1075 to 0.1111, margin 0.0162, coverage 0.5952 to 0.6221, SE ratio 1.0002 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) |
+| [parametric g-formula](parametric-gformula.md) | property | `interval_calibration/nice_g1_treat_all__correctly_specified` | positive | its own rule | coverage 0.9278 to 0.9529, SE ratio 0.9259 to 1.0000 | [`X45-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [outcome-adaptive per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle.md) | truth | `cleverly-ctmle-oat-per-arm/binary_active/ate` | cleverly-ctmle-oat-per-arm | its truth gate | bias -0.0021 to 0.0031, coverage 0.9087, SE ratio 0.8500 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle.md) | truth | `cleverly-ctmle-oat-per-arm/binary_active/ey0` | cleverly-ctmle-oat-per-arm | its truth gate | bias -0.0024 to 0.0013, coverage 0.9025, SE ratio 0.8526 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE](outcome-adaptive-per-arm-c-tmle.md) | truth | `cleverly-ctmle-oat-per-arm/binary_active/ey1` | cleverly-ctmle-oat-per-arm | its truth gate | bias -0.0019 to 0.0018, coverage 0.9062, SE ratio 0.8463 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
@@ -307,6 +320,7 @@ row. A move to `gated` is a separate registry decision.
 | [C-TMLE0 derivative covariate](ctmle-derivative.md) | 24 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 56 | 0 |
+| [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
 | [cross-fitted end-of-study longitudinal TMLE](cross-fitted-end-of-study-longitudinal-tmle.md) | 47 | 0 |
 | [point-treatment survival, per-horizon hazard targeting](point-survival-hazard.md) | 39 | 0 |
 | [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 46 | 0 |
@@ -316,6 +330,7 @@ row. A move to `gated` is a separate registry decision.
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
 | [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |
 | [LTMLE on declared known node mechanisms](known-node-mechanisms-ltmle.md) | 20 | 0 |
+| [structural nested mean model](structural-nested-mean.md) | 298 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
 | [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |
 <!-- /generated -->
