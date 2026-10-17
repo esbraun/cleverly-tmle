@@ -223,7 +223,7 @@ The container pins R 4.5.2 by digest, `tmle3` at `ed72f8a`, and `sl3` at
 gives the regeneration commands.
 [`manifest.json`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/manifest.json)
 records the configuration and the provenance. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/replicates.parquet),
 [performance tests](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/performance-tests.csv),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/equivalence.csv)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3/properties.csv)

@@ -110,11 +110,11 @@
     "tests/canonical/ltmle_regimen_adapter.R": "03f1b3d2ae35ae8f63096b42c1e00875845e916a9c74b5ffb947ac2a1f28baab"
   },
   "sha256": {
-    "replicates.csv.gz": "43e7544403c8cfb39c0d380dd6ba3cf89c09d467d1f95139d8012e2600361f35",
+    "replicates.parquet": "9e7645ceee86777e3a3a8263ddc9fc5f26b2d79722994161d7201b7302679d89",
     "summary.csv": "5c1a494c72a960979427ef1b0bcbe099cbe04ced0b89160c15ce0a9104751992",
     "equivalence.csv": "7a9c0f30f2f3ad7e4aa65f3f387375b0eba23b1f2040a4e47758e4e7440a1037",
     "performance-tests.csv": "63b7c0c9f41b59a532a549cc757d7646aed66f015d41b97b56233d15f1731ad2",
-    "property-replicates.csv.gz": "586c917eede6519effa46084896d761394e7668af1a971bc30d40ceae6ae8ca4",
+    "property-replicates.parquet": "6b9d722a631afb99cfa0f6b6d26acbb24a75f98d7ad07e0e5b5e2c06d49dad33",
     "properties.csv": "46ac7b6d320681a83ffa3c487a6fbd2f700f9f03c598d583b45008c6a72a39a5"
   }
 }

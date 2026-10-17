@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from cleverly.datasets import rule_arm_at_node_two
 from tests import discrete_law_survival as law
 from tests.studies import canonical_ltmle_survival as study
 from tests.studies import ltmle_survival_properties as properties
+from tests.studies.evidence.manifest import read_rows
 
 
 def test_dynamic_quadrature_is_stable_under_refinement() -> None:
@@ -141,9 +141,9 @@ def test_the_survivor_only_control_misses_cumulative_risk() -> None:
 
 
 def test_the_frozen_r_study_matches_beyond_its_acceptance_margin() -> None:
-    path = study.STUDY.artifact("replicates.csv.gz")
+    path = study.STUDY.artifact("replicates.parquet")
     assert path.exists(), "published survival artifacts are required"
-    rows = pd.read_csv(path)
+    rows = read_rows(path)
     paired = rows.pivot(
         index=["scenario", "replicate", "estimand"],
         columns="implementation",

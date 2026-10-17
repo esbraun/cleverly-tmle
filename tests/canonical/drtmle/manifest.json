@@ -112,11 +112,11 @@
     "tests/canonical/drtmle/run_drtmle.R": "d3e3814046e510e78a271ccb41a2492350a151ae3e1dccfe983b5343007ab885"
   },
   "sha256": {
-    "replicates.csv.gz": "c5a23174d7a055bf2ca431229e280d6de1aa7441008973138a6c023a2e72760d",
+    "replicates.parquet": "33ce4b5707019d13ccc7a678ca98df8af3937e47637b26cc417e8f096aebaf8f",
     "summary.csv": "b23ede2d0026209cb5ae4f13a9ed6036fd6fd0eb88bf86eed4a7988855901989",
     "equivalence.csv": "03dc37b56bb7a47d19999965573e3fdb4627015f8bc8d8735f37969a9a107954",
     "performance-tests.csv": "2c2f063d82b8b335ed0e1a9818071ca4bfa97e8c2fc6f3d2364f40d4f4be84a8",
-    "property-replicates.csv.gz": "49220124179bc455fea3e7feb747f9b19d92916f5271518be9cb4e42be4dc888",
+    "property-replicates.parquet": "903bc05251e6fa8a00c8d13fc6f78b5a9315318e02feb324a145df9922b0d453",
     "properties.csv": "0ec87607bd11467b6095bae744bc58b246e2882d1a0d3994d0f0104b02ec7009",
     "fit-diagnostics.csv": "721a5ec3eeb9130c90c99feb238a50933e3bdb0197184408fb81af819d153570"
   }

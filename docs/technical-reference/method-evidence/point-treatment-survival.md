@@ -256,6 +256,6 @@ the committed results and checked at the precision printed.
 The [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival/manifest.json)
 records the seeds, the margins, the estimator configuration, the source hashes and the result
 hashes. Run `python -m tests.canonical.point_survival.regenerate` to regenerate the artifacts. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival/replicates.parquet)
 and the [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival/properties.csv)
 carry every published row.

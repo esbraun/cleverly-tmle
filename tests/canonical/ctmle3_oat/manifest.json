@@ -96,11 +96,11 @@
     "tests/canonical/ctmle3_oat/run_ctmle3_oat.R": "13621c4382f45c6b3fc6585fc3650164e07a779df220befe035f91c97cd2603a"
   },
   "sha256": {
-    "replicates.csv.gz": "60146b9c0764bd16bc69a92a06360dde26c41607a3a5414f1c063144299472c1",
+    "replicates.parquet": "48db50ba27d645bb9d95a3213bc03f7799f3398a549b25f17dc483a47928ad6f",
     "summary.csv": "feb935d2163648fb57cb8b0b97d168fef2933787229ee266d7ded013cb0502c7",
     "equivalence.csv": "fa962da0a47335d0d6fdbbe6ad625efb67795d51bdbfe99a4cdfbe9c119a7c57",
     "performance-tests.csv": "a3e43ccebefa80b21a35b68839a8cb20b10ecfd46a67561dfd3092afa90c45a7",
-    "property-replicates.csv.gz": "40212cc0a13c3e8e0e139c289eae551db0c23c6a3b0e9800a3efd9a187bed4a9",
+    "property-replicates.parquet": "dda3545b86f9f1ed56be191990b3585439a253a6d79b2c2b2fbc162c27a9019f",
     "properties.csv": "403cdaa011d46573965b03e675b2f3ccf68199d2361c627ec335bd06960c4e47"
   }
 }

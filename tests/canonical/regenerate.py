@@ -62,7 +62,7 @@ import pandas as pd
 from tests.parallel import available_cores
 from tests.studies.evidence import failures, property_failures, replication
 from tests.studies.evidence.comparison import empty_equivalence, equivalence
-from tests.studies.evidence.manifest import write_csv, write_manifest
+from tests.studies.evidence.manifest import read_rows, write_csv, write_manifest, write_rows
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import REPLICATE_COLUMNS as PROPERTY_COLUMNS
 from tests.studies.evidence.registry import ROOT, StudyRecord
@@ -71,11 +71,11 @@ from tests.studies.evidence.seeds import reference_seed
 
 #: Every published artefact, in the order the manifest hashes them.
 ARTIFACT_NAMES = (
-    "replicates.csv.gz",
+    "replicates.parquet",
     "summary.csv",
     "equivalence.csv",
     "performance-tests.csv",
-    "property-replicates.csv.gz",
+    "property-replicates.parquet",
     "properties.csv",
 )
 
@@ -982,7 +982,7 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
             f"--reuse-subject: the committed rows have scenario sizes "
             f"{configured.get('scenario_n', {})}, not {_declared_sizes(record, arguments.n)}"
         )
-    for name in ("replicates.csv.gz", failures.FAILURES):
+    for name in ("replicates.parquet", failures.FAILURES):
         path = here / name
         recorded = manifest["sha256"].get(name)
         if recorded is None:
@@ -991,7 +991,7 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
             continue
         if hashlib.sha256(path.read_bytes()).hexdigest() != recorded:
             raise RuntimeError(f"--reuse-subject: {name} no longer matches its manifest hash")
-    committed = pd.read_csv(here / "replicates.csv.gz", float_precision="round_trip")
+    committed = read_rows(here / "replicates.parquet")
     rows = committed.loc[committed["implementation"] == record.implementation].reset_index(
         drop=True
     )
@@ -1034,7 +1034,7 @@ def _reference_rows(
     # ``--skip-reference`` is only registered when the study declares a reference, so the one
     # ``getattr`` here stands in for a flag an unpaired study never carries.
     if getattr(arguments, "skip_reference", False):
-        committed = pd.read_csv(here / "replicates.csv.gz")
+        committed = read_rows(here / "replicates.parquet")
         sizes = study.STUDY.sizes(arguments.n)
         rows = committed.loc[
             (committed["implementation"] == study.STUDY.reference)
@@ -1173,9 +1173,7 @@ def _property_artifacts(
         property_failures.reconcile(
             kept, kept_records, derived=getattr(properties, "DERIVED_CELLS", None)
         )
-        write_csv(
-            rows, paths["property-replicates.csv.gz"], compression={"method": "gzip", "mtime": 0}
-        )
+        write_rows(rows, paths["property-replicates.parquet"])
         if kept.empty:
             summary = pd.DataFrame(columns=aside.columns)
             accounting = aside_accounting.iloc[0:0]
@@ -1205,7 +1203,7 @@ def _property_artifacts(
             print(f"recorded property failure ({count}x): {message}", flush=True)
         write_csv(records, out / property_failures.PROPERTY_FAILURES)
         write_csv(accounting, out / property_failures.PROPERTY_ACCOUNTING)
-        write_csv(
+        write_rows(
             pd.DataFrame(columns=list(replication.WITNESS_COLUMNS))
             if witnesses is None
             else witnesses,
@@ -1213,7 +1211,7 @@ def _property_artifacts(
         )
         return summary, PROPERTY_FAILURE_FILES
 
-    names = ("property-replicates.csv.gz", "properties.csv", *record.property_artifacts)
+    names = ("property-replicates.parquet", "properties.csv", *record.property_artifacts)
     if all((here / name).exists() for name in names):
         committed = tuple(name for name in PROPERTY_FAILURE_FILES if (here / name).exists())
         for name in (*names, *committed):
@@ -1226,11 +1224,7 @@ def _property_artifacts(
     # A disposable smoke run has nothing to reuse.  Empty, schema-bearing files keep its
     # manifest complete without pretending the statistical study ran; publication to the
     # committed directory still refuses this state above.
-    write_csv(
-        pd.DataFrame(columns=list(PROPERTY_COLUMNS)),
-        paths["property-replicates.csv.gz"],
-        compression={"method": "gzip", "mtime": 0},
-    )
+    write_rows(pd.DataFrame(columns=list(PROPERTY_COLUMNS)), paths["property-replicates.parquet"])
     write_csv(pd.DataFrame(columns=["property", "cell", "passed"]), paths["properties.csv"])
     for name in record.property_artifacts:
         write_csv(pd.DataFrame(columns=["property", "cell"]), paths[name])
@@ -1447,7 +1441,7 @@ def _regenerate(
         *optional,
     )
     paths = {name: out / name for name in artifact_names}
-    write_csv(rows, paths["replicates.csv.gz"], compression={"method": "gzip", "mtime": 0})
+    write_rows(rows, paths["replicates.parquet"])
     summaries = summarize(rows, truth_varies=record.truth_varies_by_replicate)
     write_csv(summaries, paths["summary.csv"])
     performance = independent_performance_tests(rows, record=record, n_jobs=arguments.jobs)

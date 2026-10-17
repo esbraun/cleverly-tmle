@@ -188,11 +188,11 @@
     "tests/canonical/tmle_mar_arm_indexed_cvtmle/probe_scale_workaround.R": "e5614b43d30f7d5883312fd1693d8ca40f4495bc1d0b49287d369833ad27571a"
   },
   "sha256": {
-    "replicates.csv.gz": "5d407d7c38e5fafa041a6f38af7ff87c67737bfeb6f2b32461f09445c134e7d7",
+    "replicates.parquet": "6df8f362f941a02c350db51eb2fe6a58019e9aa8696817116264c2bd0b38bcd2",
     "summary.csv": "fad5f17c3549147bcb5ba0f5dfab35cafc9cce4236aed21e56c0c8b89f503eee",
     "equivalence.csv": "a411f3f585d86d841387f06529ae24bbc0cc9f54955a4b4a05c0ba4eec99bfa0",
     "performance-tests.csv": "878fe9a1398fc163af36224e411713637b961cc92c537a758dbe39bebaaa69d4",
-    "property-replicates.csv.gz": "06bb53c94a1f4271f63c949bc03abf34f1f27f19c1191fbf936b79a7ac202ba9",
+    "property-replicates.parquet": "7d661e6081ab55f2cc97133fab1da023056d00c4b1629109a0bc6b18a62ce198",
     "properties.csv": "cde5f42971bdce73ab5b597f7a4f10714cc83b2faecc2f22c29fee42bed80b21",
     "scale-probe.csv": "bfd18d70c42ac6f04a49444cdbcfa7255f4e3bd05a9b9e1eeb45b1c1ef6649ce"
   }

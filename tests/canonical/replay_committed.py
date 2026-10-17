@@ -3,8 +3,8 @@
 Two checks for a change that must not move a deterministic path.
 
 ``replay`` refits the first replications of each named study and compares every estimate and
-standard error with the committed ``replicates.csv.gz``, read with ``float_precision=
-"round_trip"`` so the comparison is exact.  A label map renames estimands first, for a study
+standard error with the committed ``replicates.parquet``, which holds every float64 exactly,
+so the comparison is exact.  A label map renames estimands first, for a study
 whose estimand names a change renamed.
 
 ``relabel`` compares every file of a regenerated study directory with the same file at a git
@@ -70,6 +70,7 @@ import numpy as np
 import pandas as pd
 
 from tests.studies.evidence import failures
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 
 #: The estimand renames of the modified-treatment-policy change: ``shifts=`` became
@@ -122,6 +123,8 @@ def relabel(frame: pd.DataFrame, labels: Mapping[str, str]) -> pd.DataFrame:
 
 def _read(source: Path | bytes, name: str) -> pd.DataFrame:
     handle = io.BytesIO(source) if isinstance(source, bytes) else source
+    if name.endswith(".parquet"):
+        return read_rows(handle)
     compression = "gzip" if name.endswith(".gz") else None
     return pd.read_csv(handle, compression=compression, float_precision="round_trip")
 
@@ -232,7 +235,7 @@ def _replay_one(
         (write / "rows").mkdir(parents=True, exist_ok=True)
         frame = result.rows.loc[:, [*ROW_KEYS, *REPLAYED]].sort_values(ROW_KEYS)
         frame.to_csv(write / "rows" / f"{slug}.csv", index=False)
-    committed = relabel(_read(record.artifacts / "replicates.csv.gz", ".gz"), labels)
+    committed = relabel(_read(record.artifacts / "replicates.parquet", ".parquet"), labels)
     committed = committed.loc[
         (committed["implementation"] == record.implementation)
         & (committed["replicate"] < replicates)
@@ -312,7 +315,7 @@ def relabel_check(
     record = _study(slug)
     problems: list[str] = []
     resampled: list[str] = []
-    for path in sorted(record.artifacts.glob("*.csv*")):
+    for path in sorted([*record.artifacts.glob("*.csv*"), *record.artifacts.glob("*.parquet")]):
         relative = path.relative_to(ROOT).as_posix()
         shown = subprocess.run(
             ["git", "show", f"{ref}:{relative}"], cwd=ROOT, capture_output=True, check=False

@@ -759,7 +759,7 @@ def paired_gaps(rows: pd.DataFrame) -> pd.DataFrame:
     Parameters
     ----------
     rows : DataFrame
-        ``replicates.csv.gz``.
+        ``replicates.parquet``.
 
     Returns
     -------

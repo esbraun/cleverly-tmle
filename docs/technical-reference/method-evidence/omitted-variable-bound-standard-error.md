@@ -136,6 +136,6 @@ The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/ca
 gives the regeneration command. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/omitted_variable_bound/manifest.json)
 records the seeds, margins, exact estimator configuration, source hashes, and result hashes. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/omitted_variable_bound/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/omitted_variable_bound/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/omitted_variable_bound/properties.csv)
 carry every published row.

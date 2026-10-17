@@ -171,7 +171,7 @@ a valid estimator of another population from an arbitrary failure.
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_weighted/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_weighted/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_weighted/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_weighted/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_weighted/equivalence.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_weighted/properties.csv)
 carry the protocol, provenance, and every published row.

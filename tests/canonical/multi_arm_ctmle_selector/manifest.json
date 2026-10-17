@@ -116,11 +116,11 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "63d30f12da84a59a7e886dd99491985e9cc0df0ab8cc3ed89c8d85551e29d647",
+    "replicates.parquet": "d0be806dc77b1c518d3c95bc003fafd0c747c10a250bc026b156d8b5d86f3969",
     "summary.csv": "71e1893b8fde3786b62a43565679a34c8957053f9a178cbae130c12cf0aa92ca",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "dd227e3d715bc333305df7165bac9c400c49716c3d78bc0d9379056531662545",
-    "property-replicates.csv.gz": "b8e4fb006f1b73ebc14350502e8dc9afe5a4b4274db966195ce3fb7905c144c8",
+    "property-replicates.parquet": "f2026ea7d34cdade9e11992eadd774de96e7571063742631147f5915cab30194",
     "properties.csv": "d1fcc9f3833bfcdba044893f47b3bf1cad055e04ed5d43d48771190b77400fa8"
   }
 }

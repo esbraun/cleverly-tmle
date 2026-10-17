@@ -109,11 +109,11 @@
     "tests/canonical/tmle_cde/probe_native_result2.R": "e4ba2f586cb11dcca1a086d449ea6cfd12123a5cba070db7bad7e95ada81c087"
   },
   "sha256": {
-    "replicates.csv.gz": "19c73f4094756f287654988457e3a71d6561e9e73e7110884f4aa495cdd8aa52",
+    "replicates.parquet": "a909b21387f77272881e555693f09acc80b0fdf44ec71f8622cd2a6102cc7def",
     "summary.csv": "f1ceb69d9bf470b58db30d3e3a9aa73f1cde9a3d50888335acac3253a73d2f6c",
     "equivalence.csv": "6d8bbf6fc6701b6ae5d18b5e794ca1160eeb30407538a66071ace601d33739c5",
     "performance-tests.csv": "4ea9132120d186f83100c00be086475c8c0854edb09da9dc828018e120c62a07",
-    "property-replicates.csv.gz": "a864f9c26f3fd65940027bc7401d4ecc05642a77e52c187b835eabad41f6c51f",
+    "property-replicates.parquet": "464f1ba7e5e51ded6668ac10852808408eb54c6167f3c504ef8ae2523a337c23",
     "properties.csv": "6db9be4918ae610ac6b533909483a36ebea8061347938331de19661e0c4d3236",
     "native-result2-defect.csv": "0773bb5c34ebbe610a5e53c673a79957eb8aa795ad2e88e6496ab1efa072c7f1"
   }

@@ -39,6 +39,7 @@ from tests.studies import ltmle_repeated_properties as properties
 from tests.studies import repeated_sizing as sizing
 from tests.studies.evidence import replication
 from tests.studies.evidence.inference import clopper_pearson, coverage_for_se_ratio
+from tests.studies.evidence.manifest import read_rows, write_rows
 from tests.studies.evidence.registry import registered
 from tests.studies.fractional_glm import QuasiBinomialSeparationWarning
 
@@ -1363,7 +1364,7 @@ def _paired_rows(path: Path, replicates: int | None = None) -> pd.DataFrame:
     declared run does.  Without it, the two implementations are paired on the rows they
     share, as a smoke run with ``--allow-failures`` needs.
     """
-    rows = pd.read_csv(path)
+    rows = read_rows(path)
     key = ["scenario", "replicate", "estimand"]
     subject = rows[rows["implementation"] == study.STUDY.implementation].set_index(key)
     reference = rows[rows["implementation"] == R_IMPLEMENTATION].set_index(key)
@@ -1399,18 +1400,18 @@ def _paired_rows(path: Path, replicates: int | None = None) -> pd.DataFrame:
 
 def _committed_paired_rows() -> pd.DataFrame:
     """The committed primary rows of both implementations, aligned on replication and estimand."""
-    return _paired_rows(study.STUDY.artifact("replicates.csv.gz"), study.PRIMARY_REPLICATES)
+    return _paired_rows(study.STUDY.artifact("replicates.parquet"), study.PRIMARY_REPLICATES)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Check the parity rule on the ``replicates.csv.gz`` of any run, such as a smoke run.
+    """Check the parity rule on the ``replicates.parquet`` of any run, such as a smoke run.
 
     ``python -m tests.unit.test_ltmle_repeated_method_study PATH`` prints one line for each
     breach and returns 1 when there is one.  The rule is the one the fast tier applies to
     the committed rows.
     """
     parser = argparse.ArgumentParser(description=main.__doc__)
-    parser.add_argument("path", type=Path, help="the replicates.csv.gz of a run")
+    parser.add_argument("path", type=Path, help="the replicates.parquet of a run")
     paired = _paired_rows(parser.parse_args(argv).path)
     findings = _parity_findings(paired)
     cells = paired.groupby("estimand").size()
@@ -1433,7 +1434,7 @@ def test_cleverly_reproduces_r_targeting_move_in_every_cell() -> None:
     row, and the gate waits for the change that registers them.
     """
     if study.STUDY.comparator_state == "pending":
-        rows = pd.read_csv(study.STUDY.artifact("replicates.csv.gz"))
+        rows = read_rows(study.STUDY.artifact("replicates.parquet"))
         assert set(rows["implementation"]) == {study.STUDY.implementation}
         assert set(rows["n"]) == {study.PRIMARY_N}
         assert len(rows) == len(study.ESTIMANDS) * study.PRIMARY_REPLICATES
@@ -1485,7 +1486,7 @@ def test_a_skipped_or_short_targeting_step_fails_the_parity_gate() -> None:
 
 
 def _run_file(paired: pd.DataFrame, path: Path) -> Path:
-    """Write aligned pairs in the layout of ``replicates.csv.gz``, one frame for both sides."""
+    """Write aligned pairs in the layout of ``replicates.parquet``, one frame for both sides."""
     base = {"scenario": study.SCENARIO, "n": study.PRIMARY_N}
     ordinal = paired.groupby("estimand").cumcount()
     subject = pd.DataFrame(
@@ -1504,7 +1505,7 @@ def _run_file(paired: pd.DataFrame, path: Path) -> Path:
         estimate=paired["r_estimate"],
         initial_estimate=paired["r_initial"],
     )
-    pd.concat([subject, reference], ignore_index=True).to_csv(path, index=False)
+    write_rows(pd.concat([subject, reference], ignore_index=True), path)
     return path
 
 
@@ -1513,23 +1514,23 @@ def test_the_parity_check_reads_the_rows_of_any_run(
 ) -> None:
     """The smoke run's file goes through the same rule as the committed one."""
     paired = _synthetic_pairs()
-    good = _run_file(paired, tmp_path / "good.csv.gz")
+    good = _run_file(paired, tmp_path / "good.parquet")
     assert main([str(good)]) == 0
     assert f"{len(study.ESTIMANDS) * 200} paired rows" in capsys.readouterr().out
     # A skipped targeting step in cleverly is a breach on the file, as on the frame.
-    skipped = _run_file(paired.assign(cl_estimate=paired["r_initial"]), tmp_path / "bad.csv.gz")
+    skipped = _run_file(paired.assign(cl_estimate=paired["r_initial"]), tmp_path / "bad.parquet")
     assert main([str(skipped)]) == 1
     assert "rms difference" in capsys.readouterr().out
     # A row dropped on one side pairs on the rest instead of failing the alignment.
-    frame = pd.read_csv(good)
+    frame = read_rows(good)
     dropped = frame.drop(frame.index[0])
-    dropped.to_csv(tmp_path / "dropped.csv.gz", index=False)
-    assert len(_paired_rows(tmp_path / "dropped.csv.gz")) == len(frame) // 2 - 1
+    write_rows(dropped, tmp_path / "dropped.parquet")
+    assert len(_paired_rows(tmp_path / "dropped.parquet")) == len(frame) // 2 - 1
     # The declared count is strict: the same file fails it.
     with pytest.raises(AssertionError, match="cleverly rows"):
         _paired_rows(good, study.PRIMARY_REPLICATES)
     # A file at another sample size is refused.
     wrong = frame.assign(n=study.PRIMARY_N + 1)
-    wrong.to_csv(tmp_path / "wrong.csv.gz", index=False)
+    write_rows(wrong, tmp_path / "wrong.parquet")
     with pytest.raises(AssertionError, match="predate"):
-        _paired_rows(tmp_path / "wrong.csv.gz")
+        _paired_rows(tmp_path / "wrong.parquet")

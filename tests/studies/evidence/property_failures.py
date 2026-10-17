@@ -12,7 +12,7 @@ from the records, and :func:`reconcile` refuses rows whose gaps the records do n
 With no record, :func:`stamp` returns the rows unchanged, so no artifact moves.
 
 A run with a record also publishes ``property-failure-accounting.csv`` (:func:`property_accounting`)
-and ``property-failure-witnesses.csv``, the draw-level witness of every key of each cell that
+and ``property-failure-witnesses.parquet``, the draw-level witness of every key of each cell that
 lost a replicate (rev 3 D3'f).
 """
 
@@ -53,6 +53,7 @@ from tests.studies.evidence.inference import (
     percentile_interval,
     student_interval,
 )
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.properties import (
     absolute_bias_bound,
     log_slope,
@@ -340,7 +341,7 @@ PROPERTY_ACCOUNTING_COLUMNS = (
 
 #: The witness values a run with a property failure publishes beside its records: the
 #: statistic of every key of each cell that lost a replicate (D3'f).
-PROPERTY_WITNESSES = "property-failure-witnesses.csv"
+PROPERTY_WITNESSES = "property-failure-witnesses.parquet"
 
 #: The largest ``FAILURE_BOUND`` a property module may declare (RM39-plan a2 Q3).
 MAXIMUM_BOUND = 0.05
@@ -2900,7 +2901,7 @@ def read_witnesses(path: Path) -> pd.DataFrame | None:
     Parameters
     ----------
     path : pathlib.Path
-        A ``property-failure-witnesses.csv``.
+        A ``property-failure-witnesses.parquet``.
 
     Returns
     -------
@@ -2909,7 +2910,7 @@ def read_witnesses(path: Path) -> pd.DataFrame | None:
     """
     if not path.exists():
         return None
-    published = pd.read_csv(path, dtype={"property": str, "cell": str, "statistic": str})
+    published = read_rows(path).astype({"property": str, "cell": str, "statistic": str})
     return published.loc[:, list(WITNESS_COLUMNS)]
 
 
