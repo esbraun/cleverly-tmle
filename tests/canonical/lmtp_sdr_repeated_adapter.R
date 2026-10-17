@@ -17,9 +17,12 @@
 # purpose.  The outcome regression is then wrong and the correction is nonzero in every
 # replicate, which is what makes the pairing test something (plan X32b section 5.3).
 #
-# A prediction in a cell no training row occupies is NA, as in `lmtp_cellmeans_learner`.  The
-# NA reaches the estimate, and the harness records the group as a failed fit.  The study's
-# primary n makes that event rare (`expected_unseen_cell_fits` in
+# A prediction in a cell no training row occupies is NA, as in `lmtp_cellmeans_learner`.  lmtp
+# predicts every row and masks the rows it does not read, so an NA on a row it does read may
+# reach the estimate and fail the group, while an NA on a masked row leaves no trace.  The
+# runner therefore checks the cells before each fit (`check_cells` in
+# tests/canonical/sdr_repeated/run_study.R) and refuses, inside a stage, a group that has an
+# unseen cell.  The primary n makes that rare (`expected_unseen_cell_fits` in
 # tests/studies/canonical_sdr_repeated.py).
 #
 # The key is read from the columns lmtp hands the learner, not from a list of names, so a

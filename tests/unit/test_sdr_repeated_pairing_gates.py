@@ -25,7 +25,7 @@ from tests.studies.evidence.registry import ROOT
 pytestmark = pytest.mark.filterwarnings("ignore")
 
 CANONICAL = ROOT / "tests" / "canonical"
-RUNNER = CANONICAL / "longitudinal_repeated_sdr_runner.R"
+RUNNER = CANONICAL / "sdr_repeated" / "run_study.R"
 ADAPTER = CANONICAL / "lmtp_sdr_repeated_adapter.R"
 SMALL_N = 1_000
 _SOURCED = re.compile(r"""source\(["']/fixture/(?P<path>[^"']+)["']\)""")
@@ -53,7 +53,8 @@ def _closure(runner: Path) -> set[str]:
 
 def test_the_driver_declares_every_file_the_runner_sources_transitively() -> None:
     reference = regenerate.REFERENCE
-    assert reference.runner == RUNNER.name
+    assert reference.runner == RUNNER.relative_to(CANONICAL).as_posix()
+    assert reference.runner_root == CANONICAL
     assert reference.mount_runner
     assert _closure(RUNNER) == set(reference.extra_files)
 
@@ -99,9 +100,15 @@ def test_the_runner_streams_several_replicates_per_chunk_and_promotes_warnings()
     chunk = int(re.search(r"chunk_lines = (\d+)L", source).group(1))  # type: ignore[union-attr]
     assert chunk // (len(study.SCENARIOS) * study.PRIMARY_N) >= 8
     assert "study_stage" in _read(CANONICAL / "lmtp_sdr_adapter.R")
-    handler = re.search(r"warning = function\(condition\) \{\s+study_fatal_error", source)
+    # A plain error, so the stage records a rare warning as a fitting failure (not a fatal one).
+    handler = re.search(r"warning = function\(condition\) \{\s+stop\(sprintf\(", source)
     assert handler is not None
+    assert "study_fatal_error" not in source
     assert "withCallingHandlers(" in source
+    # The unseen-cell check runs in its own stage before the fit.
+    assert source.index('study_stage("unseen cells", check_cells(') < source.index(
+        "lmtp_sdr_with_folds(\n"
+    )
 
 
 def _r_slug(label: str) -> str:
@@ -265,6 +272,35 @@ def test_g1r_passes_agreeing_sides_and_fails_a_curve_or_an_estimate_gap() -> Non
     assert (table["ic_gap"] == 0.0).all()
 
 
+def test_g1r_centres_the_curves_because_lmtp_eif_has_mean_psi() -> None:
+    """lmtp's eif has mean equal to the estimate; cleverly's curve has mean zero."""
+    rows = _synthetic()
+    mine = rows.loc[rows["implementation"] == "cleverly"]
+    theirs = rows.loc[rows["implementation"] == "lmtp"]
+    psi = dict(zip(map(tuple, mine[gates.PAIR].to_numpy()), mine["estimate"], strict=True))
+    curves = {}
+    for key, (curve, same) in _curves(rows).items():
+        curve = curve - curve.mean()
+        curves[key] = (curve, same - same.mean() + psi[key])
+    table = gates.g1r_table(mine, theirs, curves)
+    assert table["passes"].all()
+    assert (table["ic_gap"] < 1e-12).all()
+
+
+def test_g1r_fails_a_real_per_unit_difference_after_centring() -> None:
+    rows = _synthetic()
+    mine = rows.loc[rows["implementation"] == "cleverly"]
+    theirs = rows.loc[rows["implementation"] == "lmtp"]
+    curves = {}
+    for key, (curve, same) in _curves(rows).items():
+        different = same.copy()
+        different[3] += 1e-3  # one unit differs, so centring cannot remove it
+        curves[key] = (curve - curve.mean(), different + 0.4)
+    table = gates.g1r_table(mine, theirs, curves)
+    assert not table["passes"].any()
+    assert (table["ic_gap"] > 5e-4).all()
+
+
 def test_g1r_refuses_unpaired_rows() -> None:
     rows = _synthetic()
     mine = rows.loc[rows["implementation"] == "cleverly"]
@@ -319,15 +355,32 @@ def test_the_pr_b_comparison_ignores_the_lmtp_rows_of_the_new_run() -> None:
 
 
 def test_the_parity_ratio_on_the_committed_rows() -> None:
-    """WP, run at registration: skips with its reason while the committed rows hold no lmtp."""
+    """WP: once the record compares against lmtp, committed rows without lmtp fail this test."""
     rows = _committed()
-    if str(study.STUDY.reference) not in set(rows["implementation"]):
-        pytest.skip(
-            "longitudinal-repeated-sdr: the committed rows hold no lmtp rows yet; the owner's "
-            "Study queue run (plan X32b PR C, item 8) writes them"
-        )
+    assert study.STUDY.reference == "lmtp"
+    assert str(study.STUDY.reference) in set(rows["implementation"]), (
+        "longitudinal-repeated-sdr declares reference=lmtp but the committed rows hold no lmtp "
+        "rows; the owner's Study queue run (plan X32b PR C, item 8) writes them"
+    )
     table = gates.parity_table(rows)
     assert len(table) == len(study.SCENARIOS) * len(study.ESTIMANDS)
     assert table["passed"].all(), table.loc[~table["passed"]]
     for mutation in (gates.mutate_correction, gates.mutate_plug_in):
         assert not gates.parity_table(mutation(rows))["passed"].any()
+
+
+def test_the_g1r_verdict_recomputes_from_the_committed_gates_file() -> None:
+    """Precedent: ``test_longitudinal_sdr_design.py``; skips while the file is absent."""
+    path = study.STUDY.artifacts / "gates.csv"
+    if not path.exists():
+        pytest.skip("gates.csv is committed by the queue after G1r (plan X32b PR C, step 2)")
+    table = pd.read_csv(path, float_precision="round_trip")
+    assert list(table.columns) == [*gates.PAIR, "estimate_gap", "ic_gap", "passes"]
+    expected = len(study.SCENARIOS) * len(study.ESTIMANDS) * gates.G1R_REPLICATES
+    assert len(table) == expected
+    assert set(table["scenario"]) == set(study.SCENARIOS)
+    assert set(table["estimand"]) == set(study.ESTIMANDS)
+    assert set(table["replicate"]) == set(range(gates.G1R_REPLICATES))
+    recomputed = (table["estimate_gap"] <= gates.G1R_GATE) & (table["ic_gap"] <= gates.G1R_GATE)
+    assert (recomputed == table["passes"]).all()
+    assert recomputed.all(), table.loc[~recomputed]

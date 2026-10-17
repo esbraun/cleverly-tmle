@@ -2,7 +2,7 @@
 
 The study pairs with R ``lmtp`` 1.5.4.  The driver runs the Python phase on the declared seeds,
 spills each replicate's sample (the draw, the fold assignment and the ``ratio__`` and
-``shift__`` columns) to one archive, and hands it to ``longitudinal_repeated_sdr_runner.R``.
+``shift__`` columns) to one archive, and hands it to ``run_study.R`` in this directory.
 That runner calls ``lmtp_sdr_with_folds`` once per plan and horizon on the panel truncated after
 node ``h``.  It sources ``lmtp_sdr_repeated_adapter.R`` (the pairing learner
 ``SL.cellmeans.outcomes``), ``lmtp_sdr_adapter.R`` and ``lmtp_crossfit_adapter.R`` (both
@@ -28,7 +28,7 @@ from tests.studies.evidence.registry import ROOT
 
 REFERENCE = Reference(
     image="cleverly-lmtp-crossfit:1.5.4",
-    runner="longitudinal_repeated_sdr_runner.R",
+    runner="sdr_repeated/run_study.R",
     mount_runner=True,
     extra_files=(
         "lmtp_sdr_repeated_adapter.R",

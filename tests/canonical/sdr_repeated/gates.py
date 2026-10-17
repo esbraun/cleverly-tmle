@@ -24,6 +24,11 @@ seeds, so a difference means the Python side changed after the merged verdicts.
 Everything but :func:`main` runs without Docker.  :func:`main` needs Docker and the
 ``cleverly-lmtp-crossfit:1.5.4`` image (``tests/canonical/lmtp_crossfit``).
 
+**Outputs.**  ``gates.csv`` (G1r only) and ``timing.csv`` land in this directory.  They are
+study files, so the queue commits them after step 2 and before the regeneration, which then
+records a clean worktree.  The run builds the image first (the driver's own ``docker build``
+command), and refuses before that if the Python rows differ from PR B's.
+
 Usage::
 
     python -m tests.canonical.sdr_repeated.gates [--replicates 20] [--timing-only] [--cores 1]
@@ -43,12 +48,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from tests.canonical.sdr_repeated import regenerate
 from tests.studies import canonical_sdr_repeated as study
 from tests.studies.evidence.registry import ROOT
 
 HERE = Path(__file__).resolve().parent
 IMAGE = "cleverly-lmtp-crossfit:1.5.4"
-RUNNER = "longitudinal_repeated_sdr_runner.R"
+RUNNER = "sdr_repeated/run_study.R"
 
 #: Plan X32b section 5.3: G1r reads 20 replicates of each scenario.
 G1R_REPLICATES = 20
@@ -212,7 +218,7 @@ def g1r_table(
         The two sides' rows for the G1r replicates.
     curves : mapping
         ``(scenario, replicate, estimand)`` to the pair ``(cleverly IC, lmtp IC)`` of unit-level
-        curves in row order.
+        curves in row order.  Each curve is centred before the comparison.
     gate : float
         The bound on both gaps.
     """
@@ -229,7 +235,9 @@ def g1r_table(
         mine, theirs = curves[(scenario, int(replicate), estimand)]
         if mine.shape != theirs.shape:
             raise AssertionError(f"{scenario}/{replicate}/{estimand}: the curves differ in length")
-        gaps.append(float(np.max(np.abs(mine - theirs))))
+        # lmtp's eif has mean equal to the estimate and cleverly's curve has mean zero, so both
+        # are centred; the same rule serves a contrast, whose curve is a difference of two.
+        gaps.append(float(np.max(np.abs((mine - mine.mean()) - (theirs - theirs.mean())))))
     merged["ic_gap"] = gaps
     merged["passes"] = (merged["estimate_gap"] <= gate) & (merged["ic_gap"] <= gate)
     return merged.loc[:, [*PAIR, "estimate_gap", "ic_gap", "passes"]]
@@ -283,6 +291,13 @@ def _collect(
     )
 
 
+def _ensure_image() -> None:
+    """Build the image as the regeneration driver does (``Reference.run``): same command."""
+    reference = regenerate.REFERENCE
+    context = reference.build_context or HERE
+    subprocess.run(["docker", "build", "-t", reference.image, str(context)], check=True)
+
+
 def _run_reference(work: Path, cores: int) -> float:
     start = time.perf_counter()
     subprocess.run(
@@ -322,6 +337,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timing-only", action="store_true", help="P0: write timing.csv only")
     arguments = parser.parse_args(argv)
     samples, truths, rows, mine, timing = _collect(arguments.replicates, arguments.n)
+    if arguments.n == study.PRIMARY_N:
+        # The G1r refits are PR B's draws, so a Python drift on this host shows before Docker.
+        baseline = pr_b_rows()
+        baseline = baseline.loc[baseline["replicate"] < arguments.replicates]
+        drift = pr_b_differences(rows, baseline)
+        if len(drift):
+            print(f"the Python rows differ from PR B's:\n{drift.head(20)}", file=sys.stderr)
+            return 1
+    _ensure_image()
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         samples.to_csv(

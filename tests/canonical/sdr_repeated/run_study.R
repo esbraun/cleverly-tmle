@@ -5,7 +5,7 @@ source("/fixture/study_harness.R")
 options(digits = 17)
 
 paths <- study_arguments(
-  "usage: longitudinal_repeated_sdr_runner.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv"
+  "usage: run_study.R SAMPLES.csv.gz TRUTH.csv OUTPUT.csv"
 )
 truths <- read.csv(paths$truths, stringsAsFactors = FALSE, check.names = FALSE)
 z <- qnorm(0.975)
@@ -26,25 +26,68 @@ horizons <- 3L
 
 slug <- function(label) gsub("^_+|_+$", "", gsub("[^a-z0-9]+", "_", tolower(label)))
 
+check_cells <- function(frame, label, horizon) {
+  # lmtp masks an NA prediction on the rows it does not read, so a prediction cell that no
+  # training row occupies can leave a wrong row instead of an error.  Before the fit, each node
+  # t and fold must show that every validation-fold row the node predicts has its cell
+  # (Y_{<t}, A_{<=t} at the plan's arms) among the training-fold rows uncensored at t.  The
+  # predicted rows are those still on the plan and observed at t - 1 (all rows at t = 1).  This
+  # is stricter than the rows lmtp reads, and the declared n makes a refusal rare.
+  name <- slug(label)
+  folds <- sort(unique(frame$fold))
+  key <- function(columns) do.call(paste, c(lapply(columns, as.character), sep = "\r"))
+  for (node in seq_len(horizon)) {
+    outcomes <- sprintf("Y%d", seq_len(node - 1L))
+    arms <- sprintf("A%d", seq_len(node))
+    shifted <- sprintf("shift__%s__%d__1", name, seq_len(node))
+    observed <- !is.na(frame[[sprintf("C%d", node)]]) & frame[[sprintf("C%d", node)]] == 1
+    predicted <- if (node == 1L) {
+      rep(TRUE, nrow(frame))
+    } else {
+      frame[[sprintf("ratio__%s__%d", name, node - 1L)]] > 0
+    }
+    training_key <- key(frame[c(outcomes, arms)])
+    predicted_key <- key(c(frame[outcomes], frame[shifted]))
+    for (fold in folds) {
+      validation <- frame$fold == fold
+      training <- if (length(folds) == 1L) rep(TRUE, nrow(frame)) else !validation
+      seen <- unique(training_key[training & observed])
+      missing <- setdiff(unique(predicted_key[validation & predicted]), seen)
+      if (length(missing)) {
+        stop(sprintf(
+          "%s at t=%d, fold %s: %d prediction cells have no training row uncensored at t",
+          label, horizon, fold, length(missing)
+        ))
+      }
+    }
+  }
+  invisible(TRUE)
+}
+
 fit_plan <- function(frame, label, horizon) {
   nodes <- seq_len(horizon)
-  # A promoted warning raises `study_fatal_error`, the class `study_stage` never records, so a
-  # warning from lmtp or from the learner stops the run.  The first replicates show it.
+  # The check of the unseen cells runs in its own `study_stage`, and the fit runs in the
+  # adapter's.  The handler is established outside both and raises a plain error, so it
+  # propagates through the stage: a rare warning is a recorded fitting failure under the lmtp
+  # failure bound, and a warning on every replicate is stopped by `study_systematic`.
   withCallingHandlers(
-    lmtp_sdr_with_folds(
-      frame,
-      slug(label),
-      trt = sprintf("A%d", nodes),
-      outcome = sprintf("Y%d", horizon),
-      baseline = "W",
-      time_vary = blocks[nodes],
-      cens = sprintf("C%d", nodes),
-      outcome_type = "binomial",
-      learners_outcome = "SL.cellmeans.outcomes"
-    ),
+    {
+      study_stage("unseen cells", check_cells(frame, label, horizon))
+      lmtp_sdr_with_folds(
+        frame,
+        slug(label),
+        trt = sprintf("A%d", nodes),
+        outcome = sprintf("Y%d", horizon),
+        baseline = "W",
+        time_vary = blocks[nodes],
+        cens = sprintf("C%d", nodes),
+        outcome_type = "binomial",
+        learners_outcome = "SL.cellmeans.outcomes"
+      )
+    },
     warning = function(condition) {
-      study_fatal_error(sprintf(
-        "unexpected lmtp warning for %s at t=%d: %s", label, horizon, conditionMessage(condition)
+      stop(sprintf(
+        "unexpected warning for %s at t=%d: %s", label, horizon, conditionMessage(condition)
       ))
     }
   )

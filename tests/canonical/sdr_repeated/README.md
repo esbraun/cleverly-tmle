@@ -22,7 +22,7 @@ the R runner reads them:
 
 Each worker spills its replicate's sample to disk, and the driver assembles one
 `samples.csv.gz` (about 57.6 million rows). The runner
-`tests/canonical/longitudinal_repeated_sdr_runner.R` streams it in chunks of 24 replicates and
+`tests/canonical/sdr_repeated/run_study.R` streams it in chunks of 24 replicates and
 calls `lmtp_sdr_with_folds` once per plan and horizon. The learner is `SL.cellmeans.outcomes`
 in `tests/canonical/lmtp_sdr_repeated_adapter.R`.
 

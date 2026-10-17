@@ -32,7 +32,7 @@ The reference sources
 ---------------------
 
 The driver (``tests/canonical/sdr_repeated/regenerate.py``) names
-``tests/canonical/longitudinal_repeated_sdr_runner.R``, which sources
+``tests/canonical/sdr_repeated/run_study.R``, which sources
 ``lmtp_sdr_repeated_adapter.R`` (the learner ``SL.cellmeans.outcomes``), ``lmtp_sdr_adapter.R``
 and ``lmtp_crossfit_adapter.R`` (both unchanged, because ``longitudinal-sdr`` gates their
 hashes) and ``study_harness.R``.  The container is the ``lmtp_crossfit`` Dockerfile.  Gate
@@ -46,8 +46,8 @@ scenarios would hold about 29 GB in the parent process, against 15 GB on the clo
 :func:`draw_and_fit` therefore spills each fit's sample to disk from its worker
 (``spill_samples_at``) and hands the driver one assembled ``samples.csv.gz`` that holds one
 replicate at a time in memory.  The runner streams that archive in chunks of 24 replicates
-(``study_stream``).  :func:`_replicate` still returns rows and truths only, and a fast test
-bounds its bytes independent of ``n``.  :func:`pairing_sample` builds one replicate's frame.
+(``study_stream``).  A fast test bounds the bytes each worker returns, independent of ``n``.
+:func:`pairing_sample` builds one replicate's frame.
 
 What the sampled rows do not show
 ---------------------------------
@@ -293,7 +293,7 @@ STUDY = StudyRecord(
         "tests/canonical/lmtp_crossfit_adapter.R",
         "tests/canonical/lmtp_sdr_adapter.R",
         "tests/canonical/lmtp_sdr_repeated_adapter.R",
-        "tests/canonical/longitudinal_repeated_sdr_runner.R",
+        "tests/canonical/sdr_repeated/run_study.R",
     ),
     runner_module="tests.studies.canonical_sdr_repeated",
     properties_module="tests.studies.sdr_repeated_properties",
@@ -639,19 +639,6 @@ def _fitted(
         for name, value in truth.items()
     ]
     return result, truths, cleverly_rows(result, truth, scenario, replicate, n=len(frame))
-
-
-def _replicate(
-    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Truths and rows of one replicate, with the pairing columns built and checked.
-
-    The columns are not kept: the payload does not grow with ``n``.  :func:`_paired_replicate`
-    keeps them for the comparator.
-    """
-    result, truths, rows = _fitted(key, drawn)
-    pairing_columns(result)
-    return truths, rows
 
 
 def _paired_replicate(

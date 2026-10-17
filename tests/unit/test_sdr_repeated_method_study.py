@@ -973,18 +973,23 @@ def test_the_pairing_sample_holds_the_fold_and_numeric_pairing_columns() -> None
         assert not (sample.dtypes.astype(str) == "object").any()
 
 
-def test_the_primary_driver_returns_a_small_constant_payload_for_each_replicate() -> None:
+def test_the_primary_driver_returns_a_small_constant_payload_for_each_replicate(
+    tmp_path: Path,
+) -> None:
     """The declared run holds 4,800 payloads in the parent, so each must stay small.
 
     A returned sample of 12,000 rows held 12 MB, and 2,400 replicates of it held 29 GB.  The
-    payload must not grow with ``n``.
+    worker spills the sample, so the payload must not grow with ``n``.
     """
     import pickle
 
+    spilling = replication._Spilling(study._paired_replicate, 0, tmp_path)
     sizes = {}
     for n in (SMALL_N, 3 * SMALL_N):
         key = ("repeated_folds_5", 0, n)
-        payload = study._replicate(key, study._draw(key))
+        payload = spilling(key, study._draw(key))
+        assert isinstance(payload[0], replication.SpilledSample)
+        assert len(payload[0].load()) == n
         sizes[n] = len(pickle.dumps(payload))
     assert sizes[SMALL_N] < 60_000
     assert sizes[3 * SMALL_N] < 1.1 * sizes[SMALL_N]
