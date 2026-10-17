@@ -177,7 +177,8 @@
     "declared_sources_sha256": {
       "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
       "tests/canonical/longitudinal_sdr_runner.R": "a05972745ef3081d27e7b257bed4856a76239c4911f114509ef50f1e7a7096d8",
-      "tests/canonical/lmtp_sdr_adapter.R": "f9b5678dba1bf35b2c76a461a2bec2cf63b706e542b2ef86b3518d2a91bc9816"
+      "tests/canonical/lmtp_sdr_adapter.R": "f9b5678dba1bf35b2c76a461a2bec2cf63b706e542b2ef86b3518d2a91bc9816",
+      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
     }
   }
 }

@@ -298,3 +298,7 @@ The study `longitudinal-repeated-sdr` declares a pending lmtp comparator. Its `R
 Dockerfile unchanged. An edit to that runner for `longitudinal-sdr` is result-neutral for the
 pending study until PR C replaces it with the per-horizon runner. The pending study runs no
 reference process, so the recorded hash describes no committed result.
+
+The runner also sources `study_harness.R`. The pending manifest now lists that file among its
+declared sources, with the hash of its bytes at the run commit `77a31636`. The file has not changed
+since `182b6438`, which precedes the run. No reference ran, so the added entry changes no result.

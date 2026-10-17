@@ -19,7 +19,7 @@ REFERENCE = Reference(
     image="cleverly-lmtp-crossfit:1.5.4",
     runner="longitudinal_sdr_runner.R",
     mount_runner=True,
-    extra_files=("lmtp_sdr_adapter.R",),
+    extra_files=("lmtp_sdr_adapter.R", "study_harness.R"),
     build_context=ROOT / "tests" / "canonical" / "lmtp_crossfit",
     runner_root=ROOT / "tests" / "canonical",
 )
