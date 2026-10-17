@@ -522,10 +522,11 @@ _DISPATCHING: dict[tuple[str, str], str] = {
     ("longitudinal/gformula.py", "write_treatment"): "after GFORMULA_MIXED_NODE_REFUSAL",
     ("longitudinal/gformula.py", "has_set_dose"): "is_continuous_node raises at a mixed node",
     ("longitudinal/hazard.py", "hazard_inputs"): "after refuse_hazard_design",
+    ("longitudinal/ratio_trim.py", "node_ratio_entries"): "mixed branch first",
     ("longitudinal/regimen.py", "_resolve_mtp_node"): "mixed branch first",
     ("longitudinal/sdr.py", "node_factors"): "fitted factors",
-    ("longitudinal/sequential.py", "Mechanism.cumulative_with_unbounded"): "fitted factors",
-    ("longitudinal/sequential.py", "outcome_design"): "mixed branch first",
+    ("longitudinal/sequential.py", "Mechanism._cumulative_with_unbounded"): "fitted factors",
+    ("longitudinal/sequential.py", "_policy_block"): "mixed branch first",
     ("longitudinal/sequential.py", "node_ratios"): "fitted factors",
     ("study.py", "LongPanel._check_prepared"): (
         "a panel container only: from_long_panel refuses a vector node with a dose"
@@ -567,7 +568,11 @@ _LEVEL_READERS: dict[tuple[str, str], str] = {
     ("longitudinal/sequential.py", "_categorical_node"): "categorical node",
     ("longitudinal/sequential.py", "_check_policy_arm_support"): "categorical node guard",
     ("longitudinal/sequential.py", "_rule_hint"): "a rule at a mixed node is refused",
-    ("longitudinal/sequential.py", "outcome_design"): "mixed branch first",
+    ("longitudinal/sequential.py", "_policy_block"): "mixed branch first",
+    (
+        "longitudinal/sequential.py",
+        "_window_outcome_design",
+    ): "a mixed node is a policy node, never a rule node",
     ("longitudinal/sequential.py", "preflight_mechanism_support"): "categorical branch",
     ("study.py", "BackdoorMeanContrast.expression"): "a point design's own levels",
     ("study.py", "BackdoorMeanContrast.reference_arm"): "a point design's own levels",
