@@ -206,13 +206,39 @@ def _accounting(study: StudyRecord) -> pd.DataFrame:
     return pd.read_csv(path, keep_default_na=False, na_values=[""])
 
 
-@functools.cache
+_STUDY_CACHES: list[Any] = []
+_CACHED_STUDY: dict[str, str] = {}
+
+
+def _one_study_at_a_time(function: Any) -> Any:
+    """Cache ``function`` per study, and hold the frames of one study at a time.
+
+    ``conftest.py`` keeps a study's tests together on one xdist worker, so the worker meets
+    each study in one run of tests. A plain ``functools.cache`` kept every study's frames until
+    the worker exited, and a worker grew past 4 GB (more than a 16 GB container holds for 3
+    workers). The first call for a new study clears every cache that this decorator wraps.
+    """
+    cached = functools.cache(function)
+    _STUDY_CACHES.append(cached)
+
+    @functools.wraps(function)
+    def wrapper(slug: str) -> Any:
+        if _CACHED_STUDY.get("slug") != slug:
+            for each in _STUDY_CACHES:
+                each.cache_clear()
+            _CACHED_STUDY["slug"] = slug
+        return cached(slug)
+
+    return wrapper
+
+
+@_one_study_at_a_time
 def _replication_rows(slug: str) -> pd.DataFrame:
     """Load immutable primary rows once per study and worker."""
     return pd.read_csv(STUDY_BY_SLUG[slug].artifact("replicates.csv.gz"))
 
 
-@functools.cache
+@_one_study_at_a_time
 def _property_rows(slug: str) -> pd.DataFrame:
     """Load immutable property rows once per study and worker."""
     return pd.read_csv(STUDY_BY_SLUG[slug].artifact("property-replicates.csv.gz"))
@@ -243,14 +269,14 @@ def _worst_case_only(study: StudyRecord) -> set[tuple[str, str]]:
     return set(zip(reasons["property"], reasons["cell"], strict=True))
 
 
-@functools.cache
+@_one_study_at_a_time
 def _complete_case_summary(slug: str) -> pd.DataFrame:
     """The study's own property verdicts on the committed rows, before any accounting."""
     study = STUDY_BY_SLUG[slug]
     return study.properties().summarize_properties(_property_rows(slug))
 
 
-@functools.cache
+@_one_study_at_a_time
 def _property_summary(slug: str) -> pd.DataFrame:
     """Recompute an immutable property summary once per study and worker.
 
