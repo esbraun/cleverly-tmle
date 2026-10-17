@@ -282,8 +282,9 @@ class ModelSpec:
     hazard_pooling : {"node", "pooled"}
         How a longitudinal fit estimates its censoring mechanism.  ``"node"`` fits one model
         per node.  ``"pooled"`` fits one model over every at-risk unit and node, with the
-        node's grid time as a column, as ``survtmle`` does.  It needs one baseline treatment
-        and no time-varying covariate.
+        node's grid time as a column, as ``survtmle`` does.  Under
+        ``survival_model="hazard"`` it also fits each cause's hazard once over the eligible
+        rows of every node.  It needs one baseline treatment and no time-varying covariate.
     outcome_by_arm : bool
         Whether to fit one outcome regression per treatment arm, each on the arm's rows and
         the covariates alone (R's ``drtmle(stratify=TRUE)``).  The default fits one regression

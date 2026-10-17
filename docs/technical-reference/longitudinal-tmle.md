@@ -1181,7 +1181,7 @@ sums no risk curve.
 | `alpha_sig=`, `simultaneous=`, `n_multiplier=`, `multiplier_kind=` | interval level, and the simultaneous bands across the reported regimens |
 | `n_bootstrap=`, `bootstrap_resampling=` | the full-refit bootstrap. [The bootstrap contract](#the-full-refit-bootstrap) states what each replicate resamples and refits |
 | `ratio_trim=` | trims the per-node density ratios at a declared quantile, as `lmtp` does. A fit whose trim moves a ratio reports no interval. [Ratio trimming](#ratio-trimming) states the rule |
-| `hazard_pooling=` | `"pooled"` fits one censoring model over every at-risk unit and node, with the grid time as a column. [Pooled censoring](#pooled-censoring) states the rows |
+| `hazard_pooling=` | `"pooled"` fits one censoring model over every at-risk unit and node, with the grid time as a column. Under `survival_model="hazard"` it also fits each cause's hazard once over every node. [Pooled censoring](#pooled-censoring) states the rows |
 | `LongitudinalTreatment(markov_order=k)` | restricts every nuisance design to `W` and a window of the last nodes. The estimand does not change. [Markov order](#markov-order) states the windows |
 
 ### Ratio trimming
@@ -1283,13 +1283,18 @@ through a `CausalStudy`. The default `"node"` fits one model per node.
 | design | the node's censoring design, then one column that holds the node's grid time. Without a grid the column holds the node index |
 | folds | each unit keeps its outer fold at every node |
 | declared retention | a node with a declared retention keeps it, and its rows stay out of the pooled fit |
+| cause hazards | under `survival_model="hazard"`, each cause's pseudo-hazard is one regression over the rows at risk with no earlier-cause event at the node, stacked over every node with the same time column. A cause with no event at any node has zero hazard |
 
 The design matches `survtmle`'s `glm.ctime` in `t`. A linear time column is invariant to a
 constant offset, because the intercept absorbs it. Every node's design must have the same columns.
 So the option needs one baseline treatment and no time-varying covariate, and a fit refuses other
 designs with `CapabilityError`. A point-treatment fit refuses `hazard_pooling=`.
 
-`tests/unit/test_longitudinal_pooled_censoring.py` holds the evidence. It checks the stacked rows,
+`tests/unit/test_hazard_pooled.py` holds the evidence for the cause hazards. It checks the
+stacked rows, the fold of each unit, the hazards against a hand-fit pooled regression, and a
+time-trend witness, and two mutation controls fail it.
+
+`tests/unit/test_longitudinal_pooled_censoring.py` holds the evidence for censoring. It checks the stacked rows,
 the predictions against a hand-fit pooled logistic regression, and the fold of each unit. A
 mutation that drops the time column, and one that keeps the rows after the event, each fail it. On a
 cross-fitted `SDR` fit, it checks that each fold's own mechanism pools that fold's training rows.

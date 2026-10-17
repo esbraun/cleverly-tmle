@@ -83,6 +83,7 @@ from ..fluctuation._score import relative_score
 from ..fluctuation.iterative import TargetingFailure
 from ..learners.crossfit import Folds
 from .data import LongitudinalData
+from .pooled_hazards import refuse_pooled_designs, stacked_design
 from .regimen import Plan
 from .sequential import RegimenFit
 
@@ -499,6 +500,7 @@ def fit_hazards(
     learner: Learner,
     folds: Folds,
     n_jobs: int = 1,
+    hazard_pooling: str = "node",
 ) -> InitialHazards:
     """Fit the sequential pseudo-hazards at every node and cause, out of fold.
 
@@ -520,14 +522,24 @@ def fit_hazards(
         The outer split.
     n_jobs : int
         Worker count.
+    hazard_pooling : {"node", "pooled"}
+        ``"pooled"`` fits each cause's :math:`\\rho_j` once over the eligible rows of every
+        node, with the node's grid time as a numeric column, as ``survtmle``'s ``glm.ftime``
+        reads ``t``.  A unit keeps its fold at every node.  A cause with no event at any node
+        pools nothing and has zero hazard.
 
     Returns
     -------
     InitialHazards
-        The hazards and the nodes that held no event.
+        The hazards and the cells that held no event.  Under ``"pooled"`` a cause with no event
+        lists every node, and a node without an event of a cause is a row of the pool.
     """
     at_risk, events = event_indicators(data)
     n_causes = events.shape[2]
+    if hazard_pooling == "pooled":
+        return _fit_pooled_hazards(
+            data, levels, at_risk, events, learner=learner, folds=folds, n_jobs=n_jobs
+        )
     hazards = np.zeros((data.n, data.n_times, len(levels), n_causes))
     no_events: list[tuple[int, int]] = []
     diagnostics: list[tuple[object, ...]] = []
@@ -567,6 +579,67 @@ def fit_hazards(
             hazards[:, time - 1, :, cause] = rho * (1.0 - taken)
             taken = taken + hazards[:, time - 1, :, cause]
             earlier = earlier | (target > 0)
+    return InitialHazards(hazards, tuple(no_events), tuple(diagnostics))
+
+
+def _fit_pooled_hazards(
+    data: LongitudinalData,
+    levels: Sequence[Plan],
+    at_risk: BoolArray,
+    events: FloatArray,
+    *,
+    learner: Learner,
+    folds: Folds,
+    n_jobs: int,
+) -> InitialHazards:
+    """One regression per cause over the eligible rows of every node."""
+    n, n_times, n_causes = data.n, data.n_times, events.shape[2]
+    nodes = tuple(range(1, n_times + 1))
+    refuse_pooled_designs(data)
+    stacked_folds = Folds(np.tile(folds.assignment, n_times), folds.n_folds)
+    groups = None if data.cluster is None else np.tile(data.cluster, n_times)
+    weights = np.tile(data.weights, n_times)
+    designs = {plan.label: stacked_design(data, nodes, plan) for plan in levels}
+    observed_key = "\0observed_hazard"
+    designs[observed_key] = stacked_design(data, nodes)
+    hazards = np.zeros((n, n_times, len(levels), n_causes))
+    no_events: list[tuple[int, int]] = []
+    diagnostics: list[tuple[object, ...]] = []
+    earlier = np.zeros((n, n_times), dtype=bool)
+    taken = np.zeros((n, n_times, len(levels)))
+    for cause in range(n_causes):
+        rows = at_risk & ~earlier
+        target = events[:, :, cause]
+        if not np.any((target * data.weights[:, None])[rows] > 0):
+            no_events.extend((time, cause) for time in nodes)
+            diagnostics.append(())
+            rho = np.zeros((n, n_times, len(levels)))
+        else:
+            # Node-major stacking, as stacked_design orders its blocks.
+            predictions, fold_diagnostics = cross_fit_predictions(
+                learner,
+                designs[observed_key],
+                target.T.reshape(-1),
+                weights,
+                stacked_folds,
+                task="classification",
+                predict_designs=designs,
+                fit_mask=rows.T.reshape(-1),
+                groups=groups,
+                clip=(0.0, 1.0),
+                n_jobs=n_jobs,
+            )
+            diagnostics.append(tuple(fold_diagnostics))
+            rho = np.stack(
+                [
+                    np.asarray(predictions[plan.label], dtype=float).reshape(n_times, n).T
+                    for plan in levels
+                ],
+                axis=2,
+            )
+        hazards[:, :, :, cause] = rho * (1.0 - taken)
+        taken = taken + hazards[:, :, :, cause]
+        earlier = earlier | (target > 0)
     return InitialHazards(hazards, tuple(no_events), tuple(diagnostics))
 
 

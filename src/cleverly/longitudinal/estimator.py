@@ -4916,7 +4916,12 @@ class _SequentialEstimator:
         msm_fits: tuple[MSMRegimenFit, ...]
         if hazard:
             initial = fit_hazards(
-                prepared, levels, learner=outcome_learner, folds=folds, n_jobs=self.n_jobs
+                prepared,
+                levels,
+                learner=outcome_learner,
+                folds=folds,
+                n_jobs=self.n_jobs,
+                hazard_pooling=self.hazard_pooling,
             )
             # A hazard replay refits no learner, so the learner audit does not apply to it.
             replay_recipe = replace(
@@ -5974,7 +5979,9 @@ class LTMLE(_SequentialEstimator):
         trim moves a ratio reports no interval.  ``None`` trims nothing.
     hazard_pooling : {"node", "pooled"}
         ``"pooled"`` fits one censoring model over every node's at-risk rows, with the node
-        time as a column (:mod:`cleverly.longitudinal.pooled_hazards`).
+        time as a column (:mod:`cleverly.longitudinal.pooled_hazards`).  Under
+        ``survival_model="hazard"`` it also fits each cause's hazard once over the eligible
+        rows of every node.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
@@ -6179,7 +6186,8 @@ class SDR(_SequentialEstimator):
         :math:`W_{t,s}` is then the product of the trimmed ratios, as in ``lmtp``
         (:func:`~cleverly.longitudinal.sdr.trimmed_factors`).
     hazard_pooling : {"node", "pooled"}
-        The censoring model, as for :class:`LTMLE`.  Each cross-fitted fold pools its own.
+        The pooling, as for :class:`LTMLE`.  Each cross-fitted fold pools its own censoring
+        model.
     **refused : Any
         ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search`` and
         ``iterate``, which raise :class:`MethodConfigurationError` because the estimator fits no
@@ -6434,7 +6442,7 @@ class IPSI(_SequentialEstimator):
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
     hazard_pooling : {"node", "pooled"}
-        The censoring model, as for :class:`LTMLE`.
+        The pooling, as for :class:`LTMLE`.
     **refused : Any
         ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search``,
         ``iterate``, ``targeting`` and ``fluctuation``, which raise

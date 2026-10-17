@@ -5,6 +5,10 @@ over every at-risk ``(unit, node)`` row.  The pooled design is the node's design
 numeric column that holds the node's grid time, as ``survtmle``'s ``glm.ctime`` reads ``t``.
 A linear time column is invariant to a constant offset, because the intercept absorbs it.
 
+Under ``survival_model="hazard"`` each cause's pseudo-hazard is pooled the same way.  Its rows
+are the units at risk at a node with no event of an earlier cause there, stacked over every
+node, and the same time column enters the design.
+
 Every node's design must have the same columns, so the option needs one baseline treatment
 and no time-varying covariate.  A unit keeps its fold at every node, so its stacked rows are
 never split between a training fold and its held-out fold.  A node whose retention the design
