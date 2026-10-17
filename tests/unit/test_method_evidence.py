@@ -1095,15 +1095,26 @@ class TestPublishedVerdicts:
         correction = published.loc[published["property"] == "correction_necessity"]
         if not correction.empty:
             properties = study.properties()
-            initial = correction.loc[
+            initial_rows = correction.loc[
                 correction["cell"].str.endswith("__initial_score_control")
-            ].iloc[0]
+            ]
             for row in correction.itertuples():
-                expected = (
-                    row.bias_ci_upper <= properties.CORRECTION_SCORE_RATIO * initial.bias_ci_lower
-                    if row.cell.endswith("__closed_score")
-                    else row.bias_ci_lower >= properties.UNCORRECTED_SCORE_FLOOR
-                )
+                if initial_rows.empty:
+                    # A study with no initial-score arm states the bias claim in both
+                    # directions: a positive row inside the margin, a control outside it.
+                    expected = (
+                        _with_alternative(row, row.bias_discriminated)
+                        if row.role == "control"
+                        else row.bias_equivalent
+                    )
+                else:
+                    initial = initial_rows.iloc[0]
+                    expected = (
+                        row.bias_ci_upper
+                        <= properties.CORRECTION_SCORE_RATIO * initial.bias_ci_lower
+                        if row.cell.endswith("__closed_score")
+                        else row.bias_ci_lower >= properties.UNCORRECTED_SCORE_FLOOR
+                    )
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its correction-score endpoint"
                 )
@@ -2807,6 +2818,7 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:missingness_displacement": lambda s: s.properties().MISSINGNESS_DISPLACEMENT,
     "margin:correction_score_ratio": lambda s: s.properties().CORRECTION_SCORE_RATIO,
     "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
+    "margin:correction_displacement": lambda s: s.properties().CORRECTION_DISPLACEMENT,
     "margin:necessity_displacement": lambda s: s.properties().NECESSITY_DISPLACEMENT,
     "margin:weight_displacement": lambda s: s.properties().WEIGHT_DISPLACEMENT,
     "margin:learner_weight_displacement": lambda s: s.properties().LEARNER_WEIGHT_DISPLACEMENT,

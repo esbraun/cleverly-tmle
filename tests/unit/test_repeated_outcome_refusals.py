@@ -18,7 +18,7 @@ import pytest
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.exceptions import DataError
-from cleverly.longitudinal import IPSI, LTMLE, LongitudinalData, Repeated
+from cleverly.longitudinal import IPSI, LTMLE, SDR, LongitudinalData, Repeated
 
 from .test_repeated_outcome import panel
 
@@ -31,7 +31,7 @@ ROLES: dict[str, Any] = {
 OUTCOME = Repeated(["Y1", "Y2", "Y3"])
 
 
-KINDS = (LTMLE, IPSI)
+KINDS = (LTMLE, SDR, IPSI)
 
 
 def _estimator(kind: type[Any] = LTMLE, **overrides: Any) -> Any:

@@ -113,6 +113,7 @@ structural-nested-mean
 parametric-gformula
 repeated-outcome-longitudinal-tmle
 repeated-outcome-ipsi
+repeated-outcome-sdr
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
 calibration-slope-warning

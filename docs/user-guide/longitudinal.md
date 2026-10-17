@@ -557,7 +557,8 @@ print(means.curve(scale="mean")[["estimand", "psi", "ci_lower", "ci_upper"]])
 | `curve(scale="mean")` | one row for each reported key and horizon. It is the only scale |
 | survival view | not available. A repeated outcome has no absorbing event |
 | missing `Y_t` on an uncensored row | refused. Encode the loss as `C_t = 0` |
-| `SDR` | refused before any learner. `IPSI` fits a repeated outcome |
+| `SDR` | fits. Each horizon is the end-of-study fit of the truncated panel |
+| `IPSI` | fits. Each horizon is the end-of-study fit of the truncated panel |
 
 `truth` holds the exact mean at each horizon, under the names the fit reports. In the generator, `W`
 takes three values and every later node is binary. The fit can therefore check its curve against

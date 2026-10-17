@@ -293,8 +293,8 @@ panel, under the same inference statuses.
 | cross-fitting, clusters, weights, a held treatment, known mechanisms | fits |
 | `msm=` over $(d, h)$ cells | fits |
 | `stopping=`, `step_bound=`, `step_search=`, `iterate=` | fit. Each horizon applies them at its nodes ([targeting options at each node](#targeting-options-at-each-node)) |
+| `SDR` | fits. Each horizon is the end-of-study fit of the truncated panel ([below](#sdr-on-a-repeated-outcome)) |
 | `IPSI` | fits. Each horizon is the end-of-study fit of the truncated panel ([below](#ipsi-on-a-repeated-outcome)) |
-| `SDR` | refused before any learner, until [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | competing causes | not declarable. A cause mapping declares an absorbing outcome |
 | `rmst()`, `rmtl()`, `incidence_total()`, `ratio(view="survival")` | refused. A mean of a repeated outcome is not a cumulative risk |
 | `curve()` | `scale="mean"`, the default for this outcome. `"risk"` and `"survival"` are refused |
@@ -305,8 +305,8 @@ is encoded as censoring, the parameter is the mean in a population where death i
 | estimator | status | source for horizon $h$ |
 | --- | --- | --- |
 | `LTMLE` | fits | Bang and Robins (2005); van der Laan and Gruber (2012) |
+| `SDR` | fits | Díaz et al. (2023), Equation (4), Lemma 4 and Theorem 4 on the prefix |
 | `IPSI` | fits | Kim, Kennedy and Naimi (2021), Theorems 3.1, 4.1 and 5.1 |
-| `SDR` | refused until X32b | none yet |
 
 The allowlist `REPEATED_OUTCOME_KINDS` holds the kinds in this table that fit.
 `tests/unit/test_repeated_outcome_subclasses.py` fits every estimator subclass and requires
@@ -314,13 +314,17 @@ either the reduction or the refusal.
 
 A level of $E[Y_h^d]$ is checked against the range of its own horizon. The outcome scale pools
 every node, so a level of $Y_2$ outside the range of $Y_2$ and inside the range of $Y_1$ would
-pass the pooled range. The fit warns with `ParameterSpaceWarning` and names the range of
-that horizon. A declared `q_bounds` replaces the derived range
-(`tests/unit/test_repeated_outcome_container.py`, W16).
+pass the pooled range. `SDR` and `IPSI` warn with `ParameterSpaceWarning` and name the range of
+that horizon. `LTMLE` has no per-horizon range check. A fit with `msm=` runs no range check. A
+declared `q_bounds` replaces the derived range (`tests/unit/test_repeated_outcome_container.py`,
+W16).
 
 `tests/unit/test_repeated_outcome.py` checks the reduction at every horizon for 13 compositions
-of `LTMLE`, and for 11 of those 13 compositions of `IPSI` plus six incremental ones: the estimate, the
-influence curve, every node regression and the cumulative mechanism, at `rtol=1e-12`. The other two `IPSI` compositions refuse with the end-of-study message. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
+of `LTMLE` and 13 of `SDR`, and for 11 of those 13 compositions of `IPSI` plus six incremental
+ones: the estimate, the influence curve, every node regression and the cumulative mechanism, at
+`rtol=1e-12`. A plan with an odds tilt refuses in `SDR`, and the repeated fit raises the same
+message as the end-of-study fit. The other two `IPSI` compositions refuse with the end-of-study
+message. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
 the complex-step Gateaux derivative of the g-formula on two exact laws in
 `tests/discrete_law_repeated.py`. One law is binary. The other has three values per node. Ten
 mutation controls fail these tests, among them the absorbing seed $\max_{s \le h} Y_s$, a history
@@ -1494,6 +1498,60 @@ Clusters, observation weights, survival, competing risks, known policies, modifi
 policies, contrasts, simultaneous bands and the truncation replay behave as they do for LTMLE.
 Each composition reuses the step that the LTMLE contract states. `tests/unit/test_sdr_e2e.py`
 runs each one end to end.
+
+### SDR on a repeated outcome
+
+`SDR` accepts `outcome=Repeated(["Y1", "Y2", "Y3"])`. The fit reports one mean per plan and horizon,
+named `ey_regimen[always @ t=2]`, and the contrasts `ate_regimen[always vs never @ t=2]`. Each
+horizon $h$ is the end-of-study fit of the panel truncated after node $h$, with $Y_h$ as the
+outcome and each earlier $Y_s$ as a covariate of node $s + 1$. In a `CausalStudy`,
+`RegimeMean(..., horizons=[1, 3])` with `method="sdr"` takes the same horizons.
+
+The transform of the [section "The transform"](#the-transform) runs over the nodes $t, \ldots, h$ only. The
+seed $v_{h+1}$ is the scaled $Y_h$ on the rows uncensored through $h$. So $\varphi_1$ at horizon $h$
+is Equation (4) of the paper on the prefix. A node after $h$ enters no weight and no regression.
+
+| source | statement | code | witness |
+| --- | --- | --- | --- |
+| Equation (4) | $\varphi_t = v_t + \sum_{s=t}^{h} W_{t,s}(Z_s - \check m_s)$ | `sdr._recursion`, `seed_carried(horizon=h)` | E1 compares the fitted curve with the complex-step Gateaux derivative. E3 compares it with an independent transform |
+| Lemma 4 | the estimate at horizon $h$ is consistent when, at each node $t \le h$, the ratio or the sequential regression is consistent | the regression of each node fits $\varphi_{t+1}$, not the plug-in | E2b, with the mutation control NS that regresses on the plug-in |
+| Theorem 4 | asymptotic linearity with the efficient influence function, when the products of the ratio and regression errors are $o_P(n^{-1/2})$ | per-cell Wald interval, multiplier band over the stacked curves | E1 and E8 |
+
+**Sequential double robustness.** The tests run on two exact laws with $T = 2$ in
+`tests/discrete_law_repeated.py`. The law has a non-absorbing outcome, so $Y_2 = 0$ can follow
+$Y_1 = 1$. The sample realises the law exactly, so a saturated fit holds the exact nuisances.
+
+| witness | fit | result on the binary law at $h = 2$ |
+| --- | --- | --- |
+| E1 | saturated regressions, estimated mechanisms | the estimate equals the g-formula and the curve equals its Gateaux derivative, to $10^{-11}$ |
+| E2 | regressions on $W$ alone, mechanisms declared with `treatment_probabilities=` and `censoring_probabilities=` | the estimate equals the truth to $10^{-12}$. The plug-in of the same regressions misses by +0.1141 (`never`), −0.1050 (`always`) and −0.0024 (`treat_if_high`) |
+| E3 | the fit of E2 | the curve equals the law-side transform $\varphi_1 - \hat\psi$ at every plan and horizon. It is not the efficient curve |
+| E2b | node-2 regression on $W$ alone with the true ratio. Node-1 regression saturated in $W$, with an intercept treatment mechanism and a censoring mechanism on $A_1$ alone | the estimate equals the truth. The estimator that regresses node 1 on the plug-in $\check m_2$ misses by −0.0016 (`never`), −0.0018 (`always`) and −0.0014 (`treat_if_high`) |
+| E8 | the default band | the critical value equals the multiplier band over the stacked curves, and the correlation between the horizons of one plan is not zero |
+
+At $h = 1$ the regression on $W$ is saturated, so the plug-in gap is zero by construction. E3
+carries that horizon. On the `T2_BINARY` law (`BINARY` in `tests/discrete_law_repeated.py`),
+scaling the correction by 0.9 at every node moves the E2 estimate by +0.0114, −0.0105 and −0.0002. Replacing the censoring factor of the ratio by one moves it by +0.0883,
+−0.0849 and +0.0011. Both faults move the curve of every plan and horizon, by at least 0.13 and
+0.33.
+
+**The band.** The default `simultaneous=True` band covers every plan, every horizon and every
+contrast. It is the multiplier band over the stacked influence curves.
+
+| claim | condition |
+| --- | --- |
+| $\sqrt{n}(\hat\theta - \theta)$ is jointly normal | Theorem 4 at every plan and horizon, and positivity. The dimension is fixed, so the Cramér–Wold device applies |
+| the multiplier critical value is consistent | the stacked curves estimate their covariance consistently |
+| the horizons are dependent | the horizons share units and mechanisms, so the band uses the joint covariance. E8 rebuilds the critical value from the stacked curves with the library's own `simultaneous_bands`, so it checks the stacked-curve input and not the multiplier algorithm |
+| maximum-likelihood mechanisms in a correctly specified parametric model, no binding `g_bounds`, and an inconsistent regression | the Wald interval is conservative, not calibrated. The default `SuperLearner` mechanisms do not meet these conditions. The influence function of $\hat\psi$ is $\varphi(\bar m, r)$ minus its projection on the mechanism scores. The Wald variance reads $\operatorname{Var}\varphi(\bar m, r)$, which is at least the true variance. This is the projection argument for a doubly robust estimator with maximum-likelihood mechanisms |
+| sequential double robustness alone | the estimate is consistent (Lemma 4). The stacked curve is not the influence function of $\hat\psi$, so no interval claim |
+
+The registered study [SDR on a repeated outcome](method-evidence/repeated-outcome-sdr.md)
+measures the coverage of this curve. In its 28 positive interval cells, the coverage intervals span
+0.9357 to 0.9549 and the SE-ratio intervals span 0.9459 to 1.0169. The lmtp comparator runs are
+pending, so the evidence is Python property evidence only. The exact-law witnesses E1 to E3, E2b
+and E8, and the eleven mutation controls in `tests/unit/test_repeated_outcome_sdr_mutations.py`,
+stand behind the point estimate and the curve.
 
 ## Incremental interventions over time
 

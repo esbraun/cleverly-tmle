@@ -3010,6 +3010,113 @@ _IPSI_FITS: dict[tuple[str, str], tuple[str, str]] = {
 for _label in _IPSI_LABELS:
     for (_family, _base), _words in _IPSI_FITS.items():
         ARM_CELLS[(_family, _label, _base)] = _words
+
+#: The ``longitudinal-repeated-sdr`` cells.  The labels are those of the X32a repeated-outcome
+#: study, so the shared tables describe a cell by another study's fit.  The entries below say what
+#: this study fits.  Mirrored from ``tests.studies.sdr_repeated_properties``, which this module
+#: cannot import (descriptions stay out of every study's hashed module list).
+#: ``tests/unit/test_sdr_repeated_method_study.py`` pins the labels equal.
+_SDR_SLUG = "longitudinal-repeated-sdr"
+_SDR_GATED = ("never_t3", "always_t3", "rule_t3", "always_vs_never_t3", "rule_vs_never_t3")
+_SDR_BAND = "SE-ratio and coverage intervals inside the calibration bands"
+_SDR_MECHANISMS = "main-terms quasibinomial treatment and censoring mechanisms"
+_SDR_FITS: dict[tuple[str, str], tuple[tuple[str, ...], tuple[str, str]]] = {
+    ("interval_calibration", "in_sample"): (
+        (
+            *_SDR_GATED,
+            "never_t1",
+            "never_t2",
+            "always_t1",
+            "always_t2",
+            "rule_t2",
+            "always_vs_never_t1",
+            "always_vs_never_t2",
+            "rule_vs_never_t2",
+        ),
+        (
+            f"in sample, cell-mean outcome regressions with a backoff, {_SDR_MECHANISMS}, "
+            "n = 32,000",
+            _SDR_BAND,
+        ),
+    ),
+    ("interval_calibration", "crossfit"): (
+        _SDR_GATED,
+        (
+            f"five folds, cell-mean outcome regressions with a backoff, {_SDR_MECHANISMS}, "
+            "n = 8,000",
+            _SDR_BAND,
+        ),
+    ),
+    ("interval_calibration", "continuous"): (
+        _SDR_GATED,
+        (
+            "the three-value outcome law, in sample, cell-mean outcome regressions with a "
+            f"backoff, {_SDR_MECHANISMS}, outcome bounds (0, 1), n = 32,000",
+            _SDR_BAND,
+        ),
+    ),
+    ("interval_calibration", "crossfit_boosted"): (
+        _SDR_GATED,
+        (
+            "five folds, a shallow regularized booster for both outcome learners (depth 2, 50 "
+            f"rounds, an L2 penalty), {_SDR_MECHANISMS}, n = 8,000",
+            "the lower ends of the SE-ratio and coverage intervals at or above the lower ends "
+            "of the calibration bands",
+        ),
+    ),
+    ("small_sample_calibration", "in_sample"): (
+        _SDR_GATED,
+        ("the in-sample binary calibration arm at n = 2,000", "reported, no verdict"),
+    ),
+    ("small_sample_calibration", "continuous"): (
+        _SDR_GATED,
+        ("the continuous calibration arm at n = 2,000", "reported, no verdict"),
+    ),
+    ("correction_necessity", "corrected"): (
+        _SDR_GATED,
+        (
+            "the sequential regression on the baseline covariate alone, with the correction "
+            "and correctly specified mechanisms",
+            "bias interval inside the equivalence margin",
+        ),
+    ),
+    ("correction_necessity", "uncorrected"): (
+        _SDR_GATED,
+        (
+            "the same sequential regression carried back with no correction, written without "
+            "`cleverly`",
+            "bias interval outside the margin, and inside it around the plug-in's exact limit",
+        ),
+    ),
+    ("repeated_outcome_necessity", "repeated"): (
+        ("never_t2", "never_t3", "always_t2", "always_t3", "rule_t2", "rule_t3"),
+        (
+            f"the repeated-outcome fit, cell-mean outcome regressions with a backoff, "
+            f"{_SDR_MECHANISMS}",
+            "bias interval inside the equivalence margin",
+        ),
+    ),
+    ("repeated_outcome_necessity", "absorbing_reading"): (
+        ("never_t2", "never_t3", "always_t2", "always_t3", "rule_t2", "rule_t3"),
+        (
+            "an end-of-study fit of the maximum of the outcomes through the horizon, with the "
+            "earlier outcomes in the history",
+            "bias interval outside the margin, and inside it around the absorbing g-formula",
+        ),
+    ),
+    ("outcome_history_necessity", "repeated"): (
+        ("never_t3", "always_t3", "always_vs_never_t3"),
+        (
+            f"the repeated-outcome fit, cell-mean outcome regressions with a backoff, "
+            f"{_SDR_MECHANISMS}",
+            "bias interval inside the equivalence margin",
+        ),
+    ),
+}
+for (_family, _base), (_cell_labels, _words) in _SDR_FITS.items():
+    for _label in _cell_labels:
+        STUDY_ARM_CELLS[(_SDR_SLUG, _family, _label, _base)] = _words
+STUDY_ARMS[(_SDR_SLUG, "always_t2")] = "mean under always at horizon t = 2, repeated binary outcome"
 ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (
     "the outcome regression, treatment mechanism and observation mechanism are correct",
     "SE ratio and coverage intervals both inside their calibration bands",
