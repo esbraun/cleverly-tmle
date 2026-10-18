@@ -611,13 +611,15 @@ def pilot_se(row: Any) -> float:
 
 
 def pooled_model() -> tuple[float, float, float]:
-    """The pooled mean of the five band arms, its variance, and the 80% upper bound of tau.
+    """The pooled mean of the five band arms, its variance, and an upper bound of tau.
 
     The arm-pooled predictive rule: arm ``j``'s true joint coverage is
     ``m + e + u_j`` with ``e ~ N(0, v)`` shared and ``u_j ~ N(0, tau^2)``.  ``m`` is the
     precision-weighted mean of the pilot rates at ``tau``, ``v`` is the variance of that mean
     (the arms' sampling variance over their effective number), and ``tau`` is the upper bound
-    of the Q-profile interval at the 10th percentile of the chi-square law of ``Q``.  The two
+    of the Q-profile interval at the 10th percentile of the chi-square law of ``Q``, a
+    one-sided 90% bound.  The shared pilot level is 0.80; this bound is a deliberate, more
+    conservative departure, so ``tau`` and the replication count are not smaller than 0.80 gives.  The two
     law-D arms read one sample and move together, so they count once, as law D.
     """
     rates = np.array(

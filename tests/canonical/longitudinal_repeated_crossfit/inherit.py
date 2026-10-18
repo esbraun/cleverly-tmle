@@ -70,6 +70,7 @@ def committed_rows(here: Path = HERE) -> pd.DataFrame:
     recorded = manifest["sha256"][ROWS]
     if hashlib.sha256((here / ROWS).read_bytes()).hexdigest() != recorded:
         raise RuntimeError(f"refused: {ROWS} no longer matches its manifest hash")
+    print(f"source {ROWS} sha256 {recorded}", flush=True)
     rows = pd.read_csv(here / ROWS, float_precision="round_trip")
     if rows["failed_replicates"].ne(0).any():
         raise RuntimeError("refused: a committed row records a lost replicate")

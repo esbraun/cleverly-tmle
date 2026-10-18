@@ -84,6 +84,6 @@ python -m tests.canonical.longitudinal_repeated_crossfit.regenerate --jobs 14 --
 ```
 
 `inherit.py` refuses a committed row file that its manifest does not hash, a fit set with a
-missing replicate, and a row that records a lost replicate. The new fit sets cost about 33
-CPU-hours, and the primary phase about 2.4. `tests/canonical/provenance-revisions.md` records why
+missing replicate, and a row that records a lost replicate. The rerun costs about 36
+CPU-hours at the cloud per-core speed (`band_i` 29, the other new fit sets 4.7, the primary phase 2). `tests/canonical/provenance-revisions.md` records why
 the inherited rows are sound under the new code.
