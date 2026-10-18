@@ -813,6 +813,10 @@ def test_an_alternate_reference_runner_must_be_mounted_and_hashed(
     assert "/fixture/probe.R" in commands[-1]
     assert "CLEVERLY_REFERENCE_CORES=2" in commands[-1]
     assert "CLEVERLY_R_CORES=2" in commands[-1]
+    # One BLAS and OpenMP thread per worker, and a CPU limit equal to the granted cores.
+    assert "OPENBLAS_NUM_THREADS=1" in commands[-1]
+    assert "OMP_NUM_THREADS=1" in commands[-1]
+    assert commands[-1][commands[-1].index("--cpus") + 1] == "2"
 
     with pytest.raises(ValueError, match="not in extra_files"):
         reference.run(
