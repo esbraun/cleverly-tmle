@@ -47,7 +47,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
-from scipy.stats import binom, norm
+from scipy.optimize import brentq
+from scipy.stats import binom, chi2, norm
 from scipy.stats import t as student
 
 from tests import discrete_law_longitudinal as dlaw
@@ -72,6 +73,18 @@ SIZING = ROOT / "tests" / "diagnostics" / "x46_sizing"
 READING = pd.read_csv(SIZING / "reading.csv")
 #: The pilot's per-sample readings: the median and draw-0 estimates and SEs of every name.
 ROWS = pd.read_csv(SIZING / "rows.csv.gz")
+#: The committed ``simultaneous_coverage`` and ``repeat_increment`` rows of the first declared
+#: run (``properties.csv`` at ``PILOT_COMMIT``, 24,000 replications each).  That run read both
+#: families off the calibration fits.  The rerun draws each family its own samples, so these
+#: rows are an independent pilot for it.
+PILOT = pd.read_csv(SIZING / "rerun_pilot.csv")
+PILOT_COMMIT = "07092dd43980ea626c7fc435bd71e1ff9e8dcbfe"
+#: The band arms of the pooled rule.  Law D's two bands read one sample and count once.
+BAND_ARMS = ("d_ltmle", "i_ipsi", "s_ltmle", "c_ltmle", "m_ltmle")
+BAND_ARM = {label: ("d_ltmle" if label == "d_sdr" else label) for label in p.BANDS}
+#: The Monte Carlo draws of the pooled rule and their seed.
+BAND_DRAWS = 200_000
+BAND_SEED = 4646
 MARGINS = Margins()
 PRIMARY_PASS = 0.95
 CALIBRATION_PASS = 0.90
@@ -98,6 +111,7 @@ def test_the_declared_numbers() -> None:
     assert (s.N_FOLDS, s.LEARNER_FOLDS, s.REPEATS, s.G_BOUNDS) == (5, 2, 3, (0.01, 1.0))
     assert (s.SEED, s.RESAMPLING_SEED) == (20261446, 2026144601)
     assert (p.CALIBRATION_N, p.CALIBRATION_REPLICATES) == (8_000, 24_000)
+    assert (p.BAND_REPLICATES, p.INCREMENT_REPLICATES) == (2_400, 2_800)
     assert (p.STABILITY_TRIALS, p.RATE_REPLICATES, p.RATE_SIZES) == (
         400,
         800,
@@ -543,6 +557,34 @@ def test_the_shrunken_se_controls_have_power() -> None:
 # ---------------------------------------------------------------------------- bands
 
 
+def pilot(family: str, cell: str) -> Any:
+    """One row of the rerun pilot: the committed rows of the first declared run."""
+    (row,) = PILOT[(PILOT["family"] == family) & (PILOT["cell"] == cell)].itertuples()
+    return row
+
+
+@functools.cache
+def accepted_range(replicates: int, band: bool) -> tuple[int, int]:
+    """The smallest and largest success count whose exact 99% interval passes the band rule.
+
+    ``band`` reads the joint-coverage band rule, and its absence reads the pointwise control
+    rule (the upper endpoint below the nominal rate).  The accepted counts are contiguous,
+    which the assertion checks, so a binomial CDF difference gives the pass probability.
+    """
+    accept = band_within if band else control_below
+    counts = accepted(replicates, accept)
+    assert counts.max() - counts.min() + 1 == len(counts)
+    return int(counts.min()), int(counts.max())
+
+
+def band_within(interval: Any) -> bool:
+    return bool(interval.within(*MARGINS.calibration_coverage))
+
+
+def control_below(interval: Any) -> bool:
+    return bool(interval.high < 1.0 - MARGINS.alpha)
+
+
 @functools.cache
 def accepted(replicates: int, accept: Callable[[Any], bool]) -> np.ndarray:
     """The success counts whose exact 99% interval satisfies ``accept``."""
@@ -556,54 +598,130 @@ def accepted(replicates: int, accept: Callable[[Any], bool]) -> np.ndarray:
     )
 
 
-def interval_pass_probability(rate: float, replicates: int, accept: Any) -> float:
-    """The chance that the exact 99% interval of a binomial rate satisfies ``accept``."""
-    rate = min(max(rate, 0.0), 1.0)
-    return float(binom.pmf(accepted(replicates, accept), replicates, rate).sum())
+def interval_pass_probability(rate: Any, replicates: int, band: bool) -> Any:
+    """The chance that the exact 99% interval of a binomial rate passes the band or control rule."""
+    low, high = accepted_range(replicates, band)
+    rate = np.clip(rate, 0.0, 1.0)
+    return binom.cdf(high, replicates, rate) - binom.cdf(low - 1, replicates, rate)
 
 
-def band_within(interval: Any) -> bool:
-    return bool(interval.within(*MARGINS.calibration_coverage))
+def pilot_se(row: Any) -> float:
+    """The binomial standard error of a pilot rate."""
+    return float(np.sqrt(row.value * (1.0 - row.value) / row.replicates))
 
 
-def control_below(interval: Any) -> bool:
-    return bool(interval.high < 1.0 - MARGINS.alpha)
+def pooled_model() -> tuple[float, float, float]:
+    """The pooled mean of the five band arms, its variance, and the 80% upper bound of tau.
+
+    The arm-pooled predictive rule: arm ``j``'s true joint coverage is
+    ``m + e + u_j`` with ``e ~ N(0, v)`` shared and ``u_j ~ N(0, tau^2)``.  ``m`` is the
+    precision-weighted mean of the pilot rates at ``tau``, ``v`` is the variance of that mean
+    (the arms' sampling variance over their effective number), and ``tau`` is the upper bound
+    of the Q-profile interval at the 10th percentile of the chi-square law of ``Q``.  The two
+    law-D arms read one sample and move together, so they count once, as law D.
+    """
+    rates = np.array(
+        [pilot("simultaneous_coverage", f"{a}__simultaneous_band").value for a in BAND_ARMS]
+    )
+    variance = np.array(
+        [
+            pilot_se(pilot("simultaneous_coverage", f"{a}__simultaneous_band")) ** 2
+            for a in BAND_ARMS
+        ]
+    )
+
+    def profile(tau: float) -> tuple[float, float, float]:
+        weight = 1.0 / (variance + tau**2)
+        mean = float(np.sum(weight * rates) / np.sum(weight))
+        return float(np.sum(weight * (rates - mean) ** 2)), mean, float(1.0 / np.sum(weight))
+
+    target = float(chi2.ppf(0.10, len(rates) - 1))
+    tau = 0.0 if profile(0.0)[0] <= target else brentq(lambda t: profile(t)[0] - target, 0.0, 1.0)
+    _, mean, spread = profile(tau)
+    return mean, spread, float(tau)
 
 
-def band_reading(label: str, which: str) -> Any:
-    _, scenario, _ = p.BANDS[label]
-    return probe(SETS[scenario], scenario, "band", which)
+@functools.cache
+def band_draws() -> tuple[np.ndarray, np.ndarray]:
+    """The predictive draws of the five band arms' true rates and of their five controls'."""
+    mean, spread, tau = pooled_model()
+    rng = np.random.default_rng(BAND_SEED)
+    shared = rng.normal(0.0, np.sqrt(spread), (BAND_DRAWS, 1))
+    arms = mean + shared + rng.normal(0.0, tau, (BAND_DRAWS, len(BAND_ARMS)))
+    controls = np.column_stack(
+        [
+            rng.normal(row.value, pilot_se(row), BAND_DRAWS)
+            for row in (
+                pilot("simultaneous_coverage", f"{a}__pointwise_joint_control") for a in BAND_ARMS
+            )
+        ]
+    )
+    return arms, controls
+
+
+def band_passes(replicates: int) -> tuple[np.ndarray, np.ndarray]:
+    """Each draw's pass probability for the five bands and the five controls."""
+    arms, controls = band_draws()
+    return (
+        interval_pass_probability(arms, replicates, True),
+        interval_pass_probability(controls, replicates, False),
+    )
+
+
+def band_family(replicates: int = p.BAND_REPLICATES) -> float:
+    """The chance that every band passes and every pointwise control has power together."""
+    bands, controls = band_passes(replicates)
+    return float(np.mean(np.prod(bands, axis=1) * np.prod(controls, axis=1)))
+
+
+def test_the_band_pilot_is_the_first_declared_run() -> None:
+    """The pilot rows are the committed ``properties.csv`` at the artifact commit, 24,000 each."""
+    assert set(PILOT["artifact_commit"]) == {PILOT_COMMIT}
+    assert set(PILOT["replicates"]) == {24_000}
+    assert len(PILOT) == 2 + 2 * len(p.BANDS)
+
+
+def test_the_band_family_passes_jointly_by_the_pooled_rule() -> None:
+    """2,400 is the smallest multiple of 400 whose family-wise predictive pass is at least 0.95."""
+    assert band_family(p.BAND_REPLICATES) >= FAMILY_PASS
+    assert band_family(p.BAND_REPLICATES - 400) < FAMILY_PASS
+
+
+def test_the_pooled_model_is_read_from_the_pilot() -> None:
+    mean, spread, tau = pooled_model()
+    assert 0.950 < mean < 0.953
+    assert 0.001 < np.sqrt(spread) < 0.003
+    assert 0.0 < tau < 0.01
 
 
 @pytest.mark.parametrize("label", list(p.BANDS))
 def test_every_band_label_is_sized_for_its_gate(label: str) -> None:
-    """The band's joint coverage, moved one Monte Carlo SE either way, passes at 24,000."""
-    band = band_reading(label, "band_covered")
-    for coverage in (band.value - band.value_se, band.value + band.value_se):
-        probability = interval_pass_probability(coverage, p.CALIBRATION_REPLICATES, band_within)
-        assert probability >= CALIBRATION_PASS, (label, coverage, probability)
+    """Each band passes at the pilot rate, and each pooled arm clears the cell floor."""
+    row = pilot("simultaneous_coverage", f"{label}__simultaneous_band")
+    assert float(interval_pass_probability(row.value, p.BAND_REPLICATES, True)) >= CALIBRATION_PASS
+    arm = band_passes(p.BAND_REPLICATES)[0][:, BAND_ARMS.index(BAND_ARM[label])]
+    assert float(arm.mean()) >= CALIBRATION_PASS
 
 
 @pytest.mark.parametrize("label", list(p.BANDS))
 def test_every_band_control_has_power(label: str) -> None:
     """The pointwise intervals, moved one Monte Carlo SE up, cover jointly below 0.95."""
-    control = band_reading(label, "pointwise_covered")
-    rate = control.value + control.value_se
-    probability = interval_pass_probability(rate, p.CALIBRATION_REPLICATES, control_below)
-    assert probability >= CONTROL_POWER, (label, probability)
+    row = pilot("simultaneous_coverage", f"{label}__pointwise_joint_control")
+    rate = row.value + pilot_se(row)
+    assert float(interval_pass_probability(rate, p.BAND_REPLICATES, False)) >= CONTROL_POWER
 
 
 # ---------------------------------------------------------------------- the increment
 
 
-def increment_reading() -> tuple[Any, Any]:
-    name = s.s_contrast(p.INCREMENT_HORIZON)
-    return probe("s@8000", "law_s", name, "increment"), probe("s@8000", "law_s", name)
+def increment_pilot_se(row: Any) -> float:
+    """The bootstrap SE of a pilot increment at 24,000: its 99% interval over twice Z99."""
+    return float((row.ci_upper - row.ci_lower) / (2.0 * Z99))
 
 
-def increment_se(row: Any) -> float:
-    """The paired bootstrap SE of the increment at the calibration count."""
-    return float(row.value_se * np.sqrt(row.replicates / p.CALIBRATION_REPLICATES))
+def increment_se(row: Any, replicates: int = p.INCREMENT_REPLICATES) -> float:
+    """The paired bootstrap SE of the increment at ``replicates``, from the pilot's."""
+    return increment_pilot_se(row) * float(np.sqrt(row.replicates / replicates))
 
 
 def increment_pass(value: float, se: float) -> float:
@@ -611,20 +729,38 @@ def increment_pass(value: float, se: float) -> float:
     return float(norm.cdf((p.INCREMENT_CEILING - value) / se - Z99))
 
 
-def test_the_increment_gate_is_sized() -> None:
-    row, _ = increment_reading()
-    se = increment_se(row)
-    assert increment_pass(row.value, se) >= INCREMENT_PASS
-    assert predictive(lambda value: increment_pass(value, se), (row.value, row.value_se)) >= (
-        INCREMENT_PASS
+def increment_probabilities(replicates: int = p.INCREMENT_REPLICATES) -> tuple[float, float]:
+    """The predictive chance that the gate passes and that the inflated-SE control has power.
+
+    One arm has no between-arm term, so the rule reduces to the pilot's own uncertainty: the
+    true increment is a normal draw about the pilot reading with the pilot's bootstrap SE.
+    """
+    gate, control = (
+        pilot("repeat_increment", "h3__repeat_median"),
+        pilot("repeat_increment", "h3__inflated_se_control"),
     )
+    passed = predictive(
+        lambda value: increment_pass(value, increment_se(gate, replicates)),
+        (gate.value, increment_pilot_se(gate)),
+    )
+    power = 1.0 - predictive(
+        lambda value: increment_pass(value, increment_se(control, replicates)),
+        (control.value, increment_pilot_se(control)),
+    )
+    return passed, power
+
+
+def test_the_increment_gate_is_sized() -> None:
+    """2,800 is the smallest multiple of 400 whose predictive gate pass is at least 0.95."""
+    gate = pilot("repeat_increment", "h3__repeat_median")
+    assert increment_pass(gate.value, increment_se(gate)) >= INCREMENT_PASS
+    assert increment_probabilities(p.INCREMENT_REPLICATES)[0] >= INCREMENT_PASS
+    assert increment_probabilities(p.INCREMENT_REPLICATES - 400)[0] < INCREMENT_PASS
 
 
 def test_the_increment_control_has_power() -> None:
     """The median SE times 1.05 adds 0.05 of the median SE ratio to the increment."""
-    row, median = increment_reading()
-    control = row.value + (p.INFLATED_SE_FACTOR - 1.0) * median.se_ratio
-    assert 1.0 - increment_pass(control, increment_se(row)) >= CONTROL_POWER
+    assert increment_probabilities(p.INCREMENT_REPLICATES)[1] >= CONTROL_POWER
 
 
 # ---------------------------------------------------------------------- stability
@@ -814,41 +950,59 @@ def declaration() -> pd.DataFrame:
             "predictive": joint_predictive_family(),
         }
     )
+    bands, controls = band_passes(p.BAND_REPLICATES)
     for label in p.BANDS:
-        for which, accept in (("band_covered", band_within), ("pointwise_covered", control_below)):
-            row = band_reading(label, which)
-
-            def at(rate: float, check: Any = accept) -> float:
-                return interval_pass_probability(rate, p.CALIBRATION_REPLICATES, check)
-
+        arm = BAND_ARMS.index(BAND_ARM[label])
+        for which, forecast, band in (
+            ("band", bands, True),
+            ("band control power", controls, False),
+        ):
+            kind = "simultaneous_band" if band else "pointwise_joint_control"
+            row = pilot("simultaneous_coverage", f"{label}__{kind}")
             records.append(
                 {
-                    "rule": "band" if which == "band_covered" else "band control power",
+                    "rule": which,
                     "cell": label,
-                    "pass": at(row.value),
-                    "predictive": predictive(at, (row.value, row.value_se)),
+                    "pass": float(interval_pass_probability(row.value, p.BAND_REPLICATES, band)),
+                    "predictive": float(forecast[:, arm].mean()),
                 }
             )
-    row, median = increment_reading()
-    se = increment_se(row)
-    control = row.value + (p.INFLATED_SE_FACTOR - 1.0) * median.se_ratio
+    records.append(
+        {
+            "rule": "band family",
+            "cell": "band_family",
+            "pass": float(
+                np.prod(
+                    [
+                        interval_pass_probability(
+                            pilot("simultaneous_coverage", f"{label}__simultaneous_band").value,
+                            p.BAND_REPLICATES,
+                            True,
+                        )
+                        for label in BAND_ARMS
+                    ]
+                )
+            ),
+            "predictive": band_family(),
+        }
+    )
+    passed, power = increment_probabilities()
+    gate = pilot("repeat_increment", "h3__repeat_median")
     records.append(
         {
             "rule": "repeat_increment",
             "cell": f"h{p.INCREMENT_HORIZON}",
-            "pass": increment_pass(row.value, se),
-            "predictive": predictive(
-                lambda value: increment_pass(value, se), (row.value, row.value_se)
-            ),
+            "pass": increment_pass(gate.value, increment_se(gate)),
+            "predictive": passed,
         }
     )
+    control = pilot("repeat_increment", "h3__inflated_se_control")
     records.append(
         {
             "rule": "repeat_increment control power",
             "cell": f"h{p.INCREMENT_HORIZON}",
-            "pass": 1.0 - increment_pass(control, se),
-            "predictive": 1.0
-            - predictive(lambda value: increment_pass(value, se), (control, row.value_se)),
+            "pass": 1.0 - increment_pass(control.value, increment_se(control)),
+            "predictive": power,
         }
     )
     for label in p.STABILITY:
@@ -881,6 +1035,7 @@ def declared_key(rule: str, cell: str) -> str | None:
     family = {
         "calibration": "interval_calibration",
         "band": "simultaneous_coverage",
+        "band family": "simultaneous_coverage",
         "repeat_increment": "repeat_increment",
         "repeat_stability": "repeat_stability",
         "root_n_rate": "root_n_rate",

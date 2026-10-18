@@ -13,16 +13,17 @@ family                      cells, replications and size
                             difference at t = 2), C (static contrast) and M (``duration``);
                             24,000 each at n = 8,000 unless named, with a derived
                             ``shrunken_se_control`` (reported SE times 0.70) per label
-``simultaneous_coverage``   the shipped band of each calibration fit and its pointwise
-                            control: D-``LTMLE`` and D-``SDR`` (five names each), I (five),
-                            S (nine), C (three) and M (the two centred coefficients)
+``simultaneous_coverage``   the shipped band of its own fits and their pointwise control,
+                            2,400 replications each: D-``LTMLE`` and D-``SDR`` (five names
+                            each, ``band_d``), I (five, ``band_i``, n = 80,000), S (nine),
+                            C (three) and M (the two centred coefficients)
 ``repeat_stability``        one fixed law-D sample (n = 8,000) and one fixed law-I sample
                             (n = 80,000), 400 paired fold-seed trials: the three-draw median
                             and the first draw it derives, alone
-``repeat_increment``        the S calibration fits at horizons 1 to 3: median SE ratio minus
-                            draw-0 SE ratio on the same fits; horizon 3 is gated, horizons 1
-                            and 2 are reported; ``inflated_se_control`` multiplies the median
-                            SE by 1.05
+``repeat_increment``        its own law-S fits (``increment_s``, 2,800 replications) at
+                            horizons 1 to 3: median SE ratio minus draw-0 SE ratio on the
+                            same fits; horizon 3 is gated, horizons 1 and 2 are reported;
+                            ``inflated_se_control`` multiplies the median SE by 1.05
 ``single_draw_reading``     draw 0 of every calibration label, read by the calibration
                             statistics without a verdict (the red-cell diagnosis reads it)
 ``split_displacement``      the share :math:`\operatorname{median}_r(\hat\psi_r -
@@ -34,6 +35,15 @@ family                      cells, replications and size
 ``ipsi_primary``            law I's primary rows at n = 80,000: the three plan means and two
                             contrasts, 1,600 replications, read by the primary rules
 ==========================  ===================================================================
+
+**Sample streams.**  A gated family draws its own samples.  ``interval_calibration`` reads the
+``calibration_*`` fits; ``single_draw_reading`` and ``split_displacement`` read the same fits,
+because they are reported without a verdict.  ``simultaneous_coverage`` reads the ``band_*``
+fits and ``repeat_increment`` reads ``increment_s``, each on a stream of its own
+(:func:`sample_seed` names the fit set).  The first declared run read the band and the
+increment off the calibration fits.  This declaration replaces them, and the committed rows of
+that run size the new replication counts (:data:`BAND_REPLICATES`,
+:data:`INCREMENT_REPLICATES`; ``tests/unit/test_longitudinal_repeated_crossfit_design.py``).
 
 **Rules.**  ``interval_calibration``, ``simultaneous_coverage``, ``root_n_and_efficiency`` and
 ``root_n_rate`` read the shared verdicts.  ``repeat_stability`` passes when the 99% upper
@@ -142,9 +152,11 @@ RED_CELL_POLICY = (
     "fixed and the study re-runs under a fresh declaration. A red row is reported with owner "
     f"{RED_CELL_OWNER} only when the diagnosis finds no defect. An unfixed defect never ends "
     "as an owner row.",
-    "3. Calibration and band diagnosis: compare the label's single_draw_reading row with its "
+    "3. Calibration diagnosis: compare the label's single_draw_reading row with its "
     "median row, read its split_displacement share, and compare both with the pilot reading in "
-    "tests/diagnostics/x46_sizing/reading.csv. A red median row whose draw-0 row is green is a "
+    "tests/diagnostics/x46_sizing/reading.csv. A red band row is compared with the calibration "
+    "median rows of its law and with the pilot rates in tests/diagnostics/x46_sizing/"
+    "rerun_pilot.csv; the band reads its own samples, so no draw-0 row shares them. A red median row whose draw-0 row is green is a "
     "repeat-layer defect suspect. A red median row whose draw-0 row is off by the same amount, "
     "with a share below 0.01, is a single-draw reading: the repeat layer did not cause it.",
     "4. A red calibration or band row whose SE-ratio 99% interval contains 1, whose coverage "
@@ -182,7 +194,9 @@ RED_CELL_POLICY = (
     "11. Each verdict is read beside its declared pass probability (PASS_PROBABILITIES). The "
     "nine calibration cells pass jointly with probability 1.00 at the pilot reading and 0.89 "
     "predictively, with the pilot's correlated errors. A red calibration row therefore has "
-    "probability about 0.11 and is read by rules 3 to 5.",
+    "probability about 0.11 and is read by rules 3 to 5. The five band arms and their controls "
+    "pass jointly with probability 0.98 predictively at 2,400 replications, and the "
+    "repeat_increment gate with 0.96 at 2,800, by the arm-pooled predictive rule.",
 )
 
 #: The declared predictive pass probability of each gated cell, rounded to two decimals:
@@ -199,13 +213,14 @@ PASS_PROBABILITIES: dict[str, float] = {
     "interval_calibration/c_static": 1.00,
     "interval_calibration/m_duration": 1.00,
     "interval_calibration/calibration_family": 0.89,
+    "simultaneous_coverage/band_family": 0.98,
     "simultaneous_coverage/d_ltmle": 1.00,
     "simultaneous_coverage/d_sdr": 1.00,
     "simultaneous_coverage/i_ipsi": 1.00,
     "simultaneous_coverage/s_ltmle": 1.00,
     "simultaneous_coverage/c_ltmle": 1.00,
     "simultaneous_coverage/m_ltmle": 1.00,
-    "repeat_increment/h3": 1.00,
+    "repeat_increment/h3": 0.96,
     "repeat_stability/d_ltmle_static": 1.00,
     "repeat_stability/d_ltmle_dynamic": 1.00,
     "repeat_stability/d_sdr_static": 1.00,
@@ -229,6 +244,11 @@ PASS_PROBABILITIES: dict[str, float] = {
 STABILITY_SPREAD_FLOOR = 1e-8
 
 CALIBRATION_REPLICATES = 24_000
+#: The replications of each ``simultaneous_coverage`` fit set and of the ``repeat_increment`` fit
+#: set.  Each family draws its own samples, so each is sized by its own rule
+#: (``tests/unit/test_longitudinal_repeated_crossfit_design.py``).
+BAND_REPLICATES = 2_400
+INCREMENT_REPLICATES = 2_800
 CALIBRATION_N = study.PRIMARY_N
 IPSI_N = study.IPSI_N
 STABILITY_TRIALS = 400
@@ -260,12 +280,12 @@ if tuple(CALIBRATION) != study.CALIBRATION_LABELS:  # pragma: no cover - a decla
 
 #: ``band label: (fit set, scenario, the names the band covers)``.
 BANDS: dict[str, tuple[str, str, tuple[str, ...]]] = {
-    "d_ltmle": ("calibration_d", "law_d_ltmle", (*study.D_MEANS, *study.D_CONTRASTS.values())),
-    "d_sdr": ("calibration_d", "law_d_sdr", (*study.D_MEANS, *study.D_CONTRASTS.values())),
-    "i_ipsi": ("calibration_i", "law_i", study.I_NAMES),
-    "s_ltmle": ("calibration_s", "law_s", study.S_NAMES),
-    "c_ltmle": ("calibration_c", "law_c", study.C_NAMES),
-    "m_ltmle": ("calibration_m", "law_m", study.M_NAMES),
+    "d_ltmle": ("band_d", "law_d_ltmle", (*study.D_MEANS, *study.D_CONTRASTS.values())),
+    "d_sdr": ("band_d", "law_d_sdr", (*study.D_MEANS, *study.D_CONTRASTS.values())),
+    "i_ipsi": ("band_i", "law_i", study.I_NAMES),
+    "s_ltmle": ("band_s", "law_s", study.S_NAMES),
+    "c_ltmle": ("band_c", "law_c", study.C_NAMES),
+    "m_ltmle": ("band_m", "law_m", study.M_NAMES),
 }
 
 #: ``label: (law, scenario, estimand)`` of each stability label.
@@ -284,6 +304,12 @@ FIT_SETS: dict[str, tuple[str, tuple[str, ...], int, int]] = {
     "calibration_s": ("s", ("law_s",), CALIBRATION_N, CALIBRATION_REPLICATES),
     "calibration_c": ("c", ("law_c",), CALIBRATION_N, CALIBRATION_REPLICATES),
     "calibration_m": ("m", ("law_m",), CALIBRATION_N, CALIBRATION_REPLICATES),
+    "band_d": ("d", ("law_d_ltmle", "law_d_sdr"), CALIBRATION_N, BAND_REPLICATES),
+    "band_i": ("i", ("law_i",), IPSI_N, BAND_REPLICATES),
+    "band_s": ("s", ("law_s",), CALIBRATION_N, BAND_REPLICATES),
+    "band_c": ("c", ("law_c",), CALIBRATION_N, BAND_REPLICATES),
+    "band_m": ("m", ("law_m",), CALIBRATION_N, BAND_REPLICATES),
+    "increment_s": ("s", ("law_s",), CALIBRATION_N, INCREMENT_REPLICATES),
     **{
         f"rate_{size}": ("d", ("law_d_ltmle", "law_d_sdr"), size, RATE_REPLICATES)
         for size in RATE_SIZES
@@ -365,16 +391,15 @@ def _calibration_rows(
                 "rejected": 0,
             }
         )
-    if scenario == "law_s":
-        for horizon in study.HORIZONS:
-            name = study.s_contrast(horizon)
-            role = "positive" if horizon == INCREMENT_HORIZON else DIAGNOSTIC_ROLE
-            rows.append(
-                row("repeat_increment", f"h{horizon}__repeat_median", role, result[name], name)
-            )
-            rows.append(
-                row("repeat_increment", f"h{horizon}__single_draw", role, first[name], name)
-            )
+    return rows
+
+
+def _band_rows(
+    fit_set: str, scenario: str, result: Any, replicate: int, n: int, requested: int
+) -> list[dict[str, Any]]:
+    """The joint rows of every band label this fit set owns: the shipped band and its control."""
+    truth = study.I_TRUTH if scenario == "law_i" else study.TRUTHS[scenario]
+    rows: list[dict[str, Any]] = []
     for label, (owner, owner_scenario, names) in BANDS.items():
         if (owner, owner_scenario) != (fit_set, scenario):
             continue
@@ -390,6 +415,33 @@ def _calibration_rows(
                 pointwise_critical=CRITICAL,
             )
         )
+    return rows
+
+
+def _increment_rows(
+    scenario: str, result: Any, replicate: int, n: int, requested: int
+) -> list[dict[str, Any]]:
+    """The median and the first draw of each horizon's risk difference on law S."""
+    first = result.repeats[0].estimates
+    truth = study.TRUTHS[scenario]
+    rows: list[dict[str, Any]] = []
+    for horizon in study.HORIZONS:
+        name = study.s_contrast(horizon)
+        role = "positive" if horizon == INCREMENT_HORIZON else DIAGNOSTIC_ROLE
+        for arm, estimate in (("repeat_median", result[name]), ("single_draw", first[name])):
+            rows.append(
+                replicate_row(
+                    property_name="repeat_increment",
+                    cell=f"h{horizon}__{arm}",
+                    role=role,
+                    replicate=replicate,
+                    n=n,
+                    requested=requested,
+                    truth=float(truth[name]),
+                    estimate=estimate,
+                    alpha=STUDY.margins.alpha,
+                )
+            )
     return rows
 
 
@@ -440,12 +492,17 @@ def fit_set_rows(key: tuple[str, int, int], frame: pd.DataFrame) -> list[dict[st
     _, scenarios, n, _ = FIT_SETS[fit_set]
     rows: list[dict[str, Any]] = []
     for scenario in scenarios:
-        calibration = fit_set.startswith("calibration_")
-        result = study.fit_scenario(scenario, frame.copy(), simultaneous=calibration)
+        result = study.fit_scenario(
+            scenario, frame.copy(), simultaneous=fit_set.startswith("band_")
+        )
         if result.n_repeats != study.REPEATS:
             raise RuntimeError(f"{fit_set}: the fit drew {result.n_repeats} splits")
-        if calibration:
+        if fit_set.startswith("calibration_"):
             rows.extend(_calibration_rows(fit_set, scenario, result, replicate, n, requested))
+        elif fit_set.startswith("band_"):
+            rows.extend(_band_rows(fit_set, scenario, result, replicate, n, requested))
+        elif fit_set.startswith("increment_"):
+            rows.extend(_increment_rows(scenario, result, replicate, n, requested))
         elif fit_set.startswith("rate_"):
             rows.extend(_rate_rows(scenario, result, replicate, n, requested))
         else:
@@ -566,15 +623,16 @@ def cells_of(key: tuple[str, int, int]) -> list[str]:
                         f"single_draw_reading/{label}__draw_0",
                         f"split_displacement/{label}__share",
                     ]
-            if scenario == "law_s":
-                names += [
-                    f"repeat_increment/h{horizon}__{arm}"
-                    for horizon in study.HORIZONS
-                    for arm in ("repeat_median", "single_draw")
-                ]
+        elif name.startswith("band_"):
             for label, (owner, owner_scenario, _) in BANDS.items():
                 if (owner, owner_scenario) == (name, scenario):
                     names += [f"{JOINT}/{cell}" for cell in joint_cells(label)]
+        elif name.startswith("increment_"):
+            names += [
+                f"repeat_increment/h{horizon}__{arm}"
+                for horizon in study.HORIZONS
+                for arm in ("repeat_median", "single_draw")
+            ]
         elif name.startswith("rate_"):
             names.append(f"root_n_and_efficiency/{_rate_label(scenario)}__n_{n}")
         else:
@@ -897,6 +955,24 @@ def stability_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
     selected = rows.loc[rows["property"] == "repeat_stability"]
     if selected.empty:
         return
+    # One fixed sample per label: the rows answer the spread rule only, so they publish no
+    # population-sampling endpoint (bias, coverage, SE ratio) beside it.
+    kept = {
+        "property",
+        "cell",
+        "role",
+        "n",
+        "replicates",
+        "failed_replicates",
+        *STABILITY_COLUMNS,
+        "passed",
+        "property_passed",
+    }
+    for column in summary.columns:
+        if column not in kept:
+            if summary[column].dtype == bool:
+                summary[column] = summary[column].astype(object)
+            summary.loc[family, column] = np.nan
     for label in STABILITY:
         three = selected.loc[selected["cell"] == f"{label}__three_repeats"]
         one = selected.loc[selected["cell"] == f"{label}__one_repeat_control"]
