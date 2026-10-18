@@ -23,7 +23,12 @@ from cleverly import (
 from cleverly._refusal import RefusalReason
 from cleverly.datasets import make_longitudinal
 from cleverly.exceptions import CapabilityError
-from cleverly.longitudinal import LTMLE, SequentialGComputation, SequentialIPW
+from cleverly.longitudinal import (
+    LTMLE,
+    ParametricGFormula,
+    SequentialGComputation,
+    SequentialIPW,
+)
 from cleverly.longitudinal.estimator import baseline_repeats_refusal
 
 PAIR = {"always": 1, "never": 0}
@@ -36,7 +41,7 @@ COLUMNS: dict[str, Any] = {
 }
 
 
-@pytest.mark.parametrize("cls", [SequentialGComputation, SequentialIPW])
+@pytest.mark.parametrize("cls", [SequentialGComputation, SequentialIPW, ParametricGFormula])
 @pytest.mark.parametrize("n_folds", [1, 2])
 def test_a_baseline_refuses_repeats_above_one(cls: Any, n_folds: int) -> None:
     with pytest.raises(CapabilityError) as raised:

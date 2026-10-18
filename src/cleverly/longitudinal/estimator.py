@@ -1863,16 +1863,16 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     #: The full-refit bootstrap draws, ``None`` unless ``n_bootstrap > 0``.  A replayed
     #: fit never reruns the bootstrap.
     bootstrap: BootstrapResult | None = None
+    #: On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
+    #: models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
+    #: ``None`` on every other fit.
+    simulation: GFormulaReport | None = field(default=None, kw_only=True)
     #: One complete single-draw fit per draw of the cross-fitting split.
     repeats: tuple[LongitudinalRepeat, ...] = field(kw_only=True)
     #: The studentized bootstrap sup-t band over the estimates that supply inference, when
     #: ``n_bootstrap > 0`` and ``simultaneous=True`` and two or more estimates supply it.
     #: Its ``support`` says whether a registered row lists the ``bootstrap_band`` kind.
     bootstrap_band: BootstrapBand | None = None
-    #: On a :class:`ParametricGFormula` fit, what the forward simulation drew: the draws, the
-    #: models, the Monte Carlo share of each parameter and the fixed-dose model reliance.
-    #: ``None`` on every other fit.
-    simulation: GFormulaReport | None = field(default=None, kw_only=True)
     #: Which family of assessment declarations applies to this result.  See
     #: :attr:`~cleverly.estimators.TMLEResult.assessment_family`; the method identity is
     #: :attr:`fitted_method`.

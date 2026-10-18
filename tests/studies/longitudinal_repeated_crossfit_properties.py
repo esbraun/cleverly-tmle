@@ -645,13 +645,46 @@ def fit_part(label: str, *, n_jobs: int, first: int | None = None) -> list[dict[
     return rows
 
 
-def declared_cells() -> tuple[PropertyCell, ...]:
-    """Every sampled cell, with its role, size, replications and sample stream.
+class _CellLaw:
+    """The exact truth of one declared cell, read from the study's own law tables.
 
-    The derived controls (:data:`DERIVED_CELLS`) and the ``root_n_rate`` rows are computed
-    from these cells' rows, so neither is here.
+    The estimand of a declared cell is the cell's own name, so :meth:`truth` answers for it.
     """
-    derived = {control for controls in DERIVED_CELLS.values() for control in controls}
+
+    def __init__(self, name: str, estimand: str, value: float) -> None:
+        self.name = name
+        self._truth = {estimand: value}
+
+    def truth(self) -> dict[str, float]:
+        """The exact value of the one estimand this cell reads."""
+        return dict(self._truth)
+
+
+def exact_truth(family: str, cell: str) -> float:
+    """The exact-law value a cell's rows must publish as their truth.
+
+    A joint band and a displacement share have no scalar estimand, so their rows publish 0.
+    """
+    label = cell.split("__", 1)[0]
+    if family in {JOINT, "split_displacement"}:
+        return 0.0
+    if family == "ipsi_primary":
+        return float(study.I_TRUTH[study.IPSI_PRIMARY_LABELS[label]])
+    if family == "repeat_increment":
+        return float(study.TRUTHS["law_s"][study.s_contrast(int(label.removeprefix("h")))])
+    if family == "root_n_and_efficiency":
+        return float(study.TRUTHS["law_d_ltmle"][study.D_CONTRASTS["static"]])
+    _, scenario, estimand = {**CALIBRATION, **STABILITY}[label]
+    truth = study.I_TRUTH if scenario == "law_i" else study.TRUTHS[scenario]
+    return float(truth[estimand])
+
+
+def declared_cells() -> tuple[PropertyCell, ...]:
+    """Every published cell, with its role, size, replications and sample stream.
+
+    The derived controls (:data:`DERIVED_CELLS`) are here, because their rows are published.
+    The ``root_n_rate`` rows are computed from the root-n cells' rows, so they are not.
+    """
     out: list[PropertyCell] = []
     for keys in plan().values():
         key = keys[0]
@@ -663,20 +696,19 @@ def declared_cells() -> tuple[PropertyCell, ...]:
             else stream_seed(STUDY, "repeat_stability", "sample", key[0])
         )
         for name in cells_of(key):
-            if name in derived:
-                continue
             family, cell = name.split("/", 1)
             out.append(
                 PropertyCell(
                     property=family,
                     cell=cell,
-                    dgp=f"law_{law}",
+                    dgp=_CellLaw(f"law_{law}", cell, exact_truth(family, cell)),
                     outcome_learner=lambda: None,
                     treatment_learner=lambda: None,
                     n=n,
                     replicates=key[2],
                     seed=seed,
                     role=_role(family, cell, n),
+                    estimand=cell,
                 )
             )
     return tuple(out)

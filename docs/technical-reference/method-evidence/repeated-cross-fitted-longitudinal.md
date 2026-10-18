@@ -263,6 +263,7 @@ known-mechanism rows, so it names none.
 | `margin:over_coverage_ceiling` | 0.9900 | above this, coverage is conservative rather than invalid |
 | `margin:paired_difference` | 0.1500 | paired similarity margin, in pooled empirical standard deviations |
 | `margin:rmse_noninferiority` | 1.1000 | largest external-comparison RMSE ratio bound |
+| `margin:repeat_spread_ratio` | 1 | boundary the upper endpoint of the paired spread ratio must fall below |
 | `margin:root_n_slope` | -0.5000 | contraction rate root-n asymptotics predict |
 | `margin:root_n_slope_lower` | -0.6250 | accepted root-n slope band, lower limit |
 | `margin:root_n_slope_upper` | -0.3750 | accepted root-n slope band, upper limit |

@@ -362,6 +362,7 @@ def mtp(rows: pd.DataFrame, **overrides: Any) -> Any:
         ratio=overrides.get("ratio", "density"),
     )
     settings.pop("censoring_learner")
+    atoms = {"A1": (0, 1, 2, 3), "A2": (0, 1, 2, 3)}
     return LTMLE(
         exact_plans.regimens(("natural", "up then history")), reference="natural", **settings
     ).fit(
@@ -371,6 +372,7 @@ def mtp(rows: pd.DataFrame, **overrides: Any) -> Any:
         baseline=["W"],
         time_varying=[[], ["L2"]],
         continuous_treatment=["A1", "A2"],
+        dose_atoms=atoms,
     )
 
 
@@ -394,6 +396,10 @@ def settings(rows: pd.DataFrame, **overrides: Any) -> Any:
         "run_id": "repeat witness",
         "n_jobs": 1,
         "bootstrap_resampling": "iid",
+        "stopping": "scaled_var",
+        "step_bound": 0.5,
+        "step_search": False,
+        "iterate": "best",
         **overrides,
     }
     return LTMLE(REGIMENS, reference=REFERENCE, **_settings(chosen)).fit(

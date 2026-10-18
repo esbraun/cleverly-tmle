@@ -930,7 +930,10 @@ def test_repeats_enter_the_support_key_so_a_single_draw_row_never_covers_them() 
     assert single.config.support_key.splitting == ("cross_fitted",)
     assert repeated.config.support_key.splitting == ("cross_fitted", "repeated")
     assert repeated.config.support_key.differing_axes(single.config.support_key) == ("splitting",)
-    assert {e.support.label for e in repeated.estimates.values()} == {"experimental"}
+    # The registered repeated-fit study covers this design, through its own rows only.
+    assert {e.support.label for e in repeated.estimates.values()} == {"supported"}
+    assert {e.support.row for e in repeated.estimates.values()} == {"G44.law_d.tmle"}
+    assert all(e.support.row != "G44.law_d.tmle" for e in single.estimates.values())
 
 
 @pytest.mark.parametrize("cls", [LTMLE, SDR, IPSI])
@@ -1268,6 +1271,12 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "n_jobs": _witness(EACH_DRAW, "settings"),
     "n_bootstrap": _witness("test_repeats_refuse_the_bootstrap"),
     "bootstrap_resampling": _witness(EACH_DRAW, "settings"),
+    "bootstrap_interval": _witness("test_repeats_refuse_the_bootstrap"),
+    "stopping": _witness(EACH_DRAW, "settings"),
+    "step_bound": _witness(EACH_DRAW, "settings"),
+    "step_search": _witness(EACH_DRAW, "settings"),
+    "iterate": _witness(EACH_DRAW, "settings"),
+    "dose_atoms": _witness(EACH_DRAW, "mtp"),
     "density_bins": _witness(EACH_DRAW, "mtp"),
     "ratio": _witness(EACH_DRAW, "mtp"),
     "repeats": _witness("test_repeats_must_be_a_positive_integer"),
@@ -1309,6 +1318,12 @@ _ASSESS = _witness("test_validate_and_assess_run_on_a_repeated_fit")
 #: The dataclass fields and public members of ``LongitudinalResult``.
 RESULT_SURFACE: dict[str, tuple[str, str, str | None]] = {
     "estimates": _witness("test_point_is_the_median_of_draws"),
+    "bootstrap_band": _witness("test_repeats_refuse_the_bootstrap"),
+    "simulation": (
+        "tests.unit.test_sequential_baselines_repeats",
+        "test_a_baseline_refuses_repeats_above_one",
+        None,
+    ),
     "data": _witness("test_long_panel_repeats_reproduce_the_wide_fit"),
     "config": _witness("test_config_records_repeats_and_the_multiplier_seed"),
     "scaler": _witness(EACH_DRAW, "clustered"),
