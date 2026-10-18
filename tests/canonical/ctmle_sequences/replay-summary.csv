@@ -1,0 +1,3 @@
+scenario,replicates,near_tie,clip,unflagged,final_comparisons,accepted_mismatches,est_failures,loss_failures,final_index_mismatches,final_est_failures,final_loss_failures,max_est_gap,max_loss_gap,max_final_est_gap,max_final_loss_gap,flagged_max_est_gap,flagged_max_loss_gap,flagged_max_final_est_gap,flagged_max_final_loss_gap,tolerance,min_unflagged,min_final,passed
+binary_lasso,800,142,5,653,415,0,0,0,0,0,0,6.83519689737011e-08,5.057599128501229e-10,4.906984831659633e-08,5.066109150827658e-10,2.3947057418149953e-06,2.904270894137153e-10,1.016737883865939e-06,2.8897174473418474e-10,1e-06,400,100,True
+binary_learners,800,8,42,750,0,0,0,0,0,0,0,5.752790532831398e-08,5.126047923902471e-11,,,0.00010958900412955108,1.0961439037088807e-06,,,1e-06,400,0,True
