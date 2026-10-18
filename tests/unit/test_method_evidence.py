@@ -1421,6 +1421,12 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # X45's positive cells answer to the calibration rule at one simulated history per
         # unit; its removed-share rows carry the diagnostic role.
         "monte_carlo_accounting",
+        # X46's law-I rows answer to the three primary rules (bias, coverage floor and SE-ratio
+        # band), and its repeat increment to a ceiling on the paired increment, with a control
+        # above the ceiling.  The horizon-1 and horizon-2 increment rows carry the diagnostic
+        # role and state no verdict.
+        "ipsi_primary",
+        "repeat_increment",
         "clustered_inference",
         "crossfit_overfitting",
         "corrected_mar_inference",
@@ -1533,6 +1539,9 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         "ice_reported",
         "shared_target",
         "extrapolation_report",
+        # X46's first-draw reading and its displacement share, reported with no verdict.
+        "single_draw_reading",
+        "split_displacement",
     }
 )
 

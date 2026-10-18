@@ -139,10 +139,52 @@ comparator. It trains each nuisance on one partition and targets separately insi
 partitions. `cleverly` retains its validated complement-trained, stacked pooled update. There is no
 mean option.
 
-Coordinatewise medians do not preserve identities among several estimands. Repeated fits therefore
-refuse joint covariance and post-fit contrasts. They also refuse simultaneous bands because a
-multiplier construction would use the retained central-draw curve. That curve supports marginal
-diagnostics; the split-adjusted variance above supplies the pointwise interval.
+Coordinatewise medians do not preserve identities among several estimands. A repeated
+point-treatment fit therefore refuses joint covariance and post-fit contrasts. It also refuses
+simultaneous bands, because a multiplier construction would use the retained central-draw curve.
+That curve supports marginal diagnostics. The split-adjusted variance above supplies the pointwise
+interval.
+
+**Longitudinal fits combine each derived quantity per draw.** `LTMLE`, `SDR` and `IPSI` accept
+`repeats`. Each draw is the complete single-draw fit at its own split and seed. The longitudinal
+fit forms each derived quantity inside every draw and then applies the median rule to it. So it
+does not need an identity among medians. The table compares the two engines.
+
+| quantity | point treatment, `repeats` above 1 | longitudinal, `repeats` above 1 |
+| --- | --- | --- |
+| reported estimate | median rule above | median rule above, on each estimate's inference scale |
+| in-fit contrast | median rule on the per-draw contrast | median rule on the per-draw contrast |
+| `contrast()`, `ratio()` | refused | computed per draw, then the median rule. A `transform=` sets the scale of the rule |
+| `covariance(names)` | refused | the matrix rule of equation (3.14) for the selected names |
+| simultaneous band | refused | the median of the per-draw critical values around the split-adjusted estimates |
+| bootstrap | runs as a diagnostic | refused |
+
+Chernozhukov et al. (2018, pp. C29-C30) state equation (3.14) as a variance-form matrix rule. The
+candidate of draw $r$ is $C_r = \hat\Sigma_r + d_r d_r^\top$, where $d_r$ is the draw's
+displacement from the coordinatewise median. The rule takes the candidate with the median operator
+norm. The per-name variance above is its scalar case.
+
+At an even draw count the package takes the
+mean of the two candidates with the central operator norms. That is a convention, and the mean can
+have a smaller norm than either candidate.
+
+The justification is the per-draw expansion of each shipped single-draw estimator. It holds under
+the conditions that the single-draw row of the estimator states, such as the product rate of the
+nuisance errors or a known mechanism. Under those conditions each draw is asymptotically linear
+with the same efficient curve. For a fixed draw count the median lies between the smallest and the
+largest draw, so its remainder is at most the largest per-draw remainder. That remainder is then
+$o_P(n^{-1/2})$, and the displacement term is $o_P(n^{-1})$, a finite-sample adjustment. A draw
+whose status supplies no inference gives the median no inference either, because each name takes
+the precedent status of its draws.
+
+Corollary 3.3 of the same paper states the analogue for the DML
+estimators. It is not the licence here. The
+[longitudinal reference](longitudinal-tmle.md#repeated-fold-draws) gives the complete rule.
+
+The point engine keeps its refusals because each one needs a change on the point route that no
+row has made. The longitudinal engine refuses `n_bootstrap` with `repeats` above 1, because no
+registered study measures a bootstrap of the median, and each replicate refits every draw. The
+point engine runs that bootstrap as a diagnostic.
 
 ### Missing-outcome natural-course mean
 

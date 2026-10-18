@@ -392,6 +392,27 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
         )
+    if family == "repeat_increment":
+        # The median's SE ratio minus the first draw's, read against its ceiling.
+        return (
+            f"increment {render(float(row.increment))}, "
+            f"{_interval(row.increment_ci_lower, row.increment_ci_upper)}, "
+            f"ceiling {render(float(row.increment_ceiling))}"
+        )
+    if family == "ipsi_primary":
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"margin {render(float(row.bias_margin))}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+    if family == "single_draw_reading":
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+    if family == "split_displacement":
+        return f"displacement share {render(float(row.displacement_share))}"
     if family == "simultaneous_coverage":
         # A joint cell has no scalar estimand, so its row carries only the coverage its verdict
         # is read from.  The bias and SE columns hold a max-t statistic and a critical value.

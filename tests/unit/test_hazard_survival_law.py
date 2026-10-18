@@ -385,8 +385,8 @@ def test_e8_a_weighted_fit_is_the_fit_on_repeated_rows(name: str, targeting: str
 @pytest.mark.parametrize("targeting", ALGORITHMS)
 def test_e10_a_replay_at_the_fitted_bound_is_bit_identical(targeting: str) -> None:
     result = _wrong("two causes", targeting)
-    replay = _refit_bound(result, result.replay_recipe, result.config.g_bounds)
-    assert _fitted_replay_matches(result, replay)
+    replay = _refit_bound(result, result.repeats[0], result.config.g_bounds)
+    assert _fitted_replay_matches(result, result.repeats[0], replay)
     curve = longitudinal_truncation_curve(result, [result.config.g_bounds, 0.3])
     fitted = curve[curve["is_fitted_bound"]]
     assert (fitted["delta_from_fitted"] == 0.0).all()

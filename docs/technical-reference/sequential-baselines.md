@@ -159,6 +159,7 @@ treatment.
 | request | estimator | error |
 | --- | --- | --- |
 | `n_folds > 1` | both | `CapabilityError`. Neither baseline has a cross-fitted root-n result. Fit `LTMLE` or `SDR` |
+| `repeats > 1` | both | `CapabilityError`. A baseline fits in sample, so it has no split to draw again, and no source gives the split-adjusted median variance for it. Pass `repeats=1`, or fit `LTMLE` or `SDR` |
 | `msm=` | both | `CapabilityError`. `LTMLE(msm=...)` and `SDR(msm=...)` fit a working model |
 | an odds tilt with an estimated mechanism | both | `CapabilityError`. Fit `IPSI` |
 | a modified treatment policy | IPW | `CapabilityError`. IPW of a shifted law needs a density ratio |
