@@ -305,15 +305,20 @@ fit. The rerun fits the new fit sets and the primary phase. It does not refit th
 `tests.canonical.longitudinal_repeated_crossfit.inherit` writes the committed rows of each
 unchanged fit set (the five `calibration_*` sets, the three `rate_*` sets, `ipsi_primary`,
 `stability_d` and `stability_i`) into the declared run's checkpoints. It refuses a file that the
-committed manifest does not hash, a missing replicate and a recorded loss. The derived controls
-(`shrunken_se_control`) are not inherited. The head derives them from the inherited base rows. The rows of
-the two redrawn families are not inherited either, because their cells changed. The fitted rows
-come from commit `e1b27e0f572921e7749604db0566d55d8179744d`, the run that the committed manifest
-records. The artifact commit is `07092dd43980ea626c7fc435bd71e1ff9e8dcbfe`. The source
-`property-replicates.csv.gz` has SHA-256
-`6b7ea59dd3f6579e20fa83160e36e66293ea71c4502fad9b8b2d70774f91b78b`, which `inherit.py` prints
-and the run log of the artifact commit keeps. The summary, the controls and the verdicts come
-from the head's code.
+source manifest does not hash, a missing replicate and a recorded loss. The derived controls
+(`shrunken_se_control`) are not inherited. The head derives them from the inherited base rows.
+The rows of the two redrawn families are not inherited either, because their cells changed.
+
+| item | value |
+| --- | --- |
+| commit that fitted the inherited rows | `e1b27e0f572921e7749604db0566d55d8179744d` |
+| source artifact commit | `07092dd43980ea626c7fc435bd71e1ff9e8dcbfe` |
+| SHA-256 of the source `property-replicates.csv.gz` | `6b7ea59dd3f6579e20fa83160e36e66293ea71c4502fad9b8b2d70774f91b78b` |
+| rerun commit, which the rerun's manifest records | `38ad7d052e5a477250bb629d1a7d27bb88a7f90b` |
+| rerun artifact commit | `8da46231` |
+
+`inherit.py` prints the source SHA-256 before it writes a checkpoint. The summary, the controls
+and the verdicts come from the head's code.
 
 The evidence that the head writes the committed rows is a comparison on one machine. The module
 at `6235b741` (before the rerun) and the head each fitted replicates 0 and 1 of `calibration_d`,

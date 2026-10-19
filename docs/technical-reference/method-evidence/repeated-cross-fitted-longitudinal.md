@@ -39,6 +39,8 @@ absence of a comparator.
 
 The design test `tests/unit/test_longitudinal_repeated_crossfit_design.py` states every size and
 every pass probability. It reads them from the sizing probe in `tests/diagnostics/x46_sizing/`.
+The band and increment sizes come from the pilot rows in
+`tests/diagnostics/x46_sizing/rerun_pilot.csv`.
 
 ## Accuracy against known truth
 
@@ -178,7 +180,8 @@ only when its diagnosis finds no defect.
 
 | red row | diagnosis | reported with the owner when |
 | --- | --- | --- |
-| calibration or band, SE-ratio interval contains 1 | the `single_draw_reading` row against the median row, the `split_displacement` share and the pilot reading | the coverage interval contains 0.95 and the diagnosis finds no defect |
+| calibration, SE-ratio interval contains 1 | the `single_draw_reading` row against the median row, the `split_displacement` share and the pilot reading | the coverage interval contains 0.95 and the diagnosis finds no defect |
+| band | the calibration median rows of its law and the pilot rates in `rerun_pilot.csv`; no draw-0 row shares the band's samples | the coverage interval contains 0.95 and the diagnosis finds no defect |
 | calibration, SE-ratio interval excludes 1 | the same diagnosis, and the unit witnesses of the split adjustment at the run's commit | the draw-0 row is off by the same amount, the share is below 0.01, and the pilot agrees within its Monte Carlo error |
 | `ipsi_primary` | the law-I calibration rows at the same size, and the pilot bias of +0.067 and -0.077 SD | the draw-0 rows share the bias and the pilot agrees |
 | `root_n_rate` | the per-rung rows and the pilot segment slope of -0.587 | the positive rungs and the pilot explain the slope |
@@ -193,7 +196,11 @@ worst case. The cell publishes the count in `failed_replicates`.
 The design test states the declared pass probability of each gated cell. The nine calibration
 cells pass together with probability 1.00 at the pilot reading. With the pilot's correlated
 errors integrated out, that probability is 0.89. A red calibration row has a probability of about
-0.11, and this table reads it. Each band cell passes with probability 0.99 or more.
+0.11, and this table reads it.
+
+Each band cell passes with probability 0.99 or more. The five
+band cells pass together with probability 0.98 at 2,400 replications. The horizon-3
+`repeat_increment` gate passes with probability 0.96 at 2,800 replications.
 
 ## Result
 

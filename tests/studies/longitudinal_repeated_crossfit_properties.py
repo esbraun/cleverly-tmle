@@ -156,8 +156,8 @@ RED_CELL_POLICY = (
     "median row, read its split_displacement share, and compare both with the pilot reading in "
     "tests/diagnostics/x46_sizing/reading.csv. A red band row is compared with the calibration "
     "median rows of its law and with the pilot rates in tests/diagnostics/x46_sizing/"
-    "rerun_pilot.csv; the band reads its own samples, so no draw-0 row shares them. A red median row whose draw-0 row is green is a "
-    "repeat-layer defect suspect. A red median row whose draw-0 row is off by the same amount, "
+    "rerun_pilot.csv; the band reads its own samples, so no draw-0 row shares them. A red "
+    "median row whose draw-0 row is green is a repeat-layer defect suspect. A red median row whose draw-0 row is off by the same amount, "
     "with a share below 0.01, is a single-draw reading: the repeat layer did not cause it.",
     "4. A red calibration or band row whose SE-ratio 99% interval contains 1, whose coverage "
     "interval contains 0.95, and whose diagnosis finds no defect is a finite-sample red, "

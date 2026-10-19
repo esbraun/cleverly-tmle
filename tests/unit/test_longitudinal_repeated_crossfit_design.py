@@ -619,8 +619,10 @@ def pooled_model() -> tuple[float, float, float]:
     (the arms' sampling variance over their effective number), and ``tau`` is the upper bound
     of the Q-profile interval at the 10th percentile of the chi-square law of ``Q``, a
     one-sided 90% bound.  The shared pilot level is 0.80; this bound is a deliberate, more
-    conservative departure, so ``tau`` and the replication count are not smaller than 0.80 gives.  The two
-    law-D arms read one sample and move together, so they count once, as law D.
+    conservative departure, so ``tau`` and the replication count are not smaller than 0.80
+    gives.  The two law-D arms read one sample and move together, so they count once, as law D.
+    The family product therefore leaves the ``d_sdr`` gate out; its pilot rate agrees with the
+    ``d_ltmle`` rate to 4e-5.
     """
     rates = np.array(
         [pilot("simultaneous_coverage", f"{a}__simultaneous_band").value for a in BAND_ARMS]
