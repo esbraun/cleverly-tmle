@@ -445,10 +445,10 @@ class Targeting:
         can stop short of ``tol``. Then the fit warns, reports ``converged=False`` and
         ``failure="max_iter_reached"``, and ``score_check`` fails it. The ``tmle3`` pairing
         is ``stopping="sample_size"`` with a larger ``max_iter``. Under
-        ``stopping="relative"`` the walk reaches ``tol=1e-10`` only with
-        ``step_search=True`` and well over the default ``max_iter``: 25 to 190 iterations on
-        the six arm-mean fits of
-        ``tests/unit/test_step_bound.py::TestRelativeReachability``.
+        ``stopping="relative"`` the walk can need more than the default ``max_iter``.
+        Floating-point rounding and the platform affect the iteration count near ``tol``.
+        The six arm-mean fits of ``tests/unit/test_step_bound.py::TestRelativeReachability``
+        check the score criterion and recovery with a larger iteration budget.
         A fit whose initial regression already meets the rule takes no step.
     step_search : bool, default=True
         Under ``step_bound``, ``True`` takes the length in ``(0, step_bound]`` that

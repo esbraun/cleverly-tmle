@@ -763,10 +763,10 @@ class TestRelativeReachability:
     """The measurement behind the ``Targeting(step_bound=)`` docstring.
 
     On six arm-mean fits (a continuous and a binary outcome, bounds 0.01, 0.05 and 0.25) the
-    bounded walk with the search on reaches ``tol=1e-10`` only past the default ``max_iter=20``.
-    The count sits at the round-off floor, so it moves with the platform: 35 to 145 here, and
-    25 to 190 on one CI runner.  With the search off the walk lands within one bound of
-    the root and stays there, so ``relative`` is never reached.
+    bounded walk with the search on reaches ``tol=1e-10`` with a sufficient iteration budget.
+    The count sits at the round-off floor, so it moves with the platform. Some fits finish
+    within the default budget, and others need more iterations. With the search off the walk
+    lands within one bound of the root and stays there, so ``relative`` is never reached.
     """
 
     @staticmethod
@@ -783,20 +783,37 @@ class TestRelativeReachability:
         return make_binary_outcome(n=400, seed=17)[0]
 
     @pytest.mark.parametrize("delta", [0.01, 0.05, 0.25])
-    def test_the_search_reaches_the_tolerance_only_past_the_default_iterations(
+    def test_the_search_reaches_the_tolerance_with_a_sufficient_iteration_budget(
         self, frame: Any, delta: float
     ) -> None:
         default = self.fit(frame, step_bound=delta)
-        assert default.n_iter == 20 and not default.converged
+        assert np.isfinite(default.relative_score_norm)
+        assert default.converged == (default.relative_score_norm <= 1e-10)
+        long = self.fit(frame, step_bound=delta, max_iter=1000)
+        assert long.converged and long.relative_score_norm <= 1e-10
+        if default.converged:
+            assert default.n_iter <= 20 and default.failure is None
+            np.testing.assert_array_equal(default.epsilon, long.epsilon)
+            np.testing.assert_array_equal(default.targeted.observed, long.targeted.observed)
+            return
+        assert default.n_iter == 20
         # The linear learner on a binary outcome pins over 1% of the predictions at the shrink
         # bounds, and the shipped classifier names that before the iteration cap.
         assert default.failure in {"max_iter_reached", "bounds_pinned"}
         assert default.failure == "max_iter_reached" or frame["Y"].nunique() == 2
         # The unconverged walk is close, but not at the tolerance.
         assert 1e-10 < default.relative_score_norm < 1e-7
-        long = self.fit(frame, step_bound=delta, max_iter=1000)
-        assert long.converged and long.relative_score_norm <= 1e-10
         assert long.n_iter > default.n_iter
+
+    def test_an_exhausted_walk_recovers_with_a_larger_iteration_budget(self) -> None:
+        frame = make_linear_ate(n=400, seed=2)[0]
+        short = self.fit(frame, step_bound=0.01, max_iter=1)
+        assert short.n_iter == 1 and not short.converged
+        assert short.failure == "max_iter_reached"
+        assert np.isfinite(short.relative_score_norm) and short.relative_score_norm > 1e-10
+        recovered = self.fit(frame, step_bound=0.01, max_iter=1000)
+        assert recovered.converged and recovered.failure is None
+        assert recovered.n_iter > short.n_iter and recovered.relative_score_norm <= 1e-10
 
     @pytest.mark.parametrize("delta", [0.01, 0.05, 0.25])
     def test_the_fixed_step_never_reaches_the_tolerance(self, frame: Any, delta: float) -> None:
