@@ -7,13 +7,14 @@ resumes: a second call reuses every replicate the first one finished and returns
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from tests.canonical.longitudinal_repeated_crossfit import part
+from tests.canonical.longitudinal_repeated_crossfit import inherit, part
 from tests.canonical.regenerate import digest, run_key, runs_root
 from tests.studies import longitudinal_repeated_crossfit as study
 from tests.studies import longitudinal_repeated_crossfit_properties as properties
@@ -54,6 +55,39 @@ def test_a_part_resumes_from_its_checkpoints(
     head = head.loc[head["replicate"] == 0].reset_index(drop=True)
     pd.testing.assert_frame_equal(head, pd.DataFrame(first))
     assert set(pd.DataFrame(second)["requested_replicates"]) == {properties.RATE_REPLICATES}
+
+
+def test_an_inherited_part_is_reused_without_a_fit(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Committed rows, written as checkpoints, are the rows a declared run reuses unfitted."""
+    law, scenarios, n, _ = properties.FIT_SETS["rate_2000"]
+    monkeypatch.setitem(properties.FIT_SETS, "rate_2000", (law, scenarios, n, 2))
+    with replication.checkpoints(tmp_path / "fitted"):
+        fitted = pd.DataFrame(properties.fit_part("rate_2000", n_jobs=1))
+    capsys.readouterr()
+    committed = pd.read_csv(io.StringIO(fitted.to_csv(index=False)), float_precision="round_trip")
+    assert inherit.inherit_part("rate_2000", committed, tmp_path / "inherited") == 2
+    with replication.checkpoints(tmp_path / "inherited"):
+        reused = pd.DataFrame(properties.fit_part("rate_2000", n_jobs=1))
+    assert "reusing 2 checkpointed replicates" in capsys.readouterr().out
+    pd.testing.assert_frame_equal(reused, fitted)
+    with pytest.raises(RuntimeError, match="does not hold replicates"):
+        inherit.inherit_part("rate_2000", committed.iloc[:-1], tmp_path / "short")
+
+
+def test_the_inherited_and_fitted_parts_split_the_plan() -> None:
+    """The rerun fits the bands and the increment, and inherits everything else."""
+    assert inherit.FITTED == (
+        "band_d",
+        "band_i",
+        "band_s",
+        "band_c",
+        "band_m",
+        "increment_s",
+    )
+    assert set(inherit.FITTED) | set(inherit.INHERITED) == set(properties.plan())
+    assert not set(inherit.FITTED) & set(inherit.INHERITED)
 
 
 def test_every_part_is_a_declared_fit_set() -> None:

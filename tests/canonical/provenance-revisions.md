@@ -293,6 +293,62 @@ bytes that fitted the property rows, and the package source under `src/` also ch
 | `vector-mtp` | `tests/studies/evidence/properties.py` | `47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab` | result-neutral for the property rows: the budget-two output is byte-identical |
 | `vector-mtp` | `tests/studies/evidence/property_verdicts.py` | `5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef` | result-neutral for the property rows: the budget-two output is byte-identical |
 
+## Property fit sets inherited by the repeated cross-fit rerun
+
+The first declared run of `longitudinal-repeated-crossfit` read the `simultaneous_coverage` band
+and the `repeat_increment` pair off the calibration fits, so those families shared sample
+streams with `interval_calibration`. The rerun draws each of the two families its own samples:
+the fit sets `band_d`, `band_i`, `band_s`, `band_c`, `band_m` (2,400 replications each) and
+`increment_s` (2,800). Every other fit set keeps its law, size, replication count, seed label and
+fit. The rerun fits the new fit sets and the primary phase. It does not refit the rest.
+
+`tests.canonical.longitudinal_repeated_crossfit.inherit` writes the committed rows of each
+unchanged fit set (the five `calibration_*` sets, the three `rate_*` sets, `ipsi_primary`,
+`stability_d` and `stability_i`) into the declared run's checkpoints. It refuses a file that the
+source manifest does not hash, a missing replicate and a recorded loss. The derived controls
+(`shrunken_se_control`) are not inherited. The head derives them from the inherited base rows.
+The rows of the two redrawn families are not inherited either, because their cells changed.
+
+| item | value |
+| --- | --- |
+| commit that fitted the inherited rows | `e1b27e0f572921e7749604db0566d55d8179744d` |
+| source artifact commit | `07092dd43980ea626c7fc435bd71e1ff9e8dcbfe` |
+| SHA-256 of the source `property-replicates.csv.gz` | `6b7ea59dd3f6579e20fa83160e36e66293ea71c4502fad9b8b2d70774f91b78b` |
+| rerun commit, which the rerun's manifest records | `38ad7d052e5a477250bb629d1a7d27bb88a7f90b` |
+| rerun artifact commit | `8da46231` |
+
+`inherit.py` prints the source SHA-256 before it writes a checkpoint. The summary, the controls
+and the verdicts come from the head's code.
+
+The evidence that the head writes the committed rows is a comparison on one machine. The module
+at `6235b741` (before the rerun) and the head each fitted replicates 0 and 1 of `calibration_d`,
+`calibration_s`, `calibration_c`, `calibration_m`, `rate_2000` and `rate_8000`, and replicate 0 of
+`calibration_i`, `ipsi_primary`, `stability_d` and `stability_i`. Every row outside the two redrawn
+families was equal in all columns, bit for bit. The head's rows differ from the committed Windows
+rows by at most 7.4e-15 in a numeric column, a machine difference of the kind that the vector-mtp
+section above reports. No fit of `rate_32000` ran in the check. Its code path is that of
+`rate_8000`. After the run,
+`python -m tests.canonical.longitudinal_repeated_crossfit.inherit --check <baseline commit>`
+compares the new `property-replicates.csv.gz` outside the two redrawn families with the
+baseline commit, bit for bit. It also compares `replicates.csv.gz` at a relative tolerance of
+1e-12 and an absolute tolerance of 1e-14. It exits non-zero on a difference.
+
+The tolerance applies to the primary rows only, because the declared run refits the primary
+phase. The main merges between `e1b27e0f` and the rerun commit `38ad7d05` changed `src/`. The
+rerun on the same Windows machine moved the primary rows by at most 1.8e-15 in a numeric column.
+The keys, the discrete columns, the verdicts and the inherited property rows were identical. The
+rerun's manifest records `38ad7d05` and hashes the artifacts that the rerun wrote.
+
+| fit set | replicates | source of the rows |
+| --- | --- | --- |
+| `calibration_d`, `calibration_s`, `calibration_c`, `calibration_m` | 24,000 | committed rows |
+| `calibration_i` | 24,000 | committed rows |
+| `rate_2000`, `rate_8000`, `rate_32000` | 800 | committed rows |
+| `ipsi_primary` | 1,600 | committed rows |
+| `stability_d`, `stability_i` | 400 | committed rows |
+| `band_d`, `band_i`, `band_s`, `band_c`, `band_m` | 2,400 | the rerun |
+| `increment_s` | 2,800 | the rerun |
+
 ## Runners that a pending study names
 
 The study `longitudinal-repeated-sdr` declares a pending lmtp comparator. Its `Reference` names

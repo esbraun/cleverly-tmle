@@ -65,6 +65,25 @@ Each calibration part fits 24,000 replicates. `calibration_i` (n = 80,000) takes
 360 CPU-hours. Run a calibration part in chunks of 6,000 with `--first`.
 
 The parts are `primary`, `calibration_d`, `calibration_i`, `calibration_s`, `calibration_c`,
-`calibration_m`, `rate_2000`, `rate_8000`, `rate_32000`, `ipsi_primary`, `stability_d` and
-`stability_i`. The final declared run fits nothing that a part finished and then writes the
-artifacts.
+`calibration_m`, `band_d`, `band_i`, `band_s`, `band_c`, `band_m`, `increment_s`, `rate_2000`,
+`rate_8000`, `rate_32000`, `ipsi_primary`, `stability_d` and `stability_i`. The final declared
+run fits nothing that a part finished and then writes the artifacts.
+
+## Rerun with inherited fit sets
+
+The first declared run read the `simultaneous_coverage` band and the `repeat_increment` pair off
+the calibration fits. The rerun gives each family its own samples: `band_*` (2,400 replications
+each) and `increment_s` (2,800). Every other fit set draws, fits and writes what it wrote
+before. `inherit.py` checkpoints the committed rows of those fit sets into the declared run's
+scratch, so the declared run reuses them and fits only the primary phase and the new fit sets.
+
+```bash
+python -m tests.canonical.longitudinal_repeated_crossfit.inherit
+python -m tests.canonical.longitudinal_repeated_crossfit.part --part band_i --jobs 14
+python -m tests.canonical.longitudinal_repeated_crossfit.regenerate --jobs 14 --output ~/scratch/x46-run-2
+```
+
+`inherit.py` refuses a committed row file that its manifest does not hash, a fit set with a
+missing replicate, and a row that records a lost replicate. The rerun costs about 36
+CPU-hours at the cloud per-core speed (`band_i` 29, the other new fit sets 4.7, the primary phase 2). `tests/canonical/provenance-revisions.md` records why
+the inherited rows are sound under the new code.

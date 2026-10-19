@@ -39,6 +39,8 @@ absence of a comparator.
 
 The design test `tests/unit/test_longitudinal_repeated_crossfit_design.py` states every size and
 every pass probability. It reads them from the sizing probe in `tests/diagnostics/x46_sizing/`.
+The band and increment sizes come from the pilot rows in
+`tests/diagnostics/x46_sizing/rerun_pilot.csv`.
 
 ## Accuracy against known truth
 
@@ -78,8 +80,8 @@ every pass probability. It reads them from the sizing probe in `tests/diagnostic
 | family | what it measures |
 | --- | --- |
 | `interval_calibration` | the SE ratio and coverage of nine contrasts at 24,000 replications, each with a control that multiplies the reported SE by 0.70 |
-| `simultaneous_coverage` | the joint coverage of the shipped band on each law, with a pointwise control |
-| `repeat_increment` | the median SE ratio minus the first draw's SE ratio on law S; horizon 3 is gated at 0.03, with a control that multiplies the median SE by 1.05 |
+| `simultaneous_coverage` | the joint coverage of the shipped band on each law at 2,400 replications of its own samples, with a pointwise control |
+| `repeat_increment` | the median SE ratio minus the first draw's SE ratio on law S at 2,800 replications of its own samples; horizon 3 is gated at 0.03, with a control that multiplies the median SE by 1.05 |
 | `repeat_stability` | the spread of the three-draw median over the spread of its first draw, on one fixed sample per law |
 | `root_n_and_efficiency` and `root_n_rate` | the law-D static contrast at n = 2,000, 8,000 and 32,000; the slope rows carry the check, because the 2,000 rung cannot fail at 800 replications |
 | `ipsi_primary` | law I's means and contrasts at n = 80,000, read by the primary rules |
@@ -111,13 +113,13 @@ every pass probability. It reads them from the sizing probe in `tests/diagnostic
 | `ipsi_primary` | `mean_x0_5__repeated` | positive | `IPSI` at n = 80,000, the mean under odds multiplier 0.5; the median over three fold draws | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000741 to 0.000320, margin 0.0021, coverage 0.9357 to 0.9641, SE ratio 0.9537 to 1.0431 | pass |
 | `ipsi_primary` | `mean_x1__repeated` | positive | `IPSI` at n = 80,000, the mean under the natural course; the median over three fold draws | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000406 to 0.000690, margin 0.0021, coverage 0.9350 to 0.9635, SE ratio 0.9466 to 1.0338 | pass |
 | `ipsi_primary` | `mean_x2__repeated` | positive | mean under odds multiplier 2: `IPSI` at n = 80,000, the mean under odds multiplier 2; the median over three fold draws | bias inside the margin, coverage clears the floor, SE ratio inside the sanity band | bias -0.000007 to 0.0011, margin 0.0021, coverage 0.9378 to 0.9657, SE ratio 0.9456 to 1.0337 | pass |
-| `repeat_increment` | `h1__repeat_median` | diagnostic | survival risk difference at horizon 1, the SE ratio of the median over three draws | reported only; no verdict | increment 0.000152, -0.000199 to 0.000490, ceiling 0.0300 | reported |
-| `repeat_increment` | `h1__single_draw` | diagnostic | survival risk difference at horizon 1, the SE ratio of the first draw alone | reported only; no verdict | increment 0.000152, -0.000199 to 0.000490, ceiling 0.0300 | reported |
-| `repeat_increment` | `h2__repeat_median` | diagnostic | survival risk difference at horizon 2, the SE ratio of the median over three draws | reported only; no verdict | increment 0.000952, 0.000216 to 0.0017, ceiling 0.0300 | reported |
-| `repeat_increment` | `h2__single_draw` | diagnostic | survival risk difference at horizon 2, the SE ratio of the first draw alone | reported only; no verdict | increment 0.000952, 0.000216 to 0.0017, ceiling 0.0300 | reported |
-| `repeat_increment` | `h3__inflated_se_control` | control | the horizon-3 median with its reported SE multiplied by 1.05 | the increment must reach or exceed the ceiling | increment 0.0666, 0.0637 to 0.0698, ceiling 0.0300 | pass |
-| `repeat_increment` | `h3__repeat_median` | positive | survival risk difference at horizon 3, the SE ratio of the median over three draws | the increment over the first draw stays under its ceiling | increment 0.0156, 0.0127 to 0.0185, ceiling 0.0300 | pass |
-| `repeat_increment` | `h3__single_draw` | positive | survival risk difference at horizon 3, the SE ratio of the first draw alone | the first-draw ratio, the base of the increment | increment 0.0156, 0.0127 to 0.0185, ceiling 0.0300 | pass |
+| `repeat_increment` | `h1__repeat_median` | diagnostic | survival risk difference at horizon 1, the SE ratio of the median over three draws | reported only; no verdict | increment 0.000122, -0.000968 to 0.0012, ceiling 0.0300 | reported |
+| `repeat_increment` | `h1__single_draw` | diagnostic | survival risk difference at horizon 1, the SE ratio of the first draw alone | reported only; no verdict | increment 0.000122, -0.000968 to 0.0012, ceiling 0.0300 | reported |
+| `repeat_increment` | `h2__repeat_median` | diagnostic | survival risk difference at horizon 2, the SE ratio of the median over three draws | reported only; no verdict | increment 0.000877, -0.0012 to 0.0030, ceiling 0.0300 | reported |
+| `repeat_increment` | `h2__single_draw` | diagnostic | survival risk difference at horizon 2, the SE ratio of the first draw alone | reported only; no verdict | increment 0.000877, -0.0012 to 0.0030, ceiling 0.0300 | reported |
+| `repeat_increment` | `h3__inflated_se_control` | control | the horizon-3 median with its reported SE multiplied by 1.05 | the increment must reach or exceed the ceiling | increment 0.0667, 0.0575 to 0.0764, ceiling 0.0300 | pass |
+| `repeat_increment` | `h3__repeat_median` | positive | survival risk difference at horizon 3, the SE ratio of the median over three draws | the increment over the first draw stays under its ceiling | increment 0.0147, 0.0059 to 0.0247, ceiling 0.0300 | pass |
+| `repeat_increment` | `h3__single_draw` | positive | survival risk difference at horizon 3, the SE ratio of the first draw alone | the first-draw ratio, the base of the increment | increment 0.0147, 0.0059 to 0.0247, ceiling 0.0300 | pass |
 | `repeat_stability` | `d_ltmle_dynamic__one_repeat_control` | control | `LTMLE` difference of treat-if-L2 against never on the two-node law; the first draw alone on the same fixed sample | the spread ratio of the first draw against itself stays under the declared boundary | spread ratio 0.6616, 0.5781 to 0.7460, boundary 1 | pass |
 | `repeat_stability` | `d_ltmle_dynamic__three_repeats` | positive | `LTMLE` difference of treat-if-L2 against never on the two-node law; the median over three fold draws on one fixed sample, over many fold seeds | the spread of the median over the spread of its first draw stays under the declared boundary, above the spread floor | spread ratio 0.6616, 0.5781 to 0.7460, boundary 1 | pass |
 | `repeat_stability` | `d_ltmle_static__one_repeat_control` | control | `LTMLE` risk difference of always against never on the two-node law; the first draw alone on the same fixed sample | the spread ratio of the first draw against itself stays under the declared boundary | spread ratio 0.6886, 0.6094 to 0.7720, boundary 1 | pass |
@@ -138,18 +140,18 @@ every pass probability. It reads them from the sizing probe in `tests/diagnostic
 | `root_n_rate` | `ltmle_static__reported_se` | positive | `LTMLE` static contrast; the log-log slope of the mean reported SE over the three sizes | the slope interval lies inside the root-n band | slope -0.5412 to -0.5354 | pass |
 | `root_n_rate` | `sdr_static__empirical_sd` | positive | `SDR` static contrast; the log-log slope of the empirical SD over the three sizes | the slope interval lies inside the root-n band | slope -0.5304 to -0.4674 | pass |
 | `root_n_rate` | `sdr_static__reported_se` | positive | `SDR` static contrast; the log-log slope of the mean reported SE over the three sizes | the slope interval lies inside the root-n band | slope -0.5419 to -0.5360 | pass |
-| `simultaneous_coverage` | `c_ltmle__pointwise_joint_control` | control | the pointwise 95% intervals over the means and the contrast of `LTMLE` on the clustered law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8785 to 0.8892 | pass |
-| `simultaneous_coverage` | `c_ltmle__simultaneous_band` | positive | the shipped band over the means and the contrast of `LTMLE` on the clustered law | joint coverage interval inside the calibration coverage band | joint coverage 0.9502 to 0.9572 | pass |
-| `simultaneous_coverage` | `d_ltmle__pointwise_joint_control` | control | the pointwise 95% intervals over every mean and contrast of `LTMLE` on the two-node law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8209 to 0.8335 | pass |
-| `simultaneous_coverage` | `d_ltmle__simultaneous_band` | positive | the shipped band over every mean and contrast of `LTMLE` on the two-node law | joint coverage interval inside the calibration coverage band | joint coverage 0.9481 to 0.9553 | pass |
-| `simultaneous_coverage` | `d_sdr__pointwise_joint_control` | control | the pointwise 95% intervals over every mean and contrast of `SDR` on the two-node law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8210 to 0.8336 | pass |
-| `simultaneous_coverage` | `d_sdr__simultaneous_band` | positive | the shipped band over every mean and contrast of `SDR` on the two-node law | joint coverage interval inside the calibration coverage band | joint coverage 0.9482 to 0.9553 | pass |
-| `simultaneous_coverage` | `i_ipsi__pointwise_joint_control` | control | the pointwise 95% intervals over every mean and contrast of `IPSI` on the incremental law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8461 to 0.8580 | pass |
-| `simultaneous_coverage` | `i_ipsi__simultaneous_band` | positive | the shipped band over every mean and contrast of `IPSI` on the incremental law | joint coverage interval inside the calibration coverage band | joint coverage 0.9451 to 0.9525 | pass |
-| `simultaneous_coverage` | `m_ltmle__pointwise_joint_control` | control | the pointwise 95% intervals over both coefficients of the working model, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.9032 to 0.9128 | pass |
-| `simultaneous_coverage` | `m_ltmle__simultaneous_band` | positive | the shipped band over both coefficients of the working model | joint coverage interval inside the calibration coverage band | joint coverage 0.9503 to 0.9573 | pass |
-| `simultaneous_coverage` | `s_ltmle__pointwise_joint_control` | control | the pointwise 95% intervals over every risk and risk difference of `LTMLE` at horizons 1 to 3 on the survival law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.7232 to 0.7380 | pass |
-| `simultaneous_coverage` | `s_ltmle__simultaneous_band` | positive | the shipped band over every risk and risk difference of `LTMLE` at horizons 1 to 3 on the survival law | joint coverage interval inside the calibration coverage band | joint coverage 0.9458 to 0.9531 | pass |
+| `simultaneous_coverage` | `c_ltmle__pointwise_joint_control` | control | the pointwise 95% intervals over the means and the contrast of `LTMLE` on the clustered law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8721 to 0.9055 | pass |
+| `simultaneous_coverage` | `c_ltmle__simultaneous_band` | positive | the shipped band over the means and the contrast of `LTMLE` on the clustered law | joint coverage interval inside the calibration coverage band | joint coverage 0.9411 to 0.9637 | pass |
+| `simultaneous_coverage` | `d_ltmle__pointwise_joint_control` | control | the pointwise 95% intervals over every mean and contrast of `LTMLE` on the two-node law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8085 to 0.8485 | pass |
+| `simultaneous_coverage` | `d_ltmle__simultaneous_band` | positive | the shipped band over every mean and contrast of `LTMLE` on the two-node law | joint coverage interval inside the calibration coverage band | joint coverage 0.9337 to 0.9578 | pass |
+| `simultaneous_coverage` | `d_sdr__pointwise_joint_control` | control | the pointwise 95% intervals over every mean and contrast of `SDR` on the two-node law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8090 to 0.8489 | pass |
+| `simultaneous_coverage` | `d_sdr__simultaneous_band` | positive | the shipped band over every mean and contrast of `SDR` on the two-node law | joint coverage interval inside the calibration coverage band | joint coverage 0.9342 to 0.9582 | pass |
+| `simultaneous_coverage` | `i_ipsi__pointwise_joint_control` | control | the pointwise 95% intervals over every mean and contrast of `IPSI` on the incremental law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.8417 to 0.8785 | pass |
+| `simultaneous_coverage` | `i_ipsi__simultaneous_band` | positive | the shipped band over every mean and contrast of `IPSI` on the incremental law | joint coverage interval inside the calibration coverage band | joint coverage 0.9328 to 0.9570 | pass |
+| `simultaneous_coverage` | `m_ltmle__pointwise_joint_control` | control | the pointwise 95% intervals over both coefficients of the working model, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.9024 to 0.9317 | pass |
+| `simultaneous_coverage` | `m_ltmle__simultaneous_band` | positive | the shipped band over both coefficients of the working model | joint coverage interval inside the calibration coverage band | joint coverage 0.9490 to 0.9700 | pass |
+| `simultaneous_coverage` | `s_ltmle__pointwise_joint_control` | control | the pointwise 95% intervals over every risk and risk difference of `LTMLE` at horizons 1 to 3 on the survival law, read jointly | joint coverage upper endpoint must fall below the nominal rate | joint coverage 0.7000 to 0.7474 | pass |
+| `simultaneous_coverage` | `s_ltmle__simultaneous_band` | positive | the shipped band over every risk and risk difference of `LTMLE` at horizons 1 to 3 on the survival law | joint coverage interval inside the calibration coverage band | joint coverage 0.9393 to 0.9622 | pass |
 | `single_draw_reading` | `c_static__draw_0` | diagnostic | `LTMLE` difference of always against never on the clustered law; the first of the three draws alone | reported only; no verdict | coverage 0.9480 to 0.9552, SE ratio 0.9966 to 1.0202 | reported |
 | `single_draw_reading` | `d_ltmle_dynamic__draw_0` | diagnostic | `LTMLE` difference of treat-if-L2 against never on the two-node law; the first of the three draws alone | reported only; no verdict | coverage 0.9460 to 0.9533, SE ratio 0.9948 to 1.0180 | reported |
 | `single_draw_reading` | `d_ltmle_static__draw_0` | diagnostic | `LTMLE` risk difference of always against never on the two-node law; the first of the three draws alone | reported only; no verdict | coverage 0.9457 to 0.9531, SE ratio 0.9913 to 1.0151 | reported |
@@ -178,7 +180,8 @@ only when its diagnosis finds no defect.
 
 | red row | diagnosis | reported with the owner when |
 | --- | --- | --- |
-| calibration or band, SE-ratio interval contains 1 | the `single_draw_reading` row against the median row, the `split_displacement` share and the pilot reading | the coverage interval contains 0.95 and the diagnosis finds no defect |
+| calibration, SE-ratio interval contains 1 | the `single_draw_reading` row against the median row, the `split_displacement` share and the pilot reading | the coverage interval contains 0.95 and the diagnosis finds no defect |
+| band | the calibration median rows of its law and the pilot rates in `rerun_pilot.csv`; no draw-0 row shares the band's samples | the coverage interval contains 0.95 and the diagnosis finds no defect |
 | calibration, SE-ratio interval excludes 1 | the same diagnosis, and the unit witnesses of the split adjustment at the run's commit | the draw-0 row is off by the same amount, the share is below 0.01, and the pilot agrees within its Monte Carlo error |
 | `ipsi_primary` | the law-I calibration rows at the same size, and the pilot bias of +0.067 and -0.077 SD | the draw-0 rows share the bias and the pilot agrees |
 | `root_n_rate` | the per-rung rows and the pilot segment slope of -0.587 | the positive rungs and the pilot explain the slope |
@@ -193,7 +196,11 @@ worst case. The cell publishes the count in `failed_replicates`.
 The design test states the declared pass probability of each gated cell. The nine calibration
 cells pass together with probability 1.00 at the pilot reading. With the pilot's correlated
 errors integrated out, that probability is 0.89. A red calibration row has a probability of about
-0.11, and this table reads it. Each band cell passes with probability 0.99 or more.
+0.11, and this table reads it.
+
+Each band cell passes with probability 0.99 or more. The five
+band cells pass together with probability 0.98 at 2,400 replications. The horizon-3
+`repeat_increment` gate passes with probability 0.96 at 2,800 replications.
 
 ## Result
 

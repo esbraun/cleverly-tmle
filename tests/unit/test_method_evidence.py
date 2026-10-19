@@ -1972,12 +1972,19 @@ class TestTheStudyStillMeasuresTheCode:
                     )
 
     def test_property_families_do_not_reuse_a_law_and_seed(self, study: StudyRecord) -> None:
-        """Different claims need independent sample streams within one property study."""
+        """Different claims need independent sample streams within one property study.
+
+        A family in ``DIAGNOSTIC_PROPERTIES`` publishes a reading and no verdict, so it may read
+        the fits of another family and does not count as a claim on the stream.  Every other
+        family still needs a stream of its own.
+        """
         declared_cells = getattr(study.properties(), "declared_cells", None)
         if declared_cells is None:
             return
         by_stream: dict[tuple[str, int], set[str]] = {}
         for cell in declared_cells():
+            if cell.property in DIAGNOSTIC_PROPERTIES:
+                continue
             by_stream.setdefault((cell.dgp.name, cell.seed), set()).add(cell.property)
         collisions = {
             stream: sorted(properties)
