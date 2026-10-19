@@ -324,8 +324,15 @@ rows by at most 7.4e-15 in a numeric column, a machine difference of the kind th
 section above reports. No fit of `rate_32000` ran in the check. Its code path is that of
 `rate_8000`. After the run,
 `python -m tests.canonical.longitudinal_repeated_crossfit.inherit --check <baseline commit>`
-compares the new `property-replicates.csv.gz` outside the two redrawn families, and
-`replicates.csv.gz`, with the baseline commit. It exits non-zero on a difference.
+compares the new `property-replicates.csv.gz` outside the two redrawn families with the
+baseline commit, bit for bit. It also compares `replicates.csv.gz` at a relative tolerance of
+1e-12 and an absolute tolerance of 1e-14. It exits non-zero on a difference.
+
+The tolerance applies to the primary rows only, because the declared run refits the primary
+phase. The main merges between `e1b27e0f` and the rerun commit `38ad7d05` changed `src/`. The
+rerun on the same Windows machine moved the primary rows by at most 1.8e-15 in a numeric column.
+The keys, the discrete columns, the verdicts and the inherited property rows were identical. The
+rerun's manifest records `38ad7d05` and hashes the artifacts that the rerun wrote.
 
 | fit set | replicates | source of the rows |
 | --- | --- | --- |

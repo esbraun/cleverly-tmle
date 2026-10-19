@@ -13,8 +13,9 @@ only the new fit sets and the primary phase.
     python -m tests.canonical.longitudinal_repeated_crossfit.inherit --check <baseline commit>
 
 ``--check`` runs after the declared run.  It compares the committed files with those of the
-baseline commit and exits non-zero on a difference: every property row outside the two
-families that the rerun redraws, and the primary rows, must be unchanged.
+baseline commit and exits non-zero on a difference.  Every property row outside the two
+families that the rerun redraws must be unchanged, bit for bit.  The declared run refits the
+primary phase, so the primary rows must agree to ``PRIMARY_RTOL`` and ``PRIMARY_ATOL``.
 
 The entry refuses what a declared run refuses: a dirty tree, ``HEAD`` not equal to its
 upstream, or a thread variable other than 1.  It refuses a committed file that its manifest
@@ -56,6 +57,10 @@ PRIMARY_ROWS = "replicates.csv.gz"
 
 #: The families whose samples the rerun redraws.  Every other property row is inherited.
 REDRAWN = ("simultaneous_coverage", "repeat_increment")
+
+#: The tolerance on the refitted primary rows.  The 38ad7d05 run moved them by at most 1.8e-15.
+PRIMARY_RTOL = 1e-12
+PRIMARY_ATOL = 1e-14
 
 #: The fit sets that the rerun fits: each family that has its own samples now.
 FITTED = tuple(label for label in properties.plan() if label.startswith(("band_", "increment_")))
@@ -131,8 +136,22 @@ def baseline(commit: str, name: str) -> bytes:
 def check(commit: str) -> list[str]:
     """What differs from ``commit`` outside the families that the rerun redraws."""
     differences: list[str] = []
-    if baseline(commit, PRIMARY_ROWS) != (HERE / PRIMARY_ROWS).read_bytes():
-        differences.append(f"{PRIMARY_ROWS} differs from {commit}")
+    keys = ["implementation", "scenario", "replicate", "estimand"]
+    primary_old = pd.read_csv(
+        io.BytesIO(baseline(commit, PRIMARY_ROWS)),
+        compression="gzip",
+        float_precision="round_trip",
+    ).sort_values(keys, ignore_index=True)
+    primary_new = pd.read_csv(HERE / PRIMARY_ROWS, float_precision="round_trip").sort_values(
+        keys, ignore_index=True
+    )
+    try:
+        # The declared run refits the primary phase, so its floats can move in the last bits.
+        pd.testing.assert_frame_equal(
+            primary_old, primary_new, check_exact=False, rtol=PRIMARY_RTOL, atol=PRIMARY_ATOL
+        )
+    except AssertionError as error:
+        differences.append(f"{PRIMARY_ROWS} differs from {commit}: {error}")
     old = pd.read_csv(
         io.BytesIO(baseline(commit, ROWS)), compression="gzip", float_precision="round_trip"
     )
@@ -158,7 +177,7 @@ def main(arguments: Sequence[str] | None = None) -> None:
         differences = check(known.check)
         if differences:
             raise SystemExit("differs:\n  " + "\n  ".join(differences))
-        print(f"identical to {known.check} outside {REDRAWN}", flush=True)
+        print(f"matches {known.check} outside {REDRAWN}", flush=True)
         return
     refused = refusals(False) + thread_refusals()
     if refused:
