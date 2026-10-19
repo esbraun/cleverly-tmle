@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib
 import warnings
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -90,13 +91,13 @@ def test_a_declared_rule_judges_the_derivative_score_and_stops_the_bounded_walk(
     under the declared rule).
     """
     n = len(lasso_frame())
-    settings: dict[str, Any] = {"step_bound": 1.0, "max_iter": 200}
+    settings: dict[str, Any] = {"step_bound": 1.0, "max_iter": 100}
     ruled = derivative_fit(stopping="sample_size", **settings)
     after = np.abs(ruled.extra["ctmle"].derivative_score_after)
     span = ruled.nuisance.scaler.range
     assert np.all(after * span <= 1.0 / n)
     assert np.max(after) > 1e-8
-    with pytest.raises(ValueError, match="did not converge in 200 iterations"):
+    with pytest.raises(ValueError, match="did not converge in 100 iterations"):
         derivative_fit(**settings)
 
 
@@ -115,6 +116,28 @@ def test_mutation_a_derivative_solve_without_the_stop_context_fails(
         [("warn=False, stop=stop", "warn=False")],
     )
     with pytest.raises(ValueError, match="StopContext"):
+        witness()
+
+
+def test_substituting_the_relative_rule_fails_the_bounded_walk_witness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    witness = test_a_declared_rule_judges_the_derivative_score_and_stops_the_bounded_walk
+    witness()
+    monkeypatch.setattr(derivative_module, "replace", replace, raising=False)
+    mutate(
+        monkeypatch,
+        derivative_module,
+        derivative_module,
+        "derivative_update",
+        [
+            (
+                "mask, spec, warn=False, stop=stop",
+                'mask, replace(spec, stopping="relative"), warn=False, stop=stop',
+            )
+        ],
+    )
+    with pytest.raises(ValueError, match="did not converge in 100 iterations"):
         witness()
 
 

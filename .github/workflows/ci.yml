@@ -101,13 +101,14 @@ jobs:
   # committed study's property rows are perturbed and summarized by the study's own code, and
   # the declared failure-accounting rules must give the same verdicts. Measured at 5,892 cases,
   # about 7,600 CPU-seconds and about 35 minutes on four workers, far over the fast tier's
-  # budget, so it runs here (the R3-2 fallback) and never as a sample. The timeout allows three
-  # times that. The fast tier checks that its parametrization lists every committed study. The
+  # budget, so it runs here (the R3-2 fallback) and never as a sample. Later study additions
+  # brought main to 91% at the former 105-minute timeout. Allow 180 minutes for the complete
+  # check. The fast tier checks that its parametrization lists every committed study. The
   # job always reports, so it can be a required check: on a pull request that touches none of
   # the paths below its steps are skipped.
   property-differential:
     runs-on: ubuntu-latest
-    timeout-minutes: 105
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
