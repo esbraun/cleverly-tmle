@@ -1,0 +1,31 @@
+scenario,estimand,pairs,max_abs_estimate_gap,max_abs_se_gap,gate,passed
+pricing_ltmle_tau2,ate_regimen[price_down vs natural_prices],1000,2.5327469704850003e-09,4.338559025929278e-12,1e-06,True
+pricing_ltmle_tau2,ate_regimen[price_up vs natural_prices],1000,2.011105976196248e-09,2.0301425471269674e-12,1e-06,True
+pricing_ltmle_tau2,ey_regimen[natural_prices],1000,2.0696455660385027e-09,9.540979117872439e-17,1e-06,True
+pricing_ltmle_tau2,ey_regimen[price_down],1000,2.5955325666515705e-09,4.609895798424191e-12,1e-06,True
+pricing_ltmle_tau2,ey_regimen[price_up],1000,1.4431839057138518e-09,2.6313985712622667e-12,1e-06,True
+pricing_ltmle_tau3,ate_regimen[price_down vs natural_prices],1000,2.4243815843760785e-09,8.079174482200635e-12,1e-06,True
+pricing_ltmle_tau3,ate_regimen[price_up vs natural_prices],1000,2.0356182711678272e-09,2.4725291258853588e-12,1e-06,True
+pricing_ltmle_tau3,ey_regimen[natural_prices],1000,2.0726786953417786e-09,9.540979117872439e-17,1e-06,True
+pricing_ltmle_tau3,ey_regimen[price_down],1000,2.424719203197867e-09,1.3408456636665456e-11,1e-06,True
+pricing_ltmle_tau3,ey_regimen[price_up],1000,1.4404855086525004e-09,2.3038897178917495e-12,1e-06,True
+pricing_ltmle_tau5,ate_regimen[price_down vs natural_prices],1000,2.799116705087812e-08,4.119978663785773e-11,1e-06,True
+pricing_ltmle_tau5,ate_regimen[price_up vs natural_prices],1000,1.9330399780859153e-09,1.604515478814683e-11,1e-06,True
+pricing_ltmle_tau5,ey_regimen[natural_prices],1000,1.9334818190941405e-09,9.540979117872439e-17,1e-06,True
+pricing_ltmle_tau5,ey_regimen[price_down],1000,2.8146049269039963e-08,4.021922725416793e-11,1e-06,True
+pricing_ltmle_tau5,ey_regimen[price_up],1000,1.3753768124402654e-09,1.3941955229190839e-11,1e-06,True
+pricing_sdr_tau2,ate_regimen[price_down vs natural_prices],1000,2.4914792451369294e-13,6.477457459297398e-15,1e-06,True
+pricing_sdr_tau2,ate_regimen[price_up vs natural_prices],1000,1.4195589148613408e-13,4.150325916274511e-15,1e-06,True
+pricing_sdr_tau2,ey_regimen[natural_prices],1000,0.0,9.540979117872439e-17,1e-06,True
+pricing_sdr_tau2,ey_regimen[price_down],1000,2.4913404672588513e-13,1.0130785099704553e-14,1e-06,True
+pricing_sdr_tau2,ey_regimen[price_up],1000,1.4221956945448255e-13,3.767819389821625e-15,1e-06,True
+pricing_sdr_tau3,ate_regimen[price_down vs natural_prices],1000,4.345551696260941e-13,2.027024381678899e-14,1e-06,True
+pricing_sdr_tau3,ate_regimen[price_up vs natural_prices],1000,1.5908108164097712e-13,2.048881897476207e-14,1e-06,True
+pricing_sdr_tau3,ey_regimen[natural_prices],1000,0.0,9.540979117872439e-17,1e-06,True
+pricing_sdr_tau3,ey_regimen[price_down],1000,4.346523141407488e-13,3.270647641606672e-14,1e-06,True
+pricing_sdr_tau3,ey_regimen[price_up],1000,1.5876189252139739e-13,1.5607307113363333e-14,1e-06,True
+pricing_sdr_tau5,ate_regimen[price_down vs natural_prices],1000,8.12350187118227e-13,1.4920356616876518e-13,1e-06,True
+pricing_sdr_tau5,ate_regimen[price_up vs natural_prices],1000,1.093958257314398e-12,9.758166497064735e-14,1e-06,True
+pricing_sdr_tau5,ey_regimen[natural_prices],1000,0.0,9.540979117872439e-17,1e-06,True
+pricing_sdr_tau5,ey_regimen[price_down],1000,8.12350187118227e-13,1.6097886912369574e-13,1e-06,True
+pricing_sdr_tau5,ey_regimen[price_up],1000,1.0940137684656293e-12,1.0142581219341196e-13,1e-06,True
