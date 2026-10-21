@@ -244,6 +244,12 @@ The refusals are in [targeting and fitting option refusals](scope-and-refusals.m
 An exact law cannot show the witness. With exact mechanisms the estimate is the truth for any
 initial regression, so a bound changes no estimate there. The witness uses a finite sample.
 
+The [node-bounds study](method-evidence/survival-node-bounds.md) measures bounded fits in repeated
+samples. It fits a held survival law with five visits, every node bounded and pooled censoring. It
+covers the iterated-mean fit and the bounded hazard fit of
+[hazard-based survival targeting](#hazard-based-survival-targeting). Its 15 gated cells pass, and
+its `survtmle` comparator runs are pending.
+
 ### Survival and competing risks
 
 [Time-to-event outcomes](../examples/longitudinal-survival.ipynb) works this section applied.
@@ -1456,6 +1462,9 @@ time-trend witness, and two mutation controls fail it.
 the predictions against a hand-fit pooled logistic regression, and the fold of each unit. A
 mutation that drops the time column, and one that keeps the rows after the event, each fail it. On a
 cross-fitted `SDR` fit, it checks that each fold's own mechanism pools that fold's training rows.
+
+The [node-bounds study](method-evidence/survival-node-bounds.md) fits pooled censoring in repeated
+samples, beside node bounds.
 
 ### Cross-fitting the recursion
 

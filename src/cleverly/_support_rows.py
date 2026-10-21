@@ -2701,9 +2701,9 @@ def _long_rows() -> tuple[SupportRow, ...]:
             limits=("law I is measured at n = 80,000, where its second-order bias is small",),
         ),
     ]
-    # Node bounds on a held survival fit (X33): every node bounded, the censoring model pooled
-    # over the nodes, and node 1's retention declared known (the qualifier ``time>=1``), in
-    # sample with GLM learners on one five-visit law at n = 2,000.
+    # Node bounds on a held survival fit (`survival-node-bounds`): every node bounded, the
+    # censoring model pooled over the nodes, and node 1's retention declared known (the
+    # qualifier ``time>=1``), in sample with GLM learners on one five-visit law at n = 2,000.
     bounds = ["survival-node-bounds"]
     bounds_limit = (
         "The study's survtmle comparator runs are pending, so the evidence is Python property "

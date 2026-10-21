@@ -125,7 +125,6 @@ not change the package version.
 | --- | --- | --- | --- | --- |
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
-| B1 | Longitudinal fitting options | no new theory; each option keeps its default bit-identical | none | [X33](#x33-longitudinal-fitting-options) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
@@ -607,42 +606,6 @@ the package, and close this row. No coverage result for the new options exists i
 The R comparators named above are deferred to
 [X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr), so the studies carry Python property
 evidence only. Do not remove this row until the studies land.
-
-
-
-
-### X33. Longitudinal fitting options
-
-These options belong to the longitudinal fit. They compose with the shipped targeting options of
-`TMLE`: `iterate=`, `stopping=` and `step_bound=`, described under
-[stopping rules, step bound and best iterate](technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate).
-Each comparator ships the option, and none needs new theory. Each option keeps every default fit
-bit-identical, and each changes a fit when it binds.
-
-| part | option | what it does | comparator |
-| --- | --- | --- | --- |
-| (d) ratio trim | trim the per-node density ratio at one pooled quantile `q` of all `n x T` entries, zeros included, then form the cumulative product | the trimming rule of `lmtp`: it trims the per-node ratio matrix and not the cumulative ratio. The fit records the trimmed share, as it records truncation now, and takes `trimmed_ratio_plugin` when the share is above zero. `SDR` reads the same per-node ratio | `lmtp` `.trim` |
-| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | a restriction on the observed-data model. The identification summary states it, and the estimand does not change. `SDR` reads the same per-node ratio and regressions | `lmtp` `k` |
-| (i) node bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the iterated mean or of the cause-specific hazard of `survival_model="hazard"` | `survtmle` `bounds` |
-| (j) pooled hazards | fit one hazard regression and one censoring regression over every node, with the node as a covariate, in place of one regression per node | a fit with fewer events per node. A pooled fit is a nuisance choice for `survival_model="hazard"`, which today fits one hazard regression per node and cause and one censoring regression per node | `survtmle`, MOSS and `tmle3` `tmle_survival` |
-
-At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
-node's density ratio, which the fit stores as `RegimenFit.node_ratio`.
-
-Part (i) covers `survtmle` `method = "hazard"` as well as `method = "mean"`. On a fit with
-`survival_model="hazard"`, it bounds each node's cause-specific hazard. Part (j) applies only to a
-fit with `survival_model="hazard"`.
-
-The hazard walk of `survival_model="hazard"` steps along its own path in steps of `step_size`. It
-does not read the shipped settings `iterate=`, `stopping=` and `step_bound=`, so `LTMLE` refuses
-them beside that model. This item lifts the refusal for the bounded hazard walk.
-
-Acceptance: for each part, a test that the default fit is bit-identical to the fit before the
-option, an exact test on a finite law, a witness on a law where the option binds, and a mutation
-control that fails when the option is wrong. Parts (d) and (e) also name their assumption in the
-identification summary, and a test pins that text. Part (d) pins the `trimmed_ratio_plugin` record.
-A registered study covers the parts, with its red cells reported. The R fixtures can stay pending
-and do not block the merge.
 
 ### X21. Adaptive-propensity IPTW
 

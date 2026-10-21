@@ -652,6 +652,14 @@ matrix, and attaches the trim to the mechanism. Every reader of the cumulative p
 moved, that value is the untrimmed one, so a trim never changes a row it does not move.
 `tests/unit/test_longitudinal_ratio_trim.py` pins the composition at an upper bound below one.
 
+A Markov order (`markov_order=k`) restricts the nuisance designs only. Each mechanism and
+outcome design at node $t$ reads `W` and a window of the last nodes. The `history_frame` and
+`policy_frame` that a rule or a policy reads keep the full history. So a window never changes a
+resolved plan. A rule node in the window adds its assigned arm to the outcome design, because the
+window does not determine that arm. `tests/unit/test_longitudinal_markov_order.py` pins both
+frames in `test_the_frames_keep_the_full_history`, and a dropped rule block fails an exact-law
+check there.
+
 A cross-fitted per-regimen fit targets after its folds, not inside them. Each fold runs an
 untargeted backward regression sequence on its training rows. One pooled fluctuation per node then
 targets the out-of-fold predictions over every follower, with the out-of-fold cumulative mechanism

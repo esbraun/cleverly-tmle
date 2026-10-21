@@ -394,8 +394,18 @@ Python tests below gate the change. The R comparators are pending, and the next 
 | `treatment_adjustment=` | `tests/unit/test_treatment_covariates.py` and `test_treatment_covariates_collaborative.py`. Exact-law witnesses reproduce $-1/75$ and $-0.0138815$ at $10^{-10}$, and a spy learner sees $W_g$ at every site | the arm-1 error exceeds $10^{-3}$ when the restriction fails | fit $g$ on the full set, and in C-TMLE the pool, the preorder, the lasso design and the learners names |
 | `hazard` rules | `tests/unit/test_hazard_targeting_rules.py` computes each threshold by hand from the reported influence curves. A rule stops at its first iterate that meets it, and a per-horizon `best_iterate` equals the fit capped at that iterate | the one-step walk under a rule stops before the shipped walk and moves an estimate by more than $10^{-8}$ | a walk capped one step short misses the rule |
 | `node_bounds=` on hazards | `tests/unit/test_hazard_node_bounds.py`. On the exact laws, bounds that hold the truth return it, and a mixed competing-risk fit solves every score | on `make_point_survival(n=300, seed=3)`, the bound $(0.02, 0.2)$ at node 2 clips 32% of the initial hazards and moves an estimate by more than $10^{-4}$ | the step without its scale, a scale of $u_j$ in place of $u_j - l_j$, a reversed bounded step, and softmax initial logits at a bounded node |
+| `node_bounds=` on the iterated mean | `tests/unit/test_longitudinal_node_bounds.py`. On the exact laws, bounds that hold the truth return it to $10^{-10}$. Bounds that bind keep $Q^*$ inside them with a score below $10^{-9}$ | on a finite sample with estimated mechanisms, the unbounded regression leaves the bounds, and the estimates differ by more than $10^{-4}$ | an inverted map, the bounds of node $t$ applied at node $t - 1$, a skipped root check |
+| `ratio_trim=` | `tests/unit/test_longitudinal_ratio_trim.py` computes every entry, the threshold, the trimmed product and every clever covariate by hand on the two-node SMART law | with every factor known, the untrimmed fit returns the truth, and the trimmed fit moves away from it | a trim of the cumulative ratio, a quantile without the zeros, a per-fold trim, a dropped censoring factor, a zero entry by "followed through $t$" |
+| `markov_order=` | `tests/unit/test_longitudinal_markov_order.py` checks the columns of each design for $T = 4$ and $k \in \{0, 1, 2\}$ | on a three-node law whose nuisances read the order-1 window, order 1 returns the truth and order 0 does not | a window one node short, a dropped rule block |
+| `hazard_pooling="pooled"` | `tests/unit/test_longitudinal_pooled_censoring.py` and `tests/unit/test_hazard_pooled.py` compare the stacked rows and the predictions with a hand-fit pooled regression | a time-trend law on which the pooled and per-node hazards differ, and the pooled fit solves its score | a dropped time column, the rows after the event kept in the stack |
 
-The R comparators have scripts, a registry and a self-test in `tests/canonical/option_fixtures/`.
+The [node-bounds study](method-evidence/survival-node-bounds.md) adds repeated-sampling evidence for
+`node_bounds=` with `hazard_pooling="pooled"` on a held survival design. Its 15 gated cells pass,
+for the iterated-mean fit and the hazard fit. Its `survtmle` comparator runs are pending. No
+registered study covers `ratio_trim=` or `markov_order=`.
+
+The R comparators of the seven options named first have scripts, a registry and a self-test in
+`tests/canonical/option_fixtures/`.
 The local Study queue ran the four scripts in the pinned images. Each JSON file records the
 checksum of its script. `tests/unit/test_option_fixtures.py` compares each file and ties the label
 in the table to the registry.

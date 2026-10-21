@@ -5,14 +5,14 @@ survival design with five visits. It fits two models on every sample. The `mean_
 iterated-mean recursion with every node bounded. The `hazard_model` is the hazard fit with
 per-horizon targeting and every node's hazard bounded. The sections
 [node bounds](../longitudinal-tmle.md#node-bounds),
-[bounded hazards](../longitudinal-tmle.md#bounded-hazards) and
+[hazard-based survival targeting](../longitudinal-tmle.md#hazard-based-survival-targeting) and
 [pooled censoring](../longitudinal-tmle.md#pooled-censoring) state the estimators and their exact-law
 evidence.
 
 The declared comparator is R [`survtmle`](https://cran.r-project.org/package=survtmle) 1.1.1 with
 `method = "mean"` for the `mean_model` and `method = "hazard"` for the `hazard_model`
-(Benkeser, Carone and Gilbert 2018). Its runs are pending as issue #302 and as a local Study queue
-row of plan X33. This page holds Python property evidence, with comparator runs pending.
+(Benkeser, Carone and Gilbert 2018). Its runs are pending as issue #302. This page holds Python
+property evidence, with comparator runs pending.
 
 ## What was compared
 
