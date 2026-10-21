@@ -349,6 +349,67 @@ rerun's manifest records `38ad7d05` and hashes the artifacts that the rerun wrot
 | `band_d`, `band_i`, `band_s`, `band_c`, `band_m` | 2,400 | the rerun |
 | `increment_s` | 2,800 | the rerun |
 
+The table describes the rerun at `38ad7d05`. The X79 rerun below changes which fit sets
+`inherit.py` fits and which it inherits.
+
+## Repeat-stability control rows (X79)
+
+Both `repeat_stability` families had a control that was the denominator arm of the positive
+comparison. It published the positive row's interval and verdict, so it could not fail unless the
+positive failed. X79 renames that arm `one_repeat_control` to `one_repeat` (a positive row that
+shares the pair's verdict) and adds the control `second_draw_control`: draw 1 of the three-draw
+fit, read as `SD(second_draw_control) / SD(one_repeat)` against a rule of `U >= 1`. Draws 0 and 1
+are exchangeable on one fixed sample, so the true ratio is exactly 1. The repeat layer, the
+estimators, the samples, the fold seeds, the trial counts and the positive rule are unchanged.
+
+The declared run has not happened when this section is written. Every value marked `placeholder`
+below is filled by the declared run's thread, from the run's manifest and the output of `inherit.py`.
+
+### Point study: `repeated-crossfit-tmle`
+
+The study has no `inherit.py`. The declared run is the whole study, and it replaces the
+seed-repair composite manifest with a plain manifest. The drift reading is declared before the
+run. Discrete columns and every verdict outside `repeat_stability` must be equal. A float column
+outside `repeat_stability` must agree within 1e-9, the `REPLAY_TOLERANCE` of
+`tests/studies/evidence/seed_repair.py`, and the run reports the maximum difference. A difference
+beyond 1e-9 is a defect suspect. The positive rows (`three_repeats` and `one_repeat`, named
+`one_repeat_control` in the baseline) must keep their ratio, interval and verdict within the same
+tolerance. `test_targeted_composites_attribute_carried_and_replaced_evidence` must pass on the
+plain manifest.
+
+### Longitudinal study: `longitudinal-repeated-crossfit`
+
+`inherit.py` now fits `stability_d` and `stability_i` and inherits every other fit set,
+including `band_*` and `increment_s`, which the committed rows of the earlier rerun supply. The
+primary phase is refitted. `stability_rows` is the only row builder that changed. It reads draw 1
+of each three-draw fit, and the code paths of every inherited fit set (`fit_set_rows`, `draw`,
+`sample_seed`, `plan`) are untouched. `inherit.py --check <baseline commit>` compares after the
+run. Every property row outside `repeat_stability` must be equal bit for bit. The primary rows,
+the kept stability arms (`three_repeats` and `one_repeat`, read as `one_repeat_control` in the
+baseline), their summary ratios, intervals and verdicts, and the summary rows outside
+`repeat_stability` must agree within a relative tolerance of 1e-12 and an absolute tolerance of
+1e-14. Only `second_draw_control` is new and is not compared. No container or R-runner hash is
+involved, so the rerun needs no gated revision.
+
+| item | value |
+| --- | --- |
+| base commit of X79 | `fb4461a8` |
+| commit that fitted the inherited rows | placeholder |
+| SHA-256 of the source `property-replicates.csv.gz` | placeholder, which `inherit.py` prints before it writes a checkpoint |
+| declared run commit, which the rerun's manifest records | placeholder |
+| rerun artifact commit | placeholder |
+| largest primary or kept-arm difference from the baseline | placeholder |
+
+| fit set | replicates | source of the rows |
+| --- | --- | --- |
+| `calibration_d`, `calibration_s`, `calibration_c`, `calibration_m` | 24,000 | committed rows |
+| `calibration_i` | 24,000 | committed rows |
+| `rate_2000`, `rate_8000`, `rate_32000` | 800 | committed rows |
+| `ipsi_primary` | 1,600 | committed rows |
+| `band_d`, `band_i`, `band_s`, `band_c`, `band_m` | 2,400 | committed rows |
+| `increment_s` | 2,800 | committed rows |
+| `stability_d`, `stability_i` | 400 | the rerun |
+
 ## Runners that a pending study names
 
 The study `longitudinal-repeated-sdr` declares a pending lmtp comparator. Its `Reference` names

@@ -83,9 +83,16 @@ A quasibinomial solver recovers that law's six coefficients to 1.4e-15 on a quad
 both nuisances are correctly specified there.
 
 The repeat-stability cells stay on the binary law, because they vary the fold seed rather than
-the sample. They hold one binary-law sample of 1,000 rows fixed across 400 fold-seed trials.
-Each control uses the first actual fold draw from its paired three-repeat fit. The 99%
-paired-bootstrap interval compares the three-repeat ATE spread with the control spread.
+the sample. They hold one binary-law sample of 1,000 rows fixed across 400 fold-seed trials. Each
+trial fits the three-draw median, and it fits draws 0 and 1 alone at the two seeds that the
+three-draw plan derives. The two positive rows share one ratio: the three-repeat ATE spread over
+the spread of draw 0. Their 99% paired-bootstrap upper endpoint must fall below 1.
+
+The control row reads the spread of draw 1 over the spread of draw 0. Draws 0 and 1 are
+independent fold draws of one sample, so the true ratio is 1. The control passes when its 99%
+upper endpoint reaches 1, which happens with probability about 0.995 at a true ratio of 1. A
+control with its endpoint below 1 shows a defect in the ratio, the bootstrap or the draw seeds.
+The control resamples with a stream of its own. The three rows share one verdict.
 
 <!-- generated: properties -->
 | property | cell | role | what was tested | what must hold | measured | result |
@@ -166,6 +173,7 @@ from the committed results and checked at the precision printed.
 | The row publishes under the reporting policy, not gated | Every declared cell is green. The `reporting` policy does not assert that, so the fast tier recomputes each verdict and does not fail on a red one |
 | There is no full-method cross-implementation evidence | zEpid corroborates the aggregation formula, not the complement-trained stacked pooled estimator |
 | The study does not claim median superiority | Median is the source-backed reporting standard, not an option chosen because this law makes it beat a mean alternative |
+| The second-draw control tests the rule, not the repeat layer | Draws 0 and 1 are exchangeable, so the true ratio is 1. The control checks that the `U < 1` rule and its bootstrap read no reduction where none exists. The positive rows carry the evidence of the reduction |
 | The stability law and repeat budget are fixed | Spread reduction is measured on one fixed binary-law sample at one versus three fold draws. It does not establish behavior for other samples, laws, or arbitrary repeat counts |
 | The continuous evidence needs a known outcome support | The continuous primary law and every inherited property cell draw a proportion and declare `q_bounds` of 0 to 1. The row says nothing about a continuous outcome whose support the analyst does not know, because the package refuses that composition under cross-fitting |
 | Each draw uses one unstratified split | The outer split reads neither the treatment nor the outcome, and the fit asserts the realized scheme. The row does not establish a stratified or grouped split, or a supplied plan |

@@ -82,7 +82,7 @@ The band and increment sizes come from the pilot rows in
 | `interval_calibration` | the SE ratio and coverage of nine contrasts at 24,000 replications, each with a control that multiplies the reported SE by 0.70 |
 | `simultaneous_coverage` | the joint coverage of the shipped band on each law at 2,400 replications of its own samples, with a pointwise control |
 | `repeat_increment` | the median SE ratio minus the first draw's SE ratio on law S at 2,800 replications of its own samples; horizon 3 is gated at 0.03, with a control that multiplies the median SE by 1.05 |
-| `repeat_stability` | the spread of the three-draw median over the spread of its first draw, on one fixed sample per law |
+| `repeat_stability` | on one fixed sample per law, the spread of the three-draw median over the spread of its first draw (positive), and the spread of the second draw over the first draw's spread (control, which reads no reduction) |
 | `root_n_and_efficiency` and `root_n_rate` | the law-D static contrast at n = 2,000, 8,000 and 32,000; the slope rows carry the check, because the 2,000 rung cannot fail at 800 replications |
 | `ipsi_primary` | law I's means and contrasts at n = 80,000, read by the primary rules |
 | `single_draw_reading` and `split_displacement` | the first draw's calibration and the displacement share, reported only |
@@ -186,6 +186,8 @@ only when its diagnosis finds no defect.
 | `ipsi_primary` | the law-I calibration rows at the same size, and the pilot bias of +0.067 and -0.077 SD | the draw-0 rows share the bias and the pilot agrees |
 | `root_n_rate` | the per-rung rows and the pilot segment slope of -0.587 | the positive rungs and the pilot explain the slope |
 | `repeat_stability` or `repeat_increment` | a defect suspect in the repeat layer | never |
+| `second_draw_control`, upper endpoint below 1 | a defect suspect in the ratio, the bootstrap or the draw seeds. The chance probability is about 0.005 per label | never |
+| `second_draw_control`, lower endpoint above 1 | a seed or exchangeability suspect | reported and not gated |
 | a cell that lost more than 1% of its replicates to recorded fitting failures, or whose clause fails at its worst case | the records in `property-failures.csv` and `property-failure-accounting.csv`; the summary is read again from the checkpoints | the records show no defect |
 | a control that does not fail | a design defect | never |
 
@@ -201,6 +203,12 @@ errors integrated out, that probability is 0.89. A red calibration row has a pro
 Each band cell passes with probability 0.99 or more. The five
 band cells pass together with probability 0.98 at 2,400 replications. The horizon-3
 `repeat_increment` gate passes with probability 0.96 at 2,800 replications.
+
+Draws 0 and 1 are independent fold draws of one sample with deterministic learners. The true
+spread ratio of a `second_draw_control` is therefore exactly 1, and its 99% interval reaches 1
+with probability 0.995. The study declares 0.99, because the percentile interval is accurate to
+first order. The five controls pass together with probability at least 0.95 by the union bound.
+The five positives and five controls pass together with probability at least 0.95 by the same bound.
 
 ## Result
 
@@ -291,6 +299,7 @@ known-mechanism rows, so it names none.
 | The repeat count is three | The row does not establish behavior at other repeat counts |
 | Each draw uses one unstratified split | The row does not establish a stratified, grouped by design, or supplied split plan |
 | The calibration, `ipsi_primary` and band cells cannot see the split adjustment | The pilot displacement share is 1.2e-4 to 0.0050 on the calibration labels, so the adjustment moves a reported SE by 0.25% or less. Only `repeat_stability` and `repeat_increment` at horizon 3 read the repeat layer. The unit witnesses of the library tests carry the exact check of the displacement term |
+| The second-draw control tests the rule, not the repeat layer | Draws 0 and 1 are exchangeable, so the true ratio is 1. The control checks that the `U < 1` rule and its bootstrap read no reduction where none exists. The positive rows carry the evidence of the reduction |
 | Every calibration and primary fit uses `random_state = 0` | All replications share one set of three fold partitions. The folds do not depend on the data, so each replication stays valid |
 | `SDR` equals `LTMLE` under saturated cell means | The pilot SE ratios of the two estimators correlate at 1.000. The `SDR` cells exercise the code path of `SDR`, not independent statistical evidence |
 

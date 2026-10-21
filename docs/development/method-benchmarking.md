@@ -171,7 +171,7 @@ the case `k = 0` reproduces the complete case.
 | S5 SE and efficiency ratio intervals | calibration bands and controls | the S4 set, through `ratio_intervals` | enumerated | `range` |
 | S6 rate slope | root-n rate, contraction slopes | for each lost rung, every vertex split and one fill at the survivor mean, with exact pruning. For a bias slope, the fill nearest a zero mean replaces the survivor-mean fill | point exact, interval enumerated | `range` |
 | S7 coverage gain | paired overfitting and clustered gain | a lost positive arm at `covered = 0`, a lost control arm at `covered = 1`, the surviving arms at their real values | exact | `support` |
-| S9 paired spread ratio | randomizer projection, repeat stability | the numerator at each vertex split and the denominator at the survivor mean, or the reverse for a lower bound | point exact, interval enumerated | `range` |
+| S9 paired spread ratio | randomizer projection, repeat stability | the numerator at each vertex split and the denominator at the survivor mean, or the reverse for a ratio that must stay at or above its boundary | point exact, interval enumerated | `range` |
 | S10 extra column mean | a cap or a floor on a published column | the lost rows at the adverse support bound for a share, otherwise at the survivor maximum or minimum | exact | `support` for a share, else `range` |
 | S12 paired displacement | the 16 necessity families | the attainable difference of the arm means, with `sd` of the left arm held | exact under the held scale | `range` |
 | S13 RMSE ratio, point | selector necessity | the numerator errors at the farther survivor end, the denominator estimates at the truth | exact when the truth lies in the survivor range | `range` |
@@ -209,7 +209,7 @@ rule never infers a pair from a cell name.
 | `known_mechanism_accuracy`, `ordinary_targeting`, `treatment_complete_case` | S1, S2, S4 as the verdict applies them | `row` |
 | `bootstrap_coverage` | S2 floor | `row` |
 | `randomizer_projection` | S1 on each arm, S9 on the pair of projections | `family` |
-| `repeat_stability` | S9 | `row` |
+| `repeat_stability` | S9 on the three-draw ratio (positive rows) and on the second-draw ratio (control, upper endpoint at or above the boundary); the longitudinal study adds the share clause | `family`, or `label` in `longitudinal-repeated-crossfit` |
 | `single_robustness` | S14 over the two sizes | `family` |
 | `sequential_double_robustness` | S14 over the two sizes, with S1, S2, S4 on the both-correct pattern | `pair`, `row` |
 | `clustered_calibration`, `weighted_calibration` | S5 and S2 in the band | `row` |
