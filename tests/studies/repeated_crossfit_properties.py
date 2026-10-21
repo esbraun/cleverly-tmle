@@ -5,6 +5,30 @@ bounded cross-fitted laws and declare ``q_bounds``.  The repeat-stability family
 study's own and stays on the binary law: it holds one sample fixed and varies the fold seed,
 so a bounded outcome would change what the cells measure without changing what they answer,
 and a binary outcome already has the identity scaler.
+
+**Repeat stability.**  Every trial fits the three-draw median and two one-draw fits on the
+fixed sample.  The two one-draw fits are ``repeats=1`` refits at the first and the second fold
+seed that the three-draw plan derives, so each equals draw 0 and draw 1 of the three-draw fit.
+
+==========================  ==========  =====================================================
+cell                        role        what it reads
+==========================  ==========  =====================================================
+``three_repeats``           positive    the three-draw median
+``one_repeat``              positive    draw 0 alone, the base of both ratios
+``second_draw_control``     control     draw 1 alone
+==========================  ==========  =====================================================
+
+The positive rule reads ``SD(three_repeats) / SD(one_repeat)`` and passes when the 99%
+paired-bootstrap upper endpoint is below :data:`~tests.studies.repeated_crossfit.MAX_REPEAT_SPREAD_RATIO`.
+The control reads ``SD(second_draw_control) / SD(one_repeat)``.  Draws 0 and 1 are independent
+fold draws on one sample with deterministic learners, so their spreads are equal in law and the
+ratio is exactly 1 under the truth.  The control passes when its upper endpoint is at or above
+the boundary, which a downward-biased ratio, a biased bootstrap or draws that are not
+exchangeable would fail.  At a true ratio of 1 the 99% two-sided interval's upper endpoint
+reaches 1 with probability about 0.995, so a red control is a defect suspect and never an owner
+row.  The control resamples with its own stream, so its interval is not the positive's index
+matrix.  The three rows of the family share one ``property_passed``: the positive and the
+control verdicts together.
 """
 
 from __future__ import annotations
@@ -69,17 +93,30 @@ def _unpenalized_logistic() -> LogisticRegression:
     return LogisticRegression(C=1e6, max_iter=2000, solver="lbfgs")
 
 
-def repeat_stability_cells() -> tuple[PropertyCell, ...]:
-    """The paired three-draw and one-draw arms, as declarations of the law they sample.
+#: The stability arms in publication order, each with its role.  ``one_repeat`` is the base
+#: of both spread ratios and shares the positive's verdict; ``second_draw_control`` is the
+#: control that must read no variance reduction.
+STABILITY_ARMS = (
+    ("three_repeats", "positive"),
+    ("one_repeat", "positive"),
+    ("second_draw_control", "control"),
+)
+POSITIVE_ARMS = ("three_repeats", "one_repeat")
+CONTROL_ARM = "second_draw_control"
 
-    Both arms read one sample of :func:`~cleverly.datasets.binary_outcome_dgp` and vary only
+
+def repeat_stability_cells() -> tuple[PropertyCell, ...]:
+    """The three-draw, first-draw and second-draw arms, as declarations of the law they sample.
+
+    Every arm reads one sample of :func:`~cleverly.datasets.binary_outcome_dgp` and vary only
     the fold seed, so ``seed`` here names the stream that sample comes from rather than a
     per-replication stream, and ``replicates`` is the number of fold-seed trials.
 
     Returns
     -------
     tuple of PropertyCell
-        The positive three-repeat arm, then its one-repeat control.
+        The positive three-repeat arm, the positive one-repeat base arm, then the
+        second-draw control.
     """
     dgp = binary_outcome_dgp()
     sample_seed = stream_seed(STUDY, "repeat_stability", "sample")
@@ -95,7 +132,7 @@ def repeat_stability_cells() -> tuple[PropertyCell, ...]:
             seed=sample_seed,
             role=role,
         )
-        for cell, role in (("three_repeats", "positive"), ("one_repeat_control", "control"))
+        for cell, role in STABILITY_ARMS
     )
 
 
@@ -106,18 +143,18 @@ def declared_cells() -> tuple[PropertyCell, ...]:
     -------
     tuple of PropertyCell
         The cross-fitted families from :func:`tests.studies.cvtmle_properties.cells`,
-        followed by the two repeat-stability arms.
+        followed by the three repeat-stability arms.
     """
     return (*cells(VARIANT, include_overfitting=False), *repeat_stability_cells())
 
 
-def _first_repeat_seed(base_seed: int) -> int:
-    """The first fold seed that the estimator derives from a repeated fit's seed."""
+def _repeat_seeds(base_seed: int) -> tuple[int, int]:
+    """The first two fold seeds that the estimator derives from a repeated fit's seed."""
     plan = CrossFitPlan(n_folds=N_FOLDS, random_state=base_seed, repeats=REPEATS)
-    seed = plan.seeds()[0]
-    if seed is None:
+    first, second = plan.seeds()[:2]
+    if first is None or second is None:
         raise RuntimeError("the labelled repeat-stability seed unexpectedly derived None")
-    return seed
+    return first, second
 
 
 def _stability_fit(frame: pd.DataFrame, *, repeats: int, random_state: int) -> Any:
@@ -138,45 +175,42 @@ def _stability_trial(
     replicate: int,
     requested: int,
     base_seed: int,
-) -> tuple[dict[str, object], dict[str, object]]:
+) -> tuple[dict[str, object], ...]:
     repeated = _stability_fit(frame, repeats=REPEATS, random_state=base_seed)
-    first_seed = _first_repeat_seed(base_seed)
-    control = _stability_fit(frame, repeats=1, random_state=first_seed)
+    first_seed, second_seed = _repeat_seeds(base_seed)
+    first = _stability_fit(frame, repeats=1, random_state=first_seed)
+    second = _stability_fit(frame, repeats=1, random_state=second_seed)
 
-    repeated_first = repeated.repeats[0].nuisance.folds.assignment
-    control_folds = control.nuisance.folds.assignment
-    if not np.array_equal(repeated_first, control_folds):
-        raise RuntimeError("the one-repeat control is not the repeated fit's first fold draw")
-    if repeated.repeats[0].psi["ate"] != control.psi("ate"):
-        raise RuntimeError("the one-repeat control does not reproduce the first draw's ATE")
+    draws = repeated.repeats
+    if np.array_equal(draws[0].nuisance.folds.assignment, draws[1].nuisance.folds.assignment):
+        raise RuntimeError(
+            "draws 0 and 1 share one fold assignment: the second-draw control would be the "
+            "first draw"
+        )
+    for index, one in enumerate((first, second)):
+        draw = draws[index]
+        if not np.array_equal(draw.nuisance.folds.assignment, one.nuisance.folds.assignment):
+            raise RuntimeError(f"the one-repeat fit {index} is not the repeated fit's draw {index}")
+        if draw.psi["ate"] != one.psi("ate"):
+            raise RuntimeError(f"the one-repeat fit {index} does not reproduce draw {index}'s ATE")
 
-    return (
+    return tuple(
         replicate_row(
             property_name="repeat_stability",
-            cell="three_repeats",
-            role="positive",
+            cell=cell,
+            role=role,
             replicate=replicate,
             n=REPEAT_STABILITY_N,
             requested=requested,
             truth=truth,
-            estimate=repeated["ate"],
+            estimate=fit["ate"],
             alpha=STUDY.margins.alpha,
-        ),
-        replicate_row(
-            property_name="repeat_stability",
-            cell="one_repeat_control",
-            role="control",
-            replicate=replicate,
-            n=REPEAT_STABILITY_N,
-            requested=requested,
-            truth=truth,
-            estimate=control["ate"],
-            alpha=STUDY.margins.alpha,
-        ),
+        )
+        for (cell, role), fit in zip(STABILITY_ARMS, (repeated, first, second), strict=True)
     )
 
 
-STABILITY_CELLS = ("repeat_stability/three_repeats", "repeat_stability/one_repeat_control")
+STABILITY_CELLS = tuple(f"repeat_stability/{cell}" for cell, _ in STABILITY_ARMS)
 
 
 def _stability_cells_of(payload: tuple[Any, ...]) -> tuple[str, ...]:
@@ -194,7 +228,7 @@ def _stability_replicate_of(payload: tuple[Any, ...]) -> int:
 def generate_repeat_stability_rows(
     *, trials: int = FOLD_SEED_TRIALS, n_jobs: int = STUDY_JOBS
 ) -> pd.DataFrame:
-    """Fit paired one- and three-repeat reports on one fixed binary sample."""
+    """Fit the three-draw report and draws 0 and 1 alone on one fixed binary sample."""
     sample_seed = stream_seed(STUDY, "repeat_stability", "sample")
     frame, truth = draw_from_seed("binary", REPEAT_STABILITY_N, sample_seed)
     payloads = [
@@ -207,7 +241,7 @@ def generate_repeat_stability_rows(
         )
         for replicate in range(trials)
     ]
-    paired = fit_properties(
+    trials_rows = fit_properties(
         payloads,
         splat(_stability_trial),
         cells_of=_stability_cells_of,
@@ -216,25 +250,49 @@ def generate_repeat_stability_rows(
         n_jobs=n_jobs,
         label="properties/repeat_stability",
     )
-    rows = pd.DataFrame([row for pair in paired for row in pair])
+    rows = pd.DataFrame([row for trial in trials_rows for row in trial])
     return rows.loc[:, list(REPLICATE_COLUMNS)]
 
 
+def _bootstrap_seed(*labels: str) -> int:
+    return stream_seed(STUDY, "repeat_stability", "bootstrap", *labels)
+
+
+#: The control's own bootstrap stream, so its interval does not resample the positive's index
+#: matrix.
+CONTROL_STREAM = ("second_draw",)
+
+
 def _summarize_repeat_stability(rows: pd.DataFrame, columns: pd.Index) -> pd.DataFrame:
-    """Build fixed-sample stability rows without population-sampling endpoints."""
+    """Build fixed-sample stability rows without population-sampling endpoints.
+
+    The positive rows publish the three-draw ratio and pass when its upper endpoint is below
+    the boundary.  The control row publishes the second-draw ratio and passes when its upper
+    endpoint is at or above it.  The three rows share the joint verdict.
+    """
     require_accounted(rows)
-    repeated = rows.loc[rows["cell"] == "three_repeats"]
-    control = rows.loc[rows["cell"] == "one_repeat_control"]
-    result = paired_spread_ratio_interval(
-        repeated,
-        control,
-        replicates=STUDY.margins.bootstrap_replicates,
-        confidence_level=STUDY.margins.confidence_level,
-        seed=stream_seed(STUDY, "repeat_stability", "bootstrap"),
+    arms = {cell: rows.loc[rows["cell"] == cell] for cell, _ in STABILITY_ARMS}
+    margins = STUDY.margins
+    positive = paired_spread_ratio_interval(
+        arms["three_repeats"],
+        arms["one_repeat"],
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=_bootstrap_seed(),
     )
-    passed = result.interval.high < MAX_REPEAT_SPREAD_RATIO
+    control = paired_spread_ratio_interval(
+        arms[CONTROL_ARM],
+        arms["one_repeat"],
+        replicates=margins.bootstrap_replicates,
+        confidence_level=margins.confidence_level,
+        seed=_bootstrap_seed(*CONTROL_STREAM),
+    )
+    positive_passed = bool(positive.interval.high < MAX_REPEAT_SPREAD_RATIO)
+    control_passed = bool(control.interval.high >= MAX_REPEAT_SPREAD_RATIO)
     records: list[dict[str, object]] = []
     for cell, group in rows.groupby("cell", sort=True):
+        is_control = cell == CONTROL_ARM
+        result = control if is_control else positive
         record = dict.fromkeys(columns, np.nan)
         record.update(
             {
@@ -248,8 +306,8 @@ def _summarize_repeat_stability(rows: pd.DataFrame, columns: pd.Index) -> pd.Dat
                 "spread_ratio_ci_lower": result.interval.low,
                 "spread_ratio_ci_upper": result.interval.high,
                 "spread_ratio_boundary": MAX_REPEAT_SPREAD_RATIO,
-                "passed": passed,
-                "property_passed": passed,
+                "passed": control_passed if is_control else positive_passed,
+                "property_passed": positive_passed and control_passed,
             }
         )
         records.append(record)
@@ -302,24 +360,43 @@ def summarize_properties(rows: pd.DataFrame) -> pd.DataFrame:
 
 
 def _stability_rule() -> property_failures.FamilyRule:
-    """``repeat_stability``: S9 on the paired spread ratio, ``U < MAX_REPEAT_SPREAD_RATIO``.
+    """``repeat_stability``: S9 on the two paired spread ratios.
 
     A replicate is a fold seed on one fixed sample, so the survivor range is the range over
-    fold seeds.  Both rows publish the one verdict.
+    fold seeds.  The positive clause reads ``three_repeats`` over ``one_repeat`` against
+    ``U < MAX_REPEAT_SPREAD_RATIO``, and a lost estimate raises the ratio when the numerator
+    sits at each vertex split and the denominator at the survivor mean.  The control clause
+    reads ``second_draw_control`` over ``one_repeat`` against ``U >= MAX_REPEAT_SPREAD_RATIO``
+    and reverses the fills.  The three rows share one joint verdict (``group="family"``).
     """
+
+    def boundary(ctx: property_failures.Context) -> float:
+        return MAX_REPEAT_SPREAD_RATIO
+
     return property_failures.FamilyRule(
         families=frozenset({"repeat_stability"}),
         shared="_summarize_repeat_stability",
         clauses=(
             property_failures.spread_ratio_clause(
                 "repeat spread ratio under its boundary",
-                cells=("three_repeats", "one_repeat_control"),
+                cells=("three_repeats", "one_repeat"),
                 side="upper",
-                judge=property_failures.below_judge(lambda ctx: MAX_REPEAT_SPREAD_RATIO),
+                judge=property_failures.below_judge(boundary),
                 seed=lambda ctx, row: stream_seed(ctx.record, "repeat_stability", "bootstrap"),
-                applies=property_failures.every,
+                applies=property_failures.cells(*POSITIVE_ARMS),
+            ),
+            property_failures.spread_ratio_clause(
+                "control spread ratio reaches its boundary",
+                cells=(CONTROL_ARM, "one_repeat"),
+                side="lower",
+                judge=property_failures.upper_at_or_above_judge(boundary),
+                seed=lambda ctx, row: stream_seed(
+                    ctx.record, "repeat_stability", "bootstrap", *CONTROL_STREAM
+                ),
+                applies=property_failures.cells(CONTROL_ARM),
             ),
         ),
+        group="family",
     )
 
 

@@ -20,6 +20,7 @@ import json
 import math
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -531,6 +532,128 @@ class TestArtifacts:
             assert _artifacts(study.slug)[name].empty
             return
         assert not _artifacts(study.slug)[name].empty
+
+
+def _check_repeat_stability(study: StudyRecord, stability: pd.DataFrame) -> None:
+    """The ``repeat_stability`` rows of each label read their own rule (X79).
+
+    A label holds three rows.  ``three_repeats`` and its base arm ``one_repeat`` are positive
+    rows that publish the one ratio ``SD(three_repeats) / SD(one_repeat)`` and pass when its upper
+    endpoint is below the boundary.  ``second_draw_control`` is the control: it publishes its own
+    ratio ``SD(second_draw_control) / SD(one_repeat)`` and passes when its upper endpoint is at or
+    above the boundary.  Where a study declares a spread floor, every row also needs the one-draw
+    share above it.  The three rows share ``property_passed``, the positive and control verdicts
+    together.
+    """
+    module = study.properties()
+    bound = module.MAX_REPEAT_SPREAD_RATIO
+    floor = getattr(module, "STABILITY_SPREAD_FLOOR", None)
+    cells = stability["cell"].astype(str)
+    labels = cells.map(lambda cell: cell.rpartition("__")[0])
+    arms = cells.map(lambda cell: cell.rpartition("__")[2])
+    assert set(arms) == {"three_repeats", "one_repeat", "second_draw_control"}
+    for label in sorted(set(labels)):
+        group = stability.loc[labels == label].set_index(arms[labels == label])
+        assert len(group) == 3, label
+        assert group.loc["three_repeats", "role"] == "positive"
+        assert group.loc["one_repeat", "role"] == "positive"
+        assert group.loc["second_draw_control", "role"] == "control"
+        positive, control = group.loc["three_repeats"], group.loc["second_draw_control"]
+        for column in ("spread_ratio", "spread_ratio_ci_lower", "spread_ratio_ci_upper"):
+            # The base arm shares the pair's interval; the control reads an interval of its own.
+            assert group.loc["one_repeat", column] == positive[column], (label, column)
+        assert control["spread_ratio_ci_upper"] != positive["spread_ratio_ci_upper"], label
+        assert control["spread_ratio_boundary"] == positive["spread_ratio_boundary"] == bound
+        above_floor = True
+        if floor is not None and "one_draw_spread_share" in group:
+            share = group["one_draw_spread_share"]
+            assert share.nunique() == 1, label
+            above_floor = bool(share.iloc[0] > floor)
+        positive_ok = bool(positive["spread_ratio_ci_upper"] < bound) and above_floor
+        control_ok = bool(control["spread_ratio_ci_upper"] >= bound) and above_floor
+        for arm in ("three_repeats", "one_repeat"):
+            assert bool(group.loc[arm, "passed"]) is positive_ok, (label, arm)
+        assert bool(control["passed"]) is control_ok, label
+        assert group["property_passed"].nunique() == 1, label
+        assert bool(group["property_passed"].iloc[0]) is (positive_ok and control_ok), label
+
+
+def _stability_study(floor: float | None = 1e-8) -> Any:
+    module = SimpleNamespace(MAX_REPEAT_SPREAD_RATIO=1.0)
+    if floor is not None:
+        module.STABILITY_SPREAD_FLOOR = floor
+    return SimpleNamespace(properties=lambda: module)
+
+
+def _stability_published(
+    *,
+    positive: float = 0.7,
+    control: float = 1.1,
+    passed: tuple[bool, bool, bool] = (True, True, True),
+    joint: bool = True,
+    share: float | None = 0.3,
+) -> pd.DataFrame:
+    """One label's three published stability rows; each arm's upper endpoint is its own."""
+    records = []
+    for arm, role, upper, ok in zip(
+        ("three_repeats", "one_repeat", "second_draw_control"),
+        ("positive", "positive", "control"),
+        (positive, positive, control),
+        passed,
+        strict=True,
+    ):
+        records.append(
+            {
+                "cell": f"label__{arm}",
+                "role": role,
+                "spread_ratio": upper - 0.1,
+                "spread_ratio_ci_lower": upper - 0.2,
+                "spread_ratio_ci_upper": upper,
+                "spread_ratio_boundary": 1.0,
+                "passed": ok,
+                "property_passed": joint,
+                **({} if share is None else {"one_draw_spread_share": share}),
+            }
+        )
+    return pd.DataFrame(records)
+
+
+class TestRepeatStabilityReading:
+    """X79: the control reads its own ratio and can fail without the positive failing."""
+
+    def test_a_label_that_reads_its_own_rules_is_accepted(self) -> None:
+        _check_repeat_stability(_stability_study(), _stability_published())
+        _check_repeat_stability(_stability_study(None), _stability_published(share=None))
+
+    def test_a_control_below_the_boundary_must_be_red_and_the_label_with_it(self) -> None:
+        red = _stability_published(control=0.5, passed=(True, True, False), joint=False)
+        _check_repeat_stability(_stability_study(), red)
+        green = _stability_published(control=0.5)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(_stability_study(), green)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(
+                _stability_study(), _stability_published(control=0.5, passed=(True, True, False))
+            )
+
+    def test_the_control_may_not_publish_the_positive_s_interval(self) -> None:
+        """The defect X79 fixes: the old control wrote the pair's interval and verdict."""
+        old = _stability_published(control=0.7)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(_stability_study(), old)
+
+    def test_a_positive_at_the_boundary_is_red(self) -> None:
+        """The deliberate mutation of the repeat layer: a median equal to draw 0 reads U = 1."""
+        mutant = _stability_published(positive=1.0, passed=(False, False, True), joint=False)
+        _check_repeat_stability(_stability_study(), mutant)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(_stability_study(), _stability_published(positive=1.0))
+
+    def test_a_share_below_the_floor_turns_every_row_red(self) -> None:
+        rounding = _stability_published(share=1e-12, passed=(False, False, False), joint=False)
+        _check_repeat_stability(_stability_study(), rounding)
+        with pytest.raises(AssertionError):
+            _check_repeat_stability(_stability_study(), _stability_published(share=1e-12))
 
 
 class TestPublishedVerdicts:
@@ -1311,14 +1434,7 @@ class TestPublishedVerdicts:
                 "nominal_size",
             ]
             assert stability[population_sampling_columns].isna().all().all()
-            expected = (
-                stability["spread_ratio_ci_upper"].iloc[0]
-                < study.properties().MAX_REPEAT_SPREAD_RATIO
-            )
-            assert stability["passed"].nunique() == 1
-            assert bool(stability["passed"].iloc[0]) is bool(expected)
-            assert stability["property_passed"].nunique() == 1
-            assert bool(stability["property_passed"].iloc[0]) is bool(expected)
+            _check_repeat_stability(study, stability)
 
         overfitting = published.loc[published["property"] == "crossfit_overfitting"]
         if overfitting.empty:

@@ -670,6 +670,15 @@ def above_judge(threshold: Callable[[Context], float]) -> Judge:
     return lambda ctx, row, iv: Judged(iv.low - threshold(ctx), bool(iv.low > threshold(ctx)))
 
 
+def upper_at_or_above_judge(threshold: Callable[[Context], float]) -> Judge:
+    """The upper endpoint at or above a threshold: an interval that still reaches it.
+
+    A control that must read no reduction passes on this judge, because a ratio interval
+    whose upper endpoint falls below the threshold has found a reduction.
+    """
+    return lambda ctx, row, iv: Judged(iv.high - threshold(ctx), bool(iv.high >= threshold(ctx)))
+
+
 def band_judge(band: Callable[[Context], tuple[float, float]]) -> Judge:
     """The whole interval inside a band."""
 
@@ -1463,7 +1472,10 @@ def spread_ratio_clause(
     """S9: a paired spread ratio, pushed toward the clause's boundary.
 
     For an ``upper`` clause the numerator's lost values sit at each vertex split and the
-    denominator's at the survivor mean; a ``lower`` clause reverses the roles.  The arms are
+    denominator's at the survivor mean; a ``lower`` clause reverses the roles.  ``side`` names
+    the direction of the fills, which push the ratio up or down, and it does not name the
+    endpoint the judge reads: a ``lower`` clause may be judged on the upper endpoint, as a
+    control whose ratio must not fall below its boundary is.  The arms are
     completed by replicate (b1 M2).  ``statistic`` is the verdict's own statistic function
     (G6); :func:`~tests.studies.evidence.properties.paired_spread_ratio_interval` by default.
     The point ratio is exact; the bootstrap interval is enumerated.
@@ -1475,7 +1487,8 @@ def spread_ratio_clause(
     cells : tuple of str
         The numerator and denominator cells of the row's family.
     side : str
-        ``upper`` or ``lower``: which endpoint the clause bounds.
+        ``upper`` or ``lower``: the direction the fills push the ratio, ``upper`` for fills
+        that raise it and ``lower`` for fills that lower it.
     judge : Callable
         The rule on the ratio interval.
     seed : Callable

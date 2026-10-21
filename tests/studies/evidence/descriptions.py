@@ -2308,9 +2308,16 @@ CELLS: dict[tuple[str, str], tuple[str, str]] = {
         "the median ATE over three fold draws across labelled base seeds",
         "the paired spread-ratio upper endpoint must fall below the declared boundary",
     ),
-    ("repeat_stability", "one_repeat_control"): (
-        "the ATE from each repeated fit's first actual fold draw",
-        "the paired spread-ratio upper endpoint must fall below the declared boundary",
+    ("repeat_stability", "one_repeat"): (
+        "the ATE from each repeated fit's first actual fold draw, alone on the same fixed "
+        "sample; the base of both spread ratios",
+        "the pair's verdict: the spread of the median over this spread stays under the "
+        "declared boundary",
+    ),
+    ("repeat_stability", "second_draw_control"): (
+        "the ATE from each repeated fit's second actual fold draw, alone",
+        "the spread of an independent single draw over the first draw's spread must not fall "
+        "below the declared boundary (no reduction exists to read)",
     ),
     ("projection_necessity", "declared_weights"): (
         "the working model uses its declared nonuniform projection weights",
@@ -3660,9 +3667,16 @@ for _label in (
         "the spread of the median over the spread of its first draw stays under the declared "
         "boundary, above the spread floor",
     )
-    _REPEATED_CELLS[("repeat_stability", f"{_label}__one_repeat_control")] = (
-        f"{_REPEATED_LABELS[_label]}; the first draw alone on the same fixed sample",
-        "the spread ratio of the first draw against itself stays under the declared boundary",
+    _REPEATED_CELLS[("repeat_stability", f"{_label}__one_repeat")] = (
+        f"{_REPEATED_LABELS[_label]}; the first draw alone on the same fixed sample; the base "
+        "of the pair's spread ratio",
+        "the pair's verdict: the spread of the median over this spread stays under the "
+        "declared boundary, above the spread floor",
+    )
+    _REPEATED_CELLS[("repeat_stability", f"{_label}__second_draw_control")] = (
+        f"{_REPEATED_LABELS[_label]}; the second draw of the same three-draw fit, alone",
+        "the spread of an independent single draw over the first draw's spread must not fall "
+        "below the declared boundary (no reduction exists to read), above the spread floor",
     )
 for _horizon in (1, 2, 3):
     _reading = f"survival risk difference at horizon {_horizon}, the SE ratio of "

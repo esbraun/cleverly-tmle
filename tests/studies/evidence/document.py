@@ -514,10 +514,13 @@ def measured(row: Any) -> str:
     if family == "correction_necessity":
         return f"score {_interval(row.bias_ci_lower, row.bias_ci_upper)}"
     if family == "repeat_stability":
+        # The positive rows read the upper endpoint below the boundary; the control reads it at
+        # or above, so the control's text says the endpoint reaches the boundary.
+        reach = ", reached by the upper endpoint" if str(row.role) == "control" else ""
         return (
             f"spread ratio {render(float(row.spread_ratio))}, "
             f"{_interval(row.spread_ratio_ci_lower, row.spread_ratio_ci_upper)}, "
-            f"boundary {render(float(row.spread_ratio_boundary))}"
+            f"boundary {render(float(row.spread_ratio_boundary))}{reach}"
         )
     if family == "in_sample_agreement":
         # A reported distance with no truth and no standard error of its own, so it has no
