@@ -5,10 +5,10 @@ The subject is :class:`~cleverly.longitudinal.StructuralNestedMean` with declare
 ``N``).  The laws are in :mod:`tests.studies.structural_nested_mean_laws` and the property
 families in :mod:`tests.studies.structural_nested_mean_properties`.
 
-The EconML 0.17.0 ``DynamicDML`` comparator is declared and pending (``pending_reference``).
-The committed record is Python only.  :data:`COMPARATOR_STUDY` is the record that registers it.
-The comparator fits two variants in one container run
-(``tests/canonical/econml_dynamic_dml/run_study.py``).
+The comparator is EconML 0.17.0 ``DynamicDML``, registered as :data:`STUDY`'s ``reference``
+(:data:`COMPARATOR_STUDY`, the record the registry reads).  :data:`PENDING_STUDY` is the same
+record before registration, which the registry tests use.  The comparator fits two variants in
+one container run (``tests/canonical/econml_dynamic_dml/run_study.py``).
 
 * The *paired* variant fits :data:`COMPARATOR_PAIRED` on the subject's rows, folds and ``GLM``
   design, with the full history as the period state.  Its rows pair with the subject's on the
@@ -18,7 +18,7 @@ The comparator fits two variants in one container run
   limit of each cell (:func:`markov_summary`).  The table gates nothing.
 
 The registered run declares :data:`COMPARATOR_REPLICATES`, sized from
-:data:`COMPARATOR_PILOT`.
+:data:`COMPARATOR_PILOT`.  :data:`PRIMARY_REPLICATES` equals it.
 
 **Primary scenarios.**  One scenario per positive setup of
 :func:`tests.studies.structural_nested_mean_laws.setups` at :data:`PRIMARY_N` with
@@ -57,6 +57,38 @@ rejects a misspecified model with low power there, and the size cells at n = 2,0
 size only.  The page says so beside the cells.  On ``S2`` and ``H`` the check rejects less often
 than the nominal rate, so it is conservative.  The rejection rate is published beside every
 verdict.
+
+**Comparator reading (declared before the run).**  The chances come from the 1,500-replicate
+pilot of ``k`` (:data:`COMPARATOR_PILOT`) at :data:`COMPARATOR_REPLICATES` replicates.  Each
+item gives the row, the expected verdict, the chance, and the route if the row reads otherwise.
+
+* *21 paired rows.*  Expected: pass, with chance 0.958 together.  The items below give the
+  routes.
+* *``k`` ``ate_regimen[r12 vs r00]``.*  Expected: ``superior``, with chance 0.87, and otherwise
+  ``equivalent``.  Both read as a pass, so no route is needed.
+* *``k`` ``ate_regimen[r21 vs r00]``.*  Expected: ``equivalent``, with chance 0.958.
+  ``inconclusive`` on the coverage leg is the reference's larger SE: the mean ratio is 1.031,
+  from the transposed categorical blocks (``test_w2_*`` in
+  ``tests/unit/test_structural_econml_parity.py``).  The subject's own calibration cell reads
+  1.0016 at R = 8,000.  Publish the row red under ``reporting`` with a named owner row.  No
+  re-run and no added replicates.
+* *The other 19 paired rows.*  Expected: ``equivalent``, with chance about 1.  A red row is a
+  defect suspect: diagnose it first.
+* *The 21 ``econml`` truth rows.*  Expected: pass, with the ``k`` ``r12`` SE ratio about 0.975
+  and ``r21`` about 1.026, and chance about 1.  A red ``econml`` row is a reference finding.  The
+  subject row stays as it is.
+* *The 61 subject truth rows.*  Expected: pass, and replicates 0 to 999 equal the committed rows
+  bit for bit, with chance about 1.  Any difference in replicates 0 to 999 stops the reading:
+  the code moved.
+* *``exactness.csv``.*  Expected: every gap under :data:`EXACTNESS_GATE`, with chance about 1.  A
+  red row is a defect suspect.
+* *The Markov table, 26 cells.*  Expected: ``agrees_with_limit`` true, with truth coverage near 0
+  on the gap cells (``s3``, ``m``, ``p``, ``h``) and near 0.95 on ``s2`` and ``k``.  The table
+  is descriptive and gates nothing.  A cell off its limit is a finding about the limit
+  computation, not about either estimator.
+
+``superior`` on ``k`` ``r12`` comes from the reference's SE defect.  It does not show that the
+subject estimates better, because the points are identical.
 
 **Red-cell reading** (declared before any run).  The study publishes under ``reporting``.  No
 row is declared red: :data:`EXPECTED_RED` is empty.  The sparse-positivity law ``SP`` was
@@ -108,7 +140,9 @@ RESAMPLING_SEED = 2026144401
 #: The size of every primary scenario and of every calibration cell.
 PRIMARY_N = 2_000
 CALIBRATION_N = PRIMARY_N
-PRIMARY_REPLICATES = 1_000
+#: The replicates of every primary scenario: :data:`COMPARATOR_REPLICATES`, the count the
+#: predictive rule gives for the comparator's paired legs (a unit test pins the two together).
+PRIMARY_REPLICATES = 1_600
 #: The three sizes of the ladder.  Every rung is a positive cell (pilot: ``PILOT_LADDER`` in
 #: ``tests/unit/test_structural_nested_mean_design.py``).
 LADDER = (500, 2_000, 8_000)
@@ -128,13 +162,8 @@ FAILURE_BOUND = 0.01
 
 IMPLEMENTATION = "cleverly-structural-nested-mean"
 
-#: The pending comparator, and the roadmap item that owns its runs.
-PENDING_REFERENCE = "econml"
-PENDING_REASON = (
-    "the EconML 0.17.0 DynamicDML runs are queued as Study queue row 43 in TRACKER.md, a local "
-    "container phase (tests/canonical/econml_dynamic_dml); a method merges once its Python "
-    "studies pass and a later change registers the comparator runs"
-)
+#: The comparator: EconML 0.17.0 ``DynamicDML`` (``tests/canonical/econml_dynamic_dml``).
+REFERENCE = "econml"
 
 # ------------------------------------------------------------------------------- the fits
 
@@ -556,17 +585,33 @@ EXPECTED_RED: tuple[str, ...] = EXPECTED_RED_PROPERTIES
 
 # ------------------------------------------------------------------------- the comparator
 
-#: The comparator: EconML 0.17.0 ``DynamicDML`` (``tests/canonical/econml_dynamic_dml``).
-REFERENCE = PENDING_REFERENCE
+#: What the manifest records about the comparator: the version, the pinned base image and the
+#: hash of the lock file.  ``tests/unit/test_structural_nested_mean_comparator.py`` reads the same
+#: values back from the Dockerfile and ``requirements.txt``, so the three cannot drift.
+REFERENCE_METADATA = {
+    "econml_version": "0.17.0",
+    "python_base_image": (
+        "python:3.13-slim-bookworm@sha256:"
+        "a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641"
+    ),
+    "requirements_sha256": "db82abfde18ad9373bc540c15863b0905b6b3a81e0946988bd0fb79c985cd10f",
+}
 #: The paired scenarios.  ``DynamicDML`` fits each one on the subject's rows and folds, with the
 #: full history as the period state and the subject's ``GLM`` design, so its paired rows measure
-#: one estimand by one estimating equation.  A probe of replicate 0 of each scenario gave equal
-#: points within 6e-15 and, for a scalar node, standard errors in the ratio
-#: :math:`\sqrt{(n - 1) / n}`.  ``n`` is left out: its booster draws a validation split from the
-#: row order, which the long panel of ``DynamicDML`` changes.  ``l``, ``s2w`` and ``s2c`` are left
-#: out: ``DynamicDML`` has no blip feature that reads a covariate, no weights in its final stage,
-#: and no cluster variance.  ``h`` and ``p`` are left out: a blip of theirs reads ``A_1``, which
-#: the features ``X`` of ``DynamicDML`` cannot state.  Their Markov rows are published instead.
+#: one estimand by one estimating equation.  The pilot of ``k`` (:data:`COMPARATOR_PILOT`) read
+#: points equal within 2.4e-14 at most, and a 3-replicate run of every paired scenario read them
+#: within 3.8e-14.  For a scalar node the standard errors are in the ratio
+#: :math:`\sqrt{(n - 1) / n}`.  ``exactness.csv`` (:func:`extra_artifacts`) gates the largest gap
+#: of each cell against :data:`EXACTNESS_GATE`.
+#:
+#: ``n`` is left out: a booster chooses its validation split from the column layout of the long
+#: panel, which differs from the subject's frame, so its points would not be exact and a pairing
+#: on the margins alone would compare two different fits.  ``l`` is left out: ``DynamicDML`` has
+#: no blip feature that reads a covariate.  ``s2w`` is left out: ``DynamicDML.fit`` accepts
+#: ``sample_weight`` and ignores it with a ``UserWarning``, so it cannot state the weights.
+#: ``s2c`` is left out: ``DynamicDML`` has no cluster variance.  ``h`` and ``p`` are left out: a
+#: blip of theirs reads ``A_1``, which the features ``X`` of ``DynamicDML`` cannot state.  Their
+#: Markov rows are published instead.
 COMPARATOR_PAIRED = ("s2", "s3", "k", "c", "m")
 #: The native scenarios: the Markov-state fit of the published estimator.  Their rows go to a
 #: descriptive table beside the computed limits
@@ -581,7 +626,7 @@ MARKOV_ORDERS: dict[str, int] = {"binary": 3, "categorical": 4}
 #: The pilot of the paired coverage leg on ``k``: 1,500 replicates (indices 5,000 to 6,499, outside
 #: every declared run) at n = 2,000, both sides on the same rows and folds.  Each entry is
 #: ``(replicates, discordant pairs, the side that covers in each of them)``.  The points agree
-#: within 1e-14 in every cell, and the blips' standard errors agree within 0.3%, so no blip pair
+#: within 2.4e-14 in every cell, and the blips' standard errors agree within 0.3%, so no blip pair
 #: is discordant.  The EconML contrast errors differ from the subject's by the mean ratios 0.975
 #: (``r12``) and 1.031 (``r21``); the categorical blocks of its sandwich are transposed
 #: (``tests/canonical/econml_dynamic_dml/README.md``).
@@ -594,8 +639,12 @@ COMPARATOR_PILOT: dict[str, tuple[int, int, str]] = {
 #: or above :data:`PRIMARY_REPLICATES` at which every paired cell passes with chance at least
 #: 0.90 and the family with chance at least 0.95.  The binding cell is the coverage leg of
 #: ``k``'s ``r21`` contrast, where the reference covers more often because its error is larger.
-#: The full-run declaration sets :data:`PRIMARY_REPLICATES` to it.
+#: :data:`PRIMARY_REPLICATES` is this count, so every primary scenario runs at it and the paired
+#: rows and the subject's own rows share replicates 0 to 1,599.
 COMPARATOR_REPLICATES = 1_600
+#: The exactness gate: a paired cell passes when its largest estimate gap is below this.  The
+#: pilot reads gaps near 1e-14, so a gap of 1e-9 is a different estimating equation.
+EXACTNESS_GATE = 1e-9
 #: The seed of the subject's folds: :func:`fit` passes ``random_state=0``.  The paired sample
 #: carries the fold of each row, and the fit checks it against ``result.folds``.
 COMPARATOR_FOLD_SEED = 0
@@ -616,6 +665,8 @@ TASK_COLUMNS = (
 MARKOV_REPLICATES = "econml-markov-replicates.csv.gz"
 MARKOV_SUMMARY = "econml-markov.csv"
 MARKOV_FAILURES = "econml-markov-failures.csv"
+#: The gated table of the paired cells' largest estimate gaps.
+EXACTNESS_FILE = "exactness.csv"
 #: A Markov cell agrees with its computed limit when the 99% interval of its standardized
 #: distance from the limit lies inside this margin (the similarity margin of :class:`Margins`).
 MARKOV_MARGIN = 0.25
@@ -703,7 +754,7 @@ def comparator_tasks() -> pd.DataFrame:
     return pd.DataFrame(rows, columns=list(TASK_COLUMNS))
 
 
-STUDY = StudyRecord(
+PENDING_STUDY = StudyRecord(
     name="structural nested mean model",
     slug="structural-nested-mean",
     artifacts=ROOT / "tests" / "canonical" / "structural_nested_mean_study",
@@ -718,8 +769,8 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     reference=None,
-    pending_reference=PENDING_REFERENCE,
-    pending_reason=PENDING_REASON,
+    pending_reference=REFERENCE,
+    pending_reason="the record before the comparator is registered; the registry tests read it",
     comparison="matching implementation",
     calibration_efficiency_ratio=False,
     modules=(
@@ -738,20 +789,21 @@ STUDY = StudyRecord(
     properties_module="tests.studies.structural_nested_mean_properties",
     property_cells=PROPERTY_CELLS,
     publication_policy="reporting",
-    failure_bound={IMPLEMENTATION: FAILURE_BOUND, PENDING_REFERENCE: FAILURE_BOUND},
+    failure_bound={IMPLEMENTATION: FAILURE_BOUND, REFERENCE: FAILURE_BOUND},
 )
 
-#: The record once the comparator is registered: the full run declares it as :data:`STUDY`.
-#: The paired rows cover :data:`REFERENCE_SCENARIOS`, and the Markov rows go to the three
-#: descriptive artefacts of :func:`reference_artifacts`.
+#: The registered record.  The paired rows cover :data:`REFERENCE_SCENARIOS`, and the Markov rows
+#: go to the three descriptive artefacts of :func:`reference_artifacts`.  ``exactness.csv`` is the
+#: gated table of :func:`extra_artifacts`.
 COMPARATOR_STUDY = dataclasses.replace(
-    STUDY,
+    PENDING_STUDY,
     reference=REFERENCE,
     pending_reference=None,
     pending_reason="",
     reference_scenarios=dict(REFERENCE_SCENARIOS),
-    extra_artifacts=(MARKOV_REPLICATES, MARKOV_SUMMARY, MARKOV_FAILURES),
+    extra_artifacts=(MARKOV_REPLICATES, MARKOV_SUMMARY, MARKOV_FAILURES, EXACTNESS_FILE),
 )
+STUDY = COMPARATOR_STUDY
 
 
 def _booster_text(kind: str) -> str:
@@ -1064,16 +1116,96 @@ MARKOV_FAILURE_COLUMNS = (
 )
 
 
-def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
-    """The Markov table gates nothing, so a failed paired fit leaves no audit to account.
+EXACTNESS_AUDIT = "paired estimate exactness"
+MARKOV_AUDIT = "Markov-state DynamicDML table (descriptive)"
 
-    Its own lost fits are counted in its ``failed`` column and kept in
-    :data:`MARKOV_FAILURES`.
+
+def extra_artifacts(rows: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """``exactness.csv``: one row per paired cell, gated on the estimate gap only.
+
+    Each paired cell compares the subject and ``DynamicDML`` on the same rows, folds and
+    ``GLM`` design, so their estimates agree to numerical precision.  A row pairs the two sides
+    on ``(scenario, replicate, estimand)``.  ``max_estimate_gap`` is the largest absolute
+    difference of the paired estimates, and the cell passes when it is below :data:`EXACTNESS_GATE`
+    and at least one pair exists.  The standard errors differ by design, by the factor
+    :math:`\\sqrt{(n - 1) / n}` on a scalar node and through the transposed blocks on ``k``.
+    The table publishes their ratio, reference over subject, and does not gate it.
     """
-    del failures, artifacts
+    keys = ["scenario", "replicate", "estimand"]
+    columns = [*keys, "estimate", "std_error"]
+    sides = {
+        name: rows.loc[rows["implementation"] == name, columns]
+        for name in (IMPLEMENTATION, REFERENCE)
+    }
+    paired = sides[IMPLEMENTATION].merge(sides[REFERENCE], on=keys, suffixes=("_s", "_r"))
+    paired["estimate_gap"] = (paired["estimate_s"] - paired["estimate_r"]).abs()
+    paired["se_ratio"] = paired["std_error_r"] / paired["std_error_s"]
+    summary = (
+        paired.groupby(["scenario", "estimand"])
+        .agg(
+            paired_replicates=("replicate", "size"),
+            max_estimate_gap=("estimate_gap", "max"),
+            mean_se_ratio=("se_ratio", "mean"),
+            min_se_ratio=("se_ratio", "min"),
+            max_se_ratio=("se_ratio", "max"),
+        )
+        .reset_index()
+    )
+    cells = pd.DataFrame(sorted(STUDY.paired_cells()), columns=["scenario", "estimand"])
+    table = cells.merge(summary, on=["scenario", "estimand"], how="left")
+    table["paired_replicates"] = table["paired_replicates"].fillna(0).astype(int)
+    table["gate"] = EXACTNESS_GATE
+    table["passed"] = (table["paired_replicates"] > 0) & (
+        table["max_estimate_gap"] < EXACTNESS_GATE
+    )
+    return {EXACTNESS_FILE: table.loc[:, list(EXACTNESS_COLUMNS)]}
+
+
+#: The columns of ``exactness.csv``.
+EXACTNESS_COLUMNS = (
+    "scenario",
+    "estimand",
+    "paired_replicates",
+    "max_estimate_gap",
+    "mean_se_ratio",
+    "min_se_ratio",
+    "max_se_ratio",
+    "gate",
+    "passed",
+)
+
+
+def scientific_failures(artifacts: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """The paired cells whose largest estimate gap reached :data:`EXACTNESS_GATE`."""
+    table = artifacts[EXACTNESS_FILE]
+    return {EXACTNESS_AUDIT: table.loc[~table["passed"].astype(bool)]}
+
+
+def _lost_pairs(failures: pd.DataFrame) -> int:
+    """The (scenario, replicate) paired fits that either side lost, counted once."""
+    lost = evidence_failures.expand(failures, STUDY)
+    lost = lost.loc[lost["scenario"].isin(COMPARATOR_PAIRED)]
+    return len(lost[["scenario", "replicate"]].drop_duplicates())
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """A paired replication that either side lost leaves its cells unpaired, so it counts.
+
+    The Markov table gates nothing.  Its own lost fits are counted in its ``failed`` column and
+    kept in :data:`MARKOV_FAILURES`.
+    """
     return evidence_failures.audits(
-        {"Markov-state DynamicDML table (descriptive)": pd.DataFrame()}, missing={}
+        {**scientific_failures(artifacts), MARKOV_AUDIT: pd.DataFrame()},
+        missing={EXACTNESS_AUDIT: _lost_pairs(failures)},
     )
 
 
-__all__ = ["COMPARATOR_STUDY", "STUDY", "draw_and_fit", "fit", "reference_artifacts"]
+__all__ = [
+    "COMPARATOR_STUDY",
+    "STUDY",
+    "draw_and_fit",
+    "extra_artifacts",
+    "fit",
+    "reference_artifacts",
+    "scientific_failures",
+]

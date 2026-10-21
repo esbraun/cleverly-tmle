@@ -1563,13 +1563,15 @@ class TestNegativeControls:
         ]
         valid = set(zip(subject["scenario"], subject["estimand"], strict=True))
         # The first subject-valid cell of any scenario, so a study whose first scenario is red
-        # throughout still hosts the mutations.
+        # throughout still hosts the mutations.  A reference that reports a subset has rows only
+        # on the paired cells, so the mutated implementation is the reference there.
+        paired = study.paired_cells()
         scenario, estimand = next(
             (
                 (scenario, name)
                 for scenario, names in study.scenarios.items()
                 for name in names
-                if (scenario, name) in valid
+                if (scenario, name) in valid and (scenario, name) in paired
             ),
             (None, None),
         )

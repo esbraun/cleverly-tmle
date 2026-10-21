@@ -9,8 +9,10 @@ for a reference that reports a subset of the study's cells.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import inspect
 import math
+import re
 
 import numpy as np
 import pandas as pd
@@ -19,13 +21,15 @@ from scipy.stats import betabinom, norm
 
 from tests.studies import canonical_structural_nested_mean as study
 from tests.studies import structural_nested_mean_laws as laws
-from tests.studies.evidence.registry import Margins
+from tests.studies.evidence.registry import ROOT, Margins
 from tests.studies.evidence.schema import REPLICATE_COLUMNS, validate_replicates
 
 EXACT = 1e-10
 #: The cell floor and the family floor of the predictive rule.
 CELL_FLOOR = 0.90
 FAMILY_FLOOR = 0.95
+#: The count of the committed subject run, before the comparator raised it.
+SUBJECT_REPLICATES = 1_000
 
 
 class TestCells:
@@ -55,6 +59,7 @@ class TestCells:
             study.MARKOV_REPLICATES,
             study.MARKOV_SUMMARY,
             study.MARKOV_FAILURES,
+            study.EXACTNESS_FILE,
         }
 
     def test_the_hook_binds_the_driver_keywords(self) -> None:
@@ -212,20 +217,26 @@ class TestReplicates:
             return min(cells) >= CELL_FLOOR and math.prod(cells) >= FAMILY_FLOOR
 
         declared = study.COMPARATOR_REPLICATES
-        assert declared % 200 == 0 and declared >= study.PRIMARY_REPLICATES
+        assert declared % 200 == 0 and declared >= SUBJECT_REPLICATES
         assert passes(declared)
-        assert not any(passes(r) for r in range(study.PRIMARY_REPLICATES, declared, 200)), (
+        assert not any(passes(r) for r in range(SUBJECT_REPLICATES, declared, 200)), (
             "a smaller count passes the rule"
         )
 
+    def test_every_primary_scenario_runs_at_the_comparators_count(self) -> None:
+        assert study.COMPARATOR_REPLICATES == study.PRIMARY_REPLICATES
+        assert study.STUDY.replicates == study.COMPARATOR_REPLICATES
+        assert study.STUDY is study.COMPARATOR_STUDY
+        assert study.PENDING_STUDY.replicates == study.COMPARATOR_REPLICATES
+
     def test_the_subject_side_cell_never_binds(self) -> None:
         pilot = study.COMPARATOR_PILOT["ate_regimen[r12 vs r00]"]
-        assert coverage_leg_pass_probability(pilot, study.PRIMARY_REPLICATES) == pytest.approx(1.0)
+        assert coverage_leg_pass_probability(pilot, SUBJECT_REPLICATES) == pytest.approx(1.0)
 
 
 class TestRegistry:
     def test_a_reference_subset_needs_a_reference_and_declared_cells(self) -> None:
-        base = study.STUDY
+        base = study.PENDING_STUDY
         with pytest.raises(ValueError, match="needs a reference"):
             dataclasses.replace(
                 base,
@@ -285,3 +296,152 @@ class TestRegistry:
         ].assign(implementation="econml")
         with pytest.raises(ValueError, match="beyond"):
             validate_replicates(pd.concat([rows, extra], ignore_index=True), record=record)
+
+
+class TestComparatorPin:
+    """The manifest's comparator pin is the Dockerfile's base image and the lock file's hash."""
+
+    folder = ROOT / "tests" / "canonical" / "econml_dynamic_dml"
+
+    def test_the_pin_is_read_back_from_the_dockerfile_and_the_lock_file(self) -> None:
+        pin = study.REFERENCE_METADATA
+        dockerfile = (self.folder / "Dockerfile").read_text()
+        base = re.search(r"^FROM (\S+)$", dockerfile, flags=re.MULTILINE)
+        assert base is not None
+        assert pin["python_base_image"] == base.group(1)
+        assert re.fullmatch(r"python:[\w.-]+@sha256:[0-9a-f]{64}", pin["python_base_image"])
+        assert f"econml.__version__ == '{pin['econml_version']}'" in dockerfile
+        lock = (self.folder / "requirements.txt").read_bytes()
+        assert pin["requirements_sha256"] == hashlib.sha256(lock).hexdigest()
+        assert re.search(
+            rf"^econml=={re.escape(pin['econml_version'])} ", lock.decode(), flags=re.MULTILINE
+        )
+
+    def test_the_driver_reads_the_pin_from_the_study_module(self) -> None:
+        assert any(key.endswith("_version") for key in study.REFERENCE_METADATA)
+
+
+class TestExactness:
+    """``exactness.csv`` gates the paired estimates and publishes the SE ratios."""
+
+    def _rows(self) -> pd.DataFrame:
+        record = study.STUDY
+        out = []
+        for implementation in record.implementations:
+            ratio = 1.0 if implementation == study.IMPLEMENTATION else 1.02
+            for scenario, names in record.reported(implementation).items():
+                for name in names:
+                    truth = laws.truth(study.SETUP_OF[scenario], name)
+                    for replicate in range(3):
+                        estimate = truth + 0.01 * (replicate - 1)
+                        out.append(
+                            {
+                                "implementation": implementation,
+                                "scenario": scenario,
+                                "replicate": replicate,
+                                "n": record.n,
+                                "estimand": name,
+                                "truth": truth,
+                                "estimate": estimate,
+                                "inference_estimate": estimate,
+                                "std_error": 0.1 * ratio,
+                                "ci_lower": estimate - 0.2,
+                                "ci_upper": estimate + 0.2,
+                                "inference_scale": "identity",
+                                "covered": 1,
+                                "initial_estimate": truth + 0.5,
+                            }
+                        )
+        return pd.DataFrame(out, columns=list(REPLICATE_COLUMNS))
+
+    @staticmethod
+    def _table(rows: pd.DataFrame) -> pd.DataFrame:
+        return study.extra_artifacts(rows)["exactness.csv"]
+
+    def test_the_artifact_is_declared_and_has_one_row_per_paired_cell(self) -> None:
+        assert "exactness.csv" in study.COMPARATOR_STUDY.extra_artifacts
+        table = self._table(self._rows())
+        assert tuple(table.columns) == study.EXACTNESS_COLUMNS
+        assert len(table) == len(study.STUDY.paired_cells()) == 21
+        assert set(zip(table["scenario"], table["estimand"], strict=True)) == set(
+            study.STUDY.paired_cells()
+        )
+        assert (table["paired_replicates"] == 3).all()
+        assert table["passed"].all()
+        assert (table["gate"] == 1e-9).all()
+        assert table["mean_se_ratio"].to_numpy() == pytest.approx(1.02)
+        assert study.scientific_failures({"exactness.csv": table})[study.EXACTNESS_AUDIT].empty
+
+    def test_a_point_moved_by_one_millionth_turns_its_row_red(self) -> None:
+        rows = self._rows()
+        scenario, estimand = "k", "ate_regimen[r21 vs r00]"
+        hit = (
+            (rows["implementation"] == "econml")
+            & (rows["scenario"] == scenario)
+            & (rows["estimand"] == estimand)
+            & (rows["replicate"] == 1)
+        )
+        rows.loc[hit, "estimate"] += 1e-6
+        table = self._table(rows)
+        red = table.loc[~table["passed"]]
+        assert list(zip(red["scenario"], red["estimand"], strict=True)) == [(scenario, estimand)]
+        assert float(red["max_estimate_gap"].iloc[0]) == pytest.approx(1e-6, rel=1e-3)
+        assert len(study.scientific_failures({"exactness.csv": table})[study.EXACTNESS_AUDIT]) == 1
+
+    def test_a_standard_error_scaled_by_three_percent_leaves_its_row_green(self) -> None:
+        rows = self._rows()
+        scenario, estimand = "k", "ate_regimen[r21 vs r00]"
+        hit = (
+            (rows["implementation"] == "econml")
+            & (rows["scenario"] == scenario)
+            & (rows["estimand"] == estimand)
+        )
+        rows.loc[hit, "std_error"] *= 1.03
+        table = self._table(rows)
+        cell = table.loc[(table["scenario"] == scenario) & (table["estimand"] == estimand)]
+        assert bool(cell["passed"].iloc[0])
+        assert table["passed"].all()
+        assert float(cell["mean_se_ratio"].iloc[0]) == pytest.approx(1.02 * 1.03)
+
+    def test_a_cell_with_no_pairs_reads_red(self) -> None:
+        rows = self._rows()
+        rows = rows.loc[~((rows["implementation"] == "econml") & (rows["scenario"] == "c"))]
+        table = self._table(rows)
+        lost = table.loc[table["scenario"] == "c"]
+        assert (lost["paired_replicates"] == 0).all() and not lost["passed"].any()
+
+    def test_a_lost_paired_fit_counts_in_the_failure_accounting(self) -> None:
+        table = self._table(self._rows())
+        columns = [
+            "implementation",
+            "group_id",
+            "scenarios",
+            "replicates",
+            "attempt",
+            "class",
+            "stage",
+            "call",
+            "message",
+            "seed",
+        ]
+
+        def record(implementation: str, scenarios: str, replicates: str) -> list[object]:
+            return [implementation, "g", scenarios, replicates, 1, "fitting_failure", "fit"]
+
+        lost = pd.DataFrame(
+            [
+                # Both sides lost replicate 4 of ``k``: one lost pair.
+                [*record("econml", "k", "4"), "dynamic_dml(...)", "singular", 1],
+                [*record(study.IMPLEMENTATION, "k", "4"), "fit(...)", "singular", 1],
+                # The subject alone lost replicate 7 of ``h``, which no paired cell reads.
+                [*record(study.IMPLEMENTATION, "h", "7"), "fit(...)", "singular", 2],
+            ],
+            columns=columns,
+        )
+        audit = study.account_failures(lost, {"exactness.csv": table}).set_index("leg")
+        assert set(audit.index) == {study.EXACTNESS_AUDIT, study.MARKOV_AUDIT}
+        assert audit.loc[study.EXACTNESS_AUDIT, "failed"] == 1
+        assert not audit.loc[study.EXACTNESS_AUDIT, "passed"]
+        assert audit.loc[study.MARKOV_AUDIT, "passed"]
+        clean = study.account_failures(lost.iloc[:0], {"exactness.csv": table})
+        assert clean["passed"].all()
