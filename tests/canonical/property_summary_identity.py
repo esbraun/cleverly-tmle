@@ -3,7 +3,7 @@
 RM39b2 rev 3 commit 7c moves each statistic a property verdict computes inline into a function
 that the verdict and the failure accounting both call (D3'c).  The move must change no
 published byte.  This script reads each registered study's committed
-``property-replicates.csv.gz``, recomputes the summary through the module's own
+``property-replicates.parquet``, recomputes the summary through the module's own
 ``summarize_properties``, applies the committed property failure accounting as the
 regeneration driver does, and writes the result through
 :func:`tests.studies.evidence.manifest.write_csv`.  It is not the fast tier's recompute test,
@@ -36,7 +36,7 @@ import numpy as np
 import pandas as pd
 
 from tests.studies.evidence import property_failures
-from tests.studies.evidence.manifest import write_csv
+from tests.studies.evidence.manifest import read_rows, write_csv
 from tests.studies.evidence.registry import registered
 
 
@@ -55,8 +55,7 @@ def recomputed_bytes(slug: str) -> bytes:
     """
     (record,) = [record for record in registered() if record.slug == slug]
     module = record.properties()
-    # ``round_trip`` reads back exactly the floats ``write_csv`` wrote.
-    rows = pd.read_csv(record.artifact("property-replicates.csv.gz"), float_precision="round_trip")
+    rows = read_rows(record.artifact("property-replicates.parquet"))
     summary = module.summarize_properties(rows)
     path = record.artifact(property_failures.PROPERTY_ACCOUNTING)
     if path.exists():
@@ -149,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         record.slug
         for record in registered()
         if record.artifact("properties.csv").exists()
-        and record.artifact("property-replicates.csv.gz").exists()
+        and record.artifact("property-replicates.parquet").exists()
         and (not arguments.slugs or record.slug in arguments.slugs)
     ]
     tasks = [(slug, arguments.dump, arguments.against) for slug in slugs]

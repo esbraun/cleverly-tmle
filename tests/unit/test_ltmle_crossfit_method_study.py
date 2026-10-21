@@ -23,6 +23,7 @@ from tests.studies import canonical_ltmle_survival_crossfit as survival_study
 from tests.studies import ltmle_crossfit_properties as end_properties
 from tests.studies import ltmle_survival_crossfit_properties as survival_properties
 from tests.studies.canonical_ltmle import KnownLongitudinalMechanism
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import Margins
 
 
@@ -224,7 +225,7 @@ def test_the_comparator_audit_table_can_witness_the_failure_it_reports() -> None
     record = dataclasses.replace(
         audit._record("end"), margins=dataclasses.replace(Margins(), bootstrap_replicates=200)
     )
-    published = pd.read_csv(record.artifact("replicates.csv.gz"))
+    published = read_rows(record.artifact("replicates.parquet"))
     # The subject's rows only.  The committed file now carries the real comparator beside
     # them, and pairing a synthetic comparator against a file that already has one gives two
     # rows per cell rather than a broken audit -- which reshapes into an error rather than a

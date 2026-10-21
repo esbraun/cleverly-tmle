@@ -112,11 +112,11 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "0347edde7dbe3b5b54932258ab458af8e9deef14389bce74e91a1c6ca1728e09",
+    "replicates.parquet": "084cbe9a028d310a69c51d98f5fb65095e0a7fa2524a778f235202c007e4670d",
     "summary.csv": "7a7ca91b73c64db87a9f7c6ab12d3142b05e131dc57ea63caa5c6dea37c81f76",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "ad9268c8f7316d2d9874d5cd68185b8e9185680e2e2e930e064d668b6f39afee",
-    "property-replicates.csv.gz": "c01574c471a0e8f2e38c2e290c9106974c08d49a196b32399519dd8d413067e8",
+    "property-replicates.parquet": "939d07485dc37d07e499dd72a760a297e420006d5242a2b2ee9fd2a597b52407",
     "properties.csv": "bc5a9ea2b98d95ffc978a2d4e58d4a8ed925e4cd0c0d91ae11986a9f59a98a07"
   },
   "comparator": {

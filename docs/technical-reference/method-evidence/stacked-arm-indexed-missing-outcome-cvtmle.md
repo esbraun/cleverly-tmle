@@ -416,7 +416,7 @@ bootstrap draws are therefore correlated across the pairs.
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_arm_indexed_cvtmle/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_arm_indexed_cvtmle/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_arm_indexed_cvtmle/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_arm_indexed_cvtmle/replicates.parquet),
 [scale probe](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_arm_indexed_cvtmle/scale-probe.csv),
 [performance decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_arm_indexed_cvtmle/performance-tests.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_arm_indexed_cvtmle/properties.csv)

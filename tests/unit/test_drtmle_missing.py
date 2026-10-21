@@ -821,7 +821,7 @@ def test_an_unnamed_probability_vector_says_which_arm_it_bound_to() -> None:
 
 #: The fit of ``mar-drtmle`` replicate 0, recorded on the unmodified tree before the
 #: K-arm change (6a55f038), as ``float.hex``. The committed artifact
-#: ``tests/canonical/drtmle_mar/replicates.csv.gz`` holds these values exactly on the
+#: ``tests/canonical/drtmle_mar/replicates.parquet`` holds these values exactly on the
 #: Windows machine that recorded them (gap 0). The tolerance allows the last-ulp
 #: differences of another platform's BLAS, libm or solver path.
 _PRE_F4_REPLICATE_0 = {

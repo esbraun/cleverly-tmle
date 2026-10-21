@@ -22,6 +22,7 @@ from tests.studies import known_mechanism_drtmle_properties as dr_properties
 from tests.studies import known_mechanism_law as law
 from tests.studies import known_mechanism_properties as point_properties
 from tests.studies import known_node_mechanisms_properties as node_properties
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT, Margins, registered
 
 pytestmark = pytest.mark.xdist_group("known_mechanism_design")
@@ -154,12 +155,10 @@ def test_the_declared_cells_are_the_cells_a_run_publishes(name: str) -> None:
 def test_each_committed_property_truth_is_the_declared_one(name: str) -> None:
     """The committed rows carry the law's own truths, once each study has run."""
     study, properties = STUDIES[name]
-    path = study.STUDY.artifact("property-replicates.csv.gz")
+    path = study.STUDY.artifact("property-replicates.parquet")
     if not path.exists():
         pytest.skip("the registered run has not been committed yet")
-    import pandas as pd
-
-    rows = pd.read_csv(path, float_precision="round_trip")
+    rows = read_rows(path)
     declared = {(family, cell): truth for family, cell, _, truth in properties.declared_truths()}
     assert {tuple(key) for key in rows.groupby(["property", "cell"]).groups} == set(declared)
     for (family, cell), truth in declared.items():
@@ -207,12 +206,10 @@ def test_the_targeting_witness_floor_is_declared(name: str) -> None:
     """The nonzero-targeting witness reads the committed rows once each study has run."""
     study, _ = STUDIES[name]
     assert study.TARGETING_WITNESS_FLOOR > 0
-    path = study.STUDY.artifact("replicates.csv.gz")
+    path = study.STUDY.artifact("replicates.parquet")
     if not path.exists():
         pytest.skip("the registered run has not been committed yet")
-    import pandas as pd
-
-    rows = pd.read_csv(path, float_precision="round_trip")
+    rows = read_rows(path)
     displacement = study.targeting_displacement(rows)
     subjects = {key.split(" ")[0] for key in displacement}
     assert subjects == {study.IMPLEMENTATION, study.REFERENCE}

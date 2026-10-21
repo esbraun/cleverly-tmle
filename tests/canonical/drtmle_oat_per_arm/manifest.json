@@ -189,11 +189,11 @@
     "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
   },
   "sha256": {
-    "replicates.csv.gz": "cd15bffd7dcb3787bea890cdc2f0c6806afdde8bc81164bb4e502e2c65d8e2fe",
+    "replicates.parquet": "b3d2b552b68e3cddb8f0714b7a70392c12046ef77ae95c73e7f137a2152028be",
     "summary.csv": "ce5e3e8df7d590cc074624699b65a4d61107f81c52856a98e73d5176c54194ae",
     "equivalence.csv": "cc777253c82d0a1ec1699e6c638a65df867aac757c896a9631eba35743dcb41d",
     "performance-tests.csv": "168739542afadf464610a96cd0b1800c6b3e3321cd80a658f2364b7fb4824b01",
-    "property-replicates.csv.gz": "3eed397c600e23ca922996da3627554bc2f921f7a210dca4c2ad8e0cd4543249",
+    "property-replicates.parquet": "26a64be1c3cc4f768e2171fd8ec09c2eb0c77971c0aa6d5c16bbc430725ec897",
     "properties.csv": "15e7380cebe34cdfe0362826f74820742dcc71e50e4223364969172624b21739",
     "design-gap.csv": "ed1f0190f24a578895dab0caeef37ee6edc30e64811b911ea24c1311f14418b9",
     "fit-diagnostics.csv": "201abe629b4beb3b8a7af67f4b67ecd4d3a0e026020ea689b0ee64b952db21cf"

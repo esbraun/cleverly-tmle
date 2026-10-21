@@ -100,7 +100,7 @@ bytes it published before.
 | --- | --- |
 | `property-failures.csv` | one record for each failed fit, with the columns of `failures.csv`. The `scenarios` field lists the `property/cell` names that the fit writes |
 | `property-failure-accounting.csv` | for each summary row that read a lost replicate: the bound, then one row for each declared clause. Each clause row gives the complete-case slack, the worst-case slack, the label, and the gate |
-| `property-failure-witnesses.csv` | the witness of each draw in each cell that lost a replicate |
+| `property-failure-witnesses.parquet` | the witness of each draw in each cell that lost a replicate |
 
 #### Record and stamp rules
 
@@ -475,13 +475,18 @@ evidence. This policy writes failed statistical verdicts. It does not permit an 
 replication, invalid schemas, non-finite estimates, or incomplete provenance. Existing studies use
 `publication_policy="gated"` unless they declare otherwise.
 
-Published studies retain `replicates.csv.gz`, `property-replicates.csv.gz`, `summary.csv`,
+Published studies retain `replicates.parquet`, `property-replicates.parquet`, `summary.csv`,
 `performance-tests.csv`, `equivalence.csv`, `properties.csv`, and a provenance- and hash-complete
 `manifest.json`. A run with a recorded comparator failure also retains `failures.csv` and
 `failure-accounting.csv`. A run with a recorded property failure also retains
-`property-failures.csv`, `property-failure-accounting.csv`, and `property-failure-witnesses.csv`.
+`property-failures.csv`, `property-failure-accounting.csv`, and `property-failure-witnesses.parquet`.
 Run a disposable smoke study first, then the declared study without permitting
 failed replications. The [red cells](#red-cells) section states what may change after a result.
+
+The three row files are Parquet files. Write them with `write_rows` and read them with
+`read_rows`, both in `tests/studies/evidence/manifest.py`. The function `csv_text` returns the
+canonical CSV text of a row file.
+The footer of a Parquet file names the `pyarrow` version that wrote it. Write row files with the `pyarrow` version that `uv.lock` pins. To tell whether a row file moved, compare its `csv_text` and not its bytes.
 
 A regeneration owns its declared core budget. Do not run the Python and R full-core phases concurrently. Do not run the fast tests
 beside a study regeneration. Documentation quotes measured values through

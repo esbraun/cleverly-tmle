@@ -13,6 +13,7 @@ import pytest
 from tests import discrete_law_cde as cde
 from tests.studies import canonical_cde_tmle as primary
 from tests.studies import cde_tmle_properties as properties
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
 
 
@@ -94,7 +95,7 @@ def test_native_r_second_result_defect_is_frozen_and_the_adapter_removes_it() ->
     assert abs(native["estimate"] - native["truth"]) > 0.25
     assert not bool(native["covered"])
 
-    published = pd.read_csv(ROOT / "tests/canonical/tmle_cde/replicates.csv.gz")
+    published = read_rows(ROOT / "tests/canonical/tmle_cde/replicates.parquet")
     adapted = published[
         (published["implementation"] == primary.STUDY.reference)
         & (published["scenario"] == primary.SCENARIOS[1])

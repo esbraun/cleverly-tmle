@@ -11,6 +11,7 @@ import pandas as pd
 
 from tests.diagnostics.x16_lasso_coverage import run as diagnostic
 from tests.studies import canonical_ctmle_sequences as study
+from tests.studies.evidence.manifest import read_rows
 
 
 def _rows() -> pd.DataFrame:
@@ -21,7 +22,7 @@ def test_the_lasso_rows_are_the_registered_rows() -> None:
     """The refit reproduces the committed estimates and plug-in standard errors exactly."""
     rows = _rows()
     assert len(rows) == study.PRIMARY_REPLICATES
-    committed = pd.read_csv(study.STUDY.artifact("replicates.csv.gz"))
+    committed = read_rows(study.STUDY.artifact("replicates.parquet"))
     committed = committed.loc[
         (committed["implementation"] == study.IMPLEMENTATION)
         & (committed["scenario"] == diagnostic.SCENARIO)

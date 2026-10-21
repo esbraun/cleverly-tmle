@@ -26,6 +26,7 @@ from cleverly.inference.bootstrap import _bootstrap_design
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.data import _ROW_FIELDS, _SHARED_FIELDS
 from tests.studies import canonical_ltmle
+from tests.studies.evidence.manifest import read_rows
 
 COLUMNS: dict[str, Any] = {
     "outcome": ["Y1", "Y2"],
@@ -198,9 +199,8 @@ class TestTheReplicates:
     def test_the_fit_matches_a_committed_canonical_row(self) -> None:
         """At ``n_bootstrap=0`` and above it, the registered fit is unchanged."""
         frame, _ = canonical_ltmle.draw_scenario(canonical_ltmle.SCENARIO, 2_000, 0)
-        committed = pd.read_csv(
-            Path(__file__).parents[1] / "canonical" / "ltmle" / "replicates.csv.gz",
-            float_precision="round_trip",
+        committed = read_rows(
+            Path(__file__).parents[1] / "canonical" / "ltmle" / "replicates.parquet"
         )
         rows = committed[
             (committed["implementation"] == "cleverly") & (committed["replicate"] == 0)
