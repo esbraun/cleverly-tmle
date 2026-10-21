@@ -125,8 +125,8 @@ from tests.studies.evidence.registry import ROOT, StudyRecord
 from tests.studies.long_horizon_common import G_BOUNDS
 from tests.studies.long_horizon_primary import Scenario, declared, run_primary
 
-#: Provisional: the truth-row rule of the design picks R from 1,200, 2,000 and 3,000.
-PRIMARY_REPLICATES = 1_200
+#: The truth-row rule of the design picks R from 1,200, 2,000 and 3,000 (pilot merge at 67ac67df).
+PRIMARY_REPLICATES = 2_000
 SEED = 20263911
 RESAMPLING_SEED = 2026391101
 ESTIMATOR = "LTMLE"
