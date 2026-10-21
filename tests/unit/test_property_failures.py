@@ -1984,18 +1984,40 @@ class TestDifferential:
         with pytest.raises(ValueError, match="unknown perturbation"):
             property_failures.perturbed(rows, "se/x")
 
-    def test_an_extra_column_is_scaled_and_shifted_in_one_cell(self) -> None:
+    def test_an_extra_column_is_scaled_shifted_and_floored_in_one_cell(self) -> None:
         _, rows = self._ladder()
         rows = rows.assign(bootstrap_failed=0)
         kinds = property_failures.extra_perturbations(rows)
         cells = rows.groupby(["property", "cell"]).ngroups
-        assert len(kinds) == 2 * cells
+        assert len(kinds) == 3 * cells
         shifted = property_failures.perturbed(rows, kinds[1])
         _, column, family, cell, how = kinds[1].split("|")
         assert (column, how) == ("bootstrap_failed", "shift")
         inside = (shifted["property"] == family) & (shifted["cell"] == cell)
         assert (shifted.loc[inside, column] == property_failures.EXTRA_SHIFT).all()
         assert (shifted.loc[~inside, column] == 0).all()
+        pd.testing.assert_frame_equal(
+            property_failures.perturbed(rows, kinds[2]), rows, check_dtype=False
+        )
+
+    def test_the_floor_kind_lowers_an_indicator_share_and_spares_a_constant_column(self) -> None:
+        _, rows = self._ladder()
+        flag = (np.arange(len(rows)) % 3 != 0).astype(float)
+        flag[1] = np.nan
+        rows = rows.assign(indicator=flag, constant=1.0)
+        floors = [k for k in property_failures.extra_perturbations(rows) if k.endswith("|floor")]
+        by_column = {kind.split("|")[1] for kind in floors}
+        assert by_column == {"indicator", "constant"}
+        kind = next(k for k in floors if k.startswith("extra|indicator|"))
+        _, column, family, cell, _ = kind.split("|")
+        floored = property_failures.perturbed(rows, kind)
+        inside = ((floored["property"] == family) & (floored["cell"] == cell)).to_numpy()
+        assert floored.loc[inside, column].mean() == pytest.approx(0.0, abs=1e-12)
+        assert floored.loc[inside, column].std() == pytest.approx(rows.loc[inside, column].std())
+        assert floored.loc[inside, column].isna().equals(rows.loc[inside, column].isna())
+        assert floored.loc[~inside, column].equals(rows.loc[~inside, column])
+        for kind in (k for k in floors if k.startswith("extra|constant|")):
+            assert property_failures.perturbed(rows, kind)["constant"].eq(1.0).all()
 
 
 def test_p34_a_module_that_writes_a_verdict_without_rules_is_reported() -> None:

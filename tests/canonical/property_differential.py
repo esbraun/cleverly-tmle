@@ -15,8 +15,8 @@ X40 modules run on synthetic rows until their declared runs commit their rows.
 
 The perturbations are
 :data:`~tests.studies.evidence.property_failures.PERTURBATIONS`, the graded kinds of
-:func:`~tests.studies.evidence.property_failures.binding_perturbations`, and a scaling and a
-shift per extra column and per cell
+:func:`~tests.studies.evidence.property_failures.binding_perturbations`, and a scaling, a shift
+and a floor per extra column and per cell
 (:func:`~tests.studies.evidence.property_failures.extra_perturbations`).  Each summary runs with
 the study record replaced by a copy whose ``bootstrap_replicates`` is
 :data:`DIFFERENTIAL_BOOTSTRAP`.  The rule and the module read the same summary columns, so the
@@ -187,6 +187,9 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     ----------
     module : module
         A property module that declares ``declared_cells`` and fits through ``fit_properties``.
+        It may also declare ``synthetic_scale(cell)``, the standard deviation of a cell's
+        estimates when the default ``n ** -0.5`` is not its efficiency bound over ``sqrt(n)``,
+        and ``synthetic_columns(cell, rng)``, the extra row columns of a cell.
 
     Returns
     -------
@@ -221,12 +224,17 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
                     [SYNTHETIC_SEED, property_failures.cell_key(family, cell), replicate]
                 )
                 scale = float(spec.n) ** -0.5
+                spread = getattr(module, "synthetic_scale", None)
+                if spread is not None:
+                    scale = float(spread(spec))
                 centre = SYNTHETIC_CONTROL_BIAS * scale if spec.role == "control" else 0.0
                 centre = centres.get(name, centre)
                 estimate = rng.normal(centre, scale)
                 std_error = scale * rng.uniform(0.9, 1.1)
+                extras = getattr(module, "synthetic_columns", None)
                 rows.append(
                     {
+                        **({} if extras is None else extras(spec, rng)),
                         "property": family,
                         "cell": cell,
                         "role": spec.role,
@@ -669,7 +677,7 @@ def test_the_rules_agree_with_the_study_on_each_perturbation(subject: str, kind:
 
 @pytest.mark.parametrize("subject", [_by_subject(subject) for subject in SUBJECTS])
 def test_the_rules_agree_with_the_study_on_each_extra_column(subject: str) -> None:
-    """L10: a scaling and a shift of each extra column in each cell, such as a bootstrap count."""
+    """L10: a scaling, a shift and a floor of each extra column in each cell, such as a count."""
     extra = property_failures.extra_perturbations(subject_rows(subject))
     wrong = {kind: judge(subject, kind).wrong for kind in extra}
     disagreeing = {kind: frame.to_string() for kind, frame in wrong.items() if not frame.empty}

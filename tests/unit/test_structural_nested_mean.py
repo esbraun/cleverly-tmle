@@ -997,6 +997,21 @@ def test_w7_every_redirected_design_carries_its_reason_code() -> None:
     )
 
 
+def test_w7_a_markov_order_is_redirected_before_any_learner() -> None:
+    """The window would restrict E[Y | H_t] and E[Z_j | H_t], which the restriction does not name.
+
+    Before the refusal the nuisance designs read ``history_design``, so the fit ran on the
+    window and recorded no restriction for these means.
+    """
+    data = LongitudinalData.from_frame(_simulated(), **SIM).with_markov_order(0)
+    error = _refused(
+        RefusalReason.API_REDIRECTION,
+        lambda: StructuralNestedMean(REGIMENS, **GLMS).fit(data),
+    )
+    assert error.refusal == module._MARKOV_REFUSAL
+    assert "Omit markov_order=" in str(error)
+
+
 def test_w7_a_mixed_node_is_refused_before_any_learner() -> None:
     """A flag with a dose at one node has no blip coding, so the fit refuses it by name."""
     frame = _simulated().assign(F=lambda f: (f["A1"] > 0).astype(float), D=lambda f: f["S1"].abs())
