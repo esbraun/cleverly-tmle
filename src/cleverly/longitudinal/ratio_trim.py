@@ -237,7 +237,7 @@ def trim_ratios(
             quantile=float(quantile),
             threshold=threshold,
             entries=entries,
-            cumulative=np.cumprod(kept, axis=1),
+            cumulative=np.cumprod(kept, axis=1, dtype=np.float64),
             trimmed=trimmed,
         )
     return trims

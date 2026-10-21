@@ -442,7 +442,7 @@ class Mechanism:
         if trim is None:
             return raw, bounded
         density = plan.intervention_density(data)
-        implied = trim.implied_cumulative(np.cumprod(density, axis=1), raw)
+        implied = trim.implied_cumulative(np.cumprod(density, axis=1, dtype=np.float64), raw)
         lower, upper = bounds
         return implied, bound(implied, lower, upper)
 
