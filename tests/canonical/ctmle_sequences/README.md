@@ -2,9 +2,9 @@
 
 This directory holds the registered study `canonical-ctmle-sequences`. The study compares the
 lasso and the declared-learner candidate sequences of Cleverly's C-TMLE with R
-[`ctmle`](https://github.com/jucheng1992/ctmle) 0.1.2 at commit `18de559`. The Python phase
-and the property study have run. The R runs are pending (Study queue item 9), so this directory
-holds no R row, no replay file and no R selection file yet.
+[`ctmle`](https://github.com/jucheng1992/ctmle) 0.1.2 at commit `18de559`. The Python phase,
+the R phase and the property study have run. The R phase ran from the committed property files
+with `--skip-properties`.
 
 ## Scenarios
 
