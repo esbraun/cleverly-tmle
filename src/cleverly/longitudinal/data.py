@@ -254,11 +254,10 @@ def markov_restriction(markov_order: int) -> str:
         f"statistical-model restriction, Markov order {markov_order}: at every node the "
         "outcome regression and the treatment and censoring mechanisms depend on the history "
         f"only through W and the last {markov_order + 1} nodes. It restricts the observed-data "
-        "model and does not change the estimand. The fit is consistent when the outcome "
-        "regressions fitted on the window are consistent, which needs the restriction for "
-        "them, or when the treatment and censoring mechanisms fitted on the window are "
-        "consistent, which needs the restriction for them. The interval needs the restriction "
-        "for both families and both families consistent at the usual product rate."
+        "model and does not change the estimand. Every nuisance the estimator fits reads the "
+        "window, so the estimator's own consistency and interval conditions apply to the "
+        "nuisances fitted on the window, and each of them needs the restriction for the "
+        "nuisance it reads."
     )
 
 
