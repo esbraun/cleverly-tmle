@@ -391,8 +391,10 @@ the committed results and checked at the precision printed.
 | `margin:shrunken_se_factor` | 0.7000 | factor the shrunken-SE control multiplies the standard error by |
 | `margin:necessity_displacement` | 0.2500 | smallest paired displacement of a necessity control, in empirical standard deviations |
 | `margin:correction_displacement` | 0.2500 | smallest displacement of the uncorrected plug-in from the corrected fit, in empirical standard deviations of the corrected arm |
-| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell of `cleverly` may lose to a recordable fitting failure |
 | `margin:subject_failures_allowed` | 24 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `lmtp` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 24 | the same bound, in primary replications |
 
 ## Limits
 
