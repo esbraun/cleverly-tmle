@@ -434,6 +434,12 @@ class TestArtifacts:
             assert configuration["accepted_reference_failure"] == study.accepted_reference_failure
         else:
             assert "accepted_reference_failure" not in configuration
+        if study.reference_scenarios:
+            assert configuration["reference_scenarios"] == {
+                name: list(names) for name, names in study.reference_scenarios.items()
+            }
+        else:
+            assert "reference_scenarios" not in configuration
         recorded = _recorded_failures(study)
         # RM39b2: a stated primary bound equals the record's.  A manifest without it ran under
         # bound 0, which is consistent only when that run recorded no failure.

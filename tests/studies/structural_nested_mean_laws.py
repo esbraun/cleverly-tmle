@@ -46,6 +46,7 @@ g-formula mean under the static regimen, and a contrast is a difference of two l
 from __future__ import annotations
 
 import functools
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -666,6 +667,138 @@ def outcome_support(name: str) -> tuple[float, float]:
     return float(values.min()), float(values.max())
 
 
+# --------------------------------------------------------------------- the comparator limit
+
+
+def _coding_columns(law: Law, node: int) -> tuple[list[float], bool]:
+    """The coded levels of a node (every level but the reference), and whether it is a dose."""
+    name = law.treatments[node - 1]
+    if name in law.doses:
+        return [], True
+    levels = sorted({value for path, _ in finite.paths(law) for value in [path[name]]})
+    return [level for level in levels if level != law.reference_of(node)], False
+
+
+def _state_names(law: Law, node: int, state: str) -> list[str]:
+    """The state of period ``node``: the history, or the Markov state ``(W, S_t, A_{t-1})``."""
+    if state == "history":
+        return law.history_names(node)
+    if state != "markov":
+        raise ValueError(f"unknown state {state!r}")
+    covariate = next(v.name for v in law.variables if v.role == "covariate" and v.node == node)
+    names = [*law.baseline, covariate]
+    if node > 1:
+        names.append(law.treatments[node - 2])
+    return names
+
+
+@functools.cache
+def _dynamic_dml_coefficients(
+    name: str, state: str, features: tuple[str, ...]
+) -> tuple[np.ndarray, ...]:
+    table = finite.frame(setup(name).law)
+    law = setup(name).law
+    weight = table["p"].to_numpy()
+    phi = np.column_stack(
+        [np.ones(len(table)), *(table[column].to_numpy(dtype=float) for column in features)]
+    )
+    codings = []
+    for node in range(1, law.n_nodes + 1):
+        levels, dose = _coding_columns(law, node)
+        values = table[law.treatments[node - 1]].to_numpy(dtype=float)
+        if dose:
+            codings.append(values.reshape(-1, 1))
+        else:
+            codings.append(np.column_stack([(values == level).astype(float) for level in levels]))
+
+    def given(names: list[str], values: np.ndarray) -> np.ndarray:
+        frame = table[names].copy()
+        keys = list(names)
+        sums = (
+            pd.DataFrame(values * weight[:, None], index=table.index)
+            .groupby([frame[key] for key in keys])
+            .transform("sum")
+        )
+        mass = (
+            pd.Series(weight, index=table.index)
+            .groupby([frame[key] for key in keys])
+            .transform("sum")
+        )
+        return sums.to_numpy() / mass.to_numpy()[:, None]
+
+    def kron(residual: np.ndarray) -> np.ndarray:
+        # DynamicDML's final stage reads the treatment residual times the features ``(1, X)``,
+        # coding column first and feature second.
+        return np.einsum("il,ik->ilk", residual, phi).reshape(len(table), -1)
+
+    y = table["Y"].to_numpy(dtype=float).reshape(-1, 1)
+    nodes = law.n_nodes
+    residual_y: dict[int, np.ndarray] = {}
+    residual_z: dict[tuple[int, int], np.ndarray] = {}
+    for t in range(1, nodes + 1):
+        names = _state_names(law, t, state)
+        residual_y[t] = (y - given(names, y)).reshape(-1)
+        for j in range(t, nodes + 1):
+            residual_z[(j, t)] = kron(codings[j - 1] - given(names, codings[j - 1]))
+    theta: dict[int, np.ndarray] = {}
+    for t in range(nodes, 0, -1):
+        target = residual_y[t] - sum(
+            (residual_z[(j, t)] @ theta[j] for j in range(t + 1, nodes + 1)),
+            np.zeros(len(table)),
+        )
+        own = residual_z[(t, t)]
+        theta[t] = np.linalg.solve(own.T @ (own * weight[:, None]), own.T @ (target * weight))
+    return tuple(theta[t] for t in range(1, nodes + 1))
+
+
+def dynamic_dml_limit(
+    name: str, estimand: str, *, state: str = "markov", features: Sequence[str] = ()
+) -> float:
+    r"""The population limit of EconML's ``DynamicDML`` fit of one estimand of a setup.
+
+    The fit reads the period ``state`` (``"markov"``: ``(W, S_t, A_{t-1})``; ``"history"``:
+    :math:`H_t`), saturated nuisances, and the blip features ``(1, X)`` with ``X`` the
+    baseline ``features``.  Each nuisance is then the exact conditional mean of its target
+    given the state, and the final stage solves the backward g-estimating equations of
+    ``DynamicDML`` at the law's probabilities.  A blip estimand is one coefficient, and a
+    contrast is :math:`E_X \sum_t (c(a_t) - c(a'_t))^\top \theta_t (1, X)`.  The limit equals
+    the truth exactly when the state removes the confounding and the blips read only ``X``.
+    """
+    chosen = setup(name)
+    law = chosen.law
+    theta = _dynamic_dml_coefficients(name, state, tuple(features))
+    width = 1 + len(features)
+    match = re.fullmatch(r"blip\[A(\d+):([\w.]+):(\w+)\]", estimand)
+    if match:
+        node, level, feature = int(match.group(1)), match.group(2), match.group(3)
+        levels, dose = _coding_columns(law, node)
+        column = 0 if dose else levels.index(float(level))
+        offset = 0 if feature == "intercept" else 1 + list(features).index(feature)
+        return float(theta[node - 1][column * width + offset])
+    match = re.fullmatch(r"ate_regimen\[(\w+) vs (\w+)\]", estimand)
+    if match is None:
+        raise KeyError(f"DynamicDML reports no {estimand}")
+    treated, control = (chosen.regimens[label] for label in match.groups())
+    table = finite.frame(law)
+    weight = table["p"].to_numpy()
+    phi = np.column_stack(
+        [np.ones(len(table)), *(table[column].to_numpy(dtype=float) for column in features)]
+    )
+    effect = np.zeros(len(table))
+    for node in range(1, law.n_nodes + 1):
+        levels, dose = _coding_columns(law, node)
+
+        def code(value: float, levels: list[float] = levels, dose: bool = dose) -> np.ndarray:
+            if dose:
+                return np.array([value])
+            return np.array([float(value == level) for level in levels])
+
+        change = code(treated[node - 1]) - code(control[node - 1])
+        coefficients = theta[node - 1].reshape(len(change), width)
+        effect += phi @ (change @ coefficients)
+    return float(effect @ weight)
+
+
 # ------------------------------------------------------------------------------ samplers
 
 
@@ -724,6 +857,7 @@ __all__ = [
     "BINARY_REGIMENS",
     "CLUSTER_SIZE",
     "Setup",
+    "dynamic_dml_limit",
     "outcome_support",
     "sample",
     "setup",

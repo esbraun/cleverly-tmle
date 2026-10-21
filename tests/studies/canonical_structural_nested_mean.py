@@ -5,10 +5,20 @@ The subject is :class:`~cleverly.longitudinal.StructuralNestedMean` with declare
 ``N``).  The laws are in :mod:`tests.studies.structural_nested_mean_laws` and the property
 families in :mod:`tests.studies.structural_nested_mean_properties`.
 
-This study is Python only.  The EconML ``DynamicDML`` comparator is declared and pending
-(``pending_reference``): the container phase is a later change, and the record does not depend
-on it.  The fast-tier parity fixture of ``tests/canonical/econml_dynamic_dml`` already checks the
-point estimates on one panel.
+The EconML 0.17.0 ``DynamicDML`` comparator is declared and pending (``pending_reference``).
+The committed record is Python only.  :data:`COMPARATOR_STUDY` is the record that registers it.
+The comparator fits two variants in one container run
+(``tests/canonical/econml_dynamic_dml/run_study.py``).
+
+* The *paired* variant fits :data:`COMPARATOR_PAIRED` on the subject's rows, folds and ``GLM``
+  design, with the full history as the period state.  Its rows pair with the subject's on the
+  cells of :data:`REFERENCE_SCENARIOS`, the cells ``DynamicDML`` reports.
+* The *Markov* variant fits :data:`COMPARATOR_MARKOV` as the published estimator states it, with
+  the period state ``(W, S_t, A_{t-1})``.  Its rows go to a descriptive table beside the computed
+  limit of each cell (:func:`markov_summary`).  The table gates nothing.
+
+The registered run declares :data:`COMPARATOR_REPLICATES`, sized from
+:data:`COMPARATOR_PILOT`.
 
 **Primary scenarios.**  One scenario per positive setup of
 :func:`tests.studies.structural_nested_mean_laws.setups` at :data:`PRIMARY_N` with
@@ -68,19 +78,25 @@ seen.
 
 from __future__ import annotations
 
+import dataclasses
+import math
 import re
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 
 from cleverly.learners import GLM
+from cleverly.learners.crossfit import random_partition
 from cleverly.longitudinal import StructuralNestedMean
 from tests.parallel import STUDY_JOBS
 from tests.studies import structural_nested_mean_laws as laws
+from tests.studies.evidence import failures as evidence_failures
 from tests.studies.evidence import replication
 from tests.studies.evidence.registry import ROOT, Margins, StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
@@ -538,6 +554,155 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
 EXPECTED_RED_PROPERTIES: tuple[str, ...] = ()
 EXPECTED_RED: tuple[str, ...] = EXPECTED_RED_PROPERTIES
 
+# ------------------------------------------------------------------------- the comparator
+
+#: The comparator: EconML 0.17.0 ``DynamicDML`` (``tests/canonical/econml_dynamic_dml``).
+REFERENCE = PENDING_REFERENCE
+#: The paired scenarios.  ``DynamicDML`` fits each one on the subject's rows and folds, with the
+#: full history as the period state and the subject's ``GLM`` design, so its paired rows measure
+#: one estimand by one estimating equation.  A probe of replicate 0 of each scenario gave equal
+#: points within 6e-15 and, for a scalar node, standard errors in the ratio
+#: :math:`\sqrt{(n - 1) / n}`.  ``n`` is left out: its booster draws a validation split from the
+#: row order, which the long panel of ``DynamicDML`` changes.  ``l``, ``s2w`` and ``s2c`` are left
+#: out: ``DynamicDML`` has no blip feature that reads a covariate, no weights in its final stage,
+#: and no cluster variance.  ``h`` and ``p`` are left out: a blip of theirs reads ``A_1``, which
+#: the features ``X`` of ``DynamicDML`` cannot state.  Their Markov rows are published instead.
+COMPARATOR_PAIRED = ("s2", "s3", "k", "c", "m")
+#: The native scenarios: the Markov-state fit of the published estimator.  Their rows go to a
+#: descriptive table beside the computed limits
+#: (:func:`tests.studies.structural_nested_mean_laws.dynamic_dml_limit`), and gate nothing.
+COMPARATOR_MARKOV = ("s2", "s3", "k", "h", "p", "m")
+COMPARATOR_SCENARIOS = tuple(sorted({*COMPARATOR_PAIRED, *COMPARATOR_MARKOV}))
+#: The blip features ``X`` of a Markov fit; ``phi = 1`` unless listed.
+MARKOV_FEATURES: dict[str, tuple[str, ...]] = {"h": ("W",)}
+#: The ``GLM`` order that saturates a Markov state ``(W, S_t, A_{t-1})`` of binary columns, and
+#: of ``K``, whose previous treatment has two indicator columns.
+MARKOV_ORDERS: dict[str, int] = {"binary": 3, "categorical": 4}
+#: The pilot of the paired coverage leg on ``k``: 1,500 replicates (indices 5,000 to 6,499, outside
+#: every declared run) at n = 2,000, both sides on the same rows and folds.  Each entry is
+#: ``(replicates, discordant pairs, the side that covers in each of them)``.  The points agree
+#: within 1e-14 in every cell, and the blips' standard errors agree within 0.3%, so no blip pair
+#: is discordant.  The EconML contrast errors differ from the subject's by the mean ratios 0.975
+#: (``r12``) and 1.031 (``r21``); the categorical blocks of its sandwich are transposed
+#: (``tests/canonical/econml_dynamic_dml/README.md``).
+COMPARATOR_PILOT: dict[str, tuple[int, int, str]] = {
+    "ate_regimen[r12 vs r00]": (1_500, 8, "subject"),
+    "ate_regimen[r21 vs r00]": (1_500, 15, "reference"),
+}
+#: The replicates the registered comparator run declares, from the predictive rule of
+#: ``tests/unit/test_structural_nested_mean_comparator.py``: the smallest multiple of 200 at
+#: or above :data:`PRIMARY_REPLICATES` at which every paired cell passes with chance at least
+#: 0.90 and the family with chance at least 0.95.  The binding cell is the coverage leg of
+#: ``k``'s ``r21`` contrast, where the reference covers more often because its error is larger.
+#: The full-run declaration sets :data:`PRIMARY_REPLICATES` to it.
+COMPARATOR_REPLICATES = 1_600
+#: The seed of the subject's folds: :func:`fit` passes ``random_state=0``.  The paired sample
+#: carries the fold of each row, and the fit checks it against ``result.folds``.
+COMPARATOR_FOLD_SEED = 0
+#: The task-table columns of ``tests/canonical/econml_dynamic_dml/run_study.py``.
+TASK_COLUMNS = (
+    "scenario",
+    "variant",
+    "estimand",
+    "truth",
+    "kind",
+    "nodes",
+    "order",
+    "features",
+    "t1",
+    "t0",
+)
+#: The descriptive Markov artefacts.
+MARKOV_REPLICATES = "econml-markov-replicates.csv.gz"
+MARKOV_SUMMARY = "econml-markov.csv"
+MARKOV_FAILURES = "econml-markov-failures.csv"
+#: A Markov cell agrees with its computed limit when the 99% interval of its standardized
+#: distance from the limit lies inside this margin (the similarity margin of :class:`Margins`).
+MARKOV_MARGIN = 0.25
+
+
+def treatment_kind(setup: str) -> str:
+    """``"binary"``, ``"categorical"`` or ``"continuous"``: the treatment type of every node."""
+    levels = set(SUPPORT_KEYS[setup].treatment)
+    if levels == {"continuous"}:
+        return "continuous"
+    if levels == {"2"}:
+        return "binary"
+    return "categorical"
+
+
+def comparator_estimands(setup: str, features: tuple[str, ...] = ()) -> tuple[str, ...]:
+    """The estimands of a setup that ``DynamicDML`` reports with blip features ``(1, X)``.
+
+    A blip coefficient is reported when its feature is the intercept or a column of ``X``, and
+    every static contrast is reported.  ``DynamicDML`` has no counterfactual mean, so no
+    ``ey_*`` estimand is reported.
+    """
+    out = []
+    for estimand in laws.setup(setup).estimands:
+        match = re.fullmatch(r"blip\[\w+:[\w.]+:(\w+)\]", estimand)
+        if (
+            match and (match.group(1) == "intercept" or match.group(1) in features)
+        ) or estimand.startswith("ate_regimen["):
+            out.append(estimand)
+    return tuple(out)
+
+
+#: The cells the comparator's paired rows report.
+REFERENCE_SCENARIOS: dict[str, tuple[str, ...]] = {
+    scenario: comparator_estimands(SETUP_OF[scenario]) for scenario in COMPARATOR_PAIRED
+}
+#: The cells of the descriptive Markov table.
+MARKOV_ESTIMANDS: dict[str, tuple[str, ...]] = {
+    scenario: comparator_estimands(SETUP_OF[scenario], MARKOV_FEATURES.get(scenario, ()))
+    for scenario in COMPARATOR_MARKOV
+}
+
+
+def _vector_text(values: Any) -> str:
+    return ";".join(repr(float(value)) for value in values)
+
+
+def comparator_tasks() -> pd.DataFrame:
+    """The task table the comparator runner reads, one row per variant and estimand.
+
+    It travels to the container as ``truth.csv``: the driver hands the runner the samples, this
+    table and the output path.
+    """
+    rows = []
+    variants = (("paired", REFERENCE_SCENARIOS), ("markov", MARKOV_ESTIMANDS))
+    for variant, cells in variants:
+        for scenario, estimands in cells.items():
+            name = SETUP_OF[scenario]
+            chosen = laws.setup(name)
+            kind = treatment_kind(name)
+            if variant == "paired":
+                order, features = INTERACTIONS.get(name, DEFAULT_INTERACTIONS), ()
+            else:
+                order, features = MARKOV_ORDERS[kind], MARKOV_FEATURES.get(scenario, ())
+            for estimand in estimands:
+                match = re.fullmatch(r"ate_regimen\[(\w+) vs (\w+)\]", estimand)
+                t1 = t0 = ""
+                if match:
+                    t1 = _vector_text(chosen.regimens[match.group(1)])
+                    t0 = _vector_text(chosen.regimens[match.group(2)])
+                rows.append(
+                    {
+                        "scenario": scenario,
+                        "variant": variant,
+                        "estimand": estimand,
+                        "truth": laws.truth(name, estimand),
+                        "kind": kind,
+                        "nodes": chosen.law.n_nodes,
+                        "order": order,
+                        "features": ";".join(features),
+                        "t1": t1,
+                        "t0": t0,
+                    }
+                )
+    return pd.DataFrame(rows, columns=list(TASK_COLUMNS))
+
+
 STUDY = StudyRecord(
     name="structural nested mean model",
     slug="structural-nested-mean",
@@ -574,6 +739,18 @@ STUDY = StudyRecord(
     property_cells=PROPERTY_CELLS,
     publication_policy="reporting",
     failure_bound={IMPLEMENTATION: FAILURE_BOUND, PENDING_REFERENCE: FAILURE_BOUND},
+)
+
+#: The record once the comparator is registered: the full run declares it as :data:`STUDY`.
+#: The paired rows cover :data:`REFERENCE_SCENARIOS`, and the Markov rows go to the three
+#: descriptive artefacts of :func:`reference_artifacts`.
+COMPARATOR_STUDY = dataclasses.replace(
+    STUDY,
+    reference=REFERENCE,
+    pending_reference=None,
+    pending_reason="",
+    reference_scenarios=dict(REFERENCE_SCENARIOS),
+    extra_artifacts=(MARKOV_REPLICATES, MARKOV_SUMMARY, MARKOV_FAILURES),
 )
 
 
@@ -615,7 +792,19 @@ CONFIGURATION = {
     "calibration_n": CALIBRATION_N,
     "support_keys": {name: _support_text(declared) for name, declared in SUPPORT_KEYS.items()},
     "expected_red": list(EXPECTED_RED),
-    "reference": "none yet; the EconML 0.17.0 DynamicDML comparator is pending",
+    "reference": (
+        "none yet; the EconML 0.17.0 DynamicDML comparator is pending"
+        if STUDY.reference is None
+        else "EconML 0.17.0 DynamicDML (tests/canonical/econml_dynamic_dml/run_study.py)"
+    ),
+    "comparator": {
+        "paired": {scenario: list(names) for scenario, names in REFERENCE_SCENARIOS.items()},
+        "markov": {scenario: list(names) for scenario, names in MARKOV_ESTIMANDS.items()},
+        "markov_features": {scenario: list(names) for scenario, names in MARKOV_FEATURES.items()},
+        "markov_orders": dict(MARKOV_ORDERS),
+        "fold_seed": COMPARATOR_FOLD_SEED,
+        "markov_margin": MARKOV_MARGIN,
+    },
 }
 
 # --------------------------------------------------------------------------------- primary
@@ -675,18 +864,216 @@ def _replicate(
     return result_rows(result, truth, scenario, replicate)
 
 
+class FoldMismatch(AssertionError):
+    """The folds the comparator sample carries are not the subject fit's folds.
+
+    An ``AssertionError`` stops the run: a paired row fitted on other folds would read as a
+    numerical disagreement.
+    """
+
+
+def comparator_sample(scenario: str, replicate: int, frame: pd.DataFrame) -> pd.DataFrame:
+    """The comparator's input for one replicate: the draw, its keys and the subject's folds.
+
+    A scenario the comparator does not fit gets an empty frame.  The folds are drawn as
+    :func:`fit` draws them, from :data:`COMPARATOR_FOLD_SEED`, so the sample needs no fit.
+    """
+    if scenario not in COMPARATOR_SCENARIOS:
+        return pd.DataFrame()
+    name = SETUP_OF[scenario]
+    folds = random_partition(
+        len(frame), FOLDS.get(name, DEFAULT_FOLDS), seed=COMPARATOR_FOLD_SEED
+    ).assignment
+    sample = frame.copy()
+    sample.insert(0, "scenario", scenario)
+    sample.insert(1, "replicate", replicate)
+    sample["fold"] = np.asarray(folds, dtype=int)
+    return sample
+
+
+def _comparator_input(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """A failed subject fit's value: the sample alone, so the comparator still fits it."""
+    scenario, replicate, _ = key
+    return comparator_sample(scenario, replicate, drawn[0]), []
+
+
+def _paired_replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    scenario, replicate, _ = key
+    frame, truth = drawn
+    sample = comparator_sample(scenario, replicate, frame)
+    result = fit(SETUP_OF[scenario], frame, random_state=COMPARATOR_FOLD_SEED)
+    require_status(result, SCENARIOS[scenario])
+    if not sample.empty and not np.array_equal(
+        sample["fold"].to_numpy(), np.asarray(result.folds.assignment)
+    ):
+        raise FoldMismatch(
+            f"{scenario} replicate {replicate}: the sample's folds are not the fit's"
+        )
+    return sample, result_rows(result, truth, scenario, replicate)
+
+
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
+    keys = [(scenario, replicate, n) for replicate in range(replicates) for scenario in SCENARIOS]
+    if STUDY.reference is None:
+        outcomes = replication.fit_primary(
+            keys,
+            _replicate,
+            draw=_draw,
+            n_jobs=n_jobs,
+            implementation=IMPLEMENTATION,
+            rows_at=None,
+            seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+        )
+        estimates = pd.DataFrame([row for rows in outcomes.kept for row in rows])
+        return replication.result(outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)])
     outcomes = replication.fit_primary(
-        [(scenario, replicate, n) for replicate in range(replicates) for scenario in SCENARIOS],
-        _replicate,
+        keys,
+        _paired_replicate,
         draw=_draw,
+        reference_input=_comparator_input,
         n_jobs=n_jobs,
         implementation=IMPLEMENTATION,
-        rows_at=None,
+        rows_at=1,
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+        spill_samples_at=0,
     )
-    estimates = pd.DataFrame([row for rows in outcomes.kept for row in rows])
-    return replication.result(outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)])
+    samples = replication.assembled_samples(outcomes, at=0)
+    estimates = pd.DataFrame([row for _, rows in outcomes.kept for row in rows])
+    return replication.result(
+        outcomes,
+        estimates.loc[:, list(REPLICATE_COLUMNS)],
+        samples=samples,
+        truths=comparator_tasks(),
+    )
 
 
-__all__ = ["STUDY", "draw_and_fit", "fit"]
+# ------------------------------------------------------------------- the descriptive table
+
+
+def _sibling(path: Path, suffix: str) -> Path:
+    """``<stem>.<suffix>.csv`` beside ``path``: where the runner writes its Markov files."""
+    return path.with_name(f"{path.stem}.{suffix}.csv")
+
+
+def markov_summary(rows: pd.DataFrame, failed: pd.DataFrame) -> pd.DataFrame:
+    """One row per Markov cell: the fit's mean, spread and coverage beside the computed limit.
+
+    ``limit`` is :func:`~tests.studies.structural_nested_mean_laws.dynamic_dml_limit` under the
+    Markov state.  ``distance_low`` and ``distance_high`` bound the 99% interval of the mean's
+    distance from the limit in empirical SDs.  ``agrees_with_limit`` is true when that interval
+    lies inside :data:`MARKOV_MARGIN`.  ``coverage`` reads the truth and ``limit_coverage`` the
+    limit.  The table describes the declared differences and gates nothing.
+    """
+    out = []
+    lost = failed["scenarios"].astype(str).value_counts() if not failed.empty else pd.Series()
+    for scenario, estimands in MARKOV_ESTIMANDS.items():
+        name = SETUP_OF[scenario]
+        features = MARKOV_FEATURES.get(scenario, ())
+        for estimand in estimands:
+            cell = rows.loc[(rows["scenario"] == scenario) & (rows["estimand"] == estimand)]
+            estimate = cell["estimate"].to_numpy(dtype=float)
+            count = len(estimate)
+            truth = laws.truth(name, estimand)
+            limit = laws.dynamic_dml_limit(name, estimand, state="markov", features=features)
+            spread = float(np.std(estimate, ddof=1)) if count > 1 else math.nan
+            mean = float(np.mean(estimate)) if count else math.nan
+            distance = (mean - limit) / spread if spread > 0 else math.nan
+            half = Z_99 / math.sqrt(count) if count else math.nan
+            low, high = (
+                cell["ci_lower"].to_numpy(dtype=float),
+                cell["ci_upper"].to_numpy(dtype=float),
+            )
+            mean_se = float(cell["std_error"].mean()) if count else math.nan
+            out.append(
+                {
+                    "scenario": scenario,
+                    "estimand": estimand,
+                    "replicates": count,
+                    "failed": int(lost.get(scenario, 0)),
+                    "truth": truth,
+                    "limit": limit,
+                    "gap": limit - truth,
+                    "mean": mean,
+                    "sd": spread,
+                    "mean_std_error": mean_se,
+                    "se_ratio": mean_se / spread if spread > 0 else math.nan,
+                    "coverage": float(np.mean((low <= truth) & (truth <= high))),
+                    "limit_coverage": float(np.mean((low <= limit) & (limit <= high))),
+                    "distance_low": distance - half,
+                    "distance_high": distance + half,
+                    "agrees_with_limit": bool(
+                        distance - half >= -MARKOV_MARGIN and distance + half <= MARKOV_MARGIN
+                    ),
+                }
+            )
+    return pd.DataFrame(out)
+
+
+#: The two-sided 99% normal quantile.
+Z_99 = 2.5758293035489004
+
+
+def reference_artifacts(
+    *,
+    reference: Any,
+    here: Path,
+    samples: Path,
+    truths_path: Path,
+    reference_results: Path,
+    output: Path,
+    cores: int,
+) -> dict[str, pd.DataFrame]:
+    """The Markov rows the comparator run wrote beside its paired rows, and their table.
+
+    The runner fits both variants in one container run, so this hook runs no process.  It
+    reads ``<reference_results stem>.markov.csv`` and ``.markov-failures.csv``.
+    """
+    del reference, here, samples, truths_path, output, cores
+    rows = pd.read_csv(_sibling(reference_results, "markov"))
+    rows = rows.loc[:, list(REPLICATE_COLUMNS)].sort_values(
+        ["scenario", "replicate", "estimand"], ignore_index=True
+    )
+    failures_path = _sibling(reference_results, "markov-failures")
+    failed = (
+        pd.read_csv(failures_path, dtype={"scenarios": str, "replicates": str})
+        if failures_path.exists()
+        else pd.DataFrame(columns=list(MARKOV_FAILURE_COLUMNS))
+    )
+    return {
+        MARKOV_REPLICATES: rows,
+        MARKOV_SUMMARY: markov_summary(rows, failed),
+        MARKOV_FAILURES: failed.loc[:, list(MARKOV_FAILURE_COLUMNS)],
+    }
+
+
+#: The columns of the runner's failure records.
+MARKOV_FAILURE_COLUMNS = (
+    "group_id",
+    "scenarios",
+    "replicates",
+    "attempt",
+    "class",
+    "stage",
+    "call",
+    "message",
+    "seed",
+)
+
+
+def account_failures(failures: pd.DataFrame, artifacts: Mapping[str, pd.DataFrame]) -> pd.DataFrame:
+    """The Markov table gates nothing, so a failed paired fit leaves no audit to account.
+
+    Its own lost fits are counted in its ``failed`` column and kept in
+    :data:`MARKOV_FAILURES`.
+    """
+    del failures, artifacts
+    return evidence_failures.audits(
+        {"Markov-state DynamicDML table (descriptive)": pd.DataFrame()}, missing={}
+    )
+
+
+__all__ = ["COMPARATOR_STUDY", "STUDY", "draw_and_fit", "fit", "reference_artifacts"]
