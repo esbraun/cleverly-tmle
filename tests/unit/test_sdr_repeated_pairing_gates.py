@@ -100,15 +100,18 @@ def test_the_runner_streams_several_replicates_per_chunk_and_promotes_warnings()
     chunk = int(re.search(r"chunk_lines = (\d+)L", source).group(1))  # type: ignore[union-attr]
     assert chunk // (len(study.SCENARIOS) * study.PRIMARY_N) >= 8
     assert "study_stage" in _read(CANONICAL / "lmtp_sdr_adapter.R")
-    # A plain error, so the stage records a rare warning as a fitting failure (not a fatal one).
-    handler = re.search(r"warning = function\(condition\) \{\s+stop\(sprintf\(", source)
-    assert handler is not None
-    assert "study_fatal_error" not in source
-    assert "withCallingHandlers(" in source
-    # The unseen-cell check runs in its own stage before the fit.
-    assert source.index('study_stage("unseen cells", check_cells(') < source.index(
-        "lmtp_sdr_with_folds(\n"
+    # The harness contract (tests/unit/test_harness_failures.py): a promoted warning raises the
+    # fatal class, so a stage never records it as a fitting failure.
+    handler = re.search(
+        r"warning = function\(condition\) \{\s+study_fatal_error\(sprintf\(", source
     )
+    assert handler is not None
+    assert "withCallingHandlers(" in source
+    # The unseen-cell check runs before the fit and outside any stage, so a refusal is fatal.
+    assert 'study_stage("unseen cells"' not in source
+    assert source.index(
+        "check_cells(frame, label, horizon)\n  withCallingHandlers("
+    ) < source.index("lmtp_sdr_with_folds(\n")
 
 
 def _r_slug(label: str) -> str:

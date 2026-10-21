@@ -66,27 +66,25 @@ check_cells <- function(frame, label, horizon) {
 
 fit_plan <- function(frame, label, horizon) {
   nodes <- seq_len(horizon)
-  # The check of the unseen cells runs in its own `study_stage`, and the fit runs in the
-  # adapter's.  The handler is established outside both and raises a plain error, so it
-  # propagates through the stage: a rare warning is a recorded fitting failure under the lmtp
-  # failure bound, and a warning on every replicate is stopped by `study_systematic`.
+  # The check of the unseen cells runs outside any stage, so a refusal is fatal and is never
+  # recorded as a comparator failure. The fit runs in the adapter's stage. The warning handler
+  # is established outside it and raises the fatal class, so a warning stops the run and is
+  # never recorded as a fitting failure.
+  check_cells(frame, label, horizon)
   withCallingHandlers(
-    {
-      study_stage("unseen cells", check_cells(frame, label, horizon))
-      lmtp_sdr_with_folds(
-        frame,
-        slug(label),
-        trt = sprintf("A%d", nodes),
-        outcome = sprintf("Y%d", horizon),
-        baseline = "W",
-        time_vary = blocks[nodes],
-        cens = sprintf("C%d", nodes),
-        outcome_type = "binomial",
-        learners_outcome = "SL.cellmeans.outcomes"
-      )
-    },
+    lmtp_sdr_with_folds(
+      frame,
+      slug(label),
+      trt = sprintf("A%d", nodes),
+      outcome = sprintf("Y%d", horizon),
+      baseline = "W",
+      time_vary = blocks[nodes],
+      cens = sprintf("C%d", nodes),
+      outcome_type = "binomial",
+      learners_outcome = "SL.cellmeans.outcomes"
+    ),
     warning = function(condition) {
-      stop(sprintf(
+      study_fatal_error(sprintf(
         "unexpected warning for %s at t=%d: %s", label, horizon, conditionMessage(condition)
       ))
     }
