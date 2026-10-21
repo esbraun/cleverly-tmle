@@ -18,6 +18,7 @@ initial clip, and each fails a check of this module.
 from __future__ import annotations
 
 import functools
+import inspect
 import re
 import warnings
 from typing import Any
@@ -47,6 +48,7 @@ from cleverly.longitudinal.sequential import NodeBound, constant_nodes
 from cleverly.utils.bounds import OutcomeScaler
 from tests.discrete_law_point_survival import CellMeans, CellProbabilities, PointLaw, static
 from tests.unit import test_hazard_full_cells as full_cells
+from tests.unit._source_mutation import mutate
 from tests.unit.test_hazard_survival_law import ArmOnly
 
 ONE = PointLaw("survival", 2)
@@ -532,6 +534,81 @@ def check_initial_clip(result: Any, bounds: HazardBounds) -> None:
     clipped = np.clip(raw, lower + (1 - alpha) * scale, lower + alpha * scale)
     np.testing.assert_allclose(start.hazards[:, k], clipped, rtol=1e-12, atol=1e-15)
     assert np.any(raw > lower + scale)
+
+
+#: The test-only edit that makes ``_newton`` return its loss evaluator, so that the evaluator
+#: of the per-horizon fallback can be differentiated numerically.
+_EXPOSE_SOLVE = (
+    "    solve = evaluate if bounds is None or not bounds.active else evaluate_bounded\n",
+    "    solve = evaluate if bounds is None or not bounds.active else evaluate_bounded\n"
+    "    return solve\n",
+)
+
+
+def check_bounded_newton(
+    monkeypatch: pytest.MonkeyPatch, edits: tuple[tuple[str, str], ...] = ()
+) -> None:
+    """The gradient and information of ``evaluate_bounded`` are the derivatives of its loss.
+
+    On the two-cause law with :data:`MIXED`, node 1 is bounded with ``l > 0`` and ``s < 1``
+    and node 2 is free, so both blocks of the information are read.  No logit sits at its
+    clip, so the loss is smooth at the probe.  The gradient is ``d value / d eps / n`` and the
+    information is ``-d gradient / d eps``, by central differences.
+    """
+    result = _fit(TWO, "iterative", node_bounds=MIXED)
+    bounds = _bounds(result, MIXED)
+    inputs, start = _internals(result, bounds)
+    base = start.logits[inputs.rows, :, inputs.observed]
+    low, high = inputs.bounds
+    assert not np.any((base <= low) | (base >= high))
+    with monkeypatch.context() as patch:
+        mutate(patch, hazard_module, hazard_module, "_newton", [_EXPOSE_SOLVE, *edits])
+        clever = hazard_module._clever_observed(start, inputs, 2)
+        solve: Any = hazard_module._newton(start, inputs, clever, 1e-10)
+    eps = np.random.default_rng(1).normal(size=clever.shape[0]) * 0.01
+    _, gradient, information = solve(eps)
+    dx = 1e-6
+    slope = np.empty_like(gradient)
+    curvature = np.empty_like(information)
+    for m in range(eps.size):
+        e = np.zeros_like(eps)
+        e[m] = dx
+        ahead, gradient_ahead, _ = solve(eps + e)
+        behind, gradient_behind, _ = solve(eps - e)
+        slope[m] = (ahead - behind) / (2 * dx) / inputs.n
+        curvature[:, m] = -(gradient_ahead - gradient_behind) / (2 * dx)
+    np.testing.assert_allclose(slope, gradient, rtol=0.0, atol=1e-7 * np.max(np.abs(gradient)))
+    np.testing.assert_allclose(
+        curvature, information, rtol=0.0, atol=1e-7 * np.max(np.abs(information))
+    )
+
+
+class TestTheBoundedNewtonFallback:
+    """A mutation control for the per-horizon fallback fit with :math:`h` held fixed."""
+
+    def test_the_unmutated_derivatives_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        check_bounded_newton(monkeypatch)
+
+    @pytest.mark.parametrize(
+        "edit",
+        [
+            ("scaled = clever * bounds.scale[None, None]", "scaled = clever"),
+            ("(p * (1.0 - p))[None]", "p[None]"),
+            ("free = np.where(mask & ~k[None, :], w, 0.0)", "free = np.where(mask, w, 0.0)"),
+            (
+                "y = (inputs.events[:, k] - bounds.lower[k][None]) / bounds.scale[k][None]",
+                "y = inputs.events[:, k]",
+            ),
+        ],
+        ids=["unscaled-information", "no-variance", "bounded-in-free-block", "unscaled-outcome"],
+    )
+    def test_each_mutation_fails(
+        self, monkeypatch: pytest.MonkeyPatch, edit: tuple[str, str]
+    ) -> None:
+        # The anchor is checked first, so the failure below is the derivative check's.
+        assert inspect.getsource(hazard_module._newton).count(edit[0]) == 1
+        with pytest.raises(AssertionError, match="Not equal to tolerance"):
+            check_bounded_newton(monkeypatch, (edit,))
 
 
 class TestMutationControls:
