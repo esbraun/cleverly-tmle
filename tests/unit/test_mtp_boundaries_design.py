@@ -253,12 +253,13 @@ def test_the_seeds_are_new() -> None:
     assert common.BOUND_SEED not in others | {study.SEED, study.RESAMPLING_SEED}
 
 
-def test_the_record_is_comparator_pending_with_its_reference() -> None:
+def test_the_record_compares_lmtp_through_its_runner() -> None:
     from tests.canonical.mtp_boundaries.regenerate import REFERENCE
 
     record = study.STUDY
-    assert record.comparator_state == "pending"
-    assert record.pending_reference == "lmtp"
+    assert record.comparator_state == "compared"
+    assert record.reference == "lmtp"
+    assert record.extra_artifacts == ("exactness.csv",)
     assert REFERENCE.runner == "mtp_boundaries_runner.R"
     runner = (ROOT / "tests" / "canonical" / REFERENCE.runner).read_text(encoding="utf-8")
     block = re.search(r"estimators <- c\((.*?)\n\)", runner, re.S)
@@ -402,3 +403,69 @@ def test_the_gating_cells_are_published_and_hold_no_inadmissible_red() -> None:
     assert (
         tools.gating_findings(study.STUDY, properties.GATING_CELLS, properties.GATING_TRUTH) == []
     )
+
+
+# ---------------------------------------------------------------------------- exactness
+
+
+def _paired_rows(gap: float = 0.0, se_gap: float = 0.0) -> pd.DataFrame:
+    """Two replications of every witness estimand, the reference moved by ``gap``."""
+    records = []
+    for scenario in sorted(study.EXACT):
+        for name in study.names(study.SCENARIOS[scenario][2]):
+            for replicate in (0, 1):
+                for implementation, shift, se_shift in (
+                    (study.STUDY.implementation, 0.0, 0.0),
+                    ("lmtp", gap, se_gap),
+                ):
+                    records.append(
+                        {
+                            "implementation": implementation,
+                            "scenario": scenario,
+                            "replicate": replicate,
+                            "estimand": name,
+                            "estimate": 0.4 + shift,
+                            "std_error": 0.01 + se_shift,
+                        }
+                    )
+    return pd.DataFrame.from_records(records)
+
+
+def test_the_exactness_gate_reads_every_witness_estimand() -> None:
+    table = study.extra_artifacts(_paired_rows())["exactness.csv"]
+    assert set(table["scenario"]) == set(study.EXACT)
+    assert table["passed"].all()
+    assert (table["pairs"] == 2).all()
+    assert (table["gate"] == study.SMOKE_GATE).all()
+    assert not len(study.scientific_failures({"exactness.csv": table})["exactness witness"])
+
+
+@pytest.mark.parametrize(("gap", "se_gap"), [(2e-6, 0.0), (0.0, 2e-6)])
+def test_a_paired_gap_at_the_gate_turns_the_witness_red(gap: float, se_gap: float) -> None:
+    # The deliberate mutation: a reference moved by twice the gate in either column.
+    table = study.extra_artifacts(_paired_rows(gap, se_gap))["exactness.csv"]
+    assert not table["passed"].any()
+    failed = study.scientific_failures({"exactness.csv": table})["exactness witness"]
+    assert len(failed) == len(table)
+
+
+def test_a_gap_below_the_gate_passes_and_an_unpaired_witness_does_not() -> None:
+    assert study.extra_artifacts(_paired_rows(5e-7, 5e-7))["exactness.csv"]["passed"].all()
+    rows = _paired_rows()
+    lost = rows.loc[
+        ~((rows["implementation"] == "lmtp") & (rows["scenario"] == study.BOUNDARIES_SDR))
+    ]
+    table = study.extra_artifacts(lost)["exactness.csv"]
+    assert not table.loc[table["scenario"] == study.BOUNDARIES_SDR, "passed"].any()
+    assert table.loc[table["scenario"] == study.BOUNDARIES_LTMLE, "passed"].all()
+
+
+def test_the_atom_scenarios_are_not_witnesses() -> None:
+    assert {study.BOUNDARIES_LTMLE, study.BOUNDARIES_SDR} == study.EXACT
+    pairing = study.REFERENCE_METADATA["pairing"]
+    assert all("default margins" in pairing[s] for s in (study.ATOM_LTMLE, study.ATOM_SDR))
+
+
+def test_the_runner_reads_lmtp_bound_through_the_gate() -> None:
+    runner = (ROOT / "tests" / "canonical" / "mtp_boundaries_runner.R").read_text(encoding="utf-8")
+    assert "refuse_bound = FALSE" in runner
