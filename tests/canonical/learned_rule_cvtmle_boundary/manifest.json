@@ -80,11 +80,11 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "f2139bdfb2efbb42ab4f088365ecdc31f31a02974e8e9368b7ebce12df6f877f",
+    "replicates.parquet": "d6dd52d6bed811e657942b6429f75373721e91a2c2b25b29229136df0b18349d",
     "summary.csv": "83a0675bbfbfd30d7025b81d4c1e62f2ff2c9b55d1848252c0e8f4d0f7953be6",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "6964ee878796fa46b9a221bf6ec155ba76fbed7ce09d482f52f373067b519125",
-    "property-replicates.csv.gz": "fb3c9f2bb88665a0443d48eef9d274a8291e16c14d6cf002fd76101ca39672b6",
+    "property-replicates.parquet": "b481b2d7a78bbb365314fbbd98ed68f4fd80627c7f80ac37fd778bdba3d4bbb4",
     "properties.csv": "f9941c012c9d4382c92fe56bb4f353058b90d77dd321c10ee9db895b180b293a",
     "harness.csv.gz": "7ff103d360f5dc06754503dc6663f86c88f738e61ebc794a7e2e585555d92559",
     "reading.csv": "7b5aa59f163855f411f41692e89017ae1fd24d0c0a9bf3704fe3af416e38bd9e"

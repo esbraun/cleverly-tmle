@@ -93,11 +93,11 @@
     "tests/canonical/study_harness.R": "63defdd896ff1c5535bb7ebfccc8599c8dd24b6658896945931299613e9a9878"
   },
   "sha256": {
-    "replicates.csv.gz": "eee53084cc9c3dfab988702b2ea74b0a3e7aff294990463f0772b3e7ea80991f",
+    "replicates.parquet": "7d28e909dc599112af0e07d8edc5c2b46b45de0da5250f1331d515d91ccd9960",
     "summary.csv": "964b66e8ac7d0cfdd93d5c039760bccb6f4cf491d96560df85a9c56e13a27d43",
     "equivalence.csv": "577b805df92cfb2adf8011b27c846a822887a172b718f2dda1b866a98564bc21",
     "performance-tests.csv": "3acdfdc9df4c1bf1e605f870b0e76ac596869621caccd4c40f6a4154cd79d5fc",
-    "property-replicates.csv.gz": "c49f74388341ad0ce43019c1d950fd3f46691e526fbec3e394c850077ab056b8",
+    "property-replicates.parquet": "4d2a1a43088eb97ee090ed41e4862496834f69046817b4f5120849f5e2f68e1e",
     "properties.csv": "8307fa643469ff679613cd35158dc98109015dae81bc9b4b74597949c5a124a1"
   }
 }

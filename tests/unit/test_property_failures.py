@@ -27,6 +27,7 @@ from tests.studies.evidence.failures import (
     vertex,
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.properties import (
     REPLICATE_COLUMNS,
     coverage_gain_interval,
@@ -231,7 +232,7 @@ def _committed(slug_module: str) -> tuple[StudyRecord, pd.DataFrame]:
     import importlib
 
     study = importlib.import_module(f"tests.studies.{slug_module}").STUDY
-    return study, pd.read_csv(study.artifact("property-replicates.csv.gz"))
+    return study, read_rows(study.artifact("property-replicates.parquet"))
 
 
 def _lose(rows: pd.DataFrame, losses: dict[str, int]) -> pd.DataFrame:
@@ -3162,7 +3163,7 @@ class TestSummaryRows:
         from tests.studies.evidence.registry import registered
 
         (study,) = [record for record in registered() if record.slug == properties.STUDY.slug]
-        rows = pd.read_csv(study.artifact("property-replicates.csv.gz"))
+        rows = read_rows(study.artifact("property-replicates.parquet"))
         configuration = properties.CONFIGURATION_BY_NAME["missing_outcome_crossfit"]
         names = ";".join(f"{configuration.family}/{cell}" for cell in configuration.cells)
         records = _records(_record_row(names, 7, group="properties/missing_outcome_crossfit"))

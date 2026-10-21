@@ -20,6 +20,7 @@ import pytest
 from tests.studies import canonical_ctmle_oat_per_arm_strata_missing as study
 from tests.studies import ctmle_oat_per_arm_strata_missing_properties as properties
 from tests.studies import oat_per_arm_extension_laws as laws
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import Margins, registered
 
 pytestmark = pytest.mark.xdist_group("ctmle_oat_per_arm_strata_missing_design")
@@ -434,7 +435,7 @@ def _committed(name: str) -> pd.DataFrame:
     path = study.STUDY.artifacts / name
     if not path.exists():
         pytest.skip("the registered run has not been committed yet")
-    return pd.read_csv(path)
+    return read_rows(path) if path.suffix == ".parquet" else pd.read_csv(path)
 
 
 def test_the_pairing_reads_the_design_change() -> None:
@@ -447,7 +448,7 @@ def test_the_pairing_reads_the_design_change() -> None:
     witness is ``design-gap.csv``: on every reported row, the shipped design sits at least 0.02
     SD from this one on average, so it would fail the same ceiling.
     """
-    gaps = study.paired_gaps(_committed("replicates.csv.gz"))
+    gaps = study.paired_gaps(_committed("replicates.parquet"))
     paired = _committed("equivalence.csv")
     assert set(zip(gaps["scenario"], gaps["estimand"], strict=True)) == set(
         zip(paired["scenario"], paired["estimand"], strict=True)
@@ -468,7 +469,7 @@ def test_the_tail_fits_are_rare() -> None:
     nonrespondents, hold 2 of 800 (replications 271 and 605).  They raise the mean SE ratio of
     the ``S = 2`` contrasts 5% to 7% above its median.
     """
-    spread = properties.se_ratio_spread(_committed("property-replicates.csv.gz"))
+    spread = properties.se_ratio_spread(_committed("property-replicates.parquet"))
     spread = spread.set_index("cell")
     tails = spread["tail_fits"].to_dict()
     assert tails["n_2000"] == 3
@@ -497,7 +498,7 @@ def test_the_ratio_cells_compare_one_scale() -> None:
         "rr__missing_outcome_crossfit",
         "or__missing_outcome_crossfit",
     }
-    rows = _committed("property-replicates.csv.gz")
+    rows = _committed("property-replicates.parquet")
     published = _committed("properties.csv").set_index("cell")["se_ratio"]
     for cell, unscaled in (
         ("rr__missing_outcome_crossfit", 0.559),
@@ -522,7 +523,7 @@ def test_the_post_run_gate() -> None:
     performance = pd.read_csv(artifacts / "performance-tests.csv")
     equivalence = pd.read_csv(artifacts / "equivalence.csv")
     summary = pd.read_csv(artifacts / "properties.csv")
-    replicates = pd.read_csv(artifacts / "property-replicates.csv.gz")
+    replicates = read_rows(artifacts / "property-replicates.parquet")
     upper = properties.ladder_se_ratio_upper(replicates)
     assert study.defect_suspects(performance, equivalence, summary, upper) == []
     truth, ladder = study.routed_rows(performance, summary)

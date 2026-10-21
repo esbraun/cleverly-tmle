@@ -689,8 +689,8 @@
       "equivalence.csv": "baseline",
       "performance-tests.csv": "baseline",
       "properties.csv": "analysis",
-      "property-replicates.csv.gz": "composite_replicates",
-      "replicates.csv.gz": "baseline",
+      "property-replicates.parquet": "composite_replicates",
+      "replicates.parquet": "baseline",
       "summary.csv": "baseline"
     },
     "baseline": {
@@ -1542,8 +1542,8 @@
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "0e4ab5170735c9a3b8098710189c8455d5a620d9812652ca684e4444a72c910a",
     "properties.csv": "51ed47b5c4e1b745018525d2c22df3d7a852ab7fa9e8c1ec59fe63d90aa606f5",
-    "property-replicates.csv.gz": "870e8cb36b950f4081a49adadc591b69ec243b5fca6bc3df707e4be71977a0d1",
-    "replicates.csv.gz": "a9c64e84941750fbea399a25ab6cb65fccd1c115c8130762e7d61d79b7ae74cd",
+    "property-replicates.parquet": "ffedb25c0ce4f1e076a9ed21713956ff1693ad98d177f9a1112ff1d3678156e0",
+    "replicates.parquet": "a924c1a3bc74f8e6162cff3e66403723c64e0faf80533560cc3e1fb167250ea2",
     "summary.csv": "5997c1ff437404f03145c2c49f751b2284405bb4b5a21e1ddc7f70d91b41d156"
   },
   "slug": "repeated-crossfit-tmle",

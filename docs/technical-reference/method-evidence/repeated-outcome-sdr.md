@@ -153,7 +153,7 @@ Three gates cover the pairing beyond the paired verdicts above.
 | --- | --- | --- |
 | G1r | on 20 draws of each scenario, the estimate and the centred influence curve of `cleverly` equal those of `lmtp` to 1e-10 in every cell. `lmtp` returns an uncentred influence curve, so the gate centres it | 520 of 520 cells pass. The largest estimate gap is 6.9e-16 and the largest influence curve gap is 9.1e-14 (`gates.csv`) |
 | parity ratio | in every cell and over all 2,400 draws, the largest absolute estimate difference is at most 1% of the root mean square of the `lmtp` correction, which is its estimate minus the first-node plug-in | 26 of 26 cells pass. The worst ratio is 3.4e-13, at `ey_regimen[always @ t=2]` in sample (`tests/unit/test_sdr_repeated_pairing_gates.py`) |
-| row equality | the Python rows of this run equal the rows of the earlier Python-only run to 1e-10 | passes against `pr-b-replicates.csv.gz` |
+| row equality | the Python rows of this run equal the rows of the earlier Python-only run to 1e-10 | passes against `pr-b-replicates.parquet` |
 
 The fast test of the parity ratio runs mutation N8 on the committed rows. A first-node plug-in in
 place of the estimate, and a correction shortened by 10%, each fail the gate.
@@ -419,6 +419,6 @@ The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/ca
 gives the regeneration and pilot commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/manifest.json)
 records the comparator, the R sources, the seeds and the artifact hashes.
-The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/replicates.csv.gz)
+The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/properties.csv)
 carry every published row.

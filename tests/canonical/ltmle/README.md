@@ -29,10 +29,10 @@ test modules. This reference is secondary implementation evidence, not an oracle
 estimand.
 
 The directory also holds the registered repeated-sampling study for censored end-of-study
-LTMLE.  `replicates.csv.gz` pairs cleverly with R `ltmle` on 1,600 identical samples and
+LTMLE.  `replicates.parquet` pairs cleverly with R `ltmle` on 1,600 identical samples and
 three plans (never, always, and a row-specific dynamic rule).  Both receive the generating
 treatment and censoring probabilities and matching quasibinomial sequential regressions, so
-the comparison isolates targeting and inference.  `property-replicates.csv.gz` is independent:
+the comparison isolates targeting and inference.  `property-replicates.parquet` is independent:
 it samples the exact finite-support law, checks static and dynamic double robustness, root-n
 contraction, the Gateaux-EIF efficiency bound, interval calibration, type-I error and power,
 and retains the resolved n=500 undercoverage as a negative control.

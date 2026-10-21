@@ -32,7 +32,7 @@ Queue commands, in order:
 2. `python -m tests.canonical.sdr_repeated.gates` (G1r, 20 replicates of each scenario).
 3. `python -m tests.canonical.sdr_repeated.regenerate --skip-properties --jobs 12`.
 
-Step 3 reran the Python phase on the same seeds. `pr-b-replicates.csv.gz` holds the rows of the
+Step 3 reran the Python phase on the same seeds. `pr-b-replicates.parquet` holds the rows of the
 earlier Python-only run, and `tests/unit/test_sdr_repeated_pairing_gates.py` requires the new
 rows to equal them to 1e-10. The same test file runs the parity-ratio gate and mutation N8 on
 the committed lmtp rows.

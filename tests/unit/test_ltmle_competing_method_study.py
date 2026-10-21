@@ -17,6 +17,7 @@ from tests.studies import canonical_ltmle_competing as ordinary
 from tests.studies import canonical_ltmle_competing_crossfit as crossfit
 from tests.studies import ltmle_competing_crossfit_properties as crossfit_properties
 from tests.studies import ltmle_competing_properties as properties
+from tests.studies.evidence.manifest import read_rows
 
 
 def test_the_primary_studies_report_every_unique_parameter_once() -> None:
@@ -278,10 +279,10 @@ def test_the_cross_fitted_r_payload_uses_the_realized_outer_folds() -> None:
 
 
 def _paired_replicates(study: Any) -> tuple[pd.DataFrame, pd.DataFrame]:
-    path = study.STUDY.artifact("replicates.csv.gz")
+    path = study.STUDY.artifact("replicates.parquet")
     if not path.exists():
         pytest.skip("the new study artifacts have not been generated yet")
-    rows = pd.read_csv(path)
+    rows = read_rows(path)
     paired = rows.pivot(
         index=["scenario", "replicate", "estimand"],
         columns="implementation",

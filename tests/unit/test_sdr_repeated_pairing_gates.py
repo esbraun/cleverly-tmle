@@ -20,6 +20,7 @@ import pytest
 from tests.canonical.sdr_repeated import gates, regenerate
 from tests.studies import canonical_sdr_repeated as study
 from tests.studies.canonical_ltmle_repeated import COLUMNS, RULE_LABEL
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
 
 pytestmark = pytest.mark.filterwarnings("ignore")
@@ -316,7 +317,7 @@ def test_g1r_refuses_unpaired_rows() -> None:
 
 
 def _committed() -> pd.DataFrame:
-    return pd.read_csv(study.STUDY.artifacts / "replicates.csv.gz", float_precision="round_trip")
+    return read_rows(study.STUDY.artifacts / "replicates.parquet")
 
 
 def test_the_baseline_is_the_file_pr_b_committed() -> None:

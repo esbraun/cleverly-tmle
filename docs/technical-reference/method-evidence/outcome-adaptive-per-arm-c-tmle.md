@@ -254,7 +254,7 @@ The [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonica
 records the seeds, the margins, the declared revert cells, the expected red rows, the estimator
 configuration and the hashes. Run `python -m tests.canonical.drtmle_oat_per_arm.regenerate` to
 regenerate the artifacts. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm/equivalence.csv),
 [design gap](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm/design-gap.csv)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm/properties.csv)

@@ -398,7 +398,7 @@ writes 12 cells: the 4 positive cells of `m` and their 8 controls. Each of those
 | --- | --- |
 | records | `property-failures.csv`, one row for each lost fit |
 | accounting | `property-failure-accounting.csv`. Every clause of the 12 cells holds at its worst case, and every cell reads `within bound` |
-| witnesses | `property-failure-witnesses.csv`, the draw statistic of each lost replicate among the survivors of its cell |
+| witnesses | `property-failure-witnesses.parquet`, the draw statistic of each lost replicate among the survivors of its cell |
 | primary phase | no fit failed |
 
 ## Measured values

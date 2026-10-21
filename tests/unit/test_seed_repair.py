@@ -8,11 +8,13 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from cleverly.validation import ReplicationFailure, ReplicationRecord
 from tests.canonical import repair_property_seeds as runner
 from tests.studies.evidence import seed_repair as repair
+from tests.studies.evidence.manifest import csv_text, read_rows, write_rows
 from tests.studies.evidence.properties import REPLICATE_COLUMNS
 
 
@@ -62,6 +64,7 @@ def fixture() -> tuple[dict[str, object], bytes]:
         "reference_sha256": {"reference.R": "2" * 64},
         "sha256": {
             "replicates.csv.gz": "3" * 64,
+            "summary.csv": "a" * 64,
             "properties.csv": "4" * 64,
             "property-replicates.csv.gz": "5" * 64,
         },
@@ -99,9 +102,10 @@ def fixture() -> tuple[dict[str, object], bytes]:
         slug="test",
         operation=operation,
         artifact_hashes={
-            **baseline["sha256"],
+            "replicates.parquet": "3" * 64,
+            "summary.csv": "a" * 64,
             "properties.csv": "7" * 64,
-            "property-replicates.csv.gz": "8" * 64,
+            "property-replicates.parquet": "8" * 64,
         },
         property_raw_sha256="9" * 64,
         carried_property_rows_sha256="a" * 64,
@@ -253,13 +257,16 @@ def test_composite_preserves_historical_dirty_provenance() -> None:
         "margins",
         "dirty",
         "inventory",
+        "stale_name",
     ),
 )
 def test_composite_attribution_mutations_are_refused(mutation: str) -> None:
     manifest, raw = fixture()
     metadata = manifest["composite"]["replacement"]
     if mutation == "primary":
-        manifest["sha256"]["replicates.csv.gz"] = "0" * 64
+        manifest["sha256"]["summary.csv"] = "0" * 64
+    elif mutation == "stale_name":
+        manifest["sha256"]["replicates.csv.gz"] = manifest["sha256"].pop("replicates.parquet")
     elif mutation == "baseline":
         manifest["composite"]["baseline"]["manifest_sha256"] = "0" * 64
     elif mutation == "historical":
@@ -288,6 +295,32 @@ def test_composite_attribution_mutations_are_refused(mutation: str) -> None:
         metadata["distribution_versions"] = []
     with pytest.raises((ValueError, KeyError)):
         repair.validate_composite_manifest(manifest, raw)
+
+
+def test_parquet_row_file_gives_back_the_csv_text_the_receipts_hash(tmp_path: Path) -> None:
+    text = table(row(), row(1), {**row(2), "estimate": 0.1 + 0.2})
+    path = tmp_path / "replicates.parquet"
+    write_rows(pd.read_csv(io.BytesIO(text), float_precision="round_trip"), path)
+    assert csv_text(read_rows(path)) == text
+    header, rows = repair.parse_lines(csv_text(read_rows(path)))
+    assert header + b"".join(line for line, _ in rows.values()) == text
+
+
+def test_carried_row_file_must_hold_the_baseline_rows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    frame = pd.read_csv(io.BytesIO(table(row(), row(1))), float_precision="round_trip")
+    path = tmp_path / "replicates.parquet"
+    write_rows(frame, path)
+    receipt = {"test": {"replicates.parquet": repair.digest(csv_text(frame))}}
+    monkeypatch.setattr(repair, "BASELINE_ROW_CSV_SHA256", receipt)
+    assert repair.carried_rows_findings("test", tmp_path, ["replicates.parquet"]) == []
+    moved = frame.copy()
+    moved.loc[1, "estimate"] = float(moved.loc[1, "estimate"]) + 1e-12
+    write_rows(moved, path)
+    assert repair.carried_rows_findings("test", tmp_path, ["replicates.parquet"]) == [
+        "replicates.parquet no longer holds the baseline rows of test"
+    ]
 
 
 def test_partial_executor_preserves_original_id_and_one_seed(

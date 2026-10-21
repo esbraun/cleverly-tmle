@@ -25,11 +25,12 @@ from cleverly.utils.parallel import map_parallel
 from cleverly.validation import CoverageStudy, ReplicationFailure
 from tests.canonical.declared_run import outside, thread_refusals
 from tests.diagnostics.rm18_shared import THREAD_VARIABLES, refusals
-from tests.studies.evidence.manifest import provenance, write_csv
+from tests.studies.evidence.manifest import csv_text, provenance, read_rows, write_csv, write_rows
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 from tests.studies.evidence.seed_repair import (
     ALLOCATION_COMMIT,
     BASELINE_COMMIT,
+    BASELINE_ROW_CSV_SHA256,
     EXPECTED_COUNTS,
     FIT_FIELDS,
     PLAN_PATH,
@@ -40,6 +41,7 @@ from tests.studies.evidence.seed_repair import (
     carried_rows_sha256,
     changed_seeds,
     composite_manifest,
+    current_name,
     digest,
     json_bytes,
     parse_lines,
@@ -56,6 +58,19 @@ from tests.studies.evidence.seed_repair import (
 
 def git_blob(commit: str, relative: str) -> bytes:
     return subprocess.check_output(["git", "-C", str(ROOT), "show", f"{commit}:{relative}"])
+
+
+def read_csv_text(text: bytes) -> pd.DataFrame:
+    """The rows of CSV text, with every float64 kept exactly."""
+    return pd.read_csv(io.BytesIO(text), float_precision="round_trip")
+
+
+def verify_baseline_rows(slug: str, artifacts: dict[str, bytes]) -> None:
+    """Refuse a baseline row file whose CSV text is not the recorded one."""
+    for name, expected in BASELINE_ROW_CSV_SHA256[slug].items():
+        baseline_name = next(item for item in artifacts if current_name(item) == name)
+        if digest(gzip.decompress(artifacts[baseline_name])) != expected:
+            raise ValueError(f"{slug}: the CSV text of baseline {baseline_name} differs")
 
 
 def git_value(*arguments: str) -> str:
@@ -242,6 +257,7 @@ def execute(plan_raw: bytes, slug: str, output: Path, *, jobs: int) -> bool:
     }
     if any(digest(raw) != baseline["sha256"][name] for name, raw in artifacts.items()):
         raise ValueError("baseline artifact bytes do not match their recorded hashes")
+    verify_baseline_rows(slug, artifacts)
     property_raw = gzip.decompress(artifacts["property-replicates.csv.gz"])
     _, old_rows = parse_lines(property_raw)
     validate_complete_rows(old_rows)
@@ -265,21 +281,31 @@ def execute(plan_raw: bytes, slug: str, output: Path, *, jobs: int) -> bool:
     outcomes = map_parallel(replacement_job, payloads, n_jobs=jobs)
     composite_raw = splice_rows(property_raw, [row for row, _ in outcomes], positions)
     verify_splice(property_raw, composite_raw, positions)
-    rows = pd.read_csv(io.BytesIO(composite_raw), float_precision="round_trip")
+    rows = read_csv_text(composite_raw)
     # Complete table, original bootstrap streams, full declared budgets and verdict rules.
     summary = record.properties().summarize_properties(rows)
-    artifacts["property-replicates.csv.gz"] = gzip.compress(composite_raw, mtime=0)
+    # The row files are Parquet in the tree.  Each one must give back the CSV text it came from.
+    primary_raw = gzip.decompress(artifacts["replicates.csv.gz"])
+    for name, text, frame in (
+        ("replicates.csv.gz", primary_raw, read_csv_text(primary_raw)),
+        ("property-replicates.csv.gz", composite_raw, rows),
+    ):
+        write_rows(frame, output / current_name(name))
+        if csv_text(read_rows(output / current_name(name))) != text:
+            raise ValueError(f"{current_name(name)} does not give back its CSV text")
     for name, raw in artifacts.items():
-        if name != "properties.csv":
+        if name != "properties.csv" and current_name(name) == name:
             (output / name).write_bytes(raw)
     write_csv(summary, output / "properties.csv")
-    artifacts["properties.csv"] = (output / "properties.csv").read_bytes()
     manifest = composite_manifest(
         baseline_raw,
         plan_raw=plan_raw,
         slug=slug,
         operation=operation,
-        artifact_hashes={name: digest(raw) for name, raw in artifacts.items()},
+        artifact_hashes={
+            current_name(name): digest((output / current_name(name)).read_bytes())
+            for name in artifacts
+        },
         property_raw_sha256=digest(composite_raw),
         carried_property_rows_sha256=carried_rows_sha256(property_raw, positions),
         replay=[evidence for _, evidence in outcomes],
@@ -344,14 +370,27 @@ def verify_output(
         raw = (output / name).read_bytes()
         if digest(raw) != expected_hash:
             raise ValueError(f"final artifact hash differs: {name}")
-        if name not in ("properties.csv", "property-replicates.csv.gz") and raw != git_blob(
-            BASELINE_COMMIT, f"{relative}/{name}"
-        ):
+        if name in ("properties.csv", "property-replicates.parquet"):
+            continue
+        original = next(item for item in baseline["sha256"] if current_name(item) == name)
+        carried = git_blob(BASELINE_COMMIT, f"{relative}/{original}")
+        if original != name:
+            carried = gzip.decompress(carried)
+            raw = csv_text(read_rows(output / name))
+        if raw != carried:
             raise ValueError(f"carried primary/reference bytes changed: {name}")
     before = git_blob(BASELINE_COMMIT, f"{relative}/property-replicates.csv.gz")
     if digest(before) != baseline["sha256"]["property-replicates.csv.gz"]:
         raise ValueError("original property artifact does not match its recorded hash")
-    after_raw = gzip.decompress((output / "property-replicates.csv.gz").read_bytes())
+    verify_baseline_rows(
+        slug,
+        {
+            name: git_blob(BASELINE_COMMIT, f"{relative}/{name}")
+            for name in baseline["sha256"]
+            if current_name(name) != name
+        },
+    )
+    after_raw = csv_text(read_rows(output / "property-replicates.parquet"))
     verify_splice(gzip.decompress(before), after_raw, plan["changes"][slug])
     if digest(after_raw) != manifest["composite"]["composite_property_csv_sha256"]:
         raise ValueError("composite property CSV digest differs")
@@ -376,9 +415,7 @@ def verify_output(
     record = record_for(slug)
     analysis = manifest["composite"]["analysis"]
     if recompute:
-        summary = record.properties().summarize_properties(
-            pd.read_csv(io.BytesIO(after_raw), float_precision="round_trip")
-        )
+        summary = record.properties().summarize_properties(read_csv_text(after_raw))
         published = pd.read_csv(output / "properties.csv", float_precision="round_trip")
         pd.testing.assert_frame_equal(
             published,

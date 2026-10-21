@@ -210,6 +210,6 @@ The [red-cell ledger](red-cells.md) lists no red cell of this study.
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_derivative/README.md)
 and [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_derivative/manifest.json)
 record the provenance and the regeneration commands. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_derivative/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_derivative/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_derivative/properties.csv)
 carry every published row.

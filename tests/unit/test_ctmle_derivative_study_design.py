@@ -16,6 +16,7 @@ from tests.studies import ctmle_derivative_dr_pilot as pilot
 from tests.studies import ctmle_derivative_laws as laws
 from tests.studies import ctmle_derivative_properties as properties
 from tests.studies.canonical_full_refit_bootstrap import calibration_pass_probability
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.property_verdicts import (
     CLUSTER_ROBUST_CONTROL_SE_CEILING,
     MINIMUM_POWER,
@@ -263,7 +264,7 @@ def test_each_efficiency_bound_reproduces(
 
 
 def _primary_rows() -> pd.DataFrame:
-    return pd.read_csv(study.ARTIFACTS / "replicates.csv.gz", float_precision="round_trip")
+    return read_rows(study.ARTIFACTS / "replicates.parquet")
 
 
 def test_the_parity_witness_reproduces_and_passes() -> None:

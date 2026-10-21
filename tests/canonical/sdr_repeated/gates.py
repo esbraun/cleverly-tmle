@@ -18,7 +18,7 @@ correction, ``estimate - initial_estimate``.  **N8** (:func:`mutate_correction` 
 the cleverly side.  Both mutations must fail the parity ratio in every cell.
 
 **PR B rows.**  :func:`pr_b_differences` compares the Python rows of the queued run with the rows
-PR B committed (``pr-b-replicates.csv.gz``), to :data:`PR_B_GATE`.  The queued run draws the same
+PR B committed (``pr-b-replicates.parquet``), to :data:`PR_B_GATE`.  The queued run draws the same
 seeds, so a difference means the Python side changed after the merged verdicts.
 
 Everything but :func:`main` runs without Docker.  :func:`main` needs Docker and the
@@ -65,8 +65,8 @@ PARITY_SHARE = 0.01
 #: The bound on the Python rows of the queued run against PR B's.
 PR_B_GATE = 1e-10
 #: The rows PR B committed, and the digest that pins them.
-PR_B_ROWS = HERE / "pr-b-replicates.csv.gz"
-PR_B_ROWS_SHA256 = "d29db32cc7f9dd00149d59daa9c225347bfd21d83a6bddb31840dbb03b51c6ab"
+PR_B_ROWS = HERE / "pr-b-replicates.parquet"
+PR_B_ROWS_SHA256 = "02a0f0654c7e62b4a2920358ce189da4533a6f3db66ab212ec90e8e81e1c8ff1"
 #: The shortening of the correction that N8 applies.
 N8_SHRINK = 0.9
 
@@ -162,7 +162,9 @@ def pr_b_rows() -> pd.DataFrame:
     digest = hashlib.sha256(PR_B_ROWS.read_bytes()).hexdigest()
     if digest != PR_B_ROWS_SHA256:
         raise AssertionError(f"{PR_B_ROWS.name} is not the file PR B committed ({digest})")
-    return pd.read_csv(PR_B_ROWS, float_precision="round_trip")
+    from tests.studies.evidence.manifest import read_rows
+
+    return read_rows(PR_B_ROWS)
 
 
 def pr_b_differences(

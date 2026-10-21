@@ -115,7 +115,7 @@ A pull request that regenerates a registered study carries three extra obligatio
 2. Check that the manifest hashes match the artifacts you committed. The fast tier recomputes each
    published verdict from those artifacts, so the hashes are what tie the two together.
 3. Write the artifacts with line-feed endings. `.gitattributes` sets `* text=auto eol=lf` and marks
-   `*.gz` as binary, because a hashed artifact written with carriage returns passes on Windows and
+   `*.gz` and `*.parquet` as binary, because a hashed artifact written with carriage returns passes on Windows and
    fails on Linux CI.
 
 Read [method benchmarking strategy](method-benchmarking.md) for the study design rules, and

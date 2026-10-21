@@ -21,6 +21,7 @@ from tests import discrete_law_mar as mar
 from tests.studies import canonical_mar_arm_indexed_cvtmle as study
 from tests.studies import mar_arm_indexed_cvtmle_properties as properties
 from tests.studies import mar_arm_indexed_laws as laws
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
 from tests.studies.evidence.simultaneous import joint_coverage_rows
 from tests.studies.missing_outcome_study_helpers import efficiency_sd, probabilities
@@ -294,10 +295,10 @@ def test_the_joint_rows_read_the_package_band() -> None:
 
 
 def _committed_property_rows() -> pd.DataFrame:
-    path = study.STUDY.artifact("property-replicates.csv.gz")
+    path = study.STUDY.artifact("property-replicates.parquet")
     if not path.exists():  # pragma: no cover - only before the first registration
         pytest.skip("the study has no committed property rows")
-    return pd.read_csv(path)
+    return read_rows(path)
 
 
 def test_a_band_at_the_pointwise_critical_value_fails_its_cell() -> None:
@@ -469,7 +470,7 @@ TARGETING_RATIO_BOUND = 1e-2
 
 def _paired_primary_rows() -> tuple[pd.DataFrame, pd.DataFrame]:
     """The committed primary rows of each implementation, aligned by replication and estimand."""
-    rows = pd.read_csv(study.STUDY.artifact("replicates.csv.gz"))
+    rows = read_rows(study.STUDY.artifact("replicates.parquet"))
     key = ["scenario", "replicate", "estimand"]
     subject = rows[rows["implementation"] == study.STUDY.implementation].set_index(key)
     reference = rows[rows["implementation"] == study.STUDY.reference].set_index(key)
