@@ -1956,8 +1956,8 @@ contrast. It is the multiplier band over the stacked influence curves.
 
 The registered study [SDR on a repeated outcome](method-evidence/repeated-outcome-sdr.md)
 measures the coverage of this curve. In its 28 positive interval cells, the coverage intervals span
-0.9357 to 0.9549 and the SE-ratio intervals span 0.9459 to 1.0169. The lmtp comparator runs are
-pending, so the evidence is Python property evidence only. The exact-law witnesses E1 to E3, E2b
+0.9357 to 0.9549 and the SE-ratio intervals span 0.9459 to 1.0169. The study pairs with R `lmtp`
+1.5.4 on the same draws, and the paired estimates agree to 1.2e-15. The exact-law witnesses E1 to E3, E2b
 and E8, and the eleven mutation controls in `tests/unit/test_repeated_outcome_sdr_mutations.py`,
 stand behind the point estimate and the curve.
 

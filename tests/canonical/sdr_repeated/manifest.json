@@ -5,16 +5,24 @@
   "generated_with": {
     "subject": {
       "implementation": "cleverly",
-      "cleverly_version": "0.1.3",
-      "cleverly_commit": "9cac5fd6236c8a4c654871ebb828593080ed78b7",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "acdcbfbc5a489723c1f1b008db3b7bbc5782045e",
       "cleverly_worktree_clean": false,
-      "python": "3.13.16",
+      "python": "3.13.7",
       "numpy": "2.5.4",
       "scipy": "1.18.1",
       "pandas": "3.0.6",
       "scikit_learn": "1.9.1"
     },
-    "reference": null
+    "reference": {
+      "implementation": "lmtp",
+      "lmtp_version": "1.5.4",
+      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
+      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "lmtp cf_sdr and theta_dr(is_sdr = TRUE), one call per plan and horizon on the panel truncated after node h (binomial outcome Y_h, the earlier Y_s as covariates), with the per-node ratios, shifted values and fold assignment built from each replicate by pairing_sample; the outcome learner is cell means keyed on (Y_<t, A_<=t); no lmtp density ratio is fitted",
+      "reference_adapter": "tests/canonical/lmtp_sdr_repeated_adapter.R"
+    }
   },
   "configuration": {
     "replicates": 2400,
@@ -132,8 +140,8 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_sdr_repeated.py": "23fa5a687334e2f5f1128d1bf7c84037c23ba3bd40cd7877219e50a2233587ce",
-    "tests/studies/sdr_repeated_properties.py": "fdd351fc88cd2850e1c43054c5e6ec136848f7f073657204a79b2520378cdec6",
+    "tests/studies/canonical_sdr_repeated.py": "39447bf9ff3e19e94ef42e602282c0130081cca76b3843dabc2079eb7f5c6d84",
+    "tests/studies/sdr_repeated_properties.py": "ba30049415b469555128432630a6183b0fe4e4193eba4b78c633d1df5e3f1a3d",
     "tests/studies/repeated_sizing.py": "22ea0fd4b646ca559ca497ccc2116e5c8c45fb1b5c89670437212736a03fdaed",
     "tests/studies/ltmle_repeated_law.py": "46ed4fc1c278c98cc468ed3146de8ff517083dd013ae599d37f4aca05385f8ce",
     "tests/studies/ltmle_repeated_properties.py": "a5119972c42c9a11e42124bfff0173c93a444774d39637cd1a5a4408a6cd3912",
@@ -143,42 +151,36 @@
     "tests/studies/categorical_longitudinal_common.py": "89d14cf86bd090fff8e6e1615868be5e709610385794d8a76ac29224bd097d6c",
     "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
     "tests/discrete_law_longitudinal_multivalue.py": "cfa103e239b345376cab2f2cd5d1dc43fee365893d6885c1a2a9ea0f5f4cac79",
-    "tests/studies/fractional_glm.py": "0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
     "src/cleverly/datasets/longitudinal.py": "0da84c77c274c906645ee028a5d055c9eb16b18e93b63aaef5425f1e2cd7c950",
     "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
-    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
-    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/properties.py": "30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
-    "tests/studies/evidence/simultaneous.py": "7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9"
+    "tests/studies/evidence/simultaneous.py": "7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9",
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
+    "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
+    "tests/canonical/lmtp_sdr_repeated_adapter.R": "7e5dc320d2cf946b82a354b182f18fb6c59ed9ece182ec251b7701ee7bf012e3",
+    "tests/canonical/sdr_repeated/run_study.R": "d31f588a598c093d84b74df50027c741dde1d215a9c339947b63f7284e8c414e"
   },
-  "reference_sha256": {},
+  "reference_sha256": {
+    "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
+    "tests/canonical/sdr_repeated/run_study.R": "d31f588a598c093d84b74df50027c741dde1d215a9c339947b63f7284e8c414e",
+    "tests/canonical/lmtp_sdr_repeated_adapter.R": "7e5dc320d2cf946b82a354b182f18fb6c59ed9ece182ec251b7701ee7bf012e3",
+    "tests/canonical/lmtp_sdr_adapter.R": "bc3e42a2762f4e8a6eb4f1e29eb60e211da7d7675975f82511e454f316d7e608",
+    "tests/canonical/lmtp_crossfit_adapter.R": "2298699d254e09b342ce071213d9fb020d4776a30ccc5b1cbc29ffa778de289d",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
+  },
   "sha256": {
-    "replicates.parquet": "02a0f0654c7e62b4a2920358ce189da4533a6f3db66ab212ec90e8e81e1c8ff1",
-    "summary.csv": "50a194f7dc5e75867d460265a6132f91e4824b00743fe146fc1c9bb3096854de",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "d8b9d66c3515619e1442b9f99f5393e28143534ad1fc3c6b84b5a4745619dbd0",
+    "replicates.parquet": "da98bb7349861cf35efbfd4b52307c7a214ad8df6c3b880a90a70a41fa8de796",
+    "summary.csv": "110b88456be6b6225f55b4adbafea0a65ec25fef84fc985ddfe47fec17f50917",
+    "equivalence.csv": "e2aa4bcf4de15957e79304266428a0802b4fa6788fb715dae0e9c20e80ed0789",
+    "performance-tests.csv": "eb5cb2d14f4a5a3a7cc381b1ae8b6401b5a3a1e068683f1c27537a691617dcf7",
     "property-replicates.parquet": "75eee88b38c90767372ea099a6cd38aca16ae8f361a725526a64391115129bb3",
     "properties.csv": "0feb1c18db393351a623cbb760bed62a7ee05ca90a065bd3da74f563ec8b3326"
-  },
-  "comparator": {
-    "status": "pending",
-    "implementation": "lmtp",
-    "reason": "the R lmtp 1.5.4 paired runs (cf_sdr, one call per plan and horizon on the truncated prefix, on the draws and pairing columns committed here) run on the owner's machine as the TRACKER Study queue item of X32b PR C; that change registers them",
-    "metadata": {
-      "lmtp_version": "1.5.4",
-      "lmtp_source_commit": "f04a2b47f46debc515ce4ae778e05ebfde922c44",
-      "lmtp_tarball_sha256": "fd49d9f291d4ddabb78c36d152b25aaa234a7204b645b9921f998c152e3d2ba5",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
-      "reference_construction": "lmtp cf_sdr and theta_dr(is_sdr = TRUE), one call per plan and horizon on the panel truncated after node h (binomial outcome Y_h, the earlier Y_s as covariates), with the per-node ratios, shifted values and fold assignment built from each replicate by pairing_sample; the outcome learner is cell means keyed on (Y_<t, A_<=t); no lmtp density ratio is fitted"
-    },
-    "declared_sources_sha256": {
-      "tests/canonical/lmtp_crossfit/Dockerfile": "a083e24a15a8a80bd28b491edfb425d791be3f39f10ffd6b1430c6f4ff1db9b1",
-      "tests/canonical/longitudinal_sdr_runner.R": "a05972745ef3081d27e7b257bed4856a76239c4911f114509ef50f1e7a7096d8",
-      "tests/canonical/lmtp_sdr_adapter.R": "f9b5678dba1bf35b2c76a461a2bec2cf63b706e542b2ef86b3518d2a91bc9816",
-      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
-    }
   }
 }

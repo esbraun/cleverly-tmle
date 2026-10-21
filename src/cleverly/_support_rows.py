@@ -1156,12 +1156,14 @@ def _c_rows() -> tuple[SupportRow, ...]:
     derivative = _ctmle("derivative")
     study = "ctmle-derivative"
     rows += [
+        # The R ctmle type-3 comparison covers this row's fit: binary, two-arm, complete-outcome,
+        # in-sample ATE.  Its two GLM scenarios are equivalent to R.
         point_row(
             "C10.in_sample",
             [study],
             families=("P1",),
             engine=derivative,
-            cells=["in_sample"],
+            cells=["in_sample", "binary_declared_pair", "binary_pipeline"],
         ),
         point_row(
             "C10.stacked",
@@ -2541,8 +2543,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
     # the study share the row of their splitting and outcome scale.
     sdr_repeated = ["longitudinal-repeated-sdr"]
     sdr_repeated_limit = (
-        "The study's lmtp comparator runs are pending, so the evidence is Python property "
-        "evidence only."
+        "The paired lmtp comparison uses the known mechanisms and the cell-means regressions "
+        "of the study."
     )
     rows += [
         long_row(

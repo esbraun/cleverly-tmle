@@ -439,9 +439,9 @@ column, and a $2K$ solve that does not converge. An array entry refuses cross-fi
 bootstrap, and every refit, because it describes one fit on the original rows and columns.
 
 **Evidence.** The registered study [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md)
-validates the strategy on three scenarios. All three pass their truth tests. The R `ctmle` type 3
-comparator is declared, and its runs are pending, so the study has no parity result. The study
-reports Python property evidence, with comparator runs pending. All 21 property cells pass,
+validates the strategy on three scenarios. Both sides pass all three truth tests. The paired rows
+against R `ctmle` type 3 are equivalent on all three scenarios, and the parity witness passes on
+`binary_declared_pair` and `binary_constant_q`. All 21 property cells pass,
 including the both-wrong control, the cluster-robust cell against its IID control, and three
 wrong-outcome cells. Three test modules hold the C-TMLE0 checks.
 
@@ -659,7 +659,7 @@ result cited in the audit fixes its data-adaptive complexity bound rather than r
 | where to read the evidence | what is there |
 | --- | --- |
 | [selector-based point-treatment C-TMLE](method-evidence/selector-based-point-treatment-c-tmle.md) | greedy, ordered, and discrete selectors, comparator-backed against R `ctmle` 0.1.2, with a forced-selection versus empty-path control. Parity is unpenalized, non-cross-fitted, and binary-ATE only |
-| [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md) | `strategy="derivative"` on three binary scenarios, at a declared penalty pair, at the package's own penalty cross-validation, and with a constant outcome regression. The R `ctmle` `ctmletype = 3` comparator is declared and its runs are pending. All three truth tests and all 21 property cells pass |
+| [C-TMLE0 derivative covariate](method-evidence/ctmle-derivative.md) | `strategy="derivative"` on three binary scenarios, at a declared penalty pair, at the package's own penalty cross-validation, and with a constant outcome regression. All three paired rows against R `ctmle` `ctmletype = 3` are equivalent. All six truth tests and all 21 property cells pass |
 | [outcome-adaptive point-treatment C-TMLE](method-evidence/outcome-adaptive-point-treatment-c-tmle.md) | the shared design, comparator-backed against the archived `ctmle3`, including a pinned-versus-estimated design pair that measures the finite-sample cost of estimating the design |
 | [outcome-adaptive per-arm C-TMLE](method-evidence/outcome-adaptive-per-arm-c-tmle.md) | the per-arm design, comparator-backed against R `drtmle` 1.1.2 with `adapt_g = TRUE`, by a binary recode per arm, on two laws with an arm-specific outcome index and an instrument. Its declared revert cells are red, so every per-arm fit with a scikit-learn learner withholds its interval. [The applied revert](#the-applied-revert) gives the cells |
 | [outcome-adaptive per-arm C-TMLE (parametric)](method-evidence/outcome-adaptive-per-arm-c-tmle-parametric.md) | the stacked interval of the in-sample per-arm fit with `ParametricOutcome` and `ParametricMechanism`. Python property evidence, no comparator. Calibration on six laws, two negative controls that read red, the sharp null and power |

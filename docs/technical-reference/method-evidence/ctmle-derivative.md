@@ -8,17 +8,17 @@ through `ctmleGlmnet(ctmletype = 3)`. The theory is Ju, Wyss et al. (2019), Sect
 [C-TMLE0 section](../collaborative-tmle.md#c-tmle0-the-derivative-covariate) states the
 construction and the status of the interval.
 
-The evidence on this page is Python property evidence, with comparator runs pending. The Python
-primary phase and the property study ran. The R `ctmle` runs wait for beta-plans TRACKER item 18,
-so this page has no paired row and no parity result yet.
+The study is comparator-backed. The Python primary phase, the property study and the R `ctmle`
+runs all ran. Each of the three scenarios has a paired row against R, and all three rows read
+`equivalent`.
 
-The study publishes under the `reporting` policy, which was declared before the run. All three
-primary scenarios pass their accuracy tests. All 21 property rows pass, and no cell is red. The
+The study publishes under the `reporting` policy, which was declared before the run. All six
+implementation-scenario accuracy tests pass, three for each side. All 21 property rows pass, and no cell is red. The
 ordinary TMLE on the same initial fit sits next to every result as a descriptive control.
 
 ## What was compared
 
-| setting | `cleverly` | R `ctmle` (declared, runs pending) |
+| setting | `cleverly` | R `ctmle` |
 | --- | --- | --- |
 | scenario `binary_declared_pair` | `lambdas=` the declared pair of `penalties.csv` | `glmnet(lambda = PAIR, thresh = 1e-14)`, with both predictions passed to `ctmleGlmnet` |
 | scenario `binary_pipeline` | `lambdas=None` with `learner_folds=10`. The partner is the nearest grid neighbour, which is the next smaller penalty. The grid includes the penalty 0 | `cv.glmnet(nfolds = 10)`. The mechanism is `lambda.min` and the partner is `1.05 lambda.min`, as the `ctmle` README states |
@@ -30,8 +30,8 @@ ordinary TMLE on the same initial fit sits next to every result as a descriptive
 | cross-fitting | disabled for the comparison | not applicable |
 | variance | `std_error`, the standard error of the TMLE status | `var.psi`, which divides by $n - 1$ |
 
-The R side is declared and its runner is committed, but no R run exists. The manifest records the
-comparator as pending, and `equivalence.csv` has no rows. The comparator never blocks the method.
+Both sides fit the identical rows of every replication. `equivalence.csv` holds one paired row
+for each scenario, and no replication was dropped.
 
 The declared pair is fixed before any run by `penalty_design` in
 `tests/studies/canonical_ctmle_derivative.py`. The function fits the package pipeline on 50 design
@@ -42,8 +42,12 @@ penalty cross-validation, so a paired row compares two pipelines.
 
 The scenario `binary_constant_q` is the parity-witness scenario. With the correct GLM, the
 derivative columns barely move the estimate, so a side that dropped them would still match R.
-With a constant outcome regression, the update carries the estimate. The witness columns of
-`paired-tmle.csv` are empty until the R runs exist.
+With a constant outcome regression, the update carries the estimate.
+
+The witness divides the SD of the `cleverly` minus R difference by the SD of the C-TMLE0 minus
+TMLE difference. The declared ceiling is 0.1. The ratio is 0.0036 on `binary_declared_pair` and
+0.0026 on `binary_constant_q`, so both pass. A side without the derivative columns would show a
+ratio near 1.
 
 The two pipelines differ in the cross-validation folds, in the partner, and in the grid. The
 `chosen-penalties.csv` file records the penalty pair of every `cleverly` fit. The mean mechanism
@@ -55,8 +59,23 @@ penalty is 0.0010 for the declared pair and 0.0019 for the package pipeline.
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | binary-outcome law, one declared pair of penalties, a constant outcome regression | `ate` | average treatment effect | `cleverly` C-TMLE0 derivative covariate | -0.0012 to 0.0030 | 0.9688 | 1.0783 | pass |
+| binary-outcome law, one declared pair of penalties, a constant outcome regression | `ate` | average treatment effect | R `ctmle` | -0.0012 to 0.0030 | 0.9688 | 1.0782 | pass |
 | binary-outcome law, both sides at one declared pair of penalties | `ate` | average treatment effect | `cleverly` C-TMLE0 derivative covariate | -0.0030 to 0.0013 | 0.9275 | 0.9318 | pass |
+| binary-outcome law, both sides at one declared pair of penalties | `ate` | average treatment effect | R `ctmle` | -0.0030 to 0.0013 | 0.9275 | 0.9318 | pass |
 | binary-outcome law, each side's own penalty cross-validation | `ate` | average treatment effect | `cleverly` C-TMLE0 derivative covariate | -0.0024 to 0.0017 | 0.9525 | 0.9813 | pass |
+| binary-outcome law, each side's own penalty cross-validation | `ate` | average treatment effect | R `ctmle` | -0.0024 to 0.0017 | 0.9537 | 0.9808 | pass |
+<!-- /generated -->
+
+## Agreement with the canonical implementation
+
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `r-ctmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law, one declared pair of penalties, a constant outcome regression | `ate` | average treatment effect | 0.000001 | 0.000394 | 1.0000 | 0 | matching implementation | 0.000064 vs 0.0500 | equivalent |
+| binary-outcome law, both sides at one declared pair of penalties | `ate` | average treatment effect | 4.366e-07 | 0.000123 | 1.0000 | 0 | matching implementation | 0.000020 vs 0.0500 | equivalent |
+| binary-outcome law, each side's own penalty cross-validation | `ate` | average treatment effect | -0.000002 | 0.000614 | 1.0003 | -0.0012 | matching implementation | 0.0017 vs 0.0500 | equivalent |
 <!-- /generated -->
 
 ## Theory properties
@@ -136,8 +155,8 @@ the committed results and checked at the precision printed.
 | --- | --- | --- |
 | `replicates` | 800 | replications per scenario |
 | `n` | 2000 | observations per replication |
-| `independent_tests_total` | 3 | implementation-scenario tests against truth |
-| `independent_tests_passed` | 3 | of those, passing |
+| `independent_tests_total` | 6 | implementation-scenario tests against truth |
+| `independent_tests_passed` | 6 | of those, passing |
 | `property_cells_total` | 21 | independent property cells |
 | `property_cells_passed` | 21 | of those, passing |
 | `max_standardized_bias` | 0.0401 | largest absolute primary bias in empirical standard deviations |
@@ -145,6 +164,9 @@ the committed results and checked at the precision printed.
 | `min_coverage_ci_lower` | 0.9006 | lowest exact 99% coverage endpoint |
 | `min_se_ratio_ci_lower` | 0.8783 | lowest bootstrap SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.1511 | highest bootstrap SE-ratio endpoint |
+| `equivalence[binary_declared_pair/ate]:mean_difference` | 4.366e-07 | mean `cleverly` minus R difference at the declared pair |
+| `equivalence[binary_constant_q/ate]:mean_difference` | 0.000001 | the same difference with the constant outcome regression |
+| `equivalence[binary_pipeline/ate]:rmse_ratio_upper` | 1.0003 | the 99% upper bound of the package's RMSE over R's, two pipelines |
 | `properties[clustered_inference/cluster_robust]:coverage` | 0.9387 | cluster-robust coverage |
 | `properties[clustered_inference/cluster_robust]:se_ratio` | 0.9742 | cluster-robust SE ratio |
 | `properties[clustered_inference/iid_control]:coverage` | 0.7671 | coverage of the IID variance on the same fits |
@@ -163,6 +185,10 @@ the committed results and checked at the precision printed.
 | `properties[root_n_rate/reported_se]:slope` | -0.4871 | fitted reported-SE rate |
 | `properties[targeting_necessity/ate__untargeted]:bias` | 0.0565 | bias of the initial plug-in estimate |
 | `margin:confidence_level` | 0.9900 | confidence level of Monte Carlo intervals |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell of `cleverly` may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 8 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `ctmle` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 8 | the same bound, in primary replications |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
 | `margin:bootstrap_replicates` | 10000 | resamples per bootstrap interval |
@@ -197,11 +223,9 @@ The [red-cell ledger](red-cells.md) lists no red cell of this study.
 
 | limitation | what it means for use |
 | --- | --- |
-| The R comparison is pending | The page holds Python property evidence, with comparator runs pending. No paired row, no parity result and no equivalence verdict exists. The R runs wait for beta-plans TRACKER item 18. The comparator does not block the method |
-| The parity witness waits for R | The witness compares the Python minus R difference with the C-TMLE0 minus TMLE difference on `binary_declared_pair` and `binary_constant_q`. Its columns in `paired-tmle.csv` are empty until the R runs exist. `tests/unit/test_ctmle_derivative_study_design.py` skips the witness mutation test while the comparator is pending |
-| The two pipelines will differ in three ways | `binary_pipeline` differs from R in the cross-validation folds, the partner and the grid. When R lands, agreement there is agreement of two pipelines. `binary_declared_pair` fixes both sides at one pair, so only that scenario and `binary_constant_q` are parity of one estimator |
+| The two pipelines differ in three ways | `binary_pipeline` differs from R in the cross-validation folds, the partner and the grid. Its `equivalent` row is agreement of two pipelines. `binary_declared_pair` fixes both sides at one pair, so only that scenario and `binary_constant_q` are parity of one estimator |
 | The declared pair comes from package draws | The pair is the lower median of 50 package pipeline fits on the primary law. R does not choose it. The pair is a single point in the penalty path |
-| The parity claim will be narrow | It is binary, two-arm, complete-outcome, non-cross-fitted ATE with a lasso mechanism pair. The cross-fitted, three-arm, missing-outcome and clustered fits have property cells and no R comparator |
+| The parity claim is narrow | It is binary, two-arm, complete-outcome, non-cross-fitted ATE with a lasso mechanism pair. The cross-fitted, three-arm, missing-outcome and clustered fits have property cells and no R comparator |
 | The interval is measured under a correct outcome regression | The primary law has a correct GLM outcome and a consistent lasso mechanism. The wrong-outcome cells have a correct treatment law. The study does not test the collaborative claim, an interval under an inconsistent outcome regression. [F18](../../roadmap.md#f18-selector-path-c-tmle-inference) holds that claim. The sources report low coverage there |
 | The comparison with the ordinary TMLE is descriptive | The paired TMLE rows read no verdict. They show how far the derivative columns move the estimate and the interval. They do not show an advantage of the derivative covariate |
 

@@ -91,11 +91,6 @@ SEED = 20263001
 RESAMPLING_SEED = 2026300101
 IMPLEMENTATION = "cleverly-ctmle-derivative"
 REFERENCE = "r-ctmle"
-#: Why the R runs are pending.  The change that registers them moves REFERENCE to ``reference``.
-PENDING_REASON = (
-    "R ctmle 0.1.2 ctmletype = 3 runs on the local Study queue (beta-plans TRACKER item 18, "
-    "the primary and R phases). The owner's rule merges a method on its Python studies"
-)
 STRATIFY_FOLDS = "none"
 #: The targeting shrink of both sides: R ``ctmle``'s ``alpha`` default.
 ALPHA = 0.995
@@ -163,8 +158,7 @@ STUDY = StudyRecord(
     margins=Margins(),
     implementation=IMPLEMENTATION,
     failure_bound={IMPLEMENTATION: 0.01, REFERENCE: 0.01},
-    pending_reference=REFERENCE,
-    pending_reason=PENDING_REASON,
+    reference=REFERENCE,
     comparison="matching implementation",
     extra_artifacts=("paired-tmle.csv", "chosen-penalties.csv"),
     modules=(
