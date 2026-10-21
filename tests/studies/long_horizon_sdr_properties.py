@@ -40,8 +40,10 @@ family                                   cells
 ``learned_mechanism`` (reporting)        ``{binary, categorical}_respond_vs_ref__k5__learned``
 =======================================  =======================================================
 
-**Budgets.**  The replicate counts below are provisional.  The declaration commit sets them from
-the pilots.
+**Budgets.**  The pilot merge at 67ac67df sets the replicate counts below (plans
+``X39-pilot-merge-reading.md``).  Calibration R is 16,000, the ladder ceiling.  No R on the
+ladder reaches family pass probability 0.95: it reads 0.851 at 16,000.  The bias families keep
+2,000 although the bias ladder reads 1,000.
 
 **Declared red-cell reading** (plan section 5.6, before any run).  The study publishes under
 ``reporting``.  Its gated truth rows (``GATED_ROWS``) and gated property cells (``GATED_CELLS``)

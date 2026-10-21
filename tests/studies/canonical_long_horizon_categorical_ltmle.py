@@ -125,7 +125,8 @@ from tests.studies.evidence.registry import ROOT, StudyRecord
 from tests.studies.long_horizon_common import G_BOUNDS
 from tests.studies.long_horizon_primary import Scenario, declared, run_primary
 
-#: The truth-row rule of the design picks R from 1,200, 2,000 and 3,000 (pilot merge at 67ac67df).
+#: The truth-row rule of the design picks R from 1,200, 2,000 and 3,000 (plans
+#: ``X39-pilot-merge-reading.md``, ``_x39/impl/truth_pooled.log``).
 PRIMARY_REPLICATES = 2_000
 SEED = 20263911
 RESAMPLING_SEED = 2026391101

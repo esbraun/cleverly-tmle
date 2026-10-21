@@ -652,3 +652,38 @@ def test_f2_uses_each_arms_measured_coverage() -> None:
     assert at_model == pytest.approx(wald, abs=0.02)
     with pytest.raises(ValueError, match="one value per arm"):
         D.f2_family_pass(ratios, variances, 4_000, coverages=[0.95])
+
+
+def test_the_declared_replicate_counts_are_the_pilot_merge_reading() -> None:
+    """Plans ``X39-pilot-merge-reading.md`` sets these counts; a change here is a new declaration."""
+    from tests.studies import (
+        canonical_long_horizon_categorical_ltmle as s2,
+    )
+    from tests.studies import (
+        canonical_long_horizon_ltmle as s1,
+    )
+    from tests.studies import (
+        canonical_long_horizon_sdr as s3,
+    )
+    from tests.studies import (
+        long_horizon_categorical_ltmle_properties as p2,
+    )
+    from tests.studies import (
+        long_horizon_ltmle_properties as p1,
+    )
+    from tests.studies import (
+        long_horizon_sdr_properties as p3,
+    )
+
+    assert (s1.PRIMARY_REPLICATES, s2.PRIMARY_REPLICATES, s3.PRIMARY_REPLICATES) == (
+        3_000,
+        2_000,
+        1_200,
+    )
+    assert (
+        p1.CALIBRATION_REPLICATES,
+        p2.CALIBRATION_REPLICATES,
+        p3.CALIBRATION_REPLICATES,
+    ) == (6_000, 14_000, 16_000)
+    assert (p1.BAND_REPLICATES, p2.BAND_REPLICATES) == (4_000, 2_000)
+    assert (p1.BIAS_REPLICATES, p2.BIAS_REPLICATES, p3.BIAS_REPLICATES) == (2_000, 2_000, 2_000)
