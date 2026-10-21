@@ -98,11 +98,11 @@
     "tests/canonical/zepid_cvtmle/requirements.txt": "65518b25d46d5f3762a3a37f2988ba398bef34a407beac16f55e067a4e42b429"
   },
   "sha256": {
-    "replicates.csv.gz": "f8bbb013ff988cd7fada9a80147fc0c9063fb30bc1ee69665f59a44e3f5cd954",
+    "replicates.parquet": "297482715535477a2b2b6e30d8ca5401a07820a58143b6c198c9e5a77fc9eab7",
     "summary.csv": "575eea946a95b03ee57ef4be7b6ffd2dd35c853a17e3dca856d5e620b3203ed4",
     "equivalence.csv": "147d1df00208f9cbee381e5f115616966a12741cb1205b7d06f4fe48e7822ff9",
     "performance-tests.csv": "1a3ebd5aa7dc60c7fd09e88f7a2c2d70823e6464cfade10b13cc3b8039eefd04",
-    "property-replicates.csv.gz": "9697c3e501e7c236e2aca027491b215db2f7514bfe24dcfc5a82c3f5b44ea3ca",
+    "property-replicates.parquet": "dd6ba2d1951977a1d6e9b2ac1613e1d092d20af34520f7fd11f5017f93371c09",
     "properties.csv": "aa9f6a3469ae0ce21b36afb9c280a8e0e921d22940896a27b94c4e0895118578"
   }
 }

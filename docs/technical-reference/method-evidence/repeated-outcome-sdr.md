@@ -344,6 +344,6 @@ The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/ca
 gives the regeneration and pilot commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/manifest.json)
 records the pending comparator, the declared R sources, the seeds and the artifact hashes.
-The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/replicates.csv.gz)
+The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/properties.csv)
 carry every published row.

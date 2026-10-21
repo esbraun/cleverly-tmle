@@ -256,7 +256,7 @@ The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/ca
 gives the full and smoke regeneration commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/manifest.json)
 records the configuration and the provenance. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/equivalence.csv)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle3_cvtmle/properties.csv)
 carry every published row.

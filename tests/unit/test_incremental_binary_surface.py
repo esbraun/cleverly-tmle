@@ -18,6 +18,7 @@ The general formulas are reachable only for ``K > 2`` in a fit, so C5 calls them
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -33,21 +34,22 @@ from cleverly.interventions import Incremental, IPSISet
 from cleverly.interventions.incremental import _tilt_binary, _tilt_general
 from tests.studies import canonical_incremental_interventions as primary
 from tests.studies import canonical_stratified_incremental_msm as stratified
+from tests.studies.evidence.manifest import read_rows
 from tests.unit import _categorical_incremental_support as sup
 
 REPLICATES = 5
 #: An absolute floor for a value that may be zero.
 FLOOR = 1e-12
 COMMITTED = {
-    primary.STUDY.implementation: "tests/canonical/npcausal_incremental/replicates.csv.gz",
+    primary.STUDY.implementation: "tests/canonical/npcausal_incremental/replicates.parquet",
     stratified.STUDY.implementation: (
-        "tests/canonical/npcausal_stratified_incremental/replicates.csv.gz"
+        "tests/canonical/npcausal_stratified_incremental/replicates.parquet"
     ),
 }
 
 
 def _committed(implementation: str, replicate: int) -> pd.DataFrame:
-    rows = pd.read_csv(COMMITTED[implementation], float_precision="round_trip")
+    rows = read_rows(Path(COMMITTED[implementation]))
     rows = rows[(rows["implementation"] == implementation) & (rows["replicate"] == replicate)]
     assert len(rows), "the committed artifact has no rows for this replicate"
     return rows.set_index("estimand")

@@ -109,11 +109,11 @@
     "tests/canonical/ctmle_derivative/penalties.csv": "59c59e8dcdbeaa18cb6f7023a648aab163abcdd6026214f20f5b499a9e57be6c"
   },
   "sha256": {
-    "replicates.csv.gz": "0a0a6e742841520b69bfb2aa4ee182642f761e76671a9185a5a639680a561d40",
+    "replicates.parquet": "fe8480ace9d0bcb427c8d92c1b0de22e2ba5ddf80160c156e59d765eca70c433",
     "summary.csv": "99678519349bb25df83ec18496551f9ff3e41aae7cb8892ab66d459f34f875ad",
     "equivalence.csv": "1d007a0271068650c04ce10ec930d0b3db2c6efb5095d95ce57b1a06c797fdff",
     "performance-tests.csv": "f1d411e9e4419a00bd9d98af0aee3014f60d625a8eeb46e87d22962d6a95b050",
-    "property-replicates.csv.gz": "969e0849599b4b8074be9e276a14434eb8f06b2c061b0e2314ab720818f69875",
+    "property-replicates.parquet": "10c169b87f56d39b6a74ac4549cf2be67a6cf7e09ded085bd9c28c082b37279f",
     "properties.csv": "0a9da22d046ae0e94b84b3b93967786b0b9934b9f01f1e3b80e7260126becc07",
     "paired-tmle.csv": "1ea15a4b72899a79cd2c29ab6d06da0dbe78d61f154a6f536ef6570120a156c1",
     "chosen-penalties.csv": "2080a0f8b5e7a6236b84f853828f776d6acf8bc7eedcb40deed6ed68e3614178"

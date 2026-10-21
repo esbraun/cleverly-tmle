@@ -198,6 +198,6 @@ The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/ca
 gives the regeneration command. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/survival_node_bounds/manifest.json)
 records the pending comparator, the declared R runner, the seeds and the artifact hashes. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/survival_node_bounds/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/survival_node_bounds/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/survival_node_bounds/properties.csv)
 carry every published row.

@@ -22,7 +22,7 @@ import pytest
 from tests.canonical import regenerate
 from tests.studies import canonical_longitudinal_sdr
 from tests.studies.evidence import claims
-from tests.studies.evidence.manifest import write_manifest
+from tests.studies.evidence.manifest import read_rows, write_manifest
 from tests.studies.evidence.schema import validate_replicates
 
 SINGLE = dataclasses.replace(
@@ -46,10 +46,7 @@ def _sized(**changes: Any) -> Any:
 
 def _rows(record: Any) -> pd.DataFrame:
     """The committed subject rows, with ``n`` set to each scenario's declared size."""
-    committed = pd.read_csv(
-        canonical_longitudinal_sdr.STUDY.artifact("replicates.csv.gz"),
-        float_precision="round_trip",
-    )
+    committed = read_rows(canonical_longitudinal_sdr.STUDY.artifact("replicates.parquet"))
     rows = committed.loc[committed["implementation"] == record.implementation].copy()
     rows["n"] = rows["scenario"].map(record.sizes(record.n))
     return rows.reset_index(drop=True)

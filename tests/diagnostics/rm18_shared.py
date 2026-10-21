@@ -34,6 +34,7 @@ from tests.studies import weighted_longitudinal_common as primary
 from tests.studies import weighted_longitudinal_properties_common as weighted
 from tests.studies.evidence.inference import Interval, clopper_pearson, percentile_interval
 from tests.studies.evidence.manifest import ROOT, UNKNOWN, _git, provenance, write_csv
+from tests.studies.evidence.manifest import read_rows as read_study_rows
 from tests.studies.evidence.properties import ratio_draws, replicate_row
 from tests.studies.evidence.property_verdicts import CONTRACTION_FAMILY, _at_verdict_budget
 from tests.studies.evidence.registry import StudyRecord
@@ -60,7 +61,12 @@ STATIC = weighted.CONTRASTS["static"]
 
 
 def read_rows(path: Path) -> pd.DataFrame:
-    """A committed table, parsed so that every float round-trips (R4)."""
+    """A committed table, parsed so that every float round-trips (R4).
+
+    A Parquet row file holds each float64 exactly, so it needs no parsing option.
+    """
+    if path.suffix == ".parquet":
+        return read_study_rows(path)
     return pd.read_csv(path, float_precision="round_trip")
 
 
@@ -509,7 +515,7 @@ def validate_weighted(
     ``payload`` names the ``(property, suffix)`` of the registered ``_payloads`` entries to
     refit, and ``cells`` the summary rows the study's own summary must reproduce.
     """
-    committed = read_rows(record.artifact("property-replicates.csv.gz"))
+    committed = read_rows(record.artifact("property-replicates.parquet"))
     calls = [call for call in weighted._payloads(record) if (call[0], call[1]) == payload]
     calls = calls[: budget(len(calls), cap)]
     fitted = pool(weighted_draw, [(record, cross_fit, call) for call in calls], jobs)
