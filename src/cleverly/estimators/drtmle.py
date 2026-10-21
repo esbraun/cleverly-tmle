@@ -151,6 +151,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
 from .._inference_status import InferenceStatus, precedent_status
+from .._support import Preflight
 from ..data.causal_data import CausalData
 from ..data.known_mechanism import KNOWN_EVALUATION_REFUSAL
 from ..exceptions import CapabilityError, CleverlyError, Refusal, RefusalReason
@@ -285,6 +286,40 @@ class ReducedFit:
         fluctuation = result.repeats[0].fluctuations.get("mean")
         reduction = getattr(fluctuation, "reduction", None)
         return None if reduction is None else reduction.evaluation
+
+
+def drtmle_axis_refusal(keyword: str) -> Refusal:
+    """Why DRTMLE refuses a parameter axis other than the static arms.
+
+    Parameters
+    ----------
+    keyword : str
+        The declared axis keyword, such as ``"policies"``.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.IMPLEMENTATION_GAP` record that names the
+        roadmap row of the axis.
+    """
+    if keyword in ("interventions", "msm"):
+        open_row = "X50"
+        status = (
+            "The indicator reduction for a regime and the projection of the arm "
+            "or regime means follow from that theorem, but they are not "
+            "implemented (docs/roadmap.md X50)."
+        )
+    else:
+        open_row = "F5"
+        status = "No theorem read here says what its reductions would be (docs/roadmap.md F5)."
+    return Refusal(
+        RefusalReason.IMPLEMENTATION_GAP,
+        f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
+        "regressions are derived for counterfactual means under a static "
+        f"treatment, and {keyword}= is a different score equation. {status}",
+        alternative="Fit a plain TMLE, which is derived there.",
+        roadmap=open_row,
+    )
 
 
 class DRTMLE(TMLE):
@@ -593,28 +628,6 @@ class DRTMLE(TMLE):
             ]
         )
 
-    def _bootstrap_inferential(self, data: CausalData) -> bool:
-        """Whether the full-refit bootstrap interval is published as inference.
-
-        ``False`` on every fit, in sample or cross-fitted. The registered study
-        ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary point-treatment
-        :class:`~cleverly.TMLE` only (``boot_ate_point_tmle``), and no source read here covers
-        the bootstrap of the reduced-dimension regressions. The percentile range prints as a
-        diagnostic. Roadmap F2 holds the claim.
-
-        Parameters
-        ----------
-        data : CausalData
-            The prepared data. It is not read.
-
-        Returns
-        -------
-        bool
-            ``False``.
-        """
-        del data
-        return False
-
     def _refuse_one_step_nested(self) -> None:
         # Asked at the fit and at a guarded truncation curve rather than in the
         # constructor, so that an estimator whose ``targeting`` or ``reduced_crossfit``
@@ -785,27 +798,7 @@ class DRTMLE(TMLE):
             )
         for keyword in ("interventions", "policies", "incremental", "msm"):
             if getattr(self, keyword, None):
-                if keyword in ("interventions", "msm"):
-                    open_row = "X50"
-                    status = (
-                        "The indicator reduction for a regime and the projection of the arm "
-                        "or regime means follow from that theorem, but they are not "
-                        "implemented (docs/roadmap.md X50)."
-                    )
-                else:
-                    open_row = "F5"
-                    status = (
-                        "No theorem read here says what its reductions would be "
-                        "(docs/roadmap.md F5)."
-                    )
-                raise CapabilityError(
-                    f"DRTMLE and {keyword}= are not combined. The reduced-dimension "
-                    "regressions are derived for counterfactual means under a static "
-                    f"treatment, and {keyword}= is a different score equation. {status}",
-                    reason=RefusalReason.IMPLEMENTATION_GAP,
-                    alternative="Fit a plain TMLE, which is derived there.",
-                    roadmap=open_row,
-                )
+                raise CapabilityError.from_refusal(drtmle_axis_refusal(keyword))
 
     # --------------------------------------------------------------- the hook
 
@@ -860,6 +853,7 @@ class DRTMLE(TMLE):
                         self.treatment_learner, task="classification", seed=seed
                     ),
                     n_jobs=self.n_jobs,
+                    outcome_by_arm=self.outcome_by_arm,
                 ),
             )
         if not self.guard:
@@ -1019,6 +1013,8 @@ class DRTMLE(TMLE):
                 if data.known_treatment is not None and data.known_treatment.columns
                 else None
             ),
+            # The companion's mechanism reads the covariates the fit's mechanism read.
+            treatment_covariates=data.treatment_covariate_names,
         )
 
     def _companion_declares_mechanism(self, data: CausalData) -> bool:
@@ -1149,11 +1145,16 @@ class DRTMLE(TMLE):
             n_jobs=self.n_jobs,
         )
 
-    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
-        """Refuse unsupported DR-TMLE compositions before drawing any folds."""
-        estimands = super()._resolve_estimands_for_data(data)
-        self._check_drtmle(data)
-        return estimands
+    def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
+        """Refuse unsupported DR-TMLE compositions before drawing any folds.
+
+        A weight-tilted missing-outcome fit appends its condition to the returned
+        :class:`~cleverly._support.Preflight` and runs labelled experimental.
+        """
+        resolved = super()._resolve_estimands_for_data(data)
+        conditions = list(resolved.conditions)
+        self._check_drtmle(data, conditions)
+        return Preflight(resolved.estimands, tuple(conditions))
 
     def _check_policies(self, data: CausalData) -> None:
         """Refuse a continuous dose before the shift check can suggest a shift.
@@ -1161,12 +1162,21 @@ class DRTMLE(TMLE):
         ``TMLE._check_policies`` runs first in the preflight, and it answers a dose with no
         ``policies=`` by suggesting one, which DRTMLE does not fit.
         """
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             refuse_unsupported("continuous")
         super()._check_policies(data)
 
-    def _check_drtmle(self, data: CausalData) -> None:
-        """The refusals that run before any learner of a fit or a refit, each by name."""
+    def _check_drtmle(self, data: CausalData, conditions: list[Refusal] | None = None) -> None:
+        """The refusals that run before any learner of a fit or a refit, each by name.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        conditions : list of Refusal or None, default None
+            Where the group-A conditions go. The check at the nuisance hook passes ``None``,
+            because the preflight already collected them.
+        """
         if isinstance(self, CTMLE):
             raise CapabilityError(
                 "DRTMLE and CTMLE are not combined, and the reason is a derivation rather "
@@ -1181,7 +1191,7 @@ class DRTMLE(TMLE):
                 roadmap="F5",
             )
         self._refuse_one_step_nested()
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             refuse_unsupported("continuous")
         if data.has_intermediate:
             raise CapabilityError(
@@ -1234,12 +1244,14 @@ class DRTMLE(TMLE):
                 roadmap="F21",
             )
         if route == "randomized_missing_outcome" and self.guard:
-            if data.is_weighted:
-                raise CapabilityError(
-                    "missing-outcome DRTMLE is not certified for a weight-tilted target law.",
-                    reason=RefusalReason.IMPLEMENTATION_GAP,
-                    alternative="Drop weights= or fit a plain TMLE.",
-                    roadmap="X62",
+            if data.is_weighted and conditions is not None:
+                conditions.append(
+                    Refusal(
+                        RefusalReason.IMPLEMENTATION_GAP,
+                        "Missing-outcome DRTMLE is not certified for a weight-tilted target law.",
+                        alternative="Drop weights= or fit a plain TMLE.",
+                        roadmap="X62",
+                    )
                 )
             if self.evaluation is not None or self.reduced_crossfit != "pooled":
                 # X62 holds evaluation=, and F21 the nested construction.

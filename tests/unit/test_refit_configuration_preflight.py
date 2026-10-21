@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from cleverly._support import Preflight
 from cleverly.assessment import POINT_REPLAY_REFIT_CONFIGURATION, replayability
 from cleverly.data import CausalData
 from cleverly.estimators import TMLE
@@ -77,7 +78,7 @@ def test_preflight_keeps_subclass_estimand_override(
     rr_result: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class RefusingTMLE(TMLE):
-        def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+        def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
             raise ValueError("subclass preflight refusal")
 
     estimator = copy.copy(rr_result.estimator)
@@ -102,7 +103,7 @@ def test_an_implementation_error_in_the_chain_propagates(
     """
 
     class DefectiveTMLE(TMLE):
-        def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+        def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
             raise NotImplementedError("a defect in the chain")
 
     estimator = copy.copy(rr_result.estimator)

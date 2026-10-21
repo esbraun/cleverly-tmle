@@ -76,6 +76,7 @@ from typing import Any
 import pandas as pd
 
 from tests.canonical import runner_source
+from tests.canonical.regenerate import THREAD_CAPS
 
 HERE = Path(__file__).resolve().parent
 CANONICAL = HERE.parent
@@ -243,7 +244,9 @@ def write_inputs(work: Path, target: Target, *, jobs: int) -> None:
         return
     folder.mkdir(parents=True, exist_ok=True)
     drawn = target.study.draw_and_fit(replicates=3, n=target.study.PRIMARY_N, n_jobs=jobs)
-    samples, truths = drawn.samples, drawn.truths
+    from tests.studies.evidence.replication import load_samples
+
+    samples, truths = load_samples(drawn.samples), drawn.truths
     archive = {"method": "gzip", "mtime": 0}
     samples.to_csv(folder / "samples.csv.gz", index=False, lineterminator="\n", compression=archive)
     truths.to_csv(folder / "truth.csv", index=False, lineterminator="\n")
@@ -292,7 +295,11 @@ def run(
     """
     folder = work / target.slug
     reference = target.reference
-    variables = {"CLEVERLY_R_CORES": str(cores), "CLEVERLY_REFERENCE_CORES": str(cores)}
+    variables = {
+        **THREAD_CAPS,
+        "CLEVERLY_R_CORES": str(cores),
+        "CLEVERLY_REFERENCE_CORES": str(cores),
+    }
     if seeds is not None:
         variables["CLEVERLY_R_SEEDS"] = f"/work/{seeds.name}"
     variables.update(env or {})

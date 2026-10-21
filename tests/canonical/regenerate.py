@@ -213,6 +213,21 @@ def failures_path(output: Path) -> Path:
     return output.with_name(f"{output.stem}.failures.csv")
 
 
+# One thread per BLAS or OpenMP pool.  The R harness forks ``cores`` workers, so each worker
+# must stay single-threaded; otherwise OpenBLAS starts one pool per worker and the container
+# uses several times ``cores`` (21 cores at ``CLEVERLY_R_CORES=3`` for the lmtp image).
+THREAD_CAPS = dict.fromkeys(
+    (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+    ),
+    "1",
+)
+
+
 def _docker_command(
     reference: Reference,
     root: Path,
@@ -232,6 +247,7 @@ def _docker_command(
         arguments.append(f"/fixture/{runner}")
     entrypoint = ["--entrypoint", reference.interpreter] if reference.mount_runner else []
     variables = {
+        **THREAD_CAPS,
         "CLEVERLY_REFERENCE_CORES": str(cores),
         "CLEVERLY_R_CORES": str(cores),
         **(env or {}),
@@ -241,6 +257,8 @@ def _docker_command(
         "docker",
         "run",
         "--rm",
+        "--cpus",
+        str(max(cores, 1)),
         *extra,
         *flags,
         *mounts,
@@ -303,6 +321,9 @@ def declaration_hash(record: StudyRecord) -> str:
     """
     declared = canonical(record)
     declared.pop("artifacts", None)
+    if not declared.get("scenario_n"):
+        # A single-size study keeps the key it had before per-scenario sizes existed.
+        declared.pop("scenario_n", None)
     return digest(declared)
 
 
@@ -360,12 +381,22 @@ def python_versions() -> dict[str, str]:
     }
 
 
+def _declared_sizes(record: StudyRecord, n: int) -> dict[str, int]:
+    """The per-scenario sizes a run at ``n`` records: the declared ones, or none on an override.
+
+    ``--n`` other than the declared size runs every scenario at that size
+    (:meth:`StudyRecord.sizes`), so the run records no per-scenario sizes.
+    """
+    return dict(record.scenario_n) if n == record.n else {}
+
+
 def run_key(record: StudyRecord) -> dict[str, Any]:
     """The resume-key fields known before the Python phase draws anything."""
     return {
         "declaration": declaration_hash(record),
         "git": git_state(),
         "n": record.n,
+        **({"scenario_n": dict(sorted(record.scenario_n.items()))} if record.scenario_n else {}),
         "replicates": record.replicates,
         "versions": python_versions(),
     }
@@ -734,7 +765,8 @@ class _Phase:
     """The Python side's output, whichever shape the study's ``draw_and_fit`` returns."""
 
     rows: pd.DataFrame
-    samples: pd.DataFrame | None = None
+    #: The samples, or the path of the file that holds them.
+    samples: pd.DataFrame | Path | None = None
     truths: pd.DataFrame | None = None
     cached: bool = False
     paths: dict[str, Path] = field(default_factory=dict)
@@ -912,7 +944,11 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     files = ["python-rows.csv.gz"]
     write_csv(result.rows, paths["python-rows.csv.gz"], compression=archive)
     if result.samples is not None and result.truths is not None:
-        write_csv(result.samples, paths["samples.csv.gz"], compression=archive)
+        if isinstance(result.samples, Path):
+            # A study that spilled its samples hands over the assembled archive.
+            shutil.move(result.samples, paths["samples.csv.gz"])
+        else:
+            write_csv(result.samples, paths["samples.csv.gz"], compression=archive)
         write_csv(result.truths, paths["truth.csv"])
         files += ["samples.csv.gz", "truth.csv"]
     paths["python-failures.csv"].unlink(missing_ok=True)
@@ -930,7 +966,7 @@ def _python_phase(study: ModuleType, arguments: argparse.Namespace, scratch: Pat
     )
     return _Phase(
         rows=result.rows,
-        samples=result.samples,
+        samples=paths["samples.csv.gz"] if isinstance(result.samples, Path) else result.samples,
         truths=result.truths,
         paths=paths,
         subject_failures=result.failures,
@@ -958,6 +994,11 @@ def _committed_subject(study: ModuleType, arguments: argparse.Namespace, here: P
         raise RuntimeError(
             f"--reuse-subject: the committed rows are {configured['replicates']} x "
             f"n={configured['n']}, not {arguments.replicates} x n={arguments.n}"
+        )
+    if configured.get("scenario_n", {}) != dict(_declared_sizes(record, arguments.n)):
+        raise RuntimeError(
+            f"--reuse-subject: the committed rows have scenario sizes "
+            f"{configured.get('scenario_n', {})}, not {_declared_sizes(record, arguments.n)}"
         )
     for name in ("replicates.csv.gz", failures.FAILURES):
         path = here / name
@@ -1012,10 +1053,11 @@ def _reference_rows(
     # ``getattr`` here stands in for a flag an unpaired study never carries.
     if getattr(arguments, "skip_reference", False):
         committed = pd.read_csv(here / "replicates.csv.gz")
+        sizes = study.STUDY.sizes(arguments.n)
         rows = committed.loc[
             (committed["implementation"] == study.STUDY.reference)
             & (committed["replicate"] < arguments.replicates)
-            & (committed["n"] == arguments.n)
+            & (committed["n"] == committed["scenario"].map(sizes).fillna(arguments.n))
         ]
         if rows.empty:
             raise RuntimeError("no compatible committed reference rows for --skip-reference")
@@ -1271,7 +1313,12 @@ def main(
         )
     arguments = _arguments(study, here, reference)
     RUN_NOTES.clear()
-    declared = dataclasses.replace(study.STUDY, replicates=arguments.replicates, n=arguments.n)
+    declared = dataclasses.replace(
+        study.STUDY,
+        replicates=arguments.replicates,
+        n=arguments.n,
+        scenario_n=_declared_sizes(study.STUDY, arguments.n),
+    )
     key = run_key(declared)
     cache = getattr(arguments, "cache", None)
     scratch = Path(cache) if cache else runs_root() / declared.slug / digest(key)[:12]
@@ -1320,7 +1367,11 @@ def _regenerate(
     out = arguments.output
     out.mkdir(parents=True, exist_ok=True)
     record = dataclasses.replace(
-        study.STUDY, replicates=arguments.replicates, n=arguments.n, artifacts=out
+        study.STUDY,
+        replicates=arguments.replicates,
+        n=arguments.n,
+        scenario_n=_declared_sizes(study.STUDY, arguments.n),
+        artifacts=out,
     )
     skip_reference = getattr(arguments, "skip_reference", False)
     if skip_reference and record.extra_artifacts:
@@ -1354,6 +1405,8 @@ def _regenerate(
             "run has shown failures"
         )
     print(f"regenerating {record.name}: {record.replicates} x n={record.n}", flush=True)
+    if record.scenario_n:
+        print(f"scenario sizes: {dict(record.scenario_n)}", flush=True)
     scratch = context.scratch
     phase = (
         _committed_subject(study, arguments, here)

@@ -15,7 +15,9 @@ targeted estimate.
 Both intervals hold for the target only when every `GLM` that the estimate reads is correctly
 specified. Under misspecification the interval covers the limit of the misspecified fit, which
 differs from the target. A targeted estimator has no such condition on one of its two models.
-Fit `LTMLE` or `SDR` when the models are not known to be correct.
+Fit `LTMLE` or `SDR` when the models are not known to be correct. The
+[sequential offers tutorial](../examples/sequential-offers.ipynb) fits g-computation and `LTMLE`
+with the same misspecified outcome model on a three-level offer campaign.
 
 ```python
 from cleverly.datasets import make_longitudinal
@@ -133,7 +135,7 @@ unchanged. No study measures that floor for the baselines.
 | --- | --- | --- |
 | default learners | `GLM()` for every regression | `GLM()` for the treatment and censoring mechanisms |
 | `n_folds` | `1`. `n_folds > 1` raises `CapabilityError` | the same |
-| `alpha=`, `max_iter=`, `tol=` | `TypeError`. No fluctuation exists | the same |
+| `alpha=`, `max_iter=`, `tol=`, `stopping=`, `step_bound=`, `step_search=`, `iterate=` | `MethodConfigurationError` with code `invalid_declaration`. No fluctuation exists | the same |
 | `g_bounds=` | moves only the diagnostics and the diagnostic curve | bounds each cumulative mechanism probability. A bounded prefix has derivative 0 |
 | `treatment_learner=`, `censoring_learner=` | fit the diagnostic mechanism only | fit the estimate |
 | `outcome_learner=`, `pseudo_learner=` | fit the estimate | `CapabilityError`. IPW fits no outcome regression |
@@ -142,11 +144,22 @@ unchanged. No study measures that floor for the baselines.
 The default `GLM()` follows the `SL.library="glm"` default of R `ltmle`. `GLM(interactions=k)`
 adds products of distinct columns.
 
+## Diagnostics
+
+`result.diagnostics.support().to_frame()` reports one row per regimen and node. The row holds the
+follower count, the assignment share, the largest weight, the effective sample size and the share
+of truncated rows. Neither baseline fits a fluctuation. The frame therefore has no `epsilon` column
+and no `converged` column, as for `SDR`, and `LTMLE` keeps both. The `rows` of the report hold
+`epsilon=()` and `converged=None` for a baseline node.
+`tests/unit/test_longitudinal_support_frame.py` checks both baselines on a binary and a categorical
+treatment.
+
 ## Refusals
 
 | request | estimator | error |
 | --- | --- | --- |
 | `n_folds > 1` | both | `CapabilityError`. Neither baseline has a cross-fitted root-n result. Fit `LTMLE` or `SDR` |
+| `repeats > 1` | both | `CapabilityError`. A baseline fits in sample, so it has no split to draw again, and no source gives the split-adjusted median variance for it. Pass `repeats=1`, or fit `LTMLE` or `SDR` |
 | `msm=` | both | `CapabilityError`. `LTMLE(msm=...)` and `SDR(msm=...)` fit a working model |
 | an odds tilt with an estimated mechanism | both | `CapabilityError`. Fit `IPSI` |
 | a modified treatment policy | IPW | `CapabilityError`. IPW of a shifted law needs a density ratio |

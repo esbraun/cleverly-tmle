@@ -148,7 +148,7 @@ def absent_arm_error(
     if group == "ipsi":
         return DataError(
             f"baseline stratum {label} has no positive-weight rows of arm(s) {absent}, so the "
-            "stratum's treatment-mechanism score equation has no finite root"
+            "stratum's treatment-mechanism score equation may have no finite root"
         )
     return DataError(
         f"baseline stratum {label} contains no positive-weight observations from treatment "
@@ -159,10 +159,17 @@ def absent_arm_error(
 def refuse_absent_tilt_arms(data: CausalData) -> None:
     """Refuse an incremental fit with a stratum that lacks a treatment arm.
 
-    In a stratum where every row has ``A = 0``, the stratum's mechanism equation
-    ``P_n[I(S = s) H_g (0 - g*)] = 0`` has no finite root wherever the blip keeps one sign:
-    the logistic tilt separates.  The check reads the data only, so it runs before any
-    learner.
+    Within a stratum the mechanism step maximises the concave log-likelihood
+    :math:`\\sum_i w_i \\log g_\\epsilon(A_i \\mid W_i)`, with :math:`g_\\epsilon(a \\mid W)
+    \\propto \\hat g(a \\mid W)\\exp\\{\\epsilon^\\top H(a, W)\\}`.  Its score equation has
+    no finite root only if some direction :math:`d \\ne 0` separates: every observed level
+    maximises :math:`d^\\top H(\\cdot, W_i)` in its row.  An absent level is neither necessary
+    nor sufficient for that.  With a single tilt the condition reads: every observed level is
+    the arg-max, or every one is the arg-min, of :math:`H(\\cdot, W_i)`.  :math:`H` holds the
+    fitted outcome regression, so the condition cannot be read before the learners run.  The
+    check reads the data only and refuses a stratum without a level, as the binary fit always
+    did, and the refusal says the equation *may* have no root.  A relaxed rule would need the
+    separation check after the outcome fit and a defined estimate when it fails.
 
     Parameters
     ----------

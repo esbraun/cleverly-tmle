@@ -1,0 +1,21 @@
+=== longitudinal-repeated-crossfit declared run
+command: 'C:\x46\venv\Scripts\python.exe' 'C:\x46\repo2\tests\canonical\longitudinal_repeated_crossfit\regenerate.py' --jobs 14 --output 'C:\x46\out-4'
+commit: 38ad7d052e5a477250bb629d1a7d27bb88a7f90b; upstream 38ad7d052e5a477250bb629d1a7d27bb88a7f90b
+clean tree: True
+cleverly 0.1.4 from C:\x46\repo2\src\cleverly\__init__.py
+python 3.13.16; numpy 2.4.6; scipy 1.18.0; pandas 3.0.5; scikit-learn 1.9.0; joblib 1.5.3
+installed distributions: 114, sha256 bbebcaeae52edaa069e0b2c07bd69c4badef52201c11bcf0447d62e3ad0c38de
+threads: OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+cores: 16
+started: 2026-10-19T01:14:18+00:00
+finished: 2026-10-19T01:21:22+00:00
+wall seconds: 424.7
+exit code: 0
+sha256 equivalence.csv: 83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67
+sha256 manifest.json: 758edaeb23b323b6b18a96eab33c96bf8bebf995e0cecb3b2d6becebbddb03f8
+sha256 performance-tests.csv: aa5d53f098e42169f5e00cb3c2300062fe58c819c0a22ba877d570986f081591
+sha256 properties.csv: 72ddb20493a1d090009e0db6393c3afa0eb4eed99b81c4075c26ce8173b1615f
+sha256 property-replicates.csv.gz: ef1c414c099734bebcbe5ff4247c4fcb9fc927f7d1c0769823d7803c1d4809b4
+sha256 replicates.csv.gz: 7d01a053dbb0e3f251f012c75d5a559a76faffa4e78212df39fb755e165ae2cd
+sha256 summary.csv: 382ee9ea46600e72e37ce9e8f2f67cebf3d608c27c14c44f48c32f770499c15c
+

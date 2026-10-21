@@ -1,0 +1,3 @@
+parameter,replicates,jackknife_deviation_tight,sandwich_gap,jackknife_deviation_study,mean_lower_se_shift,agrees
+ate_2v0,20,2.25131e-07,2.56582e-09,0.00440286,8.22229e-05,True
+att_2v0,20,6.16364e-07,2.59691e-09,0.00689312,-1.38851e-05,True

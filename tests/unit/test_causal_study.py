@@ -55,7 +55,7 @@ from cleverly.datasets import (
 from cleverly.estimators import TMLE
 from cleverly.exceptions import PositivityWarning, RefusalReason
 from cleverly.inference.results import reported_status
-from cleverly.interventions import Shift, Stochastic
+from cleverly.interventions import Incremental, Shift, Stochastic
 from cleverly.longitudinal import LTMLE, LongitudinalData
 from cleverly.longitudinal.estimator import DEFAULT_LTMLE_G_BOUNDS
 from cleverly.methods import (
@@ -69,6 +69,8 @@ from cleverly.study import (
     _ARM_STATEMENTS,
     _LONGITUDINAL_IDENTIFICATION,
     BackdoorMeanContrast,
+    IncrementalEffect,
+    IncrementalMean,
     _arm_scope,
     _matches_registered_point_identification,
     _point_identification,
@@ -437,11 +439,74 @@ def test_design_bound_identification_provenance_requires_the_complete_record() -
     altered_nuisances = dataclasses.replace(
         effect.identification, required_nuisances=("outcome_regression",)
     )
-    for altered in (altered_assumptions, altered_nuisances):
+    altered_restrictions = dataclasses.replace(
+        effect.identification, model_restrictions=("a restriction the design does not declare",)
+    )
+    for altered in (altered_assumptions, altered_nuisances, altered_restrictions):
         assert altered.references == registered.references
         assert not _matches_registered_point_identification(
             altered, registered, effect, effect._study.data, effect.functional.axis
         )
+
+
+def test_an_empty_model_restriction_prints_nothing() -> None:
+    effect = _study().identify(ATE())
+    assert effect.identification.model_restrictions == ()
+    assert "restriction" not in effect.summary()
+    assert not any("restriction" in line for line in effect.summary_lines())
+
+
+def test_a_model_restriction_prints_after_the_assumptions() -> None:
+    effect = _study().identify(ATE())
+    restricted = dataclasses.replace(
+        effect,
+        identification=dataclasses.replace(
+            effect.identification,
+            model_restrictions=("restriction one", "restriction two"),
+        ),
+    )
+    lines = restricted.summary().splitlines()
+    start = lines.index("model restrictions:")
+    assert lines[start + 1 : start + 3] == ["  - restriction one", "  - restriction two"]
+    assert lines.index("assumptions:") < start
+    assert all(
+        item in lines[lines.index("assumptions:") + 1 : start]
+        for item in (f"  - {a}" for a in effect.identification.assumptions)
+    )
+    facts = restricted.summary_lines()
+    kinds = [line.split(":")[0] for line in facts]
+    assert facts[kinds.index("model restrictions")] == (
+        "model restrictions: restriction one; restriction two"
+    )
+    assert kinds.index("identification assumptions") + 1 == kinds.index("model restrictions")
+
+
+def test_a_result_prints_the_model_restrictions_of_its_identification() -> None:
+    law = discrete_law_mar.DiscreteLaw()
+    effect = CausalStudy(
+        discrete_law_mar.frame(),
+        design=PointTreatment(outcome="Y", treatment="A", adjustment=("W",), missingness="Delta"),
+    ).identify(ATE())
+    restricted = dataclasses.replace(
+        effect,
+        identification=dataclasses.replace(
+            effect.identification, model_restrictions=("restriction one",)
+        ),
+    )
+    kwargs: dict[str, Any] = {
+        "outcome_learner": OracleOutcome(law),
+        "treatment_learner": OracleTreatment(law),
+        "missingness_learner": OracleMissingness(law),
+        "cross_fit": False,
+        "simultaneous": False,
+        "random_state": 0,
+    }
+    plain = effect.estimate(**kwargs).summary().splitlines()
+    shown = restricted.estimate(**kwargs).summary().splitlines()
+    assert not any("restriction" in line for line in plain)
+    kinds = [line.split(":")[0] for line in shown]
+    assert shown[kinds.index("model restrictions")] == "model restrictions: restriction one"
+    assert kinds.index("identification assumptions") + 1 == kinds.index("model restrictions")
 
 
 def test_a_cde_mar_record_with_stale_assumptions_is_refused() -> None:
@@ -962,6 +1027,8 @@ def test_a_string_contrast_on_a_controlled_direct_effect_is_refused_at_construct
         (RegimeMean(regimens=(), horizons=(1, 2)), "one time point"),
         (RegimeContrast(regimens=(), horizons=(1,)), "one time point"),
         (MSMProjection(MSM.linear(), horizons=(1,)), "one time point"),
+        (IncrementalMean(interventions=[Incremental(2.0)], horizons=(1,)), "one time point"),
+        (IncrementalEffect(interventions=[Incremental(2.0)], horizons=(1,)), "one time point"),
         (MSMProjection(MSM.linear(), regimens={"always": 1}), "longitudinal regimen cells"),
     ],
 )
@@ -1213,11 +1280,9 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
     [
         {"missingness_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
         {"intermediate_learner": sklearn.linear_model.LogisticRegression(max_iter=1000)},
-        {"density_bins": 12},
         {"screen_treatment": True},
         {"screen_threshold": 0.2},
         {"min_retain": 2},
-        {"repeats": 2},
         {"stratify_folds": "outcome"},
         {"targeting_scheme": "foldwise"},
         {"cv_evaluation": True},
@@ -1232,10 +1297,10 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
 ) -> None:
     """A normalized declaration must reach the engine or fail before construction.
 
-    These are the 14 point-only fields in the shared configuration. ``n_bootstrap``,
-    ``bootstrap_resampling``, ``targeting`` and ``step_size`` reach ``LTMLE`` and are not in
-    the list. Pinning the whole list prevents a future field from disappearing just because
-    the two engine signatures differ.
+    These are the 13 point-only fields in the shared configuration. ``n_bootstrap``,
+    ``bootstrap_resampling``, ``density_bins``, ``ratio``, ``targeting``, ``step_size`` and
+    ``repeats`` reach ``LTMLE`` and are not in the list. Pinning the whole list prevents a
+    future field from disappearing just because the two engine signatures differ.
 
     ``stratify_folds`` is refused earlier than the rest: :class:`CrossFitting` now checks
     the fold policy in ``__post_init__``, so ``with_overrides`` itself raises rather than
@@ -1279,6 +1344,11 @@ def test_cross_fit_false_keeps_its_supported_longitudinal_meaning() -> None:
     assert method.estimator_kwargs(longitudinal=True)["n_folds"] == 1
 
 
+def test_repeats_reaches_the_longitudinal_engine() -> None:
+    method = TMLEMethod().with_overrides(repeats=3)
+    assert method.estimator_kwargs(longitudinal=True)["repeats"] == 3
+
+
 @pytest.mark.parametrize("method", [CollaborativeTMLEMethod(), DRTMLEMethod()])
 def test_variant_longitudinal_refusals_use_the_library_error_hierarchy(method) -> None:
     with pytest.raises(MethodConfigurationError) as raised:
@@ -1300,8 +1370,8 @@ def test_a_longitudinal_option_refuses_before_engine_construction(monkeypatch) -
     )
     effect = study.identify(RegimeMean({"always": 1}))
     monkeypatch.setattr("cleverly.study.LTMLE", _MustNotConstruct)
-    with pytest.raises(MethodConfigurationError, match="repeats"):
-        effect.estimate(repeats=2)
+    with pytest.raises(MethodConfigurationError, match="min_retain"):
+        effect.estimate(min_retain=2)
 
 
 def test_estimation_options_cannot_reassign_study_roles() -> None:

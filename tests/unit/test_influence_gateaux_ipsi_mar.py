@@ -113,7 +113,7 @@ class TestTheOracleAndTheLibraryDescribeTheSameTilts:
         """
         tilts = exact_fit.nuisance.incremental
         levels = np.rint(exact_fit.data.covariates[:, 0]).astype(int)
-        np.testing.assert_allclose(tilts.propensity, law.G_EXACT[levels], atol=1e-12, rtol=0)
+        np.testing.assert_allclose(tilts.propensity[:, 1], law.G_EXACT[levels], atol=1e-12, rtol=0)
 
         complete = law.PROBS[:, :, law.OBSERVED_ZERO] + law.PROBS[:, :, law.OBSERVED_ONE]
         among_observed = complete[:, 1] / complete.sum(axis=1)

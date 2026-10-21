@@ -137,12 +137,17 @@ the fit takes the ordinary TMLE status.
     the remainder ``R24``), and that condition fails for an estimated outcome regression:
     the reported curve then omits a first-order generated-design term.  The registered
     study ``ctmle-oat-per-arm`` measured standard errors 8 to 24 percent too small, flat in
-    ``n``, while its oracle-design cells were calibrated.  So every ``oat`` fit, of either
-    design, takes the ``"generated_design_plugin"`` status (:data:`OAT_PER_ARM_INFERENTIAL`
-    is ``False``): ``ci``, ``pvalue`` and ``std_error`` raise
-    :class:`~cleverly.exceptions.CapabilityError`, and ``plugin_std_error`` and
-    ``plugin_interval`` report the retained diagnostic.  F19 in ``docs/roadmap.md`` holds
-    the generated-design term.  ``ctmle3`` does not cross-fit this fit at all
+    ``n``, while its oracle-design cells were calibrated.  So an ``oat`` fit takes the
+    ``"generated_design_plugin"`` status unless :func:`per_arm_parametric_support` admits it:
+    ``ci``, ``pvalue`` and ``std_error`` raise :class:`~cleverly.exceptions.CapabilityError`,
+    and ``plugin_std_error`` and ``plugin_interval`` report the retained diagnostic.  F19 in
+    ``docs/roadmap.md`` holds the generated-design term.  The predicate admits a per-arm fit
+    with the two parametric learners, in sample or cross-fitted inside the fold-count cap,
+    with any ``repeats``.  Its curve is the stacked-equation curve, which includes the
+    generated-design term (X58 in ``docs/roadmap.md``).  A cross-fitted fit reads the exact
+    V-fold stack.  Under ``repeats`` it reports the median of the draws with the
+    split-adjusted variance, and each draw's record is in ``result.repeats``.
+    ``ctmle3`` does not cross-fit this fit at all
     -- ``LF_oat`` pins ``cv_fold = -1`` -- so non-cross-fitted parity and a cross-fitted
     result would have different sources.
 
@@ -327,18 +332,27 @@ from __future__ import annotations
 
 import copy
 import inspect
+import numbers
 import warnings
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
-from .._inference_status import InferenceStatus, precedent_status
+from .._inference_status import (
+    STACK_FAILURE_STATUS,
+    InferenceStatus,
+    precedent_status,
+    status_record,
+)
+from .._support import Preflight, record_refusal_site
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.causal_data import CausalData
-from ..exceptions import CapabilityError, Refusal, RefusalReason
+from ..data.treatment_covariates import pool_line
+from ..exceptions import CapabilityError, DataWarning, Refusal, RefusalReason
 from ..fluctuation.iterative import InitialFit, apply_logistic, check_matching_arms
 from ..fluctuation.submodel import Submodel, restrict, weighted_form
 from ..inference.cluster import influence_variance
@@ -354,8 +368,9 @@ from ..learners._l1_logistic import (
     penalty_path,
 )
 from ..learners.crossfit import _POST_DRAW_REMEDY, Folds, check_integrity, make_folds
+from ..learners.parametric import ParametricMechanism, ParametricOutcome
 from ..learners.super_learner import resolve_learner
-from ..targets.base import parameter_name
+from ..targets.base import READS_SINK, parameter_name
 from ..utils.bounds import OutcomeScaler, resolve_g_bounds
 from ..utils.parallel import map_parallel
 from ..utils.text import format_table
@@ -366,10 +381,23 @@ from ._ctmle_derivative import (
 )
 from ._nuisance import (
     _SIMPLEX_TOLERANCE,
+    ArmQuery,
+    DrawInference,
     NuisanceEstimates,
     Propensity,
+    _arm_codes_by_row,
+    _fit_arm_models,
+    _fit_outcome_by_arm,
+    _predict_by_arm,
     cross_fit_predictions,
     fit_on_rows,
+)
+from ._oat_stack import (
+    FoldCoefficients,
+    StackRecordError,
+    StackReport,
+    stack_from_fit,
+    stack_report,
 )
 from .base import MEAN_GROUP_ESTIMANDS, TMLEConfig, resolve_estimands
 from .targeting import build_submodel, solve_submodel
@@ -381,7 +409,6 @@ if TYPE_CHECKING:
 __all__ = [
     "CTMLE",
     "CTMLE_SELECTOR_STRATEGIES",
-    "OAT_PER_ARM_INFERENTIAL",
     "CTMLEDerivativeFit",
     "CTMLELoss",
     "CTMLEOatDesign",
@@ -391,27 +418,18 @@ __all__ = [
     "CTMLEStrategy",
     "LogisticPlugin",
     "PropensityArrays",
+    "SupportVerdict",
     "declares_no_selection",
     "is_per_arm_oat",
     "is_selector_strategy",
     "logistic_plugin",
-    "per_arm_design_admits",
+    "per_arm_parametric_support",
 ]
 
 CTMLEStrategy = Literal["greedy", "ordered", "discrete", "lasso", "learners", "derivative", "oat"]
 CTMLELoss = Literal["auto", "loglik", "squared"]
 CTMLEPreorder = Literal["logistic", "partial_correlation"]
 CTMLEOatDesign = Literal["per_arm", "shared"]
-
-#: Whether an admitted per-arm outcome-adaptive fit publishes inference. ``False``: the
-#: declared revert of the registered study ``ctmle-oat-per-arm``. Its calibration, primary
-#: coverage, estimated-design and band cells measured standard errors 8 to 24 percent too
-#: small, flat in ``n``, while the oracle-design cells were calibrated. The cause is condition
-#: (v) of Benkeser, Cai and van der Laan (2020), Theorem 1 (preprint Appendix F, the remainder
-#: ``R24``), which fails for an estimated outcome regression, so the reported curve omits a
-#: first-order generated-design term. Every per-arm fit takes ``"generated_design_plugin"``.
-#: :func:`per_arm_design_admits` reads it; F19 in ``docs/roadmap.md`` holds the term.
-OAT_PER_ARM_INFERENTIAL: Final[bool] = False
 
 #: The strategies that build a candidate path and cut it at a data-chosen stopping index.
 #: ``"oat"`` is not one: it fits its mechanism on the arm-specific outcome predictions and
@@ -470,7 +488,9 @@ def declares_no_selection(
     treatment_candidates : sequence or None
         The declared ``treatment_candidates=`` list.
     covariate_names : sequence of str
-        The prepared covariate names, :attr:`~cleverly.data.CausalData.covariate_names`.
+        The covariates the treatment mechanism reads,
+        :attr:`~cleverly.data.CausalData.mechanism_covariate_names`: the prepared covariate
+        names, or the subset a design declares with ``treatment_adjustment=``.
 
     Returns
     -------
@@ -485,6 +505,34 @@ def declares_no_selection(
     if strategy != "discrete" or candidates is None or len(candidates) != 1:
         return False
     return len(covariate_names) > 0 and sorted(candidates[0]) == sorted(covariate_names)
+
+
+def _refuse_names_outside_pool(data: CausalData, argument: str, names: Sequence[str]) -> None:
+    """Refuse a candidate or an ordering name that lies outside the treatment-mechanism covariates.
+
+    The default design reads every covariate, so nothing lies outside it and this refuses
+    nothing.
+
+    Parameters
+    ----------
+    data : CausalData
+        The prepared data.
+    argument : str
+        The estimator argument that holds the names, for the message.
+    names : sequence of str
+        The names the argument holds.
+
+    Raises
+    ------
+    ValueError
+        If a name is a covariate of the design that the treatment mechanism does not read.
+    """
+    if data.treatment_covariate_names is None:
+        return
+    pool = set(data.mechanism_covariate_names)
+    outside = list(dict.fromkeys(name for name in names if name not in pool))
+    if outside:
+        raise ValueError(f"{argument} names {outside} outside treatment_adjustment=")
 
 
 @dataclass(frozen=True, eq=False)
@@ -579,7 +627,7 @@ def is_per_arm_oat(estimator: Any) -> bool:
     """Whether an estimator is the per-arm outcome-adaptive :class:`CTMLE`.
 
     One predicate for every reader that admits the per-arm design where it refuses the
-    other collaborative strategies: :func:`per_arm_design_admits`, the missing-treatment
+    other collaborative strategies: :func:`per_arm_parametric_support`, the missing-treatment
     refusal and the missing-outcome contracts of :class:`~cleverly.estimators.TMLE`.
 
     Parameters
@@ -598,43 +646,429 @@ def is_per_arm_oat(estimator: Any) -> bool:
     )
 
 
-def per_arm_design_admits(estimator: Any, data: CausalData) -> bool:
-    """Whether an outcome-adaptive fit is inside the per-arm result and reports inference.
+@dataclass(frozen=True)
+class SupportVerdict:
+    """Whether :func:`per_arm_parametric_support` admits a fit, and the first unmet axis.
 
-    The per-arm design regresses ``1{A = a}`` on the one column ``Qbar_n(a, W)`` for each arm.
-    Benkeser, Cai and van der Laan (2020), Theorem 1, give the influence curve of that
-    construction for one treatment-specific mean. An indicator reduction per arm and a
-    fixed-dimension stack give the joint curve of every arm. That theorem needs its
-    condition (v), which fails for an estimated outcome regression, so
-    :data:`OAT_PER_ARM_INFERENTIAL` is ``False`` and the key admits no fit.
-    ``docs/technical-reference/collaborative-tmle.md`` states the contract. The key reads
-    the estimator configuration, the prepared data and :data:`OAT_PER_ARM_INFERENTIAL`. It
-    never reads a fitted array, so a caller knows the answer before the fit.
+    Parameters
+    ----------
+    admitted : bool
+        Whether the fit publishes the stacked interval.
+    axis : str or None
+        The first constructor option or data property outside the allow-list, or ``None``.
+    detail : str
+        One sentence naming the admitted configuration, or what the unmet axis requires.
+    """
+
+    admitted: bool
+    axis: str | None
+    detail: str
+
+
+def _anything(value: Any) -> bool:
+    return True
+
+
+#: The largest fold count of a cross-fitted stacked interval. The V-fold stack is a
+#: Z-estimator for a fold count fixed as ``n`` grows, and its dense Jacobian has
+#: ``V (p + K r) + 2K`` rows (X58 plan, 13.3, m13).
+MAX_STACK_FOLDS: Final = 20
+
+#: The fewest rows a held-out fold of a cross-fitted stacked interval holds (X58 plan, 13.3).
+MIN_STACK_FOLD_ROWS: Final = 30
+
+#: The fold count and the repeat counts the study ``ctmle-oat-per-arm-parametric-crossfit``
+#: measures. The predicate admits every value inside the fold-count cap. Another value is a
+#: group-A condition of the preflight (``_unstudied_stack_conditions``), so the fit
+#: reports its interval labelled ``"experimental"`` (X58 plan, 13.1, D6).
+_STUDIED_FOLDS: Final = 5
+_STUDIED_REPEATS: Final = (1, 3)
+
+#: Why a fold count outside the cap withholds the interval (X58 plan, 13.3, m13).
+_FOLD_CAP_TEXT: Final = (
+    "the V-fold stack covers a fold count fixed as n grows; above "
+    f"{MAX_STACK_FOLDS} folds, or with a held-out fold below {MIN_STACK_FOLD_ROWS} rows, the "
+    "fit is outside that regime and the dense stack does not scale"
+)
+
+
+#: The admitted values of every constructor option of :class:`~cleverly.TMLE` and
+#: :class:`CTMLE` for the stacked per-arm interval. ``tests/unit/test_oat_per_arm_support.py``
+#: fails when an option has no entry. An option that the stack never reads admits any value,
+#: and ``n_folds`` is checked against the fold-count cap on the data.
+PER_ARM_PARAMETRIC_OPTIONS: Final[dict[str, tuple[Callable[[Any], bool], str]]] = {
+    "strategy": (lambda v: v == "oat", "strategy='oat'"),
+    "oat_design": (lambda v: v == "per_arm", "oat_design='per_arm'"),
+    "outcome_learner": (
+        lambda v: type(v) is ParametricOutcome,
+        "outcome_learner=ParametricOutcome(...), exactly that class",
+    ),
+    "treatment_learner": (
+        lambda v: type(v) is ParametricMechanism,
+        "treatment_learner=ParametricMechanism(...), exactly that class",
+    ),
+    "missingness_learner": (_anything, "any value; no outcome is missing"),
+    "intermediate_learner": (_anything, "any value; no intermediate variable"),
+    "family": (
+        lambda v: v in ("auto", "binomial", "gaussian"),
+        "family='auto', 'binomial' or 'gaussian'",
+    ),
+    "fluctuation": (lambda v: v == "logistic", "fluctuation='logistic'"),
+    "targeting": (lambda v: v == "iterative", "targeting='iterative'"),
+    "cross_fit": (
+        lambda v: isinstance(v, bool),
+        "cross_fit=True or False; a cross-fitted fit reads the exact V-fold stack",
+    ),
+    "targeting_scheme": (
+        lambda v: v == "pooled",
+        "targeting_scheme='pooled'. Per-fold targeting is not implemented in the stack: a "
+        "per-fold fluctuation is one eps_{a,k} (and psi_{a,k}) per fold",
+    ),
+    "cv_evaluation": (
+        lambda v: v is False,
+        "cv_evaluation=False. The fold-evaluated fit is not implemented in the stack: it "
+        "needs one eps_{a,k} (and psi_{a,k}) per fold",
+    ),
+    "n_folds": (
+        _anything,
+        "with cross_fit=True, a fold count inside the fold-count cap (checked on the data)",
+    ),
+    "learner_folds": (_anything, "any value; the parametric learners have no inner folds"),
+    "repeats": (
+        lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 1,
+        "a positive integer repeats; each draw is a V-fold stack, and the fit reports their median",
+    ),
+    "stratify_folds": (
+        _anything,
+        "any value; the engine admits only 'none' with cross_fit=True, so the fold labels "
+        "read only the seed",
+    ),
+    "split_plan": (
+        lambda v: v is None,
+        "split_plan=None. A supplied partition can depend on the data, and the V-fold "
+        "stack's conditional argument needs fold labels independent of the data",
+    ),
+    "g_bounds": (_anything, "any value; a binding bound is in the Jacobian"),
+    "q_bounds": (
+        _anything,
+        "a declared tuple for an outcome that is not binary (checked on the data)",
+    ),
+    "alpha": (_anything, "any value; the shrinkage clips are in the Jacobian"),
+    "nuisance_bound": (_anything, "any value; no outcome is missing"),
+    "target_weights": (
+        lambda v: v is False,
+        "target_weights=False. target_weights=True is not implemented in the stack: the "
+        "weighted clever covariate w H is one more fluctuation equation",
+    ),
+    "screen_treatment": (lambda v: v is False, "screen_treatment=False"),
+    "screen_threshold": (_anything, "any value; screening is off"),
+    "min_retain": (_anything, "any value; screening is off"),
+    "estimands": (
+        _anything,
+        "ate, rr, or, the arm means, ey_obs, par and paf (checked on the data)",
+    ),
+    "interventions": (lambda v: not v, "no interventions"),
+    "policies": (lambda v: not v, "no policies"),
+    "incremental": (lambda v: not v, "no incremental"),
+    "msm": (lambda v: v is None, "msm=None"),
+    "learned_rule": (lambda v: v is None, "learned_rule=None"),
+    "density_bins": (lambda v: v is None, "density_bins=None"),
+    "ratio": (_anything, "any value"),
+    "reference": (_anything, "any arm"),
+    "alpha_sig": (_anything, "any value"),
+    "n_bootstrap": (_anything, "any value; the bootstrap range is a diagnostic"),
+    "bootstrap_resampling": (_anything, "any value"),
+    "simultaneous": (_anything, "any value; the band reads the stacked curves"),
+    "n_multiplier": (_anything, "any value; the band reads the stacked curves"),
+    "multiplier_kind": (_anything, "any value; the band reads the stacked curves"),
+    "step_size": (_anything, "any value; the logistic fluctuation ignores it"),
+    "max_iter": (
+        _anything,
+        "any value; a fluctuation that does not converge sets the failure status",
+    ),
+    "tol": (_anything, "any value"),
+    "stopping": (
+        lambda v: v == "relative",
+        "stopping='relative'; the stacked equations assume the solved fluctuation",
+    ),
+    "step_bound": (lambda v: v is None, "step_bound=None"),
+    "step_search": (_anything, "any value; it is read only beside step_bound"),
+    "iterate": (
+        lambda v: v == "last",
+        "iterate='last'; the best iterate is not the solved fluctuation",
+    ),
+    "outcome_by_arm": (
+        lambda v: v is False,
+        "outcome_by_arm=False; the stack fits one outcome model with arm columns",
+    ),
+    "patience": (lambda v: v is None, "patience=None; the oat strategy scores no path"),
+    "random_state": (_anything, "any value"),
+    "run_id": (_anything, "any value"),
+    "n_jobs": (_anything, "any value"),
+    "preorder": (lambda v: v is None, "preorder=None"),
+    "ordering": (lambda v: v is None, "ordering=None"),
+    "candidates": (lambda v: v is None, "candidates=None"),
+    "selection_folds": (_anything, "any value; the oat strategy selects nothing"),
+    "selection_inner_folds": (_anything, "any value; the oat strategy selects nothing"),
+    "loss": (_anything, "any value; the oat strategy selects nothing"),
+    "penalty": (_anything, "any value; the oat strategy selects nothing"),
+    "ctmle_estimand": (lambda v: v == "ate", "ctmle_estimand='ate'"),
+    "lambdas": (lambda v: v is None, "lambdas=None"),
+    "treatment_candidates": (lambda v: v is None, "treatment_candidates=None"),
+    "selection_split": (lambda v: v is None, "selection_split=None"),
+}
+
+#: The data properties the stacked per-arm interval needs, each with its failing test.
+_PER_ARM_PARAMETRIC_DATA: Final[tuple[tuple[str, Callable[[CausalData], bool], str], ...]] = (
+    (
+        "treatment",
+        lambda d: d.has_arms and not d.is_vector_treatment,
+        "an arm-coded treatment of one column: the stack has one mechanism per arm",
+    ),
+    ("cluster", lambda d: d.cluster is None, "no cluster identifier"),
+    ("strata", lambda d: not d.has_strata, "no baseline strata; X52 part (b) holds them"),
+    (
+        "missing_outcome",
+        lambda d: not d.has_missing_outcome,
+        "every outcome observed; X52 part (b) holds missing outcomes",
+    ),
+    ("missing_treatment", lambda d: not d.has_missing_treatment, "every treatment observed"),
+    ("intermediate", lambda d: not d.has_intermediate, "no intermediate variable"),
+    ("known_treatment", lambda d: d.known_treatment is None, "no declared treatment mechanism"),
+)
+
+
+#: The estimands the stacked per-arm interval covers. ``ey_obs`` adds the equation
+#: ``w (Y - psi_obs)``, which reads no other parameter, and ``par`` and ``paf`` are smooth
+#: maps of ``psi_obs`` and the reference arm mean (X58 plan, 13.2).
+STACKED_ESTIMANDS: Final[frozenset[str]] = frozenset(
+    {"ate", "rr", "or", "ey", "ey0", "ey1", "ey_obs", "par", "paf"}
+)
+
+#: The estimands of the :meth:`CTMLE._estimates_for` call in progress, so that
+#: :meth:`CTMLE._corrections` reads the stack only for a call the stack covers. A
+#: :meth:`~cleverly.TMLE.retarget` can request names the estimator never declared.
+_REQUESTED: ContextVar[tuple[str, ...] | None] = ContextVar("_REQUESTED", default=None)
+
+#: The stack report :meth:`CTMLE._corrections` built inside the :meth:`CTMLE._estimates_for`
+#: call in progress, so the call reads one solve of the stack.
+_REPORT: ContextVar[list[StackReport | None] | None] = ContextVar("_REPORT", default=None)
+
+#: Set while :meth:`CTMLE._estimates_for` builds a draw's uncorrected estimates from the same
+#: fluctuation: no call reads the stack, so each estimate carries the shipped
+#: adaptive-propensity curve.
+_SHIPPED: ContextVar[bool] = ContextVar("_SHIPPED", default=False)
+
+#: The shipped standard error of each estimand of the draw in progress.
+#: :meth:`CTMLE._targeted_draw` sets it for an admitted fit, and :meth:`CTMLE._estimates_for`
+#: fills it. A context variable is local to its thread, so a fit under ``n_jobs`` threads
+#: reads only its own draw.
+_SHIPPED_SE: ContextVar[dict[str, float] | None] = ContextVar("_SHIPPED_SE", default=None)
+
+
+def per_arm_parametric_support(estimator: Any, data: CausalData) -> SupportVerdict:
+    """Whether a per-arm outcome-adaptive fit publishes the stacked interval.
+
+    The fit is a finite-dimensional stacked Z-estimator when its outcome model and each arm's
+    mechanism are unpenalized logistic GLMs on a declared feature map. Its curve is then
+    ``-A_n^{-1} U_i`` over the outcome, mechanism, fluctuation and mean equations
+    (:mod:`cleverly.estimators._oat_stack`; X58 in ``docs/roadmap.md``). A cross-fitted fit
+    carries one outcome and one mechanism fit per fold in the exact V-fold stack. The
+    predicate is an allow-list over every constructor option
+    (:data:`PER_ARM_PARAMETRIC_OPTIONS`) and the data properties the stack needs. It reads
+    the configuration and the prepared data only, never a fitted array.
+
+    A cross-fitted fit is admitted at any fold count inside the fold-count cap
+    (:data:`MAX_STACK_FOLDS` folds, held-out folds of at least :data:`MIN_STACK_FOLD_ROWS`
+    rows), with any ``repeats``, on a binary outcome or on a continuous outcome with declared
+    ``q_bounds``. The treatment can have any number of arms, and the outcome features then
+    carry ``K - 1`` arm indicators. Observation weights are admitted with
+    ``target_weights=False``: every equation carries the weight, and the interval conditions
+    on it. The predicate states what the stacked theory covers. The support label states what
+    a registered study measures, and a fit outside every support row reports its interval
+    labelled ``"experimental"``.
 
     Parameters
     ----------
     estimator : CTMLE
-        The collaborative estimator. Only ``strategy`` and ``oat_design`` are read.
+        The collaborative estimator.
     data : CausalData
-        The prepared data. Missing outcomes, a missing treatment and baseline strata are
-        read.
+        The prepared data.
 
     Returns
     -------
-    bool
-        ``True`` when the strategy is ``"oat"``, the design is ``"per_arm"``, every outcome
-        and treatment is observed, the fit declares no baseline strata, and
-        :data:`OAT_PER_ARM_INFERENTIAL` is ``True``.  The per-arm design with strata or
-        missing data is excluded even with the flag set, because no study measured its
-        curve.
+    SupportVerdict
+        The verdict, with the first unmet axis.
     """
-    return bool(
-        OAT_PER_ARM_INFERENTIAL
-        and is_per_arm_oat(estimator)
-        and not data.has_missing_outcome
-        and not data.has_missing_treatment
-        and not data.has_strata
+    params = {
+        key: getattr(estimator, key)
+        for key in PER_ARM_PARAMETRIC_OPTIONS
+        if hasattr(estimator, key)
+    }
+    for name, (admits, text) in PER_ARM_PARAMETRIC_OPTIONS.items():
+        if name not in params:
+            return SupportVerdict(False, name, f"the estimator declares no {name}")
+        try:
+            ok = bool(admits(params[name]))
+        except Exception:
+            ok = False
+        if not ok:
+            return SupportVerdict(False, name, f"the stacked interval needs {text}")
+    for name, admits_data, text in _PER_ARM_PARAMETRIC_DATA:
+        if not admits_data(data):
+            return SupportVerdict(False, name, f"the stacked interval needs {text}")
+    arm_columns = data.n_arms - 1
+    outcome = estimator.outcome_learner
+    # The option allow-list above admits exactly ParametricOutcome; the type check keeps this
+    # data check independent of that list.
+    if isinstance(outcome, ParametricOutcome) and outcome.arm_columns != arm_columns:
+        return SupportVerdict(
+            False,
+            "outcome_learner",
+            f"the stacked interval needs ParametricOutcome(arm_columns={arm_columns}), the "
+            f"{arm_columns} arm indicator column(s) of the design; got arm_columns="
+            f"{outcome.arm_columns!r}",
+        )
+    if data.family != "binomial" and estimator.q_bounds is None:
+        return SupportVerdict(
+            False,
+            "q_bounds",
+            "the stacked interval needs declared q_bounds for an outcome that is not binary",
+        )
+    if estimator.cross_fit:
+        folds = int(estimator.n_folds)
+        # ``n // folds`` is the smallest held-out fold of a balanced partition. The engine
+        # cross-fits only with stratify_folds="none", whose folds are balanced.
+        smallest = data.n // folds if folds > 0 else 0
+        if folds > MAX_STACK_FOLDS or smallest < MIN_STACK_FOLD_ROWS:
+            return SupportVerdict(
+                False,
+                "n_folds",
+                f"{_FOLD_CAP_TEXT}; got n_folds={folds} with a smallest held-out fold of "
+                f"{smallest} rows",
+            )
+    try:
+        # The pure resolution, never ``_resolve_estimands_for_data``: the predicate runs from
+        # the status hook, the summary and the estimate builder, and must not raise there.
+        resolved = resolve_estimands(estimator.estimands, data.family, data.n_arms)
+    except Exception as exc:
+        return SupportVerdict(
+            False, "estimands", f"the stacked interval needs estimands that resolve ({exc})"
+        )
+    outside = sorted(set(resolved) - STACKED_ESTIMANDS)
+    if outside:
+        return SupportVerdict(
+            False,
+            "estimands",
+            "the stacked interval needs estimands among ate, rr, or, the arm means, ey_obs, "
+            "par and paf; got " + ", ".join(outside),
+        )
+    splitting = (
+        f", cross-fitted over {estimator.n_folds} folds"
+        + (f" with {estimator.repeats} repeats" if estimator.repeats > 1 else "")
+        + ","
+        if estimator.cross_fit
+        else ", in sample,"
     )
+    treatment = "a binary treatment" if data.n_arms == 2 else f"a {data.n_arms}-arm treatment"
+    weighting = (
+        ""
+        if not data.is_weighted
+        else " with estimated weights"
+        if data.declares_estimated_weights
+        else " with fixed weights"
+    )
+    return SupportVerdict(
+        True,
+        None,
+        f"the per-arm fit{splitting} with ParametricOutcome and ParametricMechanism on "
+        f"{treatment}{weighting}",
+    )
+
+
+def _held_estimates(
+    estimates: Mapping[str, Any],
+    reads: Mapping[str, frozenset[float]],
+    failures: Mapping[float, str],
+) -> frozenset[str]:
+    """The estimates that read no failed arm, and so keep the stacked curve.
+
+    The target of each estimate records the arm means it reads (:attr:`TargetContext.reads
+    <cleverly.targets.TargetContext.reads>`): ``ey[a]`` reads ``a``, a contrast reads its
+    arm and the reference, ``par`` and ``paf`` read the reference, and ``ey_obs`` reads no
+    arm. An estimate whose target records nothing counts as reading every arm. The names are
+    never parsed (X58 plan, 13.2, D4).
+
+    Parameters
+    ----------
+    estimates : mapping of str to ParameterEstimate
+        The estimates of one fluctuation.
+    reads : mapping of str to frozenset of float
+        The arm codes each estimate reads, as its target recorded them.
+    failures : mapping of float to str
+        The failed arm codes, each with its reason.
+
+    Returns
+    -------
+    frozenset of str
+        The names of the estimates that read only arms whose stack held.
+    """
+    failed = frozenset(float(arm) for arm in failures)
+    return frozenset(name for name in estimates if name in reads and not reads[name] & failed)
+
+
+def _unstudied_stack_conditions(estimator: Any, data: CausalData) -> tuple[Refusal, ...]:
+    """The group-A conditions of an admitted cross-fitted per-arm fit outside the study.
+
+    The study ``ctmle-oat-per-arm-parametric-crossfit`` measures the stacked interval at
+    ``_STUDIED_FOLDS`` folds and at the repeat counts ``_STUDIED_REPEATS``.
+    The support key holds neither count, so a support row alone cannot tell them apart. Each
+    other value that :func:`per_arm_parametric_support` admits returns one condition, and the
+    preflight adds it to the fit's conditions. The fit then reports its interval labelled
+    ``"experimental"``, with the condition as the reason (RM42b).
+
+    Parameters
+    ----------
+    estimator : CTMLE
+        The collaborative estimator.
+    data : CausalData
+        The prepared data.
+
+    Returns
+    -------
+    tuple of Refusal
+        One :attr:`~cleverly.exceptions.RefusalReason.INFERENCE_GAP` condition for an
+        unstudied fold count and one for an unstudied repeat count. Empty for a fit the
+        predicate refuses, for an in-sample fit and for a studied configuration.
+    """
+    if not estimator.cross_fit or not per_arm_parametric_support(estimator, data).admitted:
+        return ()
+    conditions: list[Refusal] = []
+    study = "The study ctmle-oat-per-arm-parametric-crossfit measures the cross-fitted stacked"
+    if estimator.n_folds != _STUDIED_FOLDS:
+        conditions.append(
+            Refusal(
+                RefusalReason.INFERENCE_GAP,
+                f"{study} interval at n_folds={_STUDIED_FOLDS} only. This fit has "
+                f"n_folds={estimator.n_folds}.",
+                alternative=(
+                    f"Set n_folds={_STUDIED_FOLDS} (CrossFitting(n_folds="
+                    f"{_STUDIED_FOLDS})) for the studied fold count."
+                ),
+                roadmap="X58",
+            )
+        )
+    if estimator.repeats not in _STUDIED_REPEATS:
+        studied = " or ".join(f"repeats={value}" for value in _STUDIED_REPEATS)
+        conditions.append(
+            Refusal(
+                RefusalReason.INFERENCE_GAP,
+                f"{study} interval at {studied} only. This fit has repeats={estimator.repeats}.",
+                alternative="Set repeats=3 (CrossFitting(repeats=3)) for a studied repeat count.",
+                roadmap="X58",
+            )
+        )
+    return tuple(conditions)
 
 
 #: Floor applied to targeted predictions before taking a logarithm in the loss.
@@ -666,6 +1100,29 @@ _DISCRETE_TREATMENT_REFUSAL = Refusal(
     alternative="Fit TMLE on the continuous dose.",
     roadmap="F5",
 )
+
+
+def vector_discrete_treatment_refusal(treatment: str) -> Refusal:
+    """Why CTMLE refuses a vector treatment with a continuous component.
+
+    Parameters
+    ----------
+    treatment : str
+        The treatment name.
+
+    Returns
+    -------
+    Refusal
+        The continuous-dose record with the vector's name in front.
+    """
+    return replace(
+        _DISCRETE_TREATMENT_REFUSAL,
+        condition=(
+            f"treatment {treatment!r} is a vector with a continuous component. "
+            + _DISCRETE_TREATMENT_REFUSAL.condition
+        ),
+    )
+
 
 #: Why CTMLE refuses ``policies=``.  Checked before the continuous-dose refusal, because a
 #: shift declares its treatment a dose even when the column holds two arms, and the dose
@@ -799,7 +1256,8 @@ class CTMLESelection:
     selected : int
         The index into :attr:`path` that the cross-validated risk chose.
     covariates : tuple of str
-        Every covariate of the fit, in data order.
+        The covariates the search drew from, in data order: every covariate, or the subset a
+        design declares with ``treatment_adjustment=``.
     folds : Folds
         The realized selection split :attr:`cv_risk` was scored over. This is the partition
         the fit used, so a paired study can hand another implementation the same fold
@@ -813,6 +1271,16 @@ class CTMLESelection:
     final : int or None
         The candidate the ``"lasso"`` final step reported, or ``None`` when no final step
         ran.
+    restricted_pool : tuple of str or None
+        The subset of covariates the design declares with ``treatment_adjustment=``, or
+        ``None`` for a design that declares none. :meth:`summary` names it.
+    patience : int or None
+        The ``patience=`` the search ran with, or ``None`` when it read the whole path.
+    stopped_at : int or None
+        The index into :attr:`path` of the last candidate the search fitted and scored, when
+        the patience counter stopped it. ``None`` when the counter never triggered, and always
+        ``None`` without :attr:`patience`. When it is set, :attr:`path` and every array that
+        runs along it end at this index.
     """
 
     strategy: CTMLEStrategy
@@ -833,6 +1301,9 @@ class CTMLESelection:
     folds: Folds
     labels: tuple[str, ...] = ()
     final: int | None = None
+    restricted_pool: tuple[str, ...] | None = None
+    patience: int | None = None
+    stopped_at: int | None = None
 
     @property
     def reported(self) -> int:
@@ -951,6 +1422,10 @@ class CTMLESelection:
             f"criterion = cross-validated {criterion}{loss_name} loss",
             "",
         ]
+        if self.restricted_pool is not None:
+            header.insert(-1, pool_line(self.restricted_pool))
+        if self.patience is not None:
+            header.insert(-1, self._patience_line())
         chosen = self.selected_covariates
         footer = [""]
         if indexed:
@@ -975,6 +1450,26 @@ class CTMLESelection:
             )
         return "\n".join([*header, table, *footer])
 
+    def _patience_line(self) -> str:
+        """The summary line that states what ``patience=`` did to the path."""
+        assert self.patience is not None
+        if self.stopped_at is None:
+            return (
+                f"patience = {self.patience}: the counter never triggered, so the search read "
+                "every candidate"
+            )
+        # An indexed path (lasso, learners) fits every candidate of a pass before it scores
+        # them, so after the stop its later candidates are fitted but not scored.
+        later = (
+            "were fitted but not scored"
+            if self.strategy in _INDEXED_STRATEGIES
+            else "were not fitted or scored"
+        )
+        return (
+            f"patience = {self.patience}: the counter stopped the search after candidate "
+            f"{self.stopped_at + 1}, and later candidates {later}"
+        )
+
     def describe(self) -> str:
         """One sentence naming the strategy, the candidate the search cut at, and its target.
 
@@ -994,6 +1489,11 @@ class CTMLESelection:
             f"C-TMLE {self.strategy} selected candidate {self.selected + 1} of "
             f"{len(self.path)} for {self.estimand}"
         )
+        if self.stopped_at is not None:
+            sentence += (
+                f"; patience={self.patience} stopped the search after candidate "
+                f"{self.stopped_at + 1}"
+            )
         if self.final is not None:
             sentence += f"; the final step used candidate {self.final + 1}"
         return sentence
@@ -1007,6 +1507,43 @@ class CTMLESelection:
     def treatment_risk_selected(self) -> float:
         """Treatment negative log likelihood at the reported path position."""
         return float(self.treatment_risk[self.reported])
+
+
+#: What the stacked parametric interval of an admitted per-arm fit covers (X58).
+_STACKED_INTERVAL_NOTE: Final = (
+    "Its intervals read the stacked parametric curve of {models}. Each interval is pointwise "
+    "and covers the arm mean when the outcome model is correct, and its limit psi* otherwise. "
+    "The g_bounds are constants of the fit, so with a wrong outcome model psi* can move with "
+    "n while a bound binds. A simultaneous band is joint over the reported estimates that "
+    "supply inference, and it reads their stacked curves"
+)
+
+
+def _stacked_interval_models(estimator: Any, data: CausalData) -> str:
+    outcome, mechanism = estimator.outcome_learner, estimator.treatment_learner
+    models = (
+        f"ParametricOutcome(features={outcome.features!r}, arm_columns={outcome.arm_columns}) "
+        f"and ParametricMechanism(degree={mechanism.degree}), one mechanism for each of the "
+        f"{data.n_arms} arms"
+    )
+    if data.is_weighted:
+        models += (
+            ", with the data weights in every equation. The interval conditions on the "
+            "weights"
+            + (", which are declared estimated" if data.declares_estimated_weights else "")
+        )
+    if not estimator.cross_fit:
+        return models
+    models += (
+        f", cross-fitted over {estimator.n_folds} folds in the exact V-fold stack (one outcome "
+        "and one mechanism fit per fold, one pooled fluctuation per arm)"
+    )
+    if estimator.repeats > 1:
+        models += (
+            f". Each estimate is the median of {estimator.repeats} cross-fitting repeats, "
+            "with the split-adjusted median variance"
+        )
+    return models
 
 
 @dataclass(frozen=True)
@@ -1039,6 +1576,22 @@ class CTMLEOutcomeAdaptiveFit:
         Each factor's binary negative log likelihood, summed over the arms and computed on
         the rows the factor is fitted on, keyed by the entry of ``factors``. ``None`` under
         the shared design.
+    stacked_interval : str or None
+        The declared models of a fit that :func:`per_arm_parametric_support` admits, which
+        then reports the stacked parametric curve. ``None`` for every other fit.
+    stacked_refusal : str or None
+        On a per-arm fit that :func:`per_arm_parametric_support` refuses, the first unmet
+        requirement of the stacked interval. ``None`` under the shared design and on an
+        admitted fit.
+    stacked_folds : int or None
+        On an admitted fit, ``V``: the folds of the V-fold stack, 1 in sample. ``None`` on
+        every other fit.
+    stacked_repeats : int or None
+        On an admitted fit, the cross-fitting repeats whose median the fit reports.
+        ``None`` on every other fit.
+    stacked_arms : int or None
+        On an admitted fit, ``K``: the arms of the stack, one mechanism, fluctuation and
+        mean each. ``None`` on every other fit.
     """
 
     strategy: CTMLEStrategy
@@ -1049,6 +1602,11 @@ class CTMLEOutcomeAdaptiveFit:
     strata: tuple[str, ...] = ()
     factors: tuple[str, ...] = ()
     risk_by_factor: dict[str, float] | None = None
+    stacked_interval: str | None = None
+    stacked_refusal: str | None = None
+    stacked_folds: int | None = None
+    stacked_repeats: int | None = None
+    stacked_arms: int | None = None
 
     @property
     def treatment_risk_selected(self) -> float:
@@ -1076,6 +1634,10 @@ class CTMLEOutcomeAdaptiveFit:
                 sentence += f", with {len(self.factors)} factors per arm"
             if self.strata:
                 sentence += f", inside each of {len(self.strata)} baseline strata"
+            if self.stacked_interval is not None:
+                sentence += f". {_STACKED_INTERVAL_NOTE.format(models=self.stacked_interval)}"
+            if self.stacked_refusal is not None:
+                sentence += f". No stacked interval (X58): {self.stacked_refusal}"
             return sentence
         return (
             f"C-TMLE outcome-adaptive fit used {count} Qbar features in one categorical mechanism"
@@ -1115,6 +1677,10 @@ class CTMLEOutcomeAdaptiveFit:
             )
         if self.strata:
             lines.append(f"fitted inside each baseline stratum: {'; '.join(self.strata)}")
+        if self.stacked_interval is not None:
+            lines.append(_STACKED_INTERVAL_NOTE.format(models=self.stacked_interval))
+        if self.stacked_refusal is not None:
+            lines.append(f"No stacked interval (X58): {self.stacked_refusal}")
         return "\n".join(lines)
 
 
@@ -1250,6 +1816,49 @@ class _Candidate:
     label: str = ""
 
 
+class _PatienceCounter:
+    """The ``patience`` counter of R ``ctmle``'s ``ctmleDiscrete``, one risk at a time.
+
+    ``functions_discrete.R`` keeps a pointer, the smallest risk seen, and a count. A risk
+    above the pointer adds one to the count, and the search is done when the count reaches
+    ``patience``. A risk at or below the pointer moves the pointer to it and resets the count,
+    so a tie resets. The count is not a run length: a worse risk after a reset adds one, and a
+    later worse risk adds another, whatever lies between them that stays above the pointer.
+    A risk that is not finite counts as worse.
+
+    Parameters
+    ----------
+    patience : int
+        The count at which the search stops.
+    """
+
+    def __init__(self, patience: int) -> None:
+        self.patience = patience
+        self.pointer = np.inf
+        self.count = 0
+
+    def offer(self, risk: float) -> bool:
+        """Read the risk of the next position.
+
+        Parameters
+        ----------
+        risk : float
+            The cross-validated risk of the position.
+
+        Returns
+        -------
+        bool
+            Whether the search stops at this position.
+        """
+        value = float(risk) if np.isfinite(risk) else np.inf
+        if value > self.pointer:
+            self.count += 1
+            return self.count >= self.patience
+        self.pointer = value
+        self.count = 0
+        return False
+
+
 class CTMLE(TMLE):
     """Collaborative TMLE for a discrete point treatment.
 
@@ -1344,6 +1953,20 @@ default="greedy"
         Fold labels ``0`` to ``V - 1``, one for each row, used in place of the random
         selection split, on every selector strategy.  ``selection_folds`` must equal ``V``.
         It refuses ``repeats > 1`` and ``n_bootstrap > 0``.
+    patience : int or None, default=None
+        Stop the cross-validated scoring of the candidate path early, as ``patience`` does in
+        R ``ctmle``'s ``ctmleDiscrete``. The search keeps the smallest cross-validated risk
+        seen so far. A candidate whose risk is above it adds one to a count, and a candidate
+        at or below it moves the smallest risk and resets the count. The search stops at the
+        candidate where the count reaches ``patience``, fits no later candidate in the
+        full-sample path or in any selection fold, and selects the smallest risk among the
+        candidates it scored. ``None`` reads the whole path. It applies to ``"greedy"``,
+        ``"ordered"``, ``"discrete"``, ``"lasso"`` and ``"learners"``, and the selector
+        statuses are unchanged. The scored candidates equal those of the whole path, but
+        the selection can differ from the whole-path selection, whose smallest risk may lie
+        past the stop. ``ctmle`` takes the last of tied smallest risks and scores the rest of
+        its batch after the trigger. This class takes the first of ties and scores nothing
+        after the trigger. ``"oat"`` and ``"derivative"`` score no path and refuse it.
     **kwargs : Any
         The keyword arguments of :class:`~cleverly.TMLE`: the learners, the fold policy,
         the bounds and the targeting controls.
@@ -1375,15 +1998,16 @@ default="greedy"
         covariate names, and never the fitted path.
         ``docs/technical-reference/collaborative-tmle.md`` states the contract.
 
-        Every ``"oat"`` fit takes ``"generated_design_plugin"``, which F19 holds. The key
-        :func:`per_arm_design_admits` would admit a per-arm fit on complete outcomes and
-        treatment without baseline strata, but it also reads :data:`OAT_PER_ARM_INFERENTIAL`,
-        which is ``False``: the registered study found the per-arm standard errors too small,
-        because condition (v) of Benkeser, Cai and van der Laan (2020), Theorem 1, fails for
-        an estimated outcome regression. Were the flag set, an admitted fit would take the
-        :class:`~cleverly.TMLE` status, or ``"estimated_weight_plugin"`` on weights declared
-        estimated, since the conditioning argument concerns the efficient curve. The status
-        table of ``docs/technical-reference/inference.md`` states the shipped behaviour.
+        An ``"oat"`` fit takes ``"generated_design_plugin"``, which F19 holds, unless
+        :func:`per_arm_parametric_support` admits it. The registered study found the
+        per-arm standard errors too small, because condition (v) of Benkeser, Cai and van der
+        Laan (2020), Theorem 1, fails for an estimated outcome regression. The predicate admits
+        a fit with the parametric learners, in sample or cross-fitted, whose stacked curve
+        includes the generated-design term. An admitted fit takes the :class:`~cleverly.TMLE`
+        status. With weights declared estimated it takes ``"estimated_weight_plugin"``: the
+        stacked curve holds the weights fixed, so the interval conditions on the weight
+        estimate (X58 plan, 13.4, D8). The status table of
+        ``docs/technical-reference/inference.md`` states the shipped behaviour.
 
         Parameters
         ----------
@@ -1397,13 +2021,15 @@ default="greedy"
         str
             One of :data:`~cleverly.inference.influence.InferenceStatus`: the
             :class:`~cleverly.TMLE` status for the admitted ``"discrete"`` and ``"learners"``
-            fits and a per-arm ``"oat"`` fit that :func:`per_arm_design_admits` admits (none
-            while :data:`OAT_PER_ARM_INFERENTIAL` is ``False``), ``"working_mechanism_plugin"``
-            for every other selector fit, and
+            fits and a per-arm ``"oat"`` fit that :func:`per_arm_parametric_support` admits,
+            ``"working_mechanism_plugin"`` for every other selector fit, and
             ``"generated_design_plugin"`` for every other ``"oat"`` fit.
         """
         if declares_no_selection(
-            self.strategy, self.candidates, self.treatment_candidates, data.covariate_names
+            self.strategy,
+            self.candidates,
+            self.treatment_candidates,
+            data.mechanism_covariate_names,
         ):
             return super()._inference_status(data)
         if self.strategy == "derivative":
@@ -1412,29 +2038,247 @@ default="greedy"
             return super()._inference_status(data)
         if is_selector_strategy(self.strategy):
             return "working_mechanism_plugin"
-        if per_arm_design_admits(self, data):
-            # The interval conditions on the weights only for the efficient curve. The per-arm
-            # curve is Theorem 1's, so estimated weights withhold it, as a guarded DRTMLE does.
-            return precedent_status(
-                [
-                    "estimated_weight_plugin"
-                    if data.declares_estimated_weights
-                    else "influence_curve",
-                    super()._inference_status(data),
-                ]
+        if per_arm_parametric_support(self, data).admitted:
+            # The stacked curve of X58: the outcome GLM, each arm's mechanism, fluctuation and
+            # mean as one Z-estimator. An arm whose stack fails on the sample takes the
+            # parameter status "stack_failure_plugin" in _estimates_for. The stack treats the
+            # weights as known, so estimated weights give the conditional interval.
+            own = (
+                "estimated_weight_plugin" if data.declares_estimated_weights else "influence_curve"
             )
+            return precedent_status([own, super()._inference_status(data)])
         return "generated_design_plugin"
 
-    def _bootstrap_inferential(self, data: CausalData) -> bool:
-        """Whether the full-refit bootstrap interval is published as inference.
+    def _stack_report(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        fluctuation: Any,
+        submodel: Submodel,
+    ) -> StackReport | None:
+        """The stacked-curve report of an admitted per-arm fit, ``None`` for any other fit.
 
-        ``False`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
+        An admitted fit whose nuisances do not carry the parametric coefficients, such as a
+        retarget that perturbed them, fails on every arm rather than reading a curve built
+        from other arrays. While :meth:`_estimates_for` builds a draw's uncorrected
+        estimates, no call reads the stack.
+        """
+        if _SHIPPED.get() or not per_arm_parametric_support(self, data).admitted:
+            return None
+        requested = _REQUESTED.get()
+        if requested is not None and not set(requested) <= STACKED_ESTIMANDS:
+            return None
+        bounds = resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=False)
+        arms = tuple(float(arm) for arm in data.arm_codes)
+        try:
+            stack = stack_from_fit(
+                self.outcome_learner,
+                self.treatment_learner,
+                data,
+                nuisance,
+                fluctuation,
+                np.column_stack([submodel.column_for(arm) for arm in arms]),
+                (float(bounds[0]), float(bounds[1])),
+                float(self.alpha),
+            )
+        except StackRecordError as exc:
+            reason = f"the fit does not carry the parametric coefficients the stack reads ({exc})"
+            zeros = np.zeros(data.n)
+            return StackReport(
+                corrections=dict.fromkeys(arms, zeros),
+                failures=dict.fromkeys(arms, reason),
+                shipped_std_error={},
+                curves=None,
+            )
+        return stack_report(stack, arms)
+
+    def _corrections(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        fluctuation: Any,
+        targeted: InitialFit,
+        scaled: FloatArray,
+        submodel: Submodel,
+    ) -> dict[float, FloatArray] | None:
+        """The shipped curve minus the stacked curve per arm on an admitted per-arm fit.
+
+        :func:`~cleverly.inference.influence.counterfactual_means` subtracts it, so every
+        arm mean and every contrast of the arm means reads the stacked curve. A failed arm
+        subtracts zeros and keeps the shipped curve, which :meth:`_estimates_for` marks.
+        """
+        report = self._stack_report(data, nuisance, fluctuation, submodel)
+        held = _REPORT.get()
+        if held is not None:
+            held.append(report)
+        if report is None:
+            return super()._corrections(data, nuisance, fluctuation, targeted, scaled, submodel)
+        return report.corrections
+
+    def _estimates_for(
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        group: Any,
+        submodel: Submodel,
+        fluctuation: Any,
+        requested: Sequence[str],
+        alpha_sig: float,
+        reference: float,
+        index: IntArray | None = None,
+        drop_undefined: bool = False,
+        natural_course: Any = None,
+    ) -> dict[str, Any]:
+        """Every estimand, with the stack-failure status on an estimate that reads a failed arm.
+
+        The status is a parameter status: an arm mean of an arm whose stack held keeps the
+        fit's status. Every contrast of a binary fit reads both arms. A call that requests an
+        estimand outside :data:`STACKED_ESTIMANDS`, which a retarget can do, reads no stack,
+        and every estimate it builds takes ``"generated_design_plugin"``.
+        """
+        token = _REQUESTED.set(tuple(requested))
+        reports: list[StackReport | None] = []
+        held_token = _REPORT.set(reports)
+        reads: dict[str, frozenset[float]] = {}
+        reads_token = READS_SINK.set(reads)
+        reads_open = True
+        try:
+            estimates = super()._estimates_for(
+                data,
+                nuisance,
+                group,
+                submodel,
+                fluctuation,
+                requested,
+                alpha_sig,
+                reference,
+                index=index,
+                drop_undefined=drop_undefined,
+                natural_course=natural_course,
+            )
+            # Only the first build records: the shipped rebuild below reads the same targets.
+            READS_SINK.reset(reads_token)
+            reads_open = False
+            if index is not None:
+                return estimates
+            if (
+                not set(requested) <= STACKED_ESTIMANDS
+                and per_arm_parametric_support(self, data).admitted
+            ):
+                return {
+                    name: replace(
+                        estimate,
+                        inference=precedent_status([estimate.inference, "generated_design_plugin"]),
+                    )
+                    for name, estimate in estimates.items()
+                }
+            # ``_corrections`` built the report for this call; reading it again would solve
+            # the stack twice.
+            report = (
+                reports[0] if reports else self._stack_report(data, nuisance, fluctuation, submodel)
+            )
+            sink = _SHIPPED_SE.get()
+            if sink is not None and report is not None:
+                # The uncorrected estimates of the same fluctuation: one more estimate build,
+                # and no second targeting solve.
+                shipped_token = _SHIPPED.set(True)
+                try:
+                    shipped = super()._estimates_for(
+                        data,
+                        nuisance,
+                        group,
+                        submodel,
+                        fluctuation,
+                        requested,
+                        alpha_sig,
+                        reference,
+                        natural_course=natural_course,
+                    )
+                finally:
+                    _SHIPPED.reset(shipped_token)
+                sink.update(
+                    {name: float(np.sqrt(estimate.variance)) for name, estimate in shipped.items()}
+                )
+        finally:
+            if reads_open:
+                READS_SINK.reset(reads_token)
+            _REPORT.reset(held_token)
+            _REQUESTED.reset(token)
+        if report is None or not report.failures:
+            return estimates
+        held = _held_estimates(estimates, reads, report.failures)
+        warnings.warn(
+            "the stacked per-arm interval failed on this sample: "
+            + "; ".join(
+                f"arm {data.arm_label(arm)!r}: {reason}" for arm, reason in report.failures.items()
+            )
+            + ". "
+            + status_record(STACK_FAILURE_STATUS).reason,
+            DataWarning,
+            stacklevel=3,
+        )
+        return {
+            name: estimate
+            if name in held
+            else replace(
+                estimate,
+                inference=precedent_status([estimate.inference, STACK_FAILURE_STATUS]),
+            )
+            for name, estimate in estimates.items()
+        }
+
+    def _targeted_draw(
+        self,
+        data: CausalData,
+        retarget: Callable[[], tuple[dict[str, Any], Any, Any]],
+    ) -> tuple[dict[str, Any], Any, Any, dict[str, DrawInference]]:
+        """Run one draw's targeting, and record its stacked curve and its shipped standard error.
+
+        On a fit that :func:`per_arm_parametric_support` admits, :meth:`_estimates_for`
+        also builds each estimate without the stack correction, from the same fluctuation.
+        That estimate carries the shipped adaptive-propensity curve of the draw, and its
+        standard error is the record's ``shipped_se``. Every other fit keeps the ordinary
+        record.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        retarget : callable
+            Runs the draw's targeting once. It returns the estimates, the fluctuations and
+            the fold-level report.
+
+        Returns
+        -------
+        tuple
+            The three values of ``retarget``, then one :class:`DrawInference` per estimand.
+        """
+        if not per_arm_parametric_support(self, data).admitted:
+            return super()._targeted_draw(data, retarget)
+        shipped: dict[str, float] = {}
+        token = _SHIPPED_SE.set(shipped)
+        try:
+            estimates, fluctuations, detail, records = super()._targeted_draw(data, retarget)
+        finally:
+            _SHIPPED_SE.reset(token)
+        record = {
+            name: replace(
+                entry,
+                curve=np.array(estimates[name].influence_curve, dtype=float),
+                shipped_se=shipped.get(name),
+            )
+            for name, entry in records.items()
+        }
+        return estimates, fluctuations, detail, record
+
+    def _bootstrap_diagnostic(self, data: CausalData) -> bool:
+        """Whether the full-refit bootstrap interval is a diagnostic.
+
+        ``True`` on every fit, for every strategy. On an ``"oat"`` fit, Theorem 1 of Benkeser,
         Cai and van der Laan (2020) gives the influence curve of a superefficient estimator,
         and it does not cover the bootstrap of that estimator. On a selector strategy, no
-        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The registered
-        study ``full-refit-bootstrap-and-derived-contrasts`` measured the ordinary
-        point-treatment :class:`~cleverly.TMLE` only. The percentile range prints as a
-        diagnostic.
+        reviewed theorem covers the bootstrap of a selected path (roadmap F18). The percentile
+        range prints as a diagnostic.
 
         Parameters
         ----------
@@ -1444,10 +2288,10 @@ default="greedy"
         Returns
         -------
         bool
-            ``False``.
+            ``True``.
         """
         del data
-        return False
+        return True
 
     def _admits_natural_course_with_missing(self) -> bool:
         """Whether this fit may target the natural course with missing outcomes.
@@ -1526,6 +2370,7 @@ default="greedy"
         lambdas: Sequence[float] | None = None,
         treatment_candidates: Sequence[Any] | None = None,
         selection_split: Sequence[int] | None = None,
+        patience: int | None = None,
         **kwargs: Any,
     ) -> None:
         if kwargs.get("learned_rule") is not None:
@@ -1560,6 +2405,7 @@ default="greedy"
         self.lambdas = lambdas
         self.treatment_candidates = treatment_candidates
         self.selection_split = selection_split
+        self.patience = patience
         self._validate_ctmle_settings()
         if self.strategy == "ordered" and self.ordering is None and self.preorder is None:
             self.preorder = "logistic"
@@ -1586,6 +2432,19 @@ default="greedy"
             raise ValueError(
                 f"preorder must be 'logistic' or 'partial_correlation'; got {self.preorder!r}"
             )
+        if self.patience is not None:
+            if (
+                isinstance(self.patience, bool)
+                or not isinstance(self.patience, numbers.Integral)
+                or self.patience < 1
+            ):
+                raise ValueError(f"patience must be a positive integer; got {self.patience!r}")
+            if not is_selector_strategy(self.strategy):
+                raise ValueError(
+                    "patience= stops the cross-validated scoring of a candidate path, and "
+                    f"strategy={self.strategy!r} scores no path. It applies to 'greedy', "
+                    "'ordered', 'discrete', 'lasso' and 'learners'"
+                )
         if self.strategy == "discrete" and not self.candidates:
             raise ValueError("strategy='discrete' needs an explicit candidates= list")
         if self.strategy != "discrete" and self.candidates is not None:
@@ -1914,8 +2773,14 @@ default="greedy"
             return self._outcome_adaptive_nuisances(data, base, seed=seed)
         selector = _Selector(self, data, base, config.g_bounds, intermediate_value, seed=seed)
 
-        path = selector.build_path(train=None, tag="full")
-        cv_risk, selection_folds = selector.cross_validate(path)
+        stopped_at: int | None = None
+        if self.patience is None:
+            path = selector.build_path(train=None, tag="full")
+            cv_risk, selection_folds = selector.cross_validate(path)
+        else:
+            path, cv_risk, selection_folds, stopped_at = selector._cross_validate_patient(
+                int(self.patience)
+            )
         selected = int(np.argmin(cv_risk))
         chosen = path[selected]
         if self.strategy == "learners":
@@ -1959,9 +2824,14 @@ default="greedy"
             cv_risk=cv_risk,
             selected=selected,
             folds=selection_folds,
-            covariates=data.covariate_names,
+            covariates=data.mechanism_covariate_names,
             labels=tuple(candidate.label for candidate in path) if indexed else (),
             final=final,
+            restricted_pool=(
+                None if data.treatment_covariate_names is None else data.mechanism_covariate_names
+            ),
+            patience=self.patience,
+            stopped_at=stopped_at,
         )
         return nuisance, {"ctmle": selection}
 
@@ -2221,6 +3091,9 @@ default="greedy"
         Its targeted fit is the state the ordinary continuation starts from.
         """
         arms = data.arm_codes
+        # The columns the treatment mechanism reads: every covariate, or the subset the design
+        # declares with ``treatment_adjustment=``.
+        design = data.mechanism_covariates
         seed_value = self.random_state if seed is None else seed
         everything: IntArray = np.arange(data.n)
         if base.folds.is_single:
@@ -2238,12 +3111,12 @@ default="greedy"
             mechanism = np.empty((data.n, len(arms)))
             partner = np.empty((data.n, len(arms)))
             grid = (
-                default_penalty_grid(data.covariates, data.treatment, data.weights)
+                default_penalty_grid(design, data.treatment, data.weights)
                 if self.lambdas is None
                 else None
             )
             for train, test, layer in sets:
-                x, a, w = data.covariates[train], data.treatment[train], data.weights[train]
+                x, a, w = design[train], data.treatment[train], data.weights[train]
                 if grid is None:
                     pair = _check_penalty_pair(self.lambdas)
                 else:
@@ -2261,8 +3134,8 @@ default="greedy"
                     chosen_risks.append(float(risk[index]))
                 fits = penalty_path(x, a, w, sorted(pair, reverse=True), classes=arms, layer=layer)
                 by_penalty = {fit.penalty: fit for fit in fits}
-                mechanism[test] = by_penalty[pair[0]].predict_proba(data.covariates[test])
-                partner[test] = by_penalty[pair[1]].predict_proba(data.covariates[test])
+                mechanism[test] = by_penalty[pair[0]].predict_proba(design[test])
+                partner[test] = by_penalty[pair[1]].predict_proba(design[test])
                 penalties.append(pair)
             values = [mechanism, partner]
         else:
@@ -2281,12 +3154,12 @@ default="greedy"
                 )
                 predictions, _ = cross_fit_predictions(
                     learner,
-                    data.covariates,
+                    design,
                     data.treatment,
                     data.weights,
                     base.folds,
                     task="classification",
-                    predict_designs={"g": data.covariates},
+                    predict_designs={"g": design},
                     groups=data.cluster,
                     clip=(0.0, 1.0),
                     classes=arms,
@@ -2300,7 +3173,7 @@ default="greedy"
             base,
             propensity=propensity,
             treatment_partner=Propensity(np.clip(values[1], 0.0, 1.0), arms),
-            treatment_covariates=data.covariate_names,
+            treatment_covariates=data.mechanism_covariate_names,
         )
         update = fitted_update(
             data,
@@ -2309,6 +3182,7 @@ default="greedy"
             nuisance_bound=self.nuisance_bound,
             intermediate_value=intermediate_value,
             spec=self.targeting_spec(),
+            stop=self._stop_context(data, nuisance),
         )
         if chosen_risks:
             treatment_risk = float(np.mean(chosen_risks))
@@ -2365,12 +3239,21 @@ default="greedy"
         per_arm = self.oat_design == "per_arm"
         learner = self._resolve_learner(self.treatment_learner, task="classification", seed=seed)
         factor_diagnostics: dict[str, Any]
+        stack_record: FoldCoefficients | None = None
         if base.folds.is_single and per_arm:
             generated = np.column_stack([base.outcome.arms[arm] for arm in arms])
             every = np.arange(data.n)
             factors, factor_diagnostics = _fit_per_arm_factors(
                 data, generated, learner, every, every
             )
+            if self._records_fold_coefficients(data):
+                outcome_entries = base.diagnostics.get("outcome") or []
+                stack_record = FoldCoefficients.from_entries(
+                    {0: outcome_entries[0] if len(outcome_entries) == 1 else None},
+                    {0: _single_entries(factor_diagnostics["treatment"])},
+                    folds=1,
+                    arms=len(arms),
+                )
         elif base.folds.is_single:
             design = np.column_stack([base.outcome.arms[arm] for arm in arms])
             predictions, diagnostics = cross_fit_predictions(
@@ -2389,7 +3272,7 @@ default="greedy"
             factors = {"treatment": predictions["g"]}
             factor_diagnostics = {"treatment": diagnostics}
         else:
-            base, factors, factor_diagnostics = self._cross_fit_outcome_adaptive(
+            base, factors, factor_diagnostics, stack_record = self._cross_fit_outcome_adaptive(
                 data, base, learner, seed=seed
             )
         risk_by_arm: dict[str, float] | None
@@ -2431,6 +3314,8 @@ default="greedy"
         treatment_diagnostics = factor_diagnostics["treatment"]
         if (per_arm and any(treatment_diagnostics)) or (not per_arm and treatment_diagnostics):
             nuisance_diagnostics["propensity"] = treatment_diagnostics
+        if stack_record is not None:
+            nuisance_diagnostics["stack"] = stack_record
         observation: dict[str, Any] = {}
         if per_arm and data.has_missing_outcome:
             # The targeting reads the design factor. The full-W model stays for the tilt.
@@ -2460,6 +3345,7 @@ default="greedy"
             if per_arm and data.has_strata
             else ()
         )
+        verdict = per_arm_parametric_support(self, data)
         return nuisance, {
             "ctmle": CTMLEOutcomeAdaptiveFit(
                 strategy="oat",
@@ -2470,6 +3356,13 @@ default="greedy"
                 strata=strata,
                 factors=tuple(spec.label for spec in specs),
                 risk_by_factor=risk_by_factor,
+                stacked_interval=(
+                    _stacked_interval_models(self, data) if verdict.admitted else None
+                ),
+                stacked_refusal=(None if verdict.admitted or not per_arm else verdict.detail),
+                stacked_folds=(base.folds.n_folds if verdict.admitted else None),
+                stacked_repeats=(int(self.repeats) if verdict.admitted else None),
+                stacked_arms=(int(data.n_arms) if verdict.admitted else None),
             )
         }
 
@@ -2480,7 +3373,7 @@ default="greedy"
         treatment_learner: Learner,
         *,
         seed: int | None,
-    ) -> tuple[NuisanceEstimates, dict[str, FloatArray], dict[str, Any]]:
+    ) -> tuple[NuisanceEstimates, dict[str, FloatArray], dict[str, Any], FoldCoefficients | None]:
         """Cross-fit ``Qbar -> g`` as one fold-local nuisance algorithm.
 
         The first implementation stitched global out-of-fold ``Qbar`` predictions and
@@ -2503,13 +3396,19 @@ default="greedy"
         outcome regression used to build a clever covariate cannot be a second refit
         that merely has the same learner settings.
 
+        With the parametric learners of the stacked interval, the fold loop also records
+        each fold's outcome and mechanism coefficients by fold index
+        (:class:`~cleverly.estimators._oat_stack.FoldCoefficients`), and a fold without
+        its entry raises rather than shift the later folds.
+
         Returns
         -------
         tuple
             The base nuisances with the fold-local outcome predictions, each factor's
             stitched out-of-fold predictions keyed by factor name (``"treatment"`` alone
-            under the shared design), and each factor's learner diagnostics: per arm under
-            the per-arm design, per fold under the shared design.
+            under the shared design), each factor's learner diagnostics (per arm under
+            the per-arm design, per fold under the shared design), and the fold
+            coefficient record, ``None`` without the parametric learners.
         """
         arms = data.arm_codes
         per_arm = self.oat_design == "per_arm"
@@ -2545,20 +3444,50 @@ default="greedy"
                     "(cross_fit=False on the engine, CrossFitting(enabled=False)), or "
                     "collect more observed outcomes"
                 )
-            outcome_model = fit_on_rows(
-                outcome_learner,
-                outcome_design,
-                scaled,
-                data.weights,
-                outcome_rows,
-                outcome_task,
-                data.cluster,
-            )
-            observed = predict_outcome(outcome_model, outcome_design)
-            by_arm = {
-                arm: predict_outcome(outcome_model, design)
-                for arm, design in counterfactual.items()
-            }
+            outcome_diagnostic: Any
+            if self.outcome_by_arm:
+                # One model per arm, each on the arm's rows of this fold's training set.
+                arm_models = _fit_arm_models(
+                    outcome_learner,
+                    data,
+                    data.covariates,
+                    scaled,
+                    outcome_rows,
+                    task=outcome_task,
+                    where=f"training fold {fold + 1}",
+                )
+                observed = _predict_by_arm(
+                    arm_models,
+                    data.covariates,
+                    _arm_codes_by_row(data, data.treatment),
+                    task=outcome_task,
+                    clip=(0.0, 1.0),
+                )
+                by_arm = {
+                    arm: _predict_by_arm(
+                        arm_models, data.covariates, arm, task=outcome_task, clip=(0.0, 1.0)
+                    )
+                    for arm in arms
+                }
+                outcome_diagnostic = [
+                    getattr(model, "diagnostics_", None) for model in arm_models.values()
+                ]
+            else:
+                outcome_model = fit_on_rows(
+                    outcome_learner,
+                    outcome_design,
+                    scaled,
+                    data.weights,
+                    outcome_rows,
+                    outcome_task,
+                    data.cluster,
+                )
+                observed = predict_outcome(outcome_model, outcome_design)
+                by_arm = {
+                    arm: predict_outcome(outcome_model, design)
+                    for arm, design in counterfactual.items()
+                }
+                outcome_diagnostic = getattr(outcome_model, "diagnostics_", None)
             generated = np.column_stack([by_arm[arm] for arm in arms])
             fold_factors: dict[str, FloatArray]
             fold_diagnostics: dict[str, Any]
@@ -2588,7 +3517,7 @@ default="greedy"
                 observed[test],
                 {arm: values[test] for arm, values in by_arm.items()},
                 fold_factors,
-                getattr(outcome_model, "diagnostics_", None),
+                outcome_diagnostic,
                 fold_diagnostics,
             )
 
@@ -2597,8 +3526,10 @@ default="greedy"
         factors: dict[str, FloatArray] = {}
         outcome_diagnostics: list[Any] = []
         factor_diagnostics: dict[str, Any] = {}
+        outcome_by_fold: dict[int, Any] = {}
+        mechanism_by_fold: dict[int, list[Any]] = {}
         for (
-            _,
+            fold,
             test,
             fold_observed,
             fold_arms,
@@ -2613,7 +3544,14 @@ default="greedy"
                 factors[name][test] = values
             for arm in arms:
                 by_arm[arm][test] = fold_arms[arm]
-            if q_diagnostic is not None:
+            # Keyed by the fold the job ran, never by position, so a missing entry cannot
+            # shift a later fold's coefficients into its place (X58 plan, F10).
+            outcome_by_fold[fold] = q_diagnostic
+            if per_arm:
+                mechanism_by_fold[fold] = _single_entries(fold_diagnostics["treatment"])
+            if self.outcome_by_arm:
+                outcome_diagnostics.extend(item for item in q_diagnostic if item is not None)
+            elif q_diagnostic is not None:
                 outcome_diagnostics.append(q_diagnostic)
             for name, entry in fold_diagnostics.items():
                 if per_arm:
@@ -2636,7 +3574,28 @@ default="greedy"
             outcome=InitialFit(observed, by_arm),
             diagnostics=diagnostics,
         )
-        return honest_base, factors, factor_diagnostics
+        record = (
+            FoldCoefficients.from_entries(
+                outcome_by_fold, mechanism_by_fold, folds=folds.n_folds, arms=len(arms)
+            )
+            if per_arm and self._records_fold_coefficients(data)
+            else None
+        )
+        return honest_base, factors, factor_diagnostics, record
+
+    def _records_fold_coefficients(self, data: CausalData) -> bool:
+        """Whether the per-arm fit records its fold coefficients for the stacked curve.
+
+        The record needs one coefficient vector per fold from each learner: the parametric
+        learners of :func:`per_arm_parametric_support`, and one treatment factor fit per arm
+        and fold, which baseline strata would split.
+        """
+        return (
+            type(self.outcome_learner) is ParametricOutcome
+            and type(self.treatment_learner) is ParametricMechanism
+            and not data.has_strata
+            and not self.outcome_by_arm
+        )
 
     def _retarget_detailed(
         self, data: CausalData, nuisance: NuisanceEstimates, **kwargs: Any
@@ -2662,6 +3621,7 @@ default="greedy"
                 intermediate_value=kwargs.get("intermediate_value"),
                 spec=self.targeting_spec(),
                 missingness=kwargs.get("missingness"),
+                stop=self._stop_context(data, nuisance),
             )
             working = replace(nuisance, outcome=update.targeted, targeting_outcome=None)
             return super()._retarget_detailed(data, working, **kwargs)
@@ -2719,7 +3679,7 @@ default="greedy"
             )
         if self.strategy == "discrete" and self.candidates is not None:
             recorded = set(data.added_covariates)
-            added = tuple(name for name in data.covariate_names if name in recorded)
+            added = tuple(name for name in data.mechanism_covariate_names if name in recorded)
             extended = [
                 (*candidate, *(name for name in added if name not in candidate))
                 for candidate in self.candidates
@@ -2734,14 +3694,14 @@ default="greedy"
         if self.ordering is None:
             return self
         declared = tuple(self.ordering)
-        added = tuple(name for name in data.covariate_names if name not in declared)
+        added = tuple(name for name in data.mechanism_covariate_names if name not in declared)
         if not added:
             return self
         configured = copy.copy(self)
         configured.ordering = (*declared, *added)
         return configured
 
-    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+    def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
         """Resolve targets, and refuse the designs a collaborative search has no result for.
 
         Runs before any split is drawn, so a refused design pays for no fold generation
@@ -2785,6 +3745,9 @@ default="greedy"
                     "cluster-robust variance of the candidate the search then stops at"
                 )
             )
+            record_refusal_site(
+                "ctmle.clustered", RefusalReason.IMPLEMENTATION_GAP, "F22", flagged=True
+            )
             raise CapabilityError(
                 f"C-TMLE has no clustered result. {reason}. docs/roadmap.md X51 tracks the "
                 "point estimate with a cluster as the unit, and docs/roadmap.md F22 the "
@@ -2796,8 +3759,50 @@ default="greedy"
                 ),
                 roadmap="F22",
             )
+        self._check_treatment_pool(data)
         self._check_estimands(data)
-        return super()._resolve_estimands_for_data(data)
+        preflight = super()._resolve_estimands_for_data(data)
+        unstudied = _unstudied_stack_conditions(self, data)
+        if not unstudied:
+            return preflight
+        return replace(preflight, conditions=(*preflight.conditions, *unstudied))
+
+    def _check_treatment_pool(self, data: CausalData) -> None:
+        """Refuse a pool that a design's treatment-mechanism covariates leave empty of its names.
+
+        Runs before any split is drawn and before any learner.  ``strategy="oat"`` fits its
+        mechanism on the outcome predictions and no covariate, so there is nothing for
+        ``treatment_adjustment=`` to restrict (R-h2).  An explicit ``candidates=`` or
+        ``ordering=`` names the covariates the search draws from, so a name outside the
+        design's subset is refused (R-h5).
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Raises
+        ------
+        CapabilityError
+            For ``strategy="oat"`` beside a declared subset.
+        ValueError
+            For a candidate or an ordering that names a covariate outside the subset.
+        """
+        if data.treatment_covariate_names is None:
+            return
+        if self.strategy == "oat":
+            raise CapabilityError(
+                "strategy='oat' fits the treatment mechanism on the outcome predictions, so "
+                "treatment_adjustment= has no covariates to restrict.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Use another strategy, or omit treatment_adjustment=.",
+            )
+        if self.candidates is not None:
+            _refuse_names_outside_pool(
+                data, "candidates", [name for names in self.candidates for name in names]
+            )
+        if self.ordering is not None:
+            _refuse_names_outside_pool(data, "ordering", self.ordering)
 
     def _check_policies(self, data: CausalData) -> None:
         """Refuse each intervention keyword, then a continuous dose, before the shift check.
@@ -2810,7 +3815,7 @@ default="greedy"
         """
         if self.policies:
             raise CapabilityError.from_refusal(_POLICIES_REFUSAL)
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
         if self.interventions:
             raise CapabilityError.from_refusal(_REGIME_REFUSAL)
@@ -2819,7 +3824,7 @@ default="greedy"
         super()._check_policies(data)
 
     def _check_estimands(self, data: CausalData) -> None:
-        if data.is_continuous_treatment:
+        if not data.has_arms:
             raise CapabilityError.from_refusal(_DISCRETE_TREATMENT_REFUSAL)
         if data.has_intermediate:
             raise CapabilityError(
@@ -2911,6 +3916,9 @@ class _Selector:
             random_state=self.seed,
         )
         self.spec = estimator.targeting_spec()
+        #: The units and outcome range a declared stopping rule needs, over all the rows;
+        #: `target` hands each candidate solve `stop.restrict(rows)`. `None` under `relative`.
+        self.stop = estimator._stop_context(data, base)
         self._cache: dict[tuple[Any, ...], FloatArray] = {}
         self._active: dict[tuple[Any, ...], tuple[str, ...]] = {}
         self.reference = estimator._reference_arm(data)
@@ -2923,7 +3931,7 @@ class _Selector:
             self.lambdas = (
                 check_penalty_grid(estimator.lambdas)
                 if estimator.lambdas is not None
-                else default_penalty_grid(data.covariates, data.treatment, data.weights)
+                else default_penalty_grid(data.mechanism_covariates, data.treatment, data.weights)
             )
 
     # ------------------------------------------------------------ propensities
@@ -3064,6 +4072,7 @@ class _Selector:
             self.data.observed[rows],
             self.spec,
             warn=False,
+            stop=None if self.stop is None else self.stop.restrict(rows),
         )
         return self.apply(initial, submodel, fluctuation.epsilon), fluctuation.epsilon
 
@@ -3180,6 +4189,35 @@ class _Selector:
         rows = self.all_rows if train is None else train
         if self.est.strategy in _INDEXED_STRATEGIES:
             return self._indexed_candidates_path(rows, train, tag)
+        return list(self._lazy_path(rows, train, tag))
+
+    def iter_path(self, train: IntArray | None, tag: str) -> Iterator[_Candidate]:
+        """The candidate sequence of :meth:`build_path`, one position at a time.
+
+        Position ``k`` is fitted when the iterator reaches it, and not before. A
+        ``patience=`` search stops reading a branch at its stop position, so the later
+        positions are never fitted. Reading the whole iterator gives the list
+        :meth:`build_path` returns.
+
+        Parameters
+        ----------
+        train : ndarray of int or None
+            The selection-fold training rows, or ``None`` on the analysis sample.
+        tag : str
+            The search branch, ``"full"`` or ``"cv<fold>"``.
+
+        Returns
+        -------
+        iterator of _Candidate
+            The candidates in path order.
+        """
+        rows = self.all_rows if train is None else train
+        if self.est.strategy in _INDEXED_STRATEGIES:
+            return self._indexed_candidates_iter(rows, train, tag)
+        return self._lazy_path(rows, train, tag)
+
+    def _lazy_path(self, rows: IntArray, train: IntArray | None, tag: str) -> Iterator[_Candidate]:
+        """The covariate-set strategies' candidates, fitted as the reader reaches them."""
         if self.est.strategy == "discrete":
             return self._discrete_path(rows, train, tag)
         order = self._ordering(rows, train) if self.est.strategy == "ordered" else None
@@ -3211,7 +4249,7 @@ class _Selector:
         tuple
             The propensities, the covariates of each candidate and the label of each.
         """
-        names = tuple(self.data.covariate_names)
+        names = tuple(self.data.mechanism_covariate_names)
         if self.est.strategy == "lasso":
             assert self.lambdas is not None
             propensities = self._lasso_propensities(train, tag)
@@ -3287,6 +4325,7 @@ class _Selector:
         """One warm-started penalty path for each training set, cached per branch."""
         assert self.lambdas is not None
         data = self.data
+        design = data.mechanism_covariates
         count = self.lambdas.size
         keys = [(tag, ("lasso", k)) for k in range(count)]
         if all(key in self._cache for key in keys):
@@ -3295,7 +4334,7 @@ class _Selector:
         active: list[set[int]] = [set() for _ in range(count)]
         for fit_rows, predict_rows, layer in self._fit_rows(train, tag):
             fits = penalty_path(
-                data.covariates[fit_rows],
+                design[fit_rows],
                 data.treatment[fit_rows],
                 data.weights[fit_rows],
                 self.lambdas,
@@ -3303,20 +4342,21 @@ class _Selector:
                 layer=layer,
             )
             for k, fit in enumerate(fits):
-                values[k, predict_rows] = fit.predict_proba(data.covariates[predict_rows])
+                values[k, predict_rows] = fit.predict_proba(design[predict_rows])
                 active[k].update(fit.active)
         out = []
         for k, key in enumerate(keys):
             self._cache[key] = np.clip(values[k], 0.0, 1.0)
             self._active[key] = tuple(
-                name for j, name in enumerate(data.covariate_names) if j in active[k]
+                name for j, name in enumerate(data.mechanism_covariate_names) if j in active[k]
             )
             out.append(Propensity(self._cache[key], data.arm_codes))
         return out
 
-    def _indexed_candidates_path(
+    def _indexed_fluctuator(
         self, rows: IntArray, train: IntArray | None, tag: str
-    ) -> list[_Candidate]:
+    ) -> tuple[int, Callable[[int, InitialFit, int], _Candidate]]:
+        """The candidate count of an indexed branch and the scoring callable of its path rule."""
         propensities, covariates, labels = self.indexed_propensities(train, tag)
         self._indexed = (propensities, covariates, labels)
 
@@ -3325,7 +4365,19 @@ class _Selector:
                 covariates[index], propensities[index], initial, rows, n_steps, labels[index]
             )
 
-        return _indexed_path(len(propensities), self.base.outcome, fluctuate)
+        return len(propensities), fluctuate
+
+    def _indexed_candidates_path(
+        self, rows: IntArray, train: IntArray | None, tag: str
+    ) -> list[_Candidate]:
+        count, fluctuate = self._indexed_fluctuator(rows, train, tag)
+        return _indexed_path(count, self.base.outcome, fluctuate)
+
+    def _indexed_candidates_iter(
+        self, rows: IntArray, train: IntArray | None, tag: str
+    ) -> Iterator[_Candidate]:
+        count, fluctuate = self._indexed_fluctuator(rows, train, tag)
+        return _indexed_path_iter(count, self.base.outcome, fluctuate)
 
     def final_step(
         self, path: Sequence[_Candidate], selected: int
@@ -3371,13 +4423,13 @@ class _Selector:
         best = int(np.argmin(losses))
         return selected + 1 + best, options[best]
 
-    def _discrete_path(self, rows: IntArray, train: IntArray | None, tag: str) -> list[_Candidate]:
+    def _discrete_path(
+        self, rows: IntArray, train: IntArray | None, tag: str
+    ) -> Iterator[_Candidate]:
         assert self.est.candidates is not None
-        path = []
         for names in self.est.candidates:
             covariates = tuple(names)
-            path.append(self._candidate(covariates, self.base.outcome, rows, train, tag, 1))
-        return path
+            yield self._candidate(covariates, self.base.outcome, rows, train, tag, 1)
 
     def _forward_path(
         self,
@@ -3385,15 +4437,15 @@ class _Selector:
         train: IntArray | None,
         tag: str,
         order: tuple[str, ...] | None,
-    ) -> list[_Candidate]:
+    ) -> Iterator[_Candidate]:
         """Build a nested sequence, greedily or in a fixed order.
 
         The two searches differ only in how the next covariate is picked; both retry from
         one further targeted fit before forcing the best available addition.
         """
-        pool = list(order) if order is not None else list(self.data.covariate_names)
+        pool = list(order) if order is not None else list(self.data.mechanism_covariate_names)
         first = self._candidate((), self.base.outcome, rows, train, tag, 1)
-        path = [first]
+        yield first
 
         base_fit = self.base.outcome
         current = first
@@ -3418,9 +4470,8 @@ class _Selector:
                 continue
             stepped = False
             pool.remove(best.covariates[-1])
-            path.append(best)
+            yield best
             current = best
-        return path
 
     def _candidate(
         self,
@@ -3474,15 +4525,17 @@ class _Selector:
         train: IntArray | None,
     ) -> tuple[str, ...]:
         """Published logistic or partial-correlation order for the scalable search."""
+        pool = self.data.mechanism_covariate_names
         if self.est.ordering is not None:
             names = tuple(self.est.ordering)
+            _refuse_names_outside_pool(self.data, "ordering", names)
             unknown = [name for name in names if name not in self.data.covariate_names]
             if unknown:
                 raise ValueError(
                     f"ordering names unknown covariate(s) {unknown}; "
                     f"available: {list(self.data.covariate_names)}"
                 )
-            missing = [name for name in self.data.covariate_names if name not in set(names)]
+            missing = [name for name in pool if name not in set(names)]
             if missing:
                 raise ValueError(
                     f"ordering must cover every covariate; missing {missing}. Use "
@@ -3493,7 +4546,7 @@ class _Selector:
         if self.est.preorder == "logistic":
             score_values = []
             logistic = LogisticRegression(C=1e6, max_iter=1000, random_state=self.seed)
-            for name in self.data.covariate_names:
+            for name in pool:
                 propensity = self._fit_propensity_with(logistic, (name,), train)
                 submodel = self.submodel(propensity)
                 targeted, _ = self.target(self.base.outcome, submodel, rows)
@@ -3508,6 +4561,7 @@ class _Selector:
                 [(treatment == arm).astype(float) for arm in self.data.arm_codes[1:]]
             )
             weights = self.data.weights[usable]
+            columns = [self.data.covariate_names.index(name) for name in pool]
             scores = np.array(
                 [
                     abs(
@@ -3518,11 +4572,11 @@ class _Selector:
                             weights,
                         )
                     )
-                    for column in range(self.data.covariates.shape[1])
+                    for column in columns
                 ]
             )
             order = np.argsort(-scores, kind="stable")
-        return tuple(self.data.covariate_names[j] for j in order)
+        return tuple(pool[j] for j in order)
 
     # -------------------------------------------------------------- selection
 
@@ -3554,22 +4608,7 @@ class _Selector:
         dimension = len(self.target_names)
         influence = np.zeros((len(path), data.n, dimension))
         for fold, (train, test) in enumerate(folds):
-            train_folds, train_mask = self._nested_folds(train)
-            fold_base = self._selection_base(train_folds, train_mask)
-            fold_data = data.subset(train)
-            fold_bounds = resolve_g_bounds(
-                self.est.g_bounds, self.est._bounds_n(fold_data), for_att=False
-            )
-            fold_selector = _Selector(
-                self.est,
-                data,
-                fold_base,
-                fold_bounds,
-                self.intermediate_value,
-                seed=self.seed,
-                train_folds=train_folds,
-                train_mask=train_mask,
-            )
+            fold_selector = self._fold_selector(train)
             fold_path = fold_selector.build_path(train=train, tag=f"cv{fold}")
             if len(fold_path) < len(path):
                 raise RuntimeError(
@@ -3588,6 +4627,105 @@ class _Selector:
         if not self.est.penalty:
             return loss, folds
         return loss + np.array([_penalty_of(row) for row in influence]), folds
+
+    def _fold_selector(self, train: IntArray) -> _Selector:
+        """The selector of one selection fold: nuisances and bounds fitted on ``train`` alone."""
+        data = self.data
+        train_folds, train_mask = self._nested_folds(train)
+        fold_base = self._selection_base(train_folds, train_mask)
+        fold_data = data.subset(train)
+        fold_bounds = resolve_g_bounds(
+            self.est.g_bounds, self.est._bounds_n(fold_data), for_att=False
+        )
+        return _Selector(
+            self.est,
+            data,
+            fold_base,
+            fold_bounds,
+            self.intermediate_value,
+            seed=self.seed,
+            train_folds=train_folds,
+            train_mask=train_mask,
+        )
+
+    def _cross_validate_patient(
+        self, patience: int
+    ) -> tuple[list[_Candidate], FloatArray, Folds, int | None]:
+        """Build the path and score it position by position until the patience counter stops it.
+
+        The full-sample path and every selection fold's path are read lazily, one position at
+        a time and in step. Position ``k`` is scored as :meth:`cross_validate` scores it: the
+        loss of the candidate at ``k`` in each fold, summed over the folds in fold order, plus
+        the penalty of the influence curve pooled over the folds' validation rows. The
+        :class:`_PatienceCounter` reads that risk. When the counter triggers at ``k``, no
+        later position is fitted or scored, and the path ends at ``k``. When it never
+        triggers, every position is scored and the result equals :meth:`cross_validate`
+        bit for bit.
+
+        Parameters
+        ----------
+        patience : int
+            The number of positions that may score worse than the best so far, counted from
+            the last position that did not, before the search stops.
+
+        Returns
+        -------
+        path : list of _Candidate
+            The full-sample candidates at the scored positions.
+        risk : ndarray
+            The cross-validated risk of each of those positions.
+        folds : Folds
+            The selection split, as :meth:`cross_validate` returns it.
+        stopped_at : int or None
+            The position at which the counter triggered, or ``None`` when the search read
+            the whole path.
+
+        Raises
+        ------
+        RuntimeError
+            When a selection fold's path ends before the full-sample path does.
+        """
+        data = self.data
+        folds = self.est._selection_partition(data, self.seed)
+        dimension = len(self.target_names)
+        full = self.iter_path(train=None, tag="full")
+        fold_selectors = [self._fold_selector(train) for train, _ in folds]
+        fold_paths = [
+            fold_selector.iter_path(train=train, tag=f"cv{fold}")
+            for fold, (fold_selector, (train, _)) in enumerate(
+                zip(fold_selectors, folds, strict=True)
+            )
+        ]
+        counter = _PatienceCounter(patience)
+        path: list[_Candidate] = []
+        risks: list[float] = []
+        stopped_at: int | None = None
+        for candidate in full:
+            index = len(path)
+            path.append(candidate)
+            loss = 0.0
+            influence = np.zeros((data.n, dimension))
+            for fold, (_, test) in enumerate(folds):
+                fold_selector = fold_selectors[fold]
+                try:
+                    fold_candidate = next(fold_paths[fold])
+                except StopIteration:
+                    raise RuntimeError(
+                        f"selection fold {fold} produced {index} candidates but the "
+                        f"full-sample search produced at least {index + 1}; the candidate "
+                        "sequence must have the same length in every fold"
+                    ) from None
+                loss += fold_selector.loss(fold_candidate.targeted, test)
+                curve = np.asarray(
+                    fold_selector.influence(fold_candidate.targeted, fold_candidate.submodel, test),
+                    dtype=float,
+                )
+                influence[test] = curve.reshape(test.size, dimension)
+            risks.append(loss + _penalty_of(influence) if self.est.penalty else loss)
+            if counter.offer(risks[-1]):
+                stopped_at = index
+                break
+        return path, np.array(risks, dtype=float), folds, stopped_at
 
     def _nested_folds(self, train: IntArray) -> tuple[Folds, BoolArray]:
         """Inner cross-fit on ``train`` plus one full-training fit for validation rows."""
@@ -3611,23 +4749,39 @@ class _Selector:
             self.est.outcome_learner, task=outcome_task, seed=self.seed
         )
         design = data.treatment_design()
-        outcome_out, _ = cross_fit_predictions(
-            learner,
-            design,
-            scaled,
-            data.weights,
-            train_folds,
-            task=outcome_task,
-            predict_designs={
-                "observed": design,
-                **{f"arm@{arm}": data.counterfactual_design(arm) for arm in data.arm_codes},
-            },
-            fit_mask=train_mask & data.observed,
-            groups=data.cluster,
-            clip=(0.0, 1.0),
-            n_jobs=self.est.n_jobs,
-            remedy=_SELECTION_SPLIT_BACKSTOP,
-        )
+        if self.est.outcome_by_arm:
+            outcome_out, _, _ = _fit_outcome_by_arm(
+                learner,
+                data,
+                scaled,
+                train_folds,
+                task=outcome_task,
+                queries={
+                    "observed": ArmQuery(_arm_codes_by_row(data, data.treatment)),
+                    **{f"arm@{arm}": ArmQuery(arm) for arm in data.arm_codes},
+                },
+                fit_mask=train_mask & data.observed,
+                n_jobs=self.est.n_jobs,
+                remedy=_SELECTION_SPLIT_BACKSTOP,
+            )
+        else:
+            outcome_out, _ = cross_fit_predictions(
+                learner,
+                design,
+                scaled,
+                data.weights,
+                train_folds,
+                task=outcome_task,
+                predict_designs={
+                    "observed": design,
+                    **{f"arm@{arm}": data.counterfactual_design(arm) for arm in data.arm_codes},
+                },
+                fit_mask=train_mask & data.observed,
+                groups=data.cluster,
+                clip=(0.0, 1.0),
+                n_jobs=self.est.n_jobs,
+                remedy=_SELECTION_SPLIT_BACKSTOP,
+            )
         outcome = InitialFit(
             outcome_out["observed"],
             {arm: outcome_out[f"arm@{arm}"] for arm in data.arm_codes},
@@ -3705,7 +4859,35 @@ def _indexed_path(
     list of _Candidate
         The ``count`` candidates in index order.
     """
-    path: list[_Candidate | None] = [None] * count
+    return list(_indexed_path_iter(count, initial, fluctuate))
+
+
+def _indexed_path_iter(
+    count: int,
+    initial: InitialFit,
+    fluctuate: Callable[[int, InitialFit, int], _Candidate],
+) -> Iterator[_Candidate]:
+    """:func:`_indexed_path`, yielding each candidate once its position is settled.
+
+    A pass fluctuates every remaining candidate, and the accepted one settles its own
+    position and every position before it. The iterator yields those positions in index
+    order and runs the next pass only when the reader asks for the position after them.
+    After a stop, the remaining candidates are the fluctuations of the last pass.
+
+    Parameters
+    ----------
+    count : int
+        The number of candidates.
+    initial : InitialFit
+        The initial outcome regression.
+    fluctuate : callable
+        As for :func:`_indexed_path`.
+
+    Yields
+    ------
+    _Candidate
+        Candidate ``k`` at position ``k``.
+    """
     current = initial
     best = np.inf
     start = 0
@@ -3719,16 +4901,12 @@ def _indexed_path(
         if scores[choice] > best:
             break
         best = float(scores[choice])
-        for offset in range(choice + 1):
-            path[start + offset] = tries[offset]
+        yield from tries[: choice + 1]
         current = tries[choice].targeted
         start += choice + 1
         accepted += 1
         tries = []
-    for offset, candidate in enumerate(tries):
-        path[start + offset] = candidate
-    assert all(candidate is not None for candidate in path)
-    return [candidate for candidate in path if candidate is not None]
+    yield from tries
 
 
 def _derivative_array(index: int, entry: Any, data: CausalData) -> FloatArray:
@@ -3958,6 +5136,11 @@ def _fit_per_arm_factors(
         factors[spec.name] = out
         diagnostics[spec.name] = entries
     return factors, diagnostics
+
+
+def _single_entries(entries: Sequence[Sequence[Any]]) -> list[Any]:
+    """Per arm, the one learner diagnostics entry of a factor fit, or ``None`` without one."""
+    return [arm[0] if len(arm) == 1 else None for arm in entries]
 
 
 def _move_diagnostics(diagnostics: dict[str, Any], key: str, entries: list[list[Any]]) -> None:

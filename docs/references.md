@@ -217,10 +217,17 @@ previous reader had is not a citation; a page number is.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
-  Journal* 21(1):C1-C68. Read first-hand. Section 3.4 defines the coordinatewise median point.
-  Equation (3.14) defines the median of the within-partition variance plus squared split
-  displacement. Corollary 3.3 gives the fixed-repeat interval under the paper's DML assumptions.
-  It does not establish that a targeted MAR plug-in satisfies those assumptions.
+  Journal* 21(1):C1-C68. Read first-hand. Section 3.4 starts on p. C29. Definition 3.3 and
+  equations (3.13) and (3.14) are on p. C30. Definition 3.3 defines the coordinatewise median
+  point. Equation (3.14) defines the median of the within-partition variance plus squared split
+  displacement. It is a variance-form matrix rule: each split gives the candidate
+  $\hat\Sigma_s + d_s d_s^\top$, and the rule takes the candidate of median operator norm.
+  Corollary 3.3, on p. C30, gives the fixed-repeat interval under the paper's DML assumptions.
+  It does not establish that a targeted MAR plug-in satisfies those assumptions. The package
+  applies the scalar rule per name and the matrix rule in `covariance()` to repeated longitudinal
+  fits ([repeated fold draws](technical-reference/longitudinal-tmle.md#repeated-fold-draws)).
+  There the licence is the per-draw expansion of each single-draw estimator, and Corollary 3.3 is
+  the DML analogue.
 
   The arXiv v7 manuscript, [arXiv:1608.00060](https://arxiv.org/abs/1608.00060), gives the split
   in Definitions 3.1 and 3.2, pages 23–24. Each says "Take a K-fold random partition" of the indices,
@@ -725,6 +732,21 @@ previous reader had is not a citation; a page number is.
   [`SDR`](technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
   therefore runs a training-fold recursion, which is fold-measurable. With ratios that do not
   depend on the fold, it equals `lmtp::cf_sdr`.
+
+  Section 2, journal page 849, lets $A_t$ be a vector. The
+  [vector treatments](technical-reference/point-treatment-tmle.md#vector-treatments) section
+  and part (z) of the
+  [natural-extension verdicts](technical-reference/natural-extension-verdicts.md) use that
+  locator. The classifier route of a vector rests on Theorem 1, Section 5.4 and Theorem 3. The
+  density route applies Equation (3) to each conditional factor of a dose, which part (z)
+  records as an extension.
+- Hoffman et al. (2024), [*Studying continuous, time-varying, and/or complex exposures using
+  longitudinal modified treatment policies*](https://arxiv.org/abs/2304.09460), *Epidemiology*
+  35(5). Read first-hand in the arXiv v3 text. The Introduction names interventions on several
+  exposures at once, and the eAppendix algorithms compute the ratio by classification at every
+  node. The text requires an exposure that is discrete or, if it is continuous, piecewise smooth
+  and invertible. The journal page numbers are not checked, so the docs cite the Introduction by
+  name.
 - Luedtke, Sofrygin, van der Laan & Carone (2017), [*Sequential double robustness in
   right-censored longitudinal models*](https://arxiv.org/abs/1705.02459), arXiv:1705.02459 v2,
   dated 2018-05-17. Read first-hand for the SDR plan. Section 2, Definitions 1 to 3, separates
@@ -1505,6 +1527,14 @@ sizes only the cluster sum is the delta-method variance of the row mean
   p. 969, steps 1 to 5, gives the causal form. `SequentialGComputation` cites it for the ICE
   recursion. The paper states the causal form for a marginal structural model parameter. The
   plain g-formula is a special case.
+- Lewis & Syrgkanis (2021), *Double/debiased machine learning for dynamic treatment effects via
+  g-estimation*, in *Advances in Neural Information Processing Systems* 34, with the arXiv version
+  (v5). `StructuralNestedMean` cites the supplement, Appendix A: Assumption 1 and Assumption 2
+  (the linear structural nested mean model), Lemma 6 (the policy value from the blips), and
+  Theorem 8 (the normal limit with a linear blip). It cites the arXiv version for Theorem 4 and
+  Theorem 8 (the variance estimator and product rates) and Corollary 9 (the inference for a
+  policy value). The roadmap item X72 cites Lemma 6 and Corollary 9. The proceedings version has
+  no policy-value inference.
 - Robins, Hernán & Brumback (2000), *Marginal structural models and causal inference in
   epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
   eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek
@@ -1522,6 +1552,34 @@ sizes only the cluster sum is the delta-method variance of the row mean
   based on the highly adaptive lasso*, *Biometrics* 79(2):1029–1041. Section 3, Theorem 1,
   gives asymptotic linearity of IPW with an undersmoothed HAL propensity at one time point, for a
   binary treatment. F35 in the roadmap cites it as the starting point for a longitudinal result.
+- Robins (1986), *A new approach to causal inference in mortality studies with a sustained
+  exposure period: application to control of the healthy worker survivor effect*, *Mathematical
+  Modelling* 7:1393–1512. Section 3D, p. 1412, states the g-computation algorithm in words.
+  Equation (4.7), Section 4E, p. 1423 (Corollary 4.1), gives the formula. Section 4I,
+  pp. 1426–1427, gives the Monte Carlo evaluation, which averages predicted survival products and
+  draws no deaths. Section 5A, p. 1430, proposes a bootstrap variance. `ParametricGFormula` cites
+  it for the formula and the evaluation.
+- McGrath, Lin, Zhang, Petito, Logan, Hernán & Young (2020), *gfoRmula: an R package for
+  estimating the effects of sustained treatment strategies via the parametric g-formula*,
+  *Patterns* 1(3):100008, DOI [10.1016/j.patter.2020.100008](https://doi.org/10.1016/j.patter.2020.100008).
+  Supplement 1 (mmc1), p. 6, step 2a: the observed time-0 row is used as is, and only the time-0
+  treatment is overwritten. Page 8, eq. (10): the outcome is a predicted value. Page 9, C.2:
+  normal covariates are clamped to the observed range. Pages 7 and 12: the interval is the
+  nonparametric bootstrap. Neither the paper nor `gfoRmula` 1.1.1 gives an analytic variance or an
+  account of the Monte Carlo error. The title and the author list are not checked against the
+  publisher page.
+- Pakes & Pollard (1989), *Simulation and the asymptotics of optimization estimators*,
+  *Econometrica* 57(5):1027–1057. Lemma 2.16, p. 1036, gives stochastic equicontinuity for a
+  Euclidean class with a square-integrable envelope. Lemma 2.17, p. 1037, gives the parametric
+  form that is continuous in $L_2(P)$ at $\theta_0$. Theorem 3.3, p. 1040, gives asymptotic
+  normality, with the proof on pp. 1041–1043. Section 4, from p. 1046, treats simulation
+  estimators. The simulated-estimator step of `ParametricGFormula` cites Lemma 2.17 and
+  Theorem 3.3. The paper does not state the result for this estimator.
+- Newey & McFadden (1994), *Large sample estimation and hypothesis testing*, *Handbook of
+  Econometrics* IV, chapter 36. Theorem 7.2, p. 2186, covers nonsmooth or simulated GMM under
+  stochastic equicontinuity, condition (v). Theorem 7.3, p. 2188, does not cover a discontinuous
+  simulator, so the primitive conditions come from Pakes & Pollard. Pages 2111–2112 and the
+  proofs of Section 7 are not read.
 - van der Laan & Gruber (2012), *Targeted minimum loss based estimation of causal effects of
   multiple time point interventions*, DOI
   [10.1515/1557-4679.1370](https://doi.org/10.1515/1557-4679.1370). The intervention-specific
@@ -1633,9 +1691,13 @@ sizes only the cluster sum is the delta-method variance of the row mean
   exact algorithm claims below remain pinned to the named source release.
 - Williams & Díaz (2025), [*Erratum: lmtp: An R Package for Estimating the Causal Effects of
   Modified Treatment Policies*](https://doi.org/10.1353/obs.2025.a973072), *Observational
-  Studies* 11(3):365–367. The erratum corrects identification and positivity assumptions. It does
-  not change the targeting construction, which is why code-history claims remain tied to the
-  versioned source and commit below.
+  Studies* 11(3):365–367. The erratum corrects one identification assumption: exchangeability
+  becomes strong exchangeability, which also needs every common cause of the exposure and the
+  future covariates and exposures measured. Consistency and positivity are unchanged (reproduced
+  Section 2.2 "Identification", Assumption 2, pp. 365-367). It does not change the targeting
+  construction. Code-history claims therefore stay tied to the versioned source and commit below.
+  This entry relays a full read of PMC13155344 by a local research session on 2026-10-14, not
+  a first-hand read by a cloud session.
 - Schomaker, Luque-Fernandez, Leroy & Davies (2019), [*Using Longitudinal Targeted Maximum
   Likelihood Estimation in Complex Settings with Dynamic Interventions*](https://doi.org/10.1002/sim.8340),
   *Statistics in Medicine* 38(24):4888-4911. Sections 3.4 and 4.3.2 define the complete
@@ -1743,7 +1805,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - Hernán & Robins, [*Causal Inference: What If*](https://miguelhernan.org/whatifbook), Chapman &
   Hall/CRC. Chapter 20 treats treatment-confounder feedback. Section 20.3, pages 271-273 of the
   edition dated 19 August 2026, shows why adjustment for that confounder opens a collider path. Cited by the
-  [longitudinal TMLE tutorial](examples/longitudinal-tmle.ipynb).
+  [sequential pricing tutorial](examples/sequential-pricing.ipynb).
 - Young, Stensrud, Tchetgen Tchetgen & Hernán (2020), [*A causal framework for classical
   statistical estimands in failure-time settings with competing events*](https://doi.org/10.1002/sim.8471),
   *Statistics in Medicine* 39(8):1199-1236, DOI 10.1002/sim.8471. The paper defines the total
@@ -1817,9 +1879,11 @@ sizes only the cluster sum is the delta-method variance of the row mean
   | Appendix F, Lemmas F.2 to F.5 | proofs of Kennedy's Lemmas 2 to 4 with dropout, for a general intervention distribution |
 
   Theorem 3.1 at one horizon also identifies the mean of a non-absorbing outcome $Y_t$. The
-  repeated-outcome curve of `LTMLE` cites the paper as context only. That curve rests on the
-  end-of-study results of Bang & Robins (2005) and van der Laan & Gruber (2012).
-  [X32b](roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) reads the paper for `IPSI`. Kim's research code,
+  repeated-outcome curve of `IPSI` rests on Theorems 3.1, 4.1 and 5.1: the functional at
+  horizon $h$, its influence function, and the joint process over $\delta$ and $t$, which the
+  package reports on the finite grid of declared tilts and horizons. The repeated-outcome
+  curve of `LTMLE` cites the paper as context only. That curve rests on the end-of-study
+  results of Bang & Robins (2005) and van der Laan & Gruber (2012). Kim's research code,
   `kwangho-joshua-kim/Incremental-dropout` at commit `6dc23fb4`, has no package and no tag. It is
   provenance only and no comparator.
 - Pinned `npcausal` 0.1.0
@@ -1846,7 +1910,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
   arXiv:2511.11353v3. The preprint constructs scalar-parameter categorical propensity policies
   from a reference policy and treatment-specific costs and derives their influence functions.
   It shows that a multi-arm extension is possible after its extra policy inputs are declared.
-  It does not validate a multi-arm `TMLE(incremental=...)` in this package.
+  This package ships a categorical `TMLE(incremental=...)` that tilts the odds of each level by a
+  declared factor. That tilt is a different construction from the paper's interpolated policy, so
+  the paper is background and not a validation of the categorical fit.
 
 ## Riesz representation and nested targeted learning
 
@@ -1885,6 +1951,17 @@ sizes only the cluster sum is the delta-method variance of the row mean
   main text, so this package did not read it. The main-text locators follow v6. The published
   appendix cites "C.7. Proof of Theorem 2" and "C.10. Proof of Lemma 3 and Theorem 4", which
   match v6.
+- Stefanski & Boos (2002), *The calculus of M-estimation*, *The American Statistician* 56(1):29-38.
+  Section 1 treats a partial M-estimator as an M-estimator by stacking. Section 3 gives the
+  two-stage instrumental-variable example and its lower-triangular Jacobian. This package read the
+  submitted version, so it cites sections and no pages. [Parametric per-arm
+  intervals](technical-reference/collaborative-tmle.md#parametric-per-arm-intervals) uses the
+  triangular structure.
+- van der Vaart (1998), *Asymptotic Statistics*, Cambridge University Press, Section 5.3, Theorem
+  5.21 (p. 52). A Z-estimator is asymptotically linear under a Lipschitz condition on the estimating
+  function, differentiability of the mean estimating function at the limit with a nonsingular
+  derivative, consistency, and a near-zero sample equation. This package read the theorem through
+  secondary sources, not the book, and it quotes no wording.
 - Saul & Hudgens (2020), [*The Calculus of M-Estimation in R with geex*](https://www.jstatsoft.org/article/view/v092i02),
   *Journal of Statistical Software* 92(2), DOI 10.18637/jss.v092.i02. Its general stacked
   estimating-equation method computes a sandwich variance for specified smooth equations. It
@@ -2342,22 +2419,38 @@ both, and sort the transformed limits.
 
 ## The TWINS example
 
-The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these two sources for the data
-and for the reading of its association.
+The [TWINS notebook](examples/twins-causal-inference.ipynb) cites these sources for the data, the
+exposure coverage, and the reading of its birth-weight table.
 
-- Almond, Chay & Lee (2005), [*The costs of low birth weight*](https://doi.org/10.1162/003355305774268228),
-  *Quarterly Journal of Economics* 120(3):1031-1083, DOI 10.1162/003355305774268228.
+- National Center for Health Statistics, linked birth/infant death cohort files for the 1989, 1990,
+  and 1991 birth cohorts, distributed by the
+  [National Bureau of Economic Research](https://www.nber.org/research/data/linked-birthinfant-death-cohort-data).
+  NCHS collected the data, and it is not responsible for any analysis of them. Use of the data
+  signifies agreement with the [NCHS data-use rules](https://www.cdc.gov/nchs/data_access/restrictions.htm):
+  statistical analysis only, and no attempt to identify any person. The 1989 user guide counts the
+  deaths of infants who die before their first birthday (introduction, p. 1, and the note to
+  Table 2, p. 6). The table of items not stated by state of residence in each guide names the states that did not collect the
+  tobacco item: California, Indiana, Louisiana, Nebraska, New York, Oklahoma, and South Dakota in
+  1989 (guide p. 9); California, Indiana, New York, Oklahoma, and South Dakota in 1990 (p. 12);
+  and California, Indiana, New York, and South Dakota in 1991 (p. 9).
 - Louizos, Shalit, Mooij, Sontag, Zemel & Welling (2017), [*Causal effect inference with deep
   latent-variable models*](https://proceedings.neurips.cc/paper/2017/hash/94b5bde6de888ddf9cde6748ad2523d1-Abstract.html),
   *Advances in Neural Information Processing Systems* 30 (NIPS 2017). Section 4.3 describes the
-  TWINS benchmark. It keeps pairs in which both twins weigh less than 2 kg, and it defines
-  treatment as being the heavier twin.
+  TWINS benchmark. The notebook uses the CSV extraction of the
+  [CEVAE repository](https://github.com/AMLab-Amsterdam/CEVAE/tree/9081f863e24ce21bd34c8d6a41bf0edc7d1b65dd/datasets/TWINS),
+  which holds the same-sex twin pairs of the three cohorts without the pairs of equal birth
+  weight. The repository states no licence.
+- Hernández-Díaz, Schisterman & Hernán (2006), [*The birth weight "paradox"
+  uncovered?*](https://doi.org/10.1093/aje/kwj275), *American Journal of Epidemiology*
+  164(11):1115-1120, DOI 10.1093/aje/kwj275. It uses the 1991 US linked file with maternal smoking
+  as the exposure. Figure 3 gives the causal graphs, and the discussion explains the paradox as
+  selection bias from stratification on birth weight, which smoking affects and which shares
+  unmeasured causes, such as birth defects, with infant mortality.
 
-The notebook also cites two sources for its sensitivity analysis. Their entries are under
+The notebook also cites one source for its sensitivity analysis. Its entry is under
 [sensitivity analysis](#sensitivity-analysis).
 
 - Chernozhukov, Cinelli, Newey, Sharma & Syrgkanis (2026), for the omitted-variable bounds.
-- VanderWeele & Ding (2017), for the E-value.
 
 ## Proposed methods on the roadmap
 

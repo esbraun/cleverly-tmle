@@ -97,6 +97,14 @@ from .._inference_status import (
     InferenceStatus,
     supplies_inference,
 )
+from .._support import (
+    Classification,
+    Preflight,
+    band_support,
+    classify_point_fit,
+    record_fit,
+    record_refusal_site,
+)
 from .._typing import (
     BoolArray,
     EstimandName,
@@ -106,8 +114,10 @@ from .._typing import (
     FoldStrata,
     GBounds,
     IntArray,
+    IterateChoice,
     Learner,
     ParameterAxis,
+    StoppingRule,
     TargetingMethod,
     TargetingScheme,
 )
@@ -118,6 +128,7 @@ from ..data.known_mechanism import (
     KNOWN_SCREEN_REFUSAL,
     moved_known_values_refusal,
 )
+from ..data.treatment_covariates import known_and_restricted
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..exceptions import (
     CapabilityError,
@@ -131,7 +142,15 @@ from ..exceptions import (
     WeightingWarning,
     refuse_after_repeats,
 )
-from ..fluctuation._score import relative_score, score_columns, score_scale
+from ..fluctuation._score import (
+    StopContext,
+    check_iterate,
+    check_step_bound,
+    check_stopping_rule,
+    relative_score,
+    score_columns,
+    score_scale,
+)
 from ..fluctuation.iterative import (
     Fluctuation,
     FoldFluctuation,
@@ -171,10 +190,11 @@ from ..interventions import (
     PolicySet,
     RegimeSet,
     RiskRatioTilt,
+    Support,
     as_interventions,
 )
 from ..interventions.base import refuse_mixed_interventions, refuse_regime_densities
-from ..interventions.incremental import refuse_multi_arm_tilt
+from ..interventions.incremental import refuse_continuous_tilt
 from ..interventions.learned import (
     LEARNED_RULE_REMEDY,
     LearnedRule,
@@ -184,7 +204,15 @@ from ..interventions.learned import (
     learned_rule_scheme_refusal,
     refuse_learned_rule_composition,
 )
-from ..interventions.policy import refuse_policy_declarations
+from ..interventions.policy import (
+    JointPolicy,
+    preflight_point_policies,
+    preflight_vector_policies,
+    refuse_policy_declarations,
+    vector_msm_refusal,
+    vector_route_refusal,
+    whole_vector_refusal,
+)
 from ..learners._fitting import Task, infer_task
 from ..learners.crossfit import (
     _POST_DRAW_REMEDY,
@@ -197,6 +225,7 @@ from ..learners.crossfit import (
     missing_training_support,
 )
 from ..learners.library import _validate_learner
+from ..learners.parametric import parametric_outcomes
 from ..learners.super_learner import SuperLearner, resolve_learner
 from ..msm import MSM, MSMSet, refuse_continuous_msm_mechanisms, refuse_msm_functions
 from ..provenance import data_fingerprint
@@ -209,14 +238,22 @@ from ..targets import (
     parameter_stem,
     targets_for,
 )
-from ..targets.base import stratum_alias
+from ..targets.base import READS_SINK, stratum_alias
 from ..targets.population_intervention import (
     NATURAL_COURSE_TARGET,
     POPULATION_INTERVENTION_TARGETS,
 )
 from ..utils.bounds import OutcomeScaler, g_bounds_for, resolve_g_bounds
 from ..utils.frames import is_dataframe
-from ._nuisance import KnownPropensity, NuisanceEstimates, RepeatFit, fit_nuisances
+from ._nuisance import (
+    DrawInference,
+    KnownPropensity,
+    NuisanceEstimates,
+    RepeatFit,
+    _refuse_by_arm_dose,
+    fit_nuisances,
+)
+from ._option_support import point_option_conditions
 from ._strata import (
     absent_arm_error,
     check_stratified_targets,
@@ -224,6 +261,12 @@ from ._strata import (
     stratum_probabilities,
     stratum_source,
     unscale_block,
+)
+from ._tuned_policies import (
+    declares_tuned,
+    in_sample_policies,
+    refuse_tuned_compositions,
+    resolve_point_policies,
 )
 from .base import (
     CVTargeting,
@@ -466,17 +509,61 @@ _REPEATED_BANDS_TEXT = (
 _REPEATED_BANDS_ALTERNATIVE = "Set simultaneous=False, report one estimate, or fit one split."
 
 
-#: Whether the in-sample point-treatment full-refit bootstrap's percentile interval is
-#: published as inference.  The registered study ``full-refit-bootstrap-and-derived-contrasts``
-#: measured it on in-sample ``TMLE`` fits with correctly specified nuisances only
-#: (``boot_ate_point_tmle``).  A cross-fitted fit's bootstrap prints as a diagnostic whatever
-#: this flag says, as the cross-fitted longitudinal kinds do, because no study measures it and
-#: no source covers it (roadmap F2).  Every ``DRTMLE`` and ``CTMLE`` fit prints it as a
-#: diagnostic too, because the study measured neither estimator.  An in-sample ``TMLE`` fit
-#: with a data-adaptive learner keeps the interval, and roadmap F2 holds that gap.
-#: A red ``boot_ate_point_tmle`` cell sets this to ``False``, so the in-sample interval then
-#: publishes as a diagnostic too.
-POINT_BOOTSTRAP_INFERENTIAL = True
+#: The estimands of the one supported fit of a vector treatment with a dose component.
+VECTOR_ESTIMANDS = frozenset({"ey_policy", "ate_policy"})
+
+
+def _has_no_arms(data: CausalData) -> bool:
+    """Whether the treatment carries doses and no arms.
+
+    A continuous treatment, or a vector treatment with a continuous component, which
+    :meth:`_refuse_vector_compositions` admits on the policy route only.
+    """
+    return data.treatment_kind in ("continuous", "vector")
+
+
+def _fitted_cells(
+    data: CausalData, ratio: str
+) -> tuple[FloatArray, FloatArray, Callable[[float], str]] | None:
+    """The cells a vector fit's categorical factor classifies, when the fit has one.
+
+    The density route at a vector treatment with a dose fits :math:`g_C`, one multinomial
+    over the observed cells of the categorical components
+    (:func:`~cleverly.interventions.joint_density.evaluate_joint_density`).  A training
+    complement that lacks a cell predicts probability zero for it, and the ratio of a
+    policy that moves mass into that cell is then zero on the held-out rows.  So each cell
+    is an arm for the support preflight, with every-level semantics.  The classifier route
+    fits no cell probabilities, and a vector with no categorical component has one cell.
+
+    Returns
+    -------
+    tuple or None
+        ``(cell code per row, cell codes, describe)``, or ``None`` when the fit classifies
+        no cells.
+    """
+    if data.treatment_kind != "vector" or ratio != "density":
+        return None
+    assert data.treatment_components is not None
+    categorical = [index for index, levels in enumerate(data.component_levels) if levels]
+    if not categorical:
+        return None
+    codes = np.asarray(data.treatment_components, dtype=float)[:, categorical]
+    cells, per_row = np.unique(codes.astype(np.int64), axis=0, return_inverse=True)
+    names = [data.component_names[index] for index in categorical]
+
+    def describe(code: float) -> str:
+        cell = cells[round(float(code))]
+        labels = (
+            f"{name}={data.component_levels[index][int(level)]!r}"
+            for name, index, level in zip(names, categorical, cell, strict=True)
+        )
+        return f"cell ({', '.join(labels)})"
+
+    return (
+        np.asarray(per_row, dtype=float).reshape(-1),
+        np.arange(cells.shape[0], dtype=float),
+        describe,
+    )
 
 
 def _all_tilts(policies: Sequence[object]) -> bool:
@@ -712,6 +799,15 @@ class TMLE:
     screen_treatment, screen_threshold, min_retain:
         Pre-screen covariates for the treatment model (R's ``prescreenW.g``).  Refused
         beside a declared known mechanism, which replaces the treatment model.
+    outcome_by_arm:
+        Fit one outcome regression per treatment arm (R's ``drtmle(stratify=TRUE)``).  Each
+        fold fits a learner on the covariates alone for each arm, on that arm's rows with an
+        observed outcome.  A prediction at row ``i`` comes from the model of the arm it is
+        for: the row's own arm when observed, arm ``a`` for the counterfactual ``a``, and
+        the shifted arm for an arm-coded modified treatment policy.  The default fits one
+        regression on the covariates and the treatment.  An arm with no training row in a
+        fold raises :class:`~cleverly.exceptions.DataError`.  A continuous dose has no arms
+        and is refused.
     estimands:
         Which estimands to report; ``"all"`` requests everything the outcome type
         supports.
@@ -729,6 +825,18 @@ class TMLE:
         under weak overlap.  See :mod:`cleverly.inference.multiplier`.
     step_size, max_iter, tol:
         Targeting-step controls.
+    stopping:
+        The rule that decides the score equation is solved: ``"relative"`` (default),
+        ``"scaled_var"`` or ``"sample_size"``; see :class:`cleverly.Targeting`.
+        ``"relative"`` tests the relative score norm against ``tol``, as before.
+    step_bound, step_search:
+        ``step_bound=None`` takes the full Newton step. A positive number replaces it by the
+        ``tmle3`` constrained step of at most that length, along the normalised score;
+        ``step_search=False`` takes the whole bound. See :class:`cleverly.Targeting`.
+    iterate:
+        ``"last"`` (default) reports the iterate at which the targeting walk stopped.
+        ``"best"`` reports the iterate of smallest raw score norm, as ``tmle3``'s
+        ``use_best`` does; see :class:`cleverly.Targeting`.
     run_id:
         An identifier of your own -- an experiment id, a ticket number -- recorded on
         :attr:`TMLEResult.provenance`.  The library records no git commit of its own:
@@ -776,31 +884,78 @@ class TMLE:
             weights=data.weights if data.is_weighted else None,
         )
 
-    def _bootstrap_inferential(self, data: CausalData) -> bool:
-        """Whether a registered study licenses the full-refit bootstrap interval as inference.
+    def _bootstrap_diagnostic(self, data: CausalData) -> bool:
+        """Whether the fit declares its full-refit bootstrap interval a diagnostic.
 
         A hook beside :meth:`_inference_status`, because only the estimator knows which
-        construction the bootstrap reruns. An in-sample point-treatment fit returns
-        :data:`POINT_BOOTSTRAP_INFERENTIAL`. A cross-fitted fit returns ``False``: its
-        replicates redraw the split over resampled rows, the registered study measured
-        in-sample fits only, and no source covers the bootstrap with cross-fitted nuisances.
-        The longitudinal rule is the same
-        (:data:`~cleverly.longitudinal.estimator.LICENSED_BOOTSTRAP_DESIGNS`).
-        :class:`~cleverly.DRTMLE` and :class:`~cleverly.CTMLE` return ``False`` on every fit,
-        because the registered study measured the ordinary point-treatment ``TMLE`` only.
+        construction the bootstrap reruns. ``False`` here: the percentile interval publishes
+        under its inferential names, and the support row of the fit decides whether it is
+        ``supported`` (a row that lists ``bootstrap``) or ``experimental``.
+        :class:`~cleverly.CTMLE` returns ``True``.
 
         Parameters
         ----------
         data : CausalData
-            The prepared data the estimates are fitted on.
+            The prepared data the estimates are fitted on. It is not read.
 
         Returns
         -------
         bool
-            Whether the percentile interval publishes under its inferential name.
+            ``False``.
         """
         del data
-        return POINT_BOOTSTRAP_INFERENTIAL and not self.cross_fit
+        return False
+
+    def _refuse_mismatched_arm_columns(self, data: CausalData) -> None:
+        """Refuse a :class:`~cleverly.learners.ParametricOutcome` whose arm columns misread
+        the treatment block.
+
+        The outcome design leads with the treatment block: one column for a binary or a
+        continuous treatment, ``K - 1`` arm indicators for ``K`` arms, and each component's
+        block for a vector with a continuous component. An all-categorical vector is a discrete
+        treatment over its joint levels, so it has ``K - 1`` columns for ``K`` joint levels. A
+        ``ParametricOutcome`` whose ``arm_columns`` differs reads a
+        covariate as an arm, or an arm as a covariate, and fits a model that nobody declared.
+        The check reads the outcome learner as :meth:`_resolve_learner` resolves it, and
+        :func:`~cleverly.learners.parametric.parametric_outcomes` finds the learner in a
+        library or inside a wrapper too (X58 plan, 13.2, Q8).
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Raises
+        ------
+        MethodConfigurationError
+            With code ``invalid_declaration``, when a ``ParametricOutcome`` declares another
+            number of arm columns than the treatment block has.
+        """
+        if self.outcome_learner is None:
+            return
+        task: Task = "classification" if data.family == "binomial" else "regression"
+        found = parametric_outcomes(self._resolve_learner(self.outcome_learner, task=task))
+        if not found:
+            return
+        if data.treatment_kind == "vector":
+            width = sum(1 if not levels else len(levels) - 1 for levels in data.component_levels)
+        elif data.is_continuous_treatment:
+            width = 1
+        else:
+            width = data.n_arms - 1
+        for learner in found:
+            if learner.arm_columns != width:
+                raise MethodConfigurationError(
+                    f"ParametricOutcome(arm_columns={learner.arm_columns!r}) does not match "
+                    f"the treatment block of the data, which has {width} column(s). The "
+                    "outcome design leads with that block, so the model would read a "
+                    "covariate as an arm column, or an arm column as a covariate.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        f"Declare ParametricOutcome(..., arm_columns={width}): one column for a "
+                        "binary treatment, K - 1 for K arms."
+                    ),
+                )
 
     def _refuse_undeclared_functions(self) -> None:
         """Raise unless every function of the configuration is declared known.
@@ -848,6 +1003,7 @@ class TMLE:
         screen_treatment: bool = False,
         screen_threshold: float = 0.1,
         min_retain: int | None = None,
+        outcome_by_arm: bool = False,
         estimands: Sequence[EstimandName] | str | None = None,
         interventions: Sequence[Any] | None = None,
         policies: Sequence[Policy] | None = None,
@@ -866,10 +1022,20 @@ class TMLE:
         step_size: float = 1e-3,
         max_iter: int = 20,
         tol: float = 1e-10,
+        stopping: StoppingRule = "relative",
+        step_bound: float | None = None,
+        step_search: bool = True,
+        iterate: IterateChoice = "last",
         random_state: int | None = None,
         run_id: str | None = None,
         n_jobs: int = 1,
     ) -> None:
+        if not isinstance(outcome_by_arm, (bool, np.bool_)):
+            raise MethodConfigurationError(
+                f"outcome_by_arm must be True or False; got {outcome_by_arm!r}.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Pass outcome_by_arm=True for one outcome regression per arm.",
+            )
         _validate_learner(outcome_learner, "outcome_learner")
         _validate_learner(treatment_learner, "treatment_learner")
         _validate_learner(missingness_learner, "missingness_learner")
@@ -898,6 +1064,7 @@ class TMLE:
         self.screen_treatment = screen_treatment
         self.screen_threshold = screen_threshold
         self.min_retain = min_retain
+        self.outcome_by_arm = outcome_by_arm
         self.estimands = estimands
         self.interventions = as_interventions(interventions)
         self.policies = tuple(policies or ())
@@ -920,6 +1087,10 @@ class TMLE:
         self.step_size = step_size
         self.max_iter = max_iter
         self.tol = tol
+        self.stopping = stopping
+        self.step_bound = step_bound
+        self.step_search = step_search
+        self.iterate = iterate
         self.random_state = random_state
         self.n_jobs = n_jobs
         self._validate_settings()
@@ -980,6 +1151,9 @@ class TMLE:
                 "targeting='one_step' walks a logistic submodel and cannot be combined with "
                 "fluctuation='linear'"
             )
+        check_iterate(self.iterate, self.fluctuation)
+        check_stopping_rule(self.stopping, self.fluctuation)
+        check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.targeting)
         if not 0.0 < self.alpha_sig < 1.0:
             raise ValueError(f"alpha_sig must lie in (0, 1); got {self.alpha_sig}")
         if not 0.0 < self.nuisance_bound < 0.5:
@@ -1010,11 +1184,11 @@ class TMLE:
         if self.incremental and self.g_bounds != "auto":
             raise CapabilityError(
                 "g_bounds= truncates the treatment mechanism, and on an incremental fit "
-                "the mechanism is part of the *estimand*: q_delta = delta*g / "
-                "(delta*g + 1 - g), so truncating g moves Psi(delta) itself rather than "
+                "the mechanism is part of the *estimand*: q_delta(a) = delta_a*g_a / "
+                "sum_b(delta_b*g_b), so truncating g moves Psi(delta) itself rather than "
                 "regularising a denominator. It is also unnecessary: the clever "
-                "covariate is delta/D at A=1 and 1/D at A=0, both between "
-                "min(delta, 1/delta) and max(delta, 1/delta) whatever g is, which is the "
+                "covariate is delta_a/D at level a, between min(delta)/max(delta) and "
+                "max(delta)/min(delta) whatever g is, which is the "
                 "point of an incremental intervention.",
                 reason=RefusalReason.DIFFERENT_ESTIMAND,
                 alternative=(
@@ -1128,7 +1302,7 @@ class TMLE:
         data: Any,
         *,
         outcome: str | None = None,
-        treatment: str | None = None,
+        treatment: str | Sequence[str] | None = None,
         covariates: Sequence[str] | None = None,
         delta: str | None = None,
         weights: str | None = None,
@@ -1140,18 +1314,48 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        treatment_covariates: Sequence[str] | None = None,
+        continuous_treatment: Sequence[str] = (),
+        treatment_support: Support | Mapping[str, Support] | None = None,
+        dose_atoms: Sequence[float] = (),
     ) -> TMLEResultSet:
         """Fit the estimator.
 
         Parameters
         ----------
-        data:
+        data : Any
             A pandas or polars dataframe, or a prepared
             :class:`~cleverly.data.CausalData`.
-        outcome, treatment, covariates, delta, weights, id, intermediate:
-            Column names, when ``data`` is a dataframe.  ``covariates=None`` uses every
+        outcome : str or None
+            The outcome column, when ``data`` is a dataframe.
+        treatment : str or Sequence[str] or None
+            The treatment column, or a list of columns for a vector treatment, when
+            ``data`` is a dataframe.
+        covariates : Sequence[str] or None
+            The covariate columns, when ``data`` is a dataframe.  ``None`` uses every
             column not claimed by another role.
-        treatment_kind:
+        delta : str or None
+            The 0/1 column that is 1 where the outcome is observed, when ``data`` is a
+            dataframe.
+        weights : str or None
+            The weight column, when ``data`` is a dataframe.
+        weights_type : str
+            How to read ``weights``.  Supplying weights changes the estimand to the
+            causal parameter in the weight-tilted population -- see
+            :mod:`cleverly.data.weighting` and
+            :meth:`~cleverly.data.CausalData.from_frame`.
+        weights_estimated : bool
+            Declare that the weights came out of a fitted model.  See
+            :meth:`~cleverly.data.CausalData.from_frame`.
+        id : str or None
+            The cluster identifier column, when ``data`` is a dataframe.
+        intermediate : str or None
+            The intermediate column of a controlled direct effect, when ``data`` is a
+            dataframe.
+        strata : Sequence[str] or None
+            The columns of a finite baseline partition for conditional target
+            parameters, when ``data`` is a dataframe.
+        treatment_kind : TreatmentKind or None
             ``"discrete"`` to code the treatment column into arms, ``"continuous"`` to
             keep its own values and model it with a conditional density.  ``None``
             follows ``policies=``: a modified treatment policy moves a dose and names no
@@ -1162,17 +1366,32 @@ class TMLE:
             :class:`~cleverly.data.CausalData` refuses to guess from the level count for
             exactly that reason.  Pass this explicitly to override, including to get the
             arm-coded refusal for a ``policies=`` fit on a treatment that really has arms.
-        weights_type, weights_estimated:
-            How to read ``weights``.  Supplying weights changes the estimand to the
-            causal parameter in the weight-tilted population -- see
-            :mod:`cleverly.data.weighting` and
-            :meth:`~cleverly.data.CausalData.from_frame`.
-        treatment_delta:
+        treatment_delta : str or None
             The 0/1 column that is 1 where the treatment is recorded, which declares a
             treatment missing at random.  The fit then runs the composite-indicator
             construction of :mod:`cleverly.estimators.composite` for the arm means and
             their contrasts, in sample.  See :meth:`~cleverly.data.CausalData.from_frame`.
-        treatment_probabilities:
+        continuous_treatment : Sequence[str]
+            The dose columns of a vector ``treatment=[...]``.  A vector with a dose column
+            is fitted with ``policies=`` of :class:`~cleverly.interventions.JointPolicy`
+            only, on either ``ratio`` route.  See :meth:`~cleverly.data.CausalData.from_frame`.
+        treatment_support : Support, mapping of str to Support, or None
+            The declared conditional support of a continuous dose,
+            :class:`~cleverly.interventions.Support`.  The fit refuses, before any learner, an
+            observed dose outside it and a policy that assigns a row a dose outside it
+            (Díaz et al. 2023, Assumption 1).  A vector treatment maps each continuous
+            component to its support, given the covariates, the categorical components and
+            the doses before it in column order.  Each branch of a joint policy is checked
+            on the components it assigns.
+        dose_atoms : sequence of float, or mapping of str to sequence of float
+            The doses with a recorded point mass, such as a list price.  The policy ratio
+            is then taken against Lebesgue plus counting measure on these doses, on both
+            ``ratio`` routes, and a piece may send an interval to one of them with
+            ``Piece(lower, upper, to_atom=value)``.  A dose with an undeclared point mass is
+            refused before any learner.  A vector treatment maps each continuous component
+            to its atoms, and that component's factor of the joint density is then mixed;
+            the density route takes a ``to_atom`` piece at the last dose alone.
+        treatment_probabilities : Any
             The known treatment mechanism ``P(A = a | W)`` of a randomized design.  The fit
             then divides by it in place of an estimate and fits no treatment learner.  The
             preferred form maps each level to the frame column that holds its probability,
@@ -1186,6 +1405,15 @@ class TMLE:
             rows.  Beside a prepared :class:`~cleverly.data.CausalData` the array forms are
             attached with :meth:`~cleverly.data.CausalData.with_known_mechanism`, and a
             container that already declares one refuses a second.
+        treatment_covariates : Sequence[str] or None
+            The adjustment columns that the treatment mechanism reads, a subset of
+            ``covariates``.  ``None`` reads all of them.  The outcome regression, the
+            missingness mechanisms and the policy rules keep the full set.  The declaration
+            restricts the observed-data model and does not change the estimand.  The result
+            summary prints the restriction the interval needs.  Beside a prepared
+            :class:`~cleverly.data.CausalData` it is attached with
+            :meth:`~cleverly.data.CausalData.with_treatment_covariates`.  It is refused
+            beside ``treatment_probabilities``, ``incremental=`` and ``strategy='oat'``.
 
         Returns
         -------
@@ -1211,14 +1439,16 @@ class TMLE:
             treatment_kind=treatment_kind,
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
-        )
+            treatment_covariates=treatment_covariates,
+            continuous_treatment=continuous_treatment,
+        ).with_dose_declarations(treatment_support, dose_atoms)
         if not prepared.has_intermediate:
             return TMLEResultSet({None: self._fit_single(prepared, intermediate_value=None)})
 
         # The intermediate path otherwise fits shared nuisances before `_fit_single`.
         # Run the full preflight here as well, so every unsupported intermediate
         # composition fails before the shared nuisance learners are fitted.
-        estimands = self._preflight_fit_configuration(prepared)
+        estimands = self._preflight_fit_configuration(prepared).estimands
 
         # The controlled direct effect at z = 0 and at z = 1 are different parameters,
         # so they get one result each -- but they are estimated from *identical*
@@ -1373,7 +1603,7 @@ class TMLE:
         data: Any,
         *,
         outcome: str | None,
-        treatment: str | None,
+        treatment: str | Sequence[str] | None,
         covariates: Sequence[str] | None,
         delta: str | None,
         weights: str | None,
@@ -1385,6 +1615,8 @@ class TMLE:
         treatment_kind: TreatmentKind | None = None,
         treatment_delta: str | None = None,
         treatment_probabilities: Any = None,
+        treatment_covariates: Sequence[str] | None = None,
+        continuous_treatment: Sequence[str] = (),
     ) -> CausalData:
         """Coerce whatever the caller passed into a validated :class:`CausalData`."""
         if isinstance(data, CausalData):
@@ -1408,11 +1640,15 @@ class TMLE:
                     treatment_kind,
                     treatment_delta,
                 )
-            ):
+            ) or tuple(continuous_treatment):
                 raise ValueError(
                     "column names cannot be combined with a CausalData input; the roles are "
                     "already assigned"
                 )
+            if treatment_covariates is not None and treatment_probabilities is not None:
+                raise known_and_restricted("treatment_covariates")
+            if treatment_covariates is not None:
+                data = data.with_treatment_covariates(treatment_covariates)
             if treatment_probabilities is not None:
                 return data.with_known_mechanism(treatment_probabilities)
             return data
@@ -1437,17 +1673,24 @@ class TMLE:
             strata=strata,
             family=self.family,
             treatment_kind=(
-                _default_treatment_kind(self.policies) if treatment_kind is None else treatment_kind
+                # A vector reads its kind from continuous_treatment=, and refuses this one.
+                treatment_kind
+                if treatment_kind is not None or not isinstance(treatment, str)
+                else _default_treatment_kind(self.policies)
             ),
             treatment_delta=treatment_delta,
             treatment_probabilities=treatment_probabilities,
+            treatment_covariates=treatment_covariates,
+            continuous_treatment=continuous_treatment,
         )
 
-    def _preflight_fit_configuration(self, data: CausalData) -> tuple[str, ...]:
+    def _preflight_fit_configuration(self, data: CausalData) -> Preflight:
         """Resolve targets and run every configuration guard before fitting learners.
 
         Both fit and replayability use this path, including subclass estimand checks.
-        The returned targets include any exclusions for ``estimands="all"``.
+        The returned targets include any exclusions for ``estimands="all"``. The returned
+        conditions are the group-A rules the fit meets, each of which labels the fit
+        experimental (see :class:`~cleverly._support.Preflight`).
         Scaler, propensity-bound, and reference checks need no generated folds and run
         here too. The validation of realised folds stays in :meth:`_repeat_draws`.
 
@@ -1466,7 +1709,11 @@ class TMLE:
         :meth:`_refuse_known_compositions` first, and the bound check of
         :meth:`_refuse_moved_known_values` once the targets are resolved.
         """
+        self._refuse_vector_compositions(data)
         self._refuse_known_compositions(data)
+        self._refuse_mismatched_arm_columns(data)
+        if self.outcome_by_arm:
+            _refuse_by_arm_dose(data)
         if data.has_missing_treatment:
             named = None if self.estimands is None or self.estimands == "all" else self.estimands
             refusal = missing_treatment_refusal(
@@ -1482,7 +1729,8 @@ class TMLE:
             refuse_learned_rule_composition(data, self)
         self._check_policies(data)
         self._check_incremental(data)
-        estimands = self._resolve_estimands_for_data(data)
+        resolved = self._resolve_estimands_for_data(data)
+        estimands = resolved.estimands
         if data.has_missing_treatment:
             estimands = tuple(name for name in estimands if name not in unidentified_targets())
         if data.has_strata and self.targeting_scheme == "fold":
@@ -1573,7 +1821,74 @@ class TMLE:
         resolve_g_bounds(self.g_bounds, self._bounds_n(data), for_att=True)
         self._refuse_moved_known_values(data, estimands)
         self._reference_arm(data)
-        return estimands
+        return Preflight(estimands, resolved.conditions)
+
+    def _refuse_vector_compositions(self, data: CausalData) -> None:
+        """Refuse a fit of a vector treatment with a dose that has no estimand, by its reason.
+
+        Such a treatment has no arms, so its parameters are the policy means and contrasts
+        of ``TMLE(policies=[JointPolicy(...)])``, on either ratio route, with the
+        missingness, intermediate and stratum compositions a dose takes.  Every other
+        request meets the reason a continuous dose meets, before any learner.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+
+        Raises
+        ------
+        CapabilityError
+            For ``CTMLE`` and ``DRTMLE``, which a continuous dose refuses; for ``msm=``; for
+            a policy declared on the vector as a whole; and for an estimand that is not a
+            policy mean or contrast.
+        DataError
+            For a fit with no ``policies=``, or one that asks for an arm-indexed axis
+            (``interventions=``, ``incremental=``, a learned rule).
+        """
+        if data.treatment_kind != "vector":
+            return
+        name = data.treatment_name
+        if self._assessment_method == "collaborative_tmle":
+            from .ctmle import vector_discrete_treatment_refusal
+
+            raise CapabilityError.from_refusal(vector_discrete_treatment_refusal(name))
+        if self._assessment_method == "drtmle":
+            from .drtmle import drtmle_axis_refusal
+            from .reduced import refuse_unsupported
+
+            for keyword in ("interventions", "policies", "incremental", "msm"):
+                if getattr(self, keyword, None):
+                    raise CapabilityError.from_refusal(drtmle_axis_refusal(keyword))
+            refuse_unsupported("continuous")
+        if self.msm is not None:
+            raise CapabilityError.from_refusal(vector_msm_refusal(name))
+        if (
+            not self.policies
+            or self.interventions
+            or self.incremental
+            or self.learned_rule is not None
+        ):
+            raise DataError.from_refusal(vector_route_refusal(name))
+        for policy in self.policies:
+            if not isinstance(policy, JointPolicy):
+                raise CapabilityError.from_refusal(whole_vector_refusal(policy, name))
+        requested = (
+            ()
+            if self.estimands is None or self.estimands == "all"
+            else (self.estimands,)
+            if isinstance(self.estimands, str)
+            else tuple(self.estimands)
+        )
+        other = [estimand for estimand in requested if estimand not in VECTOR_ESTIMANDS]
+        if other:
+            raise CapabilityError(
+                f"treatment {name!r} is a vector with a continuous component, and estimands= "
+                f"asks for {other}. A policy fit reports {sorted(VECTOR_ESTIMANDS)}, the "
+                "policy means and their contrasts; every other registered estimand names an "
+                "arm, and this treatment has none.",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
 
     def _refuse_known_compositions(self, data: CausalData) -> None:
         """Refuse a composition that a declared known mechanism does not support.
@@ -1673,7 +1988,11 @@ class TMLE:
         estimates, which is what a band needs. A repeated fit that reports one estimate
         builds no band, so it is allowed.
         """
-        estimands = self._preflight_fit_configuration(data)
+        preflight = self._preflight_fit_configuration(data)
+        estimands = preflight.estimands
+        classification = classify_point_fit(
+            self, data, estimands, source="TMLE._fit_single", conditions=preflight.conditions
+        )
 
         extra: dict[str, Any] = {}
         if shared is not None:
@@ -1716,14 +2035,18 @@ class TMLE:
             # ``_retarget_detailed`` applies ``_inference_status`` to what it returns, and to
             # both fold-level reports, so ``per_repeat``, ``median_estimates``,
             # ``result.repeats`` and ``result.cv_targeting`` all carry it.
-            estimates, fluctuations, detail = self._retarget_detailed(
+            retarget = partial(
+                self._retarget_detailed,
                 data,
                 nuisance,
                 estimands=estimands,
                 intermediate_value=intermediate_value,
                 g_bounds=config.g_bounds,
                 g_bounds_conditional=config.g_bounds_conditional,
+                classification=classification,
             )
+            # The record is read before the median, so each draw keeps its own status.
+            estimates, fluctuations, detail, draw_record = self._targeted_draw(data, retarget)
             per_repeat.append(estimates)
             repeats.append(
                 RepeatFit(
@@ -1731,6 +2054,7 @@ class TMLE:
                     fluctuations=fluctuations,
                     psi={name: value.psi for name, value in estimates.items()},
                     seed=seed,
+                    inference=draw_record,
                 )
             )
             details.append(detail)
@@ -1775,11 +2099,18 @@ class TMLE:
         # refuses, because that is an explicit request.
         # A band over an estimate with a Student t reference is skipped for the same
         # reason: no source gives a t-calibrated joint band, and ``summary()`` says so.
+        # An estimate whose parameter status withholds its interval stays out of the band,
+        # which is then a joint statement over the others, and below two of them no band is
+        # built. This is the rule of ``LTMLE._bands`` (docs/architecture-invariants.md, row
+        # "a band"), and ``summary()`` names the estimates left out.
+        banded = {
+            name: estimate for name, estimate in estimates.items() if estimate.supplies_inference
+        }
         if (
             self.simultaneous
-            and len(estimates) > 1
+            and len(banded) > 1
             and supplies_inference(result.inference_status)
-            and not has_t_reference(estimates)
+            and not has_t_reference(banded)
         ):
             refuse_after_repeats(
                 self.repeats,
@@ -1789,14 +2120,24 @@ class TMLE:
                 alternative=_REPEATED_BANDS_ALTERNATIVE,
             )
             bands = simultaneous_bands(
-                estimates,
+                banded,
                 alpha=self.alpha_sig,
                 n_replicates=self.n_multiplier,
                 kind=self.multiplier_kind,
                 random_state=self.random_state,
                 cluster=data.cluster,
             )
-            result = replace(result, simultaneous=bands)
+            result = replace(
+                result,
+                simultaneous=replace(
+                    bands,
+                    support=band_support(
+                        classification,
+                        result.inference_status,
+                        (estimate.support for estimate in banded.values()),
+                    ),
+                ),
+            )
 
         if self.n_bootstrap:
             bootstrap = run_bootstrap(
@@ -1810,10 +2151,53 @@ class TMLE:
                 n_jobs=self.n_jobs,
             )
             result = attach_bootstrap(
-                result, bootstrap, inferential=self._bootstrap_inferential(data)
+                result,
+                bootstrap,
+                diagnostic=self._bootstrap_diagnostic(data),
+                classification=classification,
             )
 
+        if classification is not None:
+            result = replace(
+                result,
+                config=replace(
+                    result.config,
+                    support_key=classification.key,
+                    support_conditions=classification.conditions,
+                ),
+            )
+        record_fit(classification, result, source="TMLE._fit_single")
         return result
+
+    def _targeted_draw(
+        self,
+        data: CausalData,
+        retarget: Callable[[], tuple[dict[str, ParameterEstimate], Any, Any]],
+    ) -> tuple[dict[str, ParameterEstimate], Any, Any, dict[str, DrawInference]]:
+        """Run one draw's targeting, and record its own status and standard error per estimand.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data. This hook does not read it; the per-arm
+            :class:`~cleverly.CTMLE` reads it to decide whether the draw has a stack.
+        retarget : callable
+            Runs the draw's targeting once. It returns the estimates, the fluctuations and
+            the fold-level report.
+
+        Returns
+        -------
+        tuple
+            The three values of ``retarget``, then one :class:`DrawInference` per estimand,
+            without a curve or a shipped standard error.
+        """
+        del data
+        estimates, fluctuations, detail = retarget()
+        record = {
+            name: DrawInference(status=estimate.inference, se=float(np.sqrt(estimate.variance)))
+            for name, estimate in estimates.items()
+        }
+        return estimates, fluctuations, detail, record
 
     def _cv_detail(
         self, details: Sequence[CVTargeting | None], *, cluster: IntArray | None
@@ -1865,7 +2249,7 @@ class TMLE:
         observed = data.outcome[data.observed]
         return OutcomeScaler.from_outcome(observed, self.q_bounds)
 
-    def _resolve_estimands_for_data(self, data: CausalData) -> tuple[str, ...]:
+    def _resolve_estimands_for_data(self, data: CausalData) -> Preflight:
         """Resolve targets and enforce the initial data and declaration refusals.
 
         This method first checks the declared fold policy without reading the data, because a
@@ -1910,11 +2294,15 @@ class TMLE:
         if self.msm is not None:
             refuse_continuous_msm_mechanisms(data, subject="An MSM (msm=)", missingness="delta=")
         check_stratified_targets(data, incremental=bool(self.incremental), msm=self.msm)
-        estimands = self._resolve_natural_course_contract(data)
-        self._resolve_arm_indexed_missing_contract(data, estimands)
+        conditions: list[Refusal] = []
+        estimands = self._resolve_natural_course_contract(data, conditions)
+        self._resolve_arm_indexed_missing_contract(data, estimands, conditions)
         self._refuse_cross_fitted_missing_off_contract(data, estimands)
         self._refuse_unbounded_cross_fitted_scale(data)
-        return estimands
+        # The targeting and fitting options that no registered study covers label the fit
+        # experimental; each is implemented, so none of them raises.
+        conditions.extend(point_option_conditions(self, data))
+        return Preflight(estimands, tuple(conditions))
 
     def _fold_policy_refusal(self) -> Refusal | None:
         """The refusal a fit under a fold policy this version refuses raises, or ``None``.
@@ -2021,6 +2409,9 @@ class TMLE:
             parts.append(_OFF_CONTRACT_AXIS_NAMES[self._axis])
         if data.has_intermediate:
             parts.append("controlled-direct-effect")
+        record_refusal_site(
+            "tmle.off_contract_axes", RefusalReason.IMPLEMENTATION_GAP, "X53", flagged=True
+        )
         raise CapabilityError(
             _CROSS_FITTED_MISSING_CONTRACTS
             + f"No audited result covers {' and '.join(parts)} targets under cross-fitting "
@@ -2103,23 +2494,39 @@ class TMLE:
         )
 
     def _resolve_arm_indexed_missing_contract(
-        self, data: CausalData, estimands: tuple[str, ...]
+        self, data: CausalData, estimands: tuple[str, ...], conditions: list[Refusal]
     ) -> None:
-        """Refuse every cross-fitted arm-indexed missing-outcome fit outside the contract.
+        """Check every cross-fitted arm-indexed missing-outcome fit against the contract.
 
         The contract is the arm-indexed stacked contract in ``point-treatment-tmle.md``. Each
-        refusal runs before fold generation and names the missing result, the engine
-        keyword, and the public spelling. The checks run in a fixed order, so a fit that
-        breaks several rules receives the first one.
+        check runs before fold generation and names the missing result, the engine
+        keyword, and the public spelling. The checks run in a fixed order. A rule with no
+        code path, and the fold-targeted scheme, raise: a fit that breaks several of them
+        receives the first. Every other rule appends its condition to ``conditions`` and the
+        fit runs labelled experimental, because the code computes the target and no study
+        reviews the setting. A later refusal still raises after such a condition.
         """
         if not self._on_arm_indexed_stacked_surface(data, estimands):
             return
 
         def refuse(
-            text: str, remedy: str, *, code: RefusalReason, roadmap: str | None = None
+            text: str,
+            remedy: str,
+            *,
+            code: RefusalReason,
+            roadmap: str | None = None,
+            site: str | None = None,
+            flagged: bool = False,
         ) -> None:
+            if site is not None:
+                record_refusal_site(site, code, roadmap, flagged=flagged)
             raise CapabilityError(
                 _ARM_INDEXED_CONTRACT + text, reason=code, alternative=remedy, roadmap=roadmap
+            )
+
+        def note(text: str, remedy: str, *, code: RefusalReason, roadmap: str) -> None:
+            conditions.append(
+                Refusal(code, _ARM_INDEXED_CONTRACT + text, alternative=remedy, roadmap=roadmap)
             )
 
         if self._assessment_method == "collaborative_tmle":
@@ -2135,28 +2542,28 @@ class TMLE:
                 roadmap="X51",
             )
         if self.fluctuation != "logistic":
-            refuse(
+            note(
                 "No audited result covers the linear fluctuation.",
                 "Set fluctuation='logistic' (Targeting(fluctuation='logistic')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
             )
         if self.targeting != "iterative":
-            refuse(
+            note(
                 "No audited result covers the one-step update.",
                 "Set targeting='iterative' (Targeting(algorithm='iterative')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
             )
         if self.target_weights:
-            refuse(
+            note(
                 "No audited result covers the weighted fluctuation.",
                 "Set target_weights=False (Targeting(target_weights=False)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
             )
         if self.cv_evaluation:
-            refuse(
+            note(
                 "The fold-evaluated construction has no review of its fold plug-in and "
                 "variance law.",
                 "Set cv_evaluation=False (CrossFitting(fold_evaluation=False)).",
@@ -2173,7 +2580,7 @@ class TMLE:
                 if name in _ARM_INDEXED_ADMITTED
                 and (data.family == "binomial" or name not in _NATURAL_COURSE_NAMES)
             ]
-            refuse(
+            note(
                 f"No audited result covers {conditional}. The default estimand list and "
                 "estimands='all' include att and atc, and the fit drops no requested "
                 "estimand silently.",
@@ -2189,7 +2596,7 @@ class TMLE:
                 code=RefusalReason.INVALID_DECLARATION,
             )
         if self.split_plan is not None:
-            refuse(
+            note(
                 "No audit covers the balance and weighting of a supplied split plan.",
                 "Leave split_plan=None (CrossFitting(split_plan=None)) for package-generated "
                 "folds.",
@@ -2197,7 +2604,7 @@ class TMLE:
                 roadmap="X53",
             )
         if self.repeats != 1:
-            refuse(
+            note(
                 "No audited result covers the median over repeated splits after CV-TMLE targeting.",
                 "Set repeats=1 (CrossFitting(repeats=1)).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
@@ -2209,9 +2616,11 @@ class TMLE:
                 "Set targeting_scheme='pooled' (CrossFitting(targeting_scheme='pooled')).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="arm.fold_targeting",
+                flagged=True,
             )
         if data.weights_name is not None or data.is_weighted:
-            refuse(
+            note(
                 "The contract covers unweighted iid rows.",
                 "Drop weights= from fit (PointTreatment(weights=None)), or "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
@@ -2219,7 +2628,7 @@ class TMLE:
                 roadmap="X60",
             )
         if data.cluster is not None:
-            refuse(
+            note(
                 "The contract covers unweighted iid rows.",
                 "Drop id= from fit (PointTreatment(cluster=None)), or "
                 f"{_IN_SAMPLE_ARM_INDEXED_REMEDY}.",
@@ -2227,14 +2636,14 @@ class TMLE:
                 roadmap="X60",
             )
         if data.has_strata:
-            refuse(
+            note(
                 "No audited result covers baseline strata.",
                 "Drop strata= from fit (PointTreatment(strata=())).",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
             )
         if self.n_bootstrap:
-            refuse(
+            note(
                 "No audited result covers bootstrap inference.",
                 "Set n_bootstrap=0 (Inference(n_bootstrap=0)).",
                 code=RefusalReason.INFERENCE_GAP,
@@ -2271,14 +2680,21 @@ class TMLE:
         """
         return self._assessment_method == "tmle"
 
-    def _resolve_natural_course_contract(self, data: CausalData) -> tuple[str, ...]:
+    def _resolve_natural_course_contract(
+        self, data: CausalData, conditions: list[Refusal]
+    ) -> tuple[str, ...]:
         """Resolve targets and enforce the supported natural-course compositions.
+
+        A rule with no code path, and the fold-targeted scheme, raise. Every other rule
+        appends its condition to ``conditions`` and the fit runs labelled experimental.
 
         One resolver covers the scalar natural-course mean and the joint fit that stacks it
         with arm targets (``par``, ``paf``, or ``ey_obs`` beside arm means and contrasts).
         Both use the shipped natural-course fluctuation, so both meet the same refusals.
         """
-        estimands = resolve_estimands(self.estimands, data.family, data.n_arms, axis=self._axis)
+        # A vector treatment with a dose component has no arms, as a continuous one has none.
+        arms = 0 if data.treatment_kind == "vector" else data.n_arms
+        estimands = resolve_estimands(self.estimands, data.family, arms, axis=self._axis)
         if not data.has_missing_outcome:
             return estimands
         if self.estimands == "all":
@@ -2293,8 +2709,16 @@ class TMLE:
             return estimands
 
         def refuse(
-            text: str, remedy: str, *, code: RefusalReason, roadmap: str | None = None
+            text: str,
+            remedy: str,
+            *,
+            code: RefusalReason,
+            roadmap: str | None = None,
+            site: str | None = None,
+            flagged: bool = False,
         ) -> None:
+            if site is not None:
+                record_refusal_site(site, code, roadmap, flagged=flagged)
             raise CapabilityError(
                 "NaturalCourseMean, PAR and PAF with missing outcomes currently support "
                 "ordinary TMLE and, for point estimates, the per-arm outcome-adaptive CTMLE "
@@ -2302,6 +2726,18 @@ class TMLE:
                 reason=code,
                 alternative=remedy,
                 roadmap=roadmap,
+            )
+
+        def note(text: str, remedy: str, *, code: RefusalReason, roadmap: str) -> None:
+            conditions.append(
+                Refusal(
+                    code,
+                    "NaturalCourseMean, PAR and PAF with missing outcomes currently support "
+                    "ordinary TMLE and, for point estimates, the per-arm outcome-adaptive "
+                    f"CTMLE under their audited implementation contracts. {text}",
+                    alternative=remedy,
+                    roadmap=roadmap,
+                )
             )
 
         if not self._admits_natural_course_with_missing():
@@ -2322,7 +2758,7 @@ class TMLE:
                 roadmap=variant_item,
             )
         if self.repeats != 1:
-            refuse(
+            note(
                 "No audited result covers the median over repeated splits for this fit.",
                 "Set repeats=1.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
@@ -2334,8 +2770,12 @@ class TMLE:
                 "Set targeting_scheme='pooled'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
+                site="nc.fold_targeting",
+                flagged=True,
             )
         if self.cross_fit and self.cv_evaluation:
+            # Not a condition: the fold-evaluated report has no natural-course mean to read
+            # (``observed_mean`` raises on missing outcomes), so no code path exists.
             refuse(
                 "The cross-fitted estimator requires cv_evaluation=False.",
                 "Set cv_evaluation=False.",
@@ -2343,28 +2783,28 @@ class TMLE:
                 roadmap="X53",
             )
         if self.cross_fit and self.split_plan is not None:
-            refuse(
+            note(
                 "The cross-fitted estimator requires package-generated folds.",
                 "Leave split_plan=None.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X53",
             )
         if self.fluctuation != "logistic":
-            refuse(
+            note(
                 "No audited result covers a fluctuation other than the logistic one here.",
                 "Set fluctuation='logistic'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
             )
         if self.targeting != "iterative":
-            refuse(
+            note(
                 "No audited result covers a targeting algorithm other than the iterative one here.",
                 "Set targeting='iterative'.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
             )
         if self.target_weights:
-            refuse(
+            note(
                 "No audited result covers the weighted fluctuation here.",
                 "Set target_weights=False.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
@@ -2373,7 +2813,7 @@ class TMLE:
         if self.n_bootstrap:
             # X55 part (a) holds the in-sample bootstrap, and F2 the cross-fitted one.
             bootstrap_item = "F2" if self.cross_fit else "X55"
-            refuse(
+            note(
                 "No audited bootstrap result covers this fit. X55 in docs/roadmap.md tracks "
                 "the in-sample bootstrap with finite-dimensional nuisances, and F2 the "
                 "bootstrap with data-adaptive or cross-fitted nuisances.",
@@ -2382,14 +2822,14 @@ class TMLE:
                 roadmap=bootstrap_item,
             )
         if self.cross_fit and (data.weights_name is not None or data.is_weighted):
-            refuse(
+            note(
                 "The stacked contract covers unweighted iid rows.",
                 "Drop weights= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
                 roadmap="X60",
             )
         if self.cross_fit and data.cluster is not None:
-            refuse(
+            note(
                 "The stacked contract covers unweighted iid rows.",
                 "Drop id= from fit, or fit in sample.",
                 code=RefusalReason.IMPLEMENTATION_GAP,
@@ -2404,7 +2844,7 @@ class TMLE:
             )
         if data.family != "binomial":
             if self.cross_fit:
-                refuse(
+                note(
                     "The cross-fitted estimator requires a binary outcome.",
                     "Fit in sample with cross_fit=False and declare q_bounds.",
                     code=RefusalReason.IMPLEMENTATION_GAP,
@@ -2596,7 +3036,29 @@ class TMLE:
                 lambda value: f"respondent(s) with outcome {scaler.unscale_level(value):g}",
             ),
         ]
-        if fits_treatment and not data.is_continuous_treatment:
+        if self.outcome_by_arm and not _has_no_arms(data):
+            # One outcome learner per arm: each trains on the arm's rows with an observed
+            # outcome, so the split rule is asked of those rows and not of the pooled ones.
+            treatment = np.asarray(data.treatment, dtype=float)
+            learner = roles[0][1]
+
+            def arm_label(arm: float) -> Callable[[float], str]:
+                return lambda value: (
+                    f"respondent(s) in arm {data.arm_label(arm)} with outcome "
+                    f"{scaler.unscale_level(value):g}"
+                )
+
+            roles[:1] = [
+                (
+                    "outcome",
+                    learner,
+                    observed & (treatment == arm),
+                    scaler.scale(data.outcome),
+                    arm_label(arm),
+                )
+                for arm in data.arm_codes
+            ]
+        if fits_treatment and not _has_no_arms(data):
             roles.append(
                 (
                     "treatment",
@@ -2604,6 +3066,20 @@ class TMLE:
                     everyone,
                     np.asarray(data.treatment, dtype=float),
                     lambda value: f"row(s) in arm {data.arm_label(value)}",
+                )
+            )
+        cells = _fitted_cells(data, self.ratio) if fits_treatment else None
+        if cells is not None:
+            # The density route's categorical factor classifies the cells, so a package
+            # Super Learner there splits on them as it would on arms.
+            per_row, _, describe = cells
+            roles.append(
+                (
+                    "treatment",
+                    self._resolve_learner(self.treatment_learner, task="classification"),
+                    everyone,
+                    per_row,
+                    lambda value: f"row(s) in {describe(value)}",
                 )
             )
         roles.append(
@@ -2787,17 +3263,29 @@ class TMLE:
             of an outer split and not of a split that an in-sample fit draws itself.
         """
         treatment = np.asarray(data.treatment, dtype=float)
-        arms = np.asarray(data.arm_codes, dtype=float)
+        arms = np.asarray(() if _has_no_arms(data) else data.arm_codes, dtype=float)
+
+        def describe_arm(code: float) -> str:
+            return f"arm {data.arm_label(code)}"
+
+        describe: Callable[[float], str] = describe_arm
+        what, noun = "treatment arm", "arm"
+        cells = _fitted_cells(data, self.ratio)
+        if cells is not None:
+            treatment, arms, describe = cells
+            what = f"cell of the categorical components of {data.treatment_name!r}"
+            noun = "cell"
+            remedy = f"{remedy}, or pass ratio='classifier', which fits no cell probabilities"
         observed = np.asarray(data.observed, dtype=bool)
         unit_of, unit = _independent_units(data)
         for arm in arms:
             count = int(np.unique(unit_of[treatment == arm]).size)
             if count < 2:
                 raise DataError(
-                    f"{subject} needs each treatment arm in at least two independent "
-                    f"units, and arm {data.arm_label(arm)} appears in {count} {unit}(s). "
+                    f"{subject} needs each {what} in at least two independent "
+                    f"units, and {describe(arm)} appears in {count} {unit}(s). "
                     f"A split moves whole {unit}s, so every partition leaves some training "
-                    "complement without that arm and no fold count or seed can fit the "
+                    f"complement without that {noun} and no fold count or seed can fit the "
                     f"treatment mechanism; {remedy}"
                 )
         if data.family == "binomial":
@@ -2826,7 +3314,7 @@ class TMLE:
             # asks nothing, because every row is then a respondent.
             ("response", observed, np.array([True])),
         ]
-        if not data.is_continuous_treatment:
+        if arms.size:
             support.insert(0, ("arm", treatment, arms))
         if data.family == "binomial":
             outcome = np.where(observed, np.asarray(data.outcome, dtype=float), -1.0)
@@ -2838,7 +3326,7 @@ class TMLE:
                 fold, name, missing = gap
                 value = float(missing[0])
                 if name == "arm":
-                    described = f"row in arm {data.arm_label(value)}"
+                    described = f"row in {describe(value)}"
                 elif name == "response":
                     described = "row with an observed outcome"
                 else:
@@ -2983,7 +3471,9 @@ class TMLE:
         """Refuse what an incremental fit has no derivation for.
 
         An unsupported composition is refused by name; the arm-indexed estimands support
-        both of these and are the thing to reach for.
+        both of these and are the thing to reach for.  A continuous treatment has no levels
+        to tilt.  A scalar delta on a treatment with other than two levels (R1) and a
+        mapping key that is not a level (R2) are refused here, before any learner.
 
         ``delta=`` used to be refused here too, on the grounds that a further mechanism in
         the outcome half of the covariate would be a different derivation and no oracle law
@@ -2996,7 +3486,20 @@ class TMLE:
         """
         if not self.incremental:
             return
-        refuse_multi_arm_tilt(data)
+        if data.treatment_covariate_names is not None:
+            names = ", ".join(data.treatment_adjustment_sources or ())
+            raise CapabilityError(
+                "incremental= shifts the fitted propensity score, so a mechanism on "
+                f"{{{names}}} defines the shift on {{{names}}} and changes the estimand.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative="Omit treatment_adjustment=, or treatment_covariates= in TMLE.fit.",
+            )
+        refuse_continuous_tilt(data)
+        for item in self.incremental:
+            # R1 and R2 are declaration refusals: resolve every factor now, before a learner.
+            # A list that mixes kinds is refused by `refuse_mixed_interventions`, not here.
+            if isinstance(item, Incremental):
+                item.factors(data.treatment_levels, subject=repr(data.treatment_name))
         if data.has_intermediate:
             raise CapabilityError(
                 "incremental= and intermediate= are not combined. A point-treatment fit "
@@ -3007,7 +3510,8 @@ class TMLE:
                 alternative=(
                     "Fit it as a two-node plan: "
                     "IPSI(regimens=[DynamicRegimen('tilt, Z=z', (Incremental(delta), z))]), "
-                    "fitted on the frame with treatment=[A, Z]."
+                    "fitted on the frame with treatment=[A, Z]. For a treatment with "
+                    "more than two levels, declare Incremental({level: factor})."
                 ),
             )
 
@@ -3021,7 +3525,28 @@ class TMLE:
         treatment coded 0 and 1.  A ``Rule`` is :math:`d(W)`, a different policy.  A
         continuous treatment with no ``policies=`` has no estimand at all, since every
         registered arm-indexed target names a level it has none of.
+
+        A policy with a data-tuned cap meets
+        :func:`~cleverly.estimators._tuned_policies.refuse_tuned_compositions` first, and
+        the declaration checks read it at the tuner fitted on every row.  Each fold map of
+        a fold-average target is checked over every row when the fit evaluates it.
         """
+        tuned = declares_tuned(self.policies)
+        if tuned:
+            refuse_tuned_compositions(self, data)
+        if data.treatment_kind == "vector":
+            # :meth:`_refuse_vector_compositions` admits joint policies only.  The
+            # undeclared atoms (R-b4) and a declared component support are checked here,
+            # before any learner (X40 parts (a) and (b)).
+            # A tuned component is read at the tuner fitted on every row.
+            if self.policies:
+                preflight_vector_policies(
+                    in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
+                    data,
+                    ratio=self.ratio,
+                    density_bins=self.density_bins,
+                )
+            return
         if self.policies and any(isinstance(item, RiskRatioTilt) for item in self.policies):
             levels = [] if data.is_continuous_treatment else list(data.treatment_levels)
             if data.is_continuous_treatment or sorted(float(level) for level in levels) != [
@@ -3035,6 +3560,20 @@ class TMLE:
                     + ". It is lmtp's ipsi(), which keeps a treated unit treated with "
                     "probability delta and otherwise sets it to 0"
                 )
+        if data.is_continuous_treatment and self.policies:
+            # The declared support, the declared atoms and the undeclared-atom check, all
+            # before any learner (X40 parts (a) and (b)).
+            preflight_point_policies(
+                in_sample_policies(self.policies, data) if tuned else tuple(self.policies),
+                data,
+                ratio=self.ratio,
+                density_bins=self.density_bins,
+            )
+        elif data.treatment_support is not None or data.dose_atoms:
+            raise DataError(
+                "treatment_support= and dose_atoms= declare the dose a modified treatment "
+                "policy moves, so they need policies=[...]"
+            )
         if data.is_continuous_treatment and not self.policies and self.msm is None:
             # The suggested policy meets the X53 refusal of a cross-fitted fit with missing
             # outcomes, so that fit is told which fit estimates the natural course.  The
@@ -3175,7 +3714,7 @@ class TMLE:
             folds = supplied.validate(
                 n=data.n,
                 cluster=data.cluster,
-                treatment=None if data.is_continuous_treatment else data.treatment,
+                treatment=None if _has_no_arms(data) else data.treatment,
                 stratify=stratify,
                 source_fingerprint=data_fingerprint(data),
             )
@@ -3269,6 +3808,20 @@ class TMLE:
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         msm = self._msm(data)
+        # A data-tuned cap is fitted here, on the realised split and before any learner
+        # (X40 part (e)), and the expanded policies are what the nuisances evaluate.
+        tuned = resolve_point_policies(self.policies, data, folds) if self.policies else None
+        if tuned is not None:
+            # Each fold's map, and each fold-average component, meets R-a1, R-b1 and R-b3
+            # before any learner, as the map at theta_n did in ``fit``.
+            preflight = (
+                preflight_vector_policies
+                if data.treatment_kind == "vector"
+                else preflight_point_policies
+            )
+            for fold_policies in (tuned.expanded, *(tuned.by_fold or ())):
+                preflight(fold_policies, data, ratio=self.ratio, density_bins=self.density_bins)
+        reference = None if self.reference is None else str(self.reference)
         estimates = fit_nuisances(
             data,
             outcome_learner=self._resolve_learner(
@@ -3304,8 +3857,10 @@ class TMLE:
             screen_treatment=self.screen_treatment,
             screen_threshold=self.screen_threshold,
             min_retain=self.min_retain,
-            policies=self.policies,
-            policy_reference=None if self.reference is None else str(self.reference),
+            policies=self.policies if tuned is None else tuned.expanded,  # type: ignore[arg-type]
+            policy_reference=reference if tuned is None else None,
+            policy_by_fold=None if tuned is None else tuned.by_fold,  # type: ignore[arg-type]
+            probe_doses=None if tuned is None else tuned.probe_doses,
             incremental=self.incremental,
             incremental_reference=None if self.reference is None else str(self.reference),
             density_bins=self.density_bins,
@@ -3315,7 +3870,16 @@ class TMLE:
             n_jobs=self.n_jobs,
             fit_treatment=fit_treatment,
             fit_treatment_observation=fit_treatment_observation,
+            outcome_by_arm=self.outcome_by_arm,
         )
+        if tuned is not None:
+            assert estimates.policies is not None
+            estimates = replace(
+                estimates,
+                policies=tuned.finish(
+                    estimates.policies, estimates.outcome_probes, data, reference
+                ),
+            )
         # Evaluated once and carried with the fits, so that every reuse -- retarget, and
         # so the truncation curve, the MNAR tilt, the omitted-variable bound -- targets
         # the regimes and the working model this fit declared, without re-running the
@@ -3465,9 +4029,10 @@ class TMLE:
                 if data.known_treatment is not None and not _is_natural_course(data, estimands)
                 else "estimated"
             ),
-            continuous_treatment=data.is_continuous_treatment,
+            continuous_treatment=_has_no_arms(data),
             q_bounds=None if scaler.is_identity else (scaler.lower, scaler.upper),
             screen_treatment=self.screen_treatment,
+            outcome_by_arm=self.outcome_by_arm,
             estimands=estimands,
             alpha_sig=self.alpha_sig,
             random_state=self.random_state,
@@ -3602,6 +4167,7 @@ class TMLE:
         missingness: FloatArray | None = None,
         nuisance_bound: float | None = None,
         alpha_sig: float | None = None,
+        conditions: Sequence[Refusal] = (),
     ) -> tuple[dict[str, ParameterEstimate], dict[str, Fluctuation]]:
         """Run the targeting step and build estimates from cached nuisance fits.
 
@@ -3612,7 +4178,15 @@ class TMLE:
         ``nuisance_bound`` overrides the lower bound on the missingness and intermediate
         mechanisms, which is the other denominator in the clever covariate and so the
         other bound whose influence on the answer is worth sweeping.
+
+        ``conditions`` are the group-A conditions the fit met, which the fit saves as
+        ``result.config.support_conditions``. A retarget preflights nothing, so a caller that
+        retargets a fitted result passes them and the estimates keep the experimental label
+        of the fit. The default, no condition, gives the plain classification.
         """
+        classification = classify_point_fit(
+            self, data, tuple(estimands), source="TMLE.retarget", conditions=conditions
+        )
         estimates, fluctuations, _ = self._retarget_detailed(
             data,
             nuisance,
@@ -3623,7 +4197,9 @@ class TMLE:
             missingness=missingness,
             nuisance_bound=nuisance_bound,
             alpha_sig=alpha_sig,
+            classification=classification,
         )
+        record_fit(classification, estimates=estimates, source="TMLE.retarget")
         return estimates, fluctuations
 
     def _retarget_detailed(
@@ -3638,8 +4214,14 @@ class TMLE:
         missingness: FloatArray | None = None,
         nuisance_bound: float | None = None,
         alpha_sig: float | None = None,
+        classification: Classification | None = None,
     ) -> tuple[dict[str, ParameterEstimate], dict[str, Fluctuation], CVTargeting | None]:
         """:meth:`retarget`, plus the fold-level report when targeting went fold by fold.
+
+        ``classification`` is the fit's :class:`~cleverly._support.Classification`. Each
+        estimate takes its support from it at the stamp. ``None`` leaves every estimate
+        with the default support, which a bootstrap replicate wants because it reports
+        point estimates only.
 
         The extra return value is what :meth:`fit` puts on ``result.cv_targeting``.  It
         is kept out of :meth:`retarget` so that the sensitivity analyses, which call
@@ -3699,6 +4281,11 @@ class TMLE:
             conditional_bounds = mean_bounds
             missingness = None
 
+        # The units and the outcome range a declared stopping rule computes its threshold
+        # from, built once on the data the solvers see, which is the composite data when the
+        # composite route replaced it. `None` under `stopping="relative"`, which never reads it.
+        stop = self._stop_context(data, nuisance)
+
         estimates: dict[str, ParameterEstimate] = {}
         fluctuations: dict[str, Fluctuation] = {}
         pooled_report: dict[str, ParameterEstimate] = {}
@@ -3739,7 +4326,7 @@ class TMLE:
             known_tilt = nuisance.incremental is not None and nuisance.incremental.mechanism_known
             if needs_mechanism(group) and not known_tilt:
                 submodel, fluctuation, targeted, targeting_submodel = self._solve_mechanism(
-                    data, nuisance, group, bounds, nuisance_bound
+                    data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
             elif needs_reduction(nuisance, group):
                 # A fit carrying reduced-dimension regressions solves two further score
@@ -3748,7 +4335,7 @@ class TMLE:
                 # regression -- so this returns two values, as the projection does and
                 # unlike the mechanism alternation.
                 submodel, fluctuation, targeting_submodel = self._solve_reduction(
-                    data, nuisance, group, bounds, nuisance_bound
+                    data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
             elif needs_projection(nuisance, group):
                 # A working model with a non-identity link has a clever covariate that
@@ -3756,14 +4343,14 @@ class TMLE:
                 # solved for together. Nothing about the nuisances moves, which is why
                 # this returns two values where the mechanism alternation returns three.
                 submodel, fluctuation = self._solve_projection(
-                    data, nuisance, group, bounds, nuisance_bound
+                    data, nuisance, group, bounds, nuisance_bound, stop=stop
                 )
                 if data.has_strata:
                     # The marginal coefficients above are the unstratified solve.  The
                     # stratum coefficients need their own fluctuation, because each
                     # stratum block reads its own coefficients.
                     targeting_submodel, nested = self._solve_stratified_projection(
-                        data, nuisance, group, bounds, nuisance_bound
+                        data, nuisance, group, bounds, nuisance_bound, stop=stop
                     )
                     fluctuation = replace(fluctuation, stratified=nested)
             else:
@@ -3795,7 +4382,7 @@ class TMLE:
                     if data.has_strata
                     else submodel
                 )
-                _, fluctuation = self._solve(data, nuisance, targeting_submodel)
+                _, fluctuation = self._solve(data, nuisance, targeting_submodel, stop=stop)
             fluctuations[group] = fluctuation
 
             if joint and group == "natural_course":
@@ -3908,7 +4495,7 @@ class TMLE:
                 fold_evaluated_report, len(indices)
             )
         ordered = stamp_inference(
-            _in_report_order(estimates, requested), status, headline_reference
+            _in_report_order(estimates, requested), status, headline_reference, classification
         )
         detail = (
             CVTargeting(
@@ -3921,7 +4508,7 @@ class TMLE:
                 pooled=_in_report_order(pooled_report, requested),
                 fold_evaluated=_in_report_order(fold_evaluated_report, requested),
                 backend=data.backend,
-            ).stamped(status, cluster_reference)
+            ).stamped(status, cluster_reference, classification)
             if indices
             else None
         )
@@ -3987,6 +4574,10 @@ class TMLE:
             max_iter=self.max_iter,
             tol=self.tol,
             step_size=self.step_size,
+            stopping=self.stopping,
+            step_bound=self.step_bound,
+            step_search=self.step_search,
+            iterate=self.iterate,
         )
 
     def _fold_strata(self, data: CausalData) -> FloatArray | None:
@@ -4012,7 +4603,7 @@ class TMLE:
         """
         if self.stratify_folds == "none":
             return None
-        if data.is_continuous_treatment:
+        if _has_no_arms(data):
             return None
         if self.stratify_folds == "treatment":
             return data.treatment
@@ -4047,7 +4638,7 @@ class TMLE:
         cross_fit = self.cross_fit
         supplied = self.split_plan
         stratify_by: tuple[str, ...]
-        if not cross_fit or data.is_continuous_treatment or self.stratify_folds == "none":
+        if not cross_fit or _has_no_arms(data) or self.stratify_folds == "none":
             stratify_by = ()
         elif self.stratify_folds == "treatment":
             stratify_by = (data.treatment_name,)
@@ -4156,7 +4747,13 @@ class TMLE:
         assert data.strata is not None
         lower = self.nuisance_bound if nuisance_bound is None else float(nuisance_bound)
         probabilities = stratum_probabilities(data)
-        reads_shares = not data.is_continuous_treatment and group != "natural_course"
+        # A vector treatment with a continuous component has no arms either; its only
+        # group is the policy group, which reads no arm share.
+        reads_shares = (
+            group != "natural_course"
+            and data.treatment_kind != "vector"
+            and not data.is_continuous_treatment
+        )
         pieces: list[Submodel] = []
         for code in range(data.n_strata):
             mask = data.strata == code
@@ -4189,7 +4786,11 @@ class TMLE:
         return stratify(pieces, data.strata, probabilities, labels)
 
     def _solve(
-        self, data: CausalData, nuisance: NuisanceEstimates, submodel: Submodel
+        self,
+        data: CausalData,
+        nuisance: NuisanceEstimates,
+        submodel: Submodel,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """Solve the fluctuation, pooled over folds or one fluctuation per fold.
 
@@ -4198,6 +4799,9 @@ class TMLE:
         a linked working model's ``beta`` -- differs between folds, and the score has to be
         taken against the covariate each row was actually fluctuated by.  For every other
         group the returned submodel is the one that went in, value for value.
+
+        ``stop`` is the stopping-rule context over all the rows.  A fold-targeted solve
+        receives ``stop.restrict(test)``, so its threshold counts the fold's own units.
         """
         scaled = nuisance.scaler.scale(data.outcome)
         if self.targeting_scheme == "fold" and self.cross_fit:
@@ -4214,6 +4818,7 @@ class TMLE:
                             data.weights[test],
                             data.observed[test],
                             warn=False,
+                            stop=None if stop is None else stop.restrict(test),
                         ),
                     ),
                     submodel.group,
@@ -4234,6 +4839,7 @@ class TMLE:
             submodel,
             self._validation_weights(data, nuisance),
             data.observed,
+            stop=stop,
         )
 
     def _validation_weights(self, data: CausalData, nuisance: NuisanceEstimates) -> FloatArray:
@@ -4283,6 +4889,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation, NuisanceEstimates, Submodel]:
         """Alternate the outcome and the treatment mechanism, with one block per stratum.
 
@@ -4324,6 +4931,7 @@ class TMLE:
             observed=data.observed,
             outcome_submodel=outcome_submodel,
             mechanism_columns=mechanism_columns,
+            stop=stop,
         )
         if not data.has_strata:
             return solved, fluctuation, targeted, solved
@@ -4337,6 +4945,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation, Submodel]:
         """Alternate the outcome, the mechanism and the reduced regressions.
 
@@ -4377,6 +4986,7 @@ class TMLE:
             # fetched defensively rather than assumed onto a class that does not declare it.
             max_outer=getattr(self, "max_outer", DEFAULT_MAX_OUTER),
             blocks=blocks,
+            stop=stop,
         )
         return submodel, fluctuation, submodel if blocks is None else blocks.submodel(submodel)
 
@@ -4387,6 +4997,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """Alternate the projection and the fluctuation, pooled or fold by fold.
 
@@ -4410,6 +5021,7 @@ class TMLE:
             scaled=scaled,
             weights=self._validation_weights(data, nuisance),
             observed=data.observed,
+            stop=stop,
         )
         if self.targeting_scheme == "fold" and self.cross_fit and not nuisance.folds.is_single:
             per_fold: list[ProjectionFluctuation] = []
@@ -4452,6 +5064,7 @@ class TMLE:
         group: TargetGroup,
         bounds: tuple[float, float],
         nuisance_bound: float | None,
+        stop: StopContext | None = None,
     ) -> tuple[Submodel, Fluctuation]:
         """The stratum coefficients of a linked working model, pooled over the sample.
 
@@ -4473,6 +5086,7 @@ class TMLE:
             blocks_at=lambda betas: self._stratified_submodel(
                 data, nuisance, group, bounds, None, None, lower, reference, msm_beta=betas
             ),
+            stop=stop,
         )
 
     def _solve_rows(
@@ -4484,10 +5098,30 @@ class TMLE:
         observed: BoolArray,
         *,
         warn: bool = True,
+        stop: StopContext | None = None,
     ) -> Fluctuation:
         return solve_submodel(
-            scaled, initial, submodel, weights, observed, self.targeting_spec(), warn=warn
+            scaled,
+            initial,
+            submodel,
+            weights,
+            observed,
+            self.targeting_spec(),
+            warn=warn,
+            stop=stop,
         )
+
+    def _stop_context(self, data: CausalData, nuisance: NuisanceEstimates) -> StopContext | None:
+        """What a declared stopping rule needs besides the score, or ``None`` under ``relative``.
+
+        The unit of each row is its cluster (:attr:`~cleverly.data.CausalData.cluster`), else
+        the row itself, and the span is the outcome range the solver's ``[0, 1]`` scale was
+        mapped from.  Every solve that receives a subset of the rows takes
+        :meth:`~cleverly.fluctuation._score.StopContext.restrict` of this one.
+        """
+        if self.stopping == "relative":
+            return None
+        return StopContext(data.cluster, nuisance.scaler.range)
 
     def _solve_by_fold(
         self,
@@ -4555,6 +5189,9 @@ class TMLE:
                     n_iter=fold_fluctuation.n_iter,
                     trace=fold_fluctuation.trace,
                     score_scale=fold_fluctuation.score_scale,
+                    thresholds=fold_fluctuation.thresholds,
+                    rule_ratio=fold_fluctuation.rule_ratio,
+                    best_iterate=fold_fluctuation.best_iterate,
                 )
             )
             masses.append(float(data.weights[test].sum()))
@@ -4597,7 +5234,14 @@ class TMLE:
             epsilon=epsilon,
             targeted=targeted,
             score=score,
-            converged=bool(relative_score(score, scale) <= self.tol),
+            # Under a declared rule each fold met or missed the rule on its own units, so the
+            # pooled verdict is that every fold met it; the pooled score is not judged on a
+            # ruler no fold used.
+            converged=(
+                bool(relative_score(score, scale) <= self.tol)
+                if self.stopping == "relative"
+                else all(record.converged for record in fold_records)
+            ),
             n_iter=iterations,
             # These are independent fold solves, not one iteration trajectory.
             trace=(),
@@ -4619,6 +5263,16 @@ class TMLE:
             # needed by the concentration diagnostic, while column order is shared by the
             # stitched submodels and checked above.
             absolute_score_weights=np.vstack(absolute_score_weight_parts),
+            stopping=self.stopping,
+            # The largest fold ratio. The thresholds differ by fold (each counts its own
+            # units) and live on `folds`, so the pooled record holds none.
+            rule_ratio=(
+                None
+                if self.stopping == "relative"
+                else max(
+                    record.rule_ratio for record in fold_records if record.rule_ratio is not None
+                )
+            ),
         )
 
     @staticmethod
@@ -4655,8 +5309,14 @@ class TMLE:
         fluctuation: Fluctuation,
         targeted: InitialFit,
         scaled: FloatArray,
+        submodel: Submodel,
     ) -> dict[float, FloatArray] | None:
-        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other."""
+        """``D*_Q + D*_g`` per arm for a doubly-robust fit, ``None`` for every other.
+
+        ``submodel`` is the mean submodel the estimates read. This hook does not read it; the
+        per-arm :class:`~cleverly.CTMLE` reads its clever covariate.
+        """
+        del submodel
         parts = correction_parts(data, nuisance, fluctuation, targeted, scaled)
         return None if parts is None else parts.total()
 
@@ -4702,7 +5362,7 @@ class TMLE:
         # alternation exited at: the refitted reductions and the *targeted* mechanism, both
         # of which live on the fluctuation rather than on the nuisances. `None` for every
         # other fit, and then `counterfactual_means` is untouched character for character.
-        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled)
+        corrections = self._corrections(data, nuisance, fluctuation, targeted, scaled, submodel)
         if index is not None:
             scaled = scaled[index]
             targeted = _slice_fit(targeted, index)
@@ -4747,6 +5407,8 @@ class TMLE:
             corrections=corrections,
             policies=None if policies is None else policies.design,
             policy_mixing=None if policies is None else policies.mixing,
+            policy_rows=None if policies is None else policies.component_rows,
+            policy_terms=None if policies is None else policies.curve_terms,
             incremental=incremental,
             msm_design=None if msm is None else msm.design,
             msm_weights=None if msm is None else msm.weights,
@@ -4782,6 +5444,9 @@ class TMLE:
                 # subsample; anything else failing is a bug and must not be swallowed.
                 if not (drop_undefined and target.undefined_when):
                     raise
+        sink = READS_SINK.get()
+        if sink is not None:
+            sink.update(context.reads)
         return out
 
     def _stratum_estimates(
@@ -4912,8 +5577,8 @@ class TMLE:
         data: CausalData,
         intermediate_value: float | None,
         estimands: tuple[str, ...],
-    ) -> Mapping[str, float]:
-        """One bootstrap replicate: a full refit, point estimates only.
+    ) -> Mapping[str, tuple[float, float]]:
+        """One bootstrap replicate: a full refit, its estimates and standard errors.
 
         Goes through :meth:`_nuisances` rather than :meth:`_fit_nuisances` so that a
         variant which *selects* a nuisance model repeats that selection in every
@@ -4943,7 +5608,8 @@ class TMLE:
             nuisance, _ = self._nuisances(
                 data, folds, scaler, config, intermediate_value, seed=seed
             )
-            estimates, _ = self.retarget(
+            # Not the public ``retarget``: a replicate never classifies, it carries its fit's label.
+            estimates, _, _ = self._retarget_detailed(
                 data,
                 nuisance,
                 estimands=estimands,
@@ -4951,7 +5617,11 @@ class TMLE:
             )
             per_repeat.append(estimates)
         combined = median_estimates(per_repeat)
-        return {name: estimate.psi for name, estimate in combined.items()}
+        # The plug-in standard error is the replicate's own curve at every status, which is
+        # what a studentized interval divides by (``RefitFn``).
+        return {
+            name: (estimate.psi, estimate.plugin_std_error) for name, estimate in combined.items()
+        }
 
 
 def reported_mechanism(

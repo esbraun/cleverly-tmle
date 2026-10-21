@@ -67,6 +67,25 @@ The usual reasons for a failure:
 * **a fluctuation that has to travel far**, from a poor initial fit -- try
   ``targeting="one_step"``, which rebuilds the direction along the path.
 * **too coarse a step** in the one-step walk -- lower ``step_size``.
+
+Under a declared stopping rule
+------------------------------
+
+``Targeting(stopping="scaled_var")`` and ``"sample_size"`` replace the bar above.  The
+fluctuation rows then read the rule: a row's bar is the threshold the solver stopped at
+(:attr:`~cleverly.fluctuation.Fluctuation.thresholds`), and a row passes when its largest score
+over its threshold is at most one.  The rule also judges the ``(strata)`` row of a stratified
+working model and the ``(reduced)`` row of a doubly-robust fit, whose outcome solves it stopped
+too; a ``(mechanism)`` row keeps the default bar.  A fit that met its rule passes although its
+score is above the default bar, and a fit that missed its rule fails although its score is
+below the default bar.  The influence-curve rows cannot fail under a rule, because the rule
+leaves a residual by design.  They become ``"diagnostic"`` rows that report the residual in
+standard errors (``residual_se``) and the coverage a Wald interval keeps at that residual
+(``coverage_bound``).  Under ``scaled_var`` they also report the residual the rule implies
+before the fit is read (``rule_bound_se``).  Only an arm mean and a linear contrast of arm
+means have an a priori bound.  A contrast has none that is small in general, because the
+threshold of a column uses the full arm curve, and the curves of two arms share terms that the
+contrast cancels.
 """
 
 from __future__ import annotations
@@ -77,15 +96,23 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from .._inference_status import InferenceStatus, status_record, supplies_inference
-from ..inference.influence import spread_name
+from .._inference_status import InferenceStatus, is_labelled, status_record
+from ..fluctuation._score import (
+    RESIDUAL_LINE,
+    residual_se,
+    rule_failure_line,
+    wald_coverage_bound,
+)
+from ..inference.influence import ParameterEstimate, spread_name
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
 from ..utils.text import format_negligible, format_table
 from .drtmle import CorrectionCheck, correction_check
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .._typing import FloatArray
     from ..estimators.base import TMLEResult
+    from ..fluctuation.iterative import Fluctuation
 
 __all__ = ["ScoreCheck", "ScoreCheckRow", "score_check", "score_threshold"]
 
@@ -180,6 +207,22 @@ class ScoreCheckRow:
         ill-conditioned even where the score came out small.
     folds_converged : tuple of bool
         Whether each fold's own targeting converged, under fold-specific targeting.
+    stopping : str
+        The stopping rule that judged the row.  ``"relative"`` is the shipped bar, and any
+        other value means ``threshold`` is the threshold the solver stopped at.
+    residual_se : float
+        On a ``"diagnostic"`` row of a fit under a declared rule, ``|P_n IC| / se`` of the
+        estimand.  ``nan`` elsewhere.
+    coverage_bound : float
+        The coverage a Wald interval keeps at that residual (:func:`wald_coverage_bound`).
+    rule_bound_se : float
+        Under ``scaled_var``, the residual the rule implies before the fit is read:
+        ``sum_j |g_j| threshold_j / se``, over the score columns the estimand is a combination
+        of.  It equals ``c`` for a unit-weight arm mean, and it has no a priori value for a
+        contrast.  On a stratified fit it sums the stratum blocks.  ``nan`` for a
+        doubly-robust fit, a fit with several draws, an incremental tilt, a working-model
+        coefficient, and a shift, policy, regime or ratio row (``_rule_bound_se`` gives each
+        reason).
     """
 
     name: str
@@ -202,6 +245,14 @@ class ScoreCheckRow:
     hessian_condition: float = float("nan")
     #: For a fold-targeted fit, how many of the per-fold solves converged.
     folds_converged: tuple[int, int] | None = None
+    #: The rule that judged this row.  Beside ``threshold`` so a reader of a frame can tell a
+    #: row held to the default bar from a row held to its fit's declared rule.
+    stopping: str = "relative"
+    #: The three columns of the estimand rows of a fit under a declared rule.  ``nan`` is a
+    #: sentinel for "this row does not carry it".
+    residual_se: float = float("nan")
+    coverage_bound: float = float("nan")
+    rule_bound_se: float = float("nan")
 
     @property
     def reduction(self) -> float:
@@ -245,6 +296,10 @@ class ScoreCheck:
         :doc:`inference reference </technical-reference/inference>` lists. A failing
         verdict names the spread the fit reports by it, so a fit that supplies no
         inference reads "plug-in standard errors".
+    stopping : str
+        The stopping rule the fit declared, ``"relative"`` for the shipped one.
+    alpha_sig : float
+        The significance level of the fit's intervals.
     """
 
     rows: tuple[ScoreCheckRow, ...]
@@ -271,11 +326,69 @@ class ScoreCheck:
     backend: str | None = None
     #: A default, so a check built by hand reads as the ordinary fit it describes.
     inference: InferenceStatus = "influence_curve"
+    #: The stopping rule the fit declared, ``"relative"`` for the shipped one.  Under a
+    #: declared rule the fluctuation rows are held to the rule's thresholds and the estimand
+    #: rows are diagnostics.
+    stopping: str = "relative"
+    #: The significance level of the fit's intervals, which the coverage bound reads.
+    alpha_sig: float = 0.05
 
     @property
     def passed(self) -> bool:
         """True when every row is within tolerance."""
         return all(row.passed for row in self.rows)
+
+    @property
+    def declared(self) -> bool:
+        """Whether the fit declared a stopping rule other than the shipped one."""
+        return self.stopping != "relative"
+
+    @property
+    def rule_failures(self) -> tuple[ScoreCheckRow, ...]:
+        """The failing rows that a declared rule judged, which are the rule not being met."""
+        return tuple(
+            row for row in self.failures if row.kind == "fluctuation" and row.stopping != "relative"
+        )
+
+    def rule_line(self) -> str:
+        """The pinned line of a fit under a declared rule, or ``""`` under the shipped one.
+
+        Returns
+        -------
+        str
+            The largest score residual in standard errors, the estimand it is on, and the
+            coverage a Wald interval keeps at that residual (:data:`RESIDUAL_LINE`).
+        """
+        if not self.declared:
+            return ""
+        rows = [row for row in self.rows if np.isfinite(row.residual_se)]
+        if not rows:
+            return ""
+        worst = max(rows, key=lambda row: row.residual_se)
+        return RESIDUAL_LINE.format(
+            rule=self.stopping,
+            b=worst.residual_se,
+            name=worst.name,
+            level=1.0 - self.alpha_sig,
+            bound=worst.coverage_bound,
+        )
+
+    def rule_failure_line(self) -> str:
+        """The pinned line when the targeting did not meet the rule, else ``""``.
+
+        Returns
+        -------
+        str
+            The line ``RULE_FAILURE_LINE`` of ``cleverly.fluctuation._score``.  Its detail
+            names each equation that missed its rule and how many times its threshold its
+            largest score is.  An empty string means the targeting met the rule, or the fit
+            declared none.
+        """
+        failures = self.rule_failures
+        if not failures:
+            return ""
+        detail = "; ".join(f"{row.name} is {row.ratio:.3g} times its threshold" for row in failures)
+        return rule_failure_line(self.stopping, detail + ". See res.diagnostics.score_equations()")
 
     @property
     def identity_failures(self) -> tuple[ScoreCheckRow, ...]:
@@ -320,6 +433,13 @@ class ScoreCheck:
             "n_iter": [row.n_iter for row in self.rows],
             "method": [row.method for row in self.rows],
         }
+        if self.declared:
+            # Only a fit under a declared rule has these columns, so an ordinary fit's frame
+            # is the one it always was.
+            payload["stopping"] = [row.stopping for row in self.rows]
+            payload["residual_se"] = [row.residual_se for row in self.rows]
+            payload["coverage_bound"] = [row.coverage_bound for row in self.rows]
+            payload["rule_bound_se"] = [row.rule_bound_se for row in self.rows]
         return emit_frame(payload, data, backend=self.backend)
 
     def one_line(self) -> str:
@@ -335,6 +455,8 @@ class ScoreCheck:
         str
             The verdict alone, for a report to append without the table.
         """
+        if self.declared:
+            return self._rule_one_line()
         failures = self.failures
         if not failures:
             return (
@@ -358,6 +480,41 @@ class ScoreCheck:
                 "  for the usual causes.",
             ]
         )
+
+    def _rule_one_line(self) -> str:
+        """:meth:`one_line` under a declared stopping rule.
+
+        A row the rule judged that missed it is the pinned failure line.  A row held to the
+        default bar that failed (a DR-TMLE mechanism or reduction equation, or an identity) is
+        named after it, because the rule says nothing about those equations.
+        """
+        failures = self.failures
+        if not failures:
+            ratios = [
+                row.ratio
+                for row in self.rows
+                if row.kind == "fluctuation" and np.isfinite(row.ratio)
+            ]
+            worst = format_negligible(max(ratios), 1.0, digits=2) if ratios else "0"
+            return (
+                f"score check: PASS -- the {self.stopping} stopping rule was met "
+                f"(worst score {worst} of its threshold)."
+            )
+        lines = []
+        if self.rule_failures:
+            lines.append(self.rule_failure_line())
+        others = [row for row in failures if row not in self.rule_failures]
+        if others:
+            named = "; ".join(
+                f"{row.name} |score| {abs(row.score):.3e} against {row.threshold:.3e}"
+                for row in others
+            )
+            lines.append(
+                f"score check: FAIL -- {len(others)} equation(s) held to the default bar "
+                f"not solved: {named}"
+            )
+            lines.extend(self._identity_lines())
+        return "\n".join(lines)
 
     def _identity_lines(self) -> list[str]:
         """The state-identity failures, said as what they are and not as a convergence one.
@@ -435,6 +592,17 @@ class ScoreCheck:
                         "res.diagnostics.corrections() for the correction identities.",
                     ]
                 )
+        elif self.declared:
+            # The rule's own verdict: the score is inside the threshold the rule set, which is
+            # a residual by design and not a root to machine precision.  What the residual
+            # costs is the line below the table.
+            verdict = (
+                f"PASS: the targeting step met the {self.stopping} stopping rule on every "
+                "equation it judges by that rule. The score equation is solved to the rule's "
+                "threshold and not to machine precision."
+            )
+            if self.corrected:
+                verdict += f"\nValidity is not efficiency: the curve reported is {self._curve()}."
         elif self.corrected:
             # Not "the efficient score equation": this fit solved *its own* equations, and
             # the curve they leave is the estimator's influence function at the nuisance
@@ -454,7 +622,7 @@ class ScoreCheck:
                             "With one wrong nuisance the interval holds only in the cases "
                             "cleverly.estimators.drtmle lists.",
                         ]
-                        if supplies_inference(self.inference)
+                        if not is_labelled(self.inference)
                         else [
                             f"The reported curve is {self._curve()}. This check verifies its "
                             "score equations, not an interval for this fit."
@@ -464,8 +632,11 @@ class ScoreCheck:
             )
         else:
             verdict = "PASS: the targeting step solved the estimated efficient score equation."
-        if self.passed and not supplies_inference(self.inference):
+        if self.passed and is_labelled(self.inference):
             verdict += "\n" + status_record(self.inference).reason
+        residual = self.rule_line()
+        if residual:
+            verdict += "\n" + residual
         return "\n".join(
             [
                 "Score-equation check",
@@ -498,6 +669,16 @@ class ScoreCheck:
         """Anything the table has no column for: named failures, fold convergence."""
         notes: list[str] = []
         for row in self.rows:
+            if np.isfinite(row.residual_se):
+                bound = (
+                    f"; the rule bounds it at {row.rule_bound_se:.3g}"
+                    if np.isfinite(row.rule_bound_se)
+                    else ""
+                )
+                notes.append(
+                    f"  {row.name}: residual {row.residual_se:.3g} standard errors, a Wald "
+                    f"interval keeps at least {row.coverage_bound:.4f} coverage{bound}"
+                )
             if row.failure:
                 # A recomputed row's `failure` is a statement about the fit's arithmetic
                 # rather than about a solver that gave up, so it is not introduced as one.
@@ -584,21 +765,38 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     # the others do -- checking one of R would let that failure through silently. The row
     # name carries the draw index only when there is more than one, so an ordinary fit's
     # report is unchanged.
+    rule = _declared_rule(result)
     for index, repeat in enumerate(result.repeats):
+        span = repeat.nuisance.scaler.range
         for group, fluctuation in repeat.fluctuations.items():
             score = fluctuation.score_norm
+            # The default bar, byte for byte, unless the fit declared a rule.  Under a rule
+            # the row is held to the threshold the solver stopped at, in the outcome's units,
+            # and it passes when the largest score over its threshold is at most one.
+            bar, passes, before, judged_by = (
+                float(threshold),
+                bool(score <= threshold),
+                fluctuation.initial_score_norm,
+                "relative",
+            )
+            if _judged_by_rule(fluctuation):
+                score, bar = _rule_bar(fluctuation, span)
+                passes = bool(fluctuation.rule_ratio <= 1.0)  # type: ignore[operator]
+                before = fluctuation.initial_score_norm * span
+                judged_by = fluctuation.stopping
             rows.append(
                 ScoreCheckRow(
                     name=group if result.n_repeats == 1 else f"{group}[draw {index}]",
                     kind="fluctuation",
                     score=score,
-                    threshold=float(threshold),
+                    threshold=bar,
                     std_error=float(reference_se),
-                    passed=bool(score <= threshold),
+                    passed=passes,
                     converged=fluctuation.converged,
                     n_iter=fluctuation.n_iter,
                     method=fluctuation.method,
-                    score_initial=fluctuation.initial_score_norm,
+                    score_initial=before,
+                    stopping=judged_by,
                     failure=fluctuation.failure or "",
                     hessian_condition=fluctuation.hessian_condition,
                     folds_converged=(
@@ -611,22 +809,36 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
             # A linked working model with baseline strata solves its stratum blocks in a
             # nested fluctuation at the stratum coefficients.  The stratum estimates are
             # read from it, so its score is checked on its own row.
+            # Under a declared rule that fluctuation is an outcome solve the rule stopped, so
+            # its row is judged by its own rule ratio, as the row above is.
             nested = fluctuation.stratified
             if nested is not None:
                 score = nested.score_norm
+                bar, passes, before, judged_by = (
+                    float(threshold),
+                    bool(score <= threshold),
+                    nested.initial_score_norm,
+                    "relative",
+                )
+                if _judged_by_rule(nested):
+                    score, bar = _rule_bar(nested, span)
+                    passes = bool(nested.rule_ratio <= 1.0)  # type: ignore[operator]
+                    before = nested.initial_score_norm * span
+                    judged_by = nested.stopping
                 stem = f"{group} (strata)"
                 rows.append(
                     ScoreCheckRow(
                         name=stem if result.n_repeats == 1 else f"{stem}[draw {index}]",
                         kind="fluctuation",
                         score=score,
-                        threshold=float(threshold),
+                        threshold=bar,
                         std_error=float(reference_se),
-                        passed=bool(score <= threshold),
+                        passed=passes,
                         converged=nested.converged,
                         n_iter=nested.n_iter,
                         method=nested.method,
-                        score_initial=nested.initial_score_norm,
+                        score_initial=before,
+                        stopping=judged_by,
                         failure=nested.failure or "",
                         hessian_condition=nested.hessian_condition,
                     )
@@ -668,26 +880,39 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
             # the second outcome half. Reported apart for the same reason: the influence
             # curve's mean is zero only if all three are solved, and says nothing about
             # which one is not.
+            # Under a declared rule this equation's columns are stopped by the rule too (the
+            # closing joint solve, or the stacked missing-outcome solve), so the row is judged
+            # by the record's own rule ratio.
             reduction = fluctuation.reduction
             if reduction is not None and np.asarray(reduction.score).size:
                 score = float(np.max(np.abs(reduction.score)))
+                initial = (
+                    float(np.max(np.abs(reduction.score_initial)))
+                    if np.asarray(reduction.score_initial).size
+                    else float("nan")
+                )
+                bar, passes, judged_by = float(threshold), bool(score <= threshold), "relative"
+                if rule != "relative" and reduction.rule_ratio is not None:
+                    score, bar = _ratio_bar(
+                        reduction.score, reduction.thresholds, reduction.rule_ratio, span
+                    )
+                    passes = bool(reduction.rule_ratio <= 1.0)
+                    initial = initial * span
+                    judged_by = rule
                 stem = f"{group} (reduced)"
                 rows.append(
                     ScoreCheckRow(
                         name=stem if result.n_repeats == 1 else f"{stem}[draw {index}]",
                         kind="fluctuation",
                         score=score,
-                        threshold=float(threshold),
+                        threshold=bar,
                         std_error=float(reference_se),
-                        passed=bool(score <= threshold),
+                        passed=passes,
                         converged=reduction.converged,
                         n_iter=reduction.n_outer,
                         method=fluctuation.method,
-                        score_initial=(
-                            float(np.max(np.abs(reduction.score_initial)))
-                            if np.asarray(reduction.score_initial).size
-                            else float("nan")
-                        ),
+                        score_initial=initial,
+                        stopping=judged_by,
                         failure=reduction.failure or "",
                     )
                 )
@@ -701,9 +926,14 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
     # `cleverly.validation.drtmle` derives all three, and returns nothing at all for a fit
     # that reports no corrections -- so no ordinary report gains a row.
     corrections = correction_check(result, tolerance=tolerance, std_error=float(reference_se))
-    rows.extend(_correction_rows(corrections, n_repeats=result.n_repeats))
+    rows.extend(
+        _correction_rows(corrections, n_repeats=result.n_repeats, ruled=_ruled_reduction(result))
+    )
 
     for name, estimate in result.estimates.items():
+        if rule != "relative":
+            rows.append(_estimand_diagnostic(result, name, estimate, rule))
+            continue
         threshold = tolerance * estimate.plugin_std_error / np.sqrt(n)
         score = abs(estimate.score)
         rows.append(
@@ -736,10 +966,231 @@ def score_check(result: TMLEResult, *, tolerance: float = DEFAULT_TOLERANCE) -> 
         corrections=corrections,
         backend=result.data.backend,
         inference=result.inference_status,
+        stopping=rule,
+        alpha_sig=result.config.alpha_sig,
     )
 
 
-def _correction_rows(check: CorrectionCheck, *, n_repeats: int) -> list[ScoreCheckRow]:
+def _declared_rule(result: TMLEResult) -> str:
+    """The stopping rule the fit declared, ``"relative"`` when it declared none."""
+    for repeat in result.repeats:
+        for fluctuation in repeat.fluctuations.values():
+            if fluctuation.stopping != "relative":
+                return fluctuation.stopping
+    return "relative"
+
+
+def _judged_by_rule(fluctuation: Fluctuation) -> bool:
+    """Whether this fluctuation's row is held to a declared rule's threshold."""
+    return fluctuation.stopping != "relative" and fluctuation.rule_ratio is not None
+
+
+def _ruled_reduction(result: TMLEResult) -> bool:
+    """Whether a declared rule stopped the doubly-robust outcome columns of this fit."""
+    return any(
+        fluctuation.stopping != "relative"
+        and fluctuation.reduction is not None
+        and fluctuation.reduction.rule_ratio is not None
+        for repeat in result.repeats
+        for fluctuation in repeat.fluctuations.values()
+    )
+
+
+def _rule_bar(fluctuation: Fluctuation, span: float) -> tuple[float, float]:
+    """The score and the threshold of a row under a declared rule, in the outcome's units.
+
+    The column with the largest score over its threshold, so ``score / threshold`` is the
+    fluctuation's ``rule_ratio``.  A fluctuation without per-column thresholds (the pooled
+    fold-targeted fit holds the largest ratio of its folds) reports that ratio against a bar
+    of one.
+    """
+    return _ratio_bar(
+        fluctuation.score,
+        fluctuation.thresholds,
+        float(fluctuation.rule_ratio),  # type: ignore[arg-type]
+        span,
+    )
+
+
+def _ratio_bar(
+    score: FloatArray, thresholds: FloatArray | None, ratio: float, span: float
+) -> tuple[float, float]:
+    """:func:`_rule_bar` for any record that carries a score, thresholds and a rule ratio.
+
+    When the thresholds do not reproduce ``ratio`` (a ratio taken over more columns than the
+    record holds, as on the missing-outcome fit), the row reports the ratio against a bar of
+    one, so the row and the record read one number.
+    """
+    score = np.asarray(score, dtype=float)
+    if thresholds is not None and score.size == thresholds.size:
+        statistic = np.abs(score) * span
+        column = int(np.argmax(statistic / np.maximum(thresholds, 1e-300)))
+        recomputed = float(statistic[column] / max(float(thresholds[column]), 1e-300))
+        if abs(recomputed - ratio) <= 1e-9 * max(1.0, ratio):
+            return float(statistic[column]), float(thresholds[column])
+    return ratio, 1.0
+
+
+def _estimand_diagnostic(
+    result: TMLEResult, name: str, estimate: ParameterEstimate, rule: str
+) -> ScoreCheckRow:
+    """An estimand row of a fit under a declared rule: a diagnostic, never a failure.
+
+    A declared rule leaves a score residual by design, so the mean of an influence curve is
+    not held to the default bar.  The row reports the residual in standard errors and the
+    coverage a Wald interval keeps at it.  Under ``scaled_var`` it also reports the residual
+    the rule implies before the fit is read.
+    """
+    residual = residual_se(estimate)
+    alpha = result.config.alpha_sig
+    return ScoreCheckRow(
+        name=name,
+        kind="diagnostic",
+        score=float(abs(estimate.score)),
+        threshold=float("nan"),
+        std_error=estimate.plugin_std_error,
+        passed=True,
+        converged=True,
+        n_iter=0,
+        method=estimate.scale,
+        stopping=rule,
+        residual_se=residual,
+        coverage_bound=wald_coverage_bound(residual, alpha),
+        rule_bound_se=_rule_bound_se(result, name, estimate)
+        if rule == "scaled_var"
+        else float("nan"),
+    )
+
+
+def _column_weights(result: TMLEResult, name: str) -> tuple[str, dict[int, float]] | None:
+    """The fluctuation group and the score columns an arm parameter is a combination of.
+
+    ``g`` of the plan: an arm mean is its own column, a difference of two arm means is the
+    first column minus the second, and a conditional effect (``att``, ``atc``) is the contrast
+    column of its arm.  Columns are found by the names the submodel builders give them
+    (``h1``, ``h_att``, ``h_att[2]``), not by position.
+
+    On a stratified fit the group holds one block per stratum, ``I(S = s) H_s / P_n(S = s)``,
+    and no marginal column.  A stratum's parameter is that stratum's block, with weight one.
+    A marginal parameter is the weighted sum of the blocks: ``P_n(S = s)`` for an arm mean or
+    a difference, and ``P_n(S = s) P_n(A = a | S = s) / P_n(A = a)`` for a conditional effect,
+    with ``a`` the arm the effect conditions on (the arm for ``att``, the reference for
+    ``atc``), because each stratum block is built with its own arm share.
+
+    ``None`` for any other estimand: a ratio, a regime, a shift or policy, an incremental
+    tilt, a working model.  ``None`` also when a named column is absent.
+    """
+    from ..data.causal_data import arm_share
+    from ..estimators._strata import stratum_probabilities
+    from ..sensitivity._parameters import arm_parameters
+    from ..targets.base import stratum_alias
+
+    data = result.data
+    parameters = arm_parameters(result)
+    parameter = parameters.get(name)
+    stratum: int | None = None
+    if parameter is None and data.has_strata:
+        for marginal, candidate in parameters.items():
+            for code in range(data.n_strata):
+                if stratum_alias(marginal, data.stratum_label(code)) == name:
+                    parameter, stratum = candidate, code
+    if parameter is None:
+        return None
+    fluctuation = result.repeats[0].fluctuations.get(parameter.group)
+    if fluctuation is None:
+        return None
+    if parameter.group == "mean":
+        base = {f"h{float(parameter.arm):g}": 1.0}
+        if parameter.versus is not None:
+            base[f"h{float(parameter.versus):g}"] = -1.0
+        conditioning = None
+    elif parameter.group in ("att", "atc") and parameter.versus is not None:
+        column = f"h_{parameter.group}"
+        multi = f"h_{parameter.group}[{float(parameter.arm):g}]"
+        stratified_names = {label.split(" | ")[0] for label in fluctuation.names}
+        base = {multi if multi in stratified_names else column: 1.0}
+        conditioning = float(parameter.arm if parameter.group == "att" else parameter.versus)
+    else:
+        return None
+
+    names = list(fluctuation.names)
+    stratified = any(" | " in label for label in names)
+    if not stratified:
+        if stratum is not None or any(column not in names for column in base):
+            return None
+        return parameter.group, {names.index(column): g for column, g in base.items()}
+
+    probabilities = stratum_probabilities(data)
+    assert data.strata is not None
+    weights: dict[int, float] = {}
+    for code in range(data.n_strata):
+        if stratum is not None and code != stratum:
+            continue
+        multiplier = 1.0
+        if stratum is None:
+            multiplier = probabilities[code]
+            if conditioning is not None:
+                within = arm_share(
+                    data.treatment, data.weights, conditioning, mask=data.strata == code
+                )
+                multiplier *= within / arm_share(data.treatment, data.weights, conditioning)
+        label = data.stratum_label(code)
+        for column, g in base.items():
+            block = f"{column} | {label}"
+            if block not in names:
+                return None
+            weights[names.index(block)] = g * multiplier
+    return parameter.group, weights
+
+
+def _rule_bound_se(result: TMLEResult, name: str, estimate: ParameterEstimate) -> float:
+    """``sum_j |g_j| threshold_j / se`` for an arm parameter of a ``scaled_var`` fit.
+
+    A fit that met its rule has ``|P_n S_j| <= threshold_j`` on every column, and the arm
+    parameter's ``P_n IC`` is ``sum_j g_j P_n S_j`` (:func:`_column_weights`), so this sum
+    bounds ``|P_n IC| / se`` before the fit is read.  On a unit-weight arm mean of an
+    unstratified fit the threshold is ``c * se``, with ``c = 1 / min(log n_u, 10)``, and the
+    value is ``c``.  On a stratified fit the thresholds are taken from the score columns
+    (declared difference D4), so the value is not ``c``.
+
+    ``nan`` where the bound is not computed:
+
+    * the estimand is not a fixed combination of outcome score columns: a ratio, a regime;
+    * an incremental tilt: its curve also carries the treatment-mechanism equation, which the
+      rule does not govern;
+    * a working-model coefficient: its curve is the score columns times the inverse of the
+      working model's normalising matrix, which the result does not carry;
+    * a shift or policy row: the result does not record which estimate reads which policy
+      column;
+    * a fit with several draws, whose reported curve averages several fluctuations;
+    * a doubly-robust fit, whose corrected curve carries terms the outcome columns do not.
+    """
+    mapped = _column_weights(result, name) if len(result.repeats) == 1 else None
+    error = estimate.plugin_std_error
+    if mapped is None or not (np.isfinite(error) and error > 0.0):
+        return float("nan")
+    group, weights = mapped
+    fluctuation = result.repeats[0].fluctuations.get(group)
+    if (
+        fluctuation is None
+        or fluctuation.reduction is not None
+        or fluctuation.thresholds is None
+        or max(weights) >= fluctuation.thresholds.size
+    ):
+        return float("nan")
+    total = sum(abs(g) * float(fluctuation.thresholds[column]) for column, g in weights.items())
+    return float(total / error)
+
+
+#: The correction terms that restate the doubly-robust *outcome* columns (equation (10), and
+#: the outcome drift block of the missing-outcome fit).  Under a declared rule those columns
+#: are judged on the ``(reduced)`` row by the rule ratio, so these rows are diagnostics there.
+_RULED_CORRECTIONS = frozenset({"D*_Q", "D*_Y"})
+
+
+def _correction_rows(
+    check: CorrectionCheck, *, n_repeats: int, ruled: bool = False
+) -> list[ScoreCheckRow]:
     """One row per arm per equation, and a second where there is an identity to check.
 
     The draw index goes into the name only when there is more than one, exactly as the
@@ -749,24 +1200,35 @@ def _correction_rows(check: CorrectionCheck, *, n_repeats: int) -> list[ScoreChe
     ``"correction"``: its term is not in the reported curve, so there is nothing for it to
     invalidate and no threshold to hold it to.  It is on the table anyway because it is
     what says which robustness the guard bought and which it did not.
+
+    Under a declared rule (``ruled``) a ``D*_Q`` or ``D*_Y`` row is a ``"diagnostic"`` too.
+    It restates the outcome columns the rule stopped, which the ``(reduced)`` row judges by
+    the rule ratio, and a declared rule leaves a residual there by design.  Its identity row
+    is still checked, because an identity failure is a software defect under any rule.
+    The mechanism rows (``D*_g``, ``D*_A``, ``D*_M``) keep the default bar.
     """
     rows: list[ScoreCheckRow] = []
     for row in check.rows:
         suffix = "" if n_repeats == 1 else f"[draw {row.draw}]"
+        by_rule = ruled and row.solved and row.equation in _RULED_CORRECTIONS
+        held = row.solved and not by_rule
         rows.append(
             ScoreCheckRow(
                 name=f"{row.name}{suffix}",
-                kind="correction" if row.solved else "diagnostic",
+                kind="correction" if held else "diagnostic",
                 score=row.reported,
-                threshold=check.threshold if row.solved else float("nan"),
+                threshold=check.threshold if held else float("nan"),
                 std_error=check.std_error,
-                passed=bool(not row.solved or abs(row.reported) <= check.threshold),
+                passed=bool(not held or abs(row.reported) <= check.threshold),
                 converged=True,
                 n_iter=0,
                 method="recomputed",
                 failure=(
                     ""
-                    if row.solved
+                    if held
+                    else "the declared stopping rule judges these outcome columns on the "
+                    "(reduced) row, so this restatement is held to nothing"
+                    if by_rule
                     else "not among the equations this fit's guard= solves, so the reported "
                     "curve does not subtract it -- held to nothing"
                 ),

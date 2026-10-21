@@ -121,7 +121,8 @@ it is supposed to apply.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from functools import partial
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import numpy as np
@@ -130,22 +131,45 @@ from .._refusal import Refusal
 from .._typing import BoolArray, FloatArray, IntArray, Learner
 from ..data.validate import arm_indicators
 from ..data.weighting import effective_sample_size
-from ..estimators._nuisance import cross_fit_predictions
+from ..estimators._nuisance import cross_fit_predictions, fit_mixed_density
 from ..exceptions import CapabilityError, DataError, LongitudinalError, RefusalReason
+from ..fluctuation._score import STOP_CONTEXT_MISSING, StopContext, rule_ratio_at
 from ..fluctuation.iterative import (
     Fluctuation,
+    FoldFluctuation,
     InitialFit,
     solve_fluctuation,
 )
 from ..fluctuation.submodel import Submodel
+from ..interventions.joint_density import (
+    JointBranch,
+    JointDensityParts,
+    JointEvaluation,
+    NodeLayout,
+    evaluate_joint_density,
+    warn_unsupported_values,
+)
 from ..interventions.policy import (
+    JointPolicy,
+    _atom_index,
+    _refuse_undeclared_atoms,
+    branch_ratio,
+    check_component_atoms,
+    check_declared_atoms,
+    check_observed_support,
+    component_atom_layout,
     induced_probabilities,
+    joint_branches,
+    joint_policy_moves,
     lazy_frame,
     policy_branches,
+    policy_moves_dose,
+    refuse_component_atoms,
 )
 from ..learners.crossfit import Folds
 from ..learners.density import (
     ConditionalDensity,
+    MixedDensity,
     bin_edges,
     default_density_bins,
     fit_conditional_density,
@@ -162,12 +186,13 @@ from ..utils.phases import (
     profiling,
 )
 from .data import LongitudinalData, RegimenMasks
-from .regimen import Plan, Regimen, RegimenSpec
+from .regimen import DynamicRegimen, Plan, Regimen, RegimenSpec
 
 if TYPE_CHECKING:
     from .hazard import HazardFit
 
 __all__ = [
+    "FitSimulation",
     "FoldRecursionCell",
     "Mechanism",
     "NodeInputs",
@@ -177,7 +202,9 @@ __all__ = [
     "fit_mechanism",
     "fit_regimen",
     "known_product_refusal",
+    "node_stop_context",
     "outcome_design",
+    "preflight_declared_doses",
     "preflight_known_mechanisms",
     "preflight_mechanism_support",
     "preflight_terminal_outcomes",
@@ -214,6 +241,16 @@ _CROSS_FIT_NODE_REMEDY = (
 #: depends on the value -- ``check_arms`` requires only that it be a float, and
 #: ``check_matching_arms`` only that the fit and the submodel agree on it.
 _REGIMEN_ARM = 0.0
+
+
+def _probe_arms(width: int) -> tuple[float, ...]:
+    """The fluctuation keys of a tuned node's ``width`` probe predictions.
+
+    Each tuning slot of the node (:func:`_probe_slots`) has two: its boundary and its last
+    moved dose.  The keys are negative, so they collide with neither the observed arm nor a
+    policy arm.
+    """
+    return tuple(-1.0 - float(index) for index in range(width))
 
 
 def _policy_arm(code: int) -> float:
@@ -306,9 +343,14 @@ class Mechanism:
     #: categorical node, and :math:`r_t = g^d_t / g_t` from the out-of-fold density or
     #: classifier at a continuous one.  Empty without a policy node.
     policy_numerators: dict[str, dict[int, FloatArray]] = field(default_factory=dict)
-    #: The out-of-fold conditional density of each continuous node, by node counted from
-    #: one, on the density route.  Empty without a continuous node.
-    densities: dict[int, ConditionalDensity] = field(default_factory=dict)
+    #: The out-of-fold conditional density of each continuous component on the density
+    #: route, keyed by ``(node counted from one, component column)``.  A continuous node
+    #: has one key, its treatment column; a mixed node has one per dose, each the density of
+    #: the dose given the history, the categorical components and the earlier doses.  Empty
+    #: without a continuous component.
+    densities: dict[tuple[int, str], ConditionalDensity | MixedDensity] = field(
+        default_factory=dict
+    )
     #: The censoring nodes, counted from one, at which no eligible unit was censored.  The
     #: eligible sample is the rows at risk before the node, with positive weight.  Such a
     #: node's factor is exactly one at every plan, and no learner is fitted there
@@ -398,6 +440,13 @@ class _NodeRegression:
     initial_by_arm: FloatArray | None = None
     #: The policy-weighted mean of ``initial_by_arm``, ``None`` off a policy node.
     initial_marginal: FloatArray | None = None
+    #: ``(n, 2)`` predictions at the boundary :math:`c_t(H_t)` and at the last moved dose
+    #: :math:`e_t(H_t)` of a tuned node with the population target, ``None`` elsewhere.
+    probes: FloatArray | None = None
+    #: The policy-weighted mean under the carry plan, a cross-fitted tuned plan's map at
+    #: the fold's own training tuner, which the fold's earlier regression reads.  ``None``
+    #: when the fold carries ``initial_marginal``.
+    carry_marginal: FloatArray | None = None
     #: The in-sample fitted model, when the caller asked to keep it: the learner, a
     #: :class:`~cleverly.estimators._nuisance.ConstantFit`, or ``None`` at a node whose
     #: target held one value 0 or 1 on every fit row.
@@ -472,6 +521,9 @@ class NodeInputs:
     initial_by_arm: FloatArray | None = None
     initial_marginal: FloatArray | None = None
     policy: FloatArray | None = None
+    #: ``(n, 2)`` initial predictions at :math:`c_t` and :math:`e_t` of a tuned node with
+    #: the population target, moved by the node's fluctuation.  ``None`` elsewhere.
+    probes: FloatArray | None = None
 
 
 @dataclass(frozen=True)
@@ -582,6 +634,13 @@ class SequentialStep:
     #: The share of followed ``(row, s)`` paths from this node whose partial mechanism
     #: product the bounds moved, on a sequentially doubly robust fit.
     bound_binding: float | None = None
+    #: ``(n, 2)`` predictions at the boundary :math:`c_t(H_t)` and at the last moved dose
+    #: :math:`e_t(H_t)` of a tuned node with the population target: targeted on a targeted
+    #: fit, the fold regression's on a sequentially doubly robust one.  ``None`` elsewhere.
+    probes: FloatArray | None = None
+    #: On a fold-average plan, the coefficient of each outer fold's own fluctuation at this
+    #: node, in fold order.  Empty elsewhere.
+    fold_epsilon: tuple[float, ...] = ()
 
     @property
     def n_trained(self) -> int:
@@ -604,6 +663,37 @@ class ScoredNode(NamedTuple):
     trained_on: BoolArray
     #: ``(n,)`` the clever covariate, zero off ``trained_on``.
     clever: FloatArray
+
+
+@dataclass(frozen=True)
+class FitSimulation:
+    """What a parametric g-formula cell simulated, for the Monte Carlo share of its curve.
+
+    Parameters
+    ----------
+    n_draws : int
+        The simulated histories per unit behind the estimate.
+    n_derivative_draws : int
+        The simulated histories per unit behind the derivatives.
+    variance : FloatArray
+        ``(n,)`` within-unit sample variance of the outcome functional over the
+        ``n_derivative_draws`` copies of the derivative stream, on the ``[0, 1]`` scale.
+    contrast_variance : FloatArray or None
+        ``(n,)`` within-unit sample variance of the difference between this regimen's copies and
+        the reference regimen's copies.  The two share their uniforms, so the difference carries
+        the contrast's own simulation variance.  ``None`` for the reference.
+    exact : bool
+        Whether a test supplied the exact terms in place of the simulation.
+    report : object
+        The ``GFormulaReport`` of the fit, shared by every cell of it.
+    """
+
+    n_draws: int
+    n_derivative_draws: int
+    variance: FloatArray
+    contrast_variance: FloatArray | None = None
+    exact: bool = False
+    report: Any = None
 
 
 @dataclass(frozen=True)
@@ -684,10 +774,23 @@ class RegimenFit:
     #: node that is not a tilt or whose treatment mechanism is declared.  The uncentered
     #: influence function adds the row sum.  ``None`` on every other fit.
     mechanism_term: FloatArray | None = None
+    #: On a plan with a tuned cap and the population target, the ``(n,)`` term
+    #: :math:`w \\sum_t \\partial_t\\Phi_n' \\mathrm{IF}_t` that :attr:`influence_curve_scaled`
+    #: holds beside the curve of the map at :math:`\\theta_n`.
+    #: ``None`` elsewhere.
+    tuning_term: FloatArray | None = None
+    #: The kernel estimate :math:`\\partial_t\\Phi_n` of each tuned node, by node in time
+    #: order, on the ``[0, 1]`` scale.  Empty without a population-target tuned node.
+    tuning_derivatives: tuple[FloatArray, ...] = ()
+    #: On a fold-average plan, each outer fold's estimate on its own held-out rows, on the
+    #: ``[0, 1]`` scale.  :attr:`psi_scaled` is their equal average.  Empty elsewhere.
+    fold_estimates: tuple[float, ...] = ()
     #: On an inverse probability weighted fit, the nodes whose term read a constant event
     #: indicator or outcome among the followers, which :func:`constant_nodes` returns.  Such
     #: a fit has no node regression to read.  ``None`` on every other fit.
     constant_terms: tuple[int, ...] | None = None
+    #: On a parametric g-formula fit, the simulation behind the cell.  ``None`` on every other fit.
+    simulation: FitSimulation | None = None
 
     @property
     def scored_nodes(self) -> tuple[ScoredNode, ...]:
@@ -760,6 +863,7 @@ def _check_categorical_fold_support(
     node_name: str,
     *,
     every_level: bool = False,
+    alternative: str = "collect more observations at the rare level",
 ) -> None:
     """Refuse a mechanism fit whose training law omits an observed treatment level.
 
@@ -804,6 +908,8 @@ def _check_categorical_fold_support(
         The node's name, for the refusal.
     every_level : bool, default=False
         Whether to check a two-level node as well.
+    alternative : str
+        The remedy besides an in-sample fit, in lower case.
     """
     if len(classes) < 3 and not every_level:
         return
@@ -821,11 +927,9 @@ def _check_categorical_fold_support(
         if missing:
             where = "the eligible sample" if folds.is_single else f"training fold {fold}"
             remedy = (
-                "Collect more observations at the rare level"
+                alternative[:1].upper() + alternative[1:]
                 if folds.is_single
-                else _CROSS_FIT_NODE_REMEDY.format(
-                    alternative="collect more observations at the rare level"
-                )
+                else _CROSS_FIT_NODE_REMEDY.format(alternative=alternative)
             )
             raise LongitudinalError(
                 f"treatment node {node_name!r} is missing level(s) {missing!r} in {where}; "
@@ -838,6 +942,8 @@ def preflight_mechanism_support(
     data: LongitudinalData,
     fit_masks: RegimenMasks,
     folds: Folds,
+    *,
+    ratio: str = "density",
 ) -> None:
     """Check every node's mechanism training support before the first learner is fitted.
 
@@ -850,6 +956,12 @@ def preflight_mechanism_support(
     up.  :func:`_check_categorical_fold_support` says why the two differ.  A node whose
     mechanism the data declares known fits no learner and is not checked.
 
+    A mixed node on the density route fits :math:`g_C`, one multinomial over the observed
+    cells of its categorical components (:func:`_mixed_node_density`).  A training fold
+    that lacks a cell predicts probability zero for it, and a plan that moves mass into the
+    cell then gets a zero ratio there.  So each cell is a level, checked at every node
+    with every-level semantics.  The classifier route fits no cell probabilities.
+
     Parameters
     ----------
     data : LongitudinalData
@@ -858,16 +970,45 @@ def preflight_mechanism_support(
         The masks :func:`fit_mechanism` builds for the observed treatment.
     folds : Folds
         The realized outer split.
+    ratio : {"density", "classifier"}
+        The route a mixed node's ratio takes.
     """
     known = data.known_mechanisms
     for time in range(1, data.n_times + 1):
-        if data.is_continuous_node(time) or data.is_held_node(time):
+        if data.is_held_node(time):
             continue
         if known is not None and known.treatment_at(time) is not None:
             # A declared node fits no learner, so no training fold can lack a level there.
             continue
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
-        arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+        if data.node_kind(time) == "mixed":
+            if ratio == "density":
+                _check_mixed_cell_support(data, time, at_risk, folds)
+            if data.component_atoms(time):
+                # R-b2 of each component's declared atoms, in every training fold, and on
+                # the density route within every cell that records the atom.
+                check_component_atoms(
+                    np.nan_to_num(data.node_values(time), nan=0.0),
+                    data.node_components(time),
+                    at_risk,
+                    data.component_atoms(time),
+                    folds,
+                    ratio=ratio,
+                )
+            continue
+        if data.node_kind(time) != "categorical":
+            if data.node_atoms(time):
+                # R-b2: each declared atom needs rows in every training fold, on both
+                # routes, since both read P(A = a_k | H) from those rows.
+                check_declared_atoms(
+                    np.nan_to_num(data.node_codes(time), nan=0.0),
+                    at_risk,
+                    data.node_atoms(time),
+                    folds,
+                    node=data.treatment_names[time - 1],
+                )
+            continue
+        arm = np.nan_to_num(data.node_codes(time), nan=0.0)
         classes = tuple(float(code) for code in range(len(data.treatment_levels[time - 1])))
         _check_categorical_fold_support(
             arm,
@@ -878,6 +1019,141 @@ def preflight_mechanism_support(
             data.decision_name(time),
             every_level=time == 1 and not folds.is_single,
         )
+
+
+def preflight_declared_doses(
+    data: LongitudinalData,
+    regimens: Sequence[RegimenSpec],
+    *,
+    ratio: str,
+    density_bins: int | None,
+    undeclared_atoms: bool = True,
+) -> None:
+    """The declared-support and atom checks of every continuous node, before any plan.
+
+    At each continuous node, in order: an observed dose outside the declared support
+    (R-a2), an undeclared recorded atom where some regimen's policy moves
+    a dose (R-b4), and a declared atom with no row at risk (R-b2).  The policy's own checks
+    under the declared support and atoms (R-a1, R-b1, R-b3) run when the plans resolve, and
+    the training-fold half of R-b2 runs in :func:`preflight_mechanism_support`.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    regimens : sequence of RegimenSpec
+        The resolved regimens, before their plans are evaluated.
+    ratio : {"density", "classifier"}
+        The ratio route, which decides whether the bin count rule applies.
+    density_bins : int or None
+        The declared bin count of the density route, or ``None`` for the default.
+    undeclared_atoms : bool, default True
+        Whether R-b4 runs. It guards the density ratio, so an estimator that reads no
+        ratio passes ``False``.
+
+    Raises
+    ------
+    DataError
+        If a declaration contradicts the data, or a node has an undeclared atom.
+    """
+    for time in range(1, data.n_times + 1):
+        if data.is_held_node(time):
+            continue
+        if data.node_kind(time) == "mixed":
+            # R-b4 refuses a recorded atom a dose of the node does not declare, wherever
+            # some regimen moves a component of the node, and R-b2 a declared atom with no
+            # row at risk.
+            values = np.nan_to_num(data.node_values(time), nan=0.0)
+            reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+            if undeclared_atoms:
+                refuse_component_atoms(
+                    values,
+                    data.node_components(time),
+                    reachable,
+                    moved=any(
+                        joint_policy_moves(regimen.plan[time - 1])
+                        for regimen in regimens
+                        if isinstance(regimen, DynamicRegimen)
+                        and isinstance(regimen.plan[time - 1], JointPolicy)
+                    ),
+                    ratio=ratio,
+                    density_bins=density_bins,
+                    atoms=data.component_atoms(time),
+                )
+            if data.component_atoms(time):
+                check_component_atoms(
+                    values,
+                    data.node_components(time),
+                    reachable,
+                    data.component_atoms(time),
+                    None,
+                    ratio=ratio,
+                )
+            continue
+        if data.node_kind(time) != "continuous":
+            continue
+        reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+        dose = np.nan_to_num(data.node_codes(time), nan=0.0)
+        name = data.treatment_names[time - 1]
+        support = data.node_support(time)
+        if support is not None:
+            check_observed_support(
+                dose, lazy_frame(partial(data.policy_frame, time)), reachable, support, node=name
+            )
+        atoms = data.node_atoms(time)
+        moved = any(
+            policy_moves_dose(regimen.plan[time - 1])
+            for regimen in regimens
+            if isinstance(regimen, DynamicRegimen) and regimen.is_mtp(time)
+        )
+        at_risk = dose[reachable]
+        bins: int | None = None
+        if ratio == "density":
+            continuous = at_risk[_atom_index(at_risk, atoms) < 0] if atoms else at_risk
+            bins = (
+                density_bins if density_bins is not None else default_density_bins(continuous.size)
+            )
+        if undeclared_atoms:
+            _refuse_undeclared_atoms(at_risk, atoms=atoms, moved=moved, bins=bins, where=name)
+        if atoms:
+            check_declared_atoms(dose, reachable, atoms, None, node=name)
+
+
+def _check_mixed_cell_support(
+    data: LongitudinalData, time: int, at_risk: BoolArray, folds: Folds
+) -> None:
+    """Refuse a mixed node whose training fold lacks a cell of its categorical components."""
+    levels = data.component_levels[time - 1]
+    categorical = [index for index, labels in enumerate(levels) if labels]
+    if not categorical or not at_risk.any():
+        return
+    codes = np.nan_to_num(data.node_values(time), nan=0.0)[:, categorical].astype(np.int64)
+    cells = np.unique(codes[at_risk], axis=0)
+    lookup = {tuple(int(v) for v in cell): float(k) for k, cell in enumerate(cells)}
+    target = np.array([lookup.get(tuple(int(v) for v in row), -1.0) for row in codes])
+    names = [data.component_names(time)[index] for index in categorical]
+    labels = [
+        "cell ("
+        + ", ".join(
+            f"{name}={levels[index][int(code)]!r}"
+            for name, index, code in zip(names, categorical, cell, strict=True)
+        )
+        + ")"
+        for cell in cells
+    ]
+    _check_categorical_fold_support(
+        target,
+        at_risk,
+        folds,
+        tuple(float(k) for k in range(len(cells))),
+        labels,
+        data.treatment_names[time - 1],
+        every_level=True,
+        alternative=(
+            "collect more observations at the rare cell, or pass ratio='classifier', which "
+            "fits no cell probabilities"
+        ),
+    )
 
 
 def fit_mechanism(
@@ -942,7 +1218,7 @@ def fit_mechanism(
     numerators: dict[str, dict[int, FloatArray]] = {
         plan.label: {} for plan in plans if plan.has_mtp
     }
-    densities: dict[int, ConditionalDensity] = {}
+    densities: dict[tuple[int, str], ConditionalDensity | MixedDensity] = {}
     no_censoring_nodes: list[int] = []
     no_censoring_folds: dict[int, tuple[int, ...]] = {}
     known = data.known_mechanisms
@@ -955,13 +1231,12 @@ def fit_mechanism(
     with phase("mask_construction"):
         fit_masks = data.regimen_masks(data.treatment)
     if fit_rows is None:
-        preflight_mechanism_support(data, fit_masks, folds)
+        preflight_mechanism_support(data, fit_masks, folds, ratio=ratio)
     for time in range(1, data.n_times + 1):
         at_risk = fit_masks.uncensored[:, time - 1] & fit_masks.event_free[:, time - 1]
         # The rows a learner trains on.  The same array as ``at_risk`` on a fit of every
         # eligible row, so that path is bit for bit the one it was.
         fit_at = at_risk if fit_rows is None else at_risk & fit_rows
-        arm = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
         node_models: list[Any] | None = [] if keep_models else None
         if data.is_held_node(time):
             # An identity node of a held design: its factor is exactly one in the
@@ -981,7 +1256,35 @@ def fit_mechanism(
             _mtp_numerators(
                 data, plans, time, at_risk, {plan.label: declared for plan in plans}, numerators
             )
-        elif data.is_continuous_node(time):
+        elif data.node_kind(time) == "mixed" and ratio == "density":
+            with phase("mechanism_fit"):
+                parts = _mixed_node_density(
+                    data,
+                    plans,
+                    time,
+                    at_risk,
+                    numerators,
+                    fit_at=fit_at,
+                    treatment_learner=treatment_learner,
+                    folds=folds,
+                    density_bins=density_bins,
+                    n_jobs=n_jobs,
+                )
+            # The categorical factor goes into the bounded running denominator, as at a
+            # categorical node; the doses' factors sit in the numerator, unbounded.
+            observed_cell = parts.targets[:, 0]
+            rows = np.arange(data.n)
+            g_cell = np.where(
+                observed_cell >= 0,
+                parts.cell_probabilities[rows, np.maximum(observed_cell, 0)],
+                1.0,
+            )
+            treatment.append({plan.label: g_cell for plan in plans})
+            treatment_observed.append(parts.cell_probabilities)
+            treatment_diagnostics.append(parts.cell_diagnostics)
+            for name, component_density in parts.densities.items():
+                densities[(time, name)] = component_density
+        elif data.node_kind(time) != "categorical":
             with phase("mechanism_fit"):
                 density = _continuous_node_ratios(
                     data,
@@ -997,10 +1300,11 @@ def fit_mechanism(
                     n_jobs=n_jobs,
                 )
             if density is not None:
-                densities[time] = density
-            # The density ratio is the whole treatment factor at a continuous node, carried
-            # in the numerator; the denominator's treatment factor is one there, so the bound
-            # applies to the censoring product and the categorical factors only.
+                densities[(time, data.treatment_names[time - 1])] = density
+            # The density ratio is the whole treatment factor at a continuous node, and at a
+            # mixed node on the classifier route, carried in the numerator; the
+            # denominator's treatment factor is one there, so the bound applies to the
+            # censoring product and the categorical factors only.
             treatment.append({plan.label: np.ones(data.n) for plan in plans})
             treatment_observed.append(np.zeros((data.n, 0)))
             treatment_diagnostics.append(())
@@ -1011,7 +1315,7 @@ def fit_mechanism(
                 time,
                 at_risk,
                 fit_at,
-                arm,
+                np.nan_to_num(data.node_codes(time), nan=0.0),
                 treatment,
                 treatment_observed,
                 treatment_diagnostics,
@@ -1160,7 +1464,7 @@ def preflight_known_mechanisms(
                     f"{int(np.count_nonzero(missing))} row(s) at risk there; a declared "
                     "mechanism must give every at-risk unit its probabilities"
                 )
-            taken = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+            taken = np.nan_to_num(data.node_codes(time), nan=0.0).astype(np.int64)
             filled = _filled_matrix(matrix)
             contradicted = at_risk & (filled[np.arange(data.n), taken] <= 0.0)
             if np.any(contradicted):
@@ -1172,7 +1476,7 @@ def preflight_known_mechanisms(
         retention = known.censoring_at(time) if data.censoring_names else None
         if retention is not None:
             name = data.censoring_names[time - 1]
-            observed = at_risk & np.isfinite(data.treatment[:, time - 1])
+            observed = at_risk & data.node_present(time)
             values = np.asarray(retention, dtype=float)
             missing = observed & ~np.isfinite(values)
             if np.any(missing):
@@ -1440,7 +1744,7 @@ def _mtp_numerators(
     product of the ratio error and the outcome error, is zero there.
     """
     rows = np.arange(data.n)
-    codes = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
+    codes = np.nan_to_num(data.node_codes(time), nan=0.0).astype(np.int64)
     for plan in plans:
         if not plan.is_mtp_node(time):
             continue
@@ -1466,8 +1770,8 @@ def _continuous_node_ratios(
     density_bins: int | None,
     ratio: str,
     n_jobs: int,
-) -> ConditionalDensity | None:
-    """A continuous node's policy ratios, by the binned density or by classification.
+) -> ConditionalDensity | MixedDensity | None:
+    """A continuous or mixed node's policy ratios, by the binned density or by classification.
 
     The density route fits one pooled-hazard density of the dose given the observed
     history on the rows at risk, with bin edges from those rows of the whole sample, and
@@ -1476,12 +1780,53 @@ def _continuous_node_ratios(
     Both are cross-fitted on ``folds``, so every row's ratio comes from a model that did not
     train on it.  Every plan holds a modified treatment policy at a continuous node, since
     :func:`~cleverly.longitudinal.regimen.refuse_continuous_assignments` refuses the rest.
+
+    A mixed node, a vector with a continuous component, reaches this function on the
+    classifier route; :func:`_mixed_node_density` is its density route.  Its stacked
+    design is :meth:`~cleverly.longitudinal.LongitudinalData.component_design` of the
+    observed components and of each branch's assigned components: every dose as
+    itself and every categorical component as its own indicators.  The odds of the label
+    are then the ratio of the joint law the policy induces to the observed one, with
+    respect to counting measure on the categorical cells times Lebesgue measure on the
+    doses (their Section 5.4 holds for any common dominating measure).
     """
-    dose = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
+    if data.node_kind(time) == "mixed":
+        _mixed_node_ratios(
+            data,
+            plans,
+            time,
+            at_risk,
+            numerators,
+            fit_at=fit_at,
+            treatment_learner=treatment_learner,
+            folds=folds,
+            ratio=ratio,
+            n_jobs=n_jobs,
+        )
+        return None
+    dose = np.nan_to_num(data.node_codes(time), nan=0.0)
     history = data.history_design(time)
     frame = lazy_frame(lambda: data.policy_frame(time))
-    density: ConditionalDensity | None = None
-    if ratio == "density":
+    atoms = data.node_atoms(time)
+    density: ConditionalDensity | MixedDensity | None = None
+    if ratio == "density" and atoms:
+        # A dose with declared atoms: the multinomial "which atom, or none" and the binned
+        # density of the rows with no atom, on the same folds.  A
+        # training fold's own fit reads its bin edges from every row at risk.
+        density, _ = fit_mixed_density(
+            treatment_learner,
+            history,
+            dose,
+            data.weights,
+            folds,
+            atoms=atoms,
+            n_bins=density_bins,
+            groups=data.cluster,
+            n_jobs=n_jobs,
+            fit_mask=fit_at,
+            edge_rows=None if np.array_equal(fit_at, at_risk) else at_risk,
+        )
+    elif ratio == "density":
         edges = None
         if not np.array_equal(fit_at, at_risk):
             # One outer training fold's own density (``fit_rows=``).  Its bin edges are the
@@ -1505,29 +1850,277 @@ def _continuous_node_ratios(
     for plan in plans:
         targets = plan.carry_targets(time)
         assert targets is not None
-        branches = policy_branches(plan.regimen.plan[time - 1])  # type: ignore[union-attr]
         if density is not None:
-            numerator = np.zeros(data.n)
-            for probability, branch in branches:
-                numerator = numerator + probability * branch.ratio(dose, frame, density.density_at)
+            numerator = _density_numerator(plan, time, dose, frame, density)
         else:
-            (numerator,) = classifier_ratio(
-                treatment_learner,
-                history,
-                dose,
-                tuple(
-                    (probability, target)
-                    for (probability, _), target in zip(branches, targets, strict=True)
-                ),
-                data.weights,
-                folds,
-                evaluate_at=[dose],
-                fit_mask=fit_at,
+            numerator = _classifier_numerator(
+                plan,
+                time,
+                targets,
+                treatment_learner=treatment_learner,
+                history=history,
+                dose=dose,
+                weights=data.weights,
+                folds=folds,
+                fit_at=fit_at,
                 groups=data.cluster,
                 n_jobs=n_jobs,
+                atoms=atoms,
             )
         numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
     return density
+
+
+def _node_branches(plan: Plan, time: int) -> tuple[tuple[float, Any], ...]:
+    """The branches of a plan's policy at a node: the resolved map the plan was built from."""
+    return policy_branches(plan.regimen.plan[time - 1])  # type: ignore[union-attr]
+
+
+def _density_numerator(
+    plan: Plan,
+    time: int,
+    dose: FloatArray,
+    frame: Any,
+    density: ConditionalDensity | MixedDensity,
+) -> FloatArray:
+    """The density-route ratio of one plan at a continuous node, at the observed doses.
+
+    The density is out of fold, so row ``i`` reads the model of the fold that holds it out.
+    A fold-average plan evaluates that model under the same fold's map.  Every other plan, a
+    population-target plan included, evaluates it under the plan's own map: the full-sample
+    tuner :math:`\\theta_n` (``test_t_e7_each_fold_trains_at_its_own_tuner``).
+    """
+
+    def ratio(source: Plan) -> FloatArray:
+        numerator = np.zeros(dose.size)
+        for probability, branch in _node_branches(source, time):
+            numerator = numerator + probability * branch_ratio(branch, dose, frame, density)
+        return numerator
+
+    if not plan.fold_average:
+        return ratio(plan)
+    assert plan.folds is not None
+    owner = np.asarray(plan.folds.assignment)
+    out = np.zeros(dose.size)
+    for k, fold_plan in enumerate(plan.fold_plans):
+        out = np.where(owner == k, ratio(fold_plan), out)
+    return out
+
+
+def _classifier_numerator(
+    plan: Plan,
+    time: int,
+    targets: tuple[FloatArray, ...],
+    *,
+    treatment_learner: Learner,
+    history: FloatArray,
+    dose: FloatArray,
+    weights: FloatArray,
+    folds: Folds,
+    fit_at: BoolArray,
+    groups: Any,
+    n_jobs: int,
+    atoms: Sequence[float],
+) -> FloatArray:
+    """The classifier-route ratio of one plan at a continuous node, at the observed doses.
+
+    On a plan with fold plans, a cross-fitted tuned plan of either target, outer fold
+    ``k``'s classifier stacks the doses of fold ``k``'s map, :math:`d_{\\theta^{(-k)}}`, so no
+    held-out row enters the map a classifier is trained on.
+    """
+    if plan.fold_plans and not folds.is_single:
+        branches = _node_branches(plan.fold_plans[0], time)
+        by_fold = []
+        for fold_plan in plan.fold_plans:
+            own = fold_plan.carry_targets(time)
+            assert own is not None
+            by_fold.append(
+                tuple(
+                    (probability, target)
+                    for (probability, _), target in zip(branches, own, strict=True)
+                )
+            )
+        assigned: tuple[tuple[float, FloatArray], ...] = by_fold[0]
+    else:
+        branches = _node_branches(plan, time)
+        by_fold = None
+        assigned = tuple(
+            (probability, target)
+            for (probability, _), target in zip(branches, targets, strict=True)
+        )
+    (numerator,) = classifier_ratio(
+        treatment_learner,
+        history,
+        dose,
+        assigned,
+        weights,
+        folds,
+        evaluate_at=[dose],
+        fit_mask=fit_at,
+        groups=groups,
+        n_jobs=n_jobs,
+        atoms=atoms,
+        assigned_by_fold=by_fold,
+    )
+    return numerator
+
+
+def _mixed_node_ratios(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    time: int,
+    at_risk: BoolArray,
+    numerators: dict[str, dict[int, FloatArray]],
+    *,
+    fit_at: BoolArray,
+    treatment_learner: Learner,
+    folds: Folds,
+    ratio: str,
+    n_jobs: int,
+) -> None:
+    """Each plan's ratio at a mixed node, by one stacked classifier per plan.
+
+    The classifier reads :meth:`~cleverly.longitudinal.LongitudinalData.component_design`
+    beside the history, so it sees every component of the node.  The density route is
+    :func:`_mixed_node_density`, which :func:`fit_mechanism` calls instead; the check here
+    keeps a direct caller from reaching a density of one column.
+    """
+    if ratio != "classifier":
+        raise ValueError("the density route at a mixed node is _mixed_node_density")
+    history = data.history_design(time)
+    observed = data.component_design(time)
+    for plan in plans:
+        targets = plan.carry_targets(time)
+        assert targets is not None
+        node = plan.regimen.plan[time - 1]  # type: ignore[union-attr]
+        assert isinstance(node, JointPolicy)
+        branches = [probability for probability, _ in joint_branches(node)]
+
+        def stacked(
+            values: tuple[FloatArray, ...], branches: list[float] = branches
+        ) -> tuple[tuple[float, FloatArray], ...]:
+            return tuple(
+                (probability, data.component_design(time, target))
+                for probability, target in zip(branches, values, strict=True)
+            )
+
+        # A cross-fitted tuned plan: outer fold k's classifier stacks fold k's map, at its
+        # training tuner, as at a node of one dose (``_classifier_numerator``).
+        by_fold = None
+        if plan.fold_plans and not folds.is_single:
+            by_fold = []
+            for fold_plan in plan.fold_plans:
+                own = fold_plan.carry_targets(time)
+                assert own is not None
+                by_fold.append(stacked(own))
+        (numerator,) = classifier_ratio(
+            treatment_learner,
+            history,
+            observed,
+            stacked(targets) if by_fold is None else by_fold[0],
+            data.weights,
+            folds,
+            evaluate_at=[observed],
+            fit_mask=fit_at,
+            groups=data.cluster,
+            n_jobs=n_jobs,
+            assigned_by_fold=by_fold,
+        )
+        numerators[plan.label][time] = np.where(at_risk, numerator, 0.0)
+
+
+def _mixed_node_density(
+    data: LongitudinalData,
+    plans: Sequence[Plan],
+    time: int,
+    at_risk: BoolArray,
+    numerators: dict[str, dict[int, FloatArray]],
+    *,
+    fit_at: BoolArray,
+    treatment_learner: Learner,
+    folds: Folds,
+    density_bins: int | None,
+    n_jobs: int,
+) -> JointDensityParts:
+    r"""A mixed node's law by the chain rule, and each plan's numerator, on the density route.
+
+    The node's law factors as :math:`g_C(c \mid H_t) \prod_k g_k(d_k \mid d_{<k}, c, H_t)`
+    (:mod:`~cleverly.interventions.joint_density`).  The numerator of a plan is
+    :math:`g^d(C_t, D_t \mid H_t) / \prod_k g_k(D_t \mid \ldots)` at the observed value,
+    and :func:`fit_mechanism` puts :math:`g_C(C_t \mid H_t)` into the bounded running
+    denominator, as a categorical node does.  The cumulative weight is then
+    :math:`g^d / g` with the categorical factor bounded.  Each branch's assigned value is
+    also evaluated, for the positivity warning of :func:`warn_unsupported_values`.
+    """
+    components = data.node_components(time)
+    natural = np.nan_to_num(data.node_values(time), nan=0.0)
+    layout = NodeLayout(
+        components,
+        natural,
+        at_risk,
+        lambda extra: data.policy_frame(time, extra),
+        data.history_design(time),
+        f"node {data.treatment_names[time - 1]!r} at time {time}",
+        component_atom_layout(components, data.component_atoms(time)),
+    )
+    branches: list[JointBranch] = []
+    # ``(plan, probability, branch, fold)``: the fold whose rows a branch's ratio serves,
+    # ``None`` for every row.  A fold-average plan reads, at a row of fold k, fold k's map
+    # at its training tuner; every other plan reads its own map.
+    owners: list[tuple[str, float, int, int | None]] = []
+    sources: list[tuple[Plan, int | None]] = []
+    for plan in plans:
+        own: list[tuple[Plan, int | None]] = (
+            [(fold_plan, k) for k, fold_plan in enumerate(plan.fold_plans)]
+            if plan.fold_average
+            else [(plan, None)]
+        )
+        for source, fold in own:
+            node = source.regimen.plan[time - 1]  # type: ignore[union-attr]
+            assert isinstance(node, JointPolicy)
+            for probability, mapping in joint_branches(node):
+                owners.append((plan.label, probability, len(branches), fold))
+                branches.append(JointBranch(node.name, mapping, node.order))
+            sources.append((source, fold))
+    targets = [target for source, _ in sources for target in (source.carry_targets(time) or ())]
+    evaluations = [JointEvaluation(natural, tuple(range(len(branches))))] + [
+        JointEvaluation(np.asarray(target, dtype=float)) for target in targets
+    ]
+    parts = evaluate_joint_density(
+        layout,
+        branches,
+        evaluations,
+        learner=treatment_learner,
+        weights=data.weights,
+        folds=folds,
+        n_bins=density_bins,
+        groups=data.cluster,
+        n_jobs=n_jobs,
+        fit_rows=fit_at,
+    )
+    g_cell = parts.cell_probabilities
+    induced = np.einsum("ibk,ik->ib", parts.induced[:, 0], g_cell)
+    doses = parts.observed[:, 0]
+    safe = np.where(doses > 0.0, doses, 1.0)
+    for plan in plans:
+        numerator = np.zeros(data.n)
+        owner = None if plan.folds is None else np.asarray(plan.folds.assignment)
+        for label, probability, branch, fold in owners:
+            if label != plan.label:
+                continue
+            term = probability * induced[:, branch]
+            if fold is not None:
+                assert owner is not None
+                term = np.where(owner == fold, term, 0.0)
+            numerator = numerator + term
+        ratio = np.where(doses > 0.0, numerator / safe, 0.0)
+        numerators[plan.label][time] = np.where(at_risk, ratio, 0.0)
+    for (_, _, branch, _), target, index in zip(
+        owners, targets, range(1, len(targets) + 1), strict=True
+    ):
+        moved = at_risk & np.any(np.asarray(target) != natural, axis=1)
+        warn_unsupported_values(branches[branch].name, parts, index, moved, layout.where)
+    return parts
 
 
 def seed_carried(data: LongitudinalData, scaler: OutcomeScaler, *, horizon: int) -> FloatArray:
@@ -1662,7 +2255,7 @@ def _check_policy_arm_support(
     the bias of a prediction at a level no fitted row received.  This check is the only
     guard against it.
     """
-    if not plan.is_policy_node(time) or data.is_continuous_node(time):
+    if not plan.is_policy_node(time) or data.node_kind(time) != "categorical":
         return
     density = plan.policy_at(time)
     observed = plan.arm(time)
@@ -1725,7 +2318,13 @@ def _require_regimen_followers(
 
 
 def outcome_design(
-    data: LongitudinalData, plan: Plan, time: int, arm: int | None = None
+    data: LongitudinalData,
+    plan: Plan,
+    time: int,
+    arm: int | None = None,
+    *,
+    dose: FloatArray | None = None,
+    component: int | None = None,
 ) -> FloatArray:
     """The outcome regression's design at node ``time`` of ``plan``.
 
@@ -1750,6 +2349,14 @@ def outcome_design(
         The level code to set the current policy node's block to, for a prediction, or at a
         continuous policy node the branch whose assigned dose to set.  ``None`` uses the
         observed arm.
+    dose : FloatArray or None
+        At a continuous policy node, the ``(n,)`` dose to set the current block to, in
+        place of a branch's: a tuned node's boundary or last moved dose.  ``None`` reads
+        ``arm``.  At a mixed node it sets the dose component ``component`` of branch
+        ``arm`` (default the first), and every other component keeps the value the branch
+        assigns.
+    component : int or None
+        At a mixed node, the column of the dose component that ``dose`` sets.
 
     Returns
     -------
@@ -1763,17 +2370,35 @@ def outcome_design(
     for node in range(1, time + 1):
         if not plan.is_policy_node(node):
             continue
-        current = node == time and arm is not None
+        current = node == time and (arm is not None or dose is not None)
+        if data.node_kind(node) == "mixed":
+            # Every component enters: each dose as itself and each categorical component as
+            # its own indicators.  At the current node a prediction sets the components to
+            # the values one branch of the joint policy assigns.
+            targets = plan.carry_targets(node)
+            values = None
+            if current and targets is not None:
+                values = np.array(targets[0 if arm is None else int(arm)], dtype=float)
+                if dose is not None:
+                    # A tuned component's probe: the full assigned vector with that
+                    # component set to the boundary or to the last moved dose.
+                    assert component is not None
+                    values[:, component] = np.asarray(dose, dtype=float)
+            blocks.append(data.component_design(node, values))
+            continue
         if data.is_continuous_node(node):
             # A dose enters as itself.  At the current node a prediction sets it to the dose
             # one branch of the policy assigns, d_e(A_t, H_t), per row.
             targets = plan.carry_targets(node)
-            dose = (
-                targets[int(arm)]  # type: ignore[arg-type]
-                if current and targets is not None
-                else np.nan_to_num(plan.values[:, node - 1], nan=0.0)
-            )
-            blocks.append(np.asarray(dose, dtype=float).reshape(-1, 1))
+            if current and dose is not None:
+                value = np.asarray(dose, dtype=float)
+            elif current and targets is not None:
+                value = targets[int(arm)]  # type: ignore[arg-type]
+            else:
+                value = np.nan_to_num(plan.values[:, node - 1], nan=0.0)
+            # With declared atoms the block adds the indicator of each atom, read from the
+            # dose set here: the assigned dose in a counterfactual design.
+            blocks.append(data.dose_block(node, value))
             continue
         codes = np.full(data.n, float(arm)) if current else plan.values[:, node - 1]  # type: ignore[arg-type]
         blocks.append(arm_indicators(codes, len(data.treatment_levels[node - 1])))
@@ -1805,9 +2430,17 @@ def _fit_node_regression(
     outer_fold: int | None = None,
     n_jobs: int = 1,
     clip: tuple[float, float] | None = (0.0, 1.0),
+    carry_plan: Plan | None = None,
     keep_model: bool = False,
 ) -> _NodeRegression:
     """Fit one node's regression without constructing targeting-only arrays.
+
+    ``carry_plan`` is one outer fold's plan at its own training tuner, on a cross-fitted
+    tuned plan.  The regression is also predicted at that
+    plan's doses, and :attr:`_NodeRegression.carry_marginal` is their policy-weighted
+    mean, which the fold's earlier regression reads on its training rows.  A tuned node
+    with the population target is also predicted at its boundary and last moved dose
+    (:attr:`_NodeRegression.probes`), which the curve's derivative term reads.
 
     The outer cross-fitted recursion needs only this result: it stitches the held-out
     predictions and builds the clever covariate once in the parent during pooled targeting.
@@ -1834,7 +2467,7 @@ def _fit_node_regression(
     design = outcome_design(data, plan, time)
     policy_node = plan.is_policy_node(time)
     levels = range(plan.policy_at(time).shape[1] if policy_node else 0)
-    continuous_node = policy_node and data.is_continuous_node(time)
+    continuous_node = policy_node and data.node_kind(time) != "categorical"
     predict_designs = (
         {f"arm_{code}": outcome_design(data, plan, time, arm=code) for code in levels}
         if policy_node
@@ -1844,6 +2477,17 @@ def _fit_node_regression(
         # A dose has no level to select the observed-arm prediction from, so it is
         # predicted at the observed dose; the branches are predicted at their own doses.
         predict_designs["history"] = design
+    slots = _probe_slots(plan, time)
+    for index, (tuning, branch, _) in enumerate(slots):
+        column = tuned_column(data, tuning)
+        for side, dose in enumerate((tuning.boundary, tuning.edge)):
+            predict_designs[f"probe_{2 * index + side}"] = outcome_design(
+                data, plan, time, arm=branch, dose=dose, component=column
+            )
+    carry = carry_plan if carry_plan is not None and policy_node else None
+    if carry is not None:
+        for code in levels:
+            predict_designs[f"carry_{code}"] = outcome_design(data, carry, time, arm=code)
     learner = outcome_learner if time == horizon else pseudo_learner
     task = "classification" if time == horizon and data.family == "binomial" else "regression"
     constant = constant_target(next_outcome, fitted_on)
@@ -1895,6 +2539,22 @@ def _fit_node_regression(
         if continuous_node
         else by_arm[np.arange(data.n), plan.arm(time).astype(np.int64)]
     )
+    probes = (
+        None
+        if not slots
+        else np.column_stack(
+            [
+                np.where(at_risk, predictions[f"probe_{index}"], _FILLER)
+                for index in range(2 * len(slots))
+            ]
+        )
+    )
+    carry_marginal = None
+    if carry is not None:
+        carried_by_arm = np.column_stack(
+            [np.where(at_risk, predictions[f"carry_{code}"], _FILLER) for code in levels]
+        )
+        carry_marginal = np.where(at_risk, _carried(carry.policy_at(time), carried_by_arm), _FILLER)
     return _NodeRegression(
         time=time,
         at_risk=at_risk,
@@ -1905,7 +2565,66 @@ def _fit_node_regression(
         learner_diagnostics=tuple(diagnostics),
         initial_by_arm=by_arm,
         initial_marginal=np.where(at_risk, _carried(plan.policy_at(time), by_arm), _FILLER),
+        probes=probes,
+        carry_marginal=carry_marginal,
         model=model,
+    )
+
+
+def tuned_column(data: LongitudinalData, tuning: Any) -> int | None:
+    """The column of a tuned dose component among its node's components, or ``None``.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    tuning : NodeTuning
+        The tuned node.
+
+    Returns
+    -------
+    int or None
+        ``None`` at a node of one dose.
+    """
+    if tuning.component is None:
+        return None
+    names = [component.name for component in data.node_components(tuning.time)]
+    return names.index(tuning.component)
+
+
+def tuned_dose(data: LongitudinalData, tuning: Any) -> FloatArray:
+    """``(n,)`` the natural value of a tuned dose: the node's dose, or the component's.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    tuning : NodeTuning
+        The tuned node.
+
+    Returns
+    -------
+    ndarray
+        The natural dose, zero where the node is missing.
+    """
+    column = tuned_column(data, tuning)
+    if column is None:
+        return np.nan_to_num(data.node_codes(tuning.time), nan=0.0)
+    return np.nan_to_num(data.node_values(tuning.time)[:, column], nan=0.0)
+
+
+def _probe_slots(plan: Plan, time: int) -> tuple[tuple[Any, int, float], ...]:
+    """``(tuning, branch, probability)`` of each population-target tuning slot of a node.
+
+    A node regression's probes hold two columns per slot, in this order: the prediction at
+    the branch's assigned values with the tuned dose at its boundary, and at its last moved
+    dose.
+    """
+    return tuple(
+        (tuning, branch, probability)
+        for tuning in plan.tuning
+        if tuning.time == time and tuning.influence is not None
+        for branch, probability in tuning.slots
     )
 
 
@@ -1983,6 +2702,7 @@ def prepare_node(
         initial_by_arm=regression.initial_by_arm,
         initial_marginal=regression.initial_marginal,
         policy=plan.policy_at(time) if plan.is_policy_node(time) else None,
+        probes=regression.probes,
     )
 
 
@@ -2042,6 +2762,12 @@ def _fluctuate_node(
     max_iter: int,
     tol: float,
     arms: FloatArray | None = None,
+    probes: FloatArray | None = None,
+    stopping: str = "relative",
+    stop: StopContext | None = None,
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> Fluctuation:
     """Solve one node's intercept fluctuation with the clever covariate in the loss weight.
 
@@ -2075,12 +2801,51 @@ def _fluctuate_node(
         ``(n, K_t)`` per-arm initial predictions at a policy node.  Each column is moved by
         the same coefficient as ``initial`` and is filed under :func:`_policy_arm`.  The
         score reads ``initial`` alone, so the columns change no coefficient.
+    probes : FloatArray or None
+        ``(n, 2S)`` predictions of a tuned node at the boundary and last moved dose of each
+        of its ``S`` tuning slots, moved by the same coefficient and filed under
+        :func:`_probe_arms`.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides the node's score equation is solved.  ``"relative"`` runs the
+        shipped solve untouched.  A declared rule runs :func:`_fluctuate_node_ruled`.
+    stop : StopContext, optional
+        The units of the rows the node receives and the outcome range, which a declared rule
+        computes its threshold from.  A declared rule without one raises ``ValueError``.
+    step_bound : float, optional
+        The longest step of one iteration.  ``None`` runs the shipped solve untouched.  A bound
+        runs :func:`_fluctuate_node_ruled`, whose solver takes the constrained step along
+        ``sign(s)``: the node has one coefficient.
+    step_search : bool
+        Under a bound, whether the step minimises the quasi-loss over ``[0, step_bound]``.
+    iterate : {"last", "best"}
+        Which iterate of the node's walk is reported.  ``"last"`` runs the shipped solve
+        untouched.  ``"best"`` runs :func:`_fluctuate_node_ruled`, whose solver reports the
+        iterate of smallest raw score norm.
 
     Returns
     -------
     Fluctuation
         The solved fluctuation.  Its targeted predictions are filed under the regimen key.
     """
+    if stopping != "relative" or step_bound is not None or iterate == "best":
+        return _fluctuate_node_ruled(
+            pseudo_outcome,
+            initial,
+            loss_weights,
+            fitted_on,
+            label=label,
+            time=time,
+            alpha=alpha,
+            max_iter=max_iter,
+            tol=tol,
+            arms=arms,
+            probes=probes,
+            stopping=stopping,
+            stop=stop,
+            step_bound=step_bound,
+            step_search=step_search,
+            iterate=iterate,
+        )
     intercept = np.ones((len(pseudo_outcome), 1))
     initial_arms = {_REGIMEN_ARM: initial}
     submodel_arms = {_REGIMEN_ARM: intercept}
@@ -2088,6 +2853,10 @@ def _fluctuate_node(
         for code in range(arms.shape[1]):
             initial_arms[_policy_arm(code)] = arms[:, code]
             submodel_arms[_policy_arm(code)] = intercept
+    if probes is not None:
+        for key, column in zip(_probe_arms(probes.shape[1]), probes.T, strict=True):
+            initial_arms[key] = column
+            submodel_arms[key] = intercept
     constant = constant_target(pseudo_outcome, fitted_on)
     if constant is not None and np.all(np.asarray(initial)[fitted_on] == constant):
         # The regression already equals its one target value on every row the score reads,
@@ -2121,6 +2890,152 @@ def _fluctuate_node(
         max_iter=max_iter,
         tol=tol,
     )
+
+
+def _fluctuate_node_ruled(
+    pseudo_outcome: FloatArray,
+    initial: FloatArray,
+    loss_weights: FloatArray,
+    fitted_on: BoolArray,
+    *,
+    label: str,
+    time: int,
+    alpha: float,
+    max_iter: int,
+    tol: float,
+    arms: FloatArray | None,
+    stopping: str,
+    stop: StopContext | None,
+    probes: FloatArray | None = None,
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
+) -> Fluctuation:
+    """:func:`_fluctuate_node` under a declared stopping rule, a step bound, a best iterate, or any.
+
+    The node is the same intercept fluctuation with the same loss weight.  What changes is the
+    outer test of :func:`~cleverly.fluctuation.iterative.solve_fluctuation`: the node stops when
+    its largest score over its threshold is at most one.  The score column is the
+    contribution of the node (declared difference D4 of the options plan, because the loss
+    weight is not one), summed over the rows ``stop`` describes.  Those are all the rows the solver
+    receives, and the rows that are not followers contribute zero, so the threshold is the
+    standard error of the node's score ``P_n S``.
+
+    A step bound takes the ``tmle3`` constrained step at the node.  The node has one coefficient,
+    so the step direction is ``sign(s)`` and the step is ``t* sign(s)`` with ``t*`` in
+    ``(0, step_bound]`` (:func:`~cleverly.fluctuation.iterative.solve_fluctuation`).  Under
+    ``stopping="relative"`` a bounded node needs no context and tests ``tol`` on the relative
+    score.
+
+    A node whose regression already equals its one target value has a zero score at
+    ``epsilon = 0``.  It is not solved, and it meets any rule, so it records ratio zero.
+
+    Parameters
+    ----------
+    pseudo_outcome, initial, loss_weights, fitted_on, label, time, alpha, max_iter, tol, arms
+        As :func:`_fluctuate_node` reads them.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule.
+    stop : StopContext, optional
+        The units and the outcome range.  ``None`` raises ``ValueError`` under a declared rule.
+    probes : FloatArray or None
+        As :func:`_fluctuate_node` reads them.
+    step_bound : float, optional
+        The longest step of one iteration.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate of the node's walk is reported.  A node that needs no solve took no step
+        and records ``best_iterate=0``.
+
+    Returns
+    -------
+    Fluctuation
+        The solved fluctuation, with :attr:`~cleverly.fluctuation.iterative.Fluctuation.stopping`,
+        ``thresholds`` and ``rule_ratio`` filled.
+    """
+    declared = stopping != "relative"
+    if declared and stop is None:
+        raise ValueError(STOP_CONTEXT_MISSING)
+    intercept = np.ones((len(pseudo_outcome), 1))
+    initial_arms = {_REGIMEN_ARM: initial}
+    submodel_arms = {_REGIMEN_ARM: intercept}
+    if arms is not None:
+        for code in range(arms.shape[1]):
+            initial_arms[_policy_arm(code)] = arms[:, code]
+            submodel_arms[_policy_arm(code)] = intercept
+    if probes is not None:
+        for key, column in zip(_probe_arms(probes.shape[1]), probes.T, strict=True):
+            initial_arms[key] = column
+            submodel_arms[key] = intercept
+    constant = constant_target(pseudo_outcome, fitted_on)
+    if constant is not None and np.all(np.asarray(initial)[fitted_on] == constant):
+        names = (f"epsilon[{label}, t={time}]",)
+        zero = np.zeros(1)
+        thresholds: FloatArray | None = None
+        ratio: float | None = None
+        if declared and stop is not None:
+            thresholds, ratio = rule_ratio_at(
+                zero, np.zeros((len(pseudo_outcome), 1)), stop, stopping
+            )
+        return Fluctuation(
+            epsilon=zero,
+            targeted=InitialFit(initial, initial_arms),
+            score=zero,
+            converged=True,
+            n_iter=0,
+            trace=(0.0,),
+            method="iterative",
+            names=names,
+            score_initial=zero,
+            stopping=stopping,
+            thresholds=thresholds,
+            rule_ratio=ratio,
+            best_iterate=0 if iterate == "best" else None,
+        )
+    return solve_fluctuation(
+        pseudo_outcome,
+        InitialFit(initial, initial_arms),
+        Submodel(
+            intercept,
+            submodel_arms,
+            (f"epsilon[{label}, t={time}]",),
+            "sequential",
+        ),
+        loss_weights,
+        fitted_on,
+        alpha=alpha,
+        max_iter=max_iter,
+        tol=tol,
+        stopping=stopping,
+        stop=stop,
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
+    )
+
+
+def node_stop_context(data: LongitudinalData, scaler: OutcomeScaler) -> StopContext:
+    """The context of a declared stopping rule at every node of a per-regimen recursion.
+
+    A node's solver receives all ``n`` rows of the panel, and the rows that are not followers
+    contribute zero to the score.  So the unit of a row is its cluster
+    (:attr:`~cleverly.longitudinal.LongitudinalData.cluster`), else the row, and the span is the
+    outcome range the ``[0, 1]`` scale was mapped from.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    scaler : OutcomeScaler
+        The outcome transformation.
+
+    Returns
+    -------
+    StopContext
+        The units of the rows and the outcome range.
+    """
+    return StopContext(data.cluster, scaler.range)
 
 
 def _targeted_policy(
@@ -2230,6 +3145,17 @@ def _finish_regimen_fit(
 ) -> RegimenFit:
     """Assemble one regimen estimate and influence curve from its targeted steps."""
     retained = tuple(steps)
+    if plan.fold_average:
+        return _finish_fold_average(
+            data,
+            plan,
+            retained,
+            cumulative_unbounded,
+            cumulative,
+            horizon=horizon,
+            cause=cause,
+            numerator=numerator,
+        )
     # Every unit is at risk at the first node, so this averages predictions rather than
     # fillers. ``np.average`` against mean-one weights is bit-for-bit the old unweighted
     # mean when the weights are constant.
@@ -2245,6 +3171,9 @@ def _finish_regimen_fit(
     # The weighted EIF is (w / E[w]) D*(P_w). The weight multiplies the whole centred
     # curve, not only its residual terms.
     influence = data.weights * influence
+    term, derivatives = tuning_term(data, plan, retained)
+    if term is not None:
+        influence = influence + term
     return RegimenFit(
         regimen=plan.regimen,
         psi_scaled=psi,
@@ -2258,6 +3187,134 @@ def _finish_regimen_fit(
         obs_weights=np.asarray(data.weights, dtype=float),
         policy=plan.policy,
         cumulative_numerator=numerator,
+        tuning_term=term,
+        tuning_derivatives=derivatives,
+    )
+
+
+def tuning_term(
+    data: LongitudinalData, plan: Plan, steps: Sequence[SequentialStep]
+) -> tuple[FloatArray | None, tuple[FloatArray, ...]]:
+    r"""The tuners' term of a population-target curve, and each node's derivative estimate.
+
+    :math:`w_i \sum_t \partial_t\Phi_n' \mathrm{IF}_t(O_i)`, the chain-rule term of
+    :math:`D_\Psi = D_\Phi(\theta_0) + \sum_t \partial_t\Phi(\theta_0)' \mathrm{IF}_t`.
+    :math:`\partial_t\Phi_n` is :func:`~cleverly.interventions.tuning.cap_derivative` with
+    :math:`W_{1:t-1}` the cumulative ratio of the node before (one at the first node)
+    and :math:`m_t` the node's predictions at its boundary and last moved dose: the
+    targeted ones on a targeted fit, and the fold regressions' on a sequentially doubly
+    robust one.
+
+    Parameters
+    ----------
+    data : LongitudinalData
+        The prepared panel.
+    plan : Plan
+        The resolved plan.
+    steps : sequence of SequentialStep
+        The retained steps, in time order.
+
+    Returns
+    -------
+    tuple
+        The ``(n,)`` term, ``None`` without a population-target tuned node, and the
+        ``(p,)`` derivative of each such node, in time order.
+    """
+    from ..interventions.tuning import cap_derivative
+
+    tunings = [tuning for tuning in plan.tuning if tuning.influence is not None]
+    if not tunings:
+        return None, ()
+    by_time = {step.time: step for step in steps}
+    term = np.zeros(data.n)
+    derivatives = []
+    for tuning in tunings:
+        step = by_time.get(tuning.time)
+        if step is None:
+            # The node lies past the horizon of this parameter, which then reads no map
+            # there.
+            continue
+        assert step.probes is not None
+        assert tuning.influence is not None
+        influence = tuning.influence
+        before = by_time.get(tuning.time - 1)
+        prefix = np.ones(data.n) if before is None else np.asarray(before.clever, dtype=float)
+        # The node's value is linear in its slots' terms: each tuned component of each
+        # branch adds its own Leibniz term, weighted by the branch probability.
+        derivative = np.zeros(np.shape(tuning.gradient)[1])
+        for index, (slot, _, probability) in enumerate(_probe_slots(plan, tuning.time)):
+            if slot is not tuning:
+                continue
+            derivative = derivative + probability * cap_derivative(
+                weights=data.weights,
+                prefix=prefix,
+                dose=tuned_dose(data, tuning),
+                edge=tuning.edge,
+                high=step.probes[:, 2 * index],
+                low=step.probes[:, 2 * index + 1],
+                gradient=tuning.gradient,
+                slope=tuning.slope,
+                at_risk=step.at_risk,
+                rule=tuning.fitted.tuner.bandwidth,
+            )
+        derivatives.append(derivative)
+        term = term + data.weights * (influence @ derivative)
+    return term, tuple(derivatives)
+
+
+def _finish_fold_average(
+    data: LongitudinalData,
+    plan: Plan,
+    steps: tuple[SequentialStep, ...],
+    cumulative_unbounded: FloatArray,
+    cumulative: FloatArray,
+    *,
+    horizon: int,
+    cause: str | None,
+    numerator: FloatArray | None,
+) -> RegimenFit:
+    r"""The fold-average estimate and curve.
+
+    Fold ``k``'s estimate :math:`\hat\psi_k` is the weighted mean of its held-out rows'
+    targeted values.  The estimate is :math:`V^{-1} \sum_k \hat\psi_k`.  Row ``i`` in fold
+    ``k`` carries :math:`n w_i (D_i - \hat\psi_k) / (V W_k)`, with :math:`W_k` the fold's
+    weight mass, so the reported variance :math:`n^{-2} \sum_i IC_i^2` is
+    :math:`V^{-2} \sum_k W_k^{-2} \sum_{i \in k} w_i^2 (D_i - \hat\psi_k)^2`, the variance
+    of Hubbard, Kherad-Pajouh and van der Laan (2016), Theorem 1, with each fold's curve
+    centred at its own estimate.
+    """
+    assert plan.folds is not None
+    owner = np.asarray(plan.folds.assignment)
+    n_folds = plan.folds.n_folds
+    raw = np.array(steps[0].value, dtype=float, copy=True)
+    for step in steps:
+        raw = raw + step.clever * (step.pseudo_outcome - step.targeted)
+    estimates = []
+    influence = np.zeros(data.n)
+    for k in range(n_folds):
+        rows = owner == k
+        mass = float(np.sum(data.weights[rows]))
+        psi_k = float(np.average(steps[0].value[rows], weights=data.weights[rows]))
+        estimates.append(psi_k)
+        influence = np.where(
+            rows,
+            data.n * data.weights * (raw - psi_k) / (n_folds * mass),
+            influence,
+        )
+    return RegimenFit(
+        regimen=plan.regimen,
+        psi_scaled=float(np.mean(estimates)),
+        influence_curve_scaled=influence,
+        horizon=horizon,
+        cause=cause,
+        steps=steps,
+        cumulative_unbounded=cumulative_unbounded,
+        cumulative=cumulative,
+        assignment=np.asarray(plan.values),
+        obs_weights=np.asarray(data.weights, dtype=float),
+        policy=plan.policy,
+        cumulative_numerator=numerator,
+        fold_estimates=tuple(estimates),
     )
 
 
@@ -2306,6 +3363,10 @@ def fit_regimen(
     max_iter: int = 20,
     tol: float = 1e-10,
     n_jobs: int = 1,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> RegimenFit:
     """Run the backward recursion for one regimen, targeting at every node.
 
@@ -2337,6 +3398,17 @@ def fit_regimen(
     Observation weights reach every regression, the fluctuation's score and the plug-in,
     and multiply the returned curve row-wise -- the module docstring says what that is and
     what it is not.
+
+    ``stopping`` is the rule that decides each node's score equation is solved.
+    ``"relative"`` is the shipped test.  A declared rule gives every node the context of
+    :func:`node_stop_context`, so each node's threshold is the standard error of its own score.
+
+    ``step_bound`` bounds the step of each node's targeting iteration (``None`` takes the full
+    Newton step), and ``step_search`` chooses whether a bounded step searches its length.  See
+    :func:`_fluctuate_node_ruled`.
+
+    ``iterate="best"`` reports, at each node, the iterate of smallest raw score norm instead of
+    the last, and judges the node's ``converged`` there.
     """
     horizon = data.n_times if horizon is None else horizon
     if not 1 <= horizon <= data.n_times:
@@ -2357,7 +3429,12 @@ def fit_regimen(
             max_iter=max_iter,
             tol=tol,
             n_jobs=n_jobs,
+            stopping=stopping,
+            step_bound=step_bound,
+            step_search=step_search,
+            iterate=iterate,
         )
+    stop = None if stopping == "relative" else node_stop_context(data, scaler)
     cumulative_unbounded, cumulative = mechanism.cumulative_with_unbounded(data, plan, g_bounds)
     carried = seed_carried(data, scaler, horizon=horizon)
     # Once per regimen, not once per node: the masks are prefix scans of one conjunction,
@@ -2394,6 +3471,12 @@ def fit_regimen(
                 max_iter=max_iter,
                 tol=tol,
                 arms=node.initial_by_arm,
+                probes=node.probes,
+                stopping=stopping,
+                step_bound=step_bound,
+                step_search=step_search,
+                iterate=iterate,
+                stop=stop,
             )
         step = _targeted_step(node, fluctuation, regression_target=None)
         steps.append(step)
@@ -2430,6 +3513,13 @@ def _targeted_step(
     marginal: FloatArray | None = None
     if node.policy is not None:
         by_arm, marginal = _targeted_policy(fluctuation, node.policy, node.at_risk)
+    probes = (
+        None
+        if node.probes is None
+        else np.column_stack(
+            [fluctuation.targeted.arms[key] for key in _probe_arms(node.probes.shape[1])]
+        )
+    )
     return SequentialStep(
         time=node.time,
         trained_on=node.trained_on,
@@ -2445,6 +3535,7 @@ def _targeted_step(
         targeted_by_arm=by_arm,
         initial_by_arm=node.initial_by_arm,
         constant_folds=constant_folds,
+        probes=probes,
     )
 
 
@@ -2495,11 +3586,21 @@ class StitchedInitial:
     diagnostics: dict[int, tuple[SuperLearnerDiagnostics, ...]]
     initial_by_arm: dict[int, FloatArray] = field(default_factory=dict)
     constant_folds: dict[int, tuple[int, ...]] = field(default_factory=dict)
+    #: At each tuned node with the population target, row ``i``'s ``(2,)`` predictions at
+    #: the boundary and at the last moved dose, from the fold that held row ``i`` out.
+    probes: dict[int, FloatArray] = field(default_factory=dict)
 
 
 _FoldOutputs = dict[
     int,
-    tuple[FloatArray, FloatArray, tuple[SuperLearnerDiagnostics, ...], FloatArray | None, bool],
+    tuple[
+        FloatArray,
+        FloatArray,
+        tuple[SuperLearnerDiagnostics, ...],
+        FloatArray | None,
+        bool,
+        FloatArray | None,
+    ],
 ]
 
 
@@ -2516,6 +3617,7 @@ def untargeted_recursion(
     fit_rows: BoolArray | None = None,
     outer_fold: int | None = None,
     keep_models: bool = False,
+    carry_plan: Plan | None = None,
 ) -> list[_NodeRegression]:
     """Run one regimen's untargeted backward recursion, on one set of fit rows.
 
@@ -2551,6 +3653,9 @@ def untargeted_recursion(
         The outer fold, for the refusal text, or ``None`` in sample.
     keep_models : bool
         Whether each node keeps its fitted model.
+    carry_plan : Plan or None
+        The plan whose policy-weighted mean each node carries back, when it is not
+        ``plan``: a cross-fitted tuned plan's map at the fold's own training tuner.
 
     Returns
     -------
@@ -2575,6 +3680,7 @@ def untargeted_recursion(
             fit_rows=fit_rows,
             outer_fold=outer_fold,
             keep_model=keep_models,
+            carry_plan=carry_plan,
         )
         nodes.append(node)
         # The fold's *untargeted* prediction is what the earlier node regresses.  Steps 1-4
@@ -2583,6 +3689,8 @@ def untargeted_recursion(
         # fluctuation fitted on the fold's own training rows.  At a policy node the untargeted
         # prediction carried is the fold's policy-weighted mean of its per-arm predictions.
         untargeted = node.initial if node.initial_marginal is None else node.initial_marginal
+        if node.carry_marginal is not None:
+            untargeted = node.carry_marginal
         carried = np.where(node.at_risk, untargeted, _FILLER)
     return nodes
 
@@ -2606,6 +3714,10 @@ def _untargeted_recursion_in_fold(
     everywhere, which is what an outer fold's model is.  So both refusal hints, and every
     mask, are the ones the single-fold pass uses.  Only the held-out slices are returned.
     """
+    # A cross-fitted tuned plan: the fold's own recursion runs under the map at its own
+    # training tuner, so its regressions are fixed given its training rows.  The held-out
+    # predictions read the plan's own doses.
+    carry_plan = cell.plan.fold_plans[fold] if cell.plan.fold_plans else None
     nodes = untargeted_recursion(
         data,
         cell.plan,
@@ -2617,6 +3729,7 @@ def _untargeted_recursion_in_fold(
         pseudo_learner=pseudo_learner,
         fit_rows=outer_train,
         outer_fold=fold,
+        carry_plan=carry_plan,
     )
     return {
         node.time: (
@@ -2625,6 +3738,7 @@ def _untargeted_recursion_in_fold(
             node.learner_diagnostics,
             None if node.initial_by_arm is None else node.initial_by_arm[test],
             constant_target(node.pseudo_outcome, node.fitted_on) is not None,
+            None if node.probes is None else node.probes[test],
         )
         for node in nodes
     }
@@ -2721,10 +3835,13 @@ def untargeted_fold_recursions(
             if cell.plan.is_policy_node(time)
         }
         constant_folds: dict[int, list[int]] = {}
+        probes: dict[int, FloatArray] = {}
         for fold, (test, outputs, _) in enumerate(outcomes):
-            for time, (held_out, target, fold_diagnostics, arms, constant) in outputs[
-                position
-            ].items():
+            for time, entry in outputs[position].items():
+                # The probes are the sixth entry of a population-target node, and an entry
+                # without one reads as a node with no probes.
+                held_out, target, fold_diagnostics, arms, constant, *rest = entry
+                probe = rest[0] if rest else None
                 initial[time][test] = held_out
                 regression_target[time][test] = target
                 diagnostics[time].extend(fold_diagnostics)
@@ -2732,6 +3849,9 @@ def untargeted_fold_recursions(
                     by_arm[time][test] = arms
                 if constant:
                     constant_folds.setdefault(time, []).append(fold + 1)
+                if probe is not None:
+                    width = np.shape(probe)[1]
+                    probes.setdefault(time, np.full((data.n, width), _FILLER))[test] = probe
         stitched.append(
             StitchedInitial(
                 initial=initial,
@@ -2739,6 +3859,7 @@ def untargeted_fold_recursions(
                 diagnostics={time: tuple(values) for time, values in diagnostics.items()},
                 initial_by_arm=by_arm,
                 constant_folds={time: tuple(folds) for time, folds in constant_folds.items()},
+                probes=probes,
             )
         )
     return stitched
@@ -2760,6 +3881,10 @@ def _fit_regimen_crossfit(
     max_iter: int,
     tol: float,
     n_jobs: int,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> RegimenFit:
     """Run untargeted fold recursions, stitch them, and target once per node over all rows.
 
@@ -2805,6 +3930,14 @@ def _fit_regimen_crossfit(
         Relative-score convergence tolerance.
     n_jobs : int
         Parallel workers across the outer folds.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides each node's pooled score equation is solved.
+    step_bound : float or None
+        The longest step of one iteration of a node's targeting.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate of a node's walk is reported.
 
     Returns
     -------
@@ -2839,6 +3972,10 @@ def _fit_regimen_crossfit(
         alpha=alpha,
         max_iter=max_iter,
         tol=tol,
+        stopping=stopping,
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
     )
     return _finish_regimen_fit(
         data,
@@ -2866,6 +4003,10 @@ def _pooled_targeting(
     alpha: float,
     max_iter: int,
     tol: float,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> tuple[SequentialStep, ...]:
     r"""Solve one fluctuation per node over every follower, from the horizon backwards.
 
@@ -2909,12 +4050,23 @@ def _pooled_targeting(
         Largest number of Newton iterations per node.
     tol : float
         Relative-score convergence tolerance.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The rule that decides each node's pooled score equation is solved.  A declared rule
+        reads the units of all ``n`` rows, because the score is summed over every follower and
+        averaged over every row (:func:`node_stop_context`).
+    step_bound : float or None
+        The longest step of one iteration of a node's targeting.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate of a node's walk is reported.
 
     Returns
     -------
     tuple of SequentialStep
         One step per node, in time order.
     """
+    stop = None if stopping == "relative" else node_stop_context(data, scaler)
     steps: list[SequentialStep] = []
     carried = seed_carried(data, scaler, horizon=horizon)
     for time in range(horizon, 0, -1):
@@ -2922,29 +4074,125 @@ def _pooled_targeting(
             data, plan, stitched, masks, cumulative, numerator, carried, time, cause
         )
         # One phase entry per node, as on a single-fold fit, and always in the parent.
+        fold_epsilon: tuple[float, ...] = ()
         with phase("fluctuation"):
-            fluctuation = _fluctuate_node(
-                node.pseudo_outcome,
-                node.initial,
-                data.weights * node.counterfactual,
-                node.fitted_on,
-                label=plan.label,
-                time=time,
-                alpha=alpha,
-                max_iter=max_iter,
-                tol=tol,
-                arms=node.initial_by_arm,
-            )
+            if plan.fold_average:
+                fluctuation, fold_epsilon = _fold_fluctuations(
+                    data, plan, node, time=time, alpha=alpha, max_iter=max_iter, tol=tol
+                )
+            else:
+                fluctuation = _fluctuate_node(
+                    node.pseudo_outcome,
+                    node.initial,
+                    data.weights * node.counterfactual,
+                    node.fitted_on,
+                    label=plan.label,
+                    time=time,
+                    alpha=alpha,
+                    max_iter=max_iter,
+                    tol=tol,
+                    arms=node.initial_by_arm,
+                    probes=node.probes,
+                    stopping=stopping,
+                    step_bound=step_bound,
+                    step_search=step_search,
+                    iterate=iterate,
+                    stop=stop,
+                )
         step = _targeted_step(
             node,
             fluctuation,
             regression_target=stitched.regression_target[time],
             constant_folds=stitched.constant_folds.get(time, ()),
         )
+        if fold_epsilon:
+            step = replace(step, fold_epsilon=fold_epsilon)
         steps.append(step)
         carried = np.where(node.at_risk, step.value, _FILLER)
     steps.reverse()
     return tuple(steps)
+
+
+def _fold_fluctuations(
+    data: LongitudinalData,
+    plan: Plan,
+    node: NodeInputs,
+    *,
+    time: int,
+    alpha: float,
+    max_iter: int,
+    tol: float,
+) -> tuple[Fluctuation, tuple[float, ...]]:
+    """One fluctuation per outer fold, each solved on that fold's own held-out rows.
+
+    The fold-average target: fold ``k``'s estimator is a TMLE on its
+    validation rows, with nuisances from its training rows and its own coefficient at
+    every node, so each fold's estimate is asymptotically linear given its training rows
+    (Hubbard, Kherad-Pajouh and van der Laan 2016, Theorem 1).  The targeted predictions
+    are stitched by row.  The returned fluctuation reports the mass-weighted mean
+    coefficient, the pooled score, and each fold's solve under ``folds``.
+    """
+    assert plan.folds is not None
+    owner = np.asarray(plan.folds.assignment)
+    weights = data.weights * node.counterfactual
+    observed = np.array(node.initial, dtype=float, copy=True)
+    arms: dict[float, FloatArray] = {}
+    records: list[FoldFluctuation] = []
+    masses: list[float] = []
+    solves: list[Fluctuation] = []
+    for k in range(plan.folds.n_folds):
+        rows = owner == k
+        solve = _fluctuate_node(
+            node.pseudo_outcome,
+            node.initial,
+            weights,
+            node.fitted_on & rows,
+            label=f"{plan.label}, fold {k + 1}",
+            time=time,
+            alpha=alpha,
+            max_iter=max_iter,
+            tol=tol,
+            arms=node.initial_by_arm,
+        )
+        solves.append(solve)
+        observed = np.where(rows, solve.targeted.observed, observed)
+        for key, values in solve.targeted.arms.items():
+            arms[key] = np.where(rows, values, arms.get(key, values))
+        records.append(
+            FoldFluctuation(
+                index=np.flatnonzero(rows),
+                epsilon=np.asarray(solve.epsilon, dtype=float),
+                score=np.asarray(solve.score, dtype=float),
+                converged=bool(solve.converged),
+                n_iter=int(solve.n_iter),
+                trace=tuple(solve.trace),
+                score_scale=solve.score_scale,
+            )
+        )
+        masses.append(float(data.weights[rows & node.fitted_on].sum()))
+    epsilon = tuple(float(solve.epsilon[0]) for solve in solves)
+    targeted = arms[_REGIMEN_ARM]
+    fitted = node.fitted_on
+    score = np.array(
+        [float(np.sum(np.where(fitted, weights * (node.pseudo_outcome - targeted), 0.0))) / data.n]
+    )
+    total = float(np.sum(masses))
+    mean_epsilon = np.array(
+        [float(np.dot(masses, epsilon) / total) if total > 0.0 else float(np.mean(epsilon))]
+    )
+    combined = replace(
+        solves[0],
+        epsilon=mean_epsilon,
+        targeted=InitialFit(observed, arms),
+        score=score,
+        converged=all(solve.converged for solve in solves),
+        n_iter=sum(int(solve.n_iter) for solve in solves),
+        trace=(),
+        names=(f"epsilon[{plan.label}, t={time}]",),
+        folds=tuple(records),
+        n_solver_calls=len(solves),
+    )
+    return combined, epsilon
 
 
 def pooled_node_inputs(
@@ -3017,6 +4265,7 @@ def pooled_node_inputs(
         learner_diagnostics=stitched.diagnostics[time],
         initial_by_arm=stitched.initial_by_arm[time] if policy_node else None,
         policy=plan.policy_at(time) if policy_node else None,
+        probes=stitched.probes.get(time),
     )
 
 

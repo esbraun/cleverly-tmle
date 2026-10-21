@@ -27,6 +27,7 @@ import numpy as np
 
 from .._typing import BoolArray, FloatArray
 from ..exceptions import CapabilityError, Refusal, RefusalReason
+from ..fluctuation._score import StopContext
 from ..fluctuation.iterative import Fluctuation, InitialFit
 from ..fluctuation.submodel import Submodel, derivative_columns
 from .targeting import TargetingSpec, build_submodel, solve_submodel
@@ -135,6 +136,7 @@ def derivative_update(
     observed: BoolArray,
     weights: FloatArray,
     spec: TargetingSpec,
+    stop: StopContext | None = None,
 ) -> DerivativeUpdate:
     """Fit the C-TMLE0 fluctuation of the clever covariates and their derivatives.
 
@@ -158,6 +160,9 @@ def derivative_update(
         The observation weights, normalized to mean one.
     spec : TargetingSpec
         The targeting settings of the fit.
+    stop : StopContext or None
+        The units and the outcome range a declared ``spec.stopping`` computes its threshold
+        from, for every row. ``None`` under ``stopping="relative"``.
 
     Returns
     -------
@@ -200,7 +205,9 @@ def derivative_update(
                 "another learner."
             )
     submodel, scale = derivative_columns(base, ratio, a, mask)
-    fluctuation = solve_submodel(scaled, initial, submodel, weights, mask, spec, warn=False)
+    fluctuation = solve_submodel(
+        scaled, initial, submodel, weights, mask, spec, warn=False, stop=stop
+    )
     k = len(base.levels)
     if not fluctuation.converged:
         relative = np.abs(fluctuation.score[k:]) / np.maximum(
@@ -241,6 +248,7 @@ def fitted_update(
     intermediate_value: float | None,
     spec: TargetingSpec,
     missingness: FloatArray | None = None,
+    stop: StopContext | None = None,
 ) -> DerivativeUpdate:
     """Run :func:`derivative_update` from a fit's stored nuisances, at given bounds.
 
@@ -265,6 +273,8 @@ def fitted_update(
     missingness : ndarray or None
         A missingness mechanism that replaces the fitted one, as the missingness tilt
         passes.
+    stop : StopContext or None
+        As :func:`derivative_update`.
 
     Returns
     -------
@@ -292,4 +302,5 @@ def fitted_update(
         data.observed,
         data.weights,
         spec,
+        stop,
     )

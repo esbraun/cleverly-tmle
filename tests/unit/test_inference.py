@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 from scipy import stats
 
-from cleverly._inference_status import NON_INFERENTIAL
+from cleverly._inference_status import STATUS_RECORDS
 from cleverly.data import CausalData
 from cleverly.estimators.ctmle import (
     CTMLE_SELECTOR_STRATEGIES,
@@ -79,7 +79,7 @@ from cleverly.utils.bounds import OutcomeScaler, expit
 from tests.conftest import binary_means
 
 #: The selector-path record, read where every raise and report reads it.
-WORKING_MECHANISM = NON_INFERENTIAL["working_mechanism_plugin"]
+WORKING_MECHANISM = STATUS_RECORDS["working_mechanism_plugin"]
 
 
 @pytest.fixture
@@ -1055,7 +1055,7 @@ class TestBootstrapResampling:
         samples: list[CausalData] = []
         result = run_bootstrap(
             data,
-            lambda sample: samples.append(sample) or {"ate": 0.0},
+            lambda sample: samples.append(sample) or {"ate": (0.0, 1.0)},
             n_replicates=4,
             resampling="cluster",
             random_state=17,
@@ -1098,7 +1098,7 @@ class TestBootstrapResampling:
         samples: list[CausalData] = []
         run_bootstrap(
             data,
-            lambda sample: samples.append(sample) or {"ate": 0.0},
+            lambda sample: samples.append(sample) or {"ate": (0.0, 1.0)},
             n_replicates=2,
             resampling="iid",
             random_state=23,

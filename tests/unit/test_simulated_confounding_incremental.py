@@ -114,14 +114,17 @@ def test_incremental_cells_equal_complete_fixed_delta_refits(
         assert cell.displacement == pytest.approx(manual[alias].psi - result[alias].psi, abs=1e-12)
         for nuisance in manual.nuisances:
             state = nuisance.incremental
-            assert state.deltas == (0.5, 1.0, 2.0)
+            assert state.factors == ((1.0, 0.5), (1.0, 1.0), (1.0, 2.0))
             assert state.names == ("down", "natural", "up")
             assert state.reference == 1.0
             g = nuisance.propensity.values[:, 1]
-            for index, delta in enumerate(state.deltas):
+            for index, (_, delta) in enumerate(state.factors):
                 denominator = delta * g + 1 - g
                 np.testing.assert_allclose(state.values[:, 1, index], delta * g / denominator)
-                np.testing.assert_allclose(state.derivative[:, index], delta / denominator**2)
+                np.testing.assert_allclose(state.normaliser[:, index], denominator)
+                np.testing.assert_allclose(
+                    state.binary_derivative[:, index], delta / denominator**2
+                )
         assert manual[alias].psi == pytest.approx(
             np.median([draw.psi[alias] for draw in manual.repeats]), abs=1e-12
         )
@@ -234,9 +237,9 @@ def test_incremental_contrast_preserves_a_non_natural_default_reference() -> Non
         "estimate-name",
         "state-values",
         "state-weights",
-        "state-derivative",
+        "state-normaliser",
         "state-propensity",
-        "state-deltas",
+        "state-factors",
         "state-names",
         "state-reference",
         "state-missing",
@@ -292,13 +295,13 @@ def test_incremental_provenance_corruption_refuses_before_draw(
         state = result.repeats[-1].nuisance.incremental
         if part == "missing":
             state = None
-        elif part in {"values", "weights", "derivative", "propensity"}:
+        elif part in {"values", "weights", "normaliser", "propensity"}:
             values = getattr(state, part).copy()
             values.flat[0] += 0.1
             state = replace(state, **{part: values})
         else:
             value = {
-                "deltas": (0.7, 1.0, 2.0),
+                "factors": ((1.0, 0.7), (1.0, 1.0), (1.0, 2.0)),
                 "names": ("other", "natural", "up"),
                 "reference": 0.0,
             }[part]

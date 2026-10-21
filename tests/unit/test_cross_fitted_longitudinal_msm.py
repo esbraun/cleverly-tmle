@@ -55,7 +55,7 @@ from cleverly.datasets import (
     make_longitudinal_survival,
     make_longitudinal_weighted,
 )
-from cleverly.exceptions import CapabilityError, DataError, LongitudinalError, PositivityWarning
+from cleverly.exceptions import DataError, LongitudinalError, PositivityWarning
 from cleverly.fluctuation.iterative import InitialFit
 from cleverly.learners.crossfit import Folds, random_partition
 from cleverly.longitudinal import LTMLE, DynamicRegimen, LongitudinalResult, sequential
@@ -69,6 +69,7 @@ from tests.studies import canonical_ltmle_crossfit as subject_study
 from tests.studies import clustered_longitudinal_laws as cluster_law
 from tests.studies import longitudinal_msm_properties as discrete_properties
 from tests.studies.canonical_longitudinal_msm import declared_msm
+from tests.unit._inference_status_support import assert_shows_interval
 from tests.unit.test_pooled_longitudinal_targeting import (
     _assert_clever_is_the_out_of_fold_reciprocal,
     _assert_stitched_longhand,
@@ -924,22 +925,17 @@ def test_twenty_one_clusters_take_the_t_reference_and_skip_the_band() -> None:
     assert NO_T_REFERENCE_BANDS in result.summary()
 
 
-def test_nineteen_clusters_withhold_the_interval_of_every_coefficient() -> None:
-    """Below the cross-fitted floor of 20 clusters, a working-model fit reports no interval."""
+def test_nineteen_clusters_show_a_labelled_t_interval_for_every_coefficient() -> None:
+    """Below the cross-fitted floor of 20 clusters, a working-model fit shows t(17), labelled."""
     result = _clustered(19)
     _assert_whole_clusters(result)
-    assert result.inference_status == "few_cluster_plugin"
-    for term in TERMS:
-        estimate = result[f"msm_regimen[{term}]"]
-        assert estimate.reference_df is None
-        with pytest.raises(CapabilityError):
-            _ = estimate.ci
+    assert_shows_interval(result, "few_cluster_plugin", 17)
 
 
 def test_m8_a_row_level_split_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     """M8: rows of one cluster in two folds.  The integrity check refuses before any learner."""
 
-    def row_folds(self: LTMLE, data: Any) -> Folds:
+    def row_folds(self: LTMLE, data: Any, seed: int | None = None) -> Folds:
         return random_partition(data.n, self.n_folds, seed=0)
 
     monkeypatch.setattr(LTMLE, "_folds", row_folds)
@@ -968,14 +964,13 @@ def test_the_band_is_built_from_the_coefficient_curves(monkeypatch: pytest.Monke
     assert first.simultaneous.critical_value == second.simultaneous.critical_value
 
 
-def test_the_bootstrap_of_a_cross_fitted_working_model_is_a_diagnostic() -> None:
+def test_the_bootstrap_of_a_cross_fitted_working_model_is_experimental() -> None:
     frame = end_of_study_frame(n=600, seed=3)
     result = fit_dose(frame, n_bootstrap=20)
     assert result.folds.n_folds == K
-    kind = longitudinal_estimator.bootstrap_design_kind(
-        result.data, result.folds, [plan.regimen for plan in result.replay_recipe.plans], result.msm
-    )
-    assert kind is None
+    summaries = [e.bootstrap for e in result.estimates.values() if e.bootstrap is not None]
+    assert summaries
+    assert all(summary.support.label == "experimental" for summary in summaries)
     assert result.bootstrap is not None
     assert result.bootstrap.n_requested == 20
 

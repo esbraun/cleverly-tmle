@@ -87,19 +87,28 @@ jobs:
       # Behavioral examples belong in this fast unit/integration/e2e tier, and so do the
       # static documentation checks -- links resolve, every `python` fence parses. Neither
       # executes an example, and both are cheap, so there is no documentation dispatch.
-      - run: pytest -q -n auto --dist loadgroup
+      #
+      # `test_method_evidence.py` runs on 3.12 alone (Eric, 2026-10-16). It recomputes every
+      # published study verdict from committed CSVs with test-side code, which is about half of
+      # this job, and it does not exercise the library across interpreters. 3.12 is the
+      # interpreter of the `docs` and `property-differential` jobs. The cost is accepted: a
+      # verdict that moved only under 3.11's scipy 1.17 would go unseen.
+      - run: >-
+          pytest -q -n auto --dist loadgroup
+          ${{ matrix.python-version != '3.12' && '--ignore=tests/unit/test_method_evidence.py' || '' }}
 
   # The all-study property differential and its clause binding (RM39b2 rev 3 section 8). Every
   # committed study's property rows are perturbed and summarized by the study's own code, and
   # the declared failure-accounting rules must give the same verdicts. Measured at 5,892 cases,
   # about 7,600 CPU-seconds and about 35 minutes on four workers, far over the fast tier's
-  # budget, so it runs here (the R3-2 fallback) and never as a sample. The timeout allows three
-  # times that. The fast tier checks that its parametrization lists every committed study. The
+  # budget, so it runs here (the R3-2 fallback) and never as a sample. Later study additions
+  # brought main to 91% at the former 105-minute timeout. Allow 180 minutes for the complete
+  # check. The fast tier checks that its parametrization lists every committed study. The
   # job always reports, so it can be a required check: on a pull request that touches none of
   # the paths below its steps are skipped.
   property-differential:
     runs-on: ubuntu-latest
-    timeout-minutes: 105
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:

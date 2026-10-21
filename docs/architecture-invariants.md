@@ -50,6 +50,66 @@ The independent evidence still checks the target, each changed mathematical term
 statistical property. The [roadmap's eligibility rules](roadmap.md#eligibility) apply this
 standard to method entry. *Reconsider when* the project owner changes the acceptance policy.
 
+### Option defaults keep the shipped code path
+
+A targeting or fitting option defaults to the value that runs the code that existed before the
+option. The solver tests the option at its top, and the `else` branch holds the shipped body
+unchanged. `stopping="relative"`, `step_bound=None`, `iterate="last"`, `outcome_by_arm=False`,
+`treatment_adjustment=None` and `patience=None` all follow this rule. A default must not call a
+new function that gives the same answer. A rounding difference in the last place would move
+recorded results.
+
+Prove a default with the A/B replay.
+
+1. Set `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1`.
+2. Run `python -m tests.canonical.replay_committed replay --all --replicates 20 --jobs 4 --write <dir>` at the base commit.
+3. Run the same command at the branch.
+4. Run `compare <A> <B> --rtol 0`.
+
+`compare` exits 2 when both sides name one source tree, and it exits 1 on any difference. The
+committed rows are not the gate, because they drift across platforms in the last bits.
+`tests/unit/test_replay_committed.py` tests the tool. Plumbing tests such as
+`tests/unit/test_stopping_rule.py::TestPlumbing` assert that a written-out default gives the same
+fit as an omitted option. *Reconsider when* a change moves a default on purpose. Then regenerate
+the studies it moves, in the same change.
+
+### A declared stopping rule changes what the solver and the score check read
+
+A rule other than `"relative"` needs a stop context. The context holds the unit of each row and
+the outcome range. `TMLE._retarget_detailed` builds it once, so every caller of the targeting step
+gets it. A solver that receives a declared rule and no context raises `ValueError` at once. It
+never invents a threshold. A fold solve and a C-TMLE candidate solve pass `stop.restrict(rows)`, so
+$n_u$ counts the units of the rows each solve receives.
+
+A rule ratio is valid only at the pair of fit and score where it was computed. An outer loop that
+moves the regression or the mechanism after the outcome solve must restate the ratio at the pair
+it judges, through `rule_ratio_at`. It must not read the ratio the solver stored.
+`tests/unit/test_stopping_rule_engines.py` recomputes the ratio by hand at every round.
+
+`score_check` reads the declared rule. Under a rule other than `"relative"`, a fluctuation row is
+held to `Fluctuation.thresholds`, and an estimand row is a `"diagnostic"` row that cannot fail.
+The diagnostic row reports the residual in standard errors and the coverage a Wald interval keeps
+at it. The default rule keeps its rows and its bar. *Reconsider when* a stopping rule gets a
+derivation that bounds the residual of a contrast. Then the estimand rows can carry that bound as a
+bar.
+
+### Comparator fixtures ship pending
+
+A cloud session cannot run R. So an R comparator ships with the change in an explicit pending
+state. `tests/canonical/option_fixtures/registry.py` holds one entry for each fixture with its
+script hash and its state. A pending entry has no JSON file, a stated reason and a matching hash.
+A present entry has a JSON file with the same hash, and its parity test runs. A self-test writes a
+payload in the comparator's schema, requires the comparison to pass, and requires each mutated copy
+to fail.
+
+A reader-facing table row that names a pending fixture carries the label "exact tests, with
+comparator runs pending". `tests/unit/test_option_fixtures.py` ties the label to the registry. A
+row that carries the label while its fixture is present fails, and so does an unlabelled row of a
+pending fixture. This applies the rule of
+[Theory and comparators](#theory-and-comparators): the missing comparator blocks nothing, and
+the label states the gap. *Reconsider when* the local Study queue has run the images and every
+entry is present.
+
 ## Dataframes and labels
 
 User-facing frames go through narwhals and results return in the caller's dataframe library. Keep
@@ -152,24 +212,26 @@ holds `constant_node_plugin` only. `_estimates` stamps it through `_parameter_st
 and in `_refit_bound` alike. `_parameter_status` reads one fitted quantity, `constant_nodes(fit)`:
 the nodes whose regression read a constant 0 or 1 over the whole sample. A level takes the status
 when its own fit has such a node, and a contrast when its fit or its reference fit has one. A fit
-status that withholds inference comes first in `NON_INFERENTIAL`, so it stays.
+status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
 
 | path | status it sets |
 | --- | --- |
-| `smooth_contrast` | the status of its inputs, through `inference_status`. A mix of two fit statuses raises `ValueError`. A mix of a fit status and a parameter status takes the earlier one in `NON_INFERENTIAL` |
+| `smooth_contrast` | the status of its inputs, through `inference_status`. A mix of two fit statuses raises `ValueError`. A mix of a fit status and a parameter status takes the earlier one in `STATUS_RECORDS` |
 | `median_estimates` | the status of its repeats. Any mix raises `ValueError`, a parameter status included, because a median would report one draw's refusal under another draw's name |
 | `variable_importance` | none. It raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
-| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of the result, so the replay at the fitted bound equals the fit in every field that `_fitted_replay_matches` compares |
+| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of each draw, so the replay of each draw at the fitted bound equals that draw in every field that `_fitted_replay_matches` compares |
 | a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty. `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
+| a longitudinal parameter under `repeats` above 1 | `with_precedent_status` over the draws, then `median_estimates`. Each draw's estimate of a name takes `precedent_status` of that name's draws, so a `constant_node_plugin` in one draw reaches the report. `median_derived`, `median_covariance` and `median_bands` apply the same stamp before they combine draws. `result.repeats[r].estimates` keep their own statuses |
 | `incidence_total()` | each total's own status, through `inference_status` over the incidences it sums |
-| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none |
+| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
 
 The same stamp sets the Student $t$ reference of a clustered fit. A builder records the rows an
 estimate reads, and not its degrees of freedom: `_stratum_estimates` returns the stratum code of
 each stratum estimate. `stamp_inference` turns that record into `reference_df`, and it does so
-only when the fit's status supplies inference. A fit at `"few_cluster_plugin"` therefore keeps
-`reference_df=None` on every estimate, and no stratum count below the floor reaches
-`cluster_reference_df`.
+only when the fit's status supplies inference. A fit at `"no_cluster_variance_plugin"` therefore
+keeps `reference_df=None` on every estimate, and no stratum count below 3 reaches
+`cluster_reference_df`. A fit at `"few_cluster_plugin"` shows its interval, so each estimate
+takes the degrees of freedom of its own rows.
 
 A derived estimate takes the smallest `reference_df` of its inputs at its own `make_estimate`
 call. Every interval, p-value and sensitivity limit reads the reference
@@ -180,7 +242,7 @@ stratum's row set into `_average_over_folds`, or its stratum estimates read the 
 *Reconsider when* a source gives a reference that is not a function of the cluster count.
 
 One fit has one fit status. When more than one non-inferential fit status applies, the fit takes
-the first one in `NON_INFERENTIAL` (`src/cleverly/_inference_status.py`). An override that finds
+the first one in `STATUS_RECORDS` (`src/cleverly/_inference_status.py`). An override that finds
 more than one status passes them to `precedent_status`, so the order lives in the table. A
 parameter status can sit beside it on some estimates. The result's `inference_status`, through
 `reported_status`, is the fit status: it leaves parameter statuses out unless every estimate holds
@@ -195,7 +257,7 @@ and the plug-in columns, and `to_frame()` holds the union of the columns.
 A frame or label that
 publishes a spread must take its names from `spread_columns()` or `spread_name`, which raises
 `KeyError` for an inferential name with no diagnostic entry. A text that names a status must read
-it from `NON_INFERENTIAL`. The estimator that stamps a parameter status names it through
+it from `STATUS_RECORDS`. The estimator that stamps a parameter status names it through
 `CONSTANT_NODE_STATUS`. [Inference status](technical-reference/inference.md#inference-status)
 gives the public contract. *Reconsider when* [F18](roadmap.md#f18-selector-path-c-tmle-inference)
 supplies the selector paths' influence curve, when a second parameter status is added, or when
@@ -528,6 +590,27 @@ ratio, the support report and the longitudinal node read those branches and noth
 class adds a branch type there, not a new axis. `RiskRatioTilt` differs in its report only. It
 reads `g`, so it reports on the `rr_tilt` axis. `TMLE` refuses a tilt beside other policies.
 
+An incremental intervention is an odds tilt with one factor for each level of the treatment. A
+scalar names the second level of two. A mapping names levels by label. The `Incremental.factors`
+method resolves a declaration against one treatment or one node, and it is the only reader of the
+declaration. A new consumer calls it with the levels it holds and a subject for the refusal text.
+It does not read `.delta`.
+
+The binary surface rule holds at every consumer: with two levels, the
+code runs the arithmetic of Kennedy (2019) with $\delta=\delta_1/\delta_0$, and with more levels it
+runs the general formulas. The two branches meet in the mechanism fluctuation too, which is
+logistic for two levels and a softmax for more. A two-level estimate, influence curve, standard
+error and fluctuation are bit-identical to the ones before the categorical change. Two diagnostics
+changed: `IncrementalSupport.min_propensity` is the minimum over both columns of the mechanism, and
+`IncrementalSupport.delta` holds label and factor pairs instead of one float.
+
+`tests/unit/test_incremental_binary_surface.py` and
+`tests/unit/test_ipsi_binary_surface.py` replay the committed studies to check it. A three-level
+fit on a configuration of the rows `T35` and `G43` carries the label of the registered study
+[categorical incremental policies](technical-reference/method-evidence/categorical-incremental.md).
+Any other three-level fit is `experimental`, and no binary support row covers it.
+`tests/unit/test_categorical_ipsi_declaration.py` holds that check for nodes.
+
 An estimator variant that only changes which nuisance estimate is targeted should override the
 nuisance hook, return a replaced `NuisanceEstimates` with diagnostics, and inherit targeting and
 result behavior. `CTMLE` is the reference pattern. A method with different data ordering or
@@ -593,8 +676,12 @@ sample only. `tests/unit/test_sequential_baselines.py` checks that the g-computa
 the first-node mean of the shared recursion (W8).
 
 The incremental estimator `IPSI` shares plan resolution, masks, designs and the mechanism fit
-with LTMLE. An odds-tilt node's factor is computed in the cancelled form
-$(\delta A + 1 - A)/(\delta\pi + 1 - \pi)$. It is never divided by a bounded mechanism.
+with LTMLE. An odds-tilt node's factor is computed in the cancelled form $\delta_{A}/D$, with
+$D=\sum_b\delta_b\pi(b)$. With two levels it is $(\delta A + 1 - A)/(\delta\pi + 1 - \pi)$. It is
+never divided by a bounded mechanism, and it is never written as $q/\pi$. The mechanism term at a
+node is $W_{t-1}(\delta_{A_t}/D_t)\{m_t(H_t,A_t)-\bar m_t(H_t)\}$ for any number of levels. A
+node reads its own factors, and a node with two levels branches to Kennedy's arithmetic.
+
 `g_bounds` bounds only the cumulative censoring, label, rule and policy product, and the tilt
 product multiplies in after the bound. The influence function holds a mechanism term exactly at
 each tilt node whose treatment mechanism is estimated.

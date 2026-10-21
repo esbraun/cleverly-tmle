@@ -274,6 +274,7 @@ Other maps of the dose use the same `policies=` axis. The table names each class
 | `ModifiedPolicy(name, pieces=..., policy_kind="known")` | your own map, with its inverse and its derivative on each piece |
 | `ModifiedPolicy(name, apply=..., policy_kind="known")` | a map of the levels of a categorical treatment |
 | `RiskRatioTilt(delta)` | the `ipsi` tilt of `lmtp` on a 0/1 treatment, reported as `ey_rr_tilt`. Fit it with `TMLE(policies=...)`. The typed study requests refuse it |
+| `JointPolicy(name, components={column: policy}, policy_kind="known")` | a vector treatment of several columns. It sets one policy for each component, as the [vector treatments](../technical-reference/point-treatment-tmle.md#vector-treatments) section states |
 
 ```python
 from cleverly.interventions import ModifiedPolicy, Piece, Scale
@@ -307,6 +308,26 @@ gives the details.
 `Incremental(delta)` multiplies the observed treatment odds by `delta`. It avoids a conventional
 positivity requirement, but the target depends on the true treatment mechanism and therefore does
 not have ordinary two-sided double robustness.
+
+A treatment with three or more levels takes one factor for each level. Declare the factors as a
+mapping from the level label to the factor. A level that the mapping does not name keeps the
+factor 1. The odds of level $a$ against level $b$ are multiplied by the ratio of their factors.
+
+| declaration | meaning |
+| --- | --- |
+| `Incremental(2.0)` | two levels only: the odds of the second sorted level times 2 |
+| `Incremental({"high": 2.0})` | the odds of `"high"` against every other level times 2 |
+| `Incremental({"high": 2.0, "low": 0.5})` | the factors of `"high"` and `"low"`, and 1 for the other levels |
+
+A scalar on a treatment with other than two levels is refused before any learner, and so is a key
+that is not a level. Keys are the labels that the data reports, and a position is not a label.
+A vector treatment whose columns are all categorical is one treatment over its observed tuples.
+Its keys are the tuples. In a longitudinal fit, one `Incremental` applies to every node, and its
+keys are read against the levels of each node in turn.
+
+A fit with three or more levels carries the label of the registered study
+[categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md)
+when it matches that study's rows. Any other such fit is labelled `experimental`.
 
 ```python
 from cleverly import IncrementalEffect
