@@ -2505,6 +2505,55 @@ def _long_rows() -> tuple[SupportRow, ...]:
             cells=["mean_x2__cluster_robust"],
         ),
     ]
+    # ``SDR`` on a repeated outcome (X32b): the study fits three nodes with the three plans.
+    # The key carries no learner class, so the cell-means, quasi-binomial and booster arms of
+    # the study share the row of their splitting and outcome scale.
+    sdr_repeated = ["longitudinal-repeated-sdr"]
+    sdr_repeated_limit = (
+        "The study's lmtp comparator runs are pending, so the evidence is Python property "
+        "evidence only."
+    )
+    rows += [
+        long_row(
+            "G38.in_sample",
+            sdr_repeated,
+            outcome_kind="repeated",
+            engine="sdr",
+            treatment=("2",) * 3,
+            kinds=_LONG_BAND,
+            cells=["interval_calibration", "simultaneous_coverage"],
+            limits=[
+                "Calibrated at n = 32,000 with cell-means regressions and quasi-binomial "
+                "mechanisms. " + sdr_repeated_limit
+            ],
+        ),
+        long_row(
+            "G38.cross_fitted",
+            sdr_repeated,
+            outcome_kind="repeated",
+            engine="sdr",
+            treatment=("2",) * 3,
+            splitting=xf,
+            cells=["interval_calibration"],
+            limits=[
+                "Calibrated at five folds and n = 8,000, with cell-means regressions and with "
+                "a shallow regularized booster, at horizon 3. " + sdr_repeated_limit
+            ],
+        ),
+        long_row(
+            "G38.continuous",
+            sdr_repeated,
+            outcome_kind="repeated",
+            engine="sdr",
+            outcome=BOUNDED,
+            treatment=("2",) * 3,
+            cells=["interval_calibration"],
+            limits=[
+                "Calibrated at n = 32,000, at horizon 3, with q_bounds=(0, 1). "
+                + sdr_repeated_limit
+            ],
+        ),
+    ]
     baselines = ["sequential-baselines"]
     for law, regimens, treatment, outcome in (
         ("d2", ("static", "stochastic"), ("2", "3"), BINARY),
@@ -2584,6 +2633,51 @@ def _long_rows() -> tuple[SupportRow, ...]:
             )
         )
     rows += _continuous_dose_rows()
+    # Repeated cross-fitting (X46): the cells of laws D, S, C, M at n = 8,000 and law I at
+    # n = 80,000, each with three draws of five folds.  ``repeated`` in the splitting axis keeps
+    # every single-draw row from covering a repeated fit.
+    xfr = ("cross_fitted", "repeated")
+    rep = ["longitudinal-repeated-crossfit"]
+    rep_cells = ["interval_calibration", "simultaneous_coverage"]
+    rows += [
+        long_row("G44.law_d.tmle", rep, splitting=xfr, kinds=_LONG_BAND, cells=rep_cells),
+        long_row(
+            "G44.law_d.sdr", rep, engine="sdr", splitting=xfr, kinds=_LONG_BAND, cells=rep_cells
+        ),
+        long_row(
+            "G44.law_s",
+            rep,
+            outcome_kind="survival",
+            treatment=("2",) * 3,
+            splitting=xfr,
+            kinds=_LONG_BAND,
+            cells=rep_cells,
+        ),
+        long_row(
+            "G44.law_c",
+            rep,
+            outcome=("gaussian", "bounded"),
+            treatment=("2",) * 3,
+            splitting=xfr,
+            dependence="clustered",
+            kinds=_LONG_BAND,
+            cells=rep_cells,
+        ),
+        long_row("G44.law_m", rep, msm=True, splitting=xfr, kinds=_LONG_BAND, cells=rep_cells),
+        long_row(
+            "G44.law_i",
+            rep,
+            regimens=("tilt",),
+            engine="ipsi",
+            outcome=("gaussian", "bounded"),
+            missing=("complete",),
+            treatment=("2",) * 3,
+            splitting=xfr,
+            kinds=_LONG_BAND,
+            cells=["ipsi_primary", *rep_cells],
+            limits=("law I is measured at n = 80,000, where its second-order bias is small",),
+        ),
+    ]
     return tuple(rows)
 
 

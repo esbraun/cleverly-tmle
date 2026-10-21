@@ -49,7 +49,7 @@ class Finding:
 
 def _modules(root: Path = SOURCE) -> Iterator[tuple[str, ast.Module]]:
     for path in sorted(root.rglob("*.py")):
-        yield str(path.relative_to(ROOT)), ast.parse(path.read_text(encoding="utf-8"))
+        yield path.relative_to(ROOT).as_posix(), ast.parse(path.read_text(encoding="utf-8"))
 
 
 def _base_name(node: ast.expr) -> str | None:

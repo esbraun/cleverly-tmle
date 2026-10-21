@@ -811,7 +811,7 @@ path under a declared rule takes one step before it tests the rule, as `tmle3` d
 `tol=1e-10` only under conditions. `TestRelativeReachability` measured it on arm-mean fits with
 `step_bound` in $\{0.01, 0.05, 0.25\}$.
 
-| setting | result |
+| setting | result in the recorded run |
 | --- | --- |
 | `step_search=True`, default `max_iter=20` | never reached. 0 of 6 point fits and 0 of 32 solver cells. The unconverged walk ends at $1.3\times10^{-9}$ to $8.2\times10^{-9}$ |
 | `step_search=True`, `max_iter=100` | 5 of 6 point fits (35 to 92 iterations), 20 of 32 solver cells |
@@ -824,7 +824,8 @@ Each outer iteration is one line search along the steepest-ascent direction, so 
 linear and takes tens of iterations. The search stops within $1.5\times10^{-8}$ of the minimiser.
 That leaves a relative score of about $10^{-10}$ to $10^{-9}$ at the root, at the edge of `tol`.
 Near that edge, floating-point rounding sets the iteration count. On a CI runner with Python 3.13,
-two of the six point fits took 25 and 190 iterations.
+two of the six point fits took 25 and 190 iterations. A Windows run reaches the tolerance in nine
+iterations for the continuous point fit with `step_bound=0.25`.
 
 The `tmle3` pairing is therefore a declared rule with a larger `max_iter`. A bounded walk that stops
 short of its rule warns, reports `converged=False` and `failure="max_iter_reached"`, and fails

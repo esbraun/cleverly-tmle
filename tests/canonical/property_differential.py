@@ -177,7 +177,8 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     The module's ``fit_properties`` is replaced by a function that returns, for each key, one
     row per cell the key fills, at the declared budget.  Each row's truth is zero and its
     estimate a seeded normal draw with standard error ``n ** -0.5``, centred on zero in a
-    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control.  The
+    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control, or on
+    the centre that the module's ``SYNTHETIC_CENTRES`` names.  The
     module's own code then derives its calibration controls and orders the rows, so the rows
     have the shape a run publishes.  They are no run's output: the differential reads only
     whether a rule and the module agree on them.
@@ -197,6 +198,10 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     """
     declared = {(cell.property, cell.cell): cell for cell in module.declared_cells()}
     critical = float(norm.ppf(1.0 - module.STUDY.margins.alpha / 2.0))
+    # A control that must reach an exact alternative target is centred on it, so that its
+    # clauses can each decide a verdict alone.  The module names those cells in
+    # ``SYNTHETIC_CENTRES``, as ``property/cell`` to centre.
+    centres: dict[str, float] = dict(getattr(module, "SYNTHETIC_CENTRES", {}))
 
     def fit_properties(
         keys: Any, fit_one: Any, *, cells_of: Any, replicate_of: Any, **options: Any
@@ -223,6 +228,7 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
                 if spread is not None:
                     scale = float(spread(spec))
                 centre = SYNTHETIC_CONTROL_BIAS * scale if spec.role == "control" else 0.0
+                centre = centres.get(name, centre)
                 estimate = rng.normal(centre, scale)
                 std_error = scale * rng.uniform(0.9, 1.1)
                 extras = getattr(module, "synthetic_columns", None)
@@ -248,10 +254,17 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
 
     original = getattr(module, "fit_properties")  # noqa: B009
     setattr(module, "fit_properties", fit_properties)  # noqa: B010
+    # A module that refuses a declared run while its pilot tables are placeholders
+    # (``require_recorded_pilots``) fits nothing here, so the guard has nothing to protect.
+    guard = getattr(module, "require_recorded_pilots", None)
+    if guard is not None:
+        setattr(module, "require_recorded_pilots", lambda what: None)  # noqa: B010
     try:
         rows: pd.DataFrame = module.generate_property_rows(n_jobs=1)
     finally:
         setattr(module, "fit_properties", original)  # noqa: B010
+        if guard is not None:
+            setattr(module, "require_recorded_pilots", guard)  # noqa: B010
     return rows
 
 

@@ -217,10 +217,17 @@ previous reader had is not a citation; a page number is.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
-  Journal* 21(1):C1-C68. Read first-hand. Section 3.4 defines the coordinatewise median point.
-  Equation (3.14) defines the median of the within-partition variance plus squared split
-  displacement. Corollary 3.3 gives the fixed-repeat interval under the paper's DML assumptions.
-  It does not establish that a targeted MAR plug-in satisfies those assumptions.
+  Journal* 21(1):C1-C68. Read first-hand. Section 3.4 starts on p. C29. Definition 3.3 and
+  equations (3.13) and (3.14) are on p. C30. Definition 3.3 defines the coordinatewise median
+  point. Equation (3.14) defines the median of the within-partition variance plus squared split
+  displacement. It is a variance-form matrix rule: each split gives the candidate
+  $\hat\Sigma_s + d_s d_s^\top$, and the rule takes the candidate of median operator norm.
+  Corollary 3.3, on p. C30, gives the fixed-repeat interval under the paper's DML assumptions.
+  It does not establish that a targeted MAR plug-in satisfies those assumptions. The package
+  applies the scalar rule per name and the matrix rule in `covariance()` to repeated longitudinal
+  fits ([repeated fold draws](technical-reference/longitudinal-tmle.md#repeated-fold-draws)).
+  There the licence is the per-draw expansion of each single-draw estimator, and Corollary 3.3 is
+  the DML analogue.
 
   The arXiv v7 manuscript, [arXiv:1608.00060](https://arxiv.org/abs/1608.00060), gives the split
   in Definitions 3.1 and 3.2, pages 23–24. Each says "Take a K-fold random partition" of the indices,

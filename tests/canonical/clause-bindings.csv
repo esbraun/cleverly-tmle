@@ -778,6 +778,21 @@ longitudinal-mtp,targeting_necessity,bias equivalent,bias
 longitudinal-mtp,targeting_necessity,least displacement over labels,positive_diffuse
 longitudinal-mtp,type_i_error,coverage floor,coverage/0.5
 longitudinal-mtp,type_i_error,rejection ceiling,rejection/0.1
+longitudinal-repeated-crossfit,interval_calibration,coverage in calibration band,shift/0.7
+longitudinal-repeated-crossfit,interval_calibration,se ratio below band,se_high
+longitudinal-repeated-crossfit,interval_calibration,se ratio in calibration band,affine
+longitudinal-repeated-crossfit,ipsi_primary,bias equivalent,bias
+longitudinal-repeated-crossfit,ipsi_primary,coverage floor,coverage/0.5
+longitudinal-repeated-crossfit,ipsi_primary,se ratio in sanity band,se_high
+longitudinal-repeated-crossfit,repeat_increment,control increment at or above the ceiling,pair_collapse
+longitudinal-repeated-crossfit,repeat_increment,increment under its ceiling,se/2
+longitudinal-repeated-crossfit,repeat_stability,repeat spread ratio under its boundary above the spread floor,pair_collapse
+longitudinal-repeated-crossfit,root_n_and_efficiency,bias equivalent,bias
+longitudinal-repeated-crossfit,root_n_and_efficiency,coverage floor,affine
+longitudinal-repeated-crossfit,root_n_and_efficiency,se ratio sanity,se_high
+longitudinal-repeated-crossfit,root_n_rate,slope in root-n band,contract
+longitudinal-repeated-crossfit,simultaneous_coverage,joint coverage below nominal,se_low
+longitudinal-repeated-crossfit,simultaneous_coverage,joint coverage in calibration band,se_low
 longitudinal-repeated-ipsi,interval_calibration,coverage in calibration band,affine
 longitudinal-repeated-ipsi,interval_calibration,noise se ratio below band,se_high
 longitudinal-repeated-ipsi,interval_calibration,se ratio below band,se_high
@@ -824,6 +839,37 @@ longitudinal-repeated-outcome,targeting_necessity,alternative bias equivalent,bi
 longitudinal-repeated-outcome,targeting_necessity,bias discriminated,control_diffuse
 longitudinal-repeated-outcome,targeting_necessity,bias equivalent,bias
 longitudinal-repeated-outcome,targeting_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-sdr,correction_necessity,alternative bias equivalent,bias
+longitudinal-repeated-sdr,correction_necessity,bias discriminated,control_diffuse
+longitudinal-repeated-sdr,correction_necessity,bias equivalent,bias
+longitudinal-repeated-sdr,correction_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-sdr,double_robustness,alternative bias equivalent,bias
+longitudinal-repeated-sdr,double_robustness,bias discriminated,control_diffuse
+longitudinal-repeated-sdr,double_robustness,bias equivalent,bias
+longitudinal-repeated-sdr,double_robustness,se ratio in union band,se/0.05
+longitudinal-repeated-sdr,full_history_necessity,alternative bias equivalent,bias
+longitudinal-repeated-sdr,full_history_necessity,bias discriminated,control_diffuse
+longitudinal-repeated-sdr,full_history_necessity,bias equivalent,bias
+longitudinal-repeated-sdr,full_history_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-sdr,interval_calibration,coverage at calibration floor,shift/0.7
+longitudinal-repeated-sdr,interval_calibration,coverage in calibration band,affine
+longitudinal-repeated-sdr,interval_calibration,noise se ratio below band,se_high
+longitudinal-repeated-sdr,interval_calibration,se ratio at calibration floor,se/0.05
+longitudinal-repeated-sdr,interval_calibration,se ratio below band,se_high
+longitudinal-repeated-sdr,interval_calibration,se ratio in calibration band,affine
+longitudinal-repeated-sdr,outcome_history_necessity,alternative bias equivalent,bias
+longitudinal-repeated-sdr,outcome_history_necessity,bias discriminated,control_diffuse
+longitudinal-repeated-sdr,outcome_history_necessity,bias equivalent,bias
+longitudinal-repeated-sdr,outcome_history_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-sdr,repeated_outcome_necessity,alternative bias equivalent,bias
+longitudinal-repeated-sdr,repeated_outcome_necessity,bias equivalent,bias
+longitudinal-repeated-sdr,repeated_outcome_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-sdr,rule_necessity,alternative bias equivalent,bias
+longitudinal-repeated-sdr,rule_necessity,bias discriminated,control_diffuse
+longitudinal-repeated-sdr,rule_necessity,bias equivalent,bias
+longitudinal-repeated-sdr,rule_necessity,least displacement over labels,positive_diffuse
+longitudinal-repeated-sdr,simultaneous_coverage,joint coverage below nominal,se_high
+longitudinal-repeated-sdr,simultaneous_coverage,joint coverage in calibration band,se_low
 longitudinal-sdr,clustered_calibration,coverage in calibration band,bias
 longitudinal-sdr,clustered_calibration,se ratio below band,se_high
 longitudinal-sdr,clustered_calibration,se ratio in calibration band,se/0.05

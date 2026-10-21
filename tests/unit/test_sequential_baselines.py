@@ -1019,7 +1019,7 @@ def test_the_replay_restamps_the_adaptive_status() -> None:
             {"always": 1}, treatment_learner=LogisticRegression(), simultaneous=False
         ).fit(frame, **columns)
         curve = longitudinal_truncation_curve(result, [0.01])
-        replay = _refit_bound(result, result.replay_recipe, result.config.g_bounds)
+        replay = _refit_bound(result, result.repeats[0], result.config.g_bounds)
     assert result.replay_recipe.parametric is False
     assert curve["delta_from_fitted"].iloc[0] == 0.0
     name = "ey_regimen[always]"

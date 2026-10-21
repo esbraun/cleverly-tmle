@@ -1768,6 +1768,24 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, frame, configuration=configuration: study.fit(frame, configuration),
         )
 
+    # ``SDR`` on a repeated outcome (X32b): the property study's own fit at 400 rows.
+    sr, sr_slug = "sdr_repeated_properties.py:415", "longitudinal-repeated-sdr"
+    for row, configuration, joint in (
+        ("G38.in_sample", "in_sample", True),
+        ("G38.cross_fitted", "crossfit", False),
+        ("G38.continuous", "continuous", False),
+    ):
+        observed(
+            row,
+            sr_slug,
+            "interval_calibration",
+            sr,
+            lambda study, configuration=configuration: study.sample(configuration, 0, 400),
+            lambda study, frame, configuration=configuration, joint=joint: study.fit(
+                frame, configuration, simultaneous=joint
+            ),
+        )
+
     # The structural nested mean study (X44): one primary scenario for each key it fits.
     for row, scenario in (
         ("G42.two_nodes", "s2"),
@@ -1996,6 +2014,25 @@ def _long_cases() -> tuple[RowCase, ...]:
             boot,
             lambda study, label=label: study._sample(label, study.GROUPS[label][0], 0),
             lambda study, frame, label=label: study._fit(label, study.GROUPS[label][0], 0, frame),
+        )
+
+    # Repeated cross-fitting: the study's declared fit of each primary scenario.
+    repeated = "longitudinal_repeated_crossfit.py:450"
+    for row, scenario, law, n in (
+        ("G44.law_d.tmle", "law_d_ltmle", "d", 600),
+        ("G44.law_d.sdr", "law_d_sdr", "d", 600),
+        ("G44.law_s", "law_s", "s", 600),
+        ("G44.law_c", "law_c", "c", 1200),
+        ("G44.law_m", "law_m", "m", 600),
+        ("G44.law_i", "law_i", "i", 3000),
+    ):
+        observed(
+            row,
+            "longitudinal-repeated-crossfit",
+            scenario,
+            repeated,
+            lambda study, law=law, n=n: study.sample(law, n, 0),
+            lambda study, frame, scenario=scenario: study.fit_scenario(scenario, frame),
         )
     return tuple(cases)
 

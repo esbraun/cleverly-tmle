@@ -46,6 +46,7 @@ few-cluster-cross-fitted-longitudinal-tmle
 fold-evaluated-point-treatment-cv-tmle
 fold-targeted-point-treatment-cv-tmle
 repeated-cross-fitting
+repeated-cross-fitted-longitudinal
 selector-based-point-treatment-c-tmle
 selector-based-multi-arm-c-tmle
 c-tmle-candidate-sequences
@@ -113,6 +114,7 @@ structural-nested-mean
 parametric-gformula
 repeated-outcome-longitudinal-tmle
 repeated-outcome-ipsi
+repeated-outcome-sdr
 omitted-variable-bound-standard-error
 omitted-variable-bound-plugin-standard-error
 calibration-slope-warning

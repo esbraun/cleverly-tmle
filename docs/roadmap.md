@@ -126,7 +126,6 @@ not change the package version.
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
 | B1 | Longitudinal fitting options | no new theory; each option keeps its default bit-identical | none | [X33](#x33-longitudinal-fitting-options) |
-| B4 | Repeated cross-fitting for longitudinal fits | published support; pending source read | the shipped point-treatment repeats and trajectory-level splits | [X46](#x46-repeated-cross-fitting-for-longitudinal-fits) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
@@ -610,22 +609,6 @@ The R comparators named above are deferred to
 evidence only. Do not remove this row until the studies land.
 
 
-
-### X46. Repeated cross-fitting for longitudinal fits
-
-Point-treatment fits repeat the fold draw and report the median over draws, with the
-split-adjusted median variance of Chernozhukov et al. (2018), Definition 3.3 and equation (3.14).
-The [repeated cross-fitting study](technical-reference/method-evidence/repeated-cross-fitting.md)
-validates that report. Longitudinal fits take `n_folds` only. This row extends trajectory-level
-split provenance to repeated fold draws for `LTMLE` and `SDR`, and applies the same fixed-repeat
-rule.
-
-The median does not inherit an ordinary influence function. The contract states the fixed-repeat
-rule that carries the variance, and it keeps the joint covariance of paired policy contrasts
-within each draw.
-
-Acceptance: a witness that each draw reproduces a single-draw fit, a mutation control that reuses
-one draw, and a registered study of the median and its variance.
 
 
 ### X33. Longitudinal fitting options
@@ -1128,14 +1111,15 @@ Acceptance:
 
 ### X32b. Repeated outcomes for SDR and IPSI
 
-`LTMLE` and `IPSI` fit a repeated outcome, declared with `outcome=Repeated([...])`. Each horizon
-is the end-of-study fit of the panel truncated after it
+`LTMLE`, `SDR` and `IPSI` fit a repeated outcome, declared with `outcome=Repeated([...])`. Each
+horizon is the end-of-study fit of the panel truncated after it
 ([repeated outcomes](technical-reference/longitudinal-tmle.md#repeated-outcomes)). The fit refuses
-a repeated outcome for any other estimator kind, before any learner. So `SDR` refuses it now.
+a repeated outcome for any other estimator kind, before any learner. So the sequential baselines
+refuse it now.
 
 | part | what to add | evidence |
 | --- | --- | --- |
-| (a) `SDR` | the per-horizon reduction of the sequentially doubly robust fit | the reduction test of `tests/unit/test_repeated_outcome.py` for `SDR`, and exact-law Gateaux witnesses |
+| (a) `SDR` | the per-horizon reduction of the sequentially doubly robust fit | shipped, with the reduction test of `tests/unit/test_repeated_outcome.py` and the exact-law witnesses E1 to E3, E2b and E8. The registered study `longitudinal-repeated-sdr` passes all 123 property rows. Its R comparator is pending |
 | (b) `IPSI` | the curve $t \mapsto E[Y_t^{Q}]$ under a tilt. Kim, Kennedy and Naimi (2021), *Journal of Causal Inference* 9(1):302–344, Theorems 3.1, 4.1 and 5.1, cover tilts, dropout, and the joint process over $\delta$ and $t$ | shipped, with the reduction test and the exact-law witnesses E5 to E8. The registered study `longitudinal-repeated-ipsi` passes all 96 property rows, 81 gated and 15 reported |
 
 Acceptance:

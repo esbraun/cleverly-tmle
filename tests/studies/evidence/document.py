@@ -257,6 +257,11 @@ def _property_verdict(row: Any) -> str:
     return _verdict(row.passed)
 
 
+def _reads_score(row: Any) -> bool:
+    """Whether a ``correction_necessity`` cell is one of the closed-score and initial-score pair."""
+    return str(row.cell).endswith(("__closed_score", "__initial_score_control"))
+
+
 def measured(row: Any) -> str:
     """The endpoint a cell's own verdict was read from, named and valued.
 
@@ -275,7 +280,9 @@ def measured(row: Any) -> str:
         The endpoint, named and rendered as a published table cell prints it.
     """
     family = str(row.property)
-    if family in _BIAS_GATED:
+    # ``correction_necessity`` names two kinds of cell.  The DR-TMLE kind reads a score, and the
+    # kind with a corrected and an uncorrected arm reads the bias of the pair.
+    if family in _BIAS_GATED or (family == "correction_necessity" and not _reads_score(row)):
         measured = (
             f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
             f"margin {render(float(row.bias_margin))}"
@@ -385,6 +392,27 @@ def measured(row: Any) -> str:
             f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
             f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
         )
+    if family == "repeat_increment":
+        # The median's SE ratio minus the first draw's, read against its ceiling.
+        return (
+            f"increment {render(float(row.increment))}, "
+            f"{_interval(row.increment_ci_lower, row.increment_ci_upper)}, "
+            f"ceiling {render(float(row.increment_ceiling))}"
+        )
+    if family == "ipsi_primary":
+        return (
+            f"bias {_interval(row.bias_ci_lower, row.bias_ci_upper)}, "
+            f"margin {render(float(row.bias_margin))}, "
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+    if family == "single_draw_reading":
+        return (
+            f"coverage {_interval(row.coverage_ci_lower, row.coverage_ci_upper)}, "
+            f"SE ratio {_interval(row.se_ratio_ci_lower, row.se_ratio_ci_upper)}"
+        )
+    if family == "split_displacement":
+        return f"displacement share {render(float(row.displacement_share))}"
     if family == "simultaneous_coverage":
         # A joint cell has no scalar estimand, so its row carries only the coverage its verdict
         # is read from.  The bias and SE columns hold a max-t statistic and a critical value.

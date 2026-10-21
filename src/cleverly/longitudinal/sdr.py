@@ -38,6 +38,13 @@ pooled out-of-fold ratios (:mod:`cleverly.longitudinal.ratio_trim`), and every f
 its own factors at it.  So a fold's transform reads the held-out rows through that one number,
 as a continuous node's bin edges do.
 
+**A repeated outcome.**  The recursion of horizon :math:`h` is the end-of-study recursion of the
+panel truncated after node :math:`h`.  The seed :math:`v_{h+1}` is :math:`Y_h` on the rows
+uncensored through :math:`h`.  Each earlier :math:`Y_s` enters only through the history
+:math:`H_{s+1}`, as a covariate of the regressions and of both mechanisms.  Equation (4) and
+Lemmas 3 and 4 of the paper then apply to the prefix, and Theorem 4 gives the influence curve of
+cell :math:`h`.  Only the seed reads the repeated outcome array.
+
 **Cross-fitting is the training-fold recursion.**  Fold :math:`k` fits every nuisance on its
 training rows: the mechanism (``fit_mechanism(fit_rows=...)``), and the backward recursion
 with its own outcome fits and its own mechanism in every training row's transform.  Its

@@ -568,6 +568,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as POINT_SURVIVAL_POLICIES,
     )
     from tests.studies.canonical_policy_point_mtp import STUDY as POLICY_POINT_MTP
+    from tests.studies.canonical_sdr_repeated import STUDY as CANONICAL_SDR_REPEATED
     from tests.studies.canonical_sequential_baselines import STUDY as SEQUENTIAL_BASELINES
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_categorical_ltmle import (
@@ -600,6 +601,7 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
+    from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
     from tests.studies.omitted_variable_bound_plugin import (
         STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
@@ -624,6 +626,7 @@ def registered() -> tuple[StudyRecord, ...]:
         FOLD_EVALUATED_CVTMLE,
         FOLD_TARGETED_CVTMLE,
         REPEATED_CROSSFIT_TMLE,
+        LONGITUDINAL_REPEATED_CROSSFIT,
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
         CANONICAL_CTMLE_SEQUENCES,
@@ -673,6 +676,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
         CANONICAL_LTMLE_REPEATED,
         CANONICAL_IPSI_REPEATED,
+        CANONICAL_SDR_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,

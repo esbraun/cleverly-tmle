@@ -1059,7 +1059,7 @@ def _sdr_fit(ratio: str, *, copies: int = 1, monkeypatch: Any = None) -> Any:
     if copies > 1:
         size = len(frame) // copies
         assignment = np.repeat(np.arange(copies), size)
-        monkeypatch.setattr(SDR, "_folds", lambda self, data: Folds(assignment, copies))
+        monkeypatch.setattr(SDR, "_folds", lambda self, data, seed=None: Folds(assignment, copies))
     exact = mtp.exact_bins() if ratio == "density" else contextlib.nullcontext()
     with warnings.catch_warnings(), exact:
         warnings.simplefilter("ignore")

@@ -22,11 +22,13 @@ import pytest
 
 from cleverly.inference.multiplier import simultaneous_bands
 from cleverly.interventions import Incremental
-from cleverly.longitudinal import IPSI, LTMLE, Repeated
+from cleverly.longitudinal import IPSI, LTMLE, SDR, Repeated
 from cleverly.longitudinal.estimator import HORIZON_INFIX
 
 from .. import discrete_law_repeated as laws
 from ..studies.canonical_ltmle import declared_regimens
+from .test_repeated_law_values import NON_SEQUENTIAL_GAP as SDR_NON_SEQUENTIAL_GAP
+from .test_repeated_law_values import PLUG_IN_GAP as SDR_PLUG_IN_GAP
 
 #: Truncation wide enough never to bind: every mechanism lies in [0.25, 0.75].
 NO_TRUNCATION = (1e-8, 1.0 - 1e-8)
@@ -597,3 +599,305 @@ def test_e8_the_ipsi_horizons_are_correlated(ipsi_banded: Any) -> None:
 
 def test_e8_the_ipsi_band_is_built_from_the_stacked_curves(ipsi_banded: Any) -> None:
     check_e8(ipsi_banded)
+
+
+# ---------------------------------------------------------------- SDR: E1 to E3, E2b and E8
+
+#: The plans of the exact witnesses, as the laws declare them.
+SDR_PLANS = ("never", "always", "treat_if_high")
+
+
+class NodeOne(laws.CellMeans):
+    """The saturated learner, except at node 1, where it keeps the columns ``keep`` only.
+
+    The mechanisms of a repeated fit see a design whose width names the node: the treatment
+    design holds 1 column at node 1 (``W``) and 4 at node 2, and the censoring design holds 2
+    (``W``, ``A_1``) and 5.  ``width`` is the node-1 width and ``keep`` the columns that
+    remain there, so an empty ``keep`` is an intercept.
+    """
+
+    width: int = 1
+    keep: tuple[int, ...] = ()
+
+    def _select(self, X: Any) -> np.ndarray:
+        matrix = np.asarray(X, dtype=float)
+        if matrix.shape[1] != self.width:
+            return matrix
+        return matrix[:, list(self.keep)] if self.keep else np.zeros((matrix.shape[0], 1))
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> NodeOne:
+        super().fit(self._select(X), y, sample_weight=sample_weight)
+        return self
+
+    def predict(self, X: Any) -> np.ndarray:
+        return super().predict(self._select(X))
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return super().predict_proba(self._select(X))
+
+
+class InterceptAtNodeOne(NodeOne):
+    """A treatment mechanism that is an intercept at node 1 and saturated at node 2."""
+
+    width = 1
+    keep = ()
+
+
+class ArmAtNodeOne(NodeOne):
+    """A censoring mechanism that reads ``A_1`` alone at node 1 and is saturated at node 2."""
+
+    width = 2
+    keep = (1,)
+
+
+def sdr_fit(
+    law: laws.RepeatedLaw,
+    *,
+    frame: Any = None,
+    outcome: Any = None,
+    treatment: Any = None,
+    censoring: Any = None,
+    roles: dict[str, Any] | None = None,
+    **overrides: Any,
+) -> Any:
+    """``SDR`` on the law's exact sample, with a saturated learner unless one is handed in."""
+    settings: dict[str, Any] = {
+        "reference": laws.REGIMEN_REFERENCE,
+        "outcome_learner": outcome or laws.CellMeans(),
+        "pseudo_learner": outcome or laws.CellMeans(),
+        "treatment_learner": treatment or laws.CellMeans(),
+        "censoring_learner": censoring or laws.CellMeans(),
+        "n_folds": 1,
+        "g_bounds": NO_TRUNCATION,
+        "simultaneous": False,
+    }
+    settings.update(overrides)
+    regimens = settings.pop("regimens", declared_regimens(law.regimen_spec()))
+    return SDR(regimens, **settings).fit(
+        law.frame() if frame is None else frame, **({**COLUMNS, **(roles or {})})
+    )
+
+
+def known_mechanisms(law: laws.RepeatedLaw) -> tuple[Any, dict[str, Any]]:
+    """The law's frame with its mechanism columns, and the roles that declare them.
+
+    ``g{t}_{a}`` is :math:`P(A_t = a \\mid H_t)` and ``r{t}`` is :math:`P(C_t = 1 \\mid H_t,
+    A_t)` at the arm the row holds.  A row that does not reach node ``t`` holds missing values
+    there, as the fit expects.  The tables are the ones the law samples from.
+    """
+    frame = law.frame()
+    high = np.array([-1 if np.isnan(y) else law.high(law.y1_values.index(y)) for y in frame["Y1"]])
+    node_2 = (high >= 0) & frame["L2"].notna().to_numpy()
+    w, a1, l2, a2 = (
+        frame[name].fillna(0).to_numpy().astype(int) for name in ("W", "A1", "L2", "A2")
+    )
+    g1 = laws.G1[w]
+    g2 = np.full(len(frame), np.nan)
+    g2[node_2] = laws.G2[w[node_2], a1[node_2], high[node_2], l2[node_2]]
+    r2 = np.full(len(frame), np.nan)
+    r2[node_2] = laws.C2[w[node_2], a1[node_2], high[node_2], l2[node_2], a2[node_2]]
+    frame = frame.assign(g1_1=g1, g1_0=1.0 - g1, g2_1=g2, g2_0=1.0 - g2, r1=laws.C1[w, a1], r2=r2)
+    roles = {
+        "treatment_probabilities": {
+            "A1": {0.0: "g1_0", 1.0: "g1_1"},
+            "A2": {0.0: "g2_0", 1.0: "g2_1"},
+        },
+        "censoring_probabilities": {"C1": "r1", "C2": "r2"},
+    }
+    return frame, roles
+
+
+def _sdr_mean(plan: str, horizon: int) -> str:
+    return f"ey_regimen[{plan} @ t={horizon}]"
+
+
+#: A reported cell of an ``SDR`` fit: a plan and a horizon.
+Cell = tuple[str, int]
+SDR_CELLS: tuple[Cell, ...] = tuple((plan, h) for plan in SDR_PLANS for h in laws.HORIZONS)
+
+
+def check_e1(law: laws.RepeatedLaw, fit: Any, names: Any = None) -> None:
+    """E1: the estimate is the g-formula, and the curve its complex-step Gateaux derivative.
+
+    The derivative is taken of the g-formula on the cell probabilities, so nothing the library
+    supplies enters it.  The check runs over every reported mean and contrast, or over
+    ``names``.
+    """
+    rows = law.first_row_of()
+    for name in law.names if names is None else names:
+        assert fit.psi(name) == pytest.approx(law.truth[name], abs=1e-12), f"estimate: {name}"
+        np.testing.assert_allclose(
+            fit.influence_curves[name][rows],
+            law.eif(name),
+            atol=1e-11,
+            rtol=0,
+            err_msg=f"curve: {name}",
+        )
+
+
+def check_e2(law: laws.RepeatedLaw, fit: Any, cells: Any = SDR_CELLS) -> None:
+    """E2: with ``W``-only regressions and known mechanisms the estimate is the truth.
+
+    The correction carries the whole gap that the ``W``-only plug-in leaves at ``h = 2``.
+    """
+    for plan, horizon in cells:
+        name = _sdr_mean(plan, horizon)
+        assert fit.psi(name) == pytest.approx(law.truth[name], abs=1e-12), f"estimate: {name}"
+
+
+def check_e2b(law: laws.RepeatedLaw, fit: Any) -> None:
+    """E2b: a wrong node-2 regression with the true ratio, and a wrong node-1 ratio.
+
+    The node-1 regression is saturated in ``W`` and so correct for its pseudo-outcome.
+    Sequential double robustness (Díaz et al. Lemma 4) makes the estimate exact.
+    """
+    check_e2(law, fit)
+
+
+def check_e3(law: laws.RepeatedLaw, fit: Any, cells: Any = SDR_CELLS) -> None:
+    """E3: the curve is an independent law-side transform ``phi_1(m-bar, r) - psi``.
+
+    The transform is written on the support points from the known tables, at the nuisances of
+    E2, for each cell and for its contrast against the reference.
+    """
+    rows = law.first_row_of()
+    for plan, horizon in cells:
+        _, curve = law.sdr_population(plan, horizon, key_1=["W"], key_2=["W"])
+        name = _sdr_mean(plan, horizon)
+        np.testing.assert_allclose(
+            fit.influence_curves[name][rows], curve, atol=1e-11, rtol=0, err_msg=f"curve: {name}"
+        )
+        if plan != laws.REGIMEN_REFERENCE:
+            _, reference = law.sdr_population(
+                laws.REGIMEN_REFERENCE, horizon, key_1=["W"], key_2=["W"]
+            )
+            name = f"ate_regimen[{plan} vs {laws.REGIMEN_REFERENCE} @ t={horizon}]"
+            np.testing.assert_allclose(
+                fit.influence_curves[name][rows],
+                curve - reference,
+                atol=1e-11,
+                rtol=0,
+                err_msg=f"curve: {name}",
+            )
+
+
+@pytest.fixture(scope="module", params=LAWS, ids=[law.name for law in LAWS])
+def sdr_law_and_fit(request: pytest.FixtureRequest) -> tuple[laws.RepeatedLaw, Any]:
+    law = request.param
+    return law, sdr_fit(law)
+
+
+def test_e1_saturated_regressions_and_estimated_mechanisms_give_the_g_formula_and_its_derivative(
+    sdr_law_and_fit: tuple[laws.RepeatedLaw, Any],
+) -> None:
+    """``SDR`` with saturated regressions and estimated mechanisms is exact at every horizon.
+
+    The point check alone is vacuous for the correction, because a saturated regression
+    leaves nothing to correct in sample.  The derivative check is not: the curve is the
+    transform, and a wrong correction term moves it.  E2 and E3 carry the correction.
+    """
+    law, fit = sdr_law_and_fit
+    assert set(fit) == set(law.names)
+    check_e1(law, fit)
+
+
+@pytest.fixture(scope="module", params=LAWS, ids=[law.name for law in LAWS])
+def sdr_known_fit(request: pytest.FixtureRequest) -> tuple[laws.RepeatedLaw, Any]:
+    """``W``-only regressions at both nodes, with the law's mechanisms declared known."""
+    law = request.param
+    frame, roles = known_mechanisms(law)
+    return law, sdr_fit(law, frame=frame, roles=roles, outcome=Baseline())
+
+
+def test_e2_w_only_regressions_with_known_mechanisms_give_the_truth_and_the_plug_in_does_not(
+    sdr_known_fit: tuple[laws.RepeatedLaw, Any],
+) -> None:
+    """The correction carries the whole gap that the ``W``-only plug-in leaves at ``h = 2``.
+
+    The precondition is a declared nonzero gap per plan.  At ``h = 1`` the node-1 regression
+    on ``W`` is saturated, so the gap is zero by construction and E3 carries that horizon.
+    """
+    law, fit = sdr_known_fit
+    check_e2(law, fit)
+    for plan, declared in zip(SDR_PLANS, SDR_PLUG_IN_GAP[law.name], strict=True):
+        plug_in, _ = law.sdr_population(plan, 2, key_1=["W"], key_2=["W"], scale=0.0)
+        gap = plug_in - law.truth[_sdr_mean(plan, 2)]
+        assert gap == pytest.approx(declared, abs=6e-7), plan
+        assert abs(gap) > 1e-3, plan
+        assert abs(fit.psi(_sdr_mean(plan, 2)) - plug_in) > 1e-3, plan
+
+
+def test_e3_the_curve_is_the_law_side_transform(
+    sdr_known_fit: tuple[laws.RepeatedLaw, Any],
+) -> None:
+    """The curve under E2 is the transform ``phi_1 - psi``, which is not the efficient curve."""
+    law, fit = sdr_known_fit
+    check_e3(law, fit)
+    rows = law.first_row_of()
+    for plan in SDR_PLANS:
+        reported = fit.influence_curves[_sdr_mean(plan, 2)][rows]
+        assert np.max(np.abs(reported - law.eif(_sdr_mean(plan, 2)))) > 1e-2, plan
+
+
+@pytest.mark.parametrize("law", LAWS, ids=[law.name for law in LAWS])
+def test_e2b_sequential_double_robustness_at_a_mixed_pattern(law: laws.RepeatedLaw) -> None:
+    """Node 2 wrong with the true ratio, node 1 right with a wrong ratio: still the truth.
+
+    The node-2 regression reads ``W`` alone.  The node-1 mechanisms are an intercept
+    (treatment) and the arm alone (censoring), which are wrong, and the node-1 regression is
+    saturated in ``W``.  The estimator that regresses node 1 on ``m_2`` and not on
+    ``phi_2`` misses by a declared nonzero amount at the same nuisances.
+    """
+    fit = sdr_fit(
+        law,
+        outcome=Baseline(),
+        treatment=InterceptAtNodeOne(),
+        censoring=ArmAtNodeOne(),
+    )
+    check_e2b(law, fit)
+    options: dict[str, Any] = {"key_1": ["W"], "key_2": ["W"], "ratio_1": "intercept"}
+    for plan, declared in zip(SDR_PLANS, SDR_NON_SEQUENTIAL_GAP[law.name], strict=True):
+        sequential, curve = law.sdr_population(plan, 2, **options)
+        control, _ = law.sdr_population(plan, 2, sequential=False, **options)
+        assert fit.psi(_sdr_mean(plan, 2)) == pytest.approx(sequential, abs=1e-12), plan
+        # The curve is the transform at the wrong node-1 ratio, so the fit holds that ratio.
+        np.testing.assert_allclose(
+            fit.influence_curves[_sdr_mean(plan, 2)][law.first_row_of()],
+            curve,
+            atol=1e-11,
+            rtol=0,
+            err_msg=f"curve: {plan}",
+        )
+        assert control - law.truth[_sdr_mean(plan, 2)] == pytest.approx(declared, abs=6e-7), plan
+        assert abs(declared) > 1e-4, plan
+        assert abs(fit.psi(_sdr_mean(plan, 2)) - control) > 1e-4, plan
+
+
+def test_e2b_the_mixed_pattern_has_a_wrong_ratio_at_node_one() -> None:
+    """The precondition: the node-1 ratio of the mixed pattern differs from the tabled one."""
+    law = laws.BINARY
+    wrong, _ = law.sdr_population("never", 1, key_1=["W"], key_2=["W"], ratio_1="intercept")
+    plug_in, _ = law.sdr_population("never", 1, key_1=["W"], key_2=["W"], scale=0.0)
+    # The correction at h = 1 vanishes in sample whatever the ratio, because the node-1
+    # regression is saturated in W: both are the truth.  The ratios differ in the curve.
+    _, wrong_curve = law.sdr_population("never", 1, key_1=["W"], key_2=["W"], ratio_1="intercept")
+    _, true_curve = law.sdr_population("never", 1, key_1=["W"], key_2=["W"])
+    assert wrong == pytest.approx(plug_in, abs=1e-12)
+    assert np.max(np.abs(wrong_curve - true_curve)) > 1e-2
+
+
+@pytest.fixture(scope="module")
+def sdr_banded() -> Any:
+    return sdr_fit(laws.BINARY, simultaneous=True, n_multiplier=MULTIPLIERS, random_state=0)
+
+
+def test_e8_the_sdr_horizons_are_correlated(sdr_banded: Any) -> None:
+    """The horizons of one plan share units, and the correlation is not zero."""
+    for plan in SDR_PLANS:
+        first = sdr_banded.influence_curves[_sdr_mean(plan, 1)]
+        second = sdr_banded.influence_curves[_sdr_mean(plan, 2)]
+        assert abs(np.corrcoef(first, second)[0, 1]) > 0.05, plan
+
+
+def test_e8_the_sdr_band_is_built_from_the_stacked_curves(sdr_banded: Any) -> None:
+    check_e8(sdr_banded)

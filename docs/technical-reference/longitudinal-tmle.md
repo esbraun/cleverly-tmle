@@ -351,9 +351,10 @@ panel, under the same inference statuses.
 | static, dynamic and known stochastic plans, modified treatment policies | fits. A rule may read $Y_{t-1}$ |
 | cross-fitting, clusters, weights, a held treatment, known mechanisms | fits |
 | `msm=` over $(d, h)$ cells | fits |
+| `repeats` above 1 | fits. Each horizon's mean and contrast take the median rule of [repeated fold draws](#repeated-fold-draws) |
 | `stopping=`, `step_bound=`, `step_search=`, `iterate=` | fit. Each horizon applies them at its nodes ([targeting options at each node](#targeting-options-at-each-node)) |
+| `SDR` | fits. Each horizon is the end-of-study fit of the truncated panel ([below](#sdr-on-a-repeated-outcome)) |
 | `IPSI` | fits. Each horizon is the end-of-study fit of the truncated panel ([below](#ipsi-on-a-repeated-outcome)) |
-| `SDR` | refused before any learner, until [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | competing causes | not declarable. A cause mapping declares an absorbing outcome |
 | `rmst()`, `rmtl()`, `incidence_total()`, `ratio(view="survival")` | refused. A mean of a repeated outcome is not a cumulative risk |
 | `curve()` | `scale="mean"`, the default for this outcome. `"risk"` and `"survival"` are refused |
@@ -364,8 +365,8 @@ is encoded as censoring, the parameter is the mean in a population where death i
 | estimator | status | source for horizon $h$ |
 | --- | --- | --- |
 | `LTMLE` | fits | Bang and Robins (2005); van der Laan and Gruber (2012) |
+| `SDR` | fits | Díaz et al. (2023), Equation (4), Lemma 4 and Theorem 4 on the prefix |
 | `IPSI` | fits | Kim, Kennedy and Naimi (2021), Theorems 3.1, 4.1 and 5.1 |
-| `SDR` | refused until X32b | none yet |
 
 The allowlist `REPEATED_OUTCOME_KINDS` holds the kinds in this table that fit.
 `tests/unit/test_repeated_outcome_subclasses.py` fits every estimator subclass and requires
@@ -373,13 +374,17 @@ either the reduction or the refusal.
 
 A level of $E[Y_h^d]$ is checked against the range of its own horizon. The outcome scale pools
 every node, so a level of $Y_2$ outside the range of $Y_2$ and inside the range of $Y_1$ would
-pass the pooled range. The fit warns with `ParameterSpaceWarning` and names the range of
-that horizon. A declared `q_bounds` replaces the derived range
-(`tests/unit/test_repeated_outcome_container.py`, W16).
+pass the pooled range. `SDR` and `IPSI` warn with `ParameterSpaceWarning` and name the range of
+that horizon. `LTMLE` has no per-horizon range check. A fit with `msm=` runs no range check. A
+declared `q_bounds` replaces the derived range (`tests/unit/test_repeated_outcome_container.py`,
+W16).
 
 `tests/unit/test_repeated_outcome.py` checks the reduction at every horizon for 13 compositions
-of `LTMLE`, and for 11 of those 13 compositions of `IPSI` plus six incremental ones: the estimate, the
-influence curve, every node regression and the cumulative mechanism, at `rtol=1e-12`. The other two `IPSI` compositions refuse with the end-of-study message. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
+of `LTMLE` and 13 of `SDR`, and for 11 of those 13 compositions of `IPSI` plus six incremental
+ones: the estimate, the influence curve, every node regression and the cumulative mechanism, at
+`rtol=1e-12`. A plan with an odds tilt refuses in `SDR`, and the repeated fit raises the same
+message as the end-of-study fit. The other two `IPSI` compositions refuse with the end-of-study
+message. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
 the complex-step Gateaux derivative of the g-formula on two exact laws in
 `tests/discrete_law_repeated.py`. One law is binary. The other has three values per node. Ten
 mutation controls fail these tests, among them the absorbing seed $\max_{s \le h} Y_s$, a history
@@ -1556,6 +1561,126 @@ the table of codes above does not list it.
 
 See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each code means.
 
+### Repeated fold draws
+
+`repeats=R` on `LTMLE`, `SDR` and `IPSI` runs the complete single-draw fit at `R` independent fold
+assignments. `CrossFitting(repeats=R)` sets it on the `CausalStudy` route. Each draw fits its own
+mechanism, its own training-fold mechanisms, its own recursion and its own estimates.
+`result.repeats` holds one `LongitudinalRepeat` per draw. Draw $r$ equals a fit with `repeats=1` at
+`random_state=result.repeats[r].seed`.
+
+The fit combines the draws by the rule of Chernozhukov et al. (2018, Definition 3.3 and equation
+(3.14), pp. C29-C30). Let $t_r$ be draw $r$'s value on the estimate's inference scale and
+$\hat\sigma_r^2$ its variance on that scale. The reported value is $\tilde t = \operatorname{median}_r
+t_r$, and the reported variance is $\operatorname{median}_r\{\hat\sigma_r^2 + (t_r - \tilde
+t)^2\}$.
+
+At an even draw count the median is the mean of the two central values. The table gives the rule
+for each quantity.
+
+| quantity | rule under `repeats` above 1 |
+| --- | --- |
+| level, risk, incidence, MSM coefficient | the rule above, per name |
+| in-fit contrast `ate_regimen[a vs ref]` | the rule above on the per-draw contrast. Each draw forms the contrast from its own two fits, so its variance keeps that draw's paired covariance |
+| `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()` | the single-draw functional in every draw, then the rule above on its inference scale. A ratio uses the log scale. `contrast(..., transform=T)` uses the scale of `T` and reports $T^{-1}(\tilde t)$ |
+| `covariance(names)` | the matrix rule of equation (3.14) for the selected names. See the next paragraph |
+| simultaneous band | $\tilde\psi_j \pm c_{\mathrm{med}}\,\tilde\sigma_j$. Here $c_{\mathrm{med}}$ is the median of the per-draw multiplier critical values, and $\tilde\sigma_j$ is the reported standard error |
+| inference status | each name takes the precedent status of its draws before any median |
+| repeated outcome, `Repeated([...])` | the rule above for each horizon's mean and contrast. `curve(scale="mean")` reports the combined values |
+| `influence_curves` | the curve of the central draw, or the mean of the two central curves at an even draw count. It serves marginal diagnostics only |
+| `repeat_spread()` | the standard deviation of the draws on the inference scale, a diagnostic |
+
+`covariance(names)` builds one candidate per draw, $C_r = \hat\Sigma_r + d_r d_r^\top$. Here
+$\hat\Sigma_r$ is draw $r$'s covariance of the selected names, and $d_r$ is that draw's
+displacement from the coordinatewise median. The method returns the candidate with the median
+largest eigenvalue, with ties to the lower draw. At an even draw count it returns the mean of the
+two candidates with the central largest eigenvalues.
+
+The draw that the rule picks depends on the selection. So an entry of the matrix can differ
+between two selections that share a name, and from the reported variance. A one-name call equals
+the reported variance exactly, because it runs the same scalar rule. The reported intervals,
+contrasts and bands read the per-name rule and not this matrix.
+
+**Why the median keeps each draw's expansion.** Draw $r$ is the shipped single-draw estimator at
+its own split. The expansion
+$\hat\psi_r - \psi_0 = P_n D^* + \mathrm{Rem}_r + o_P(n^{-1/2})$ with
+$\mathrm{Rem}_r = o_P(n^{-1/2})$ holds under the conditions that the single-draw row of the
+estimator states. For `LTMLE` that is the product rate over the outcome and mechanism errors, or a
+known mechanism. `SDR` has no interval when only one nuisance is consistent, and a boundary or
+few-cluster fit has no interval at all. Under those conditions, for a fixed `R`, the median lies
+between the smallest and the largest draw. Its remainder is therefore at most
+$\max_r |\mathrm{Rem}_r|$, which is $o_P(n^{-1/2})$. The displacement term is $o_P(n^{-1})$, so it
+is a finite-sample split adjustment.
+
+A draw whose status supplies no inference gives the median no inference either. Each name takes
+the precedent status of its draws before the median, as **Status across draws** states.
+
+The argument holds on any inference scale that is differentiable at $\psi_0$. Corollary 3.3 of
+Chernozhukov et al. (2018) states the analogue for the DML estimators. It is not the licence. A
+single curve does not represent the split variability of the median in a finite sample.
+Asymptotically at a fixed `R` the median has the curve of each draw.
+
+**Status across draws.** A node regression can read a constant target in the training rows of one
+draw only. That draw then stamps `constant_node_plugin` on the level. Every route that combines
+draws first gives each name the precedent status of its draws. Those routes are the reported
+estimates, `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()`, `covariance()` and
+the band. A name that withholds inference in one draw withholds it in the report. The stored
+`result.repeats[r].estimates` keep their own statuses.
+
+**Seeds.** The table gives the seed that each part of a fit reads.
+
+| part | `repeats=1` | `repeats` above 1 |
+| --- | --- | --- |
+| fold assignment | `random_state`, or a fresh seed under `None` | seed $r$ of `CrossFitPlan(random_state=..., repeats=R).seeds()`. A fresh seed replaces each `None` |
+| learners | `random_state` | the seed of the draw, so a Super Learner's inner folds draw again |
+| multiplier band | `random_state` | `random_state` when it is an integer. Under `None` the fit draws one seed and records it as `config.multiplier_seed`. Every draw and a `CausalStudy` band use it |
+
+At one draw a `random_state=None` fit sends `None` to its learners, as before. The point-treatment
+engine sends the fresh fold seed to its learners at one draw. The two engines differ there.
+
+**Diagnostics and replay.** The table gives what each report reads on a repeated fit.
+
+| report | what it reads |
+| --- | --- |
+| `support()`, `nuisance_models()` | draw 1. The report states `n_repeats` and `reported_repeat`. `support()` also holds `draw_max_share_truncated` and `draw_converged`, one value per draw, and the `support` row of `validate()` grades truncation on every draw and names the draw. `nuisance_models()` also carries one `repeat_spread` row per name |
+| `score_equations()` | every draw. Its frame gains a `draw` column, one-based, only when `R` is above 1 |
+| `truncation_curve()` | a replay of every draw at each bound. Each row reports the median rule over the draws, and the score-cell counts sum over the draws |
+| `converged` | true only when every node of every draw converged |
+| `provenance.fold_fingerprint` | every draw in fit order. It equals `result.split_plan.fingerprint` |
+
+**Refusals.** Each refusal raises before any learner, except the per-draw ones, which raise when
+the method is called.
+
+| composition | exception | what to do |
+| --- | --- | --- |
+| `repeats` that is not an integer of at least 1 | `ValueError` | set an integer of 1 or more |
+| `repeats` above 1 with `n_folds=1` | `MethodConfigurationError`, code `invalid_declaration` | set `n_folds` to 2 or more, or set `repeats=1` |
+| `repeats` above 1 with `n_bootstrap` above 0 | `MethodConfigurationError`, code `inference_gap` | fit with `repeats=1` for the bootstrap, or with `n_bootstrap=0` for the split-adjusted median interval. No registered study measures a bootstrap of the median, and each replicate would refit every draw |
+| `contrast(..., transform=T)` where `T` has no finite value or slope at one draw's value | `CapabilityError` that names the draw, code `invalid_declaration` | use a transform defined at every draw, drop `transform=`, or read each draw in `result.repeats` |
+| any other refusal of a per-draw functional | the original type, with the message prefixed `draw r of R:` | the remedy of the original message |
+| `ratio()` on an `SDR` or `IPSI` fit where one draw's level is outside the log or odds domain | `CapabilityError` that names the draw, code `invalid_declaration` | report the difference scale. The fit checks every draw and not the median |
+
+A fit with `repeats` above 1 carries `repeated` in the `splitting` axis of its support key
+(`longitudinal_key` in `src/cleverly/_support.py`). No single-draw row matches that key, so every
+estimate reads `experimental` until a registered row names `repeated`. `survival_model="hazard"`
+and `isotonic=True` fit with `repeats` above 1 and read `experimental` for the same reason. Each
+draw projects its levels under `isotonic=True`, and the median of non-decreasing curves is
+non-decreasing. No source gives the projection of the limits of a median band, so that fit builds
+no simultaneous band and the summary says so.
+
+`split_plan=` stays refused on the longitudinal engine. A fit records its plan as
+`result.split_plan` and accepts none back.
+
+`tests/unit/test_longitudinal_repeats.py` holds the evidence. It checks that `repeats=1` equals a
+record captured before the change. It checks that each draw of every design in
+`tests/unit/_longitudinal_repeats_support.py` equals a single-draw fit. It gives a nonzero witness
+for every rule in the tables above.
+
+A registry test maps every estimator keyword, result member, assessment
+capability, data declaration and `CausalStudy` step to a repeated-fit witness. The
+[repeated cross-fitted longitudinal study](method-evidence/repeated-cross-fitted-longitudinal.md)
+measures the coverage of the median over draws.
+
 ### Clusters
 
 `LTMLE.fit(id=...)` treats the cluster as the unit. The cluster is the fold unit and the variance
@@ -1765,6 +1890,60 @@ Clusters, observation weights, survival, competing risks, known policies, modifi
 policies, contrasts, simultaneous bands and the truncation replay behave as they do for LTMLE.
 Each composition reuses the step that the LTMLE contract states. `tests/unit/test_sdr_e2e.py`
 runs each one end to end.
+
+### SDR on a repeated outcome
+
+`SDR` accepts `outcome=Repeated(["Y1", "Y2", "Y3"])`. The fit reports one mean per plan and horizon,
+named `ey_regimen[always @ t=2]`, and the contrasts `ate_regimen[always vs never @ t=2]`. Each
+horizon $h$ is the end-of-study fit of the panel truncated after node $h$, with $Y_h$ as the
+outcome and each earlier $Y_s$ as a covariate of node $s + 1$. In a `CausalStudy`,
+`RegimeMean(..., horizons=[1, 3])` with `method="sdr"` takes the same horizons.
+
+The transform of the [section "The transform"](#the-transform) runs over the nodes $t, \ldots, h$ only. The
+seed $v_{h+1}$ is the scaled $Y_h$ on the rows uncensored through $h$. So $\varphi_1$ at horizon $h$
+is Equation (4) of the paper on the prefix. A node after $h$ enters no weight and no regression.
+
+| source | statement | code | witness |
+| --- | --- | --- | --- |
+| Equation (4) | $\varphi_t = v_t + \sum_{s=t}^{h} W_{t,s}(Z_s - \check m_s)$ | `sdr._recursion`, `seed_carried(horizon=h)` | E1 compares the fitted curve with the complex-step Gateaux derivative. E3 compares it with an independent transform |
+| Lemma 4 | the estimate at horizon $h$ is consistent when, at each node $t \le h$, the ratio or the sequential regression is consistent | the regression of each node fits $\varphi_{t+1}$, not the plug-in | E2b, with the mutation control NS that regresses on the plug-in |
+| Theorem 4 | asymptotic linearity with the efficient influence function, when the products of the ratio and regression errors are $o_P(n^{-1/2})$ | per-cell Wald interval, multiplier band over the stacked curves | E1 and E8 |
+
+**Sequential double robustness.** The tests run on two exact laws with $T = 2$ in
+`tests/discrete_law_repeated.py`. The law has a non-absorbing outcome, so $Y_2 = 0$ can follow
+$Y_1 = 1$. The sample realises the law exactly, so a saturated fit holds the exact nuisances.
+
+| witness | fit | result on the binary law at $h = 2$ |
+| --- | --- | --- |
+| E1 | saturated regressions, estimated mechanisms | the estimate equals the g-formula and the curve equals its Gateaux derivative, to $10^{-11}$ |
+| E2 | regressions on $W$ alone, mechanisms declared with `treatment_probabilities=` and `censoring_probabilities=` | the estimate equals the truth to $10^{-12}$. The plug-in of the same regressions misses by +0.1141 (`never`), −0.1050 (`always`) and −0.0024 (`treat_if_high`) |
+| E3 | the fit of E2 | the curve equals the law-side transform $\varphi_1 - \hat\psi$ at every plan and horizon. It is not the efficient curve |
+| E2b | node-2 regression on $W$ alone with the true ratio. Node-1 regression saturated in $W$, with an intercept treatment mechanism and a censoring mechanism on $A_1$ alone | the estimate equals the truth. The estimator that regresses node 1 on the plug-in $\check m_2$ misses by −0.0016 (`never`), −0.0018 (`always`) and −0.0014 (`treat_if_high`) |
+| E8 | the default band | the critical value equals the multiplier band over the stacked curves, and the correlation between the horizons of one plan is not zero |
+
+At $h = 1$ the regression on $W$ is saturated, so the plug-in gap is zero by construction. E3
+carries that horizon. On the `T2_BINARY` law (`BINARY` in `tests/discrete_law_repeated.py`),
+scaling the correction by 0.9 at every node moves the E2 estimate by +0.0114, −0.0105 and −0.0002. Replacing the censoring factor of the ratio by one moves it by +0.0883,
+−0.0849 and +0.0011. Both faults move the curve of every plan and horizon, by at least 0.13 and
+0.33.
+
+**The band.** The default `simultaneous=True` band covers every plan, every horizon and every
+contrast. It is the multiplier band over the stacked influence curves.
+
+| claim | condition |
+| --- | --- |
+| $\sqrt{n}(\hat\theta - \theta)$ is jointly normal | Theorem 4 at every plan and horizon, and positivity. The dimension is fixed, so the Cramér–Wold device applies |
+| the multiplier critical value is consistent | the stacked curves estimate their covariance consistently |
+| the horizons are dependent | the horizons share units and mechanisms, so the band uses the joint covariance. E8 rebuilds the critical value from the stacked curves with the library's own `simultaneous_bands`, so it checks the stacked-curve input and not the multiplier algorithm |
+| maximum-likelihood mechanisms in a correctly specified parametric model, no binding `g_bounds`, and an inconsistent regression | the Wald interval is conservative, not calibrated. The default `SuperLearner` mechanisms do not meet these conditions. The influence function of $\hat\psi$ is $\varphi(\bar m, r)$ minus its projection on the mechanism scores. The Wald variance reads $\operatorname{Var}\varphi(\bar m, r)$, which is at least the true variance. This is the projection argument for a doubly robust estimator with maximum-likelihood mechanisms |
+| sequential double robustness alone | the estimate is consistent (Lemma 4). The stacked curve is not the influence function of $\hat\psi$, so no interval claim |
+
+The registered study [SDR on a repeated outcome](method-evidence/repeated-outcome-sdr.md)
+measures the coverage of this curve. In its 28 positive interval cells, the coverage intervals span
+0.9357 to 0.9549 and the SE-ratio intervals span 0.9459 to 1.0169. The lmtp comparator runs are
+pending, so the evidence is Python property evidence only. The exact-law witnesses E1 to E3, E2b
+and E8, and the eleven mutation controls in `tests/unit/test_repeated_outcome_sdr_mutations.py`,
+stand behind the point estimate and the curve.
 
 ## Incremental interventions over time
 

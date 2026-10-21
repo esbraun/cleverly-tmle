@@ -3031,6 +3031,113 @@ _IPSI_FITS: dict[tuple[str, str], tuple[str, str]] = {
 for _label in _IPSI_LABELS:
     for (_family, _base), _words in _IPSI_FITS.items():
         ARM_CELLS[(_family, _label, _base)] = _words
+
+#: The ``longitudinal-repeated-sdr`` cells.  The labels are those of the X32a repeated-outcome
+#: study, so the shared tables describe a cell by another study's fit.  The entries below say what
+#: this study fits.  Mirrored from ``tests.studies.sdr_repeated_properties``, which this module
+#: cannot import (descriptions stay out of every study's hashed module list).
+#: ``tests/unit/test_sdr_repeated_method_study.py`` pins the labels equal.
+_SDR_SLUG = "longitudinal-repeated-sdr"
+_SDR_GATED = ("never_t3", "always_t3", "rule_t3", "always_vs_never_t3", "rule_vs_never_t3")
+_SDR_BAND = "SE-ratio and coverage intervals inside the calibration bands"
+_SDR_MECHANISMS = "main-terms quasibinomial treatment and censoring mechanisms"
+_SDR_FITS: dict[tuple[str, str], tuple[tuple[str, ...], tuple[str, str]]] = {
+    ("interval_calibration", "in_sample"): (
+        (
+            *_SDR_GATED,
+            "never_t1",
+            "never_t2",
+            "always_t1",
+            "always_t2",
+            "rule_t2",
+            "always_vs_never_t1",
+            "always_vs_never_t2",
+            "rule_vs_never_t2",
+        ),
+        (
+            f"in sample, cell-mean outcome regressions with a backoff, {_SDR_MECHANISMS}, "
+            "n = 32,000",
+            _SDR_BAND,
+        ),
+    ),
+    ("interval_calibration", "crossfit"): (
+        _SDR_GATED,
+        (
+            f"five folds, cell-mean outcome regressions with a backoff, {_SDR_MECHANISMS}, "
+            "n = 8,000",
+            _SDR_BAND,
+        ),
+    ),
+    ("interval_calibration", "continuous"): (
+        _SDR_GATED,
+        (
+            "the three-value outcome law, in sample, cell-mean outcome regressions with a "
+            f"backoff, {_SDR_MECHANISMS}, outcome bounds (0, 1), n = 32,000",
+            _SDR_BAND,
+        ),
+    ),
+    ("interval_calibration", "crossfit_boosted"): (
+        _SDR_GATED,
+        (
+            "five folds, a shallow regularized booster for both outcome learners (depth 2, 50 "
+            f"rounds, an L2 penalty), {_SDR_MECHANISMS}, n = 8,000",
+            "the lower ends of the SE-ratio and coverage intervals at or above the lower ends "
+            "of the calibration bands",
+        ),
+    ),
+    ("small_sample_calibration", "in_sample"): (
+        _SDR_GATED,
+        ("the in-sample binary calibration arm at n = 2,000", "reported, no verdict"),
+    ),
+    ("small_sample_calibration", "continuous"): (
+        _SDR_GATED,
+        ("the continuous calibration arm at n = 2,000", "reported, no verdict"),
+    ),
+    ("correction_necessity", "corrected"): (
+        _SDR_GATED,
+        (
+            "the sequential regression on the baseline covariate alone, with the correction "
+            "and correctly specified mechanisms",
+            "bias interval inside the equivalence margin",
+        ),
+    ),
+    ("correction_necessity", "uncorrected"): (
+        _SDR_GATED,
+        (
+            "the same sequential regression carried back with no correction, written without "
+            "`cleverly`",
+            "bias interval outside the margin, and inside it around the plug-in's exact limit",
+        ),
+    ),
+    ("repeated_outcome_necessity", "repeated"): (
+        ("never_t2", "never_t3", "always_t2", "always_t3", "rule_t2", "rule_t3"),
+        (
+            f"the repeated-outcome fit, cell-mean outcome regressions with a backoff, "
+            f"{_SDR_MECHANISMS}",
+            "bias interval inside the equivalence margin",
+        ),
+    ),
+    ("repeated_outcome_necessity", "absorbing_reading"): (
+        ("never_t2", "never_t3", "always_t2", "always_t3", "rule_t2", "rule_t3"),
+        (
+            "an end-of-study fit of the maximum of the outcomes through the horizon, with the "
+            "earlier outcomes in the history",
+            "bias interval outside the margin, and inside it around the absorbing g-formula",
+        ),
+    ),
+    ("outcome_history_necessity", "repeated"): (
+        ("never_t3", "always_t3", "always_vs_never_t3"),
+        (
+            f"the repeated-outcome fit, cell-mean outcome regressions with a backoff, "
+            f"{_SDR_MECHANISMS}",
+            "bias interval inside the equivalence margin",
+        ),
+    ),
+}
+for (_family, _base), (_cell_labels, _words) in _SDR_FITS.items():
+    for _label in _cell_labels:
+        STUDY_ARM_CELLS[(_SDR_SLUG, _family, _label, _base)] = _words
+STUDY_ARMS[(_SDR_SLUG, "always_t2")] = "mean under always at horizon t = 2, repeated binary outcome"
 ARM_CELLS[("interval_calibration", "par", "correctly_specified")] = (
     "the outcome regression, treatment mechanism and observation mechanism are correct",
     "SE ratio and coverage intervals both inside their calibration bands",
@@ -3437,6 +3544,191 @@ for _contrast in ("ate_0_vs_1", "ate_2_vs_1"):
     )
 
 STUDY_ARMS[(_EXTENSION_SLUG, "weighted")] = _EXTENSION_FITS["weighted"][0]
+
+# ---------------------------------------------------------------- repeated longitudinal fits
+# The repeated cross-fitted longitudinal study (X46).  Its keys are declared in
+# ``tests/studies/longitudinal_repeated_crossfit.py`` and in its properties module.
+
+IMPLEMENTATIONS["cleverly-repeated-longitudinal"] = (
+    "`cleverly` repeated cross-fitted longitudinal fit, three outer splits"
+)
+SCENARIOS.update(
+    {
+        "law_d_ltmle": (
+            "two-node censored law, `LTMLE` with five folds, three fold draws and saturated "
+            "cell means"
+        ),
+        "law_d_sdr": (
+            "the same two-node censored law, `SDR` with five folds, three fold draws and "
+            "saturated cell means"
+        ),
+        "law_s": (
+            "three-node survival law with an absorbing event, `LTMLE` with five folds and "
+            "three fold draws"
+        ),
+        "law_c": (
+            "clusters of ten units on a two-node law, `LTMLE` with `id=`, five folds and "
+            "three fold draws"
+        ),
+        "law_m": (
+            "the two-node law with an identity working model on treatment duration, `LTMLE`, "
+            "five folds and three fold draws"
+        ),
+    }
+)
+REGIMENS["treat_if_l2"] = "treat first, then treat at the second time only where L2 equals one"
+PROPERTIES.update(
+    {
+        "repeat_increment": (
+            "the median over three draws moves the SE ratio of the survival risk difference at "
+            "horizon 3 by less than the declared ceiling, against the first draw alone"
+        ),
+        "ipsi_primary": (
+            "the repeated `IPSI` means and contrasts at n = 80,000 sit inside the primary "
+            "bias, coverage and SE-ratio rules"
+        ),
+        "single_draw_reading": (
+            "the first draw's SE ratio and coverage, reported beside the median for reading"
+        ),
+        "split_displacement": (
+            "the share of the reported variance that comes from the displacement of the draws, "
+            "reported for reading"
+        ),
+    }
+)
+
+_REPEATED_LABELS = {
+    "d_ltmle_static": "`LTMLE` risk difference of always against never on the two-node law",
+    "d_ltmle_dynamic": "`LTMLE` difference of treat-if-L2 against never on the two-node law",
+    "d_sdr_static": "`SDR` difference of always against never on the two-node law",
+    "d_sdr_dynamic": "`SDR` difference of treat-if-L2 against never on the two-node law",
+    "i_contrast_x2": "`IPSI` contrast of odds multiplier 2 against 1 on the incremental law",
+    "i_contrast_x0_5": "`IPSI` contrast of odds multiplier 0.5 against 1 on the incremental law",
+    "s_contrast_h2": "`LTMLE` risk difference of always against never at horizon 2 on the survival law",
+    "c_static": "`LTMLE` difference of always against never on the clustered law",
+    "m_duration": "`LTMLE` duration coefficient of the working model",
+}
+_REPEATED_BANDS = {
+    "d_ltmle": "every mean and contrast of `LTMLE` on the two-node law",
+    "d_sdr": "every mean and contrast of `SDR` on the two-node law",
+    "i_ipsi": "every mean and contrast of `IPSI` on the incremental law",
+    "s_ltmle": "every risk and risk difference of `LTMLE` at horizons 1 to 3 on the survival law",
+    "c_ltmle": "the means and the contrast of `LTMLE` on the clustered law",
+    "m_ltmle": "both coefficients of the working model",
+}
+_REPEATED_DRAW = "the median over three fold draws"
+_REPEATED_SLUG = "longitudinal-repeated-crossfit"
+_REPEATED_ARM_WORDS = {
+    "contrast_x0_5": "contrast of odds multiplier 0.5 against 1",
+    "contrast_x2": "contrast of odds multiplier 2 against 1",
+    "mean_x0_5": "mean under odds multiplier 0.5",
+    "mean_x1": "mean under the natural course",
+    "mean_x2": "mean under odds multiplier 2",
+}
+
+
+class _RepeatedCells:
+    """File a cell of the repeated study, under its study arm when the key opens with one."""
+
+    def __setitem__(self, index: tuple[str, str], value: tuple[str, str]) -> None:
+        family, key = index
+        arm = _ARM.match(key)
+        if arm is None:
+            CELLS[(family, key)] = value
+            return
+        name = arm.group("arm")
+        STUDY_ARMS[(_REPEATED_SLUG, name)] = _REPEATED_ARM_WORDS.get(name, name)
+        STUDY_ARM_CELLS[(_REPEATED_SLUG, family, name, arm.group("cell"))] = value
+
+
+_REPEATED_CELLS = _RepeatedCells()
+for _label, _words in _REPEATED_LABELS.items():
+    _REPEATED_CELLS[("interval_calibration", f"{_label}__correctly_specified")] = (
+        f"{_words}; {_REPEATED_DRAW} and its split-adjusted variance",
+        "SE ratio and coverage intervals both inside their calibration bands",
+    )
+    _REPEATED_CELLS[("interval_calibration", f"{_label}__shrunken_se_control")] = (
+        f"{_words}, with each reported SE multiplied by 0.70",
+        "the SE-ratio interval must fall below the calibration band",
+    )
+    _REPEATED_CELLS[("single_draw_reading", f"{_label}__draw_0")] = (
+        f"{_words}; the first of the three draws alone",
+        "reported only; no verdict",
+    )
+    _REPEATED_CELLS[("split_displacement", f"{_label}__share")] = (
+        f"{_words}; the share of the reported variance that is the squared displacement of "
+        "the draws",
+        "reported only; no verdict",
+    )
+for _label, _words in _REPEATED_BANDS.items():
+    _REPEATED_CELLS[("simultaneous_coverage", f"{_label}__simultaneous_band")] = (
+        f"the shipped band over {_words}",
+        "joint coverage interval inside the calibration coverage band",
+    )
+    _REPEATED_CELLS[("simultaneous_coverage", f"{_label}__pointwise_joint_control")] = (
+        f"the pointwise 95% intervals over {_words}, read jointly",
+        "joint coverage upper endpoint must fall below the nominal rate",
+    )
+for _label in (
+    "d_ltmle_static",
+    "d_ltmle_dynamic",
+    "d_sdr_static",
+    "d_sdr_dynamic",
+    "i_contrast_x2",
+):
+    _REPEATED_CELLS[("repeat_stability", f"{_label}__three_repeats")] = (
+        f"{_REPEATED_LABELS[_label]}; {_REPEATED_DRAW} on one fixed sample, over many fold seeds",
+        "the spread of the median over the spread of its first draw stays under the declared "
+        "boundary, above the spread floor",
+    )
+    _REPEATED_CELLS[("repeat_stability", f"{_label}__one_repeat_control")] = (
+        f"{_REPEATED_LABELS[_label]}; the first draw alone on the same fixed sample",
+        "the spread ratio of the first draw against itself stays under the declared boundary",
+    )
+for _horizon in (1, 2, 3):
+    _reading = f"survival risk difference at horizon {_horizon}, the SE ratio of "
+    _role = "gated" if _horizon == 3 else "reported only"
+    _REPEATED_CELLS[("repeat_increment", f"h{_horizon}__repeat_median")] = (
+        f"{_reading}the median over three draws",
+        "the increment over the first draw stays under its ceiling"
+        if _horizon == 3
+        else "reported only; no verdict",
+    )
+    _REPEATED_CELLS[("repeat_increment", f"h{_horizon}__single_draw")] = (
+        f"{_reading}the first draw alone",
+        "the first-draw ratio, the base of the increment"
+        if _horizon == 3
+        else "reported only; no verdict",
+    )
+_REPEATED_CELLS[("repeat_increment", "h3__inflated_se_control")] = (
+    "the horizon-3 median with its reported SE multiplied by 1.05",
+    "the increment must reach or exceed the ceiling",
+)
+for _label, _words in {
+    "mean_x0_5": "the mean under odds multiplier 0.5",
+    "mean_x1": "the mean under the natural course",
+    "mean_x2": "the mean under odds multiplier 2",
+    "contrast_x0_5": "the contrast of odds multiplier 0.5 against 1",
+    "contrast_x2": "the contrast of odds multiplier 2 against 1",
+}.items():
+    _REPEATED_CELLS[("ipsi_primary", f"{_label}__repeated")] = (
+        f"`IPSI` at n = 80,000, {_words}; {_REPEATED_DRAW}",
+        "bias inside the margin, coverage clears the floor, SE ratio inside the sanity band",
+    )
+for _fit, _name in (("ltmle_static", "`LTMLE`"), ("sdr_static", "`SDR`")):
+    for _n in (2000, 8000, 32000):
+        _REPEATED_CELLS[("root_n_and_efficiency", f"{_fit}__n_{_n}")] = (
+            f"{_name} static contrast on the two-node law at n = {_n:,}; {_REPEATED_DRAW}",
+            "bias inside the margin, coverage clears the floor, SE ratio inside the band",
+        )
+    _REPEATED_CELLS[("root_n_rate", f"{_fit}__empirical_sd")] = (
+        f"{_name} static contrast; the log-log slope of the empirical SD over the three sizes",
+        "the slope interval lies inside the root-n band",
+    )
+    _REPEATED_CELLS[("root_n_rate", f"{_fit}__reported_se")] = (
+        f"{_name} static contrast; the log-log slope of the mean reported SE over the three sizes",
+        "the slope interval lies inside the root-n band",
+    )
 
 
 def implementation(key: str) -> str:
