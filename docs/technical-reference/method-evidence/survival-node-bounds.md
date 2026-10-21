@@ -109,8 +109,8 @@ each model. So the calibration, witness and unbounded cells read the same draws.
 | `bound_necessity` | the bounded `mean_model` with a saturated outcome regression and an intercept-only treatment mechanism. The valid bounds keep the bias inside the margin. The control lowers every upper bound to half the way from the arm-1 follower mean of the true iterated mean to its largest value, and its bias must leave the margin | $n$ = 16,000, 7,200 replications |
 
 The bounds bind on the `mean_model`. The unbounded fit left them on 59.8% of the draws, and the
-two estimates differ on 65.5%. The `hazard_model` bounds clip the initial hazards on 46.5% of the
-draws and move the estimate on 10.1%. The hazard witness is reported for that reason. The RMSE
+two estimates differ on 65.5%. The initial hazards of the `hazard_model` leave the bounds on 46.5%
+of the draws, and the bounds move the estimate on 10.1%. The hazard witness is reported for that reason. The RMSE
 of the bounded and unbounded fits agree to 1e-5 on every cell. Benkeser, Carone and Gilbert (2018,
 Section 5) report a gain from bounds at smaller samples and stronger positivity limits than this
 law has.

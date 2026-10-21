@@ -504,3 +504,18 @@ def test_the_root_pilot_and_the_positive_arm() -> None:
     bias, error = NECESSITY_POSITIVE_BIAS
     root = np.sqrt(properties.NECESSITY_REPLICATES)
     assert norm.cdf(root * (0.25 - (bias + 2.0 * error)) - Z) >= 0.99
+
+
+def test_the_hazard_witness_reads_leaving_the_bounds_not_the_clip() -> None:
+    """``hazard_exceedance`` reads ``[l, u]``, and the fit clips into a narrower interval.
+
+    So the page and the helper describe the hazard share as leaving the bounds. Neither may
+    call it the clipped share.
+    """
+    page = (ROOT / "docs/technical-reference/method-evidence/survival-node-bounds.md").read_text()
+    prose = " ".join(page.split())
+    assert "clip the initial hazards" not in prose
+    assert "The initial hazards of the `hazard_model` leave the bounds on" in prose
+    doc = " ".join((study.hazard_exceedance.__doc__ or "").split())
+    assert "clips exactly these" not in doc
+    assert "a hazard can stay inside the bounds and still be clipped" in doc

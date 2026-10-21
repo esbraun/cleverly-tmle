@@ -266,8 +266,10 @@ def hazard_exceedance(
 ) -> bool:
     """Whether a hazard fit's initial hazard leaves ``bounds`` on a unit at risk at node ``t``.
 
-    The unit is read at its own arm, so it is a node-``t`` follower of that arm.  The bounded
-    fit clips exactly these initial hazards (``share_clipped``).
+    The unit is read at its own arm, so it is a node-``t`` follower of that arm.  This reads
+    the declared interval :math:`[l, u]`.  The bounded fit clips into the narrower interval
+    :math:`[l + (1 - \alpha) s, u - (1 - \alpha) s]` (``share_clipped``), so a hazard can
+    stay inside the bounds and still be clipped.
     """
     hazards = np.asarray(result.initial_hazards.hazards, dtype=float)
     arm = np.asarray(frame["A"], dtype=int)
