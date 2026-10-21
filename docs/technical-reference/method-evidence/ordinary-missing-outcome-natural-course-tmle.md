@@ -61,7 +61,7 @@ outcome already lies close to `(0, 1)`. The planted rows therefore move the esti
 The probe shows that the workaround sets the R scale exactly. The targeting-ratio check below
 cannot detect a missing workaround. In almost every replication, the witness is below `1e-2` of
 the targeting move, so that check admits it. The source is the witness in `scale-probe.csv` and
-the targeting move in `replicates.csv.gz`.
+the targeting move in `replicates.parquet`.
 
 A separate witness check compares `abs(cleverly - R)` with the witness in each continuous
 replication. An estimate at the unplanted scale sits about one witness from the R point. The
@@ -220,7 +220,7 @@ cases.
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/replicates.parquet),
 [performance decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/performance-tests.csv),
 [paired comparisons](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/equivalence.csv),
 [scale probe](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/tmle_mar_natural_course/scale-probe.csv),

@@ -28,8 +28,8 @@ from cleverly.longitudinal.estimator import (
     longitudinal_truncation_curve,
 )
 from cleverly.longitudinal.hazard import (
-    LOGLIK_TOLERANCE,
     SIGMA_FLOOR,
+    WALK_LOSS_TOLERANCE,
     HazardState,
     hazard_inputs,
     influence,
@@ -402,8 +402,8 @@ def test_e11_the_walk_trace(name: str) -> None:
     record = next(iter(result.fits.values())).hazard
     norms = np.asarray(record.norm_trace)
     assert np.all(np.diff(norms) <= 0.0)
-    logliks = np.asarray(record.loglik_trace)
-    assert np.all(np.diff(logliks) >= -LOGLIK_TOLERANCE)
+    losses = np.asarray(record.walk_loss_trace)
+    assert np.all(np.diff(losses) <= WALK_LOSS_TOLERANCE)
     assert len(record.trace) == len(norms) == record.n_iter + 1
     assert record.relative_score == pytest.approx(record.trace[-1], rel=0, abs=0)
     inputs, start = _internals(result)

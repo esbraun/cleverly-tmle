@@ -7,16 +7,16 @@ dose, have two inverse branches, or send an interval of doses to a declared atom
 [modified treatment policies at a node](../longitudinal-tmle.md#modified-treatment-policies-at-a-node)
 section states the estimator and its conditions.
 
-**Status of this page.** The study is registered, and its Python phases have run. The evidence
-label is "Python property evidence, with comparator runs pending". The study record sets
-`pending_reference="lmtp"`, so no paired row is published. The publication policy is `reporting`.
+**Status of this page.** The study is registered, and its Python phases and its `lmtp` phase have
+run. The study record sets `reference="lmtp"`, so the page publishes a paired row for each estimand.
+The publication policy is `reporting`.
 A red cell stays red on this page and in the [red-cell ledger](red-cells.md), with the owner row
 that names it.
 
 | part | what it is | status |
 | --- | --- | --- |
 | Python property evidence | exact laws, interval calibration with two controls, and four necessity pairs | the tables below give the verdicts. It decides whether the method ships |
-| `lmtp` comparator runs | the pinned `lmtp` 1.5.4 fits the same samples, and the study pairs the results | pending. The runs register in a later change, and a finding in them does not block the method |
+| `lmtp` comparator runs | the pinned `lmtp` 1.5.4 fits the same samples, and the study pairs the results | 24 of 24 paired rows pass. The 18 exactness witnesses pass the 1e-6 gate |
 
 ## What was compared
 
@@ -70,36 +70,96 @@ of 0.911 to 0.917, and they pass their declared rule. All 24 truth rows pass.
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | the same law with a declared atom at the second dose, LTMLE | `ate_regimen[p5 vs natural]` | difference in mean outcome between the plans "set the second dose to the larger of 3 and 0.65 times the dose" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.0018 to 0.000616 | 0.9620 | 1.0280 | pass |
+| the same law with a declared atom at the second dose, LTMLE | `ate_regimen[p5 vs natural]` | difference in mean outcome between the plans "set the second dose to the larger of 3 and 0.65 times the dose" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.0018 to 0.000625 | 0.9620 | 1.0288 | pass |
 | the same law with a declared atom at the second dose, LTMLE | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000166 to 0.000977 | 0.9530 | 0.9818 | pass |
+| the same law with a declared atom at the second dose, LTMLE | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | R `lmtp` | -0.000166 to 0.000977 | 0.9530 | 0.9818 | pass |
 | the same law with a declared atom at the second dose, LTMLE | `ey_regimen[p5]` | mean outcome under the plan set the second dose to the larger of 3 and 0.65 times the dose | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.0015 to 0.0011 | 0.9590 | 1.0420 | pass |
+| the same law with a declared atom at the second dose, LTMLE | `ey_regimen[p5]` | mean outcome under the plan set the second dose to the larger of 3 and 0.65 times the dose | R `lmtp` | -0.0015 to 0.0011 | 0.9580 | 1.0424 | pass |
 | the same law with a declared atom at the second dose, SDR | `ate_regimen[p5 vs natural]` | difference in mean outcome between the plans "set the second dose to the larger of 3 and 0.65 times the dose" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.0018 to 0.000642 | 0.9620 | 1.0275 | pass |
+| the same law with a declared atom at the second dose, SDR | `ate_regimen[p5 vs natural]` | difference in mean outcome between the plans "set the second dose to the larger of 3 and 0.65 times the dose" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.0018 to 0.000654 | 0.9630 | 1.0281 | pass |
 | the same law with a declared atom at the second dose, SDR | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000166 to 0.000977 | 0.9530 | 0.9818 | pass |
+| the same law with a declared atom at the second dose, SDR | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | R `lmtp` | -0.000166 to 0.000977 | 0.9530 | 0.9818 | pass |
 | the same law with a declared atom at the second dose, SDR | `ey_regimen[p5]` | mean outcome under the plan set the second dose to the larger of 3 and 0.65 times the dose | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.0015 to 0.0012 | 0.9620 | 1.0413 | pass |
+| the same law with a declared atom at the second dose, SDR | `ey_regimen[p5]` | mean outcome under the plan set the second dose to the larger of 3 and 0.65 times the dose | R `lmtp` | -0.0015 to 0.0012 | 0.9610 | 1.0415 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p1 vs natural]` | difference in mean outcome between the plans "multiply the dose by 0.9 at both times" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000417 to 0.000457 | 0.9490 | 1.0032 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p1 vs natural]` | difference in mean outcome between the plans "multiply the dose by 0.9 at both times" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.000417 to 0.000457 | 0.9490 | 1.0032 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p2 vs natural]` | difference in mean outcome between the plans "add 1 to the dose at both times, holding doses within 1 of the support's upper end" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000804 to 0.000653 | 0.9480 | 1.0141 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p2 vs natural]` | difference in mean outcome between the plans "add 1 to the dose at both times, holding doses within 1 of the support's upper end" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.000804 to 0.000653 | 0.9480 | 1.0141 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p3 vs natural]` | difference in mean outcome between the plans "map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000509 to 0.000634 | 0.9520 | 1.0078 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p3 vs natural]` | difference in mean outcome between the plans "map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.000509 to 0.000634 | 0.9520 | 1.0078 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p4 vs natural]` | difference in mean outcome between the plans "add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.0013 to 0.0027 | 0.9290 | 0.9169 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p4 vs natural]` | difference in mean outcome between the plans "add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.0013 to 0.0027 | 0.9290 | 0.9169 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000544 to 0.000552 | 0.9510 | 1.0169 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | R `lmtp` | -0.000544 to 0.000552 | 0.9510 | 1.0169 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p1]` | mean outcome under the plan multiply the dose by 0.9 at both times | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000706 to 0.000754 | 0.9530 | 0.9930 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p1]` | mean outcome under the plan multiply the dose by 0.9 at both times | R `lmtp` | -0.000706 to 0.000754 | 0.9530 | 0.9930 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p2]` | mean outcome under the plan add 1 to the dose at both times, holding doses within 1 of the support's upper end | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000962 to 0.000819 | 0.9580 | 1.0167 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p2]` | mean outcome under the plan add 1 to the dose at both times, holding doses within 1 of the support's upper end | R `lmtp` | -0.000962 to 0.000819 | 0.9580 | 1.0167 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p3]` | mean outcome under the plan map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000726 to 0.000858 | 0.9540 | 1.0240 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p3]` | mean outcome under the plan map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end | R `lmtp` | -0.000726 to 0.000858 | 0.9540 | 1.0240 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p4]` | mean outcome under the plan add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.0014 to 0.0028 | 0.9320 | 0.9111 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p4]` | mean outcome under the plan add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times | R `lmtp` | -0.0014 to 0.0028 | 0.9320 | 0.9111 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p1 vs natural]` | difference in mean outcome between the plans "multiply the dose by 0.9 at both times" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000411 to 0.000463 | 0.9500 | 1.0031 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p1 vs natural]` | difference in mean outcome between the plans "multiply the dose by 0.9 at both times" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.000411 to 0.000463 | 0.9500 | 1.0031 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p2 vs natural]` | difference in mean outcome between the plans "add 1 to the dose at both times, holding doses within 1 of the support's upper end" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000822 to 0.000641 | 0.9480 | 1.0110 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p2 vs natural]` | difference in mean outcome between the plans "add 1 to the dose at both times, holding doses within 1 of the support's upper end" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.000822 to 0.000641 | 0.9480 | 1.0110 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p3 vs natural]` | difference in mean outcome between the plans "map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000518 to 0.000626 | 0.9500 | 1.0079 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p3 vs natural]` | difference in mean outcome between the plans "map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.000518 to 0.000626 | 0.9500 | 1.0079 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p4 vs natural]` | difference in mean outcome between the plans "add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times" against "leave the observed dose unchanged at both times" | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.0013 to 0.0027 | 0.9370 | 0.9162 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p4 vs natural]` | difference in mean outcome between the plans "add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times" against "leave the observed dose unchanged at both times" | R `lmtp` | -0.0013 to 0.0027 | 0.9370 | 0.9162 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000544 to 0.000552 | 0.9510 | 1.0169 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | R `lmtp` | -0.000544 to 0.000552 | 0.9510 | 1.0169 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p1]` | mean outcome under the plan multiply the dose by 0.9 at both times | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000700 to 0.000759 | 0.9520 | 0.9929 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p1]` | mean outcome under the plan multiply the dose by 0.9 at both times | R `lmtp` | -0.000700 to 0.000759 | 0.9520 | 0.9929 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p2]` | mean outcome under the plan add 1 to the dose at both times, holding doses within 1 of the support's upper end | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000980 to 0.000806 | 0.9570 | 1.0147 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p2]` | mean outcome under the plan add 1 to the dose at both times, holding doses within 1 of the support's upper end | R `lmtp` | -0.000980 to 0.000806 | 0.9570 | 1.0147 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p3]` | mean outcome under the plan map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.000734 to 0.000850 | 0.9550 | 1.0242 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p3]` | mean outcome under the plan map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end | R `lmtp` | -0.000734 to 0.000850 | 0.9550 | 1.0242 | pass |
 | two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p4]` | mean outcome under the plan add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times | `cleverly` LTMLE and SDR under modified treatment policies with declared supports and atoms | -0.0014 to 0.0029 | 0.9360 | 0.9105 | pass |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p4]` | mean outcome under the plan add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times | R `lmtp` | -0.0014 to 0.0029 | 0.9360 | 0.9105 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. The `lmtp` runs have not run, so this
-study publishes no paired row, and `equivalence.csv` is empty. The change that registers the runs
-adds the paired table here.
+The `boundaries_ltmle` and `boundaries_sdr` scenarios are exactness witnesses. Each of their 18
+estimands pairs 1,000 fits with `lmtp`. The largest gap is 1.0e-07 in the estimate and 7.5e-10 in
+the standard error, against a gate of 1e-6 (`exactness.csv`). The study fails a witness above the
+gate.
+
+The `atom_ltmle` and `atom_sdr` scenarios are margin-read. The package's node-2 design holds
+the regressor 1{A2 = 3}, and `lmtp` cannot recompute that regressor at the shifted dose. Their
+largest paired difference uses 0.0055 of the margin.
+
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| the same law with a declared atom at the second dose, LTMLE | `ate_regimen[p5 vs natural]` | difference in mean outcome between the plans "set the second dose to the larger of 3 and 0.65 times the dose" against "leave the observed dose unchanged at both times" | -0.000009 | 0.0039 | 1.0024 | 0 | matching implementation | 0.0028 vs 0.0500 | equivalent |
+| the same law with a declared atom at the second dose, LTMLE | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | 3.709e-11 | 3.529e-08 | 1.0000 | 0 | matching implementation | 1.657e-08 vs 0.0500 | equivalent |
+| the same law with a declared atom at the second dose, LTMLE | `ey_regimen[p5]` | mean outcome under the plan set the second dose to the larger of 3 and 0.65 times the dose | -0.000009 | 0.0036 | 1.0019 | 0.0010 | matching implementation | 0.0022 vs 0.0500 | equivalent |
+| the same law with a declared atom at the second dose, SDR | `ate_regimen[p5 vs natural]` | difference in mean outcome between the plans "set the second dose to the larger of 3 and 0.65 times the dose" against "leave the observed dose unchanged at both times" | -0.000012 | 0.0055 | 1.0022 | -0.0010 | matching implementation | 0.0027 vs 0.0500 | equivalent |
+| the same law with a declared atom at the second dose, SDR | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | 0 | 0 | 1 | 0 | matching implementation | 1.399e-14 vs 0.0500 | equivalent |
+| the same law with a declared atom at the second dose, SDR | `ey_regimen[p5]` | mean outcome under the plan set the second dose to the larger of 3 and 0.65 times the dose | -0.000012 | 0.0051 | 1.0017 | 0.0010 | matching implementation | 0.0022 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p1 vs natural]` | difference in mean outcome between the plans "multiply the dose by 0.9 at both times" against "leave the observed dose unchanged at both times" | 1.442e-11 | 1.796e-08 | 1.0000 | 0 | matching implementation | 2.227e-09 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p2 vs natural]` | difference in mean outcome between the plans "add 1 to the dose at both times, holding doses within 1 of the support's upper end" against "leave the observed dose unchanged at both times" | -9.525e-11 | 7.113e-08 | 1.0000 | 0 | matching implementation | 3.040e-08 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p3 vs natural]` | difference in mean outcome between the plans "map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end" against "leave the observed dose unchanged at both times" | 1.710e-10 | 1.627e-07 | 1.0000 | 0 | matching implementation | 1.348e-08 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ate_regimen[p4 vs natural]` | difference in mean outcome between the plans "add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times" against "leave the observed dose unchanged at both times" | 2.040e-11 | 5.561e-09 | 1.0000 | 0 | matching implementation | 3.410e-10 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | 1.098e-12 | 1.090e-09 | 1.0000 | 0 | matching implementation | 3.139e-10 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p1]` | mean outcome under the plan multiply the dose by 0.9 at both times | 1.552e-11 | 1.157e-08 | 1.0000 | 0 | matching implementation | 6.935e-09 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p2]` | mean outcome under the plan add 1 to the dose at both times, holding doses within 1 of the support's upper end | -9.415e-11 | 5.752e-08 | 1.0000 | 0 | matching implementation | 3.043e-08 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p3]` | mean outcome under the plan map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end | 1.721e-10 | 1.182e-07 | 1.0000 | 0 | matching implementation | 2.358e-09 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, LTMLE | `ey_regimen[p4]` | mean outcome under the plan add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times | 2.150e-11 | 5.537e-09 | 1.0000 | 0 | matching implementation | 2.948e-10 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p1 vs natural]` | difference in mean outcome between the plans "multiply the dose by 0.9 at both times" against "leave the observed dose unchanged at both times" | 4.031e-18 | 5.022e-15 | 1.0000 | 0 | matching implementation | 1.377e-14 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p2 vs natural]` | difference in mean outcome between the plans "add 1 to the dose at both times, holding doses within 1 of the support's upper end" against "leave the observed dose unchanged at both times" | -1.470e-16 | 1.093e-13 | 1.0000 | 0 | matching implementation | 4.052e-14 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p3 vs natural]` | difference in mean outcome between the plans "map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end" against "leave the observed dose unchanged at both times" | 2.851e-17 | 2.712e-14 | 1.0000 | 0 | matching implementation | 1.288e-14 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ate_regimen[p4 vs natural]` | difference in mean outcome between the plans "add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times" against "leave the observed dose unchanged at both times" | -3.134e-16 | 8.434e-14 | 1.0000 | 0 | matching implementation | 1.532e-14 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[natural]` | mean outcome under the plan leave the observed dose unchanged at both times | 0 | 0 | 1 | 0 | matching implementation | 4.441e-16 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p1]` | mean outcome under the plan multiply the dose by 0.9 at both times | 9.992e-18 | 7.449e-15 | 1.0000 | 0 | matching implementation | 1.676e-14 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p2]` | mean outcome under the plan add 1 to the dose at both times, holding doses within 1 of the support's upper end | -1.598e-16 | 9.735e-14 | 1.0000 | 0 | matching implementation | 4.730e-14 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p3]` | mean outcome under the plan map the dose a to u - D(u - a) at both times, D a smooth warp whose slope runs from 0.4 to 1.6, u the support's upper end | 4.918e-17 | 3.379e-14 | 1.0000 | 0 | matching implementation | 1.021e-14 vs 0.0500 | equivalent |
+| two-node law with a truncated-normal dose on a history-dependent support, SDR | `ey_regimen[p4]` | mean outcome under the plan add 1 to a dose below 3 and subtract 1.5 from a dose at or above 3, at both times | -3.106e-16 | 7.907e-14 | 1.0000 | 0 | matching implementation | 1.310e-14 vs 0.0500 | equivalent |
+<!-- /generated -->
 
 ## Theory properties
 
@@ -169,10 +229,10 @@ the committed results and checked at the precision printed.
 | --- | --- | --- |
 | `replicates` | 1000 | paired replications |
 | `n` | 5000 | observations per paired replication |
-| `independent_tests_passed` | 24 | truth tests passing |
-| `independent_tests_total` | 24 | truth tests reported |
-| `paired_tests_passed` | 0 | paired comparisons passing |
-| `paired_tests_total` | 0 | paired comparisons reported |
+| `independent_tests_passed` | 48 | truth tests passing |
+| `independent_tests_total` | 48 | truth tests reported |
+| `paired_tests_passed` | 24 | paired comparisons passing |
+| `paired_tests_total` | 24 | paired comparisons reported |
 | `property_cells_passed` | 28 | property cells passing |
 | `property_cells_total` | 29 | property cells reported |
 | `max_standardized_bias` | 0.0579 | largest primary standardized bias |
@@ -204,6 +264,8 @@ the committed results and checked at the precision printed.
 | `margin:necessity_displacement` | 0.1000 | minimum necessity displacement of the four ratio and map pairs |
 | `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
 | `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `lmtp` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 10 | the same bound, in primary replications |
 
 ## Limits
 
@@ -216,4 +278,4 @@ the committed results and checked at the precision printed.
 | the `p4` standard error is short at n = 5,000 | the two `p4` rows of `boundaries_ltmle` read an SE ratio of 0.911 to 0.917 and coverage of 0.929 to 0.937. The rows pass the declared rule. Read an interval under this plan as slightly narrow |
 | the primary rows use main-terms learners | the primary phase matches the comparator's `SL.glm`. The property cells read the correct outcome model |
 | the atom covers one node | plan `p5` sends an interval to an atom at node 2 only. An atom with a near-zero mass is outside this evidence |
-| the `lmtp` comparison is pending | the agreement table is empty until the reference runs register. The Python cells carry the claim until then |
+| the atom scenarios are margin-read | `lmtp` fits a different node-2 design at the atom, so the atom rows show agreement within the margin and not exactness |

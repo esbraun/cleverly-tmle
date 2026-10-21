@@ -1299,6 +1299,20 @@ stochastic-regimes,targeting_necessity,bias equivalent,bias
 stochastic-regimes,targeting_necessity,least displacement over labels,control_concentrated
 stochastic-regimes,type_i_error,coverage floor,coverage/0.5
 stochastic-regimes,type_i_error,rejection ceiling,rejection/0.1
+survival-node-bounds,binding_witness,estimate moved share,extra|estimate_moved|binding_witness|mean_model__binding|floor
+survival-node-bounds,binding_witness,exceeds bound share,extra|exceeds_bound|binding_witness|mean_model__binding|floor
+survival-node-bounds,binding_witness,unconverged share,extra|converged|binding_witness|mean_model__binding|floor
+survival-node-bounds,bound_necessity,bias discriminated,pair_collapse
+survival-node-bounds,bound_necessity,bias equivalent,bias
+survival-node-bounds,bound_necessity,least displacement over labels,control_concentrated
+survival-node-bounds,bound_necessity,unconverged share,extra|converged|bound_necessity|f5_arm1__excluding_bound|floor
+survival-node-bounds,interval_calibration,coverage in calibration band,shift/0.7
+survival-node-bounds,interval_calibration,efficiency above band,pair_collapse
+survival-node-bounds,interval_calibration,efficiency empirical in efficiency band,two_point/1.092/1
+survival-node-bounds,interval_calibration,efficiency reported in efficiency band,two_point/1.06/1.05
+survival-node-bounds,interval_calibration,se ratio below band,se_high
+survival-node-bounds,interval_calibration,se ratio in calibration band,se/0.95
+survival-node-bounds,interval_calibration,unconverged share,extra|converged|interval_calibration|mean_model_f5_arm1__correctly_specified|floor
 tests.studies.long_horizon_categorical_ltmle_properties,categorical_probability_necessity,bias discriminated,pair_collapse
 tests.studies.long_horizon_categorical_ltmle_properties,categorical_probability_necessity,bias equivalent,bias
 tests.studies.long_horizon_categorical_ltmle_properties,censoring_necessity,bias discriminated,pair_collapse

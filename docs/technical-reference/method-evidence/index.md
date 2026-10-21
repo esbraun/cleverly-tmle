@@ -105,6 +105,7 @@ point-survival-hazard
 point-survival-curve
 point-survival-curve-crossfit
 point-treatment-survival-policies
+survival-node-bounds
 known-treatment-mechanism
 known-mechanism-dr-tmle
 dr-tmle-one-inconsistent-nuisance

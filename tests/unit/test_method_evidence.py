@@ -25,6 +25,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 from tests.documents import pipe_table
@@ -49,7 +50,7 @@ from tests.studies.evidence.document import (
     render,
 )
 from tests.studies.evidence.inference import clopper_pearson, student_interval
-from tests.studies.evidence.manifest import comparator_findings
+from tests.studies.evidence.manifest import comparator_findings, csv_text, read_rows, write_rows
 from tests.studies.evidence.performance import independent_performance_tests, summarize
 from tests.studies.evidence.properties import TRUTH_ABSOLUTE_FLOOR
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
@@ -242,13 +243,13 @@ def _artifacts(slug: str) -> dict[str, pd.DataFrame]:
 @_one_study_at_a_time
 def _replication_rows(slug: str) -> pd.DataFrame:
     """Load immutable primary rows once per study and worker."""
-    return pd.read_csv(STUDY_BY_SLUG[slug].artifact("replicates.csv.gz"))
+    return read_rows(STUDY_BY_SLUG[slug].artifact("replicates.parquet"))
 
 
 @_one_study_at_a_time
 def _property_rows(slug: str) -> pd.DataFrame:
     """Load immutable property rows once per study and worker."""
-    return pd.read_csv(STUDY_BY_SLUG[slug].artifact("property-replicates.csv.gz"))
+    return read_rows(STUDY_BY_SLUG[slug].artifact("property-replicates.parquet"))
 
 
 def _property_records(study: StudyRecord) -> pd.DataFrame | None:
@@ -336,11 +337,12 @@ class TestArtifacts:
         self, study: StudyRecord
     ) -> None:
         """A partial run may not overwrite a historical producer with its new source."""
-        import gzip
-
         from tests.studies.evidence.seed_repair import (
             PLAN_PATH,
+            ROW_FILES,
+            carried_rows_findings,
             carried_rows_sha256,
+            current_name,
             digest,
             validate_composite_manifest,
         )
@@ -354,14 +356,31 @@ class TestArtifacts:
                     planned is not None
                     and manifest["generated_with"] == planned["baseline_generated_with"]
                 ):
-                    assert manifest["sha256"] == planned["artifact_sha256"], (
+                    # The plan hashes the baseline's gzip files.  A row file is Parquet now, so
+                    # its rows are compared with the baseline rows through their CSV text.
+                    published = {
+                        name: hash_
+                        for name, hash_ in manifest["sha256"].items()
+                        if name not in ROW_FILES.values()
+                    }
+                    assert set(manifest["sha256"]) == {
+                        current_name(name) for name in planned["artifact_sha256"]
+                    } and published == {
+                        name: hash_
+                        for name, hash_ in planned["artifact_sha256"].items()
+                        if name not in ROW_FILES
+                    }, (
                         "changed artifacts still name only their historical producer; composite provenance is required"
                     )
+                    assert (
+                        carried_rows_findings(study.slug, study.artifacts, ROW_FILES.values()) == []
+                    ), "changed rows still name only their historical producer"
             return
         plan_raw = PLAN_PATH.read_bytes()
         validate_composite_manifest(manifest, plan_raw)
-        raw = gzip.decompress(study.artifact("property-replicates.csv.gz").read_bytes())
+        raw = csv_text(read_rows(study.artifact("property-replicates.parquet")))
         assert digest(raw) == manifest["composite"]["composite_property_csv_sha256"]
+        assert carried_rows_findings(study.slug, study.artifacts, ["replicates.parquet"]) == []
         positions = json.loads(plan_raw)["changes"][study.slug]
         assert (
             carried_rows_sha256(raw, positions)
@@ -373,21 +392,52 @@ class TestArtifacts:
     ) -> None:
         """A pending comparator is asserted, never skipped: no reference row and no paired row."""
         manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
-        rows = pd.read_csv(study.artifact("replicates.csv.gz"), usecols=["implementation"])
+        rows = read_rows(study.artifact("replicates.parquet"), columns=["implementation"])
         paired = pd.read_csv(study.artifact("equivalence.csv"))
         found = comparator_findings(
             study, manifest, rows["implementation"].astype(str).unique(), len(paired)
         )
         assert found == [], f"{study.slug}: {found}"
 
+    def test_the_row_files_are_parquet_and_the_writer_reproduces_them(
+        self, study: StudyRecord, tmp_path: Path
+    ) -> None:
+        """Each row file is Parquet, and its CSV text writes back the same table.
+
+        The footer of a Parquet file names the ``pyarrow`` version that wrote it, so the test
+        compares the decoded table, its schema and its codec and not the bytes.  The manifest
+        hash fixes the bytes of the committed file.
+        """
+        names = ["replicates.parquet", "property-replicates.parquet"]
+        witnesses = study.artifact(property_failures.PROPERTY_WITNESSES)
+        if witnesses.exists():
+            names.append(witnesses.name)
+        for name in names:
+            path = study.artifact(name)
+            assert path.read_bytes()[:4] == b"PAR1", f"{name} is not Parquet"
+            committed = pq.read_table(path)
+            assert committed.schema.metadata is None, f"{name} carries pandas schema metadata"
+            groups = pq.read_metadata(path)
+            codecs = {
+                groups.row_group(group).column(index).compression
+                for group in range(groups.num_row_groups)
+                for index in range(committed.num_columns)
+            }
+            assert codecs <= {"ZSTD"}, f"{name} uses {codecs}"
+            dtype = property_failures.WITNESS_DTYPE if witnesses.name == name else None
+            rewritten = tmp_path / name
+            write_rows(read_rows(path), rewritten, dtype=dtype)
+            assert pq.read_table(rewritten).equals(committed, check_metadata=True), name
+            assert pq.read_table(rewritten).schema.equals(committed.schema, check_metadata=True)
+
     def test_the_manifest_hashes_every_published_result(self, study: StudyRecord) -> None:
         manifest = json.loads(study.artifact("manifest.json").read_text(encoding="utf-8"))
         assert set(manifest["sha256"]) == {
-            "replicates.csv.gz",
+            "replicates.parquet",
             "summary.csv",
             "equivalence.csv",
             "performance-tests.csv",
-            "property-replicates.csv.gz",
+            "property-replicates.parquet",
             "properties.csv",
         } | set(study.extra_artifacts) | set(study.property_artifacts) | {
             # The failure files exist only when a fit failed, and then each is hashed.
@@ -1526,6 +1576,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         # g-formula truth.  A control passes when its bias interval lies beyond the margin on
         # the side of the computed gap, which is the discrimination endpoint read on one side.
         "blip_feature_control",
+        # X33's bound necessity: valid bounds keep the bias inside the margin, and bounds that
+        # exclude the truth move it beyond the margin.
+        "bound_necessity",
     }
 )
 
@@ -1618,8 +1671,19 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # The SE of a clustered fit made without its cluster column, which must leave the band
         # from below.
         "unclustered_se",
+        # X33's binding witness: the iterated-mean cell answers to two share floors, and the
+        # hazard cell carries the diagnostic role and states no verdict.
+        "binding_witness",
     }
 )
+
+#: Gated families that read one stream on purpose, by study.  A witness of this kind checks a
+#: premise of the other family on the draws that family measured, so independent draws would
+#: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
+#: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
+SAME_DRAW_FAMILIES = {
+    "survival-node-bounds": frozenset({"binding_witness", "interval_calibration"}),
+}
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in
 #: one of the two above, because the rule is not "which endpoint decides this row" but
@@ -1658,6 +1722,10 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X46's first-draw reading and its displacement share, reported with no verdict.
         "single_draw_reading",
         "split_displacement",
+        # X33's bounded fits on the parameters the bounds do not gate, and the unbounded fits on
+        # the same draws, each reported with no verdict.
+        "reported_calibration",
+        "unbounded_fit",
     }
 )
 
@@ -2092,7 +2160,8 @@ class TestTheStudyStillMeasuresTheCode:
 
         A family in ``DIAGNOSTIC_PROPERTIES`` publishes a reading and no verdict, so it may read
         the fits of another family and does not count as a claim on the stream.  Every other
-        family still needs a stream of its own.
+        family still needs a stream of its own, except the one pair of a study that
+        ``SAME_DRAW_FAMILIES`` names.
         """
         declared_cells = getattr(study.properties(), "declared_cells", None)
         if declared_cells is None:
@@ -2105,7 +2174,7 @@ class TestTheStudyStillMeasuresTheCode:
         collisions = {
             stream: sorted(properties)
             for stream, properties in by_stream.items()
-            if len(properties) > 1
+            if len(properties) > 1 and frozenset(properties) != SAME_DRAW_FAMILIES.get(study.slug)
         }
         assert not collisions, f"property families reuse sample streams: {collisions}"
 
@@ -2952,6 +3021,8 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
     "margin:correction_displacement": lambda s: s.properties().CORRECTION_DISPLACEMENT,
     "margin:necessity_displacement": lambda s: s.properties().NECESSITY_DISPLACEMENT,
+    "margin:witness_share": lambda s: s.properties().WITNESS_SHARE,
+    "margin:unconverged_share": lambda s: s.properties().UNCONVERGED_SHARE,
     "margin:weight_displacement": lambda s: s.properties().WEIGHT_DISPLACEMENT,
     "margin:learner_weight_displacement": lambda s: s.properties().LEARNER_WEIGHT_DISPLACEMENT,
     "margin:categorical_probability_displacement": (
@@ -2966,6 +3037,8 @@ MARGIN_SOURCES: dict[str, Any] = {
     # ``failure_bound`` without naming it in its runner module.
     "margin:subject_failure_bound": lambda s: float(s.failure_bound[s.implementation]),
     "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
+    "margin:reference_failure_bound": lambda s: float(s.failure_bound[s.reference]),
+    "margin:reference_failures_allowed": lambda s: float(failures.allowed(s, s.reference)),
 }
 
 
@@ -3554,7 +3627,9 @@ class TestPropertyDifferential:
     def test_the_differential_lists_every_committed_study(self) -> None:
         job = self._job()
         committed = {
-            study.slug for study in STUDIES if study.artifact("property-replicates.csv.gz").exists()
+            study.slug
+            for study in STUDIES
+            if study.artifact("property-replicates.parquet").exists()
         }
         parametrized = {
             value.values[0]

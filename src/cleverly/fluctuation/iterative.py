@@ -78,7 +78,9 @@ CarryItem: TypeAlias = "InitialFit | tuple[InitialFit, Submodel]"
 #: fixes differ: ``separation_suspected`` and ``bounds_pinned`` point at positivity,
 #: ``singular_hessian`` at a rank-deficient clever covariate (two columns that are
 #: multiples of one another), and ``max_iter_reached`` at a tolerance that is simply
-#: too tight for the conditioning of the problem.
+#: too tight for the conditioning of the problem.  ``bound_excludes_data`` is set by the
+#: bounded node fluctuation of a longitudinal fit (``node_bounds=``), which checks that the
+#: score equation has a root before it runs a step.
 #:
 #: These are *reported*, not raised.  Raising would break the sensitivity sweeps that
 #: deliberately push the truncation bound into bad territory to show what happens.
@@ -89,6 +91,7 @@ TargetingFailure = Literal[
     "separation_suspected",
     "bounds_pinned",
     "max_iter_reached",
+    "bound_excludes_data",
 ]
 
 #: ``|epsilon|`` past which the fluctuation is treated as running away, which is what
@@ -124,6 +127,11 @@ _FAILURE_TEXT: dict[str, str] = {
         "the iteration cap was reached with the score still above tolerance; the fit may "
         "simply need more iterations, or the tolerance may be tighter than the "
         "conditioning of the problem supports"
+    ),
+    "bound_excludes_data": (
+        "a declared node bound excludes the weighted mean outcome of the node's followers, "
+        "so no fluctuation inside the bound solves the score equation; widen node_bounds "
+        "at that node"
     ),
 }
 

@@ -8,17 +8,16 @@
 prefix).  The truth-calibrated property study lives in
 :mod:`tests.studies.sdr_repeated_properties`.
 
-The comparator is pending
--------------------------
+The comparator pairs on the same draws
+--------------------------------------
 
-R ``lmtp`` 1.5.4 (``cf_sdr``) pairs with this study on the same draws.  The lmtp runs are not part
-of this change.  The record declares ``pending_reference="lmtp"``, so the regeneration driver runs
-no reference process, the registry holds the study as "comparator pending", and the evidence is
-labelled "Python property evidence, comparator run pending".  The merge reads the Python rows
-only: the truth gates on the 26 cleverly cells, and the fast-tier witnesses E2, E3 and N8' that
-carry the correction's exactness without R.  This change defines the pairing columns that the
-change registering lmtp pairs on (plan X32b, sections 5.3 and 5.5).  It builds and checks them in
-every replicate and commits none of them (see "Memory and PR C"):
+R ``lmtp`` 1.5.4 (``cf_sdr``) pairs with this study on the same draws (plan X32b, sections 5.3
+and 5.5, change K12).  PR B committed the Python rows with the comparator pending.  The record
+now declares ``reference="lmtp"``, and the regeneration driver runs the Python phase again on
+the same seeds, hands each replicate's sample to the R runner, and pairs the rows.  The Python
+rows of the new run must equal PR B's to 1e-10 (:func:`tests.canonical.sdr_repeated.gates.
+pr_b_differences`).  The pairing columns are built and checked in every replicate and now
+reach the comparator (see "Memory and the sample archive"):
 
 * ``ratio__<plan>__<node>``: the per-node ratio :math:`\\pi_t 1\\{C_t = 1\\} / (g_t c_t)` at the
   observed arm, zero where the unit leaves the plan.  :func:`check_ratios` asserts that its
@@ -29,23 +28,26 @@ every replicate and commits none of them (see "Memory and PR C"):
   plan.  A missing plan value is accepted only on a unit that left the study before the node;
 * ``fold``: the fold assignment of the fit, which the comparator receives as ``task$folds``.
 
-The declared reference sources
-------------------------------
+The reference sources
+---------------------
 
-The pending mechanism needs a ``Reference``, and the type requires a runner path.  The driver
-names ``longitudinal_sdr_runner.R``, ``lmtp_sdr_adapter.R`` and the ``lmtp_crossfit`` Dockerfile,
-which plan K12 reuses unchanged.  An edit to that runner for ``longitudinal-sdr`` is
-result-neutral for this pending study until PR C replaces it.
+The driver (``tests/canonical/sdr_repeated/regenerate.py``) names
+``tests/canonical/sdr_repeated/run_study.R``, which sources
+``lmtp_sdr_repeated_adapter.R`` (the learner ``SL.cellmeans.outcomes``), ``lmtp_sdr_adapter.R``
+and ``lmtp_crossfit_adapter.R`` (both unchanged, because ``longitudinal-sdr`` gates their
+hashes) and ``study_harness.R``.  The container is the ``lmtp_crossfit`` Dockerfile.  Gate
+G1r, the parity ratio and mutation N8 are in ``tests/canonical/sdr_repeated/gates.py``.
 
-Memory and PR C
----------------
+Memory and the sample archive
+-----------------------------
 
 One replicate's sample (12,000 rows, about 34 columns) holds 12 MB, and 2,400 replicates of two
 scenarios would hold about 29 GB in the parent process, against 15 GB on the cloud container.
-PR B pairs nothing, so :func:`draw_and_fit` returns rows and truths only (``samples=None``).
-:func:`pairing_sample` builds one replicate's frame.  A fast test bounds the bytes that each
-replicate returns, independent of ``n``.  The R side of PR C must read samples sharded by
-scenario and replicate, one file per fit, and not one CSV of about 12 GB.
+:func:`draw_and_fit` therefore spills each fit's sample to disk from its worker
+(``spill_samples_at``) and hands the driver one assembled ``samples.csv.gz`` that holds one
+replicate at a time in memory.  The runner streams that archive in chunks of 24 replicates
+(``study_stream``).  A fast test bounds the bytes each worker returns, independent of ``n``.
+:func:`pairing_sample` builds one replicate's frame.
 
 What the sampled rows do not show
 ---------------------------------
@@ -92,7 +94,7 @@ Declared before any run
   lmtp rows of the later change fit the same ``R``).
 * The cleverly rows publish the first-node plug-in as ``initial_estimate``: the mean of the first
   node's regression of the corrected chain.  It is the quantity the lmtp adapter returns beside
-  its estimate, so the parity ratio of the later change can read the correction on both sides.
+  its estimate, so the parity ratio reads the correction on both sides.
 * The registered :class:`Margins` defaults apply.  Publication policy ``gated``.  A red Python
   cell is diagnosed and fixed before a fresh declaration on fresh seeds.  No red cell is deferred.
 
@@ -105,7 +107,7 @@ Pilot state
 are the rules applied to them.  :func:`require_recorded_pilots` refuses a declared run while the
 state is ``"placeholder"``.  The disposable smoke run with explicit ``--replicates`` and ``--n``
 is not a declared run.  The declared run has finished and its artifacts are committed, so the
-study is registered with its comparator pending.
+study was registered with its comparator pending, and the lmtp run then paired on its draws.
 """
 
 from __future__ import annotations
@@ -257,16 +259,10 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation="cleverly",
-    # The R lmtp 1.5.4 pairing runs on the owner's machine as the TRACKER Study queue item that
-    # the change registering the lmtp rows (X32b PR C, TRACKER row 12c) adds.  It does not block
-    # the merge, and that change moves this name to ``reference``.
-    pending_reference="lmtp",
+    # The R lmtp 1.5.4 pairing runs on the owner's machine as the TRACKER Study queue item of
+    # X32b PR C (plan section 11, items 8 and 9).
+    reference="lmtp",
     comparison="matching implementation",
-    pending_reason=(
-        "the R lmtp 1.5.4 paired runs (cf_sdr, one call per plan and horizon on the truncated "
-        "prefix, on the draws and pairing columns committed here) run on the owner's machine as "
-        "the TRACKER Study queue item of X32b PR C; that change registers them"
-    ),
     # RM39b2 rev 3 section 6: the primary bound each side's next run applies, the pending
     # comparator's included.
     failure_bound={"cleverly": 0.01, "lmtp": 0.01},
@@ -293,6 +289,11 @@ STUDY = StudyRecord(
         "tests/studies/evidence/schema.py",
         "tests/studies/evidence/seeds.py",
         "tests/studies/evidence/simultaneous.py",
+        "tests/canonical/lmtp_crossfit/Dockerfile",
+        "tests/canonical/lmtp_crossfit_adapter.R",
+        "tests/canonical/lmtp_sdr_adapter.R",
+        "tests/canonical/lmtp_sdr_repeated_adapter.R",
+        "tests/canonical/sdr_repeated/run_study.R",
     ),
     runner_module="tests.studies.canonical_sdr_repeated",
     properties_module="tests.studies.sdr_repeated_properties",
@@ -309,10 +310,11 @@ REFERENCE_METADATA = {
     "reference_construction": (
         "lmtp cf_sdr and theta_dr(is_sdr = TRUE), one call per plan and horizon on the panel "
         "truncated after node h (binomial outcome Y_h, the earlier Y_s as covariates), with the "
-        "per-node ratios, shifted values and fold assignment built from each replicate by pairing_sample; "
-        "the outcome learner is cell means keyed on (Y_<t, A_<=t); no lmtp density ratio is "
-        "fitted"
+        "per-node ratios, shifted values and fold assignment built from each replicate by "
+        "pairing_sample; the outcome learner is cell means keyed on (Y_<t, A_<=t); no lmtp "
+        "density ratio is fitted"
     ),
+    "reference_adapter": "tests/canonical/lmtp_sdr_repeated_adapter.R",
 }
 
 
@@ -613,9 +615,8 @@ def _draw(key: tuple[str, int, int]) -> tuple[pd.DataFrame, dict[str, float]]:
 def pairing_sample(frame: pd.DataFrame, result: Any, scenario: str, replicate: int) -> pd.DataFrame:
     """The replicate's draw with its fold assignment and pairing columns.
 
-    PR B does not return this frame from the primary driver, because 2,400 replicates of it
-    hold about 29 GB.  The change that pairs lmtp builds it for one replicate at a time and
-    shards it by scenario and replicate.
+    :func:`draw_and_fit` spills this frame to disk from the worker that fitted it, so the run
+    never holds more than one per worker.
     """
     sample = frame.copy()
     for name, values in pairing_columns(result).items():
@@ -627,28 +628,36 @@ def pairing_sample(frame: pd.DataFrame, result: Any, scenario: str, replicate: i
     return sample
 
 
-def _replicate(
+def _fitted(
     key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[Any, list[dict[str, Any]], list[dict[str, Any]]]:
     scenario, replicate, _ = key
     frame, truth = drawn
     result = fit_cleverly(frame, folds=SCENARIO_FOLDS[scenario])
-    # Every replicate builds the pairing columns, which runs ``check_ratios`` on each plan.  The
-    # columns are not kept.
-    pairing_columns(result)
     truths = [
         {"scenario": scenario, "replicate": replicate, "estimand": name, "truth": value}
         for name, value in truth.items()
     ]
-    return truths, cleverly_rows(result, truth, scenario, replicate, n=len(frame))
+    return result, truths, cleverly_rows(result, truth, scenario, replicate, n=len(frame))
+
+
+def _paired_replicate(
+    key: tuple[str, int, int], drawn: tuple[pd.DataFrame, dict[str, float]]
+) -> tuple[pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
+    """The sample the comparator reads, with the truths and rows of the same fit."""
+    scenario, replicate, _ = key
+    result, truths, rows = _fitted(key, drawn)
+    return pairing_sample(drawn[0], result, scenario, replicate), truths, rows
 
 
 def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replication.PhaseResult:
-    """Draw and fit every declared primary replication, and check the pairing columns.
+    """Draw and fit every declared primary replication, and write the comparator's samples.
 
     The declared ``(replicates, n)`` is refused while the pilot tables are placeholders.  An
     explicit smaller run is a smoke run and is not refused.  Each replicate builds the pairing
-    columns and checks them, and returns rows and truths only: the result holds no samples.
+    columns, checks them, and spills the sample to disk.  The result holds the assembled
+    ``samples.csv.gz`` (replicate-major, so both scenarios of a replicate are contiguous, which
+    the runner reads as one group), the truths and the rows.
     """
     if (replicates, n) == (PRIMARY_REPLICATES, PRIMARY_N):
         require_recorded_pilots("the declared primary run")
@@ -658,15 +667,17 @@ def draw_and_fit(*, replicates: int, n: int, n_jobs: int = STUDY_JOBS) -> replic
             for replicate in range(replicates)
             for scenario in STUDY.scenarios
         ],
-        _replicate,
+        _paired_replicate,
         draw=_draw,
         n_jobs=n_jobs,
-        rows_at=1,
         implementation=STUDY.implementation,
         seed_of=lambda key: replicate_seed(STUDY, key[0], key[1]),
+        # Each fit writes its sample to disk, so the run holds one sample per worker.
+        spill_samples_at=0,
     )
-    truths = pd.DataFrame([row for rows, _ in outcomes.kept for row in rows])
-    estimates = pd.DataFrame([row for _, rows in outcomes.kept for row in rows])
+    samples = replication.assembled_samples(outcomes, at=0)
+    truths = pd.DataFrame([row for _, rows, _ in outcomes.kept for row in rows])
+    estimates = pd.DataFrame([row for _, _, rows in outcomes.kept for row in rows])
     return replication.result(
-        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=None, truths=truths
+        outcomes, estimates.loc[:, list(REPLICATE_COLUMNS)], samples=samples, truths=truths
     )

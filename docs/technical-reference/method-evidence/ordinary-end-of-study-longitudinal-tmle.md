@@ -199,7 +199,7 @@ The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/ca
 gives the regeneration commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/manifest.json)
 carries the package checksum, R image digest, source commit, formulas, seeds, and artifact hashes.
-The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/replicates.csv.gz),
+The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/replicates.parquet),
 [paired verdicts](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/equivalence.csv)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ltmle/properties.csv)
 carry every published row.

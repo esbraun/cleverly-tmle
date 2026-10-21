@@ -20,7 +20,7 @@ The ledger reads each verdict column as a boolean. It refuses a table whose verd
 a blank or any other value, because a blank would otherwise read as a pass. The paired
 `reference_valid` column repeats the comparator's truth row, so the truth kind covers it.
 
-The ledger reads verdict rows and accounting rows only. Six study modules also define a `scientific_failures` hook.
+The ledger reads verdict rows and accounting rows only. Eight study modules also define a `scientific_failures` hook.
 The regeneration adds each hook's rows to the failures it gates or reports. These hooks audit
 fits and publish no verdict cell, so the ledger does not read them.
 
@@ -32,6 +32,8 @@ fits and publish no verdict cell, so the ledger does not read them.
 | [missing-outcome attributable-effect TMLE](missing-outcome-attributable-effects-tmle.md) | `gated` | the exact-equality probe of the scale workaround on both R paths | `scale-probe.csv`. The test requires every row to pass |
 | [stacked arm-indexed missing-outcome CV-TMLE](stacked-arm-indexed-missing-outcome-cvtmle.md) | `gated` | the same probe | `scale-probe.csv`. The test requires every row to pass |
 | [C-TMLE candidate sequences](c-tmle-candidate-sequences.md) | `reporting` | the replay gates that failed: R's selection replayed in `cleverly` on the same rows | the study page and `replay-summary.csv`. The test fails on a red gate until the roadmap's owner table lists `X16-sequence-reading` |
+| [modified treatment policies at declared boundaries](mtp-boundaries.md) | `reporting` | the `lmtp` exactness witnesses of the `boundaries_ltmle` and `boundaries_sdr` scenarios that exceed the 1e-6 gate | the study page and `exactness.csv` |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | `reporting` | the `lmtp` exactness witnesses of every scenario that exceed the 1e-6 gate | the study page and `exactness.csv` |
 
 `tests/unit/test_red_cell_ledger.py` fails when a study module defines a hook that this table
 does not list.
@@ -124,12 +126,12 @@ The test fails on four states.
 | [`X26-plugin-conservative`](../../roadmap.md#red-cell-owners) | 1 | omitted-variable bound plug-in standard error |
 | [`X26-refusal-limited`](../../roadmap.md#red-cell-owners) | 1 | omitted-variable bound plug-in standard error |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
-| [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) | 4 | boundary-binding price plans over follow-up lengths |
+| [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) | 8 | boundary-binding price plans over follow-up lengths |
 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) | 3 | boundary-binding price plans over follow-up lengths |
 | [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) | 1 | modified treatment policies at declared boundaries |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 184 | 36 studies |
+| total | 188 | 36 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -210,6 +212,10 @@ same text as the "measured" column of its study page.
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_ltmle_tau5/ey_regimen[price_down]` | cleverly-mtp-pricing | its truth gate | bias -0.000992 to 0.0023, coverage 0.9170, SE ratio 0.9479 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_sdr_tau5/ate_regimen[price_down vs natural_prices]` | cleverly-mtp-pricing | its truth gate | bias -0.000981 to 0.0024, coverage 0.9190, SE ratio 0.9339 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `cleverly-mtp-pricing/pricing_sdr_tau5/ey_regimen[price_down]` | cleverly-mtp-pricing | its truth gate | bias -0.000997 to 0.0023, coverage 0.9230, SE ratio 0.9518 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `lmtp/pricing_ltmle_tau5/ate_regimen[price_down vs natural_prices]` | lmtp | its truth gate | bias -0.000974 to 0.0024, coverage 0.9160, SE ratio 0.9310 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `lmtp/pricing_ltmle_tau5/ey_regimen[price_down]` | lmtp | its truth gate | bias -0.000992 to 0.0023, coverage 0.9170, SE ratio 0.9479 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `lmtp/pricing_sdr_tau5/ate_regimen[price_down vs natural_prices]` | lmtp | its truth gate | bias -0.000981 to 0.0024, coverage 0.9190, SE ratio 0.9339 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
+| [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | truth | `lmtp/pricing_sdr_tau5/ey_regimen[price_down]` | lmtp | its truth gate | bias -0.000997 to 0.0023, coverage 0.9230, SE ratio 0.9518 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | property | `interval_calibration/up_learned_density_tau2__correctly_specified` | positive | its own rule | coverage 0.9530 to 0.9747, SE ratio 1.0265 to 1.1162 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | property | `interval_calibration/up_learned_density_tau3__correctly_specified` | positive | its own rule | coverage 0.9473 to 0.9704, SE ratio 1.0493 to 1.1408 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) |
 | [boundary-binding price plans over follow-up lengths](mtp-pricing.md) | property | `interval_calibration/up_learned_density_tau5__correctly_specified` | positive | its own rule | coverage 0.9485 to 0.9713, SE ratio 1.0428 to 1.1323 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) |
@@ -338,7 +344,7 @@ row. A move to `gated` is a separate registry decision.
 | [cross-fitted clustered longitudinal TMLE on a t reference at few clusters](few-cluster-cross-fitted-longitudinal-tmle.md) | 13 | 0 |
 | [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 31 | 0 |
 | [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 84 | 0 |
-| [C-TMLE0 derivative covariate](ctmle-derivative.md) | 24 | 0 |
+| [C-TMLE0 derivative covariate](ctmle-derivative.md) | 30 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 56 | 0 |
 | [tuned caps and their population and fold-average targets](mtp-tuning.md) | 26 | 0 |
@@ -347,6 +353,7 @@ row. A move to `gated` is a separate registry decision.
 | [point-treatment survival, one-step hazard targeting of the curve](point-survival-curve.md) | 46 | 0 |
 | [cross-fitted point-treatment survival, hazard targeting](point-survival-curve-crossfit.md) | 24 | 0 |
 | [policies at a held baseline treatment](point-treatment-survival-policies.md) | 60 | 0 |
+| [node bounds on survival fits](survival-node-bounds.md) | 27 | 0 |
 | [TMLE on a declared known treatment mechanism](known-treatment-mechanism.md) | 57 | 0 |
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
 | [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |

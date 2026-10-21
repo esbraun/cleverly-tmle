@@ -9,7 +9,8 @@
 # theta_dr directly, with .trim = 1 and k = Inf, and never cf_density_ratios.  A deterministic
 # policy is one copy per unit.  A randomized policy with known branch probabilities that are
 # multiples of 1 / copies is realised by proportional replication, as lmtp_policy_adapter.R
-# states.  Neither shared adapter is edited; both are hashed by the studies that ran them.
+# states.  Both shared adapters are hashed by the studies that ran them, so an edit keeps their
+# default path and is declared in tests/canonical/provenance-revisions.md.
 
 source("/fixture/lmtp_policy_adapter.R")
 
@@ -45,7 +46,8 @@ lmtp_mtp_tmle <- function(
   time_vary,
   copies = 1L,
   as_label = FALSE,
-  learners_outcome = "SL.glm"
+  learners_outcome = "SL.glm",
+  refuse_bound = TRUE
 ) {
   # frame: one row per unit, the natural columns plus the study's shift__ and ratio__ columns.
   # as_label: code the treatment columns as character, so SL.glm reads one dummy per level and
@@ -68,6 +70,7 @@ lmtp_mtp_tmle <- function(
     fold_assignment = frame$fold,
     copies = copies,
     learners_outcome = learners_outcome,
-    control = lmtp::lmtp_control(.trim = 1, .learners_outcome_folds = 2, .return_full_fits = TRUE)
+    control = lmtp::lmtp_control(.trim = 1, .learners_outcome_folds = 2, .return_full_fits = TRUE),
+    refuse_bound = refuse_bound
   )
 }

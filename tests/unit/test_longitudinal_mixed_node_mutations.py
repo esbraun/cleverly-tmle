@@ -156,7 +156,7 @@ def test_m7_an_outcome_prediction_with_the_natural_flag_is_caught(
         "values = np.column_stack([data.node_values(node)[:, 0], "
         "np.array(targets[0 if arm is None else int(arm)], dtype=float)[:, 1]])"
     )
-    mutate(monkeypatch, sequential, sequential, "outcome_design", [(old, new)])
+    mutate(monkeypatch, sequential, sequential, "_policy_block", [(old, new)])
     _caught()
 
 
@@ -180,14 +180,12 @@ def test_m9_an_outcome_design_without_the_earlier_flag_is_caught(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The node-2 outcome regression drops the node-1 flag.  Measured deviation: 3.32."""
-    old = "            continue\n        if data.is_continuous_node(node):"
+    old = "return np.asarray(data.component_design(node, values), dtype=float)"
     new = (
-        "            if node < time:\n"
-        "                blocks[-1] = blocks[-1][:, 1:]\n"
-        "            continue\n"
-        "        if data.is_continuous_node(node):"
+        "block = np.asarray(data.component_design(node, values), dtype=float)\n"
+        "        return block[:, 1:] if node < time else block"
     )
-    mutate(monkeypatch, sequential, sequential, "outcome_design", [(old, new)])
+    mutate(monkeypatch, sequential, sequential, "_policy_block", [(old, new)])
     _caught()
 
 

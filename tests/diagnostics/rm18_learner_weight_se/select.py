@@ -16,10 +16,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
 
 PROPERTY_REPLICATES = (
-    ROOT / "tests" / "canonical" / "weighted_lmtp_ltmle" / "property-replicates.csv.gz"
+    ROOT / "tests" / "canonical" / "weighted_lmtp_ltmle" / "property-replicates.parquet"
 )
 PROPERTY = "learner_weight_necessity"
 ARMS = (
@@ -38,7 +39,7 @@ DECLARED_COMPARISON = tuple(range(COMPARISON_SIZE))
 
 def learner_weight_rows(path: Path = PROPERTY_REPLICATES) -> pd.DataFrame:
     """The committed rows of both ``learner_weight_necessity`` arms."""
-    rows = pd.read_csv(path)
+    rows = read_rows(path)
     chosen = rows.loc[rows["property"] == PROPERTY].reset_index(drop=True)
     if set(chosen["cell"]) != set(ARMS):
         raise ValueError(f"expected the arms {ARMS}, found {sorted(set(chosen['cell']))}")

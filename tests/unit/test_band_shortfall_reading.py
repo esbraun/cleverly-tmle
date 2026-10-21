@@ -24,6 +24,7 @@ from scipy import stats
 from tests import discrete_law_longitudinal as longitudinal
 from tests.studies import default_band_properties, stratified_law
 from tests.studies.default_band_properties import design, design_correlation
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
 from tests.unit.test_clustered_crossfit_ltmle_design import BAND_DESIGN
 from tests.unit.test_simultaneous_cell_design import EXACT
@@ -115,10 +116,7 @@ READINGS = {
 @pytest.mark.parametrize("label", sorted(READINGS))
 def test_the_red_band_reading_is_the_committed_rows_own(label: str) -> None:
     directory, critical, quoted_critical, package_critical, package, oracle = READINGS[label]
-    rows = pd.read_csv(
-        ROOT / "tests" / "canonical" / directory / "property-replicates.csv.gz",
-        float_precision="round_trip",
-    )
+    rows = read_rows(ROOT / "tests" / "canonical" / directory / "property-replicates.parquet")
     band = rows.loc[rows["cell"] == f"{label}__simultaneous_band"]
     assert len(band) == int(band["requested_replicates"].iloc[0])
     c_star = critical()
@@ -159,9 +157,8 @@ def test_the_multi_arm_missing_outcome_calibration_draws() -> None:
     size sit at 0.997 and 0.989, with the same mean standard error. Pooled over all 4,400 fits
     the ratio is 1.020, and a Bartlett test across the three cells gives p = 0.20.
     """
-    rows = pd.read_csv(
-        ROOT / "tests" / "canonical" / "drtmle_mar_multi_arm" / "property-replicates.csv.gz",
-        float_precision="round_trip",
+    rows = read_rows(
+        ROOT / "tests" / "canonical" / "drtmle_mar_multi_arm" / "property-replicates.parquet"
     )
     ratios = {}
     for cell in ("ate__correctly_specified", "n_2000", "l3_ate_low__both_correct"):

@@ -12,7 +12,7 @@ from the records, and :func:`reconcile` refuses rows whose gaps the records do n
 With no record, :func:`stamp` returns the rows unchanged, so no artifact moves.
 
 A run with a record also publishes ``property-failure-accounting.csv`` (:func:`property_accounting`)
-and ``property-failure-witnesses.csv``, the draw-level witness of every key of each cell that
+and ``property-failure-witnesses.parquet``, the draw-level witness of every key of each cell that
 lost a replicate (rev 3 D3'f).
 """
 
@@ -53,6 +53,7 @@ from tests.studies.evidence.inference import (
     percentile_interval,
     student_interval,
 )
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.properties import (
     absolute_bias_bound,
     log_slope,
@@ -340,7 +341,10 @@ PROPERTY_ACCOUNTING_COLUMNS = (
 
 #: The witness values a run with a property failure publishes beside its records: the
 #: statistic of every key of each cell that lost a replicate (D3'f).
-PROPERTY_WITNESSES = "property-failure-witnesses.csv"
+PROPERTY_WITNESSES = "property-failure-witnesses.parquet"
+
+#: The text columns of :data:`PROPERTY_WITNESSES`, which a file with no failure leaves empty.
+WITNESS_DTYPE = {"property": str, "cell": str, "statistic": str}
 
 #: The largest ``FAILURE_BOUND`` a property module may declare (RM39-plan a2 Q3).
 MAXIMUM_BOUND = 0.05
@@ -2913,7 +2917,7 @@ def read_witnesses(path: Path) -> pd.DataFrame | None:
     Parameters
     ----------
     path : pathlib.Path
-        A ``property-failure-witnesses.csv``.
+        A ``property-failure-witnesses.parquet``.
 
     Returns
     -------
@@ -2922,7 +2926,7 @@ def read_witnesses(path: Path) -> pd.DataFrame | None:
     """
     if not path.exists():
         return None
-    published = pd.read_csv(path, dtype={"property": str, "cell": str, "statistic": str})
+    published = read_rows(path).astype(WITNESS_DTYPE)
     return published.loc[:, list(WITNESS_COLUMNS)]
 
 
@@ -2969,6 +2973,10 @@ AFFINE_SEED = 20_261_014
 #: in units of the cell's largest absolute value of the column, and at least one.
 EXTRA_SCALE = 4.0
 EXTRA_SHIFT = 4.0
+
+#: The kinds of one extra column and one cell: two that raise the values and one that sets them
+#: down until their mean is their smallest finite value, the floor of a count or a share.
+EXTRA_KINDS = ("scale", "shift", "floor")
 
 
 def cell_key(*labels: str) -> int:
@@ -3386,7 +3394,7 @@ def _extra_columns(rows: pd.DataFrame) -> list[str]:
 
 
 def extra_perturbations(rows: pd.DataFrame) -> tuple[str, ...]:
-    """Per numeric extra column and per cell, a scaling and an additive shift (rev 3 L10).
+    """Per numeric extra column and per cell, a scaling, a shift and a floor (rev 3 L10).
 
     An extra column is any numeric column beyond
     :data:`~tests.studies.evidence.properties.REPLICATE_COLUMNS`, such as the bootstrap counts
@@ -3394,6 +3402,18 @@ def extra_perturbations(rows: pd.DataFrame) -> tuple[str, ...]:
     alone cannot move a column that is zero on every row, so the shift adds
     :data:`EXTRA_SHIFT` times the cell's largest absolute value, at least one.  A column with
     no finite value in a cell gives that cell none.
+
+    The scaling and the shift only raise a non-negative share or count, so neither can flip a
+    floor clause such as a share of indicator rows at least one half.  The floor kind moves the
+    cell's values down by the gap between their mean and their smallest finite value.  The cell
+    mean then equals the observed minimum, which is zero for an indicator, so a share falls to
+    its floor and no clause needs a threshold of the subject to flip.  The floor kind has the
+    least side effect on other subjects.  It keeps the spread of the column, so a variance, a
+    covariance or a ratio that another statistic reads stays finite.  It leaves a constant
+    column unchanged, such as the bootstrap-failure counts that a cap reads when they are zero,
+    and such as a convergence flag that is one on every row.  A zeroing or a collapse to the
+    minimum would remove the spread, and a fractional lowering would need a factor per clause.
+    A lost (non-finite) row stays lost.
 
     Parameters
     ----------
@@ -3403,22 +3423,22 @@ def extra_perturbations(rows: pd.DataFrame) -> tuple[str, ...]:
     Returns
     -------
     tuple of str
-        One :func:`perturbed` kind per perturbation, ``extra|column|property|cell|scale`` or
-        ``...|shift``.
+        One :func:`perturbed` kind per perturbation, ``extra|column|property|cell|scale``,
+        ``...|shift`` or ``...|floor``.
     """
     out: list[str] = []
     for column in _extra_columns(rows):
         finite = rows[column].astype(float).map(math.isfinite)
         kept = rows.loc[finite, ["property", "cell"]].drop_duplicates()
         for family, cell in sorted(kept.itertuples(index=False, name=None)):
-            out.extend(f"extra|{column}|{family}|{cell}|{how}" for how in ("scale", "shift"))
+            out.extend(f"extra|{column}|{family}|{cell}|{how}" for how in EXTRA_KINDS)
     return tuple(out)
 
 
 def _extra(rows: pd.DataFrame, kind: str) -> pd.DataFrame:
     """One :func:`extra_perturbations` kind applied to a copy of ``rows``."""
     _, column, family, cell, how = kind.split("|")
-    if column not in _extra_columns(rows) or how not in {"scale", "shift"}:
+    if column not in _extra_columns(rows) or how not in EXTRA_KINDS:
         raise ValueError(f"unknown perturbation {kind!r}")
     out = rows.copy()
     out[column] = out[column].astype(float)
@@ -3426,6 +3446,9 @@ def _extra(rows: pd.DataFrame, kind: str) -> pd.DataFrame:
     values = out.loc[index, column]
     if how == "scale":
         out.loc[index, column] = values * EXTRA_SCALE
+    elif how == "floor":
+        finite = values[np.isfinite(values)]
+        out.loc[index, column] = values - (float(finite.mean()) - float(finite.min()))
     else:
         out.loc[index, column] = values + EXTRA_SHIFT * max(1.0, float(np.nanmax(np.abs(values))))
     return out

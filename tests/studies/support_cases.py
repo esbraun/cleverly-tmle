@@ -2034,6 +2034,21 @@ def _long_cases() -> tuple[RowCase, ...]:
             lambda study, law=law, n=n: study.sample(law, n, 0),
             lambda study, frame, scenario=scenario: study.fit_scenario(scenario, frame),
         )
+
+    # Node bounds on a held survival fit: the study's declared fit of each model at 400 rows.
+    bounded = "canonical_survival_node_bounds.py:208"
+    for row, model in (
+        ("G45.mean_model", "mean_model"),
+        ("G45.hazard_model", "hazard_model"),
+    ):
+        observed(
+            row,
+            "survival-node-bounds",
+            model,
+            bounded,
+            lambda study, model=model: study.draw_from_seed(model, 400, 0)[0],
+            lambda study, frame, model=model: study.fit(model, frame),
+        )
     return tuple(cases)
 
 

@@ -258,8 +258,9 @@ def test_the_seeds_are_new() -> None:
 def test_the_records() -> None:
     from tests.canonical.mtp_pricing.regenerate import REFERENCE
 
-    assert study.STUDY.comparator_state == "pending"
-    assert study.STUDY.pending_reference == "lmtp"
+    assert study.STUDY.comparator_state == "compared"
+    assert study.STUDY.reference == "lmtp"
+    assert study.STUDY.extra_artifacts == ("exactness.csv",)
     assert tuning.STUDY.comparator_state == "none"
     assert tuning.STUDY.truth_varies_by_replicate
     runner = (ROOT / "tests" / "canonical" / REFERENCE.runner).read_text(encoding="utf-8")
@@ -511,3 +512,89 @@ def test_a_fold_average_truth_differs_from_the_population_truth() -> None:
         tuning_properties.replicate_truth(
             "fold_average_dose_quantile_tau2__population_truth_control", 0
         )
+
+
+# ---------------------------------------------------------------------------- the comparator
+
+
+def test_every_primary_scenario_is_an_exactness_witness() -> None:
+    rows = []
+    for scenario in study.SCENARIOS:
+        for implementation, shift in ((study.STUDY.implementation, 0.0), ("lmtp", 3e-6)):
+            rows.append(
+                {
+                    "implementation": implementation,
+                    "scenario": scenario,
+                    "replicate": 0,
+                    "estimand": "ey_regimen[price_down]",
+                    "estimate": 0.8 + shift,
+                    "std_error": 0.02,
+                }
+            )
+    table = study.extra_artifacts(pd.DataFrame.from_records(rows))["exactness.csv"]
+    assert set(table["scenario"]) == set(study.SCENARIOS)
+    # The reference moved by three times the gate: every witness is red.
+    assert not table["passed"].any()
+    assert len(study.scientific_failures({"exactness.csv": table})["exactness witness"]) == 6
+
+
+def test_a_lost_witness_fit_turns_the_exactness_audit_red() -> None:
+    # A real failure frame names its scenarios in the ``scenarios`` column, joined by ``;``.
+    def record(implementation: str, scenarios: str, replicates: str) -> dict[str, object]:
+        return {
+            "implementation": implementation,
+            "group_id": f"{implementation}:{scenarios}",
+            "scenarios": scenarios,
+            "replicates": replicates,
+            "attempt": 1,
+            "class": "error",
+            "stage": "fit",
+            "call": "lmtp_tmle",
+            "message": "synthetic",
+            "seed": 0,
+        }
+
+    rows = pd.DataFrame.from_records(
+        {
+            "implementation": implementation,
+            "scenario": scenario,
+            "replicate": 0,
+            "estimand": "ey_regimen[price_down]",
+            "estimate": 0.8,
+            "std_error": 0.02,
+        }
+        for scenario in study.SCENARIOS
+        for implementation in (study.STUDY.implementation, "lmtp")
+    )
+    table = study.extra_artifacts(rows)["exactness.csv"]
+    failures = pd.DataFrame.from_records(
+        [
+            record("lmtp", "pricing_ltmle_tau2;pricing_sdr_tau5", "1;2"),
+            record(study.STUDY.implementation, "pricing_ltmle_tau2", "1"),
+        ]
+    )
+    audit = study.account_failures(failures, {"exactness.csv": table}).set_index("leg")
+    # Four (scenario, replicate) fits are lost; the pair both sides lost counts once.
+    assert audit.loc["exactness witness", "own"] == 0
+    assert audit.loc["exactness witness", "failed"] == 4
+    assert not audit.loc["exactness witness", "passed"]
+
+
+def test_the_primary_ltmle_rows_bound_the_submodel_at_lmtp_bound() -> None:
+    import inspect
+
+    assert study.PRIMARY_ALPHA == 1.0 - 1e-5
+    assert study.CONFIGURATION["ltmle_alpha"] == study.PRIMARY_ALPHA
+    source = inspect.getsource(study._replicate)
+    assert 'alpha=PRIMARY_ALPHA if estimator == "ltmle" else None' in source
+    # The nonzero witness: on a sample whose least-squares nodes predict above 0.9995, the
+    # bound moves the price_down mean, so a primary fit that dropped it would not be exact.
+    frame, _ = study.draw_scenario("pricing_ltmle_tau3", 2_000, 0)
+    shipped = study.fit(frame, 3).psi("ey_regimen[price_down]")
+    matched = study.fit(frame, 3, alpha=study.PRIMARY_ALPHA).psi("ey_regimen[price_down]")
+    assert abs(shipped - matched) > 1e-8
+
+
+def test_the_runner_reads_lmtp_bound_through_the_gate() -> None:
+    runner = (ROOT / "tests" / "canonical" / "mtp_pricing_runner.R").read_text(encoding="utf-8")
+    assert "refuse_bound = FALSE" in runner
