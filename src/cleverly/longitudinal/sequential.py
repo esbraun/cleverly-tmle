@@ -2539,15 +2539,17 @@ def _window_outcome_design(
 ) -> FloatArray:
     """The outcome regression's design at node ``time`` under a Markov order.
 
-    It holds ``W`` and the covariates of the window nodes ``[t-k, t]``.  A policy node in the
-    window adds the block :func:`outcome_design` gives it.  A rule node in the window adds a
-    drop-first block of its assigned arm, because its arm is a function of the full history,
-    and the window's covariates do not determine it.  A static node adds no block, because
-    its arm is one constant among the rows that remain on the plan.  The arms of nodes before
-    the window are dropped, as the restriction states.
+    It holds ``W`` and the covariates of the window nodes ``[t-k, t]``.  The arms start one
+    node earlier, at :func:`_outcome_arm_start`, as the mechanism's arms
+    ``A_{t-k-1}, ..., A_{t-1}`` do and as ``lmtp``'s ``LmtpVars$history`` does.  A policy
+    node in ``[t-k-1, t]`` adds the block :func:`outcome_design` gives it.  A rule node there
+    adds a drop-first block of its assigned arm, because its arm is a function of the full
+    history, and the window's covariates do not determine it.  A static node adds no block,
+    because its arm is one constant among the rows that remain on the plan.  The arms of
+    nodes before ``t-k-1`` are dropped, as the restriction states.
     """
     blocks = [data.window_covariates(time)]
-    for node in range(data.window_start(time), time + 1):
+    for node in range(_outcome_arm_start(data, time), time + 1):
         if data.is_held_node(node):
             continue
         if plan.is_policy_node(node):
@@ -2556,6 +2558,16 @@ def _window_outcome_design(
             codes = np.nan_to_num(plan.values[:, node - 1], nan=0.0)
             blocks.append(arm_indicators(codes, len(data.treatment_levels[node - 1])))
     return np.hstack(blocks)
+
+
+def _outcome_arm_start(data: LongitudinalData, time: int) -> int:
+    """The first node whose arm the windowed outcome design at ``time`` reads.
+
+    It is ``max(1, t-k-1)``, the first arm of
+    :meth:`~cleverly.longitudinal.LongitudinalData.history_design` under the same order, so
+    the outcome regression and the mechanisms read the arms of one window.
+    """
+    return max(1, data.window_start(time) - 1)
 
 
 def _is_rule_node(plan: Plan, node: int) -> bool:

@@ -109,10 +109,12 @@ class TestTheWindows:
         for time in range(1, NODES + 1):
             nodes = _window(time, order)
             expected = [_columns(panel, ["W", *(f"L{s}" for s in nodes)])]
-            expected += [assigned[:, None] for s in nodes if s in (2, 4)]
+            # The arms start at t-k-1, one node before the covariates, as the mechanism's do.
+            arms = range(max(1, time - order - 1), time + 1)
+            expected += [assigned[:, None] for s in arms if s in (2, 4)]
             np.testing.assert_array_equal(outcome_design(data, plan, time), np.hstack(expected))
 
-    def test_a_policy_node_keeps_its_block_only_inside_the_window(
+    def test_a_policy_node_keeps_its_block_only_inside_the_arm_window(
         self, panel: pd.DataFrame
     ) -> None:
         data = _design(1).prepare(panel)
@@ -123,9 +125,12 @@ class TestTheWindows:
         np.testing.assert_array_equal(
             outcome_design(data, plan, 4), np.hstack([base, _columns(panel, ["A3"])])
         )
+        # At node 3 the arms start at node 1, so policy node 1 adds its block.
         np.testing.assert_array_equal(
             outcome_design(data, plan, 3, arm=1),
-            np.hstack([_columns(panel, ["W", "L2", "L3"]), np.ones((data.n, 1))]),
+            np.hstack(
+                [_columns(panel, ["W", "L2", "L3"]), _columns(panel, ["A1"]), np.ones((data.n, 1))]
+            ),
         )
         full = _design(None).prepare(panel)
         (unrestricted,) = resolve_plans((mix,), full)
@@ -302,6 +307,89 @@ class TestSDR:
         errors = _errors("markov1", 1, SDR, mechanism="wrong")
         assert abs(errors["rule"]) > 1e-3
         assert abs(errors["always"]) < EXACT
+
+
+def _rule_of_l2() -> Any:
+    return lambda h: 1 - np.asarray(h["L2"], dtype=float)
+
+
+LAGGED_PLANS: dict[str, tuple[Any, Any, Any]] = {
+    "never": (0, 0, 0),
+    "rule": (1, _rule_of_l2(), 1),
+}
+
+
+def _lagged_errors(order: int | None, estimator: type[LTMLE] | type[SDR] = LTMLE) -> list[float]:
+    data = LongitudinalTreatment(
+        outcome=THREE.outcome,
+        treatment=THREE.treatment,
+        baseline=THREE.baseline,
+        time_varying=THREE.time_varying,
+        markov_order=order,
+    ).prepare(law.frame("lagged_arm"))
+    regimens = {
+        "never": 0,
+        "rule": DynamicRegimen("rule", LAGGED_PLANS["rule"], rule_kind="known"),
+    }
+    result = estimator(
+        regimens,
+        reference="never",
+        n_folds=1,
+        random_state=0,
+        outcome_learner=CellMeans(),
+        pseudo_learner=CellMeans(),
+        treatment_learner=DummyClassifier(strategy="prior"),
+        censoring_learner=DummyClassifier(strategy="prior"),
+        simultaneous=False,
+    ).fit(data)
+    return [
+        abs(result.fits[label].psi_scaled - law.truth("lagged_arm", plan))
+        for label, plan in LAGGED_PLANS.items()
+    ]
+
+
+class TestTheLaggedRuleArm:
+    """The outcome window holds the rule arm at ``t - k - 1``, as the mechanism window does.
+
+    On ``"lagged_arm"`` every nuisance reads the order-0 window and ``Y`` reads ``A2``, which a
+    rule of ``L2`` sets. At node 3 the window covariates are ``W, L3``, so only the ``A2`` block
+    carries the arm. The mechanisms are wrong, so the outcome regressions alone must be right.
+    """
+
+    @pytest.mark.parametrize("estimator", [LTMLE, SDR])
+    def test_order_zero_returns_the_truth_through_the_outcome_regressions(
+        self, estimator: type[LTMLE] | type[SDR]
+    ) -> None:
+        assert max(_lagged_errors(0, estimator)) < EXACT
+
+    def test_the_full_history_returns_the_truth(self) -> None:
+        assert max(_lagged_errors(None)) < EXACT
+
+    def test_a_window_without_the_lagged_rule_arm_misses_the_truth(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def window_start(self: LongitudinalData, time: int) -> int:
+            return 1 if self.markov_order is None else max(1, time - self.markov_order)
+
+        def outcome_start(data: LongitudinalData, time: int) -> int:
+            return window_start(data, time)
+
+        monkeypatch.setattr(sequential_module, "_outcome_arm_start", outcome_start)
+        errors = _lagged_errors(0)
+        assert errors[0] < EXACT
+        assert errors[1] > 1e-3
+
+    def test_the_outcome_and_mechanism_arm_blocks_start_at_one_node(self) -> None:
+        data = _design(1).prepare(_panel())
+        rule = DynamicRegimen("rule", (_sign_of("W"),) * NODES, rule_kind="known")
+        (plan,) = resolve_plans((rule,), data)
+        for time in range(1, NODES + 1):
+            first = max(1, data.window_start(time) - 1)
+            assert sequential_module._outcome_arm_start(data, time) == first
+            design = outcome_design(data, plan, time)
+            covariates = data.window_covariates(time)
+            # one drop-first column per binary rule arm from ``first`` to ``time``
+            assert design.shape[1] == covariates.shape[1] + (time - first + 1)
 
 
 class TestMutationControls:

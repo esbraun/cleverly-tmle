@@ -1261,7 +1261,7 @@ class LongitudinalData:
         The order ``k`` is a statistical-model restriction on the observed law.  At node
         ``t`` the treatment and censoring mechanisms read ``W``, ``L_{t-k}, ..., L_t`` and
         ``A_{t-k-1}, ..., A_{t-1}``.  The outcome regression reads ``W`` and
-        ``L_{t-k}, ..., L_t``, plus the arms of the rule and policy nodes in ``[t-k, t]``.
+        ``L_{t-k}, ..., L_t``, plus the arms of the rule and policy nodes in ``[t-k-1, t]``.
         The estimand does not change.
 
         Parameters

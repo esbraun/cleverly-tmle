@@ -1411,13 +1411,14 @@ the full history.
 | --- | --- | --- |
 | treatment and censoring mechanism | $W, L_1..L_t, A_1..A_{t-1}$, plus $A_t$ for censoring | $W, L_{t-k}..L_t, A_{t-k-1}..A_{t-1}$, plus $A_t$ for censoring |
 | outcome regression, static node | $W, L_1..L_t$ | $W, L_{t-k}..L_t$ |
-| outcome regression, rule node | $W, L_1..L_t$ | adds the assigned arm of each rule node in $[t-k, t]$ |
-| outcome regression, policy node | the policy blocks of nodes $1..t$ | the policy blocks of nodes in $[t-k, t]$ |
+| outcome regression, rule node | $W, L_1..L_t$ | adds the assigned arm of each rule node in $[t-k-1, t]$ |
+| outcome regression, policy node | the policy blocks of nodes $1..t$ | the policy blocks of nodes in $[t-k-1, t]$ |
 | rule and policy frames | $W, L_1..L_t$, and the earlier arms for a policy | unchanged |
 
 A static node adds no block, because its arm is one constant among the rows that follow the plan.
 A rule node in the window adds its arm. The rule reads the full history, so the window's
-covariates do not determine the arm. Indices below 1 are dropped.
+covariates do not determine the arm. The arm blocks start at $t-k-1$, as the mechanism's arms
+do and as `LmtpVars$history` in `lmtp` does. Indices below 1 are dropped.
 
 When the restriction is false, the nuisance fits converge to projections on the window. The fit
 is consistent when one nuisance family, fitted on the window, is consistent. That family needs the
@@ -1435,8 +1436,10 @@ families, at the usual product rate. The restriction text that a fit records is 
 `tests/unit/test_longitudinal_markov_order.py` holds the evidence. It checks each design's columns
 against the source columns for $T = 4$ and $k \in \{0, 1, 2\}$. On a three-node law whose
 nuisances read the order-1 window, order 1 returns the truth and order 0 does not. On a law whose
-mechanisms read the order-0 window, order 0 returns the truth through the mechanisms. A window one
-node short and a dropped rule block each fail an exact-law check. `SDR` reads the same designs, and the
+mechanisms read the order-0 window, order 0 returns the truth through the mechanisms. On a law
+whose outcome reads a rule arm at $t-k-1$, order 0 returns the truth through the outcome
+regressions. A window one node short, a dropped rule block and an arm window that starts at
+$t-k$ each fail an exact-law check. `SDR` reads the same designs, and the
 same file runs the witnesses and the rule-block control on `SDR`.
 
 ### Pooled censoring

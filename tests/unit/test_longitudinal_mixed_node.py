@@ -1172,5 +1172,8 @@ def test_a_markov_window_reads_a_mixed_node_as_a_policy_block() -> None:
             assert data.node_kind(time) == "mixed"
             assert plan.is_policy_node(time)
             assert not _is_rule_node(plan, time)
-        expected = np.hstack([data.window_covariates(2), data.component_design(2)])
+        # Under order 0 the arms start at node 1, one node before the window's covariates.
+        expected = np.hstack(
+            [data.window_covariates(2), data.component_design(1), data.component_design(2)]
+        )
         np.testing.assert_array_equal(outcome_design(data, plan, 2), expected)

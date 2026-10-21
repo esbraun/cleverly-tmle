@@ -12,10 +12,14 @@ Two laws differ in what each conditional reads.
 | --- | --- | --- | --- |
 | ``"markov1"`` | ``W, L_{t-1}, A_{t-1}`` | ``W, L_{t-1}, L_t`` | ``W, L2, L3, A3`` |
 | ``"one_family"`` | ``W, L_{t-1}, A_{t-1}`` | ``W, A_{t-1}, L_t`` | ``W, L1, L3, A3`` |
+| ``"lagged_arm"`` | ``W, L_{t-1}, A_{t-1}`` | ``W, A_{t-1}, L_t`` | ``W, L3, A2, A3`` |
 
 Under ``"markov1"`` every nuisance reads the order-1 window, and the mechanisms and the
 outcome regressions both read a column outside the order-0 window.  Under ``"one_family"``
 the mechanisms read the order-0 window and the outcome regressions read ``L1``, outside it.
+Under ``"lagged_arm"`` every nuisance reads the order-0 window, which holds ``A_{t-1}``, and
+``Y`` reads ``A2``.  A rule at node 2 of ``L2`` makes ``A2`` a column that the node-3 window
+covariates ``W, L3`` do not determine.
 """
 
 from __future__ import annotations
@@ -52,6 +56,8 @@ def _a_prob(law: str, w: int, l_prev: int, l_now: int, a_prev: int, t: int) -> f
 
 
 def _y_prob(law: str, point: dict[str, int]) -> float:
+    if law == "lagged_arm":
+        return _q(point["W"], point["L3"], point["A3"], point["A2"], 1)
     early = point["L2"] if law == "markov1" else point["L1"]
     return _q(point["W"], early, point["L3"], point["A3"], 1)
 
@@ -108,6 +114,6 @@ def truth(law: str, plan: tuple[int | Rule, int | Rule, int | Rule]) -> float:
         for t, l_now in enumerate((l1, l2, l3), start=1):
             weight *= _bern(_l_prob(w, l_prev, a_prev, t), l_now)
             l_prev, a_prev = l_now, arms[t - 1]
-        point = {"W": w, "L1": l1, "L2": l2, "L3": l3, "A3": arms[2]}
+        point = {"W": w, "L1": l1, "L2": l2, "L3": l3, "A2": arms[1], "A3": arms[2]}
         total += weight * _y_prob(law, point)
     return total
