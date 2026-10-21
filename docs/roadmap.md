@@ -167,6 +167,7 @@ not change the package version.
 | after beta | Pooled-over-time parametric g-formula models | no new theory; the stacked equations of the shipped `ParametricGFormula`, with unit-summed scores | the shipped `ParametricGFormula` | [X73](#x73-pooled-over-time-parametric-g-formula-models) |
 | after beta | Data-tuned policies beyond the shipped tuned caps | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) |
 | after beta | Censored data for continuous price policies | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor | [X77](#x77-censored-data-for-continuous-price-policies) |
+| after beta | Ratio trimming on the hazard path | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` | [X79](#x79-ratio-trimming-on-the-hazard-path) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -1661,6 +1662,13 @@ row ships after the beta release (owner decision, 2026-10-16).
 
 `LTMLE` refuses `node_bounds=` beside `msm=` (R-i3). A working model over regimens pools one
 fluctuation across the regimens, and that fluctuation has no bounded form yet.
+
+### X79. Ratio trimming on the hazard path
+
+`LTMLE` refuses `ratio_trim=` beside `survival_model="hazard"` (R-d1). The `lmtp` trim acts on
+the per-node density ratios of the iterated-mean recursion. `lmtp` has no hazard model. The
+clever covariates of the hazard targeting read the cumulative inverse treatment and censoring
+probabilities, and no source read here defines a trim of them.
 
 ### P1. EP learner
 

@@ -141,6 +141,34 @@ def test_h5_a_working_model_is_refused(settings: dict[str, Any], option: str) ->
     _assert_gap(raised.value)
 
 
+@pytest.mark.parametrize("targeting", ["iterative", "one_step"])
+def test_r_d1_a_ratio_trim_on_a_hazard_fit_is_refused(targeting: str) -> None:
+    """The hazard path has no trim, so a fit that stamped one would report an untrimmed curve.
+
+    Before the refusal, ``ratio_trim=0.5`` on ``make_point_survival(n=300, seed=3)`` gave a
+    curve bit-identical to ``ratio_trim=None`` and still stamped the trimmed-ratio status.
+    """
+    message = (
+        "ratio_trim= with survival_model='hazard' is not built. lmtp's trim acts on the density "
+        "ratios of the iterated-mean recursion, and the hazard targeting has no trim of its "
+        "clever covariates. X79 in docs/roadmap.md tracks this. Fit ratio_trim= with "
+        "survival_model='iterated_mean', or fit survival_model='hazard' without ratio_trim= "
+        "and bound the treatment mechanism with g_bounds=."
+    )
+    with pytest.raises(CapabilityError, match=re.escape(message)) as raised:
+        LTMLE(
+            {"a1": 1},
+            survival_model="hazard",
+            targeting=targeting,
+            ratio_trim=0.5,
+            **_refusing(),
+        )
+    assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
+    assert raised.value.refusal.roadmap == "X79"
+    # The iterated-mean recursion keeps its trim.
+    assert LTMLE({"a1": 1}, ratio_trim=0.5, **_refusing()).ratio_trim == 0.5
+
+
 def test_h6_a_pseudo_learner_on_a_hazard_fit_is_refused() -> None:
     message = (
         "pseudo_learner= is not used with survival_model='hazard'. A hazard fit regresses the "

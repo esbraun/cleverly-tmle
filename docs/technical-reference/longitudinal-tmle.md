@@ -1383,6 +1383,9 @@ reports. [F30](../roadmap.md#f30-inference-after-quantile-ratio-trimming) owns t
 A quantile outside $(0, 1)$ raises `ValueError`. A quantile at which $Q_q = 0$ would set every
 ratio to zero, so the fit raises `DataError` and names the share of zero entries. A
 point-treatment fit refuses `ratio_trim=` and names `g_bounds=`.
+`LTMLE` refuses `ratio_trim=` beside `survival_model="hazard"` with `CapabilityError` (R-d1).
+The hazard targeting has no density-ratio matrix to trim.
+[X79](../roadmap.md#x79-ratio-trimming-on-the-hazard-path) tracks it.
 
 `tests/unit/test_longitudinal_ratio_trim.py` holds the evidence. It checks every entry, the
 threshold, the trimmed product and every clever covariate against a hand construction on the

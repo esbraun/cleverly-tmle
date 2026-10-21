@@ -147,6 +147,23 @@ HAZARD_STEP_BOUND_ONE_STEP_REFUSAL = Refusal(
     "step_bound= bounds the steps of targeting='iterative'.",
 )
 
+#: The roadmap item that tracks a ratio trim on the hazard path.
+HAZARD_RATIO_TRIM_ROADMAP = "X79"
+
+#: The refusal of ``ratio_trim=`` beside ``survival_model="hazard"`` (R-d1).  ``lmtp``'s
+#: ``.trim`` trims the density ratios of its sequential regression, and the hazard targeting
+#: has no such ratio matrix: its clever covariates read the cumulative inverse treatment and
+#: censoring probabilities of each node, and no source defines their trim.
+HAZARD_RATIO_TRIM_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "ratio_trim= with survival_model='hazard' is not built. lmtp's trim acts on the density "
+    "ratios of the iterated-mean recursion, and the hazard targeting has no trim of its "
+    "clever covariates.",
+    "Fit ratio_trim= with survival_model='iterated_mean', or fit survival_model='hazard' "
+    "without ratio_trim= and bound the treatment mechanism with g_bounds=.",
+    roadmap=HAZARD_RATIO_TRIM_ROADMAP,
+)
+
 #: The width :math:`u_j - l_j` below which a bounded hazard node warns: its fluctuation moves
 #: the hazard by at most that much, so the score there barely responds to a step.
 SMALL_SCALE = 1e-4
@@ -1990,8 +2007,9 @@ def refuse_hazard_settings(
     msm: bool,
     pseudo_learner: bool,
     step_bound: float | None = None,
+    ratio_trim: float | None = None,
 ) -> None:
-    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H6, H8, H13).
+    """Refuse a hazard or isotonic setting that needs no data (H4, H5, H6, H8, H13, R-d1).
 
     ``iterate=`` and ``stopping=`` apply to both hazard algorithms, and ``step_bound=`` to
     ``targeting="iterative"``.  The one-step walk takes its steps in ``step_size``, so a step
@@ -2013,6 +2031,8 @@ def refuse_hazard_settings(
         Whether ``pseudo_learner=`` was passed.
     step_bound : float or None, default=None
         The ``step_bound=`` value. The caller has validated it.
+    ratio_trim : float or None, default=None
+        The ``ratio_trim=`` value. The caller has validated it.
 
     Raises
     ------
@@ -2058,6 +2078,8 @@ def refuse_hazard_settings(
         )
     if survival_model == "hazard" and targeting == "one_step" and step_bound is not None:
         raise MethodConfigurationError.from_refusal(HAZARD_STEP_BOUND_ONE_STEP_REFUSAL)
+    if survival_model == "hazard" and ratio_trim is not None:
+        raise CapabilityError.from_refusal(HAZARD_RATIO_TRIM_REFUSAL)
     if pseudo_learner and survival_model == "hazard":
         raise ValueError(
             "pseudo_learner= is not used with survival_model='hazard'. A hazard fit "

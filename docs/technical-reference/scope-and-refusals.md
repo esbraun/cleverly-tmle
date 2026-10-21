@@ -185,7 +185,7 @@ must establish whether the tilted parameter is still the shift parameter.
 
 ### Targeting and fitting option refusals
 
-These options are `Targeting(stopping=, step_bound=, step_search=, iterate=, node_bounds=)`,
+These options are `Targeting(stopping=, step_bound=, step_search=, iterate=, node_bounds=, ratio_trim=)`,
 `ModelSpec(outcome_by_arm=)`, `CollaborativeTMLEMethod(patience=)` and
 `PointTreatment(treatment_adjustment=)`. A refusal is raised before any learner fits, unless the
 row says otherwise. A malformed value raises `ValueError` with no record. Every other row carries
@@ -193,8 +193,8 @@ the code shown.
 `tests/unit/test_stopping_rule.py`, `test_step_bound.py`, `test_best_iterate.py`,
 `test_longitudinal_node_bounds.py`, `test_outcome_by_arm.py`, `test_patience.py`,
 `test_treatment_covariates.py`,
-`test_treatment_covariates_collaborative.py`, `test_hazard_targeting_rules.py` and
-`test_hazard_node_bounds.py` assert each text
+`test_treatment_covariates_collaborative.py`, `test_hazard_targeting_rules.py`,
+`test_hazard_node_bounds.py` and `test_hazard_refusals.py` assert each text
 with `pytest.raises(match=re.escape(...))`.
 
 | id | refused | class and code | message |
@@ -206,6 +206,7 @@ with `pytest.raises(match=re.escape(...))`.
 | R-c2 | `step_bound=` with `algorithm="one_step"` | `MethodConfigurationError`, `api_redirection` | `algorithm='one_step' already walks the universal least-favorable submodel in steps of step_size. step_bound= bounds the steps of algorithm='iterative'.` |
 | R-c3 | `step_search=False` without `step_bound=` | `MethodConfigurationError`, `invalid_declaration` | `step_search= chooses how a bounded step is taken, so it needs step_bound=` |
 | R-c4 | `step_bound=` with `survival_model="hazard"` and `targeting="one_step"`. `LTMLE` raises it when it validates its settings, after the malformed-value checks | `MethodConfigurationError`, `api_redirection` | `targeting='one_step' with survival_model='hazard' already walks the universal least-favorable submodel in steps of step_size. step_bound= bounds the steps of targeting='iterative'.` |
+| R-d1 | `ratio_trim=` with `survival_model="hazard"`. `LTMLE` raises it when it validates its settings, after the malformed-value checks | `CapabilityError`, `implementation_gap`, roadmap X79 | `ratio_trim= with survival_model='hazard' is not built. lmtp's trim acts on the density ratios of the iterated-mean recursion, and the hazard targeting has no trim of its clever covariates. X79 in docs/roadmap.md tracks this. Fit ratio_trim= with survival_model='iterated_mean', or fit survival_model='hazard' without ratio_trim= and bound the treatment mechanism with g_bounds=.` |
 | R-abc1 | `iterate="best"`, a declared `stopping=` or `step_bound=` with `fluctuation="linear"` | `MethodConfigurationError`, `invalid_declaration` | `fluctuation='linear' solves the score equation in one closed-form step, so it has no iterate, stopping rule or step bound to choose. Remove iterate=, stopping= and step_bound=, or use fluctuation='logistic'` |
 | R-abc2 | a non-default `stopping=`, `step_bound=`, `step_search=` or `iterate=` on `SDR`, `SDRMethod` | `MethodConfigurationError`, `invalid_declaration` | `the SDR estimator fits no fluctuation, so it has no logistic shrink, iteration limit or score tolerance. LTMLE takes stopping=, so pass the setting there.` The text names the keyword that was declared |
 | R-abc3 | the same settings on `IPSI`, `IPSIMethod` | `MethodConfigurationError`, `invalid_declaration` | `IPSI fits no fluctuation: Kennedy's estimator averages the influence function at the fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or submodel.` |
@@ -229,6 +230,7 @@ with `pytest.raises(match=re.escape(...))`.
 | R-h6 | a repeated name in `treatment_adjustment=` | `DataError` | `treatment_adjustment repeats {cols}` |
 
 [X78](../roadmap.md#x78-bounded-node-fits-under-a-working-model) tracks R-i3.
+[X79](../roadmap.md#x79-ratio-trimming-on-the-hazard-path) tracks R-d1.
 
 `TMLE.fit(treatment_covariates=)` raises R-h1, R-h4 and R-h6 with the argument named
 `treatment_covariates` in place of `treatment_adjustment`.

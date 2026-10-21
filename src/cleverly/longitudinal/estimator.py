@@ -4810,6 +4810,7 @@ class _SequentialEstimator:
             msm=self.msm is not None,
             pseudo_learner=self.pseudo_learner is not None,
             step_bound=getattr(self, "step_bound", None),
+            ratio_trim=self.ratio_trim,
         )
         if self.msm is not None and self.reference is not None:
             raise ValueError(
@@ -6792,6 +6793,9 @@ class LTMLE(_SequentialEstimator):
         A quantile in ``(0, 1)`` at which every per-node density ratio is trimmed, as
         ``lmtp``'s ``.trim`` does (:mod:`cleverly.longitudinal.ratio_trim`).  A fit whose
         trim moves a ratio reports no interval.  ``None`` trims nothing.
+        ``survival_model="hazard"`` refuses it with
+        :class:`~cleverly.exceptions.CapabilityError`, because the hazard targeting has no
+        density-ratio matrix to trim.
     hazard_pooling : {"node", "pooled"}
         ``"pooled"`` fits one censoring model over every node's at-risk rows, with the node
         time as a column (:mod:`cleverly.longitudinal.pooled_hazards`).  Under
