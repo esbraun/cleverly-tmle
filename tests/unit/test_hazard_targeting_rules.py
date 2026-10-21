@@ -334,3 +334,41 @@ def test_a_step_bound_is_replayed() -> None:
     result = _fit(ArmOnly(), step_bound=0.5, stopping="sample_size", iterate="best")
     replay = _refit_bound(result, result.repeats[0], result.config.g_bounds)
     assert _fitted_replay_matches(result, result.repeats[0], replay)
+
+
+# ------------------------------------------------------------------------- NaN score
+
+
+@pytest.mark.parametrize("targeting", ALGORITHMS)
+def test_a_nan_relative_score_stops_the_default_rule_at_once(
+    targeting: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The shipped loop read ``while trace[-1] > tol``, which a NaN score leaves at once.
+
+    ``not met()`` with ``met = trace[-1] <= tol`` would instead run to ``max_iter``. The default
+    rule keeps the shipped exit, so a NaN score takes no step.
+    """
+    result = _fit(ArmOnly(), targeting=targeting)
+    inputs, start = _internals(result)
+    record = next(iter(result.fits.values())).hazard
+    assert record.n_iter >= 1
+    monkeypatch.setattr(hazard_module, "relative_score", lambda *args: float("nan"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        if targeting == "iterative":
+            horizon = record.targets[0][2]
+            _, fit = hazard_module.solve_per_horizon(
+                start, inputs, horizon, record.targets, max_iter=5, tol=record.tol
+            )
+        else:
+            _, fit = walk_curve(
+                start,
+                inputs,
+                result.config.horizons,
+                record.targets,
+                step_size=2e-2,
+                tol=record.tol,
+                max_steps=5,
+            )
+    assert fit.n_iter == 0
+    assert not fit.converged

@@ -1337,7 +1337,9 @@ def solve_per_horizon(
     inner_tol = min(tol, 1e-12) if declared else tol * 1e-2
 
     def met() -> bool:
-        return ratio <= 1.0 if ratio is not None else trace[-1] <= tol
+        # ``not > tol`` rather than ``<= tol``: a NaN relative score stops the default rule,
+        # as the shipped ``while trace[-1] > tol`` did.
+        return ratio <= 1.0 if ratio is not None else not trace[-1] > tol
 
     while not met() and iterations < max_iter:
         size = inputs.n_regimens * inputs.n_causes
@@ -1674,7 +1676,9 @@ def walk_curve(
     best = BestIterate(last_on_ties=True) if iterate == "best" else None
 
     def met() -> bool:
-        return ratio <= 1.0 if ratio is not None else trace[-1] <= tol
+        # ``not > tol`` rather than ``<= tol``: a NaN relative score stops the default rule,
+        # as the shipped ``while trace[-1] > tol`` did.
+        return ratio <= 1.0 if ratio is not None else not trace[-1] > tol
 
     dx = float(step_size)
     steps = 0
