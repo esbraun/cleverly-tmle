@@ -151,7 +151,7 @@ def test_r_d1_a_ratio_trim_on_a_hazard_fit_is_refused(targeting: str) -> None:
     message = (
         "ratio_trim= with survival_model='hazard' is not built. lmtp's trim acts on the density "
         "ratios of the iterated-mean recursion, and the hazard targeting has no trim of its "
-        "clever covariates. X79 in docs/roadmap.md tracks this. Fit ratio_trim= with "
+        "clever covariates. X80 in docs/roadmap.md tracks this. Fit ratio_trim= with "
         "survival_model='iterated_mean', or fit survival_model='hazard' without ratio_trim= "
         "and bound the treatment mechanism with g_bounds=."
     )
@@ -164,7 +164,7 @@ def test_r_d1_a_ratio_trim_on_a_hazard_fit_is_refused(targeting: str) -> None:
             **_refusing(),
         )
     assert raised.value.refusal.reason is RefusalReason.IMPLEMENTATION_GAP
-    assert raised.value.refusal.roadmap == "X79"
+    assert raised.value.refusal.roadmap == "X80"
     # The iterated-mean recursion keeps its trim.
     assert LTMLE({"a1": 1}, ratio_trim=0.5, **_refusing()).ratio_trim == 0.5
 

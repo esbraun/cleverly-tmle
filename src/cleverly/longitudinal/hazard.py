@@ -148,7 +148,7 @@ HAZARD_STEP_BOUND_ONE_STEP_REFUSAL = Refusal(
 )
 
 #: The roadmap item that tracks a ratio trim on the hazard path.
-HAZARD_RATIO_TRIM_ROADMAP = "X79"
+HAZARD_RATIO_TRIM_ROADMAP = "X80"
 
 #: The refusal of ``ratio_trim=`` beside ``survival_model="hazard"`` (R-d1).  ``lmtp``'s
 #: ``.trim`` trims the density ratios of its sequential regression, and the hazard targeting
