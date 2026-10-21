@@ -1156,12 +1156,14 @@ def _c_rows() -> tuple[SupportRow, ...]:
     derivative = _ctmle("derivative")
     study = "ctmle-derivative"
     rows += [
+        # The R ctmle type-3 comparison covers this row's fit: binary, two-arm, complete-outcome,
+        # in-sample ATE.  Its two GLM scenarios are equivalent to R.
         point_row(
             "C10.in_sample",
             [study],
             families=("P1",),
             engine=derivative,
-            cells=["in_sample"],
+            cells=["in_sample", "binary_declared_pair", "binary_pipeline"],
         ),
         point_row(
             "C10.stacked",
