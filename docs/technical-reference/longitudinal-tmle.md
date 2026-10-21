@@ -18,6 +18,7 @@ treatment plan followed at every node, by iterating a regression backward throug
 | the plan depends on the history | fixed, rowwise dynamic rules receive the history available at their node, and no static plan can express them | the fixed rule is part of the estimand. A rule learned from the same sample needs additional inference that this estimator does not provide |
 | the plan draws the arm at random | a known policy $q_t(a \mid H_t)$ at a node, with the integrated influence curve | the policy is part of the estimand and must be fixed before the fit |
 | you want a survival curve | the same recursion, seeded at the horizon, reports cumulative risk at each horizon you name | each horizon is its own backward pass. The cost is quadratic in the node count |
+| you want a survival curve that never decreases | `survival_model="hazard", targeting="one_step"` reads every horizon from one set of targeted hazards. `isotonic=True` projects any curve onto a non-decreasing one | the hazard model needs one categorical baseline treatment and no covariate after baseline. A projected level has a valid pointwise interval only where the true curve strictly increases |
 | several causes of failure compete | cause-specific cumulative incidence, with the competing causes left alone | that is a *total* effect. Eliminating the competing event is a different question, and is refused by name |
 | you want the effects summarised across regimens | a working model over regimen and horizon cells | see [MSM projections](msm-projections.md) |
 
@@ -27,12 +28,16 @@ treatment.
 Reach for [`SequentialGComputation` and `SequentialIPW`](sequential-baselines.md) for the
 plug-in and weighting baselines of the same target. Their intervals hold only under correctly
 specified `GLM` models.
+Reach for [`ParametricGFormula`](parametric-gformula.md) for the forward-simulation form of the same
+target and for a fixed or rule-set continuous dose. Its interval holds only under correctly specified models.
+
 Collaborative TMLE and DR-TMLE have no longitudinal derivation, and `available_methods()` says so
 before any model is fitted.
 
 A worked applied analysis is in the
-[longitudinal tutorial](../examples/longitudinal-tmle.ipynb). It runs a point-treatment analysis
-of the same data as a control, and that analysis fails in both available directions.
+[sequential pricing tutorial](../examples/sequential-pricing.ipynb). It runs two single
+regressions of the same data as controls. One omits the engagement and one holds it fixed, and both
+miss the policy effect.
 [Time-to-event outcomes](../examples/longitudinal-survival.ipynb) is the companion tutorial for
 the event-process extensions below.
 
@@ -147,6 +152,39 @@ Before evaluating the requested grid, replay at the fitted pair must reproduce e
 estimate, regimen fit, and MSM fit exactly. This preflight also runs when the grid omits that pair.
 A mismatch makes the operation unavailable instead of reporting a different fitted procedure.
 
+### Targeting options at each node
+
+`LTMLE` accepts the four targeting options of [point-treatment TMLE](point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate):
+`stopping=`, `step_bound=`, `step_search=` and `iterate=`. Set them on `LTMLE`, or through
+`Targeting` on a longitudinal `TMLEMethod`. Each default runs the shipped node solver unchanged.
+The solver applies the options at each node of each regimen.
+
+| item | rule |
+| --- | --- |
+| units $n_u$ | the distinct clusters of the panel when `cluster=` is set, else the rows. The solver receives every row, and a unit that does not follow the regimen adds zero. So the span and $n_u$ are those of the panel |
+| `msm=` | one stacked solve over the regimen cells. The unit codes are tiled, so a subject counts once across its cells |
+| cross-fitting | the pooled targeting pass applies the options once over every fold |
+| repeated outcomes | each horizon applies the options at its own nodes |
+| long panels | the same node solver, so each node applies them |
+| the one-column node | the node with one clever covariate. Under `step_bound=` its direction is $\operatorname{sign}(s)$ |
+| `survival_model="hazard"` | refuses `iterate=`, `stopping=` and `step_bound=`. See [hazard-based survival targeting](#hazard-based-survival-targeting) |
+| `fluctuation="linear"` | refuses all three, as for a point fit |
+| truncation replay | the replay recipe repeats the options, so a replay reruns the same node solve |
+
+A fit under a declared rule prints the pinned residual line in `res.summary()`. When a node misses
+its rule, the pinned failure line replaces the shipped warning. It names each node over its
+threshold once for each stacked solve. A `LongitudinalResult` has no `score_check()`, so the
+summary line is its report.
+
+`tests/unit/test_stopping_rule_longitudinal.py` computes the threshold and the ratio of every node
+by hand with `pandas`. It covers a single fold, cross-fitting, survival, competing risks, every
+repeated-outcome composition, a long panel, clusters and stacked MSM nodes. The crafted-node
+witness uses confident-wrong offsets. The shipped test takes 3 iterations there and the rule takes
+1, and the estimates differ by more than $10^{-4}$. Three mutation controls fail the tests. They
+drop the cluster code, the span or the MSM tile. `tests/unit/test_step_bound.py` checks every node
+against a SciPy walk from the node's own pseudo-outcome. `tests/unit/test_best_iterate.py` covers
+the best iterate per node.
+
 ### Survival and competing risks
 
 [Time-to-event outcomes](../examples/longitudinal-survival.ipynb) works this section applied.
@@ -243,7 +281,7 @@ not rely on that preprint.
 | influence curve at $(d, h)$ | the end-of-study influence curve of the truncated panel |
 | joint band | the multiplier band over the stacked curves of every reported $(d, h)$ |
 | working model, `msm=` | a design over $(d, h)$ cells. Each cell seeds its own $Y_h$ |
-| full-refit bootstrap | a diagnostic. No result licenses its coverage on this outcome |
+| full-refit bootstrap | shown with the label `experimental`. No support row lists `bootstrap` for this outcome |
 
 The remainder at each horizon is the end-of-study product remainder. The stack over horizons adds
 no remainder term. The interval at $(d, h)$ is therefore the end-of-study interval of the truncated
@@ -254,7 +292,10 @@ panel, under the same inference statuses.
 | static, dynamic and known stochastic plans, modified treatment policies | fits. A rule may read $Y_{t-1}$ |
 | cross-fitting, clusters, weights, a held treatment, known mechanisms | fits |
 | `msm=` over $(d, h)$ cells | fits |
-| `SDR` and `IPSI` | refused before any learner, until [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi) |
+| `repeats` above 1 | fits. Each horizon's mean and contrast take the median rule of [repeated fold draws](#repeated-fold-draws) |
+| `stopping=`, `step_bound=`, `step_search=`, `iterate=` | fit. Each horizon applies them at its nodes ([targeting options at each node](#targeting-options-at-each-node)) |
+| `SDR` | fits. Each horizon is the end-of-study fit of the truncated panel ([below](#sdr-on-a-repeated-outcome)) |
+| `IPSI` | fits. Each horizon is the end-of-study fit of the truncated panel ([below](#ipsi-on-a-repeated-outcome)) |
 | competing causes | not declarable. A cause mapping declares an absorbing outcome |
 | `rmst()`, `rmtl()`, `incidence_total()`, `ratio(view="survival")` | refused. A mean of a repeated outcome is not a cumulative risk |
 | `curve()` | `scale="mean"`, the default for this outcome. `"risk"` and `"survival"` are refused |
@@ -262,9 +303,29 @@ panel, under the same inference statuses.
 This construction does not cover a recurrent-event count process or truncation by death. If death
 is encoded as censoring, the parameter is the mean in a population where death is prevented.
 
-`tests/unit/test_repeated_outcome.py` checks the reduction at every horizon for 13 compositions:
-the estimate, the influence curve, every node regression and the cumulative mechanism, at
-`rtol=1e-12`. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
+| estimator | status | source for horizon $h$ |
+| --- | --- | --- |
+| `LTMLE` | fits | Bang and Robins (2005); van der Laan and Gruber (2012) |
+| `SDR` | fits | Díaz et al. (2023), Equation (4), Lemma 4 and Theorem 4 on the prefix |
+| `IPSI` | fits | Kim, Kennedy and Naimi (2021), Theorems 3.1, 4.1 and 5.1 |
+
+The allowlist `REPEATED_OUTCOME_KINDS` holds the kinds in this table that fit.
+`tests/unit/test_repeated_outcome_subclasses.py` fits every estimator subclass and requires
+either the reduction or the refusal.
+
+A level of $E[Y_h^d]$ is checked against the range of its own horizon. The outcome scale pools
+every node, so a level of $Y_2$ outside the range of $Y_2$ and inside the range of $Y_1$ would
+pass the pooled range. `SDR` and `IPSI` warn with `ParameterSpaceWarning` and name the range of
+that horizon. `LTMLE` has no per-horizon range check. A fit with `msm=` runs no range check. A
+declared `q_bounds` replaces the derived range (`tests/unit/test_repeated_outcome_container.py`,
+W16).
+
+`tests/unit/test_repeated_outcome.py` checks the reduction at every horizon for 13 compositions
+of `LTMLE` and 13 of `SDR`, and for 11 of those 13 compositions of `IPSI` plus six incremental
+ones: the estimate, the influence curve, every node regression and the cumulative mechanism, at
+`rtol=1e-12`. A plan with an odds tilt refuses in `SDR`, and the repeated fit raises the same
+message as the end-of-study fit. The other two `IPSI` compositions refuse with the end-of-study
+message. `tests/unit/test_influence_gateaux_repeated.py` checks the influence curve against
 the complex-step Gateaux derivative of the g-formula on two exact laws in
 `tests/discrete_law_repeated.py`. One law is binary. The other has three values per node. Ten
 mutation controls fail these tests, among them the absorbing seed $\max_{s \le h} Y_s$, a history
@@ -420,10 +481,9 @@ gives the ratio at a continuous node, and the discrete formula gives it at a cat
 | continuous dose | `LTMLE.fit(..., continuous_treatment=["A1", "A2"])` | a pooled-hazard density with `density_bins` bins, or `ratio="classifier"` |
 | categorical | the default | the discrete formula over the fitted mechanism |
 | vector of categorical columns | a list of columns as one entry of `treatment=` | the discrete formula over the joint levels |
+| mixed vector, with categorical and continuous columns | a list of columns as one entry of `treatment=`, with a column of the list in `continuous_treatment=` | the joint ratio of a `JointPolicy`: a chain-rule density with `ratio="density"`, or `ratio="classifier"`. See [vector nodes with a continuous component](#vector-nodes-with-a-continuous-component) |
 
-`LTMLE.fit` refuses a vector node with a continuous component with `CapabilityError`, before any
-learner. [X31](../roadmap.md#x31-continuous-vector-components-at-a-node) owns it. At a
-continuous node the treatment factor of the cumulative product is the ratio itself. So
+At a continuous node the treatment factor of the cumulative product is the ratio itself. So
 `g_bounds` bounds the censoring and categorical factors only, and the fit stores each node's
 ratio as `node_ratio`. A cross-fitted fit (`n_folds` above one) uses the pooled
 construction of the other plan kinds. `msm=` accepts modified treatment policy cells.
@@ -473,6 +533,10 @@ use `ratio="classifier"` with a flexible classifier, or set `density_bins=` high
 `regimens=` takes the policy as a plan node, and the `policies=` keyword stays refused by name:
 `regimens={"+0.5": DynamicRegimen("+0.5", (Shift(0.5, cap=4.0),) * 2)}`.
 
+The [sequential pricing tutorial](../examples/sequential-pricing.ipynb) fits a price rise and a price
+cut at three nodes under a declared band. It reads the support of larger rises and compares the fit
+with two single regressions.
+
 Evidence: `tests/unit/test_influence_gateaux_longitudinal_mtp.py` checks the estimate and the
 curve against the g-formula of `tests/discrete_law_longitudinal_mtp.py` and its Gateaux
 derivative. `tests/unit/test_longitudinal_mtp_targeting.py` holds the mutation controls, and
@@ -481,6 +545,89 @@ refusals. The registered study is
 [`longitudinal-mtp`](method-evidence/longitudinal-modified-treatment-policies.md). Its
 mechanism-only cells read oracle bins that grow as $n^{2/3}$, 320 at n = 2,000, for the reason
 above. So they test the targeting with a nearly exact ratio and not the default density.
+
+### Limits of the continuous-policy evidence
+
+The registered studies [`mtp-boundaries`](method-evidence/mtp-boundaries.md),
+[`mtp-pricing`](method-evidence/mtp-pricing.md) and [`mtp-tuning`](method-evidence/mtp-tuning.md)
+test the continuous policies of this section. Each row below states a limit that the studies publish.
+
+| limit | what it means for use |
+| --- | --- |
+| a continuous outcome needs `Targeting(q_bounds=(lower, upper))` | a longitudinal fit with a modified treatment policy refuses a continuous outcome with `q_bounds=None`. A revenue outcome is unbounded and positive, so declare its known support. The fit never clips an outcome |
+| the learned-density ratio arms of `mtp-pricing` publish as `reporting` | the screen read SE ratios above 1.05: 1.052, 1.105 and 1.079 at tau 2, 3 and 5 |
+| the screened ratio learner is the quadratic logistic classifier | the study uses it at every tau, with `ratio="classifier"` |
+| the cross-fold leak pair `classifier_split` is not registered | the pilot read a necessity power of 0.0002, so the pair cannot discriminate. The fast tier shows the effect of the leak only. In `tests/unit/test_classifier_ratio_controls.py`, `test_t_c1_no_unit_trains_the_model_that_predicts_it` shows no leak under unit folds. `test_m_c1_folds_over_stacked_rows_leak` shows a leak under row folds |
+
+### Vector nodes with a continuous component
+
+A node can hold several treatment columns. A list of columns is one entry of `treatment=`, and
+`continuous_treatment=` names the columns that hold a dose. A node with a dose and a categorical
+column is a *mixed node*. Díaz, Williams, Hoffman and Schenck (2023), Section 2, let the
+treatment at a node be a vector $A_t = (C_t, D_t)$. Their Theorem 1 gives the mean two readings
+for a vector node. Each reading needs its own exchangeability assumption at every node.
+
+| reading | the history at each node holds every common cause of | source |
+| --- | --- | --- |
+| modified treatment policy effect | the vector, the outcome, and the later covariates and treatments | Theorem 1 (ii) and Assumption 3; Williams & Díaz (2025) |
+| stochastic intervention (LMTP-SI) | the vector and the next covariates, which at the last node are the outcome | Theorem 1 (i) and Assumption 2 |
+
+`Identification.interpretations` records both readings (`tests/unit/test_mtp_interpretations.py`).
+
+```text
+LTMLE(regimens, ratio="classifier", ...).fit(
+    frame,
+    outcome="Y",
+    treatment=[["flag1", "dose1"], ["flag2", "dose2"]],
+    baseline=["W"],
+    continuous_treatment=["dose1", "dose2"],
+)
+```
+
+`LTMLE` and `SDR` fit a mixed node. Each regimen sets the node with a `JointPolicy`, which
+[the point-treatment section](point-treatment-tmle.md#vector-treatments) defines. The policy
+frame at the node holds the history. Each map reads the natural values of the components as the
+table of that section states.
+
+| item | rule at a mixed node |
+| --- | --- |
+| ratio | the joint ratio $g^d / g$ at the observed vector. It sits in the numerator of the cumulative product, as the ratio of a continuous node does |
+| `ratio="density"` | the chain rule: the categorical mechanism, then a pooled-hazard density for each dose in `order`. A sum over the categorical preimages and Equation (3) for each dose give the induced density. `g_bounds` bounds the categorical factor in the running denominator |
+| `ratio="classifier"` | the stacked classification of Section 5.4. The design holds the history, an indicator for each categorical component and the raw doses. The classifier cannot split the ratio, so `g_bounds` reaches no factor of the node |
+| history of a later node | both components of an earlier node, with a dose as a dose column and a categorical component as its own drop-first indicators |
+| a flag with a dose | the dose map of one mixed node reads the natural flag. Two consecutive nodes, a flag node and then a dose node, read the flag that the first node assigned. With an identity flag map the two readings coincide, and the fits are equal (W10) |
+
+**What composes.** Each row has a witness in `tests/unit/test_longitudinal_mixed_node.py`.
+
+| composition | status |
+| --- | --- |
+| censoring, whose retention reads both components of an earlier node | supported (W9) |
+| survival outcomes and one-cause competing risks | supported. A one-cause fit equals the survival fit |
+| weights, clusters with `id=`, cross-fitting | supported. A cluster stays whole, and the folds split units |
+| `msm=` over joint-policy plans | supported. A saturated working model equals the separate fits |
+| truncation replay, bootstrap, `subset`, `dumps` and `loads` | supported |
+| `SDR` | supported on both routes, in sample and with folds that are each an exact copy of the law |
+| a known randomizer on the `JointPolicy` or on one component | supported (W11, `tests/unit/test_vector_component_randomizer.py`) |
+| `RiskRatioTilt` on a binary component | supported. It joins the product randomizer |
+| a declared support for a dose, `continuous_treatment={name: Support}` | supported. The support is given the history, the categorical components and the earlier doses of the node. The fit checks each branch at the components it assigns (`tests/unit/test_mtp_vector_support.py`) |
+
+[Scope and refusals](scope-and-refusals.md#vector-treatments) lists what a vector refuses and
+gives the reason for each refusal.
+
+**Evidence.** `tests/unit/test_longitudinal_mixed_node.py` checks the estimate and the influence
+curve of every plan on the two-node mixed law of `tests/discrete_law_longitudinal_mtp.py`
+against the g-formula and its complex-step Gateaux derivative (W3). The law gives each node a
+flag and a dose on the grid $\{0, 1, 2\}$. W4 sets the flag and gates the dose on the natural
+flag. Its law moves the estimand by more than $10^{-2}$ between that reading and the reading of
+the assigned flag. W5 checks that the later history holds both components.
+
+`tests/unit/test_longitudinal_mixed_node_mutations.py` holds the mutation controls, and each
+control moves a witness by more than $10^{-4}$. They drop the flag or the dose from the
+classifier, read the assigned flag, drop the earlier flag from the history, read the kind off the
+first component only, and drop a component from the censoring or outcome design.
+`tests/unit/test_vector_density_route.py` repeats the plans on the density route and adds an
+ordered plan on a law with two doses per node. The registered study is
+[`vector-mtp`](method-evidence/vector-modified-treatment-policies.md).
 
 ### One baseline treatment held over the nodes
 
@@ -498,7 +645,7 @@ is an *identity node*.
 | identification | without $L_t$, Benkeser, Carone and Gilbert (2018), Section 2.3. With $L_t$, Díaz, Williams, Hoffman and Schenck (2023), Theorem 1, with the identity policy $d_t(a_t, h_t) = a_t$ at $t \ge 2$ |
 | influence curve | the shipped telescoping curve, with $H_t = 1\{A^d = A\}\,(q_1/g_1) \prod_{s \le t} 1\{C_s = 1\}/c_s$. For an arm or a rule, $q_1/g_1 = 1/g_1(d \mid W)$, which is $H_k$ of Benkeser et al. (2018), Section 4 |
 | end-of-study outcome | the same held design with the shipped end-of-study recursion. Without $L_t$ it equals point TMLE with `delta=` and $\Delta = C_1 \cdots C_K$, because with saturated nuisances the curve keeps only its last term |
-| report | `summary()` prints `treatment: one baseline decision 'A', held over K node(s)`. The nuisance report shows `LONGITUDINAL_HELD_DECISION` in place of a treatment row at each identity node. `bootstrap_design_kind` returns no kind, so the bootstrap is a diagnostic |
+| report | `summary()` prints `treatment: one baseline decision 'A', held over K node(s)`. The nuisance report shows `LONGITUDINAL_HELD_DECISION` in place of a treatment row at each identity node. No support row lists a held baseline treatment with `bootstrap`, so the percentile interval is shown and carries the label `experimental` |
 
 The wide layout with one treatment column per node gives the same fit when the later columns copy
 node 1. With cell-mean learners at one fold the copied fit's later factor is exactly one, so the
@@ -574,7 +721,7 @@ time. A row holds the covariates measured before its decision, the decision, and
 indicator of the node. The reader reshapes the rows into the wide arrays and calls
 `LongitudinalData.from_frame`, so the wide checks apply unchanged. The estimand, the recursion, and
 the influence curve are those of the wide layout. One unit is one observation, and `cluster=` maps to the cluster
-contract.
+contract. The targeting options apply at each node, as they do on the wide layout.
 
 | item | rule |
 | --- | --- |
@@ -593,7 +740,9 @@ rule at node $t$ reads the columns of nodes 1 to $t$ through `each_node`. The re
 the data can show: a unit-level column that varies, a covariate that copies the outcome, and a
 time-varying column that stops being recorded.
 The [scope and refusals](scope-and-refusals.md) page lists them. The registered evidence uses two
-decision nodes. [X39](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) plans three to five.
+decision nodes.
+
+[X39](../roadmap.md#x39-longitudinal-evidence-over-three-to-five-decisions) ships the bootstrap options for three to five decisions as experimental. Its studies are pending.
 
 `tests/unit/test_long_panel.py` checks the round trip on irregular censoring and unsorted input,
 one refusal per row of the table, and the equality of `LTMLE` and `SDR` fits on the adapted panel
@@ -658,6 +807,205 @@ fluctuation move the risk off zero. Another removes the status and sees the inte
 return. `tests/e2e/test_ltmle.py` checks the fold-level omission, and its mutation removes the
 in-fold reading and sees the omission go.
 
+### Hazard-based survival targeting
+
+`survival_model="hazard"` models a survival or competing-risk curve through its discrete
+cause-specific hazards. The iterated-mean recursion targets each horizon in its own backward pass,
+so its curve can decrease. A hazard fit reads every horizon from targeted hazards. Its one-step
+algorithm reports a curve that never decreases. The implementation is
+[`longitudinal/hazard.py`](https://github.com/esbraun/cleverly-tmle/blob/main/src/cleverly/longitudinal/hazard.py).
+
+The contract is the table. The symbol $r$ indexes a regimen, $j$ and $l$ index a cause, $k$ is a
+node, and $t$ is a reported horizon.
+
+| item | contract |
+| --- | --- |
+| design | one baseline treatment held over every node (`treatment="A"` or `TimeToEvent`). The treatment is categorical, the outcome is a survival or competing-risk outcome, and no covariate is measured after baseline. Every other design is refused before any learner ([hazard and isotonic refusals](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)) |
+| regimens | a static arm, a known rule $d(W)$, or a known stochastic policy $q(a \mid W)$ at the baseline decision. A static arm is $q = \delta_a$, and a rule is $q = \delta_{d(W)}$. A modified treatment policy is refused |
+| estimand | $\psi_{r,j}(t) = E \sum_a q_r(a \mid W) F_j(t \mid a, W)$, the estimand of the [held design](#one-baseline-treatment-held-over-the-nodes). Contrasts, ratios, the survival view, `rmst` and `rmtl` derive from it as on an iterated-mean fit. No parameter name changes |
+| identification | no unmeasured confounding of $A$ given $W$, censoring at random given $(A, W)$, and positivity. Moore and van der Laan (2009), Section 2. Cai and van der Laan (2020), Section 2 |
+| hazard | $\lambda_l(k \mid a, W) = P(\text{cause } l \text{ at } k \mid \text{uncensored through } k,\ \text{event-free before } k,\ A = a,\ W)$. Then $S(k) = \prod_{s \le k}(1 - \sum_l \lambda_l(s))$ and $F_j(t) = \sum_{k \le t} S(k - 1)\,\lambda_j(k)$ |
+| initial fit | the sequential pseudo-hazards of `survtmle` (`hazards_estimate.R`). Cause $j$ at node $k$ regresses its event on the rows at risk with no event of an earlier cause. Then $\lambda_j = \rho_j (1 - \sum_{i < j} \lambda_i)$. `outcome_learner` fits each node and cause, and the fit predicts every treatment level for every unit |
+| influence curve | $D_{r,j,t} = \sum_{k \le t} \sum_l h^{r,j,t}_l(k, A, W)\,R_k\,(dN_l(k) - \lambda_l(k \mid A, W)) + \sum_a q_r(a \mid W) F_j(t \mid a, W) - \psi_{r,j}(t)$. $R_k$ indicates a unit uncensored through $k$ and event-free before $k$ |
+| clever covariate | $h^{r,j,t}_l(k, a, W) = \frac{q_r(a \mid W)}{g(a \mid W)\,G_k(a, W)}\,1\{k \le t\}\bigl[1\{l = j\} - \frac{F_j(t \mid a, W) - F_j(k \mid a, W)}{S(k \mid a, W)}\bigr]$, with the retention $G_k = \prod_{s \le k} c_s$. Moore and van der Laan (2009), (11) to (16), at one cause. Rytgaard and van der Laan (2024), Section 3.1 |
+| submodel | the multinomial logistic fluctuation $\eta_l(\epsilon) = \eta_l + \sum_m \epsilon_m h^m_l$ of the softmax logits $\eta_l = \log(\lambda_l / \lambda_0)$. $\lambda_0$ is the probability of no event. At one cause the submodel is (10) of Moore and van der Laan (2009) |
+| bound | the fit clips each logit into $[\operatorname{logit}(1 - \alpha), \operatorname{logit}(\alpha)]$ after every update, with `alpha=`. So $\sum_l \lambda_l < 1$ holds, and no renormalization follows a clip |
+| inference | the influence-curve variance and the multiplier band over the reported parameters, as on an iterated-mean fit. With `id=`, the cluster sums and the fit statuses of [clusters](#clusters) apply |
+| cross-fitting | with `n_folds > 1`, the hazards, $g$ and $G$ are out of fold. One pooled targeting then runs over every row |
+
+`outcome_learner` is the hazard learner on a hazard fit. `pseudo_learner=` is refused, because the
+fit regresses the event indicator at each node and fits no pseudo-outcome. Every arm is targeted
+together, so the score of every contrast is solved.
+
+#### Two algorithms
+
+`targeting=` chooses the algorithm. Both stop on the relative score. That score is each target's
+score divided by its scale $\operatorname{mean}(\lvert w \rvert \sum_l \lvert h_l \rvert)$ over the rows at risk.
+
+The hazard walk takes none of the point-treatment targeting rules. `iterate=`, `stopping=` and
+`step_bound=` are refused beside `survival_model="hazard"`, in this order, as one
+`implementation_gap` that the roadmap tracks as X33. The walk imports only `relative_score` and
+`TargetingFailure` from the targeting modules. `tests/unit/test_hazard_x22_refusal.py` checks the
+refusal text and the order. It also shows that the refusal comes before any data or learner. A
+tripwire in the same file replaces every targeting solver, and a default hazard fit still runs.
+
+| item | per horizon, `targeting="iterative"` (default) | one step, `targeting="one_step"` |
+| --- | --- | --- |
+| source | Moore and van der Laan (2009), Section 4.1. Benkeser, Carone and Gilbert (2018), Appendix. `survtmle` `method = "hazard"` | Cai and van der Laan (2020), Section 5, Algorithm 2. Rytgaard and van der Laan (2024), Sections 3.3 and 3.4 |
+| targets | every regimen and cause at one horizon | every regimen, cause and reported horizon together |
+| one update | a finite-difference Newton step on the target scores along the current clever covariates. This step departs from the source. When the step does not reduce the scores, the fit falls back to the maximum-likelihood fluctuation with $h$ held fixed (Moore and van der Laan 2009, (13)) | a step of length `step_size` along $\Sigma^{-1} s / \lVert s \rVert_\Sigma$, with $s = P_n D^{(1)}$. A step that raises $\lVert s \rVert_\Sigma$ is halved |
+| after each update | the fit rebuilds $h$ | the fit rebuilds $h$ |
+| metric | none | $\Sigma = \operatorname{diag}(\max(P_n D_m^2, 10^{-12}))$ at the initial fit, fixed for the whole walk (Rytgaard and van der Laan 2024, Remark 2) |
+| stop | every relative score at most `tol`, or `max_iter` outer iterations | every relative score at most `tol`, 20,000 accepted steps, or a step below $10^{-14}$ |
+| next horizon | restarts from the initial hazards, as `survtmle` refits for each `t0` | not applicable. Every horizon reads the one set of hazards |
+| ignored settings | `step_size` is accepted and unused, as on point `TMLE` | `max_iter` |
+
+A fit that stops short sets `converged` to false and raises `ConvergenceWarning`. Its record names
+the failure class. The accepted $\Sigma$-norm trace of a walk never rises. The log-likelihood
+along the walk falls by at most $10^{-8}$ per step, because a finite step carries a second-order
+term. The test `test_e11_the_walk_trace` checks both traces and the fixed $\Sigma$.
+
+| output | what it shows |
+| --- | --- |
+| `summary()` | `hazard targeting: one step over N parameter(s), S step(s), largest relative score x, converged`, or the per-horizon form with the horizon count and the largest iteration count |
+| `result.fits[...].hazard` | the targeting record: the targets, the initial and final scores, the relative-score trace, and the fixed $\Sigma$ of a walk. A one-step fit shares one record between every reported parameter |
+| `diagnostics.score_equations()` | one `solver` row per regimen, cause and horizon, at the horizon node |
+| `diagnostics.nuisance_models()` | one `hazard` row per node and cause, which scores the pseudo-hazard $\rho_j$ the learner fitted |
+| `truncation_curve()` | a rerun of the targeting at each bound from the stored initial hazards. It refits no learner |
+| `n_bootstrap=` | shown with the label `experimental`. No support row lists `bootstrap` for a hazard fit |
+
+#### Monotonicity
+
+| fit | what holds | evidence |
+| --- | --- | --- |
+| one step | each level curve $\psi_{r,j}(t)$ is non-decreasing in $t$ in floating point, with no tolerance, for every regimen and cause | `test_w1_the_one_step_curve_never_decreases` and `test_w1_each_cause_and_their_sum_never_decrease` in `tests/unit/test_survival_monotone.py` |
+| one step or per horizon | at one horizon, the cause-specific incidences sum to one minus the all-cause survival, to a relative tolerance of $10^{-12}$ | `test_e6_the_causes_and_survival_add_to_one` |
+| per horizon | no claim across horizons, because each horizon reads its own targeted hazards. On the W1 witness the curve decreases by a rounding error | `test_w1_the_per_horizon_curve_decreases_in_floating_point` |
+| iterated mean | no claim. On the W1 witness the curve of arm 1 decreases by about $10^{-3}$ between horizons 2 and 3 | `test_w1_the_iterated_mean_curve_decreases` asserts a decrease larger than $10^{-6}$ |
+| a contrast | no claim | none |
+
+The one-step guarantee has a floating-point condition. Each unit's $F_j(t)$ is a running sum of
+non-negative terms, and a policy mixture of such sums is a sum of non-negative products. The fit
+then reduces each horizon's column in one order that does not depend on the values. Rounding to
+nearest is monotone, so a weighted mean of non-decreasing columns in that order is non-decreasing.
+The W1 witness is
+`make_point_survival(n=300, seed=3, layout="wide", hazard_scale={3: 0.1})` with logistic learners
+that draw no random number.
+
+#### Conditions the interval inherits
+
+| condition | statement | source |
+| --- | --- | --- |
+| identification | the conditions of the contract table | Moore and van der Laan (2009), Cai and van der Laan (2020), and Rytgaard and van der Laan (2024), each in Section 2 |
+| positivity | $g(a \mid W)\,G_k(a, W) > \delta$ wherever $q_r(a \mid W) > 0$, and $S(k \mid a, W) > 0$ for $k < t$. `g_bounds` bounds the cumulative product as on an iterated-mean fit, and `alpha` bounds the softmax logits | Rytgaard and van der Laan (2024), Assumption 1 |
+| remainder | the second-order remainder is $o_P(n^{-1/2})$. Its terms are products of $\hat g - g_0$ or $\hat G - G_0$ with $\hat\lambda - \lambda_0$. Donsker classes or cross-fitting control the empirical-process term | Moore and van der Laan (2009), Section 4.1.2 and Appendix E. Cai and van der Laan (2020), Section 4.3 |
+| grid | the reported horizons are a finite grid fixed before the sample, so the band is over a stack of fixed dimension | the refining-grid Theorem 1 of Rytgaard and van der Laan (2024), Section 4.2, is not claimed |
+| solver | every relative score is at most `tol`. Otherwise `converged` is false, and the fit warns | the shipped solver rule |
+| cross-fitting | the out-of-fold nuisances and one pooled targeting solve every component score | Zheng and van der Laan (2011), Section 2, applied to each algorithm's endpoint. The [cross-fitted hazard study](method-evidence/point-survival-curve-crossfit.md) measures the one-step walk and one per-horizon cell at five folds |
+
+No registered study measures the coverage of a hazard fit yet. The evidence today is the exact-law
+and mutation tests below.
+
+#### A hazard cell with no event
+
+A hazard cell is one node, one treatment level and one cause. Its followers are the rows at risk at
+the node, with positive weight, that received the level. The fit holds a cell's hazard at exactly
+zero for every unit when its followers exist and none has an event of that cause. Zero is the
+maximum-likelihood value, and no fluctuation moves it.
+
+The hold replaces the learner's prediction for every unit in the cell, whatever the learner.
+A zero that holds only within a stratum of $W$ is not a held cell. The fit clips its logit to the
+floor $\operatorname{logit}(1 - \alpha)$, and the fluctuation then moves it. That floor is a
+hazard of about $5 \times 10^{-4}$ at the default $\alpha$, so it biases a fit whose true
+per-node hazards lie below it.
+
+A cell whose followers all have an event is *full*. The fit holds the all-cause hazard of a full
+cell at exactly one, its maximum-likelihood value. The survival after a full cell is zero, and each ratio over that survival is zero there.
+
+The hold is necessary. Without it, the fit clips the logit at its floor. The joint score equations
+then need that hazard below the floor, so the one-step walk cannot solve them.
+The mutation `test_m_a_clipped_cell_stalls_the_walk` removes the hold and sees the walk fail to converge.
+The full-cell module has a mutation of the same name, and it clips the full cell instead.
+
+Each parameter whose regimen reads a flagged cell at a node up to its horizon takes the
+`constant_node_plugin` status. A regimen reads a level when it puts mass on that level for some
+unit. `RegimenFit.hazard_constant_nodes` lists the flagged nodes, and `constant_nodes(fit)` reports
+them. The status then works as [a node with no event](#a-node-with-no-event) states.
+
+The empty-cell witness is
+`make_point_survival(n=400, seed=36, layout="wide", hazard_scale={3: 0.05})`. Arm 1 has followers at
+risk at node 3, and none has the event. Its risks at horizons 3 to 5 take the status, and its risks
+at horizons 1 and 2 keep their intervals (`tests/unit/test_hazard_empty_cells.py`). In the
+full-cell witness, every arm-1 follower at node 2 has the event. Its risk at horizon 2 is 1 and
+takes the status (`tests/unit/test_hazard_full_cells.py`).
+
+A node and cause whose training rows hold no event of that cause fits no learner. The nuisance
+report shows `LONGITUDINAL_CONSTANT_TARGET` in place of its `hazard` row.
+
+#### Evidence
+
+| test module | what it checks |
+| --- | --- |
+| `tests/unit/test_hazard_survival_law.py` | on the exact law of `tests/discrete_law_point_survival.py`, both algorithms: the saturated estimate equals the g-formula, the influence curve equals the Gateaux derivative, and targeting repairs a wrong hazard fit with the exact mechanism. The maximum-likelihood fallback alone also repairs it. Also every score solved, one set of hazards per one-step fit, the competing-risk identity, policies, weights, the replay, and the walk trace |
+| `tests/unit/test_hazard_survival_mutations.py` | M1 to M9, M11, M12 and M14: each deliberate mutation breaks the identity it should break. M14 reads the metric from the coefficients of each step. M4 (a sign flip under per-horizon targeting), M12 (the cause order) and M15 (the softmax clip) are positive controls |
+| `tests/unit/test_survival_monotone.py` | the W1 witness of the monotonicity table |
+| `tests/unit/test_hazard_empty_cells.py` | the hold, its mutation, and the status |
+| `tests/unit/test_hazard_full_cells.py` | the hold of a full cell at one, its mutation, the status, and per-horizon convergence |
+| `tests/unit/test_hazard_refusals.py` | each refusal H1 to H11, by type and message, before any learner |
+| `tests/e2e/test_hazard_survival.py` | the `TimeToEvent` study path with three arms, two causes, a policy, weights, clusters and two folds. Also the replay, the bootstrap diagnostic, the summary, the nuisance report, and `save` and `load` |
+
+The registered study [point survival hazard](method-evidence/point-survival-hazard.md) validates
+the per-horizon algorithm on repeated samples of two exact laws. Its `survtmle` comparator runs
+are pending.
+
+The registered study [point survival curve](method-evidence/point-survival-curve.md) validates the
+one-step walk on repeated samples of the `survival` law and on further exact laws in its property
+cells. Its `tmle3` comparator runs are pending.
+
+The registered study [point survival curve crossfit](method-evidence/point-survival-curve-crossfit.md)
+validates the one-step walk at five folds on the same exact laws. It has no comparator.
+
+### The isotonic projection
+
+`isotonic=True` projects each survival or competing-risk curve onto a non-decreasing curve over the
+reported horizons. It applies to an `LTMLE` fit with either survival model. Westling, van der Laan
+and Carone (2020), Section 2.1, give the rule. On a grid in one dimension the projection is the
+pool-adjacent-violators algorithm (PAVA).
+
+| item | rule |
+| --- | --- |
+| levels | the fit projects the reported levels of each regimen and cause, in horizon order, by unit-weight PAVA (`scipy.optimize.isotonic_regression`). A curve that does not decrease is returned bit for bit |
+| curve band limits | the fit builds the band at the unprojected levels. It then projects each curve's lower limits and upper limits by the same PAVA (Westling et al. 2020, Theorem 1 (iv) and (v)) |
+| contrasts | each contrast is the difference or ratio of projected levels. Its band is kept as built |
+| what does not move | every influence curve, every standard error, and the critical value |
+| a parameter with no interval | a `constant_node_plugin` parameter is left out of the band, and so out of the band projection |
+| record | `result.isotonic_moves` lists `(regimen, cause, horizon, before, after)` for each moved level. `summary()` prints `isotonic projection moved k level(s)` |
+| identity | a one-step hazard fit, a fit with one reported horizon, and a curve that does not decrease |
+| refused | an end-of-study outcome (H3), `msm=` (H5), and a point-treatment functional (H10) |
+| bootstrap | shown with the label `experimental`. No support row lists `bootstrap` for a projected fit |
+
+R `lmtp` 1.5.4 `lmtp_survival` projects over every grid time with `isotone::gpava` and unit
+weights. `cleverly` projects over the reported horizons only. The two agree when the reported
+horizons are every grid time. `test_e9_the_projection_is_pava_and_lmtps_transcription` transcribes
+the `lmtp` arithmetic over all grid times and compares it with the fit.
+
+The projection changes what the reported numbers mean. The table states each claim and its
+condition.
+
+| claim | condition | source |
+| --- | --- | --- |
+| the projected curve band covers the truth whenever the unprojected band covers it | any $n$ | Westling et al. (2020), Theorem 1 (iv). `test_e9b_the_projected_band_keeps_coverage_and_is_no_wider` |
+| the projected curve band is no wider on average or at its maximum | any $n$ | Theorem 1 (v). The same test |
+| the projected levels have a sup error over the reported horizons no larger than the unprojected levels | any $n$ | Theorem 1 (i) |
+| a pointwise interval at a projected level, with the unprojected standard error, is valid | only when the true curve is strictly increasing at the reported horizons. On a fixed finite grid the projection is then the identity with probability tending to one | Theorem 2, and the sentence after Corollary 1 |
+| the influence curve of a projected level is the unprojected one | a reporting convention, not an asymptotic statement. At a flat region the limit law of a projected level is not Gaussian | Theorem 2 and Corollary 1 cover the strictly increasing case only |
+
+Two mutation controls guard the rule. The test
+`test_m13_a_band_centred_on_the_projected_estimate_fails_e9b` centres a band on the projected
+estimate with the unprojected half-widths, and that band loses coverage. The test
+`test_m10_an_influence_curve_moved_with_its_level_fails_e9` moves the influence curve with the
+level, and the identity check fails. No registered study measures a projected fit yet.
+
 ### Known node mechanisms
 
 A sequentially randomized trial, such as a SMART, fixes its treatment probabilities by design. A
@@ -719,6 +1067,13 @@ so the fit refuses before any learner. The message names `g_bounds` and the node
 first leaves the bounds. Products fall fast: 0.5 at each node reaches 0.01 near the seventh node.
 Pass a lower bound below the smallest declared product, such as `g_bounds=(1e-8, 1.0)`.
 
+`truncation_curve()` runs the same check on each pair of its grid before any replay. A pair that
+the fit refuses is refused with a sentence that quotes the fit's condition, and with the
+`invalid_declaration` code. A curve row therefore never truncates a declared product. With every factor declared, the curve over
+admitted pairs is flat. With the censoring estimated, an admitted pair can still truncate the
+estimated factor, and the curve reports that movement. `tests/unit/test_known_node_mechanisms.py`
+pins the refusal, the flat curve and the estimated-censoring case.
+
 | composition | result |
 | --- | --- |
 | static, dynamic and known stochastic plans, `msm=`, cross-fitting, clusters, survival and competing risks, held and time-to-event designs, `n_bootstrap=` | supported. A bootstrap replicate carries the declared values of its own rows |
@@ -734,7 +1089,9 @@ also checks four compositions: a modified treatment policy, a held survival desi
 and a time-to-event container. In each one, a declared factor and a learner that returns it give
 one fit. The
 registered [known-node-mechanisms study](method-evidence/known-node-mechanisms-ltmle.md) pairs
-the fit with R `ltmle` at a numeric `gform`.
+the fit with R `ltmle` at a numeric `gform`. The
+[sequential offers tutorial](../examples/sequential-offers.ipynb) declares a three-level offer at
+three nodes beside an estimated consent model.
 
 ## Functionals of a fitted result
 
@@ -799,13 +1156,17 @@ sums no risk curve.
 | weights | the weights resample with their rows and are renormalized to mean one. They are not derived again |
 | what a replicate refits | everything: the outer split, the treatment and censoring mechanisms, every backward regression and fluctuation for every regimen, cause and horizon, and the working-model projection. The replicate uses the same regimens, reference, horizons, bounds and learner specifications, with `simultaneous=False` |
 | the outer split | a replicate draws its split from the fit's own `random_state`, as the point-treatment bootstrap does. Two copies of one unit can fall in different folds |
-| what a replicate returns | the point estimate of every reported parameter |
+| what a replicate returns | the point estimate and the influence-curve standard error of every reported parameter. A refit that returns no standard error raises `TypeError` |
+| the fast path | an unclustered, unweighted, in-sample `LTMLE` or `SDR` fit of one end-of-study horizon uses `FrequencyReplicate` when every treatment and censoring factor is declared, every treatment node is categorical, and the outcome and pseudo-outcome learners declare `frequency_exact`. The replicate fits the distinct rows with the resample counts as weights. It reads the row index that `run_bootstrap` draws for the same seed. `tests/unit/test_bootstrap_fast_path.py` checks each draw and standard error against the materialized refit to $10^{-10}$. Any other fit refits the materialized resample |
+| the interval | `bootstrap_interval="percentile"` (default) takes `np.quantile` of the draws. `"bca"` reads bias-corrected and accelerated limits as order statistics, with the acceleration from each estimate's own influence curve. With `id=` the bootstrap resamples clusters, so the acceleration reads the cluster sums of the curve. A derived estimate reads its own curve on the scale of its draws, with a ratio's log and a decreasing `transform=` undone. A draw equal to the estimate counts for half in $z_0$. `"bca"` without `n_bootstrap` raises `ValueError` |
+| the band | with `simultaneous=True` and two or more estimates that supply inference, `result.bootstrap_band` holds the studentized sup-t band. Its critical value is the $\lceil (1-\alpha)(B+1) \rceil$-th order statistic of $\max_j \lvert\psi^*_{bj}-\hat\psi_j\rvert / SE^*_{bj}$. The multiplier band in `result.simultaneous` does not change |
 | a failed replicate | it is dropped and counted in `n_failed`, and it is not drawn again. A resample that leaves a regimen with no followers fails |
 | status | a replicate carries no status. The fit's status names the bootstrap columns. Under `few_cluster_plugin`, and on a fit with a Student $t$ reference below 40 clusters, the summary prints `bootstrap sd` and `percentile range` |
 | replay | `truncation_curve()` does not rerun the bootstrap. Its check at the fitted bound compares the estimates without their bootstrap summaries |
 | random draws | `run_bootstrap` spawns the stream from `random_state`. The stream draws nothing the fit uses, so every analytic field of the fit is unchanged. `tests/unit/test_ltmle_bootstrap.py` pins a committed `canonical-ltmle` row at `n_bootstrap=0` and at `n_bootstrap=2` |
 | parallel layers | the replicates run in parallel over `n_jobs`, and each replicate fit runs with one worker |
-| licensing scope | `bootstrap_design_kind` names a fit's kind: an end-of-study or single-cause survival outcome, fitted in sample, cross-fitted, clustered in sample (`cluster`) or clustered and cross-fitted (`cluster_cross_fit`), with static regimens, one treatment decision per node, a binary outcome, no weights and no working model. Any other fit has no kind, and a held baseline treatment is one such fit. A kind is licensed as inference only when it is in `LICENSED_BOOTSTRAP_DESIGNS`, and it enters after its cells in the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) are green. The registered run licensed `end_of_study/in_sample` and `survival/in_sample`. The cross-fitted and in-sample clustered end-of-study kinds stay diagnostic, with owner `X20-bootstrap`. No study cell measures `cluster_cross_fit`, so it stays diagnostic too. An unlicensed kind prints `bootstrap sd` and a percentile range. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
+| licensing scope | The `bootstrap` kind of a support row decides the label. A fit is covered when it has an end-of-study or single-cause survival outcome, is fitted in sample, uses static regimens, one treatment decision per node, a binary outcome, no weights and no working model. Any other fit, such as a held baseline treatment, matches no such row. The rows `G01` and `G11.nodes4` list it, and the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) measured them. A cross-fitted fit, a clustered fit and a clustered cross-fitted fit have no such row, so their percentile interval carries the label `experimental`. Owner `X20-bootstrap` holds the red cells. A fit with fewer than 20 clusters prints `bootstrap sd` and a percentile range, whatever its status. The study measures correctly specified cell-mean nuisances on finite binary laws, at $n = 1000$, and at 1,500 rows in 60 clusters for the cluster bootstrap. No result covers a data-adaptive nuisance. Cai and van der Laan (2020) is the warning for that case |
+| BCa and band scope | A BCa interval needs the `bootstrap_bca` kind, and the bootstrap band needs the `bootstrap_band` kind. No support row lists either kind, so both carry the label `experimental` on every fit. The X39 code ships in that state. The long-horizon Python studies are pending as a follow-up, and they are to add the rows. The R comparators (`ltmle`, `lmtp`) are deferred to [X59](../roadmap.md#x59-long-horizon-comparator-parity-for-ltmle-and-sdr). `SparseInfluenceWarning` fires on an unclustered Wald fit when the relative standard deviation of the variance estimate exceeds 0.125. A fit with a percentile bootstrap warns too, because its first interval is the Wald one, and a fit with `bootstrap_interval="bca"` does not. `result.diagnostics.influence()` is a direct call and is not part of `run_all()`. With `id=` it reports the cluster-level measures. The X39 work set that threshold after it read the pilots |
 | derived estimates | `ratio`, `rmst`, `rmtl` and `contrast` apply the same function to each replicate's estimates, and attach the percentile interval of those values. The derived interval is licensed only when every input's interval is |
 
 ## Variations
@@ -815,6 +1176,9 @@ sums no risk curve.
 | `regimens=` | static plans, fixed rowwise dynamic rules, categorical arms, or [known stochastic policies](#known-stochastic-policies). A plan is a sequence of arms, or one arm meaning that arm at every node. A plan with a callable node must be a `DynamicRegimen` declared `rule_kind="known"`. `LTMLE.fit` refuses an undeclared or `"estimated"` rule, and a callable written inline in a mapping, before any learner. Sample-adaptive thresholds and learned rules need additional inference and are outside this contract. The [scope page](scope-and-refusals.md#wrong-by-construction) gives the threshold witness |
 | `reference=` | which regimen the contrasts are taken against. It is part of the estimand rather than a display setting |
 | `horizons=` | which time points a survival fit reports cumulative risk at. `None` reports the whole curve. Name the horizons you will report: the cost is $T(T+1)/2$ regressions per regimen rather than $T$ |
+| `survival_model=` | `"iterated_mean"` (default) runs one backward recursion per horizon. `"hazard"` fits and targets the cause-specific hazards, as [hazard-based survival targeting](#hazard-based-survival-targeting) states. The outcome learner is then the hazard learner |
+| `targeting=`, `step_size=` | the hazard targeting algorithm: `"iterative"` (default) per horizon, or `"one_step"` over the whole curve. `step_size` is the first step of the one-step walk. `"one_step"` requires `survival_model="hazard"` |
+| `isotonic=` | projects each curve's levels and band limits onto a non-decreasing curve, as [the isotonic projection](#the-isotonic-projection) states |
 | `msm=` | a working model over the regimen and horizon cells, in sample or cross-fitted. See [MSM projections](msm-projections.md) |
 | four learner slots | `outcome_learner`, `pseudo_learner`, `treatment_learner`, `censoring_learner`. The pseudo learner fits the intermediate regressions. Under `LTMLE` their outcome is a bounded prediction. Under [`SDR`](#the-sequentially-doubly-robust-estimator) it is a transform that can leave $[0, 1]$, so the pseudo learner must fit a real-valued target |
 | `n_folds=`, `learner_folds=` | one outer split serves every node and regimen. The split is unstratified: `random_partition` draws it from the row count and the seed, and it balances no treatment node. Each fold fits the mechanism and an untargeted backward regression sequence on its training rows. One pooled fluctuation per node then targets the out-of-fold predictions, as [cross-fitting the recursion](#cross-fitting-the-recursion) states. The mechanism keeps the out-of-fold probabilities only, so its memory does not grow with $K$ |
@@ -870,7 +1234,7 @@ step, and established argument.
 | categorical treatments and deterministic dynamic rules | Theorem 3 for a fixed modified treatment policy $d(a_t, h_t)$ that does not depend on $P$ | a fixed rowwise rule assigns one level from that unit's history | Section 2 lets a fixed policy depend on the unit's history, and Section 4, journal page 850, gives the intervention density for a discrete exposure. A sample-adaptive threshold or learned rule is outside this result | [categorical study](method-evidence/cross-fitted-categorical-longitudinal-tmle.md), and the fixed dynamic rule in the [end-of-study study](method-evidence/cross-fitted-end-of-study-longitudinal-tmle.md) |
 | several horizons, causes, regimens, and their contrasts | Theorem 3 for each parameter | each parameter has its own recursion on one shared split, and the report stacks their influence curves | a fixed-dimension stack by Cramér–Wold, then linearity or the delta method for each contrast | the survival-curve and competing-risk studies |
 | ratios of regimen levels, RMST and RMTL | the stacked curves of the row above | a log ratio is a smooth function of two levels. RMST and RMTL are fixed linear combinations of the risks below the horizon | the delta method, and linearity | the ratio and RMST cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) |
-| the full-refit bootstrap | the estimator of each row above | refit the whole estimator on each resample | none for this estimator. The percentile interval is licensed only for a measured design kind whose cells are green, with correctly specified cell-mean nuisances on finite binary laws | the bootstrap cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) |
+| the full-refit bootstrap | the estimator of each row above | refit the whole estimator on each resample | none for this estimator. The percentile interval is labelled `supported` only when a support row lists `bootstrap` and its cells are green, with correctly specified cell-mean nuisances on finite binary laws | the bootstrap cells of the [full-refit bootstrap study](method-evidence/full-refit-bootstrap-and-derived-contrasts.md) |
 
 Theorem 3 also requires every mechanism ratio and targeted sequential regression to be consistent,
 the sum over nodes of their error products to be $o_P(n^{-1/2})$, and the density ratios to stay
@@ -908,6 +1272,7 @@ refusals that are statements about the question, the construction, or coverage.
 | --- | --- | --- |
 | eliminating the competing events | `different_estimand` | what is reported is the cause-specific cumulative incidence with the competing causes *left alone*, so a competing event is part of the history. Removing it makes it an intervened node: a further factor per node in the denominator, and its own no-unmeasured-confounding and positivity assumptions |
 | `intermediate=` | `different_estimand` | a controlled direct effect fixes a mediator at one time point. Over a sequence, with mediators that are themselves time-varying, that is a different identification rather than a further column |
+| a `truncation_curve()` pair that truncates a declared cumulative product | `invalid_declaration` | the fit refuses the same pair as `g_bounds`, because truncating a known product moves the estimate with no variance reason. A curve row at that pair would show a movement that no admitted fit has. Remove the pair from the grid. A pair `(lower, 1)` with `lower` below the smallest declared product is admitted |
 | `mechanism=True` on `truncation_curve()` | `invalid_declaration` | a longitudinal fit holds one cumulative treatment-and-censoring bound, and it fits no separate observation mechanism to sweep. The option names a point-treatment axis, so the call raises `CapabilityError` rather than sweeping the cumulative bound under another name |
 | a callable node that is not declared `"known"`, or that is declared `"estimated"` | `invalid_declaration` when undeclared, `implementation_gap` when `"estimated"` | the fit treats each rule as fixed. A rule learned from the analysis sample needs a learned-policy estimand and its own inference. `LTMLE.fit` raises `CapabilityError` before any learner. Declare a rule fixed before the fit with `DynamicRegimen(label, plan, rule_kind="known")` |
 | a callable written inline in a `regimens=` mapping | `invalid_declaration` | an inline callable carries no declaration, so the fit refuses it before any learner. Write the plan as a `DynamicRegimen` declared `rule_kind="known"`, with `(rule,) * T` for one rule at every node |
@@ -925,6 +1290,126 @@ the table of codes above does not list it.
 
 See [scope and refusals](scope-and-refusals.md#how-to-read-a-refusal) for what each code means.
 
+### Repeated fold draws
+
+`repeats=R` on `LTMLE`, `SDR` and `IPSI` runs the complete single-draw fit at `R` independent fold
+assignments. `CrossFitting(repeats=R)` sets it on the `CausalStudy` route. Each draw fits its own
+mechanism, its own training-fold mechanisms, its own recursion and its own estimates.
+`result.repeats` holds one `LongitudinalRepeat` per draw. Draw $r$ equals a fit with `repeats=1` at
+`random_state=result.repeats[r].seed`.
+
+The fit combines the draws by the rule of Chernozhukov et al. (2018, Definition 3.3 and equation
+(3.14), pp. C29-C30). Let $t_r$ be draw $r$'s value on the estimate's inference scale and
+$\hat\sigma_r^2$ its variance on that scale. The reported value is $\tilde t = \operatorname{median}_r
+t_r$, and the reported variance is $\operatorname{median}_r\{\hat\sigma_r^2 + (t_r - \tilde
+t)^2\}$.
+
+At an even draw count the median is the mean of the two central values. The table gives the rule
+for each quantity.
+
+| quantity | rule under `repeats` above 1 |
+| --- | --- |
+| level, risk, incidence, MSM coefficient | the rule above, per name |
+| in-fit contrast `ate_regimen[a vs ref]` | the rule above on the per-draw contrast. Each draw forms the contrast from its own two fits, so its variance keeps that draw's paired covariance |
+| `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()` | the single-draw functional in every draw, then the rule above on its inference scale. A ratio uses the log scale. `contrast(..., transform=T)` uses the scale of `T` and reports $T^{-1}(\tilde t)$ |
+| `covariance(names)` | the matrix rule of equation (3.14) for the selected names. See the next paragraph |
+| simultaneous band | $\tilde\psi_j \pm c_{\mathrm{med}}\,\tilde\sigma_j$. Here $c_{\mathrm{med}}$ is the median of the per-draw multiplier critical values, and $\tilde\sigma_j$ is the reported standard error |
+| inference status | each name takes the precedent status of its draws before any median |
+| repeated outcome, `Repeated([...])` | the rule above for each horizon's mean and contrast. `curve(scale="mean")` reports the combined values |
+| `influence_curves` | the curve of the central draw, or the mean of the two central curves at an even draw count. It serves marginal diagnostics only |
+| `repeat_spread()` | the standard deviation of the draws on the inference scale, a diagnostic |
+
+`covariance(names)` builds one candidate per draw, $C_r = \hat\Sigma_r + d_r d_r^\top$. Here
+$\hat\Sigma_r$ is draw $r$'s covariance of the selected names, and $d_r$ is that draw's
+displacement from the coordinatewise median. The method returns the candidate with the median
+largest eigenvalue, with ties to the lower draw. At an even draw count it returns the mean of the
+two candidates with the central largest eigenvalues.
+
+The draw that the rule picks depends on the selection. So an entry of the matrix can differ
+between two selections that share a name, and from the reported variance. A one-name call equals
+the reported variance exactly, because it runs the same scalar rule. The reported intervals,
+contrasts and bands read the per-name rule and not this matrix.
+
+**Why the median keeps each draw's expansion.** Draw $r$ is the shipped single-draw estimator at
+its own split. The expansion
+$\hat\psi_r - \psi_0 = P_n D^* + \mathrm{Rem}_r + o_P(n^{-1/2})$ with
+$\mathrm{Rem}_r = o_P(n^{-1/2})$ holds under the conditions that the single-draw row of the
+estimator states. For `LTMLE` that is the product rate over the outcome and mechanism errors, or a
+known mechanism. `SDR` has no interval when only one nuisance is consistent, and a boundary or
+few-cluster fit has no interval at all. Under those conditions, for a fixed `R`, the median lies
+between the smallest and the largest draw. Its remainder is therefore at most
+$\max_r |\mathrm{Rem}_r|$, which is $o_P(n^{-1/2})$. The displacement term is $o_P(n^{-1})$, so it
+is a finite-sample split adjustment.
+
+A draw whose status supplies no inference gives the median no inference either. Each name takes
+the precedent status of its draws before the median, as **Status across draws** states.
+
+The argument holds on any inference scale that is differentiable at $\psi_0$. Corollary 3.3 of
+Chernozhukov et al. (2018) states the analogue for the DML estimators. It is not the licence. A
+single curve does not represent the split variability of the median in a finite sample.
+Asymptotically at a fixed `R` the median has the curve of each draw.
+
+**Status across draws.** A node regression can read a constant target in the training rows of one
+draw only. That draw then stamps `constant_node_plugin` on the level. Every route that combines
+draws first gives each name the precedent status of its draws. Those routes are the reported
+estimates, `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()`, `covariance()` and
+the band. A name that withholds inference in one draw withholds it in the report. The stored
+`result.repeats[r].estimates` keep their own statuses.
+
+**Seeds.** The table gives the seed that each part of a fit reads.
+
+| part | `repeats=1` | `repeats` above 1 |
+| --- | --- | --- |
+| fold assignment | `random_state`, or a fresh seed under `None` | seed $r$ of `CrossFitPlan(random_state=..., repeats=R).seeds()`. A fresh seed replaces each `None` |
+| learners | `random_state` | the seed of the draw, so a Super Learner's inner folds draw again |
+| multiplier band | `random_state` | `random_state` when it is an integer. Under `None` the fit draws one seed and records it as `config.multiplier_seed`. Every draw and a `CausalStudy` band use it |
+
+At one draw a `random_state=None` fit sends `None` to its learners, as before. The point-treatment
+engine sends the fresh fold seed to its learners at one draw. The two engines differ there.
+
+**Diagnostics and replay.** The table gives what each report reads on a repeated fit.
+
+| report | what it reads |
+| --- | --- |
+| `support()`, `nuisance_models()` | draw 1. The report states `n_repeats` and `reported_repeat`. `support()` also holds `draw_max_share_truncated` and `draw_converged`, one value per draw, and the `support` row of `validate()` grades truncation on every draw and names the draw. `nuisance_models()` also carries one `repeat_spread` row per name |
+| `score_equations()` | every draw. Its frame gains a `draw` column, one-based, only when `R` is above 1 |
+| `truncation_curve()` | a replay of every draw at each bound. Each row reports the median rule over the draws, and the score-cell counts sum over the draws |
+| `converged` | true only when every node of every draw converged |
+| `provenance.fold_fingerprint` | every draw in fit order. It equals `result.split_plan.fingerprint` |
+
+**Refusals.** Each refusal raises before any learner, except the per-draw ones, which raise when
+the method is called.
+
+| composition | exception | what to do |
+| --- | --- | --- |
+| `repeats` that is not an integer of at least 1 | `ValueError` | set an integer of 1 or more |
+| `repeats` above 1 with `n_folds=1` | `MethodConfigurationError`, code `invalid_declaration` | set `n_folds` to 2 or more, or set `repeats=1` |
+| `repeats` above 1 with `n_bootstrap` above 0 | `MethodConfigurationError`, code `inference_gap` | fit with `repeats=1` for the bootstrap, or with `n_bootstrap=0` for the split-adjusted median interval. No registered study measures a bootstrap of the median, and each replicate would refit every draw |
+| `contrast(..., transform=T)` where `T` has no finite value or slope at one draw's value | `CapabilityError` that names the draw, code `invalid_declaration` | use a transform defined at every draw, drop `transform=`, or read each draw in `result.repeats` |
+| any other refusal of a per-draw functional | the original type, with the message prefixed `draw r of R:` | the remedy of the original message |
+| `ratio()` on an `SDR` or `IPSI` fit where one draw's level is outside the log or odds domain | `CapabilityError` that names the draw, code `invalid_declaration` | report the difference scale. The fit checks every draw and not the median |
+
+A fit with `repeats` above 1 carries `repeated` in the `splitting` axis of its support key
+(`longitudinal_key` in `src/cleverly/_support.py`). No single-draw row matches that key, so every
+estimate reads `experimental` until a registered row names `repeated`. `survival_model="hazard"`
+and `isotonic=True` fit with `repeats` above 1 and read `experimental` for the same reason. Each
+draw projects its levels under `isotonic=True`, and the median of non-decreasing curves is
+non-decreasing. No source gives the projection of the limits of a median band, so that fit builds
+no simultaneous band and the summary says so.
+
+`split_plan=` stays refused on the longitudinal engine. A fit records its plan as
+`result.split_plan` and accepts none back.
+
+`tests/unit/test_longitudinal_repeats.py` holds the evidence. It checks that `repeats=1` equals a
+record captured before the change. It checks that each draw of every design in
+`tests/unit/_longitudinal_repeats_support.py` equals a single-draw fit. It gives a nonzero witness
+for every rule in the tables above.
+
+A registry test maps every estimator keyword, result member, assessment
+capability, data declaration and `CausalStudy` step to a repeated-fit witness. The
+[repeated cross-fitted longitudinal study](method-evidence/repeated-cross-fitted-longitudinal.md)
+measures the coverage of the median over draws.
+
 ### Clusters
 
 `LTMLE.fit(id=...)` treats the cluster as the unit. The cluster is the fold unit and the variance
@@ -938,7 +1423,7 @@ unit, in sample and under cross-fitting. The table gives each part of a clustere
 | targeting | the pooled fluctuation over every follower of each node, as on an unclustered fit |
 | curve and variance | the row curve summed within each cluster. The variance is $J\,\widehat{\mathrm{var}}(S_c)/n^2$, with $S_c = \sum_{i \in c} D_i$ and $J$ clusters |
 | status, reference and bands | the rules of [clusters](inference.md#clusters) for a longitudinal fit. Below 40 positive-mass clusters the reference is Student $t$ with $J - 2$ degrees of freedom. Below 20 the fit takes `"few_cluster_plugin"`, in sample and cross-fitted, because 20 is the smallest count the registered studies measure. Simultaneous bands need 40 or more |
-| bootstrap | the design kind `<outcome>/cluster_cross_fit`, which no study licenses, so the percentile output is a diagnostic. Each replicate redraws a grouped split over its resampled clusters, so two copies of one cluster can land in different folds |
+| bootstrap | no support row lists `bootstrap` for a clustered cross-fitted fit, so the percentile interval is shown with the label `experimental`. Each replicate redraws a grouped split over its resampled clusters, so two copies of one cluster can land in different folds |
 
 The base result is Díaz, Williams, Hoffman and Schenck (2023), Section 5.2, journal page 852, and
 Theorem 3, page 853. Theorem 3 takes $n$ iid units and a random partition of them.
@@ -1106,11 +1591,22 @@ its own. `tests/unit/test_sdr_construction.py` carries two mutation controls. Th
 moves the estimate by more than `1e-4`, and so does a training row that reads the out-of-fold
 mechanism.
 
+### The interval under heavy cumulative density ratios
+
+The `SDR` interval runs short of nominal when the cumulative density ratios are heavy. The study
+cell `p4_sdr` of `mtp-boundaries` reads a standard-error ratio of 0.9408 at n = 4,000, with a 99%
+interval of 0.9060 to 0.9775, and a coverage of 0.9357. The `LTMLE` cell of the same plan reads a
+standard-error ratio of 0.9572. The cell uses a pseudo-outcome learner that projects onto [0, 1].
+
+Treat this interval as experimental under the measured-shortfall standard. The study publishes the
+cell as `reporting`, and the red-cell owner `X40-sdr-heavy-ratios` records the measured numbers.
+The fit support key does not read the plan, so a fit carries no label of its own for this cell.
+
 ### Choices that differ from LTMLE
 
 | choice | `SDR` | reason |
 | --- | --- | --- |
-| fluctuation | none. `alpha=`, `max_iter=` and `tol=` raise `MethodConfigurationError` with code `invalid_declaration` | the transform replaces the targeting step |
+| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `stopping=`, `step_bound=`, `step_search=` and `iterate=` raise `MethodConfigurationError` with code `invalid_declaration` | the transform replaces the targeting step, so no stopping rule, step bound or iterate exists |
 | regression clip | none. The default `pseudo_learner` is `SuperLearner(task="regression", clip=None)` | a transform can leave $[0, 1]$, and `lmtp` predicts it unbounded. A clipping pseudo learner is accepted and moves the estimate away from `lmtp_sdr` (`tests/unit/test_sdr_bounds_and_clipping.py`) |
 | `g_bounds=` | bounds each partial path probability $\prod_{k=t}^{s} p_k$ | at $t = 1$ this is the cumulative product that LTMLE divides by, equal to rounding. Where a bound binds, the bounded weight is a misspecified ratio on that path, and no SDR property is claimed there. `diagnostics.support()` reports the binding share per node, over the paths that the estimate reads. A cross-fitted fit counts the held-out rows of each fold |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of transforms can leave $[0, 1]$, or $[q_\text{lo}, q_\text{hi}]$ on a continuous outcome (page 854) |
@@ -1124,18 +1620,73 @@ policies, contrasts, simultaneous bands and the truncation replay behave as they
 Each composition reuses the step that the LTMLE contract states. `tests/unit/test_sdr_e2e.py`
 runs each one end to end.
 
+### SDR on a repeated outcome
+
+`SDR` accepts `outcome=Repeated(["Y1", "Y2", "Y3"])`. The fit reports one mean per plan and horizon,
+named `ey_regimen[always @ t=2]`, and the contrasts `ate_regimen[always vs never @ t=2]`. Each
+horizon $h$ is the end-of-study fit of the panel truncated after node $h$, with $Y_h$ as the
+outcome and each earlier $Y_s$ as a covariate of node $s + 1$. In a `CausalStudy`,
+`RegimeMean(..., horizons=[1, 3])` with `method="sdr"` takes the same horizons.
+
+The transform of the [section "The transform"](#the-transform) runs over the nodes $t, \ldots, h$ only. The
+seed $v_{h+1}$ is the scaled $Y_h$ on the rows uncensored through $h$. So $\varphi_1$ at horizon $h$
+is Equation (4) of the paper on the prefix. A node after $h$ enters no weight and no regression.
+
+| source | statement | code | witness |
+| --- | --- | --- | --- |
+| Equation (4) | $\varphi_t = v_t + \sum_{s=t}^{h} W_{t,s}(Z_s - \check m_s)$ | `sdr._recursion`, `seed_carried(horizon=h)` | E1 compares the fitted curve with the complex-step Gateaux derivative. E3 compares it with an independent transform |
+| Lemma 4 | the estimate at horizon $h$ is consistent when, at each node $t \le h$, the ratio or the sequential regression is consistent | the regression of each node fits $\varphi_{t+1}$, not the plug-in | E2b, with the mutation control NS that regresses on the plug-in |
+| Theorem 4 | asymptotic linearity with the efficient influence function, when the products of the ratio and regression errors are $o_P(n^{-1/2})$ | per-cell Wald interval, multiplier band over the stacked curves | E1 and E8 |
+
+**Sequential double robustness.** The tests run on two exact laws with $T = 2$ in
+`tests/discrete_law_repeated.py`. The law has a non-absorbing outcome, so $Y_2 = 0$ can follow
+$Y_1 = 1$. The sample realises the law exactly, so a saturated fit holds the exact nuisances.
+
+| witness | fit | result on the binary law at $h = 2$ |
+| --- | --- | --- |
+| E1 | saturated regressions, estimated mechanisms | the estimate equals the g-formula and the curve equals its Gateaux derivative, to $10^{-11}$ |
+| E2 | regressions on $W$ alone, mechanisms declared with `treatment_probabilities=` and `censoring_probabilities=` | the estimate equals the truth to $10^{-12}$. The plug-in of the same regressions misses by +0.1141 (`never`), −0.1050 (`always`) and −0.0024 (`treat_if_high`) |
+| E3 | the fit of E2 | the curve equals the law-side transform $\varphi_1 - \hat\psi$ at every plan and horizon. It is not the efficient curve |
+| E2b | node-2 regression on $W$ alone with the true ratio. Node-1 regression saturated in $W$, with an intercept treatment mechanism and a censoring mechanism on $A_1$ alone | the estimate equals the truth. The estimator that regresses node 1 on the plug-in $\check m_2$ misses by −0.0016 (`never`), −0.0018 (`always`) and −0.0014 (`treat_if_high`) |
+| E8 | the default band | the critical value equals the multiplier band over the stacked curves, and the correlation between the horizons of one plan is not zero |
+
+At $h = 1$ the regression on $W$ is saturated, so the plug-in gap is zero by construction. E3
+carries that horizon. On the `T2_BINARY` law (`BINARY` in `tests/discrete_law_repeated.py`),
+scaling the correction by 0.9 at every node moves the E2 estimate by +0.0114, −0.0105 and −0.0002. Replacing the censoring factor of the ratio by one moves it by +0.0883,
+−0.0849 and +0.0011. Both faults move the curve of every plan and horizon, by at least 0.13 and
+0.33.
+
+**The band.** The default `simultaneous=True` band covers every plan, every horizon and every
+contrast. It is the multiplier band over the stacked influence curves.
+
+| claim | condition |
+| --- | --- |
+| $\sqrt{n}(\hat\theta - \theta)$ is jointly normal | Theorem 4 at every plan and horizon, and positivity. The dimension is fixed, so the Cramér–Wold device applies |
+| the multiplier critical value is consistent | the stacked curves estimate their covariance consistently |
+| the horizons are dependent | the horizons share units and mechanisms, so the band uses the joint covariance. E8 rebuilds the critical value from the stacked curves with the library's own `simultaneous_bands`, so it checks the stacked-curve input and not the multiplier algorithm |
+| maximum-likelihood mechanisms in a correctly specified parametric model, no binding `g_bounds`, and an inconsistent regression | the Wald interval is conservative, not calibrated. The default `SuperLearner` mechanisms do not meet these conditions. The influence function of $\hat\psi$ is $\varphi(\bar m, r)$ minus its projection on the mechanism scores. The Wald variance reads $\operatorname{Var}\varphi(\bar m, r)$, which is at least the true variance. This is the projection argument for a doubly robust estimator with maximum-likelihood mechanisms |
+| sequential double robustness alone | the estimate is consistent (Lemma 4). The stacked curve is not the influence function of $\hat\psi$, so no interval claim |
+
+The registered study [SDR on a repeated outcome](method-evidence/repeated-outcome-sdr.md)
+measures the coverage of this curve. In its 28 positive interval cells, the coverage intervals span
+0.9357 to 0.9549 and the SE-ratio intervals span 0.9459 to 1.0169. The lmtp comparator runs are
+pending, so the evidence is Python property evidence only. The exact-law witnesses E1 to E3, E2b
+and E8, and the eleven mutation controls in `tests/unit/test_repeated_outcome_sdr_mutations.py`,
+stand behind the point estimate and the curve.
+
 ## Incremental interventions over time
 
 An incremental intervention multiplies each unit's odds of treatment by a fixed $\delta$ at each
-node. It shifts the treatment mechanism and does not assign an arm. Every unit at risk stays in
+node. With more than two levels at a node it multiplies the odds of each level by that level's
+factor. It shifts the treatment mechanism and does not assign an arm. Every unit at risk stays in
 the plan, so the estimand needs no treatment positivity at a tilt node. A static plan such as
 "always treat" needs positivity wherever it puts mass.
 
-`IPSI` in `cleverly.longitudinal` fits this estimand on a `LongitudinalData` panel with a binary
-treatment at each node. "Treatment" is the larger of the node's two sorted codes, so the
-odds are those of that code. It implements the one-step estimator of Kennedy (2019), Algorithm 1. It
-adds the dropout weights of Kim, Kennedy and Naimi (2021), Appendix A, Algorithm 1. It is not a
-TMLE, and it fits no fluctuation.
+`IPSI` in `cleverly.longitudinal` fits this estimand on a `LongitudinalData` panel. A node with
+two levels takes a scalar $\delta$, which multiplies the odds of the larger of the node's two
+sorted codes. A node with more levels takes one factor per level. `IPSI` implements the one-step
+estimator of Kennedy (2019), Algorithm 1. It adds the dropout weights of Kim, Kennedy and Naimi
+(2021), Appendix A, Algorithm 1. It is not a TMLE, and it fits no fluctuation.
 
 | your situation | what `IPSI` gives | what it costs |
 | --- | --- | --- |
@@ -1154,16 +1705,24 @@ holds the recursion, and the `IPSI` class is in
 
 ### The incremental estimand
 
-Write $\pi_t(H_t) = P(A_t = 1 \mid H_t)$ for the treatment mechanism at node $t$ among the units
-at risk. A tilt node draws the arm from Equation (1) of Kennedy (2019):
+Write $\pi_t(a \mid H_t) = P(A_t = a \mid H_t)$ for the treatment mechanism at node $t$ among
+the units at risk. A tilt node with levels $a = 1, \ldots, K_t$ and factors $\delta_{t,a} > 0$
+draws the arm from the exponential tilt
 
 $$
-q_t(1 \mid H_t) = \frac{\delta_t \pi_t(H_t)}{\delta_t \pi_t(H_t) + 1 - \pi_t(H_t)}.
+q_t(a \mid H_t) = \frac{\delta_{t,a}\, \pi_t(a \mid H_t)}{D_t(H_t)},
+\qquad D_t(H_t) = \sum_b \delta_{t,b}\, \pi_t(b \mid H_t).
 $$
+
+Multiplying every factor of a node by one constant changes nothing, so a node has $K_t - 1$ free
+parameters. With two levels and $(\delta_{t,0}, \delta_{t,1}) = (1, \delta_t)$ the formula is
+Equation (1) of Kennedy (2019):
+$q_t(1 \mid H_t) = \delta_t \pi_t / (\delta_t \pi_t + 1 - \pi_t)$.
 
 The target $\psi$ is the mean outcome when every node follows its plan. Theorem 1 of Kennedy
 (2019) identifies it under consistency and sequential exchangeability (Assumptions 1 and 2). It
-needs no positivity, for each $\delta_t$ in a compact subset of $(0, \infty)$.
+needs no positivity, for each $\delta_{t,a}$ in a compact subset of $(0, \infty)$. The
+finite partition of the treatment into $K_t$ levels changes no step of the proof.
 
 Under dropout, Theorem 3.1 of Kim et al. (2021) adds missing at random given the history
 (Assumption A2-M). It also adds dropout positivity (Assumption A3). Then $\psi$ is the plan mean
@@ -1173,18 +1732,23 @@ with dropout prevented. At $\delta = 1$ it is the natural course with dropout pr
 | --- | --- |
 | one $\delta$ at every node | `IPSI([Incremental(0.5), Incremental(1.0), Incremental(2.0)])`. Each `Incremental` is one plan, and its `name` is the label |
 | one $\delta_t$ per node | `DynamicRegimen("ramp", (Incremental(1.5), Incremental(2.0)))` |
+| one factor per level at a node with three or more levels | `Incremental({"high": 2.0, "low": 0.5})`. A level that the mapping does not name keeps the factor 1 |
 | a tilt beside label, rule or known-policy nodes | `DynamicRegimen("tilt then stop", (Incremental(2.0), 0))` |
 | a plan with no tilt node | a static or dynamic plan, so a tilt can be contrasted with it on one fit |
+
+One `Incremental` applies to every node of its plan. The fit resolves its keys against the levels
+of each node in turn. A key that is not a level of some node meets the key refusal at that node.
+A scalar declaration at a node with other than two levels meets the scalar refusal at that node.
+Both refusals run before any learner. A vector node whose components are all categorical is one
+categorical node over its observed tuples, and its keys are the tuples.
 
 `reference=` must name one of the declared plans. List `Incremental(1.0)` to contrast each plan
 with the natural course. The parameter names are the longitudinal ones, such as
 `ey_regimen[odds x2]` and `ate_regimen[odds x2 vs natural course]`.
 
 A mean of a non-absorbing outcome $Y_t$ under a tilt is the end-of-study estimand on the panel
-truncated after node $t$. $Y_t$ is the outcome, and earlier $Y_s$ are covariates (Kim et al.
-2021, Theorem 3.1 at that $t$). `IPSI` refuses `outcome=Repeated([...])`, so a user truncates
-the panel by hand for each $t$. [X32b](../roadmap.md#x32b-repeated-outcomes-for-sdr-and-ipsi)
-owns that curve.
+truncated after node $t$. `IPSI` fits it with `outcome=Repeated([...])`
+([below](#ipsi-on-a-repeated-outcome)).
 
 ### The tilt recursion and its influence function
 
@@ -1197,7 +1761,7 @@ recursion runs from the horizon $h$ back to node 1.
 | --- | --- |
 | $Z_{h+1}$ | the outcome, or the event indicator at a survival horizon |
 | $Z_{t+1}$, survival | $Y_t + (1 - Y_t)\,\bar m_{t+1}$. A competing-risk fit uses one cause's indicator and the all-cause survival factor |
-| tilt factor $r_t$ | $(\delta_t A_t + 1 - A_t)/(\delta_t \pi_t + 1 - \pi_t)$. The fit never computes it as $q_t / \pi_t$ |
+| tilt factor $r_t$ | $\delta_{t,A_t} / D_t$. With two levels it is $(\delta_t A_t + 1 - A_t)/(\delta_t \pi_t + 1 - \pi_t)$. The fit never computes it as $q_t / \pi_t$ |
 | label, rule or policy factor | the plan's density at the observed arm over the treatment mechanism |
 | censoring factor | $1\{C_t = 1\}/\omega_t$, with $\omega_t$ the probability of remaining under observation |
 | weight $W_t$ | the product of every node factor through $t$, and 0 off the rows that follow the plan through $t$. $W_0 = 1$ |
@@ -1206,17 +1770,60 @@ The uncentred efficient influence function at the fitted nuisances is
 
 $$
 \varphi = \bar m_1(H_1) + \sum_{t=1}^{h} W_t \{Z_{t+1} - m_t(H_t, A_t)\}
-  + \sum_{t \in \text{tilt}} W_{t-1}
-    \frac{\delta_t \{m_t(H_t, 1) - m_t(H_t, 0)\}(A_t - \pi_t)}{(\delta_t \pi_t + 1 - \pi_t)^2}.
+  + \sum_{t \in \text{tilt}} W_{t-1}\, \frac{\delta_{t,A_t}}{D_t}\,
+    \{m_t(H_t, A_t) - \bar m_t(H_t)\}.
 $$
 
 The form follows Kennedy (2019), Theorem 2 and Appendix Lemmas 2 to 4. Kim et al. (2021),
 Theorem 4.1, adds the censoring factors. The last sum is the *mechanism term*. It exists because
 $q_t$ reads $\pi_t$. A known policy has no such term, and a label or rule node has none.
 
+Only Lemma 4 changes with the number of levels. The chain rule through $\pi_t$ gives the
+influence function of $q_t(a \mid h)$ as
+$\{1\{H_t = h\}/p(h)\}(\delta_{t,A_t}/D_t)(1\{A_t = a\} - q_t(a \mid h))$.
+The sum of this function against $m_t(H_t, a)$ is the mechanism term above. With two levels the term
+is $\delta_t \{m_t(H_t, 1) - m_t(H_t, 0)\}(A_t - \pi_t)/(\delta_t \pi_t + 1 - \pi_t)^2$, which is
+Kennedy's Lemma 4. A node with two levels runs this binary arithmetic with
+$\delta_t = \delta_{t,1}/\delta_{t,0}$, so its results are bit-identical to the results before the
+categorical change. The factor $\delta_{t,A_t}/D_t$ and the term are unchanged when every
+$\delta_{t,a}$ is multiplied by one constant.
+
+**The remainder is a product.** Kennedy's telescoped sum has one term per node. Each term carries
+$(\hat\pi_t - \pi_t)$ through $\hat D_t - D_t = \sum_b \delta_{t,b}(\hat\pi_{t,b} - \pi_{t,b})$, as in the
+[point-treatment remainder](point-treatment-tmle.md#incremental-propensity-score-interventions).
+No term is linear in one nuisance's error, so the construction exposes no linear remainder. Under
+dropout the remainder also holds products of the form
+$\lVert \hat\omega_t - \omega_t \rVert\, \lVert \hat m_t - m_t \rVert$ (Kim et al. 2021,
+Theorem 5.1). The mechanism term carries $W_{t-1}$, which holds the censoring factors, so a
+fit that drops them from $W_{t-1}$ changes the curve.
+
+The rate condition has the form of Kennedy (2019), Theorem 3, with the norm taken over the
+levels of each node:
+$\lVert \hat\pi_t - \pi_t \rVert\,(\lVert \hat m_s - m_s \rVert + \lVert \hat\pi_s - \pi_s \rVert) = o_P(n^{-1/2})$
+for every $s \ge t$. Under dropout, the Kim et al. (2021) Theorem 5.1 products must also be
+$o_P(n^{-1/2})$. The point-treatment page gives the one-node form in its verdict row (ae).
+
 The estimate is the weighted mean $\hat\psi = \sum_i w_i \varphi_i / \sum_i w_i$. The influence
 curve is $w_i(\varphi_i - \hat\psi)$, summed within a cluster under `id=`. The standard error is
 the empirical standard deviation of that curve, as in Kennedy (2019), Theorem 3.
+
+`tests/unit/test_categorical_ipsi_exact.py` makes the same comparison on three-level nodes, on the
+law of `tests/discrete_law_longitudinal_categorical_incremental.py`. The cases are the censored
+law, the same law without dropout, a survival law and a competing-risk law. Each law has a tilt at
+one node, at both nodes with different factors, and beside a label node.
+
+The module asserts at import that no term can vanish unnoticed. Each mechanism term holds at least
+a twentieth of the curve's variance on the censored laws and a fiftieth on the survival and
+competing-risk laws. The complete-case functional differs from the parameter by more than $0.01$.
+
+`tests/unit/test_categorical_ipsi_longhand.py` matches the cross-fitted engine to an independent
+numpy longhand to $10^{-12}$, with a non-saturated multinomial logistic mechanism.
+`tests/unit/test_categorical_ipsi_mutations.py` breaks one line at a time and requires a witness
+to fail by more than $10^{-4}$ in a value. A mutation that raises an error does not count.
+`tests/unit/test_categorical_ipsi_exact.py` also checks that integer weights equal row
+duplication, that `id=` changes only the variance, that five exact copies as five folds give the
+exact cross-fitted fit, and that a bootstrap replicate equals the fit on the resampled rows.
+This is Python property evidence. No registered study covers a three-level node yet.
 
 `tests/unit/test_ipsi_exact_laws.py` compares each estimate with the g-formula of
 `tests/discrete_law_longitudinal_ipsi.py` to $10^{-12}$. It compares each curve with the
@@ -1252,6 +1859,74 @@ which needs Donsker-type conditions. The default is `n_folds=10`.
 scikit-learn longhand to $10^{-12}$. Two rejected constructions move the estimate by more than
 $10^{-4}$: a stitched training target, and the average of fold means on unequal folds.
 
+### IPSI on a repeated outcome
+
+`IPSI` accepts `outcome=Repeated(["Y1", "Y2", "Y3"])`. The fit reports one mean per tilt and horizon,
+named `ey_regimen[odds x2 @ t=2]`, and the contrasts `ate_regimen[odds x2 vs natural course @ t=2]`.
+Each horizon $h$ is the end-of-study fit of the panel truncated after node $h$, with $Y_h$ as the
+outcome and each earlier $Y_s$ as a covariate of node $s + 1$. `IncrementalMean(horizons=[1, 3])`
+and `IncrementalEffect(horizons=[1, 3])` take the same horizons in a `CausalStudy`.
+
+The parameter is $\psi_h(\delta) = E[Y_h^{Q(\delta)}]$. The plan $Q(\delta)$ draws $A_t$ from
+$q_t(1 \mid H_t)$ at every $t \le h$ and prevents dropout. Theorem 3.1 of Kim et al. (2021) at
+$t = h$ identifies it under consistency, exchangeability with dropout missing at random
+(Assumption A2-M), and dropout positivity (Assumption A3). A tilt needs no treatment
+positivity for $\delta \in (0, \infty)$.
+
+| source (arXiv v3) | statement | code | witness |
+| --- | --- | --- | --- |
+| Theorem 3.1 | $\psi_t(\delta)$ is an integral of $E[Y_t \mid H_t, A_t, R_{t+1} = 1]$ over the tilted arms | `tilt_propensities`, `ipsi._recursion`, `seed_carried(horizon=h)` | E4 compares the cell form with forward composition. E5 compares the fit with it |
+| Theorem 4.1 | the uncentered influence function, summed over $s \le t$ | `ipsi._weights`, `ipsi._recursion` | E5 compares the fitted curve with the complex-step Gateaux derivative on an exact law |
+| Theorem 5.1 | a Gaussian process over $(\delta, t)$ under conditions 1 to 4 | per-cell Wald interval, multiplier band over the stacked curves | E8 |
+
+Kim's $X_t$ is $L_t$ here, and $R_{t+1}$ is $C_t$. The arXiv v3 text has four typographical
+errors that this page and the code follow in their intended form: `Algorithm 1, step 4b` indexes
+$\omega_s$ where it means $\omega_t$. Condition 3 of Theorem 5.1 lacks two minus signs. The
+conclusion of Theorem 5.1 divides by $n$ where it means $\sqrt{n}$. The pointwise interval of
+Section 5.2 prints $\hat\sigma^2$ where it means $\hat\sigma$.
+
+**Single robustness.** `IPSI` is consistent when $\pi$ and $\omega$ are consistent, whatever $m$
+is. It is not doubly robust. The tests below run on two exact laws with $T = 2$ in
+`tests/discrete_law_repeated.py`. The law has a non-absorbing outcome, so $Y_2 = 0$ can follow
+$Y_1 = 1$.
+
+| witness | fit | result on the binary law at $h = 2$ |
+| --- | --- | --- |
+| E5 | saturated $m$, estimated $\pi$ and $\omega$ | the estimate equals the tilt functional, and the curve equals its Gateaux derivative, to $10^{-11}$ |
+| E6 | $m$ on $W$ and the arm, estimated $\pi$ and $\omega$ | the estimate equals the truth. The plug-in of that $m$ misses by +0.0471 ($\delta = 0.5$) and −0.0293 ($\delta = 2$) |
+| E6, known $\pi$ | the same, with `treatment_probabilities=` | the mechanism term is zero, and the estimate equals the truth |
+| E7 | saturated $m$, $\pi$ and $\omega$ on $W$ alone | the estimate misses by +0.0008 ($\delta = 0.5$) and −0.0009 ($\delta = 2$). With $\pi$ on $W$ alone it misses by +0.0015 and −0.0003. With $\omega$ on $W$ alone it is exact |
+
+The E7 bias is small, and no sampled family can power it at the studied sizes. The exact law
+records it. `tests/unit/test_repeated_law_values.py` pins the same claim on the three-node law of
+the study: a saturated $m$ with $\pi$ and $\omega$ on $W$ alone misses by +0.0028 at
+$\delta = 0.5$ and $h = 3$.
+
+**Dropout.** The censoring factor $1\{C_t = 1\}/\omega_t$ enters every weight $W_t$ up to $h$. With
+a consistent $m$ the estimate does not read $\omega$, but the curve does. Replacing $1/\omega_t$
+by one leaves the E5 estimate and moves its curve by at least 0.5 at every tilted cell, with $\delta = 1$ included. With a wrong $m$
+it moves the estimate (E6): by +0.0413 ($\delta = 0.5$) and −0.0235 ($\delta = 2$) on the
+binary law at $h = 2$.
+
+**The band.** The default `simultaneous=True` band covers every declared $\delta$ and horizon, and
+every contrast against the reference. It is the multiplier band over the stacked influence
+curves.
+
+| claim | condition |
+| --- | --- |
+| $\sqrt{n}(\hat\theta - \theta)$ is jointly normal | Kim conditions 1 to 4 at every declared $(\delta, h)$. The dimension is fixed, so the Cramér–Wold device applies. This is Theorem 5.1 restricted to a finite grid |
+| the multiplier critical value is consistent | the stacked curves estimate their covariance consistently |
+| the horizons are dependent | the horizons share units and mechanisms, so the band uses the joint covariance. E8 requires a nonzero correlation between the horizons of one tilt and rebuilds the critical value from the stacked curves |
+| no band over a continuum of $\delta$ | the band covers the declared grid. It does not cover the points between the nodes of the grid |
+| an inconsistent $m$ | no interval claim. The product $(\hat\pi - \pi)(\hat m - m)$ is first order, so the curve is not the influence function. $\psi(\delta)$ depends on $\pi$, so the projection argument of a doubly robust estimator does not apply |
+
+The [registered study](method-evidence/repeated-outcome-ipsi.md) measures the coverage of this
+curve on one three-node law. With $n$ = 8,000 in sample, the coverage of the 15 reported
+parameters lies between 0.945 and 0.955, and the default band covers them jointly at 0.949. The
+interval at $(\delta, h)$ is an asymptotic statement under the conditions above. The exact-law witnesses E4 to E8 and the
+mutation controls in `tests/unit/test_repeated_outcome_ipsi_mutations.py` stand behind the point
+estimate and the curve.
+
 ### The IPSI contract
 
 | item | contract |
@@ -1280,11 +1955,13 @@ stays exact to $10^{-12}$. The Taylor remainder along a path is second order and
 | clusters, `id=` | whole-cluster folds and a cluster-summed curve. The few-cluster rules of `LTMLE` apply: below 20 clusters the fit reports no interval | `tests/unit/test_ipsi_e2e.py` at 19 and 20 clusters |
 | contrasts and bands | a fixed-dimension stack of the plan and horizon curves. The multiplier band covers the declared plans and horizons | `tests/unit/test_ipsi_e2e.py` |
 | `msm=` | each cell's $\varphi$ is projected onto the working model. The identity link is supported. A logit or log link is accepted only when its projection converges | the exact-law projection linear in $\log\delta$; the logit refusal in `tests/unit/test_ipsi_e2e.py` |
-| known treatment mechanism | `treatment_probabilities=` on `fit` declares $\pi_t$. The tilt is then a known policy, and the curve has no mechanism term (Kennedy 2019, Section 3.3) | the known-mechanism exact law |
+| known treatment mechanism | `treatment_probabilities=` on `fit` declares $\pi_t$ for every level of the node. The tilt is then a known policy, and the curve has no mechanism term (Kennedy 2019, Section 3.3) | the known-mechanism exact law; for three levels, `tests/unit/test_categorical_ipsi_declaration.py` |
 | `CausalStudy` | `IncrementalMean` and `IncrementalEffect` on a `LongitudinalTreatment` design list `ipsi` as available. `tmle` and `sdr` list the reasons below | `tests/unit/test_ipsi_e2e.py` |
 
 `LTMLE` also fits a tilt when every tilt node has a declared treatment mechanism. It translates
-each tilt node to a known stochastic policy, which divides by the bounded mechanism. Where
+each tilt node to a known stochastic policy, which divides by the bounded mechanism. It reads the
+whole declared matrix, one column per level, so a node with three levels is translated too and
+equals the hand-built known `Stochastic` regimen to $10^{-12}$. Where
 `g_bounds` moves that mechanism, `LTMLE` refuses the fit before any learner. `IPSI` keeps the
 cancelled tilt factor and needs no such bound.
 
@@ -1292,19 +1969,19 @@ cancelled tilt factor and needs no such bound.
 
 | choice | `IPSI` | reason |
 | --- | --- | --- |
-| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `targeting=` and `fluctuation=` raise `MethodConfigurationError` with code `invalid_declaration` | the estimator averages the influence function at the fitted nuisances |
-| `g_bounds=` | bounds the cumulative censoring, label, rule and policy product. The tilt product multiplies in after the bound | the tilt factor lies in $[\min(\delta, 1/\delta), \max(\delta, 1/\delta)]$ and divides by no mechanism |
+| fluctuation | none. `alpha=`, `max_iter=`, `tol=`, `stopping=`, `step_bound=`, `step_search=`, `iterate=`, `targeting=` and `fluctuation=` raise `MethodConfigurationError` with code `invalid_declaration` | the estimator averages the influence function at the fitted nuisances |
+| `g_bounds=` | bounds the cumulative censoring, label, rule and policy product. The tilt product multiplies in after the bound | the tilt factor lies in $[\min_a \delta_{t,a} / \max_a \delta_{t,a},\ \max_a \delta_{t,a} / \min_a \delta_{t,a}]$ and divides by no mechanism. With two levels this is $[\min(\delta, 1/\delta), \max(\delta, 1/\delta)]$ |
 | regression clip | none. The default `pseudo_learner` is a regression Super Learner with `clip=None` | `npcausal` predicts the targets unbounded |
 | a level outside the outcome range | reported as computed, with `ParameterSpaceWarning` | an average of $\varphi$ can leave $[0, 1]$, or the `q_bounds` range of a continuous outcome |
 | `ratio()` of such a level | `CapabilityError` on the log scale at or below 0, and on the odds or logit scale outside $(0, 1)$ | the scale is undefined there. The difference scale stays available |
 | full-refit bootstrap | runs, and reports `bootstrap sd` with no percentile inference | no registered study measures it |
 | `truncation_curve()` | replays the bounded factors only | the tilt factor has no bound to sweep |
 | score equations | `diagnostics.score_equations()` is `not_applicable` | no node fits a fluctuation |
-| diagnostics | `diagnostics.support()` reports each tilt node's factor range, the mechanism term's share of the curve variance, and the share of $\hat\pi_t$ at exactly 0 or 1 | a tilt needs no positivity, so a degenerate $\hat\pi_t$ is reported and not warned |
+| diagnostics | `diagnostics.support()` reports each tilt node's factor range, the mechanism term's share of the curve variance, and the share of rows where some level has $\hat\pi_t$ at exactly 0 | a tilt needs no positivity, so a degenerate $\hat\pi_t$ is reported and not warned. With two levels the share counts $\hat\pi_t$ at exactly 0 or 1 |
 
 A survival risk curve from this estimator can be non-monotone across horizons. Each horizon is its
-own one-step average. [X14](../roadmap.md#x14-hazard-based-and-monotone-survival-curves) owns
-monotone curves.
+own one-step average. The hazard model and the isotonic projection are `LTMLE` settings, and
+`IPSIMethod` refuses them ([H12](scope-and-refusals.md#hazard-and-isotonic-survival-refusals)).
 
 ### IPSI refusals
 
@@ -1312,12 +1989,14 @@ monotone curves.
 | --- | --- |
 | `LTMLE` with an estimated mechanism at a tilt node, or `LTMLE(incremental=...)` | `LTMLE_TILT_REFUSAL` in `cleverly.methods` |
 | `SDR` with a tilt node | `SDR_TILT_REFUSAL` in `cleverly.methods` |
-| a tilt node with other than two levels | the shared point-treatment text, which names the node |
+| a scalar `Incremental` at a node with other than two levels | the scalar refusal of `Incremental.factors`, which names the node and shows a mapping. Reason `invalid_declaration` |
+| an `Incremental` key that is not a level of a node | the key refusal of `Incremental.factors`, which names the key, the node and its levels. Reason `invalid_declaration` |
 | an `IPSI` plan with a modified treatment policy or a `RiskRatioTilt` node | `tilt_mix_message` in `longitudinal/regimen.py` |
 | an odds tilt at a continuous node, on `IPSI`, `LTMLE` or `SDR` | `tilt_continuous_message` in `longitudinal/regimen.py` |
-| a fluctuation setting on `IPSI` or `IPSIMethod` | `IPSI_NO_FLUCTUATION` in `cleverly.methods` |
+| a fluctuation setting on `IPSI` or `IPSIMethod`, including `stopping=`, `step_bound=`, `step_search=` and `iterate=` | `IPSI_NO_FLUCTUATION` in `cleverly.methods` |
 | a point-treatment container, or `IPSIMethod` on a point functional | `IPSI_POINT_REFUSAL` in `cleverly.methods` |
 | a design that holds one baseline decision over every node | `IPSI` names `TMLE(incremental=[...])` on the baseline row |
+| an odds tilt at a vector node with a continuous component | `tilt_mixed_refusal` in `longitudinal/regimen.py`. It runs before the node's levels are read |
 
 [Scope and refusals](scope-and-refusals.md#not-written-yet) quotes the first, second and fourth
 messages. `tests/unit/test_ipsi_e2e.py` pins each refusal before any learner runs.
@@ -1326,17 +2005,25 @@ messages. `tests/unit/test_ipsi_e2e.py` pins each refusal before any learner run
 
 | limitation | detail |
 | --- | --- |
-| finite-sample bias at one fold | on the declared study laws, a one-fold fit carries a plug-in-order bias of about 0.2 standardized units at $n$ = 4,000 to 8,000. Source: the pre-declaration design probe in the `tests/studies/canonical_longitudinal_incremental_dropout.py` module docstring. The registered `in_sample_fit` family reports it |
-| finite-sample bias at five folds | the cross-fitted contrasts carry a second-order bias of order $1/n$. On law `C` the probe measured 0.44 standardized units at $n$ = 2,000, 0.22 at 8,000 and 0.05 at 32,000. Both primary studies run at $n$ = 24,000 for this reason. Source: the `PRIMARY_N` docstrings of the two study modules |
+| finite-sample bias at one fold | on the declared study laws, a one-fold fit carries a plug-in-order bias of about 0.2 standardized units at $n$ = 8,000. The design probe reads -0.18 on law `A` and -0.19 on law `C`. Source: `tests/diagnostics/x19_sizing/reading.csv`. Kennedy (2019), Algorithm 2 (Appendix 8.3), gives the one-fold interval under Donsker conditions. Saturated cell means on a finite history set form a Donsker class. Kim et al. (2021), Theorem 5.1, states the dropout result with sample splitting only, and the same Donsker argument extends it to one fold. Both studies gate the one-fold fits at sizes where this bias is small |
+| finite-sample bias at five folds | the cross-fitted contrasts carry a second-order bias of order $1/n$. At $n$ = 8,000 the design probe reads 0.25 to 0.27 standardized units on law `A` at five folds, 0.35 at two folds, and 0.28 to 0.31 on law `C`. A sizing rule sets each gated cell before its run. A primary or rate cell passes with a probability of at least 0.95 at the projected bias, and a calibration cell with at least 0.90. The primary studies run at $n$ = 96,000 and 80,000 for this reason. Source: `tests/unit/test_longitudinal_incremental_design.py` |
+| support label of a three-level node | the rows `G43` of the registered study [categorical incremental policies](method-evidence/categorical-incremental.md) cover two nodes with three levels, a tilt regimen and a cross-fitted split. The study fitted saturated learners and five folds, and the rows match any learner and fold count. Any other fit with a node of other than two levels is `experimental`. The label reads `.support` on each estimate |
 | a band over the continuum of $\delta$ | not offered. Theorem 4 of Kennedy (2019) gives a band over a compact set of $\delta$, and the API represents a finite grid only |
 | the no-effect test | not offered. Kennedy (2019), Section 4.4, gives it, and `npcausal` does not return it |
 | a TMLE for the tilt over time | not offered. The package ships Kennedy's own estimator, which Theorem 3 covers with no extension |
 | separate covariate sets for the mechanism and the regressions | not offered. Each nuisance reads the full history |
 
-Two registered studies are declared and have not run. `longitudinal-incremental` pairs the
-estimator with `npcausal` 0.1.0 `ipsi()` at commit `56a5ac11`. `longitudinal-incremental-dropout`
-calibrates dropout, survival, weights and clusters against exact truths, with no comparator.
-This page claims no result from either study.
+Two registered studies measure the estimator. The
+[complete-data study](method-evidence/longitudinal-incremental-interventions.md) carries Python
+property evidence. Its `npcausal` 0.1.0 comparator runs at commit `56a5ac11` are pending. The
+[dropout study](method-evidence/longitudinal-incremental-interventions-dropout.md) calibrates
+dropout, survival, weights and clusters against exact truths, with no comparator. This page
+claims no result from either study.
+
+The natural-course value is the sample mean of the outcome. A tilt of 1 sets every weight to 1,
+so the correction terms cancel. Each contrast with the natural course is therefore the tilted
+value minus that mean. Source: `test_the_fitted_natural_course_is_the_sample_mean` in
+`tests/unit/test_longitudinal_incremental_design.py`.
 
 ## Validation issues special to this method
 

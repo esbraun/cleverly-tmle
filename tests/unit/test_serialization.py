@@ -592,24 +592,21 @@ def test_longitudinal_result_retains_the_complete_fitted_graph_and_assessment(
     assert result_fields == {
         "assessment_cache",
         "bootstrap",
+        "bootstrap_band",
         "config",
         "data",
         "estimates",
         "fitted_method",
-        "fold_mechanisms",
-        "fits",
-        "folds",
         "identified_effect",
-        "mechanism",
         "method",
         "msm",
-        "msm_fits",
         "parameter_index",
         "parameter_keys",
         "provenance",
-        "replay_recipe",
+        "repeats",
         "scaler",
         "simultaneous",
+        "simulation",
     }
     for field in result_fields - {"assessment_cache"}:
         _assert_same_graph(getattr(original, field), getattr(restored, field), path=field)

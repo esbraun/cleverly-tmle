@@ -88,7 +88,9 @@ def bootstrap_draw_blocks(values: np.ndarray, *, replicates: int, rng: np.random
     drawn = 0
     while drawn < replicates:
         count = min(block, replicates - drawn)
-        yield values[rng.integers(0, rows, size=(count, rows))]
+        # ``np.take`` along the first axis returns the same C-ordered array as fancy
+        # indexing, so the draws are bit-identical, and it gathers rows several times faster.
+        yield np.take(values, rng.integers(0, rows, size=(count, rows)), axis=0)
         drawn += count
 
 
@@ -854,18 +856,22 @@ def summarize_cells(
             canonical = summarize_replications(
                 tuple(
                     ReplicationRecord(
-                        replicate=int(row.replicate),
+                        replicate=int(replicate),
                         seed=-1,
                         estimand="cell",
-                        truth=float(row.truth),
-                        estimate=float(row.estimate),
-                        std_error=float(row.std_error),
-                        covered=bool(row.covered),
-                        rejected=bool(row.rejected),
-                        inference_estimate=float(row.estimate),
+                        truth=float(draw_truth),
+                        estimate=float(estimate),
+                        std_error=float(std_error),
+                        covered=bool(covered),
+                        rejected=bool(rejected),
+                        inference_estimate=float(estimate),
                         alpha=alpha,
                     )
-                    for row in group.itertuples(index=False)
+                    # Iterating unused Arrow string columns dominates large study summaries.
+                    # Keep the record order and conversions, and read only its numeric fields.
+                    for replicate, draw_truth, estimate, std_error, covered, rejected in group[
+                        ["replicate", "truth", "estimate", "std_error", "covered", "rejected"]
+                    ].itertuples(index=False, name=None)
                 ),
                 estimand="cell",
                 n=int(group["n"].iloc[0]),

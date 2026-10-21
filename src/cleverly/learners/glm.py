@@ -118,6 +118,10 @@ class GLM(BaseEstimator):
     array([0.3, 0.7])
     """
 
+    #: An unpenalized maximum-likelihood fit started from zero: a row of integer weight
+    #: ``c`` fits as ``c`` copies of the row (:mod:`cleverly.longitudinal.frequency`).
+    frequency_exact = True
+
     def __init__(
         self,
         family: GLMFamily = "auto",

@@ -1,0 +1,822 @@
+r"""The mechanism term of the plug-in :math:`\nu^2` curve, for a declared parametric mechanism.
+
+``nu2_estimator="plugin"`` estimates :math:`\nu^2` by :math:`E_n[\hat\alpha^2]`, where
+:math:`\hat\alpha` is built from the fitted treatment mechanism :math:`\hat g`.  The estimate
+moves at first order with :math:`\hat g`, so its curve needs a term for that fit.  When the
+fit's own treatment learner is a scikit-learn ``LogisticRegression`` (binary or multinomial,
+with no penalty or a fixed L2 penalty, fitted bare or after ``StandardScaler`` steps), the
+mechanism is an M-estimator, and the stacked estimating equation of its score and the second
+moment gives the term (Saul and Hudgens 2020, *Journal of Statistical Software* 92(2),
+Section 2, Equations (1) and (2); Section 3.5 for a propensity-model nuisance).
+
+For fold :math:`k` with coefficients :math:`\theta_k` in reference form (the lowest arm is the
+reference), the estimating function of row :math:`i` is
+
+.. math::
+
+    u_{k,i} = w_i\, x_i \otimes (e_{A_i} - g_k(x_i))_{-r}\, 1\{i \in \mathrm{train}_k\}
+              - (w_i / n) P \theta_k / C,
+
+where the second term allocates the fixed L2 penalty under the mean-one weight convention.
+The information matrix is :math:`J_k = H_k + P/C`, with
+:math:`H_k = \sum_{j \in \mathrm{train}_k} w_j [\mathrm{diag}(g_{-r}) - g_{-r} g_{-r}^\top]
+\otimes x_j x_j^\top`.  With :math:`D_k = n^{-1} \sum_{j \in \mathrm{test}_k} w_j
+\partial_\theta \alpha_j^2`, the mechanism term is
+:math:`\psi^\gamma_i = n \sum_k D_k J_k^{+} u_{k,i}`.  An in-sample fit is one fold whose
+training and test rows are all rows.
+
+The derivative of :math:`\alpha` is zero on every cell the truncation bounds moved, so the term
+is the curve of the truncated plug-in functional :math:`\gamma \mapsto E[\alpha_b(g_\gamma)^2]`.
+That functional equals :math:`\nu_0^2` only when the truncation is asymptotically inactive.
+
+A declared known mechanism (:class:`~cleverly.data.KnownMechanism`) is the degenerate case:
+:math:`\hat\alpha = \alpha(g_0)`, so the term is zero.
+
+**The second-order correction.**  :math:`E_n[\hat\alpha^2]` has an :math:`O(1/n)` bias whose
+constant is large, because :math:`\alpha^2` grows like :math:`g^{-2}`.  Out of fold it reached
+1.44 standard deviations at :math:`n = 1000` (``tests/diagnostics/x26_crossfit_bias``).
+:class:`~cleverly.sensitivity._second_order.PluginStack` estimates that bias,
+:math:`\hat B`, from the stacked equation of this module (the ridge shift, the conditioning
+share and the weight ratio included).  The bound reports :math:`\hat\nu^2 - \hat B`.  The
+curve is unchanged, and the variance is the plain influence variance of that curve: no
+correction of the variance estimate is made, because in a design pilot its expansion took a
+large share of the cross-fitted variance at :math:`n = 1000`.
+
+The correction assumes a smooth mechanism, a small remainder, and a positive result, so the
+limits refuse, with no roadmap item, in three cases:
+
+=========================  ================================================================
+key                        condition
+=========================  ================================================================
+``truncation_active``      a bound clips a cell the representer reads, or a fitted logit lies
+                           within :data:`TRUNCATION_MARGIN` standard errors of a bound
+``correction_unstable``    :math:`\hat B^2 / \hat\nu^2` exceeds :data:`CORRECTION_STABILITY`
+                           standard errors of :math:`\hat\nu^2`
+``corrected_nonpositive``  the corrected :math:`\nu^2` is not positive
+=========================  ================================================================
+
+:func:`plugin_mechanism_term` returns the term and the corrections, or the reason the fit does
+not qualify.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import numpy as np
+
+from .._refusal import RefusalReason
+from .._typing import BoolArray, FloatArray
+from ..estimators._mechanism_fit import MechanismFit
+from ._second_order import PluginStack, StackFold, representer_derivatives
+
+__all__ = [
+    "CONDITION_LIMIT",
+    "CORRECTION_STABILITY",
+    "MISMATCH_TOLERANCE",
+    "ROOT_TOLERANCE",
+    "TRUNCATION_MARGIN",
+    "MechanismRefusal",
+    "MechanismTerm",
+    "correction_refusal",
+    "plugin_mechanism_term",
+]
+
+#: The largest Newton step from the captured coefficients to the root of the fold's
+#: penalized score, in standard errors of the coefficients, that still counts as a root.
+ROOT_TOLERANCE = 0.05
+
+#: The largest condition number of a fold's information matrix, on the range of its design.
+CONDITION_LIMIT = 1e10
+
+#: The largest absolute difference between the recomputed and the stored mechanism.
+MISMATCH_TOLERANCE = 1e-8
+
+#: The distance from a truncation bound, in standard errors of a fitted logit, inside which the
+#: limits refuse (``truncation_active``).  Clipping puts a kink in ``alpha(g)^2``, and a smooth
+#: expansion misses its ``O(1/n)`` term.  Declared before the pilot (X26 plan, 9.9 B4).
+TRUNCATION_MARGIN = 3.0
+
+#: The largest predicted remainder ``B^2 / nu^2`` of the correction, as a fraction of the
+#: standard error of ``nu^2`` (``correction_unstable``).  0.25 is the stop rule's tolerance on
+#: the corrected bias.  Declared before the pilot (X26 plan, 9.9 B5), and not tuned.
+CORRECTION_STABILITY = 0.25
+
+#: Relative eigenvalue cutoff below which a direction counts as outside the design's range.
+_RANK_CUTOFF = 1e-12
+
+_STEM = (
+    "the plug-in nu^2 has a standard error only through the score of the fit's own treatment "
+    "mechanism. E_n[alpha_hat^2] squares the fitted Riesz representer, so it moves at first "
+    "order with the fitted mechanism. The limits need that mechanism to be declared known, or "
+    "to be a scikit-learn LogisticRegression, binary or multinomial, with no penalty or a "
+    "fixed L2 penalty, fitted bare or after StandardScaler. For that model the stacked "
+    "estimating equation of the mechanism score and the second moment gives the curve (Saul "
+    "and Hudgens 2020). The bias-adjusted bounds, rv, max_bias, benchmark() and contour() "
+    "remain available"
+)
+
+#: The sentence a learner the rule does not admit adds to the stem.
+_UNCITED = (
+    ". No source this package cites gives the curve for any other mechanism learner. "
+    "docs/roadmap.md F26 tracks this stop"
+)
+
+_DOUBLY_ROBUST = (
+    "Fit the bound with nu2_estimator='doubly_robust', which has derived limits for any "
+    "mechanism learner."
+)
+
+
+@dataclass(frozen=True)
+class MechanismRefusal:
+    """Why a plug-in bound publishes no limit.
+
+    Parameters
+    ----------
+    key : str
+        The clause key, for example ``"other_learner"``.
+    text : str
+        The full reason, ``"nu2_estimator='plugin': <stem>. This fit does not qualify:
+        <clause>."``.
+    alternative : str
+        What the reader can do instead.
+    reason : RefusalReason
+        The refusal code the accessors raise with.
+    roadmap : str or None
+        The roadmap item that tracks the stop, for a learner the rule does not admit.
+    """
+
+    key: str
+    text: str
+    alternative: str
+    reason: RefusalReason = RefusalReason.INFERENCE_GAP
+    roadmap: str | None = None
+
+
+def _refusal(
+    key: str,
+    clause: str,
+    alternative: str = _DOUBLY_ROBUST,
+    *,
+    learner: bool = False,
+    reason: RefusalReason = RefusalReason.INFERENCE_GAP,
+) -> MechanismRefusal:
+    if learner:
+        return MechanismRefusal(
+            key=key,
+            text=f"nu2_estimator='plugin': {_STEM}{_UNCITED}. This fit does not qualify: {clause}.",
+            alternative=alternative,
+            reason=reason,
+            roadmap="F26",
+        )
+    return MechanismRefusal(
+        key=key,
+        text=f"nu2_estimator='plugin': {_STEM}. This fit does not qualify: {clause}.",
+        alternative=alternative,
+        reason=reason,
+    )
+
+
+@dataclass(frozen=True)
+class MechanismTerm:
+    r"""The mechanism term of the plug-in curve, with the second-order correction.
+
+    Parameters
+    ----------
+    values : ndarray
+        The ``(n,)`` term :math:`\psi^\gamma`.
+    correction : float or None
+        :math:`\hat B`, the second-order bias of :math:`E_n[\hat\alpha^2]`, which the bound
+        subtracts. ``None`` when ``refusal`` is set.
+    refusal : MechanismRefusal or None
+        Why the correction, and so the limits, do not hold on this fit, although the curve
+        does.
+    """
+
+    values: FloatArray
+    correction: float | None = None
+    refusal: MechanismRefusal | None = None
+
+
+def correction_refusal(nu2: float, correction: float, variance: float) -> MechanismRefusal | None:
+    r"""The refusal of a corrected bound whose correction does not hold, or ``None``.
+
+    Parameters
+    ----------
+    nu2 : float
+        The uncorrected :math:`E_n[\hat\alpha^2]`.
+    correction : float
+        :math:`\hat B`.
+    variance : float
+        The influence variance of :math:`\hat\nu^2`, which the correction leaves unchanged.
+
+    Returns
+    -------
+    MechanismRefusal or None
+        The ``corrected_nonpositive`` or ``correction_unstable`` record.
+    """
+    corrected = nu2 - correction
+    if corrected <= 0.0:
+        return _refusal(
+            "corrected_nonpositive",
+            f"the second-order corrected nu^2 is {corrected:.6g}, and a second moment cannot "
+            "be negative or zero. The correction is too large for its expansion",
+        )
+    remainder = correction**2 / nu2
+    if remainder > CORRECTION_STABILITY * float(np.sqrt(variance)):
+        return _refusal(
+            "correction_unstable",
+            f"the second-order correction of nu^2 is {correction:.3g}, and its predicted "
+            f"remainder B^2 / nu^2 = {remainder:.3g} exceeds {CORRECTION_STABILITY} of the "
+            f"standard error of nu^2, {float(np.sqrt(variance)):.3g}",
+        )
+    return None
+
+
+def _resolved_penalty(fit: MechanismFit) -> str:
+    """``"none"``, ``"l2"`` or ``"other"``, as scikit-learn's ``fit`` resolves them."""
+    if np.isinf(fit.C):
+        return "none"
+    if fit.penalty is None or fit.penalty == "none":
+        return "none"
+    if fit.penalty == "l2":
+        return "l2"
+    if fit.penalty == "deprecated" and (fit.l1_ratio is None or fit.l1_ratio == 0.0):
+        return "l2"
+    return "other"
+
+
+def _learner_refusal(fit: MechanismFit) -> MechanismRefusal | None:
+    """Checks 1 to 6: the fit-level rule, read off one fold's record."""
+    if "CorrelationScreener" in fit.step_names:
+        return _refusal(
+            "screened",
+            "screen_treatment=True selects the covariates of the treatment model inside each "
+            "fold, so the mechanism is not one fixed parametric model",
+            learner=True,
+        )
+    if fit.kind == "logistic" and fit.is_cv:
+        return _refusal(
+            "cv_penalty",
+            "the treatment learner is LogisticRegressionCV, which selects C by "
+            "cross-validation, so the penalty is data-adaptive",
+            "Pass LogisticRegression with a fixed C.",
+            learner=True,
+        )
+    if fit.kind == "other" and fit.learner_name == "SuperLearner":
+        return _refusal(
+            "super_learner",
+            "the treatment learner is a SuperLearner. A library that contains "
+            "LogisticRegression does not qualify, because the bound reads the ensemble's "
+            "fitted mechanism and not one member's",
+            learner=True,
+        )
+    if fit.kind == "other":
+        return _refusal(
+            "other_learner",
+            f"the treatment learner is {fit.learner_name}, not LogisticRegression",
+            learner=True,
+        )
+    if fit.kind != "logistic":
+        return None
+    if fit.steps is None:
+        offending = next(
+            name for name in fit.step_names if name not in ("StandardScaler", "passthrough")
+        )
+        return _refusal(
+            "pipeline",
+            f"the treatment learner is a Pipeline with the step {offending} before the "
+            "LogisticRegression. Only StandardScaler steps qualify",
+            "Transform the covariates before the fit, or pass the bare LogisticRegression.",
+            learner=True,
+        )
+    if not fit.fit_intercept and any(step.mean is not None for step in fit.steps):
+        return _refusal(
+            "pipeline_intercept",
+            "a StandardScaler centers the covariates and the LogisticRegression sets "
+            "fit_intercept=False, so the mechanism depends on the estimated column means",
+            "Set fit_intercept=True.",
+            learner=True,
+        )
+    if _resolved_penalty(fit) == "other":
+        return _refusal(
+            "l1_penalty",
+            "the LogisticRegression has an L1 or elastic-net penalty, whose score has no "
+            "derivative where a coefficient is zero",
+            "Use l1_ratio=0 for an L2 penalty, or C=numpy.inf.",
+            learner=True,
+        )
+    if fit.solver == "liblinear":
+        return _refusal(
+            "liblinear",
+            "the LogisticRegression uses solver='liblinear', which penalizes the intercept",
+            "Use another solver.",
+            learner=True,
+        )
+    if fit.class_weight is not None:
+        return _refusal(
+            "class_weight",
+            f"the LogisticRegression sets class_weight={fit.class_weight}, which changes its score",
+            "Declare observation weights with weights= instead.",
+            learner=True,
+        )
+    return None
+
+
+@dataclass(frozen=True)
+class LogisticStack:
+    """One fold's logistic mechanism in reference form.
+
+    Parameters
+    ----------
+    design : ndarray
+        ``(n, d)`` design of every row: the pipeline transform of the covariates, with the
+        intercept column first when the model fits one.
+    theta : ndarray
+        ``(K - 1, d)`` coefficients in reference form.
+    penalty : ndarray
+        ``(p, p)`` penalty matrix ``P / C`` with ``p = (K - 1) d``; zero with no penalty.
+    probabilities : ndarray
+        ``(n, K)`` mechanism the coefficients give at every row.
+    """
+
+    design: FloatArray
+    theta: FloatArray
+    penalty: FloatArray
+    probabilities: FloatArray
+
+    @property
+    def n_classes(self) -> int:
+        return int(self.probabilities.shape[1])
+
+    @property
+    def dimension(self) -> int:
+        return int(self.theta.size)
+
+    def score(self, treatment_index: Any, rows: Any, weights: FloatArray) -> FloatArray:
+        """``(len(rows), p)`` weighted unpenalized score rows ``w x (e_A - g)_{-r}``."""
+        g = self.probabilities[rows]
+        indicator = np.zeros_like(g)
+        indicator[np.arange(g.shape[0]), np.asarray(treatment_index)[rows]] = 1.0
+        residual = (indicator - g)[:, 1:]
+        x = self.design[rows]
+        rows_score = residual[:, :, None] * x[:, None, :]
+        return np.asarray(weights[rows][:, None] * rows_score.reshape(g.shape[0], -1), dtype=float)
+
+    def information(self, rows: Any, weights: FloatArray) -> FloatArray:
+        """``H + P / C`` over ``rows``."""
+        g = self.probabilities[rows][:, 1:]
+        x = self.design[rows]
+        w = weights[rows]
+        k = g.shape[1]
+        d = x.shape[1]
+        out = np.zeros((k, d, k, d))
+        for m in range(k):
+            for q in range(m, k):
+                factor = g[:, m] * ((1.0 if m == q else 0.0) - g[:, q])
+                block = (x * (w * factor)[:, None]).T @ x
+                out[m, :, q, :] = block
+                out[q, :, m, :] = block.T
+        return np.asarray(out.reshape(k * d, k * d) + self.penalty, dtype=float)
+
+
+def _reference_form(fit: MechanismFit, n_arms: int) -> FloatArray:
+    """``(K - 1, d)`` coefficients against the lowest arm, intercept first when fitted."""
+    assert fit.coef is not None and fit.intercept is not None
+    coef = np.asarray(fit.coef, dtype=float)
+    intercept = np.asarray(fit.intercept, dtype=float).reshape(-1)
+    if fit.fit_intercept:
+        full = np.column_stack([intercept, coef]) if coef.ndim == 2 else coef
+    else:
+        full = coef
+    if n_arms == 2:
+        return np.asarray(full[:1], dtype=float)
+    return np.asarray(full[1:] - full[0], dtype=float)
+
+
+def _penalty_matrix(fit: MechanismFit, n_arms: int, d: int) -> FloatArray:
+    """``P / C`` in reference form, from scikit-learn's own penalty."""
+    p = (n_arms - 1) * d
+    if _resolved_penalty(fit) == "none":
+        return np.zeros((p, p))
+    slopes = np.eye(d)
+    if fit.fit_intercept:
+        slopes[0, 0] = 0.0
+    if n_arms == 2:
+        arm = np.ones((1, 1))
+    else:
+        arm = np.eye(n_arms - 1) - np.ones((n_arms - 1, n_arms - 1)) / n_arms
+    return np.asarray(np.kron(arm, slopes) / fit.C, dtype=float)
+
+
+def _softmax_reference(design: FloatArray, theta: FloatArray) -> FloatArray:
+    """``(n, K)`` probabilities with the reference column first."""
+    eta = np.column_stack([np.zeros(design.shape[0]), design @ theta.T])
+    eta = eta - eta.max(axis=1, keepdims=True)
+    expd = np.exp(eta)
+    return np.asarray(expd / expd.sum(axis=1, keepdims=True), dtype=float)
+
+
+def _design(fit: MechanismFit, covariates: FloatArray) -> FloatArray:
+    x = np.asarray(covariates, dtype=float)
+    for step in fit.steps or ():
+        x = step.transform(x)
+    if fit.fit_intercept:
+        x = np.column_stack([np.ones(x.shape[0]), x])
+    return np.asarray(x, dtype=float)
+
+
+def _pseudo_inverse(matrix: FloatArray, rank: int) -> tuple[FloatArray, float, int]:
+    """The pseudo-inverse on the top ``rank`` eigen-directions, the condition number there,
+    and the count of eigenvalues above the cutoff."""
+    values, vectors = np.linalg.eigh((matrix + matrix.T) / 2.0)
+    order = np.argsort(values)[::-1]
+    values, vectors = values[order], vectors[:, order]
+    top = float(values[0]) if values.size else 0.0
+    above = int(np.sum(values > _RANK_CUTOFF * max(top, 0.0)))
+    kept = values[:rank]
+    if rank == 0 or kept[-1] <= 0.0:
+        return np.zeros_like(matrix), float("inf"), above
+    inverse = (vectors[:, :rank] / kept) @ vectors[:, :rank].T
+    return np.asarray(inverse, dtype=float), float(kept[0] / kept[-1]), above
+
+
+@dataclass(frozen=True)
+class _FoldStack:
+    stack: LogisticStack
+    train: Any
+    test: Any
+    inverse: FloatArray
+    null: FloatArray | None = None
+
+
+def _fold_rows(folds: Any, n: int) -> list[tuple[Any, Any]]:
+    if folds.n_folds == 1:
+        everything = np.arange(n)
+        return [(everything, everything)]
+    return list(folds)
+
+
+def _stacks(
+    fits: tuple[MechanismFit, ...],
+    nuisance: Any,
+    data: Any,
+) -> list[_FoldStack] | MechanismRefusal:
+    """Checks 8 to 11 per fold, in fold order, and each fold's stack."""
+    arms = tuple(float(a) for a in nuisance.arms)
+    k = len(arms)
+    n = data.n
+    weights = np.asarray(data.weights, dtype=float)
+    treatment_index = np.searchsorted(np.asarray(arms), np.asarray(data.treatment, dtype=float))
+    stored = np.asarray(nuisance.propensity.values, dtype=float)
+    rows = _fold_rows(nuisance.folds, n)
+    if len(rows) != len(fits):
+        return _refusal(
+            "mismatch",
+            f"the fit records {len(fits)} treatment models for {len(rows)} folds",
+        )
+    out: list[_FoldStack] = []
+    for fold, (fit, (train, test)) in enumerate(zip(fits, rows, strict=True)):
+        classes = None if fit.classes is None else tuple(float(c) for c in fit.classes)
+        if fit.kind == "constant" or classes != arms:
+            seen = set() if classes is None else set(classes)
+            missing = next((a for a in arms if a not in seen), arms[0])
+            return _refusal(
+                "missing_arm",
+                f"the training rows of fold {fold} hold no unit of arm {missing:g}, so the "
+                f"LogisticRegression of that fold is not the {k}-arm model",
+            )
+        design = _design(fit, data.covariates)
+        theta = _reference_form(fit, k)
+        stack = LogisticStack(
+            design=design,
+            theta=theta,
+            penalty=_penalty_matrix(fit, k, design.shape[1]),
+            probabilities=_softmax_reference(design, theta),
+        )
+        information = stack.information(train, weights)
+        design_rank = int(np.linalg.matrix_rank(design[train] * np.sqrt(weights[train])[:, None]))
+        expected = stack.dimension if _resolved_penalty(fit) == "l2" else (k - 1) * design_rank
+        inverse, condition, above = _pseudo_inverse(information, expected)
+        residual = stack.score(treatment_index, train, weights).sum(axis=0) - (
+            stack.penalty @ theta.reshape(-1)
+        )
+        step = inverse @ residual
+        scale = np.sqrt(np.clip(np.diag(inverse), 0.0, None))
+        visible = scale > 0.0
+        largest = float(np.max(np.abs(step[visible]) / scale[visible])) if visible.any() else 0.0
+        if not np.isfinite(largest) or largest > ROOT_TOLERANCE:
+            remedy = (
+                ", and the solver stopped at max_iter"
+                if fit.max_iter and fit.n_iter >= fit.max_iter
+                else ""
+            )
+            return _refusal(
+                "score_not_zero",
+                f"the score of the LogisticRegression of fold {fold} is not zero at its "
+                f"coefficients: the largest Newton step is {largest:.3g} standard errors"
+                f"{remedy}",
+                "Lower tol, raise max_iter, or use solver='newton-cholesky'.",
+            )
+        if above < expected or condition > CONDITION_LIMIT:
+            return _refusal(
+                "singular",
+                f"the information matrix of the mechanism in fold {fold} is singular "
+                f"(condition number {condition:.3g}): the fitted probabilities reach 0 or 1, "
+                "so the coefficients are not identified",
+                "Remove the covariates that separate the arms, or use a fixed C.",
+            )
+        recomputed = stack.probabilities[test]
+        if float(np.max(np.abs(recomputed - stored[test]))) > MISMATCH_TOLERANCE:
+            return _refusal(
+                "mismatch",
+                "the stored treatment mechanism does not equal the LogisticRegression's own "
+                "predictions",
+            )
+        vectors = np.linalg.eigh((information + information.T) / 2.0)[1]
+        null = vectors[:, : stack.dimension - expected]
+        out.append(_FoldStack(stack=stack, train=train, test=test, inverse=inverse, null=null))
+    return out
+
+
+def representer_g_derivative(
+    group: str,
+    arm: float,
+    versus: float | None,
+    arms: tuple[float, ...],
+    treatment: FloatArray,
+    bounded: FloatArray,
+    share: float | None,
+) -> tuple[FloatArray, FloatArray, FloatArray]:
+    r"""The representer and its first and second derivatives in the bounded mechanism.
+
+    Parameters
+    ----------
+    group : str
+        ``"mean"``, ``"att"`` or ``"atc"``.
+    arm : float
+        The parameter's arm.
+    versus : float or None
+        The arm it is contrasted with, or ``None`` for a mean.
+    arms : tuple of float
+        The arm codes, in column order.
+    treatment : ndarray
+        ``(n,)`` observed arm codes.
+    bounded : ndarray
+        ``(n, K)`` truncated mechanism.
+    share : float or None
+        The share of the conditioning arm, for ``"att"`` and ``"atc"``.
+
+    Returns
+    -------
+    tuple of ndarray
+        ``(n,)`` values of :math:`\alpha`, ``(n, K)`` values of
+        :math:`\partial\alpha/\partial g_c` and ``(n, K, K)`` values of
+        :math:`\partial^2\alpha/\partial g_c \partial g_d`
+        (:func:`~cleverly.sensitivity._second_order.representer_derivatives`).
+    """
+    g = np.asarray(bounded, dtype=float)
+    column = {level: j for j, level in enumerate(arms)}
+    index = np.array([column[float(a)] for a in np.asarray(treatment, dtype=float)])
+    onehot = np.eye(len(arms))[index]
+    return representer_derivatives(
+        group,
+        column[arm],
+        None if versus is None else column[versus],
+        onehot,
+        g,
+        share,
+    )
+
+
+def truncation_refusal(
+    clipped: BoolArray,
+    columns: tuple[int, ...],
+    bounds: tuple[float, float],
+    engine: PluginStack,
+) -> MechanismRefusal | None:
+    """The ``truncation_active`` refusal, or ``None``.
+
+    Parameters
+    ----------
+    clipped : ndarray
+        ``(n, K)`` cells the truncation moved.
+    columns : tuple of int
+        The mechanism columns the representer reads.
+    bounds : tuple of float
+        The truncation bounds.
+    engine : PluginStack
+        The stack, whose sandwich gives the standard error of each fitted logit.
+
+    Returns
+    -------
+    MechanismRefusal or None
+        The record, when a bound clips a read cell or lies within :data:`TRUNCATION_MARGIN`
+        standard errors of a fitted logit.
+    """
+    moved = int(np.sum(np.asarray(clipped)[:, list(columns)].any(axis=1)))
+    if moved:
+        return _truncation_record(
+            f"the truncation bounds {bounds} move the mechanism of {moved} rows"
+        )
+    if not engine.folds:
+        return None
+    lower, upper = (float(bounds[0]), float(bounds[1]))
+    edges = [np.log(b / (1.0 - b)) for b in (lower, upper) if 0.0 < b < 1.0]
+    if not edges:
+        return None
+    variance = engine.root_variance()
+    k = engine.k
+    checked = [1] if k == 2 else list(columns)
+    closest = np.inf
+    for f, fold in enumerate(engine.folds):
+        block = variance[engine.layout.theta(f), engine.layout.theta(f)].reshape(
+            k - 1, engine.d, k - 1, engine.d
+        )
+        g = _softmax_reference(fold.design, np.asarray(fold.theta))[fold.test]
+        x = fold.design[fold.test]
+        for c in checked:
+            coefficient = (np.eye(k)[c][None, 1:] - g[:, 1:]) / (1.0 - g[:, [c]])
+            gradient = coefficient[:, :, None] * x[:, None, :]
+            se = np.sqrt(
+                np.clip(np.einsum("imj,mjlo,ilo->i", gradient, block, gradient), 0.0, None)
+            )
+            logit = np.log(g[:, c] / (1.0 - g[:, c]))
+            for edge in edges:
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    distance = np.abs(logit - edge) / se
+                closest = min(closest, float(np.nanmin(distance)))
+    if closest <= TRUNCATION_MARGIN:
+        return _truncation_record(
+            f"a fitted logit lies {closest:.3g} standard errors from a truncation bound "
+            f"{bounds}, within {TRUNCATION_MARGIN}"
+        )
+    return None
+
+
+def _truncation_record(clause: str) -> MechanismRefusal:
+    return _refusal(
+        "truncation_active",
+        f"{clause}. Truncation puts a kink in alpha(g)^2, and the second-order correction of "
+        "nu^2, a smooth expansion, does not cover it",
+        "Pass g_bounds=(lower, upper) that the fitted mechanism does not approach, or fit the "
+        "bound with nu2_estimator='doubly_robust'.",
+    )
+
+
+def plugin_mechanism_term(
+    result: Any,
+    repeat: Any,
+    parameter: Any,
+    representer: FloatArray,
+    bounds: tuple[float, float],
+    share: float | None,
+) -> MechanismTerm | MechanismRefusal:
+    r"""The mechanism term :math:`\psi^\gamma` of the plug-in :math:`\nu^2` curve.
+
+    Parameters
+    ----------
+    result : TMLEResult
+        The fitted result whose bound is computed.
+    repeat : RepeatFit
+        The cross-fitting draw the bound reads.
+    parameter : ArmParameter
+        The bounded parameter.
+    representer : ndarray
+        ``(n,)`` Riesz representer the bound squares, as the package built it.
+    bounds : tuple of float
+        The truncation bounds of the parameter's group.
+    share : float or None
+        The share of the conditioning arm, for ATT and ATC.
+
+    Returns
+    -------
+    MechanismTerm or MechanismRefusal
+        The ``(n,)`` term with the second-order correction of ``nu^2``, or the reason the
+        fit does not qualify.
+    """
+    nuisance = repeat.nuisance
+    data = result.data
+    truncation = nuisance.propensity.truncate(bounds)
+    arms = tuple(float(a) for a in nuisance.arms)
+    if nuisance.treatment_mechanism == "known":
+        if bool(np.any(truncation.clipped)):
+            return _refusal(
+                "known_truncated",
+                "the truncation bounds move a declared known mechanism, so the representer "
+                "is not alpha(g_0)",
+                "Pass g_bounds=(lower, upper) that contains every known probability.",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        engine = _engine(result, parameter, arms, (), known=truncation.values)
+        return _corrected(np.zeros(data.n), engine)
+    fits: tuple[MechanismFit, ...] | None = nuisance.treatment_fits
+    if not fits:
+        return _refusal(
+            "unrecorded",
+            "the fit records no fitted treatment learner, so the mechanism score is not available",
+        )
+    if tuple(nuisance.treatment_covariates) != tuple(data.covariate_names):
+        return _refusal(
+            "treatment_design",
+            "the treatment model read the covariates "
+            f"{list(nuisance.treatment_covariates)}, and the stack rebuilds its design from "
+            f"{list(data.covariate_names)}",
+        )
+    refusal = _learner_refusal(fits[0])
+    if refusal is not None:
+        return refusal
+    folds = _stacks(fits, nuisance, data)
+    if isinstance(folds, MechanismRefusal):
+        return folds
+
+    alpha, d_alpha, _ = representer_g_derivative(
+        parameter.group,
+        parameter.arm,
+        parameter.versus,
+        arms,
+        np.asarray(data.treatment, dtype=float),
+        truncation.values,
+        share,
+    )
+    if not np.allclose(alpha, representer, rtol=1e-10, atol=1e-12):
+        raise RuntimeError(  # pragma: no cover - an internal consistency guard
+            f"the closed-form representer of {parameter.name!r} departs from the fitted one"
+        )
+    moved: BoolArray = np.asarray(truncation.clipped, dtype=bool)
+    b = np.where(moved, 0.0, d_alpha)
+    n = data.n
+    weights = np.asarray(data.weights, dtype=float)
+    treatment_index = np.searchsorted(np.asarray(arms), np.asarray(data.treatment, dtype=float))
+    term = np.zeros(n)
+    for fold in folds:
+        stack = fold.stack
+        g = stack.probabilities
+        # dalpha/dtheta_m = x * g_m (b_m - sum_c b_c g_c), with the reference column dropped.
+        inner = (b * g).sum(axis=1)
+        t = g[:, 1:] * (b[:, 1:] - inner[:, None])
+        test = fold.test
+        coefficient = (weights[test] * 2.0 * alpha[test])[:, None] * t[test]
+        gradient = (coefficient[:, :, None] * stack.design[test][:, None, :]).sum(axis=0) / n
+        direction = fold.inverse @ gradient.reshape(-1)
+        rows = stack.score(treatment_index, fold.train, weights)
+        term[fold.train] += n * rows @ direction
+        fold_shift = float(direction @ (stack.penalty @ stack.theta.reshape(-1)))
+        term -= weights * fold_shift
+    engine = _engine(result, parameter, arms, folds)
+    columns = tuple(
+        arms.index(level) for level in (parameter.arm, parameter.versus) if level is not None
+    )
+    refusal = truncation_refusal(truncation.clipped, columns, bounds, engine)
+    if refusal is not None:
+        return MechanismTerm(term, refusal=refusal)
+    return _corrected(term, engine)
+
+
+def _engine(
+    result: Any,
+    parameter: Any,
+    arms: tuple[float, ...],
+    folds: Any,
+    *,
+    known: FloatArray | None = None,
+) -> PluginStack:
+    """The stacked equation of one parameter's plug-in ``nu^2``."""
+    data = result.data
+    n = data.n
+    column = {level: j for j, level in enumerate(arms)}
+
+    def mask(rows: Any) -> BoolArray:
+        out = np.zeros(n, dtype=bool)
+        out[np.asarray(rows)] = True
+        return out
+
+    conditioning = parameter.conditions_on
+    return PluginStack(
+        [
+            StackFold(
+                design=fold.stack.design,
+                theta=fold.stack.theta,
+                penalty=fold.stack.penalty,
+                train=mask(fold.train),
+                test=mask(fold.test),
+                null=fold.null,
+            )
+            for fold in folds
+        ],
+        np.searchsorted(np.asarray(arms), np.asarray(data.treatment, dtype=float)),
+        len(arms),
+        np.asarray(data.weights, dtype=float),
+        parameter.group,
+        column[parameter.arm],
+        None if parameter.versus is None else column[parameter.versus],
+        None if conditioning is None else column[conditioning],
+        known=known,
+        cluster=data.cluster,
+    )
+
+
+def _corrected(term: FloatArray, engine: PluginStack) -> MechanismTerm:
+    return MechanismTerm(term, correction=engine.bias().point)

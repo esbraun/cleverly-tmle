@@ -13,6 +13,11 @@ scenario                subject and pairing
 ``ipsi_folds_5``        five folds; the same
 ======================  =====================================================================
 
+The plan's unpaired one-fold row is not a primary scenario here.  ``npcausal`` 0.1.0 cannot
+fit one fold: with ``nsplits = 1`` its training rows are ``slong != 1``, which is empty.  A
+primary scenario is paired, so the one-fold fit is the gated calibration cell
+``contrast_x2_in_sample`` of the properties module instead.
+
 **Exact pairing** (``X19-plan.md`` 3.4, 6.1 and 6.8).  Both sides fit saturated cell means:
 :class:`~tests.discrete_law_longitudinal.CellMeans` here, ``SL.cellmeans`` in
 ``tests/canonical/npcausal_ipsi_adapter.R``.  ``npcausal`` fits one treatment model over every
@@ -26,14 +31,16 @@ influence value, and the standard error.  Both sides report the influence-curve 
 deviation over :math:`\sqrt n`, so no factor separates the two errors (``X19-plan.md`` 6.8
 assumed one).  The paired rows then read the default ``Margins()``.
 
-**Size.**  :data:`PRIMARY_N` is 24,000, not the plan's 2,000.  Two limits set it.  First, at
-two folds the fallback-read bound of :mod:`tests.studies.longitudinal_incremental_common` is
-0.158 standard errors at 5,000 and 0.064 at 6,000 (``X19-plan.md`` 6.2 raises a cell's size
-until the bound holds).  Second, the cross-fitted contrasts carry a second-order bias of order
-1/n.  Probes of 400 draws at five folds measured a standardized bias of 0.48 on law ``A`` at
-2,000 and 0.28 at 6,000, and 0.44, 0.22 and 0.05 on law ``C`` at 2,000, 8,000 and 32,000
-(Monte Carlo SE 0.05).  The primary rows gate the standardized bias at 0.25, and the 1/n rate
-puts law ``A`` near 0.14 at 24,000.
+**Size** (a deviation from ``X19-plan.md`` 3.5, declared before any run).  The cross-fitted
+contrasts carry a second-order bias of order 1/n, so their standardized bias falls as
+:math:`1/\sqrt n`.  The bias rule passes a row only when the 99% interval of its mean error
+lies inside 0.25 empirical standard deviations, which at 1,000 replications needs a
+standardized bias below about 0.17.  The sizing probe (``tests/diagnostics/x19_sizing/``)
+measured 0.27 at n = 8,000 on the five-fold contrasts and 0.35 on the two-fold ones.
+:data:`PRIMARY_N` gives every row of both scenarios a pass probability of at least 0.95 at
+the projected bias, with one Monte Carlo SE added
+(``tests/unit/test_longitudinal_incremental_design.py``).  The two-fold rows set it: they
+need about 90,000.  The fallback-read bound holds far below this size.
 
 **Properties.** :mod:`tests.studies.longitudinal_incremental_properties` declares every family.
 
@@ -63,7 +70,9 @@ from tests.studies.evidence.schema import REPLICATE_COLUMNS
 from tests.studies.evidence.seeds import draw_replicate, replicate_seed
 
 PRIMARY_REPLICATES = 1_000
-PRIMARY_N = 24_000
+#: The declared share of replicates one cell may lose to recordable fitting failures.
+FAILURE_BOUND = 0.01
+PRIMARY_N = 96_000
 SEED = 20261241
 RESAMPLING_SEED = 2026124101
 #: The pre-declaration gate on every paired quantity (G1 and G2).
@@ -92,7 +101,7 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
         )
         for cell in ("correctly_specified", "shrunken_se_control", "noise_control")
     ),
-    "root_n_and_efficiency": tuple(f"contrast_x2__n_{size}" for size in (6_000, 24_000, 48_000)),
+    "root_n_and_efficiency": tuple(f"contrast_x2__n_{size}" for size in (24_000, 64_000, 96_000)),
     "root_n_rate": ("contrast_x2__empirical_sd", "contrast_x2__reported_se"),
     "type_i_error": ("contrast_x2__sharp_null",),
     "power": ("contrast_x1_5__alternative",),
@@ -102,8 +111,8 @@ PROPERTY_CELLS: dict[str, tuple[str, ...]] = {
     ),
     "mechanism_term_necessity": ("contrast_x2__full_eif", "contrast_x2__mechanism_term_dropped"),
     "single_robustness": (
-        "contrast_x2__mechanism_correct__n_6000",
-        "contrast_x2__mechanism_correct__n_24000",
+        "contrast_x2__mechanism_correct__n_48000",
+        "contrast_x2__mechanism_correct__n_96000",
         "contrast_x2__mechanism_constant",
     ),
     "targeting_necessity": ("contrast_x2__one_step", "contrast_x2__plug_in"),
@@ -122,8 +131,12 @@ STUDY = StudyRecord(
     resampling_seed=RESAMPLING_SEED,
     margins=Margins(),
     implementation="cleverly-ipsi",
-    reference="npcausal",
-    failure_bound={"cleverly-ipsi": 0.01, "npcausal": 0.01},
+    pending_reference="npcausal",
+    pending_reason=(
+        "the npcausal R phase runs on the local study queue (TRACKER item 9a) and registers "
+        "in a later change; the owner's rule merges the method on its Python evidence"
+    ),
+    failure_bound={"cleverly-ipsi": FAILURE_BOUND, "npcausal": FAILURE_BOUND},
     comparison="matching implementation",
     efficiency_bounds=EFFICIENCY_SD,
     modules=(
@@ -133,6 +146,14 @@ STUDY = StudyRecord(
         "tests/studies/canonical_incremental_interventions.py",
         "tests/discrete_law_longitudinal_incremental.py",
         "tests/discrete_law_longitudinal.py",
+        "tests/discrete_law_competing.py",
+        "tests/discrete_law_longitudinal_ipsi.py",
+        "tests/discrete_law_survival.py",
+        "tests/conftest.py",
+        "tests/discrete_law.py",
+        "tests/incrementals.py",
+        "tests/studies/intervention_study_helpers.py",
+        "tests/studies/point_study_helpers.py",
         "tests/longitudinal_ipsi.py",
         "tests/studies/evidence/comparison.py",
         "tests/studies/evidence/inference.py",
@@ -228,11 +249,14 @@ def result_rows(
 
 def paired_sample(frame: pd.DataFrame, result: Any, scenario: str, replicate: int) -> pd.DataFrame:
     """The replicate as the comparator reads it: the wide nodes, the row and its fold."""
-    sample = frame.loc[:, list(SAMPLE_COLUMNS)].copy()
-    sample.insert(0, "row", np.arange(len(sample)))
-    sample.insert(0, "fold", np.asarray(result.folds.assignment, dtype=int))
-    sample.insert(0, "replicate", replicate)
-    sample.insert(0, "scenario", scenario)
+    # The driver holds every replicate's sample until it writes the archive: 2,000 samples of
+    # 96,000 rows.  Compact types keep that near 5 GB, and the concatenation peak near 9 GB.
+    # Every column but ``Y`` is a binary node, and the CSV text R reads is the same number either way.
+    sample = frame.loc[:, list(SAMPLE_COLUMNS)].astype(dict.fromkeys(SAMPLE_COLUMNS[:-1], np.int8))
+    sample.insert(0, "row", np.arange(len(sample), dtype=np.int32))
+    sample.insert(0, "fold", np.asarray(result.folds.assignment, dtype=np.int8))
+    sample.insert(0, "replicate", np.full(len(sample), replicate, dtype=np.int32))
+    sample.insert(0, "scenario", pd.Categorical([scenario] * len(sample), categories=list(FOLDS)))
     return sample
 
 

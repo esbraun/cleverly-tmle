@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
+import io
 import json
 import math
 import re
@@ -205,13 +206,45 @@ def _accounting(study: StudyRecord) -> pd.DataFrame:
     return pd.read_csv(path, keep_default_na=False, na_values=[""])
 
 
-@functools.cache
+_STUDY_CACHES: list[Any] = []
+_CACHED_STUDY: dict[str, str] = {}
+
+
+def _one_study_at_a_time(function: Any) -> Any:
+    """Cache ``function`` per study, and hold the frames of one study at a time.
+
+    ``conftest.py`` keeps a study's tests together on one xdist worker, so the worker meets
+    each study in one run of tests. A plain ``functools.cache`` kept every study's frames until
+    the worker exited, and a worker grew past 4 GB (more than a 16 GB container holds for 3
+    workers). The first call for a new study clears every cache that this decorator wraps.
+    """
+    cached = functools.cache(function)
+    _STUDY_CACHES.append(cached)
+
+    @functools.wraps(function)
+    def wrapper(slug: str) -> Any:
+        if _CACHED_STUDY.get("slug") != slug:
+            for each in _STUDY_CACHES:
+                each.cache_clear()
+            _CACHED_STUDY["slug"] = slug
+        return cached(slug)
+
+    return wrapper
+
+
+@_one_study_at_a_time
+def _artifacts(slug: str) -> dict[str, pd.DataFrame]:
+    """Every committed artifact of a study (:func:`claims.load`), read once per study."""
+    return load(STUDY_BY_SLUG[slug])
+
+
+@_one_study_at_a_time
 def _replication_rows(slug: str) -> pd.DataFrame:
     """Load immutable primary rows once per study and worker."""
     return pd.read_csv(STUDY_BY_SLUG[slug].artifact("replicates.csv.gz"))
 
 
-@functools.cache
+@_one_study_at_a_time
 def _property_rows(slug: str) -> pd.DataFrame:
     """Load immutable property rows once per study and worker."""
     return pd.read_csv(STUDY_BY_SLUG[slug].artifact("property-replicates.csv.gz"))
@@ -230,14 +263,26 @@ def _property_accounting(study: StudyRecord) -> pd.DataFrame:
     return pd.read_csv(path, keep_default_na=False, na_values=[""])
 
 
-@functools.cache
+def _worst_case_only(study: StudyRecord) -> set[tuple[str, str]]:
+    """The ``(property, cell)`` pairs whose accounting reads ``worst case fails``.
+
+    Such a cell passes on the complete case and fails only because the filled values of its
+    lost replicates can move a clause out of its band.  The published ``passed`` of the cell is
+    False, and the complete-case summary of the module reads True.
+    """
+    accounting = _property_accounting(study)
+    reasons = accounting.loc[accounting["reason"] == failures.WORST_CASE_FAILS]
+    return set(zip(reasons["property"], reasons["cell"], strict=True))
+
+
+@_one_study_at_a_time
 def _complete_case_summary(slug: str) -> pd.DataFrame:
     """The study's own property verdicts on the committed rows, before any accounting."""
     study = STUDY_BY_SLUG[slug]
     return study.properties().summarize_properties(_property_rows(slug))
 
 
-@functools.cache
+@_one_study_at_a_time
 def _property_summary(slug: str) -> pd.DataFrame:
     """Recompute an immutable property summary once per study and worker.
 
@@ -478,14 +523,14 @@ class TestArtifacts:
     @pytest.mark.parametrize("name", ["summary", "equivalence", "performance", "properties"])
     def test_reader_facing_tables_are_not_empty(self, study: StudyRecord, name: str) -> None:
         if name == "equivalence" and study.reference is None:
-            assert load(study)[name].empty
+            assert _artifacts(study.slug)[name].empty
             return
         # A study that declares no property cell is a reporting study, not a validation row
         # (``method-benchmarking.md``, "Adding a method row"), and its properties table is empty.
         if name == "properties" and not study.property_cells:
-            assert load(study)[name].empty
+            assert _artifacts(study.slug)[name].empty
             return
-        assert not load(study)[name].empty
+        assert not _artifacts(study.slug)[name].empty
 
 
 class TestPublishedVerdicts:
@@ -878,19 +923,30 @@ class TestPublishedVerdicts:
                 f"{row.cell} publishes passed={row.passed} against its own SE-ratio endpoint"
             )
 
+        targeting = published.loc[published["property"] == "mechanism_targeting"]
+        for row in targeting.itertuples():
+            if row.role == "control":
+                expected = bool(_with_alternative(row, row.bias_discriminated)) and (
+                    row.bias_ci_lower > 0.0
+                )
+            else:
+                low, high = study.properties().EFFICIENCY_RATIO_BAND
+                expected = bool(row.bias_equivalent) and (
+                    low <= row.se_ratio_ci_lower <= row.se_ratio_ci_upper <= high
+                )
+            assert bool(row.passed) is bool(expected), (
+                f"{row.cell} publishes passed={row.passed} against its own targeting endpoints"
+            )
+
         single = published.loc[published["property"] == "single_robustness"]
         positive = single.loc[single["role"] == "positive"]
         if not positive.empty:
-            # A study with no rows of the family may publish no ``n`` column at all (the
-            # learned-rule boundary study publishes no property rows), but the two-size rule
-            # reads ``n``, so a study that does publish the family has to carry it.
-            assert "n" in positive, f"{study.slug}: single_robustness rows carry no n column"
-            positive = positive.sort_values("n")
-            small, large = positive["absolute_bias_bound"].iloc[[0, -1]]
-            tolerance = study.properties().ABSOLUTE_BIAS_TOLERANCE
-            expected = bool(large < tolerance and large < small)
-            assert [bool(value) for value in positive["passed"]] == [expected] * len(positive), (
-                f"{study.slug}: a single_robustness row's verdict is not the two-size rule"
+            own = [bool(value) for value in positive["bias_equivalent"]]
+            assert [bool(value) for value in positive["passed"]] == own, (
+                f"{study.slug}: a single_robustness row's verdict is not its own bias rule"
+            )
+            assert set(single["property_passed"].map(bool)) == {all(own)}, (
+                f"{study.slug}: the single_robustness family verdict is not the joint rule"
             )
 
         # Unconditional over every study with calibration cells.  Guarding this block on the
@@ -909,6 +965,11 @@ class TestPublishedVerdicts:
                 if (noise_declared and study.calibration_efficiency_ratio)
                 else None
             )
+            # A row can be red only through the worst case of the failure accounting: its own
+            # endpoints are in band, and the replicates the package refused could move the
+            # ratio out of it.  ``passed`` then reads False beside endpoints that pass, and
+            # the accounting row names ``worst case fails`` as the reason.
+            worst_case = _worst_case_only(study)
             for row in calibration.itertuples():
                 # The trailing suffix, not ``split("__", 1)[1]``.  ``canonical-tmle`` names its
                 # cell ``correctly_specified`` and ``shift-policies`` names its control
@@ -916,7 +977,13 @@ class TestPublishedVerdicts:
                 # studies use two-part prefixes such as ``dynamic__correctly_specified``.
                 # ``rsplit`` reads all three.
                 suffix = row.cell.rsplit("__", 1)[-1]
-                if suffix == "shrunken_se_control":
+                # ``mtp-tuning`` declares two more below-band controls: the curve without the
+                # tuning term, and the fold-average rows scored on the population target.
+                if suffix in (
+                    "shrunken_se_control",
+                    "term_dropped_control",
+                    "population_truth_control",
+                ):
                     expected = row.se_ratio_ci_upper < study.margins.calibration_se_ratio[0]
                 elif suffix == "inflated_se_control":
                     expected = row.se_ratio_ci_lower > study.margins.calibration_se_ratio[1]
@@ -952,6 +1019,8 @@ class TestPublishedVerdicts:
                             <= row.efficiency_reported_ci_upper
                             <= band[1]
                         )
+                if ("interval_calibration", row.cell) in worst_case:
+                    expected = False
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its calibration endpoint"
                 )
@@ -1026,15 +1095,26 @@ class TestPublishedVerdicts:
         correction = published.loc[published["property"] == "correction_necessity"]
         if not correction.empty:
             properties = study.properties()
-            initial = correction.loc[
+            initial_rows = correction.loc[
                 correction["cell"].str.endswith("__initial_score_control")
-            ].iloc[0]
+            ]
             for row in correction.itertuples():
-                expected = (
-                    row.bias_ci_upper <= properties.CORRECTION_SCORE_RATIO * initial.bias_ci_lower
-                    if row.cell.endswith("__closed_score")
-                    else row.bias_ci_lower >= properties.UNCORRECTED_SCORE_FLOOR
-                )
+                if initial_rows.empty:
+                    # A study with no initial-score arm states the bias claim in both
+                    # directions: a positive row inside the margin, a control outside it.
+                    expected = (
+                        _with_alternative(row, row.bias_discriminated)
+                        if row.role == "control"
+                        else row.bias_equivalent
+                    )
+                else:
+                    initial = initial_rows.iloc[0]
+                    expected = (
+                        row.bias_ci_upper
+                        <= properties.CORRECTION_SCORE_RATIO * initial.bias_ci_lower
+                        if row.cell.endswith("__closed_score")
+                        else row.bias_ci_lower >= properties.UNCORRECTED_SCORE_FLOOR
+                    )
                 assert bool(row.passed) is bool(expected), (
                     f"{row.cell} publishes passed={row.passed} against its correction-score endpoint"
                 )
@@ -1308,6 +1388,15 @@ BIAS_GATED_PROPERTIES = frozenset(
         "weight_necessity",
         "policy_necessity",
         "inverse_necessity",
+        "preimage_necessity",
+        "image_necessity",
+        "jacobian_necessity",
+        "branch_necessity",
+        "atom_necessity",
+        "classifier_split",
+        # X45's paired NICE and ICE fits: the parametric fit's bias inside the margin, the
+        # ICE control's outside it.
+        "ice_necessity",
         "projection_necessity",
         "randomizer_projection",
         "ratio_necessity",
@@ -1317,6 +1406,10 @@ BIAS_GATED_PROPERTIES = frozenset(
         "repeated_outcome_necessity",
         "outcome_history_necessity",
         "full_history_necessity",
+        # X44's negative controls: a blip feature left out moves the regimen estimates off the
+        # g-formula truth.  A control passes when its bias interval lies beyond the margin on
+        # the side of the computed gap, which is the discrimination endpoint read on one side.
+        "blip_feature_control",
     }
 )
 
@@ -1325,6 +1418,15 @@ BIAS_GATED_PROPERTIES = frozenset(
 #: classified here before its verdicts count.
 ENDPOINT_GATED_PROPERTIES = frozenset(
     {
+        # X45's positive cells answer to the calibration rule at one simulated history per
+        # unit; its removed-share rows carry the diagnostic role.
+        "monte_carlo_accounting",
+        # X46's law-I rows answer to the three primary rules (bias, coverage floor and SE-ratio
+        # band), and its repeat increment to a ceiling on the paired increment, with a control
+        # above the ceiling.  The horizon-1 and horizon-2 increment rows carry the diagnostic
+        # role and state no verdict.
+        "ipsi_primary",
+        "repeat_increment",
         "clustered_inference",
         "crossfit_overfitting",
         "corrected_mar_inference",
@@ -1383,6 +1485,10 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # Absolute bias at two sizes (the ``X4-plan.md`` 6.8 rule), beside a diagnostic cell.
         # Checked row by row below.
         "single_robustness",
+        # X43's softmax update: a positive cell answers to bias equivalence and the efficiency
+        # band of its SE ratio, the outcome-only control to a bias interval wholly above zero
+        # and beyond the margin.  Checked row by row below.
+        "mechanism_targeting",
         # Four rules keyed by the cell's last segment: a conservative SE ratio, accuracy, a
         # one-sided bias control and a growth control.  Checked row by row below.
         property_verdicts.ONE_WRONG_FAMILY,
@@ -1393,6 +1499,9 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # outside the calibration band on a predicted side; the other cells report.
         "first_node_se",
         "fixed_mechanism_se",
+        # The SE of a clustered fit made without its cluster column, which must leave the band
+        # from below.
+        "unclustered_se",
     }
 )
 
@@ -1410,14 +1519,29 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # The repeated outcome's in-sample arms at n = 2,000: few units follow the rule to
         # the last node, so the pilot SE ratio sits below the band (X32 pilot).
         "small_sample_calibration",
+        # The repeated IPSI outcome's cross-fitted booster arm: reported, never gated (X32b).
+        "booster_calibration",
         "in_sample_agreement",
         "sdr_tmle_agreement",
         "variance_direction",
         "censoring_complete_case",
+        # X43's one-fold fit of the dropout law, reported with its exact truth and no verdict.
         "in_sample_fit",
         "one_wrong_reported",
+        # The isotonic cell's binding share: the projection moved a level or it did not.
+        "isotonic_projection",
         # The sequential baselines' plug-in under adaptive learners, reported with no verdict.
         "adaptive_learners",
+        # X44's weak-positivity fit of the structural estimator, reported with no verdict.
+        "positivity_reporting",
+        # X45's parametric g-formula beside ICE, LTMLE or IPSI on the same draws, and its
+        # extrapolation share, each reported with no verdict.
+        "ice_reported",
+        "shared_target",
+        "extrapolation_report",
+        # X46's first-draw reading and its displacement share, reported with no verdict.
+        "single_draw_reading",
+        "split_displacement",
     }
 )
 
@@ -1511,8 +1635,14 @@ class TestNegativeControls:
         rows = _property_rows(study.slug)
         published = _property_summary(study.slug).set_index(["property", "cell"])
         calibration = published.loc[published.index.get_level_values(0) == family]
+        # A positive published red because it reads conservative is left out, as the
+        # learned-density arms of ``mtp-pricing`` are (SE ratio 1.05 to 1.11): a 10% cut moves
+        # it into the band, which shows nothing about the gate.  A red positive that already
+        # understates its error stays in, and the cut keeps it red.
+        positive = calibration["role"] == "positive"
+        conservative_red = ~calibration["passed"].astype(bool) & (calibration["se_ratio"] > 1.0)
         positive_cells = set(
-            calibration.loc[calibration["role"] == "positive"].index.get_level_values(1)
+            calibration.loc[positive & ~conservative_red].index.get_level_values(1)
         )
         mutated = rows.copy()
         mask = (mutated["property"] == family) & mutated["cell"].isin(positive_cells)
@@ -1522,6 +1652,13 @@ class TestNegativeControls:
         changed = [(family, cell) for cell in positive_cells]
         assert not summary.loc[changed, "passed"].any()
         untouched = summary.index.drop(changed)
+        # A cell that is red only through the worst case of the failure accounting reads True in
+        # the module's summary, which has no accounting, and False in the published table.  The
+        # summary must still read True there, so that the mutation moved nothing.
+        worst_case = [key for key in untouched if key in _worst_case_only(study)]
+        assert summary.loc[worst_case, "passed"].all()
+        assert not published.loc[worst_case, "passed"].any()
+        untouched = untouched.drop(worst_case)
         assert summary.loc[untouched, "passed"].equals(published.loc[untouched, "passed"]), (
             "corrupting the calibration cell moved a verdict somewhere else"
         )
@@ -1688,11 +1825,31 @@ def _truth_findings(study: StudyRecord, rows: pd.DataFrame) -> list[str]:
     if published != set(declared):
         return [f"{sorted(published ^ set(declared))} appear in one of the row file and the cells"]
     findings: list[str] = []
+    varying = frozenset(getattr(study.properties(), "REPLICATE_TRUTH_CELLS", ()))
     for key, cell in declared.items():
+        selected = rows.loc[(rows["property"] == key[0]) & (rows["cell"] == key[1])]
+        if key[1] in varying:
+            # The truth is a per-replication quantity: recompute it for the first, middle
+            # and last replication from the study's own hook, and compare row by row.
+            ids = sorted(selected["replicate"].unique())
+            for replicate in (ids[0], ids[len(ids) // 2], ids[-1]):
+                recomputed = float(study.properties().replicate_truth(key[1], int(replicate)))
+                published = selected.loc[selected["replicate"] == replicate, "truth"].to_numpy(
+                    dtype=float
+                )
+                if not np.allclose(
+                    published,
+                    recomputed,
+                    rtol=TRUTH_BINDING_TOLERANCE,
+                    atol=TRUTH_ABSOLUTE_FLOOR,
+                ):
+                    findings.append(
+                        f"{key[0]}/{key[1]} replicate {replicate} publishes truth "
+                        f"{published[0]!r}, and its sample's own truth is {recomputed!r}"
+                    )
+            continue
         expected = float(cell.dgp.truth()[cell.estimand])
-        observed = rows.loc[
-            (rows["property"] == key[0]) & (rows["cell"] == key[1]), "truth"
-        ].to_numpy(dtype=float)
+        observed = selected["truth"].to_numpy(dtype=float)
         if not np.allclose(
             observed, expected, rtol=TRUTH_BINDING_TOLERANCE, atol=TRUTH_ABSOLUTE_FLOOR
         ):
@@ -1815,12 +1972,19 @@ class TestTheStudyStillMeasuresTheCode:
                     )
 
     def test_property_families_do_not_reuse_a_law_and_seed(self, study: StudyRecord) -> None:
-        """Different claims need independent sample streams within one property study."""
+        """Different claims need independent sample streams within one property study.
+
+        A family in ``DIAGNOSTIC_PROPERTIES`` publishes a reading and no verdict, so it may read
+        the fits of another family and does not count as a claim on the stream.  Every other
+        family still needs a stream of its own.
+        """
         declared_cells = getattr(study.properties(), "declared_cells", None)
         if declared_cells is None:
             return
         by_stream: dict[tuple[str, int], set[str]] = {}
         for cell in declared_cells():
+            if cell.property in DIAGNOSTIC_PROPERTIES:
+                continue
             by_stream.setdefault((cell.dgp.name, cell.seed), set()).add(cell.property)
         collisions = {
             stream: sorted(properties)
@@ -2093,7 +2257,7 @@ class TestTheMethodEvidenceGrid:
             assert "descriptive" in cell, f"{column!r} must say the comparison is descriptive"
             return
         assert len(found) == 1, f"{column!r} should carry exactly one count, found {found}"
-        data = load(study)
+        data = _artifacts(study.slug)
         passed, total = (int(part) for part in found[0])
         assert total == int(value(study, total_name, data)), (
             f"{column!r} claims {total} tests; {total_name} is "
@@ -2172,7 +2336,7 @@ class TestTheMethodEvidenceGrid:
         if not study.property_cells:
             assert not _mentions_efficiency(_grid()[study.name]["theory properties"])
             return
-        properties = load(study)["properties"]
+        properties = _artifacts(study.slug)["properties"]
         columns = [name for name in properties if name.startswith("efficiency_")]
         has_bound = bool(columns) and bool(properties[columns].notna().any().any())
         claim = _mentions_efficiency(_grid()[study.name]["theory properties"])
@@ -2231,7 +2395,7 @@ class TestTheMethodEvidenceGrid:
     def test_the_headline_results_are_the_committed_ones(self, study: StudyRecord) -> None:
         """The one grid column carrying measured numbers rather than verdicts."""
         cell = _grid()[study.name]["study design and headline results"]
-        data = load(study)
+        data = _artifacts(study.slug)
         missing = [
             f"{label} {render(value(study, quantity, data))}"
             for label, quantity in HEADLINE.items()
@@ -2272,7 +2436,7 @@ class TestTheQuotedMeasurements:
         Precision is the generator's decision alone now, and a study whose claim needs a
         longer one declares it in ``quoted_decimals`` rather than typing it into the table.
         """
-        data = load(study)
+        data = _artifacts(study.slug)
         wrong = []
         quoted = set()
         for row in pipe_table(study.document_path, MEASURED_COLUMNS, section=study.anchor):
@@ -2435,7 +2599,7 @@ class TestThePublishedTestTables:
         if name == "properties" and not study.property_cells:
             pytest.skip("study declares no property cell")
         published = _published_block(study, name)
-        rendered = GENERATED[name](study, load(study))
+        rendered = GENERATED[name](study, _artifacts(study.slug))
         assert published == rendered, (
             f"{study.slug}'s {name} table is not what its artefacts render. Run "
             f"`python -m tests.studies.evidence.document` rather than editing it by hand"
@@ -2446,7 +2610,7 @@ class TestThePublishedTestTables:
     ) -> None:
         if not study.property_cells:
             pytest.skip("study declares no property cell")
-        properties = load(study)["properties"]
+        properties = _artifacts(study.slug)["properties"]
         columns = [name for name in properties if name.startswith("efficiency_")]
         has_bound = bool(columns) and bool(properties[columns].notna().any().any())
         rows = pipe_table(study.document_path, PROPERTY_COLUMNS, section=study.anchor)
@@ -2541,7 +2705,7 @@ class TestThePublishedTestTables:
         if name == "properties" and not study.property_cells:
             pytest.skip("study declares no property cell")
         rows = pipe_table(study.document_path, columns, section=study.anchor)
-        frame = load(study)[artifact]
+        frame = _artifacts(study.slug)[artifact]
         assert len(rows) == len(frame), (
             f"{study.slug}'s {name} table publishes {len(rows)} rows against {len(frame)} "
             f"committed tests"
@@ -2559,7 +2723,7 @@ class TestThePublishedTestTables:
 
     def test_every_key_a_result_file_uses_has_a_description(self, study: StudyRecord) -> None:
         """The one hand-written column, required to cover every key that can reach a table."""
-        data = load(study)
+        data = _artifacts(study.slug)
         undescribed: list[str] = []
         for frame, resolvers in (
             (
@@ -2597,6 +2761,7 @@ class TestThePublishedTestTables:
                     cell,
                     role=role,
                     nuisance_count=study.nuisance_count,
+                    slug=study.slug,
                 )
             except descriptions.Undescribed as absent:
                 undescribed.append(str(absent))
@@ -2669,6 +2834,7 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:missingness_displacement": lambda s: s.properties().MISSINGNESS_DISPLACEMENT,
     "margin:correction_score_ratio": lambda s: s.properties().CORRECTION_SCORE_RATIO,
     "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
+    "margin:correction_displacement": lambda s: s.properties().CORRECTION_DISPLACEMENT,
     "margin:necessity_displacement": lambda s: s.properties().NECESSITY_DISPLACEMENT,
     "margin:weight_displacement": lambda s: s.properties().WEIGHT_DISPLACEMENT,
     "margin:learner_weight_displacement": lambda s: s.properties().LEARNER_WEIGHT_DISPLACEMENT,
@@ -2678,8 +2844,11 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:projection_displacement": lambda s: s.properties().PROJECTION_DISPLACEMENT,
     "margin:policy_displacement": lambda s: s.properties().POLICY_DISPLACEMENT,
     "margin:inverse_displacement": lambda s: s.properties().INVERSE_DISPLACEMENT,
+    "margin:preimage_displacement": lambda s: s.properties().PREIMAGE_DISPLACEMENT,
     "margin:recursion_displacement": lambda s: s.properties().RECURSION_DISPLACEMENT,
-    "margin:subject_failure_bound": lambda s: s.runner().FAILURE_BOUND,
+    # The record's declaration, not a runner constant: a study may declare the bound inline in
+    # ``failure_bound`` without naming it in its runner module.
+    "margin:subject_failure_bound": lambda s: float(s.failure_bound[s.implementation]),
     "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
 }
 
@@ -2961,7 +3130,7 @@ class TestTheQuantityVocabulary:
             assert declared[f"bound:{estimand}_standard_error"] == deviation / math.sqrt(study.n)
         # And every one of them resolves through the same entry point a document quotes.
         for name, expected in declared.items():
-            assert value(study, name) == expected
+            assert value(study, name, _artifacts(study.slug)) == expected
 
     def test_every_declared_threshold_is_published_in_the_study_s_own_table(
         self, study: StudyRecord
@@ -3054,6 +3223,11 @@ class TestPropertyFailures:
                 study.artifact(property_failures.PROPERTY_WITNESSES)
             ),
         )
+        # The artifact is a CSV, so the recomputed frame is compared as the driver writes it
+        # and as ``_property_accounting`` reads it back: an empty ``imputation`` reads as NaN.
+        recomputed = pd.read_csv(
+            io.StringIO(recomputed.to_csv(index=False)), keep_default_na=False, na_values=[""]
+        )
         pd.testing.assert_frame_equal(
             committed, recomputed, check_dtype=False, check_exact=False, rtol=1e-12
         )
@@ -3145,8 +3319,9 @@ NOT_ACCOUNTABLE_CLAUSES = frozenset(
 
 #: The property modules with no committed rows, which declare their cells but publish none.
 UNCOMMITTED_MODULES = (
-    "tests.studies.longitudinal_incremental_properties",
-    "tests.studies.longitudinal_incremental_dropout_properties",
+    "tests.studies.long_horizon_ltmle_properties",
+    "tests.studies.long_horizon_categorical_ltmle_properties",
+    "tests.studies.long_horizon_sdr_properties",
 )
 
 
@@ -3300,6 +3475,14 @@ class TestPropertyDifferential:
             assert path in job, path
         assert "timeout-minutes:" in job
         assert '="$(git diff' in job and "|| git diff" not in job
+
+    def test_the_ci_job_runs_these_checks_on_one_interpreter(self) -> None:
+        """The ``tests`` matrix may skip this file on 3.11 and 3.13, never on all three."""
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        job = workflow.split("\n  tests:", 1)[1].split("\n  # ", 1)[0]
+        assert "matrix.python-version != '3.12'" in job
+        assert "--ignore=tests/unit/test_method_evidence.py" in job
+        assert '"3.12"' in job.split("python-version:", 1)[1].split("\n", 1)[0]
 
     def test_each_binding_witness_names_what_exists(self) -> None:
         job = self._job()

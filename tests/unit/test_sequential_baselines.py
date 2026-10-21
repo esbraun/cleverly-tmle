@@ -253,7 +253,7 @@ def test_w3_the_policy_path_on_a_point_mass_is_the_regimen(
     monkeypatch.setattr(
         estimator_module,
         "resolve_plans",
-        lambda regimens, data: original(regimens, data, _collapse_point_masses=False),
+        lambda regimens, data, **kw: original(regimens, data, _collapse_point_masses=False, **kw),
     )
     point = DynamicRegimen("plan", (_one_hot(high), _one_hot(high)))
     stochastic = _fit(variant, {"plan": point}, multivalue.frame(), END_OF_STUDY)
@@ -989,7 +989,7 @@ def test_the_replay_restamps_the_adaptive_status() -> None:
             {"always": 1}, treatment_learner=LogisticRegression(), simultaneous=False
         ).fit(frame, **columns)
         curve = longitudinal_truncation_curve(result, [0.01])
-        replay = _refit_bound(result, result.replay_recipe, result.config.g_bounds)
+        replay = _refit_bound(result, result.repeats[0], result.config.g_bounds)
     assert result.replay_recipe.parametric is False
     assert curve["delta_from_fitted"].iloc[0] == 0.0
     name = "ey_regimen[always]"

@@ -29,7 +29,7 @@ from ._assessment_cache import (
     _unpack_cached,
 )
 from ._declarations import declarations_pass
-from ._inference_status import precedent_status, status_record, supplies_inference
+from ._inference_status import is_labelled, precedent_status, status_record, supplies_inference
 from ._typing import CumulativeGBounds
 from .data.weighting import REPORTED_DRAW, format_score_load
 from .exceptions import (
@@ -60,6 +60,7 @@ from .validation.longitudinal import (
     LONGITUDINAL_NO_CENSORING,
     LONGITUDINAL_NO_CENSORING_IN_FOLD,
     LONGITUDINAL_NO_OUTCOME_REGRESSION,
+    LONGITUDINAL_SIMULATED_MODELS,
     LongitudinalDiagnostics,
     LongitudinalNuisanceDiagnostics,
     LongitudinalNuisanceOmission,
@@ -83,6 +84,7 @@ __all__ = [
     "LONGITUDINAL_NO_CENSORING",
     "LONGITUDINAL_NO_CENSORING_IN_FOLD",
     "LONGITUDINAL_NO_OUTCOME_REGRESSION",
+    "LONGITUDINAL_SIMULATED_MODELS",
     "SENSITIVITY_ROUTES",
     "VALIDATION_OPERATIONS",
     "AssessmentCapability",
@@ -334,7 +336,7 @@ def _capability(
             else (
                 ("tmle", "collaborative_tmle", "drtmle")
                 if family == "point"
-                else ("tmle", "sdr", "ipsi", "gcomp", "ipw")
+                else ("tmle", "sdr", "ipsi", "gcomp", "ipw", "parametric_gformula")
             )
         ),
         available=available,
@@ -458,7 +460,10 @@ ASSESSMENT_CAPABILITIES: tuple[AssessmentCapability, ...] = (
         cost="expensive",
         requires_arguments=("bounds",),
         requires_replay="refit_nuisances",
-        interpretation="estimate stability across declared mechanism bounds",
+        interpretation=(
+            "estimate stability across declared mechanism bounds; on a repeated fit, the "
+            "median over draws at each bound"
+        ),
     ),
     _capability(
         "refute",
@@ -537,8 +542,8 @@ SDR_SCORE_EQUATIONS_REFUSAL = Refusal(
 #: Why a sequential baseline fit has no score-equation report.
 BASELINE_SCORE_EQUATIONS_REFUSAL = Refusal(
     RefusalReason.API_REDIRECTION,
-    "the sequential g-computation and IPW estimators fit no fluctuation, so no node solves a "
-    "score equation.",
+    "the sequential g-computation, IPW and parametric g-formula estimators fit no fluctuation, "
+    "so no node solves a score equation.",
     alternative="diagnostics.support() reports each node's weights and bound share.",
 )
 
@@ -586,7 +591,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             for row in rows
         )
     estimator = getattr(result.config, "estimator", "tmle") if family == "longitudinal" else None
-    if estimator in ("sdr", "ipsi", "gcomp", "ipw"):
+    if estimator in ("sdr", "ipsi", "gcomp", "ipw", "parametric_gformula"):
         # An SDR, IPSI or baseline fit has no fluctuation, so no node solves a score
         # equation.  The support report carries its weights and bound shares instead.
         refusal = {
@@ -594,6 +599,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             "ipsi": IPSI_SCORE_EQUATIONS_REFUSAL,
             "gcomp": BASELINE_SCORE_EQUATIONS_REFUSAL,
             "ipw": BASELINE_SCORE_EQUATIONS_REFUSAL,
+            "parametric_gformula": BASELINE_SCORE_EQUATIONS_REFUSAL,
         }[estimator]
         rows = tuple(
             replace(
@@ -606,16 +612,20 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
             else row
             for row in rows
         )
-    if estimator == "gcomp":
-        # A g-computation estimate reads no treatment mechanism, so no bound moves it.
-        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL
+    if estimator in ("gcomp", "parametric_gformula"):
+        # A g-computation or g-formula estimate reads no treatment mechanism, so no bound
+        # moves it.
+        from .longitudinal.estimator import GCOMP_TRUNCATION_REFUSAL, GFORMULA_TRUNCATION_REFUSAL
 
+        truncation = (
+            GCOMP_TRUNCATION_REFUSAL if estimator == "gcomp" else GFORMULA_TRUNCATION_REFUSAL
+        )
         rows = tuple(
             replace(
                 row,
                 available=False,
                 status=AssessmentStatus.UNAVAILABLE,
-                refusal=GCOMP_TRUNCATION_REFUSAL,
+                refusal=truncation,
             )
             if row.operation == "truncation_curve"
             else row
@@ -641,7 +651,7 @@ def assessment_capabilities(result: Any) -> tuple[AssessmentCapability, ...]:
         )
     if (
         family == "point"
-        and result.data.is_continuous_treatment
+        and result.data.treatment_kind == "continuous"
         and result.config.parameter_axis == "msm"
     ):
         # The arm positivity report cannot interpret a continuous density. No
@@ -1263,7 +1273,10 @@ def replayability(result: Any) -> Replayability:
         from .longitudinal.msm import refuse_evaluated_msm_functions
         from .longitudinal.regimen import refuse_regimen_rules
 
-        missing = list(result.replay_recipe.omissions)
+        # Every draw of a repeated fit is replayed, so a reason any draw carries applies.
+        missing = list(
+            dict.fromkeys(item for draw in result.repeats for item in draw.replay_recipe.omissions)
+        )
         # These are the same guards the replay runs. A modified result may retain every
         # learner template and evaluated array yet lack the declarations needed to use
         # them as a new fitted result.
@@ -2249,6 +2262,15 @@ def _bound_arguments(bound: inspect.BoundArguments, report: Any = None) -> dict[
         resolved = getattr(report, "random_state", getattr(report, "root_seed", None))
         if resolved is not None:
             effective["random_state"] = resolved
+    # ``omitted_variable_bounds`` resolves an omitted strength to 0.03 itself, because a
+    # ``benchmark=`` must be told apart from an explicit strength. Record what it ran, except
+    # beside a benchmark, where a replay passing both strengths would conflict with it.
+    if effective.get("benchmark") is None:
+        for name in ("cf_y", "cf_d"):
+            if name in effective and effective[name] is None:
+                resolved = getattr(report, name, None)
+                if resolved is not None:
+                    effective[name] = resolved
     return effective
 
 
@@ -2551,6 +2573,7 @@ class DiagnosticsFacade(_CapabilityFacade):
                 check_policy_support,
                 check_support,
             )
+            from .interventions.policy import declared_support_bounds
             from .sensitivity.positivity import positivity_report
 
             def score_arguments(group: str) -> dict[str, Any]:
@@ -2594,19 +2617,17 @@ class DiagnosticsFacade(_CapabilityFacade):
                     nuisance.policies,
                     nuisance.density,
                     self._result.data.treatment,
-                    propensity=(
-                        None
-                        if self._result.data.is_continuous_treatment
-                        else nuisance.propensity.values
-                    ),
+                    propensity=(nuisance.propensity.values if self._result.data.has_arms else None),
                     mechanisms=mechanisms,
                     folds=nuisance.folds,
+                    declared_support=declared_support_bounds(self._result.data),
                     **score_arguments("mtp"),
                 )
             if nuisance.incremental is not None:
                 return check_incremental_support(
                     nuisance.incremental,
                     self._result.data.treatment,
+                    levels=self._result.data.treatment_levels,
                     **score_arguments("ipsi"),
                 )
             return positivity_report(self._result)
@@ -2633,6 +2654,59 @@ class DiagnosticsFacade(_CapabilityFacade):
             return nuisance_diagnostics(self._result)
 
         return _cached(self._result, "diagnostics.nuisance_models", (), {}, compute)
+
+    def influence(self) -> Any:
+        """How few rows carry each estimate's influence curve.
+
+        A direct call only. The operation is not part of :meth:`run_all` or the assessment
+        battery, so adding it moves no combined report. The fit already warns with
+        :class:`~cleverly.exceptions.SparseInfluenceWarning` when a Wald fit needs it.
+        With clusters every measure reads the cluster sums of the curve.
+
+        Returns
+        -------
+        InfluenceReport
+            One row per estimate (:mod:`cleverly.inference.sparse`): the Kish count, the
+            skewness, the raw kurtosis, the relative SD of the variance estimate, the
+            Edgeworth-predicted Wald coverage loss, and, with an attached bootstrap, the BCa
+            bias correction and acceleration.
+
+        Examples
+        --------
+        >>> from sklearn.linear_model import LinearRegression, LogisticRegression
+        >>> from cleverly.datasets import make_longitudinal
+        >>> from cleverly.longitudinal import LTMLE
+        >>> frame, _ = make_longitudinal(n=200, seed=0)
+        >>> result = LTMLE(
+        ...     {"always": 1, "never": 0},
+        ...     outcome_learner=LinearRegression(),
+        ...     treatment_learner=LogisticRegression(max_iter=1000),
+        ...     censoring_learner=LogisticRegression(max_iter=1000),
+        ... ).fit(
+        ...     frame,
+        ...     outcome="Y",
+        ...     treatment=["A1", "A2"],
+        ...     baseline=["W1", "W2"],
+        ...     time_varying=[[], ["L2"]],
+        ...     censoring=["C1", "C2"],
+        ... )
+        >>> report = result.diagnostics.influence()
+        >>> report.sparse
+        ('ey_regimen[always]', 'ey_regimen[never]', 'ate_regimen[never vs always]')
+        """
+
+        def compute() -> Any:
+            from .inference.sparse import influence_report
+
+            alpha = float(getattr(self._result.config, "alpha_sig", 0.05))
+            return influence_report(
+                self._result.estimates,
+                alpha=alpha,
+                backend=self._result.data.backend,
+                cluster=getattr(self._result.data, "cluster", None),
+            )
+
+        return _cached(self._result, "diagnostics.influence", (), {}, compute)
 
     def score_equations(self, *, tolerance: float = DEFAULT_TOLERANCE) -> Any:
         """Whether targeting solved the score equations this fit relies on.
@@ -2778,7 +2852,9 @@ class DiagnosticsFacade(_CapabilityFacade):
             ``cleverly.sensitivity.positivity.truncation_refusal`` returns. A
             longitudinal result also refuses an omitted ``bounds`` grid and
             ``mechanism=True``, which are the two requests its contract above has no answer
-            to.
+            to. On a declared known mechanism, either family refuses an explicit bound pair
+            that the fit itself refuses, because that pair would truncate a declared value.
+            The point-treatment default grid omits such a pair.
         """
         # The row this request resolves to, not the bare row. It carries every
         # point-treatment refusal of the axis, read from the predicate the module call
@@ -3069,6 +3145,9 @@ def _support_item(
     if warning:
         facts.append(warning)
     detail = "; ".join(facts) if facts else "stored support report completed"
+    if isinstance(report, LongitudinalDiagnostics) and report.n_repeats > 1:
+        # The leverage facts read the rows, which describe one draw; the warning grades all.
+        detail += f"; the rows describe {format_draw(report.reported_repeat, report.n_repeats)}"
     return AssessmentItem(
         "support",
         # `COMPLETED` rather than `PASSED`, because support has no pass criterion once the
@@ -3082,6 +3161,23 @@ def _support_item(
         detail,
         () if warning is None else ("inspect result.diagnostics.support()",),
     )
+
+
+def _experimental_note(result: Any) -> str:
+    """The ``; experimental: reason`` clause of a result with experimental estimates, or ``""``."""
+    estimates = getattr(result, "estimates", None)
+    if not estimates:
+        return ""
+    reasons: list[str] = []
+    for estimate in estimates.values():
+        support = getattr(estimate, "support", None)
+        if (
+            support is not None
+            and support.label == "experimental"
+            and support.reason not in reasons
+        ):
+            reasons.append(support.reason)
+    return "".join(f"; experimental: {reason}" for reason in reasons)
 
 
 def _nuisance_item(
@@ -3104,17 +3200,32 @@ def _nuisance_item(
         # report publishes no spread and holds no status, so the note is read off the
         # result here. An interpreter called without a result adds none.
         status = "influence_curve" if _result is None else _result.inference_status
-        if not supplies_inference(status):
+        if is_labelled(status):
             detail += f"; {status_record(status).assessment_note}"
         elif _result is not None:
             # A parameter status sits beside an inferential fit status, so it is read per
             # estimate: the note names how many parameters carry it.
             flagged: dict[str, int] = {}
             for estimate in _result.estimates.values():
-                if not estimate.supplies_inference:
+                if is_labelled(estimate.inference):
                     flagged[estimate.inference] = flagged.get(estimate.inference, 0) + 1
             for flagged_status, count in flagged.items():
                 detail += f"; {count} parameter(s): {status_record(flagged_status).assessment_note}"
+        if report.n_repeats > 1:
+            detail += f"; the rows describe {format_draw(report.reported_repeat, report.n_repeats)}"
+            finite_spread = [
+                row for row in report.repeat_spread if np.isfinite(row.ratio_to_standard_error)
+            ]
+            if finite_spread:
+                largest = max(finite_spread, key=lambda row: row.ratio_to_standard_error)
+                ratio_name = spread_name(
+                    "sd/se", "influence_curve" if _result is None else _result.inference_status
+                )
+                detail += (
+                    f"; split spread for {len(report.repeat_spread)} parameter(s) across "
+                    f"{report.n_repeats} draws; largest {ratio_name} "
+                    f"{largest.ratio_to_standard_error:.3g} for {largest.estimand}"
+                )
     else:
         facts = [
             "; ".join(findings)
@@ -3164,6 +3275,7 @@ def _nuisance_item(
             # ordinary fit needs.
             facts.append(f"split spread unavailable: {spread_omission}")
         detail = "; ".join(facts)
+    detail += _experimental_note(_result)
     return AssessmentItem(
         "nuisance_models",
         AssessmentStatus.WARNING if findings else AssessmentStatus.COMPLETED,
@@ -3314,7 +3426,10 @@ def _omitted_item(
     spans = report.lower <= report.null_hypothesis <= report.upper
     defaults = [] if arguments is None else [n for n in ("cf_y", "cf_d") if n not in arguments]
     provenance = ""
-    if defaults:
+    benchmark = None if arguments is None else arguments.get("benchmark")
+    if benchmark is not None:
+        provenance = f"at the strengths of the benchmark against {list(benchmark.covariates)}; "
+    elif defaults:
         provenance = (
             "at the default strengths; "
             if len(defaults) == 2
@@ -3337,7 +3452,7 @@ def _robustness_item(
     # non-inferential status in the report itself, so a saved report reads the same name
     # and prints the same noun with no fit at hand.
     # Imported here because the sensitivity module imports this one.
-    from .sensitivity.omitted_variable import _UNREACHABLE_RV, limit_refusal_reason
+    from .sensitivity.omitted_variable import _UNREACHABLE_RV
 
     status = report.get("inference", "influence_curve")
     point = (
@@ -3350,15 +3465,6 @@ def _robustness_item(
             "robustness_value",
             AssessmentStatus.COMPLETED,
             f"{point}; no confidence-limit value: {report['limit_refusal']}",
-        )
-    if "nu2_estimator" in report:
-        # A report names its estimator only when no confidence-limit value exists under any
-        # name, so the row gives the bound's own reason rather than reading an absent key.
-        return AssessmentItem(
-            "robustness_value",
-            AssessmentStatus.COMPLETED,
-            f"{point}; no confidence-limit value under "
-            f"{limit_refusal_reason(report['nu2_estimator'])}",
         )
     limit_value = report[spread_name("rva", status)]
     limit_detail = (
@@ -3450,11 +3556,13 @@ def _conditioning_population(report: Any) -> tuple[float | None, float | None, b
         for cell in report.cells
         if cell.target_population_fraction is not None
     ]
+    from .sensitivity.simulated_confounding import _is_anchor
+
     anchor = next(
         (
             cell.target_population_fraction
             for cell in report.cells
-            if cell.treatment_strength == 0.0 and cell.outcome_strength == 0.0
+            if _is_anchor(cell.treatment_strength, cell.outcome_strength)
         ),
         None,
     )
@@ -3660,10 +3768,24 @@ def _support_warning(report: Any) -> str | None:
     # on one would present a house convention as a finding and let a reader take `passed`
     # for a positivity clearance.  `_support_facts` reports the minimum ratio on every row
     # instead, which is the number an analyst has to judge.
-    if isinstance(report, LongitudinalDiagnostics) and any(
-        row.share_truncated > 0.05 for row in report.rows
-    ):
-        return "cumulative mechanism truncation exceeds 5% at one or more nodes"
+    if isinstance(report, LongitudinalDiagnostics):
+        # Every draw is graded, not only the draw the rows describe: a breach in a later
+        # draw reaches the combined estimate through the median.
+        shares = report.draw_max_share_truncated or (
+            max(
+                (row.share_truncated for row in report.rows if row.share_truncated > 0.0),
+                default=0.0,
+            ),
+        )
+        breached = [draw for draw, share in enumerate(shares, start=1) if share > 0.05]
+        if not breached:
+            return None
+        where = (
+            ""
+            if report.n_repeats == 1
+            else " in " + ", ".join(format_draw(draw, report.n_repeats) for draw in breached)
+        )
+        return f"cumulative mechanism truncation exceeds 5% at one or more nodes{where}"
     if isinstance(report, Mapping):
         # A shift or IPSI fit reports one support record per declared intervention rather
         # than a single object, so none of the attribute probes above sees it.  These
@@ -3883,7 +4005,9 @@ class SensitivityFacade(_CapabilityFacade):
         # both reads.  Neither one needs a ``getattr`` default: a default would answer for a
         # point result whose data lack the flag, and no such result exists, because both are
         # properties of ``CausalData``.
-        continuous = not longitudinal and bool(self._result.data.is_continuous_treatment)
+        # A vector treatment with a continuous component has no arms either, so it takes
+        # the continuous branch: every eligible parameter is a named policy parameter.
+        continuous = not longitudinal and not self._result.data.has_arms
         from .sensitivity._simulated_confounding_request import (
             _eligible_binary_parameter_names,
             _fit_wide_refusal,

@@ -792,7 +792,12 @@ def test_a_misplaced_fold_fails_the_longhand_but_not_the_solver_row() -> None:
     damaged = replace(step, initial=rotated, targeted=targeted, fluctuation=fluctuation)
     broken = replace(
         result,
-        fits={**result.fits, "always": replace(fit, steps=(damaged, *fit.steps[1:]))},
+        repeats=(
+            replace(
+                result.repeats[0],
+                fits={**result.fits, "always": replace(fit, steps=(damaged, *fit.steps[1:]))},
+            ),
+        ),
     )
     rows = [
         row

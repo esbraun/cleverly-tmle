@@ -29,7 +29,8 @@ method comes with a capability reason.
 
 `SDRMethod` selects the sequentially doubly robust estimator for a longitudinal functional. A
 point-treatment functional lists it as unavailable. The estimator fits no fluctuation, so it
-refuses a non-default `submodel_alpha`, `max_iter` or `tol`. Its `pseudo_learner` fits a
+refuses a non-default `submodel_alpha`, `max_iter`, `tol`, `stopping`, `step_bound`, `step_search`
+or `iterate`. Its `pseudo_learner` fits a
 transform that can leave $[0, 1]$, so give it a learner of a real-valued target, such as
 `LinearRegression()`. The default is a regression Super Learner with no clip.
 [The sequentially doubly robust estimator](../technical-reference/longitudinal-tmle.md#the-sequentially-doubly-robust-estimator)
@@ -37,7 +38,7 @@ states its contract.
 
 `IPSIMethod` selects the incremental estimator of Kennedy (2019) for `IncrementalMean` or
 `IncrementalEffect` on a longitudinal design. A point-treatment functional lists it as
-unavailable. It fits no fluctuation either, so it refuses the same three settings. At a tilt
+unavailable. It fits no fluctuation either, so it refuses the same settings. At a tilt
 node the treatment mechanism defines the plan, and the estimator is not doubly robust. Give
 `treatment_learner` a learner that can fit the mechanism at every node.
 [Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
@@ -46,9 +47,28 @@ its contract.
 The collaborative fit above reports no confidence interval, no p-value, and no standard error. The
 `"greedy"` strategy is the default. `"ordered"`, `"discrete"`, `"lasso"`, `"learners"`, and `"oat"`
 refuse the same three accessors. Each estimate keeps `plugin_std_error` and `plugin_interval` as
-a diagnostic. For an interval, use `TMLEMethod`.
+a diagnostic. For an interval, use `TMLEMethod` or `strategy="derivative"`.
 [Collaborative TMLE](../technical-reference/collaborative-tmle.md) gives the reason for each
 strategy.
+
+### C-TMLE0: a derivative covariate with an interval
+
+`strategy="derivative"` fits one TMLE with an extra covariate for each arm. That covariate is the
+derivative of the clever covariate along the lasso penalty. The strategy selects nothing, so it
+reports the TMLE interval. Declare two penalties in `lambdas=`: the mechanism first, then its
+partner. Omit `lambdas=` to choose the mechanism penalty by cross-validation.
+
+```python
+derivative = effect.estimate(
+    method=CollaborativeTMLEMethod(models=parametric, strategy="derivative", lambdas=(0.02, 0.01)),
+    random_state=3,
+)
+print(derivative.extra["ctmle"].describe())
+```
+
+The fit prints the penalty pair and the number of training sets. The default cross-fit has 10. The
+[C-TMLE0 section](../technical-reference/collaborative-tmle.md#c-tmle0-the-derivative-covariate)
+lists the other two sources of the pair and the refusals.
 
 ### A lasso grid that starts at a cross-validated penalty
 
@@ -216,6 +236,20 @@ print(model.outside_span(np.array([[0.0, 1.0], [1.0, 1.0]])))
 The first column is constant on the fit rows, so the fit aliases it with the intercept. The row
 `[0.0, 1.0]` departs from that relation.
 
+## Use GLM for the parametric g-formula
+
+`ParametricGFormula` fits a `GLM` for every covariate, outcome and hazard model by default. The
+fit chooses the family of each model from its response: binomial for a binary column, multinomial
+for a categorical one and Gaussian for a normal one. A `GLM` with another family is refused.
+The forward draw of a Gaussian column needs the residual variance of the fit, so a Gaussian
+covariate accepts a `GLM` only. A data-adaptive learner for any other model gives the status
+`adaptive_baseline_plugin`. See
+[Simulate the parametric g-formula](longitudinal.md#simulate-the-parametric-g-formula).
+
+Choose `ParametricGFormula` over `SequentialGComputation` when the plan fixes a continuous dose,
+or when you need the forward-simulation form. Choose `SequentialGComputation` when you doubt a
+covariate law, because it models no covariate.
+
 ## Two fold layers
 
 - `n_folds` defines the outer cross-fitting split used to keep each observation out of the nuisance
@@ -223,9 +257,11 @@ The first column is constant on the fit rows, so the fit aliases it with the int
 - `learner_folds` defines internal model-selection folds for learners such as a Super Learner.
   Default 5.
 - `repeats` repeats the outer split and reports the median of the draws. Default 1. The value must
-  be at least 1, and a value above 1 requires `enabled=True`. A repeated fit refuses a simultaneous
-  band, because the band needs the joint influence curves of one draw. Pass `simultaneous=False` to
-  a repeated fit.
+  be at least 1, and a value above 1 requires `enabled=True`. A repeated point-treatment fit
+  refuses a simultaneous band, because the band needs the joint influence curves of one draw. Pass
+  `simultaneous=False` to a repeated point-treatment fit. A longitudinal fit accepts `repeats` and
+  builds the band from every draw, as
+  [repeated fold draws](../technical-reference/longitudinal-tmle.md#repeated-fold-draws) states.
 - `enabled=False` sets a one-fold analysis with no cross-fitting.
 - `stratify_by="none"` draws unstratified folds, so the split reads neither the treatment nor the
   outcome. This is the default, and it is the only policy a fit that draws a split accepts.
@@ -271,7 +307,7 @@ candidate, before an estimator variant multiplies it again. The examples in this
 
 Keep all rows from one declared cluster in the same fold. A grouped draw does that by permuting the
 distinct cluster labels and cutting them into near-equal parts. Ordinary TMLE, DR-TMLE and
-longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting.
+longitudinal TMLE accept `id=` under cross-fitting. C-TMLE refuses `id=` at every setting, except `strategy="derivative"`.
 Cross-fitting reduces empirical-process bias. It does not establish positivity, correct
 identification, or nuisance consistency.
 
@@ -340,6 +376,22 @@ the whole contract: the counts, the row binding, what validation checks, and eve
 finite-sample estimating procedure and should be reported with support diagnostics. The logistic
 submodel bound, `submodel_alpha`, is separate from the confidence interval's `alpha`.
 
+Four `Targeting` options choose how the targeting step runs. Each default runs the shipped step.
+
+| option | what it chooses |
+| --- | --- |
+| `stopping="scaled_var"` or `"sample_size"` | the `tmle3` rule that decides the score equation is solved. The result prints the score residual in standard errors |
+| `step_bound=` and `step_search=` | the longest step of one iteration, and whether a line search sets its length |
+| `iterate="best"` | the iterate of smallest score norm, in place of the last |
+
+`ModelSpec(outcome_by_arm=True)` fits one outcome regression for each treatment arm.
+`CollaborativeTMLEMethod(patience=p)` stops the scoring of the candidate path early.
+`PointTreatment(treatment_adjustment=[...])` lets the treatment mechanism read a subset of the
+adjustment set. That declaration restricts the statistical model.
+[Stopping rules, step bound and best iterate](../technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate)
+and [treatment-mechanism covariates](../technical-reference/point-treatment-tmle.md#treatment-mechanism-covariates)
+state the contracts.
+
 Unknown settings and settings an engine cannot use raise `MethodConfigurationError` before fitting
-rather than being ignored. A longitudinal fit refuses a point-only control such as `repeats=`
-instead of accepting it and discarding it.
+rather than being ignored. A longitudinal fit refuses a point-only control such as
+`targeting_scheme=` instead of accepting it and discarding it.

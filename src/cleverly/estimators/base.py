@@ -20,11 +20,18 @@ from .._inference_status import (
     NO_T_REFERENCE_BANDS,
     T_REFERENCE_NOTE,
     InferenceStatus,
+    is_labelled,
     status_record,
     supplies_inference,
 )
+from .._refusal import NO_ALTERNATIVE, Refusal
+from .._support import Classification, SupportKey
 from .._typing import FloatArray, ParameterAxis
 from ..data.causal_data import CausalData
+from ..data.treatment_covariates import (
+    drtmle_restriction_line,
+    treatment_mechanism_restriction,
+)
 from ..exceptions import (
     CapabilityError,
     RefusalReason,
@@ -50,6 +57,8 @@ from ..inference.influence import (
     reference_label,
     spread_name,
     stamp_inference,
+    support_column,
+    support_notes,
 )
 from ..inference.multiplier import SimultaneousBands
 from ..inference.results import (
@@ -63,8 +72,10 @@ from ..inference.results import (
     select_estimates,
     smooth_contrast,
     sole_estimate,
+    split_noise_lines,
     with_derived_bootstrap,
 )
+from ..inference.results import repeat_spread as shared_repeat_spread
 from ..learners.crossfit import CrossFitPlan, SplitPlan
 from ..protocol import ProtocolDetail, protocol_summary_lines
 from ..provenance import Provenance
@@ -86,7 +97,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         ValidationReport,
     )
     from ..validation.score import ScoreCheck
-    from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+    from .ctmle import CTMLEDerivativeFit, CTMLEOutcomeAdaptiveFit, CTMLESelection
 
 __all__ = [
     "ALL_ESTIMANDS",
@@ -165,6 +176,9 @@ class TMLEConfig:
     #: (:attr:`~cleverly.data.CausalData.known_treatment`), else ``"estimated"``.  Recorded
     #: so a result read back from disk says which one its interval rests on.
     treatment_mechanism: str = "estimated"
+    #: Whether the outcome regression was fitted once per treatment arm
+    #: (``outcome_by_arm=True``) rather than once on the covariates and the treatment.
+    outcome_by_arm: bool = False
     #: Whether the treatment is a continuous dose, whose policy ratio reads a density that
     #: no bound truncates.  A categorical treatment's policy ratio reads the bounded
     #: propensity, so its summary prints the bound.
@@ -186,6 +200,14 @@ class TMLEConfig:
     #: Defaulted so that every existing construction and ``dataclasses.replace`` keeps
     #: working untouched.
     crossfit: CrossFitPlan = field(default_factory=CrossFitPlan)
+    #: The support key the fit was classified under, read before any learner ran. Saved
+    #: with the result, so a result read back from disk says what its label rested on.
+    #: ``None`` on a config built outside a classified fit.
+    support_key: SupportKey | None = None
+    #: The group-A conditions the fit met when it was preflighted. Saved with the result, so a
+    #: retarget of the fit's nuisances labels its estimates with the conditions of the fit
+    #: instead of preflighting again on data that may have changed.
+    support_conditions: tuple[Refusal, ...] = ()
 
     # Read-through to the spec, so the settings appear once and cannot drift.
     @property
@@ -419,7 +441,10 @@ class CVTargeting:
         return {name: float(np.sqrt(value)) for name, value in self.variance.items()}
 
     def stamped(
-        self, status: InferenceStatus, reference: ClusterReference | None = None
+        self,
+        status: InferenceStatus,
+        reference: ClusterReference | None = None,
+        classification: Classification | None = None,
     ) -> CVTargeting:
         """This report with both fold-level reports declaring ``status``.
 
@@ -434,6 +459,8 @@ class CVTargeting:
             The rows each estimate reads on a clustered fit, which set the Student t
             reference of an inferential estimate. The fold-evaluated report reads it with
             :meth:`~cleverly.inference.influence.ClusterReference.with_fold_evaluated`.
+        classification : Classification or None, default=None
+            The classification of the fit, which gives each estimate its support.
 
         Returns
         -------
@@ -449,23 +476,25 @@ class CVTargeting:
         )
         return replace(
             self,
-            pooled=stamp_inference(self.pooled, status, reference),
-            fold_evaluated=stamp_inference(self.fold_evaluated, status, fold_reference),
+            pooled=stamp_inference(self.pooled, status, reference, classification),
+            fold_evaluated=stamp_inference(
+                self.fold_evaluated, status, fold_reference, classification
+            ),
         )
 
     def to_frame(self, data: CausalData | None = None) -> Any:
         """One row per estimand: both reports, the CV standard error and the spread.
 
         The two standard-error columns take their names from
-        :func:`~cleverly.inference.influence.spread_name`. At a non-inferential status
-        the frame also carries an ``inference`` column naming it, and the columns read
-        ``cv_plugin_std_err`` and ``pooled_plugin_std_err``.
+        :func:`~cleverly.inference.influence.spread_name`. At a labelled status the frame
+        also carries an ``inference`` column naming it. At a status that withholds its
+        interval the columns read ``cv_plugin_std_err`` and ``pooled_plugin_std_err``.
         """
         names = list(self.variance)
         errors = self.plugin_std_error
         status = self.inference
         payload: dict[str, Any] = {"estimand": names}
-        if not supplies_inference(status):
+        if is_labelled(status):
             payload["inference"] = [status for _ in names]
         payload |= {
             "fold_evaluated_psi": [self.fold_evaluated[name].psi for name in names],
@@ -528,6 +557,8 @@ class CVTargeting:
         if not supplies_inference(status):
             # The fit's own sentence, as ``TMLEResult.summary`` prints it under its table.
             header.append(status_record(status).reason)
+        elif is_labelled(status):
+            header.append(f"experimental: {status_record(status).shown_reason}")
         header.append("")
         epsilon_lines = ["", "common fluctuation coefficients:"]
         for group, eps in self.epsilon.items():
@@ -781,30 +812,7 @@ class TMLEResult:
             Standard deviation across the cross-fitting draws, per estimand, on the
             inference scale of that estimand.
         """
-        if self.n_repeats < 2:
-            raise ValueError(
-                "repeat_spread() describes how much psi moved between draws of the "
-                f"cross-fitting split, and this fit has {self.n_repeats}. Fit with "
-                "repeats=2 or more."
-            )
-        shared = [name for name in self.estimates if all(name in r.psi for r in self.repeats)]
-        spreads: dict[str, float] = {}
-        for name in shared:
-            values = np.asarray([repeat.psi[name] for repeat in self.repeats], dtype=float)
-            # Outside the ratio branch, because a draw that is not finite has no spread on
-            # any scale.  Leaving it inside sent an infinite difference-scale draw into
-            # ``np.std``, which warns and therefore raises under this project's
-            # ``error::RuntimeWarning`` filter rather than yielding the promised ``nan``.
-            if not np.all(np.isfinite(values)):
-                spreads[name] = float("nan")
-                continue
-            if self.estimates[name].scale == "ratio":
-                if np.any(values <= 0.0):
-                    spreads[name] = float("nan")
-                    continue
-                values = np.log(values)
-            spreads[name] = float(np.std(values, ddof=1))
-        return spreads
+        return shared_repeat_spread(self.estimates, [repeat.psi for repeat in self.repeats])
 
     # ------------------------------------------------------------- accessors
 
@@ -879,7 +887,9 @@ class TMLEResult:
         return value if isinstance(value, CVTargeting) else None
 
     @property
-    def ctmle_selection(self) -> CTMLESelection | CTMLEOutcomeAdaptiveFit | None:
+    def ctmle_selection(
+        self,
+    ) -> CTMLESelection | CTMLEOutcomeAdaptiveFit | CTMLEDerivativeFit | None:
         """The collaborative selection artifact a C-TMLE fit retained, if any.
 
         The sibling of :attr:`cv_targeting` for the ``ctmle`` key, and typed for the same
@@ -892,10 +902,11 @@ class TMLEResult:
         :mod:`cleverly.estimators.ctmle` imports this module, so the dependency only runs
         in the direction the package already has.
         """
-        from .ctmle import CTMLEOutcomeAdaptiveFit, CTMLESelection
+        from .ctmle import CTMLEDerivativeFit, CTMLEOutcomeAdaptiveFit, CTMLESelection
 
         value = self.extra.get("ctmle")
-        return value if isinstance(value, CTMLESelection | CTMLEOutcomeAdaptiveFit) else None
+        kinds = CTMLESelection | CTMLEOutcomeAdaptiveFit | CTMLEDerivativeFit
+        return value if isinstance(value, kinds) else None
 
     # ------------------------------------------------------------- contrasts
 
@@ -1018,7 +1029,14 @@ class TMLEResult:
             gradient=gradient,
             transform=transform,
         )
-        return with_derived_bootstrap(derived, self.estimates, self.bootstrap, names, function)
+        return with_derived_bootstrap(
+            derived,
+            self.estimates,
+            self.bootstrap,
+            names,
+            function,
+            cluster=self.data.cluster,
+        )
 
     def ratio(
         self,
@@ -1113,6 +1131,7 @@ class TMLEResult:
             self.bootstrap,
             (numerator, denominator),
             ratio_function(kind, complement=False),
+            cluster=self.data.cluster,
         )
 
     def _ratio_name(self, numerator: str, denominator: str, kind: str) -> str:
@@ -1518,6 +1537,13 @@ class TMLEResult:
         if self.identified_effect is not None:
             facts.extend(self.identified_effect.summary_lines(protocol=protocol))
         else:
+            if data.treatment_adjustment_sources is not None:
+                # A fit with no study carries no identification record, so the data's own
+                # declaration prints the same restriction a design records.
+                facts.append(
+                    "model restrictions: "
+                    + treatment_mechanism_restriction(data.treatment_adjustment_sources)
+                )
             facts.extend(protocol_summary_lines(None, protocol))
         if data.cluster is not None:
             facts.append(f"clusters = {_cluster_fact(data)} (cluster-robust variance)")
@@ -1546,6 +1572,8 @@ class TMLEResult:
         reduced = self.extra.get("drtmle")
         if reduced is not None:
             facts.append(reduced.describe())
+            if data.treatment_adjustment_sources is not None:
+                facts.append(drtmle_restriction_line(data.treatment_adjustment_sources))
         # The same for the learned-rule record, which states the data-adaptive target.
         learned = self.extra.get("learned_rule")
         if learned is not None:
@@ -1561,12 +1589,31 @@ class TMLEResult:
         t_reference = has_t_reference(self.estimates)
         rows = []
         record = status_record(status) if diagnostic else None
+        support_cells = support_column(self.estimates)
         if record is not None:
             for name, estimate in self.estimates.items():
                 rows.append([name, f"{estimate.psi:.5g}", f"{estimate.plugin_std_error:.4g}"])
-            table = format_table(["estimand", "psi", record.summary_label], rows)
+            headers = ["estimand", "psi", record.summary_label]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
         else:
             for name, estimate in self.estimates.items():
+                if not estimate.supplies_inference:
+                    # A parameter status beside an inferential fit status: the row prints
+                    # its point and withholds the rest, and a note below names the status.
+                    rows.append(
+                        [
+                            name,
+                            f"{estimate.psi:.5g}",
+                            "-",
+                            "-",
+                            "-",
+                            *(["-"] if t_reference else []),
+                        ]
+                    )
+                    continue
                 low, high = estimate.ci
                 rows.append(
                     [
@@ -1578,19 +1625,24 @@ class TMLEResult:
                         *([reference_label(estimate)] if t_reference else []),
                     ]
                 )
-            table = format_table(
-                [
-                    "estimand",
-                    "psi",
-                    "std_err",
-                    f"{level} CI",
-                    "p_value",
-                    *(["df"] if t_reference else []),
-                ],
-                rows,
-            )
+            headers = [
+                "estimand",
+                "psi",
+                "std_err",
+                f"{level} CI",
+                "p_value",
+                *(["df"] if t_reference else []),
+            ]
+            if support_cells is not None:
+                headers.append("support")
+                rows = [[*row, cell] for row, cell in zip(rows, support_cells, strict=True)]
+            table = format_table(headers, rows)
 
         parts = [*header, *facts, "", table]
+        notes = support_notes(self.estimates)
+        if notes:
+            parts.append("")
+            parts.extend(notes)
         if t_reference:
             parts.append("")
             assert data.cluster is not None
@@ -1610,39 +1662,34 @@ class TMLEResult:
             # thing that belongs there.
             parts.append("")
             parts.append(record.summary_note())
+        else:
+            withheld: dict[str, list[str]] = {}
+            for name, estimate in self.estimates.items():
+                if not estimate.supplies_inference:
+                    withheld.setdefault(estimate.inference, []).append(name)
+            for flagged, names in withheld.items():
+                withheld_record = status_record(flagged)
+                spreads = ", ".join(
+                    f"{name} {self.estimates[name].plugin_std_error:.4g}" for name in names
+                )
+                alternative = (
+                    ""
+                    if withheld_record.alternative == NO_ALTERNATIVE
+                    else f" {withheld_record.alternative}"
+                )
+                parts.append("")
+                parts.append(f"rows withheld ({', '.join(names)}): {flagged}")
+                parts.append(
+                    f"{withheld_record.summary_label} (a diagnostic, not a standard error): "
+                    + spreads
+                )
+                parts.append(withheld_record.reason + alternative)
         if self.n_repeats > 1:
-            # Printed under the table rather than left to the scope document, because a
-            # reader who subtracts two rows of that table gets a third number the fit
-            # never reported.  contrast() refuses for this reason; the table cannot.
-            parts.append("")
-            parts.append(
-                "the report above is coordinatewise: each row is the median of its own "
-                "draws, so algebraic identities among the rows (ate versus ey1 - ey0, "
-                "say) do not hold."
+            # contrast() refuses for the reason the coordinatewise note gives; the table
+            # cannot refuse, so the note is printed under it.
+            parts.extend(
+                split_noise_lines(self.estimates, self.repeat_spread(), self.n_repeats, status)
             )
-            # Beside the standard error rather than in a separate report, because the
-            # comparison is the whole content of the number: on its own "0.0065" says
-            # nothing about whether the split mattered.
-            parts.append("")
-            parts.append(
-                f"split noise -- spread across the {self.n_repeats} draws on the inference "
-                "scale (the log scale for a ratio), a diagnostic and not a standard error:"
-            )
-            for name, value in self.repeat_spread().items():
-                # The plug-in accessor: this share is a diagnostic ratio, and the fit may
-                # be one whose standard error the package refuses to name as one.
-                error = self[name].plugin_std_error
-                # "-" and a named reason, as every other table in this package renders a
-                # cell it has no value for.  A draw this spread could not be taken over
-                # printed "nan (nan% of std_err)" here.
-                if not np.isfinite(value):
-                    parts.append(f"  {name:<5s} -  (no spread on the inference scale)")
-                    continue
-                # Named as ``to_frame`` names the same number, so a selector-path fit
-                # does not describe its diagnostic as a standard error here.
-                label = spread_name("std_err", status)
-                share = f"{value / error:.0%} of {label}" if error > 0 else f"{label} unavailable"
-                parts.append(f"  {name:<5s} {value:.4g}  ({share})")
         if self.simultaneous is None and diagnostic and len(self.estimates) > 1:
             # Stated rather than left blank: a reader who asked for bands, or who knows
             # they are the default, would otherwise have to guess why none are here.
@@ -1656,10 +1703,41 @@ class TMLEResult:
             parts.append(
                 f"simultaneous {level} bands (multiplier bootstrap, "
                 f"critical value {self.simultaneous.critical_value:.3f} vs "
-                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise):"
+                f"{self.simultaneous.pointwise_critical_value:.3f} pointwise)"
+                f"{' [experimental]' if self.simultaneous.support.label == 'experimental' else ''}:"
             )
             for name, (low, high) in self.simultaneous.bands.items():
                 parts.append(f"  {name:<5s} [{low:.5g}, {high:.5g}]")
+            outside = {
+                name: estimate.inference
+                for name, estimate in self.estimates.items()
+                if name not in self.simultaneous.bands
+            }
+            if outside:
+                parts.append(
+                    "  the band is joint over the rows above only; it leaves out "
+                    + ", ".join(f"{name} ({status})" for name, status in outside.items())
+                    + ", which supply no interval"
+                )
+        elif (
+            not diagnostic
+            and not t_reference
+            and len(self.estimates) > 1
+            and bool(getattr(self.estimator, "simultaneous", False))
+            and any(not estimate.supplies_inference for estimate in self.estimates.values())
+        ):
+            # The fit asked for a band, and fewer than two of its estimates supply an
+            # interval, so it built none. Named rather than left blank.
+            left_out = ", ".join(
+                f"{name} ({estimate.inference})"
+                for name, estimate in self.estimates.items()
+                if not estimate.supplies_inference
+            )
+            parts.append("")
+            parts.append(
+                "no simultaneous band: fewer than two estimates supply an interval. "
+                f"Left out: {left_out}"
+            )
         if self.bootstrap is not None:
             parts.append("")
             # Named by what each replicate does: it refits the whole estimator on the
@@ -1681,6 +1759,13 @@ class TMLEResult:
         # every transcript in the README and the guide is a passing fit, and a line there
         # would be noise on the common path and easier to stop reading.
         verdict = self.score_verdict
+        # Under a declared stopping rule the largest score residual, in standard errors, with the
+        # coverage a Wald interval keeps at it.  Empty under the shipped rule, so an ordinary fit
+        # prints what it always printed.
+        residual = verdict.rule_line()
+        if residual:
+            parts.append("")
+            parts.append(residual)
         if not verdict.passed:
             parts.append("")
             parts.append(verdict.one_line())
@@ -1903,6 +1988,21 @@ def _arm_shares(data: CausalData) -> str:
     it reports the dose's range: an empty ``arm shares:`` reads as a broken table rather
     than as an inapplicable question.
     """
+    if data.treatment_kind == "vector":
+        columns = data._component_columns()
+        parts: list[str] = []
+        for name, levels in zip(data.component_names, data.component_levels, strict=True):
+            values = columns[name]
+            if levels:
+                listed = ", ".join(
+                    f"{level}={float(np.average(values == level, weights=data.weights)):.3g}"
+                    for level in levels
+                )
+                parts.append(f"{name}: {listed}")
+            else:
+                dose = np.asarray(values, dtype=float)
+                parts.append(f"{name}: range [{dose.min():.3g}, {dose.max():.3g}]")
+        return "vector treatment -- " + "; ".join(parts)
     if data.is_continuous_treatment:
         dose = np.asarray(data.treatment, dtype=float)
         mean = float(np.average(dose, weights=data.weights))

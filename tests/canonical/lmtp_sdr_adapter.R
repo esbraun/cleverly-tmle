@@ -109,12 +109,18 @@ lmtp_sdr_with_folds <- function(
   )
   task$folds <- fold_list(rep(as.integer(frame$fold), each = copies))
   progress <- function(...) invisible(NULL)
-  regressions <- lmtp_internal("cf_sdr")(task, replicated, learners_outcome, control, progress)
+  # RM39a2: each lmtp estimation call runs inside `study_stage`, so an lmtp error is a recorded
+  # comparator failure under the failure bound.  The checks around them stay fatal.
+  cf_sdr <- lmtp_internal("cf_sdr")
+  theta_dr <- lmtp_internal("theta_dr")
+  regressions <- study_stage(
+    "lmtp sdr", cf_sdr(task, replicated, learners_outcome, control, progress)
+  )
   if (!identical(dim(regressions$shifted), c(nrow(natural), length(trt) + 1L))) {
     stop("cf_sdr returned shifted regressions of an unexpected shape")
   }
 
-  result <- lmtp_internal("theta_dr")(
+  result <- study_stage("lmtp estimate", theta_dr(
     task = task,
     sequential_regressions = list(natural = regressions$natural, shifted = regressions$shifted),
     density_ratios = replicated,
@@ -122,7 +128,7 @@ lmtp_sdr_with_folds <- function(
     fits_r = NULL,
     shift = "supplied shifted values and ratios with exact folds",
     is_sdr = TRUE
-  )
+  ))
   if (!identical(result$estimator, "SDR")) stop("theta_dr did not take its SDR branch")
   unit_ic <- as.numeric(tapply(result$estimate@eif, unit, mean))
   initial <- as.numeric(tapply(regressions$shifted[, 1], unit, mean))

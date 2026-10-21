@@ -525,6 +525,20 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
     "mtp-point-calibration": (
         *_keys("policy-point-mtp", "property", "interval_calibration/halve__correctly_specified"),
     ),
+    # The one calibration cell of ``parametric-gformula`` whose SE ratio interval leaves the
+    # band, read as finite-sample under the study's declared reading.
+    "X45-finite-sample": _keys(
+        "parametric-gformula",
+        "property",
+        "interval_calibration/nice_g1_treat_all__correctly_specified",
+    ),
+    "X19-competing-calibration": (
+        *_keys(
+            "longitudinal-incremental-dropout",
+            "property",
+            "interval_calibration/competing_contrast_x2_h3__correctly_specified",
+        ),
+    ),
     "X13-finite-sample": (
         *_keys(
             "point-treatment-survival",
@@ -550,6 +564,58 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "canonical-ctmle-sequences",
             "truth",
             "cleverly-ctmle-sequences/binary_lasso/ate",
+        ),
+    ),
+    # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.
+    "mtp-pricing-calibration": (
+        *_keys(
+            "mtp-pricing",
+            "truth",
+            *(
+                f"cleverly-mtp-pricing/pricing_{engine}_tau5/{estimand}"
+                for engine in ("ltmle", "sdr")
+                for estimand in (
+                    "ey_regimen[price_down]",
+                    "ate_regimen[price_down vs natural_prices]",
+                )
+            ),
+        ),
+    ),
+    # The learned-density arms of the price study, declared ``reporting`` before the run.
+    "mtp-pricing-learned-density": (
+        *_keys(
+            "mtp-pricing",
+            "property",
+            *(
+                f"interval_calibration/up_learned_density_tau{tau}__correctly_specified"
+                for tau in (2, 3, 5)
+            ),
+        ),
+    ),
+    # The ``reporting`` SDR arm of plan p4. X40 owns it: the interval is labelled experimental.
+    "X40-sdr-heavy-ratios": (
+        *_keys("mtp-boundaries", "property", "interval_calibration/p4_sdr__correctly_specified"),
+    ),
+    # The lower bound of the ATE of arm 2 against arm 0 on the cross-fitted three-arm fit.  Rule 8
+    # of the study's red-cell policy reads it as conservative, after rule 2 found the package
+    # curve in agreement with a jackknife and a sandwich.  The rerun at n = 4000 reads an SE ratio
+    # of 0.998 (99% interval 0.973 to 1.025), so the reading is "conservative, contracting".
+    "X26-plugin-conservative": (
+        *_keys(
+            "omitted-variable-bound-plugin-se",
+            "property",
+            "interval_calibration/multinomial_logistic_crossfit_ate_2v0_lower__correctly_specified",
+        ),
+    ),
+    # The lower bound of the ATT of arm 2 against arm 0 on the same fit.  Its endpoints are in
+    # band, and only the worst-case clause of the failure accounting turns it red, so rule 7
+    # reads it as refusal-limited.  The rerun at n = 4000 lost no replicate and reads an SE ratio
+    # of 1.002 (99% interval 0.977 to 1.027).
+    "X26-refusal-limited": (
+        *_keys(
+            "omitted-variable-bound-plugin-se",
+            "property",
+            "interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified",
         ),
     ),
 }

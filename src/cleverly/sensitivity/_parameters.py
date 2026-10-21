@@ -154,10 +154,14 @@ def arm_parameters(result: TMLEResult) -> dict[str, ArmParameter]:
     Names are generated for every arm whether or not the fit reported them; callers
     intersect with ``result.estimates``.  Returns an empty mapping for a fit with no
     arms at all, so a continuous dose is refused by whatever the caller says rather than
-    by an index error here.
+    by an index error here.  A longitudinal fit has regimens, not arms, so it gets an
+    empty mapping too, and the capability row of the analysis gives its refusal.
     """
+    if result.assessment_family != "point":
+        return {}
     data = result.data
-    if data.is_continuous_treatment:
+    # A longitudinal result has nodes, not arms, and its data has no arm reader at all.
+    if result.assessment_family != "point" or not data.has_arms:
         return {}
     if result.parameter_keys:
         from ..targets import TARGETS
@@ -243,7 +247,7 @@ def arm_parameter_keys(result: TMLEResult) -> dict[str, Any]:
     """Resolve reported arm identities forward, respecting explicit metadata."""
     if result.parameter_keys:
         return result.parameter_keys
-    if result.assessment_family != "point" or result.data.is_continuous_treatment:
+    if result.assessment_family != "point" or not result.data.has_arms:
         return {}
     from ..study import ParameterKey
 

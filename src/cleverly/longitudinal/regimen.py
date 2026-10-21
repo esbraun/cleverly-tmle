@@ -46,20 +46,22 @@ policy density that is one-hot on every reachable row is the rule it equals, and
 :func:`resolve_plans` resolves it as that rule.
 
 A node can hold an **odds tilt** of the treatment mechanism, written as an
-:class:`~cleverly.interventions.Incremental` node (Kennedy 2019, Equation (1)).  Its density
-:math:`q_t(1 \\mid H_t) = \\delta_t \\pi_t / (\\delta_t \\pi_t + 1 - \\pi_t)` reads the fitted
-mechanism :math:`\\pi_t`, so :func:`resolve_plans` records only :math:`\\delta_t`, and
-:meth:`Plan.with_tilts` attaches the density once a mechanism is fitted.  At a tilt node the
-plan's ``values`` column holds the observed arm, as at a policy node, and every row with a
-treatment there stays on the plan.  Only :class:`~cleverly.longitudinal.IPSI` fits such a
-plan.
+:class:`~cleverly.interventions.Incremental` node (Kennedy 2019, Equation (1), and its
+categorical form).  Its density
+:math:`q_t(a \\mid H_t) = \\delta_{t,a} \\pi_t(a \\mid H_t) / D_t` reads the fitted
+mechanism :math:`\\pi_t`, so :func:`resolve_plans` records only the factors
+:math:`\\delta_{t,a}`, resolved against the node's own levels, and :meth:`Plan.with_tilts`
+attaches the density once a mechanism is fitted.  At a tilt node the plan's ``values`` column
+holds the observed arm, as at a policy node, and every row with a treatment there stays on
+the plan.  Only :class:`~cleverly.longitudinal.IPSI` fits such a plan.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeAlias
+from functools import partial
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import numpy as np
 
@@ -76,12 +78,34 @@ from ..interventions.base import (
 from ..interventions.incremental import Incremental
 from ..interventions.policy import (
     POLICY_TYPES,
+    ForbiddenRead,
+    JointComponent,
+    JointPolicy,
     check_continuous_policy,
+    component_source,
+    describe_policy,
     discrete_assignments,
+    joint_assignments,
+    joint_discrete_assignments,
     lazy_frame,
     policy_branches,
     refuse_policy_declarations,
+    resolve_tuned_policy,
+    tuned_cap_parts,
+    tuned_maps,
+    with_resolved_component,
 )
+from ..interventions.tuning import (
+    FOLD_AVERAGE_ONE_FOLD,
+    DoseQuantile,
+    FittedTuner,
+    SupportBoundary,
+    fit_tuner,
+    refuse_outcome_tuners,
+    tuned_cap_at_atoms,
+    tuner_influence,
+)
+from ..learners.crossfit import Folds
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance, types only
     from ..interventions.policy import Policy
@@ -98,6 +122,7 @@ __all__ = [
     "refuse_regimen_rules",
     "resolve_plans",
     "resolve_regimens",
+    "resolve_tuned_plans",
 ]
 
 #: One node of a plan: a categorical label, a rule reading that node's history, a known
@@ -570,6 +595,43 @@ def _describe_node(node: RuleNode) -> str:
     return "d" if name == "<lambda>" else f"d:{name}"
 
 
+def tilted_density_binary(pi: FloatArray, delta: float) -> FloatArray:
+    r"""Kennedy's tilted density :math:`(1 - q, q)` on two levels, from :math:`\pi(1 \mid H)`.
+
+    Parameters
+    ----------
+    pi : FloatArray
+        ``(n,)`` mechanism probability of the second level.
+    delta : float
+        The odds multiplier :math:`\delta = \delta_1/\delta_0`.
+
+    Returns
+    -------
+    FloatArray
+        ``(n, 2)`` density, :math:`q = \delta\pi/(\delta\pi + 1 - \pi)`.
+    """
+    tilted = delta * pi / (delta * pi + 1.0 - pi)
+    return np.column_stack([1.0 - tilted, tilted])
+
+
+def tilted_density_general(g: FloatArray, factors: FloatArray) -> FloatArray:
+    r"""The tilted density :math:`q(a) = \delta_a g(a)/\sum_b \delta_b g(b)` for any ``K``.
+
+    Parameters
+    ----------
+    g : FloatArray
+        ``(n, K)`` mechanism.
+    factors : FloatArray
+        ``(K,)`` odds factors.
+
+    Returns
+    -------
+    FloatArray
+        ``(n, K)`` density.
+    """
+    return np.asarray(g * factors[None, :] / (g @ factors)[:, None])
+
+
 @dataclass(frozen=True)
 class Plan:
     """A regimen together with the ``(n, T)`` arms it assigns *this* sample.
@@ -607,10 +669,11 @@ class Plan:
         The nodes that hold a modified treatment policy.  At such a node ``values`` holds
         the observed code or dose, and ``policy`` holds the ``(n, J)`` weights of the
         predictions the node carries: the levels the policy sends a unit to at a
-        categorical node, and the randomizer's probabilities at a continuous one.
+        categorical node, and the randomizer's probabilities at a continuous or mixed one.
     policy_targets : tuple
-        Per node, the ``(n,)`` dose of each branch at a continuous policy node, and
-        ``None`` elsewhere.  Empty without one.
+        Per node, the ``(n,)`` dose of each branch at a continuous policy node, the
+        ``(n, d)`` component values of each branch at a mixed node, and ``None``
+        elsewhere.  Empty without one.
     mtp_assignments : tuple
         Per node, each branch of a categorical policy node as ``(probability, codes)``,
         with ``codes`` the ``(n, K)`` level map of the discrete formula, and ``None``
@@ -618,10 +681,11 @@ class Plan:
     mtp_numerators : tuple
         Per node, the ratio numerator of a policy node once the mechanism is fitted, and
         ``None`` elsewhere.  Empty until :func:`attach_policy_numerators` sets it.
-    tilt_deltas : tuple
-        Per node, the odds multiplier :math:`\\delta_t` of a tilt node, and ``None``
-        elsewhere.  Empty without a tilt node.  At a tilt node ``values`` holds the observed
-        code, and ``policy`` holds the tilted density once :meth:`with_tilts` attaches it.
+    node_factors : tuple
+        Per node, the ``(K_t,)`` tuple of odds factors :math:`\\delta_{t,a}` of a tilt node,
+        in arm-code order, and ``None`` elsewhere.  Empty without a tilt node.  At a tilt
+        node ``values`` holds the observed code, and ``policy`` holds the tilted density once
+        :meth:`with_tilts` attaches it.
 
     Attributes
     ----------
@@ -648,9 +712,20 @@ class Plan:
     #: :math:`g^d_t(A_t \mid H_t)` at a categorical node and :math:`r_t = g^d_t / g_t` at a
     #: continuous one.  Empty until :func:`attach_policy_numerators` sets it.
     mtp_numerators: tuple[FloatArray | None, ...] = ()
-    #: Per node, the odds multiplier of a tilt node, and ``None`` elsewhere.  Empty without
-    #: a tilt node.
-    tilt_deltas: tuple[float | None, ...] = ()
+    #: Per node, the ``(K_t,)`` odds factors of a tilt node in arm-code order, and ``None``
+    #: elsewhere.  Empty without a tilt node.
+    node_factors: tuple[tuple[float, ...] | None, ...] = ()
+    #: The tuned nodes of a plan whose caps a fit read from the treatment law (X40 part
+    #: (e)), in time order.  Empty on every other plan.
+    tuning: tuple[NodeTuning, ...] = ()
+    #: Per outer fold, the plan at the tuners fitted on that fold's training rows.  Empty
+    #: in sample and on a plan with no tuned node.
+    fold_plans: tuple[Plan, ...] = ()
+    #: The outer split the fold plans belong to, or ``None``.
+    folds: Folds | None = None
+    #: Whether the plan's target is the fold average: then row ``i``'s targets are those of
+    #: the fold that holds row ``i`` out, and each fold is targeted on its own rows.
+    fold_average: bool = False
 
     @property
     def label(self) -> str:
@@ -659,7 +734,7 @@ class Plan:
     @property
     def has_tilt(self) -> bool:
         """Whether any node of this plan is an odds tilt of the treatment mechanism."""
-        return any(delta is not None for delta in self.tilt_deltas)
+        return any(factors is not None for factors in self.node_factors)
 
     def is_tilt_node(self, time: int) -> bool:
         """Whether node ``time``, counted from one, is an odds tilt.
@@ -674,10 +749,10 @@ class Plan:
         bool
             ``True`` at a tilt node, whether or not its density is attached.
         """
-        return bool(self.tilt_deltas) and self.tilt_deltas[time - 1] is not None
+        return bool(self.node_factors) and self.node_factors[time - 1] is not None
 
-    def tilt_delta(self, time: int) -> float:
-        """The odds multiplier of tilt node ``time``.
+    def tilt_factors(self, time: int) -> FloatArray:
+        """The odds factors of tilt node ``time``, one per level in arm-code order.
 
         Parameters
         ----------
@@ -686,26 +761,35 @@ class Plan:
 
         Returns
         -------
-        float
-            :math:`\\delta_t`.
+        FloatArray
+            ``(K_t,)`` strictly positive factors :math:`\\delta_{t,a}`.  A scalar declaration
+            on two levels reads ``(1, delta)``.
+
+        Raises
+        ------
+        ValueError
+            If ``time`` is not a tilt node.
         """
-        delta = self.tilt_deltas[time - 1] if self.tilt_deltas else None
-        if delta is None:
+        factors = self.node_factors[time - 1] if self.node_factors else None
+        if factors is None:
             raise ValueError(f"node {time} of regimen {self.label!r} is not a tilt node")
-        return float(delta)
+        return np.asarray(factors, dtype=float)
 
     def with_tilts(self, propensity: Mapping[int, FloatArray]) -> Plan:
         r"""This plan with each tilt node's density, from the mechanism :math:`\pi_t`.
 
-        At a tilt node the density is :math:`(1 - q_t, q_t)` with
-        :math:`q_t = \delta_t \pi_t / (\delta_t \pi_t + 1 - \pi_t)`, Kennedy (2019),
-        Equation (1).  The node then reads as a policy node: the regression holds the
+        At a tilt node the density is
+        :math:`q_t(a \mid H_t) = \delta_{t,a}\,\pi_t(a \mid H_t) / D_t` with
+        :math:`D_t = \sum_b \delta_{t,b}\,\pi_t(b \mid H_t)`.  On two levels it is evaluated
+        in the form of Kennedy (2019), Equation (1), on :math:`\pi_t(1 \mid H_t)` with
+        :math:`\delta = \delta_{t,1}/\delta_{t,0}`, so a binary node is bit-identical to the
+        scalar form.  The node then reads as a policy node: the regression holds the
         current arm as a column, and the node carries :math:`\sum_a q_t(a) m_t(a)`.
 
         Parameters
         ----------
         propensity : mapping of int to FloatArray
-            By tilt node, counted from one, the ``(n,)`` probability of the second level.
+            By tilt node, counted from one, the ``(n, K_t)`` mechanism in arm-code order.
 
         Returns
         -------
@@ -719,10 +803,12 @@ class Plan:
         for time in range(1, n_times + 1):
             if not self.is_tilt_node(time):
                 continue
-            pi = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
-            delta = self.tilt_delta(time)
-            tilted = delta * pi / (delta * pi + 1.0 - pi)
-            policy[time - 1] = np.column_stack([1.0 - tilted, tilted])
+            g = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
+            factors = self.tilt_factors(time)
+            if g.shape[1] == 2:
+                policy[time - 1] = tilted_density_binary(g[:, 1], factors[1] / factors[0])
+            else:
+                policy[time - 1] = tilted_density_general(g, factors)
         return replace(self, policy=tuple(policy))
 
     @property
@@ -746,7 +832,7 @@ class Plan:
         return time in self.mtp_nodes
 
     def carry_targets(self, time: int) -> tuple[FloatArray, ...] | None:
-        """The doses a continuous policy node's regression is predicted at, one per branch.
+        """The values a continuous or mixed policy node's regression is predicted at, by branch.
 
         Parameters
         ----------
@@ -756,7 +842,8 @@ class Plan:
         Returns
         -------
         tuple of FloatArray or None
-            One ``(n,)`` dose per branch at a continuous policy node, ``None`` elsewhere.
+            One ``(n,)`` dose per branch at a continuous policy node, one ``(n, d)`` block of
+            component values per branch at a mixed node, and ``None`` elsewhere.
         """
         if not self.policy_targets:
             return None
@@ -847,7 +934,7 @@ class Plan:
         columns = []
         for time in range(1, data.n_times + 1):
             if self.is_mtp_node(time) or self.is_tilt_node(time):
-                columns.append(~np.isnan(data.treatment[:, time - 1]))
+                columns.append(data.node_present(time))
             else:
                 columns.append(_node_numerator(self, data, time) > 0.0)
         return np.column_stack(columns)
@@ -923,8 +1010,7 @@ def _node_numerator(plan: Plan, data: LongitudinalData, time: int) -> FloatArray
     FloatArray
         One value per row.
     """
-    observed = data.treatment[:, time - 1]
-    present = ~np.isnan(observed)
+    present = data.node_present(time)
     if plan.is_mtp_node(time):
         numerator = plan.mtp_numerators[time - 1] if plan.mtp_numerators else None
         if numerator is None:
@@ -938,6 +1024,7 @@ def _node_numerator(plan: Plan, data: LongitudinalData, time: int) -> FloatArray
             f"node {time} of regimen {plan.label!r} is an odds tilt, whose density reads the "
             "fitted mechanism; attach it first with Plan.with_tilts"
         )
+    observed = data.node_codes(time)
     if plan.is_policy_node(time):
         codes = np.nan_to_num(observed, nan=0.0).astype(np.int64)
         density = plan.policy_at(time)
@@ -950,6 +1037,7 @@ def resolve_plans(
     data: LongitudinalData,
     *,
     _collapse_point_masses: bool = True,
+    allow_set_dose: bool = False,
 ) -> tuple[Plan, ...]:
     """Evaluate every regimen against ``data``, once, before any nuisance is fitted.
 
@@ -968,6 +1056,10 @@ def resolve_plans(
     _collapse_point_masses : bool, default=True
         Private.  ``False`` keeps a one-hot policy on the policy path, which a test uses to
         check that path against the rule it equals.
+    allow_set_dose : bool, default=False
+        Whether a fixed dose or a known rule that sets a dose, at a continuous node, is
+        resolved.  Only a model-based estimator accepts one, because the nonparametric target is
+        not pathwise differentiable.
 
     Returns
     -------
@@ -975,13 +1067,16 @@ def resolve_plans(
         One per regimen, in the order given.
     """
     return tuple(
-        _resolve_plan(regimen, data, collapse=_collapse_point_masses) for regimen in regimens
+        _resolve_plan(regimen, data, collapse=_collapse_point_masses, allow_set_dose=allow_set_dose)
+        for regimen in regimens
     )
 
 
-def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: bool) -> Plan:
+def _resolve_plan(
+    regimen: RegimenSpec, data: LongitudinalData, *, collapse: bool, allow_set_dose: bool = False
+) -> Plan:
     """One regimen's plan, with its policy densities evaluated and point masses collapsed."""
-    refuse_continuous_assignments(regimen, data)
+    refuse_continuous_assignments(regimen, data, allow_set_dose=allow_set_dose)
     values = data.encode_assignment(regimen.assignment(data), regimen.label)
     if not (isinstance(regimen, DynamicRegimen) and (regimen.has_policy or regimen.has_tilt)):
         return Plan(regimen, values)
@@ -991,25 +1086,31 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
     mtp_nodes: list[int] = []
     targets: list[tuple[FloatArray, ...] | None] = []
     assignments: list[tuple[tuple[float, IntArray], ...] | None] = []
-    deltas: list[float | None] = []
+    factors: list[tuple[float, ...] | None] = []
     for time in range(1, data.n_times + 1):
         if data.is_held_node(time):
             # An identity node of a held design: never a policy or MTP node.
             policy.append(None)
             targets.append(None)
             assignments.append(None)
-            deltas.append(None)
+            factors.append(None)
             continue
         if regimen.is_tilt(time):
             node = regimen.plan[time - 1]
             assert isinstance(node, Incremental)
-            refuse_multi_arm_tilt_node(data, time)
             policy.append(None)
             targets.append(None)
             assignments.append(None)
-            deltas.append(float(node.delta))
+            # Per-node resolution: the declared factors read against this node's own levels,
+            # so a scalar on a node with other than two levels (R1) and a key that is not a
+            # level of this node (R2) refuse here, before any learner.  A mixed or continuous
+            # node was refused above, by refuse_continuous_assignments.
+            odds = node.factors(
+                data.treatment_levels[time - 1], subject=f"node {data.treatment_names[time - 1]!r}"
+            )
+            factors.append(tuple(float(value) for value in odds))
             continue
-        deltas.append(None)
+        factors.append(None)
         if regimen.is_mtp(time):
             carry, target, assigned = _resolve_mtp_node(regimen, data, time)
             policy.append(carry)
@@ -1039,37 +1140,360 @@ def _resolve_plan(regimen: RegimenSpec, data: LongitudinalData, *, collapse: boo
         mtp_nodes=tuple(mtp_nodes),
         policy_targets=tuple(targets) if any(t is not None for t in targets) else (),
         mtp_assignments=tuple(assignments) if any(a is not None for a in assignments) else (),
-        tilt_deltas=tuple(deltas) if any(d is not None for d in deltas) else (),
+        node_factors=tuple(factors) if any(f is not None for f in factors) else (),
     )
 
 
-def refuse_multi_arm_tilt_node(data: LongitudinalData, time: int) -> None:
-    """Refuse an odds tilt at a node with other than two treatment levels.
+@dataclass(frozen=True)
+class NodeTuning:
+    """One tuned node of a plan: the tuner fitted on the at-risk rows, and its curve parts.
 
     Parameters
     ----------
+    time : int
+        The node, counted from one.
+    policy : object
+        The declared tuned :class:`~cleverly.interventions.Shift` or
+        :class:`~cleverly.interventions.Scale`.
+    fitted : FittedTuner
+        The tuner fitted on every row at risk at the node: :math:`\\theta_n`.
+    fold_fits : tuple of FittedTuner
+        Per outer fold, the tuner fitted on that fold's training rows at risk.  Empty in
+        sample.
+    influence : FloatArray or None
+        ``(n, p)`` the tuner's influence function on the population target, ``None`` on the
+        fold-average target.
+    boundary : FloatArray
+        ``(n,)`` :math:`c_t(H_t)` at :math:`\\theta_n`.
+    edge : FloatArray
+        ``(n,)`` :math:`e_t(H_t)`, the last dose the cap lets move.
+    gradient : FloatArray
+        ``(n, p)`` :math:`\\partial c_t / \\partial\\theta_t`.
+    slope : float
+        :math:`|e_t'|`.
+    at_risk : BoolArray
+        ``(n,)`` the rows at risk at the node.
+    component : str or None
+        At a mixed node, the tuned dose component of the node's
+        :class:`~cleverly.interventions.JointPolicy`; ``None`` at a node of one dose.
+    slots : tuple of tuple
+        ``(branch, probability)`` of each branch of the node's policy in which this map
+        sets the dose.  The curve carries one derivative term per slot, weighted by the
+        branch probability.  ``((0, 1.0),)`` at a deterministic node.
+    """
+
+    time: int
+    policy: Any
+    fitted: FittedTuner
+    fold_fits: tuple[FittedTuner, ...]
+    influence: FloatArray | None
+    boundary: FloatArray
+    edge: FloatArray
+    gradient: FloatArray
+    slope: float
+    at_risk: BoolArray
+    component: str | None = None
+    slots: tuple[tuple[int, float], ...] = ((0, 1.0),)
+
+
+#: What a fold-average plan appends to its regimen's label in every reported name.
+FOLD_AVERAGE_SUFFIX = ", fold average"
+
+
+def declares_tuned(regimens: Sequence[RegimenSpec]) -> bool:
+    """Whether any regimen holds a map whose cap is a tuner.
+
+    Parameters
+    ----------
+    regimens : sequence of Regimen or DynamicRegimen
+        The resolved regimens.
+
+    Returns
+    -------
+    bool
+        ``True`` when some node is a tuned :class:`~cleverly.interventions.Shift` or
+        :class:`~cleverly.interventions.Scale`, or a
+        :class:`~cleverly.interventions.JointPolicy` with a tuned component.
+    """
+    return any(_tuned(regimen) for regimen in regimens)
+
+
+def _tuned(regimen: RegimenSpec) -> bool:
+    return isinstance(regimen, DynamicRegimen) and any(tuned_maps(node) for node in regimen.plan)
+
+
+def _regimen_target(regimen: DynamicRegimen) -> str | None:
+    targets = {str(tuned.target) for node in regimen.plan for _, tuned, _ in tuned_maps(node)}
+    if len(targets) > 1:
+        raise CapabilityError(
+            f"regimen {regimen.label!r} declares the targets {sorted(targets)} on its tuned "
+            "maps. One regimen is one parameter, so its tuned maps declare one target",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    return next(iter(targets)) if targets else None
+
+
+def resolve_tuned_plans(
+    regimens: Sequence[RegimenSpec],
+    data: LongitudinalData,
+    folds: Folds,
+) -> tuple[Plan, ...]:
+    """Resolve every regimen, fitting each tuned cap before any learner (X40 part (e)).
+
+    A regimen without a tuned node is :func:`resolve_plans` exactly.  At a tuned node the
+    tuner is fitted on the rows at risk at the node, on their observed doses and policy
+    frame.  ``target="population"`` resolves the plan at that fit, :math:`\\theta_n`, and
+    records the tuner's influence function.  On a cross-fitted fit each outer fold also
+    gets the plan at its training rows' fit, :math:`\\theta^{(-k)}`, which that fold's
+    untargeted recursion and its classifier read (``test_t_e7_each_fold_trains_at_its_own_tuner``).
+    ``target="fold_average"`` resolves one plan per outer fold, at its training rows' fit,
+    and the returned plan holds, at row ``i``, the doses of the fold that holds ``i`` out.
+    Each fold plan runs the declared-support and atom checks over every row, since a fold's
+    training rows take its map in their pseudo-outcomes.
+
+    Parameters
+    ----------
+    regimens : sequence of Regimen or DynamicRegimen
+        The resolved regimens, in report order.
     data : LongitudinalData
         The validated panel.
-    time : int
-        The tilt node, counted from one.
+    folds : Folds
+        The outer split.
+
+    Returns
+    -------
+    tuple of Plan
+        One per regimen, in the order given.
 
     Raises
     ------
-    DataError
-        If the node does not have exactly two levels.
+    CapabilityError
+        R-e3 for a tuner that reads an outcome column, R-e4 for the fold-average target on
+        one fold, a tuned cap at a node that does not hold one dose or a dose component, a
+        tuned cap at a dose with declared atoms, and the joint compositions of
+        :func:`~cleverly.interventions.policy.tuned_components`.
     """
-    from ..interventions.incremental import multi_arm_tilt_refusal
+    plans = []
+    for regimen in regimens:
+        if not _tuned(regimen):
+            plans.append(_resolve_plan(regimen, data, collapse=True))
+            continue
+        assert isinstance(regimen, DynamicRegimen)
+        plans.append(_resolve_tuned_plan(regimen, data, folds))
+    return tuple(plans)
 
-    levels = list(data.treatment_levels[time - 1])
-    if len(levels) == 2:
-        return
-    raise DataError.from_refusal(
-        multi_arm_tilt_refusal(
-            f"node {data.treatment_names[time - 1]!r}",
-            len(levels),
-            levels,
-            alternative="A Stochastic node with density_kind='known' sets this node.",
+
+def _outcome_columns(data: LongitudinalData) -> tuple[str, ...]:
+    names = [data.outcome_name] if getattr(data, "outcome_name", None) else []
+    names.extend(getattr(data, "event_names", None) or ())
+    return tuple(str(name) for name in names if name)
+
+
+def _resolve_tuned_plan(regimen: DynamicRegimen, data: LongitudinalData, folds: Folds) -> Plan:
+    from dataclasses import replace
+
+    target = _regimen_target(regimen)
+    if target == "fold_average":
+        # The fold-average target is a different parameter from the population one, so its
+        # report names it: ``ey_regimen[<label>, fold average]``.
+        regimen = replace(regimen, label=f"{regimen.label}{FOLD_AVERAGE_SUFFIX}")
+    tuned_nodes = [
+        (time, node, component, tuned, slots)
+        for time, node in enumerate(regimen.plan, start=1)
+        for component, tuned, slots in tuned_maps(node)
+    ]
+    refuse_outcome_tuners(
+        [
+            (tuned.name, cast(DoseQuantile | SupportBoundary, tuned.cap))
+            for _, _, _, tuned, _ in tuned_nodes
+        ],
+        _outcome_columns(data),
+    )
+    if target == "fold_average" and folds.is_single:
+        raise CapabilityError(FOLD_AVERAGE_ONE_FOLD, reason=RefusalReason.INVALID_DECLARATION)
+    sources = {
+        (time, component): _tuner_source(regimen, data, time, node, component)
+        for time, node, component, _, _ in tuned_nodes
+    }
+    weights = data.weights
+    tunings: list[NodeTuning] = []
+    in_sample: dict[int, RuleNode] = {}
+    by_fold: list[dict[int, RuleNode]] = [
+        {} for _ in range(0 if folds.is_single else folds.n_folds)
+    ]
+    for time, node, component, tuned, slots in tuned_nodes:
+        tuner = cast(DoseQuantile | SupportBoundary, tuned.cap)
+        doses, frame = sources[time, component]
+        reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+
+        fitted = _guarded(
+            regimen, time, frame, partial(fit_tuner, tuner, doses, frame, reachable, weights)
         )
+        fold_fits: list[FittedTuner] = []
+        if not folds.is_single:
+            for k, (train, _) in enumerate(folds):
+                rows = np.zeros(data.n, dtype=bool)
+                rows[train] = True
+                fold_fit = fit_tuner(tuner, doses, frame, reachable & rows, weights)
+                fold_fits.append(fold_fit)
+                by_fold[k][time] = with_resolved_component(
+                    by_fold[k].get(time, node),
+                    component,
+                    tuned,
+                    resolve_tuned_policy(tuned, fold_fit),
+                )
+        in_sample[time] = with_resolved_component(
+            in_sample.get(time, node), component, tuned, resolve_tuned_policy(tuned, fitted)
+        )
+        influence = (
+            tuner_influence(fitted, doses, frame, reachable, weights)
+            if target == "population"
+            else None
+        )
+        boundary, edge, gradient, slope = tuned_cap_parts(tuned, fitted, frame(), data.n)
+        tunings.append(
+            NodeTuning(
+                time=time,
+                policy=tuned,
+                fitted=fitted,
+                fold_fits=tuple(fold_fits),
+                influence=influence,
+                boundary=boundary,
+                edge=edge,
+                gradient=gradient,
+                slope=slope,
+                at_risk=reachable,
+                component=component,
+                slots=slots,
+            )
+        )
+
+    def at(resolved: Mapping[int, RuleNode]) -> DynamicRegimen:
+        plan = tuple(resolved.get(time, node) for time, node in enumerate(regimen.plan, start=1))
+        return replace(regimen, plan=plan)
+
+    fold_plans = tuple(_resolve_plan(at(nodes), data, collapse=True) for nodes in by_fold)
+    if target == "population":
+        main = _resolve_plan(at(in_sample), data, collapse=True)
+        return replace(
+            main,
+            tuning=tuple(tunings),
+            fold_plans=fold_plans,
+            folds=None if folds.is_single else folds,
+        )
+    return _stitched_plan(regimen, fold_plans, folds, tuple(tunings))
+
+
+def _tuner_source(
+    regimen: DynamicRegimen, data: LongitudinalData, time: int, node: object, name: str | None
+) -> tuple[FloatArray, Callable[[], Any]]:
+    """The natural values of a node's tuned dose and the frame its tuner reads.
+
+    At a node of one dose the tuner reads the node's dose and policy frame.  At a mixed
+    node it reads the tuned component's natural dose and the frame that component's map
+    reads: the natural categorical components and the doses before it in the policy's
+    order (:func:`~cleverly.interventions.policy.component_source`).  The tuner is then the
+    component's conditional quantile given what its map may read, and the cap stays a
+    triangular map of the node.
+    """
+    where = f"the node {data.decision_name(time)!r}"
+    if data.node_kind(time) == "mixed" and isinstance(node, JointPolicy):
+        assert name is not None
+        components = data.node_components(time)
+        names = [component.name for component in components]
+        if name not in names or not components[names.index(name)].continuous:
+            raise CapabilityError(
+                f"regimen {regimen.label!r} tunes the cap of {name!r} at {where}, whose "
+                f"continuous components are "
+                f"{[c.name for c in components if c.continuous]}. A tuned cap reads a "
+                "quantile of a dose's law, so it applies to a continuous component",
+                reason=RefusalReason.INVALID_DECLARATION,
+            )
+        atoms = data.component_atoms(time).get(name, ())
+        if atoms:
+            raise CapabilityError.from_refusal(
+                tuned_cap_at_atoms(f"component {name!r} of {where}", atoms)
+            )
+        natural = np.nan_to_num(data.node_values(time), nan=0.0)
+        source = component_source(
+            node,
+            name,
+            components,
+            natural,
+            lambda extra: data.policy_frame(time, extra),
+            where,
+        )
+        return natural[:, names.index(name)], source
+    if data.node_kind(time) != "continuous":
+        tuned = name if name is not None else str(getattr(node, "name", node))
+        raise CapabilityError(
+            f"regimen {regimen.label!r} tunes the cap of {tuned!r} at {where}, which is "
+            "not one continuous dose "
+            "or a dose component of a mixed node. A tuned cap reads a quantile of the dose "
+            "law, which has a density only at a dose",
+            reason=RefusalReason.INVALID_DECLARATION,
+        )
+    atoms = data.node_atoms(time)
+    if atoms:
+        raise CapabilityError.from_refusal(tuned_cap_at_atoms(where, atoms))
+    doses = np.nan_to_num(data.node_codes(time), nan=0.0)
+    return doses, lazy_frame(partial(data.policy_frame, time))
+
+
+def _guarded(
+    regimen: DynamicRegimen, time: int, frame: Any, fit: Callable[[], FittedTuner]
+) -> FittedTuner:
+    """Fit a tuner, and refuse a tuner that reads a component its map may not read."""
+    try:
+        fitted = fit()
+        check = getattr(frame, "check", None)
+        if check is not None:
+            check()
+    except ForbiddenRead as error:
+        raise DataError(
+            f"the tuned cap of regimen {regimen.label!r} at time {time} reads {error}, which "
+            "the tuned component's map may not read. The tuner reads what the map reads: "
+            "the natural categorical components and the doses before the component in the "
+            "policy's order. Declare an order that puts the read dose first, or drop the "
+            "feature"
+        ) from error
+    return fitted
+
+
+def _stitched_plan(
+    regimen: DynamicRegimen,
+    fold_plans: tuple[Plan, ...],
+    folds: Folds,
+    tunings: tuple[NodeTuning, ...],
+) -> Plan:
+    """The fold-average plan: at row ``i``, the doses of the fold that holds ``i`` out."""
+    from dataclasses import replace
+
+    first = fold_plans[0]
+    owner = np.asarray(folds.assignment)
+    targets: list[tuple[FloatArray, ...] | None] = []
+    for time in range(1, int(first.values.shape[1]) + 1):
+        branches = first.carry_targets(time)
+        if branches is None:
+            targets.append(None)
+            continue
+        stitched = []
+        for index in range(len(branches)):
+            column = np.array(branches[index], dtype=float, copy=True)
+            for k, plan in enumerate(fold_plans):
+                own = plan.carry_targets(time)
+                assert own is not None
+                column[owner == k] = np.asarray(own[index])[owner == k]
+            stitched.append(column)
+        targets.append(tuple(stitched))
+    return replace(
+        first,
+        regimen=regimen,
+        policy_targets=tuple(targets),
+        tuning=tunings,
+        fold_plans=fold_plans,
+        folds=folds,
+        fold_average=True,
     )
 
 
@@ -1079,21 +1503,65 @@ def _resolve_mtp_node(
     r"""Evaluate a modified treatment policy at one node, once, before any learner.
 
     Returns the ``(n, J)`` carry weights, and either the ``(n,)`` dose of each branch at a
-    continuous node or each branch's ``(n, K)`` level map at a categorical one.  The policy
-    reads the policy frame, :math:`[W, L_1, \ldots, L_t]` and the earlier treatments, which
-    hold the observed values on which the regression conditions.  Rows that left the study
-    before the node hold zero weight and a zero dose.
+    continuous node, the ``(n, d)`` component values of each branch at a mixed node, or
+    each branch's ``(n, K)`` level map at a categorical one.  The policy reads the policy
+    frame, :math:`[W, L_1, \ldots, L_t]` and the earlier treatments, which hold the observed
+    values on which the regression conditions.  Rows that left the study before the node
+    hold zero weight and a zero dose.
     """
     node = regimen.plan[time - 1]
     name = data.treatment_names[time - 1]
     where = f"node {name!r} at time {time} of regimen {regimen.label!r}"
     reachable = data.uncensored_through(time - 1) & data.event_free_through(time - 1)
+    if data.node_kind(time) == "mixed":
+        assert isinstance(node, JointPolicy)  # refuse_continuous_assignments refuses the rest
+        joint = joint_assignments(
+            node,
+            data.node_components(time),
+            np.nan_to_num(data.node_values(time), nan=0.0),
+            lambda extra: data.policy_frame(time, extra),
+            reachable,
+            where=where,
+            supports=data.component_supports(time),
+            regimen=regimen.label,
+            atoms=data.component_atoms(time),
+        )
+        weights = np.array([probability for probability, _ in joint])
+        carry = np.where(reachable[:, None], np.tile(weights, (data.n, 1)), 0.0)
+        return carry, tuple(values for _, values in joint), None
+    if isinstance(node, JointPolicy):
+        # An all-categorical vector node: the joint policy is a map of the observed tuples,
+        # read by the discrete formula as a label map of the tuples is.
+        levels = data.treatment_levels[time - 1]
+        components = tuple(
+            JointComponent(column, _component_labels(levels, index))
+            for index, column in enumerate(data.component_names(time))
+        )
+        assigned_codes = joint_discrete_assignments(
+            node,
+            components,
+            levels,  # type: ignore[arg-type]
+            lambda extra: data.policy_frame(time, extra),
+            reachable,
+            where=where,
+        )
+        return _categorical_carry(data, time, reachable, assigned_codes)
     frame = lazy_frame(lambda: data.policy_frame(time))
     branches = policy_branches(node)
     probabilities = np.array([probability for probability, _ in branches])
     if data.is_continuous_node(time):
-        observed = np.nan_to_num(data.treatment[:, time - 1], nan=0.0)
-        check_continuous_policy(node, observed, frame, reachable, where=where)
+        observed = np.nan_to_num(data.node_codes(time), nan=0.0)
+        check_continuous_policy(
+            node,
+            observed,
+            frame,
+            reachable,
+            where=where,
+            support=data.node_support(time),
+            atoms=data.node_atoms(time),
+            regimen=regimen.label,
+            node=name,
+        )
         doses = []
         for _, branch in branches:
             assigned = np.asarray(branch.assign(observed, frame), dtype=float).reshape(-1)
@@ -1102,8 +1570,18 @@ def _resolve_mtp_node(
         return carry, tuple(doses), None
     levels = data.treatment_levels[time - 1]
     assigned_codes = discrete_assignments(node, levels, frame, reachable, where=where)
-    observed_codes = np.nan_to_num(data.treatment[:, time - 1], nan=0.0).astype(np.int64)
-    carry = np.zeros((data.n, len(levels)))
+    return _categorical_carry(data, time, reachable, assigned_codes)
+
+
+def _categorical_carry(
+    data: LongitudinalData,
+    time: int,
+    reachable: BoolArray,
+    assigned_codes: tuple[tuple[float, IntArray], ...],
+) -> tuple[FloatArray, None, tuple[tuple[float, IntArray], ...]]:
+    """The ``(n, K)`` carry weights of a categorical policy node, from its level maps."""
+    observed_codes = np.nan_to_num(data.node_codes(time), nan=0.0).astype(np.int64)
+    carry = np.zeros((data.n, len(data.treatment_levels[time - 1])))
     rows = np.arange(data.n)
     for probability, codes in assigned_codes:
         np.add.at(carry, (rows, codes[rows, observed_codes]), probability)
@@ -1111,12 +1589,25 @@ def _resolve_mtp_node(
     return carry, None, assigned_codes
 
 
-def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) -> None:
-    """Refuse a label, rule or known density at a continuous node, before any learner.
+def _component_labels(levels: Sequence[Any], index: int) -> tuple[object, ...]:
+    """The observed labels of one component of a categorical vector node, sorted."""
+    values = {level[index] for level in levels}
+    try:
+        return tuple(sorted(values))
+    except TypeError:
+        return tuple(sorted(values, key=repr))
+
+
+def refuse_continuous_assignments(
+    regimen: RegimenSpec, data: LongitudinalData, *, allow_set_dose: bool = False
+) -> None:
+    """Refuse a plan node the treatment node it sits at cannot take, before any learner.
 
     A static dose on a continuous treatment is not pathwise differentiable (Díaz, Williams,
     Hoffman and Schenck 2023, Section 4), and neither is a rule that sets one, so a
-    continuous node takes a modified treatment policy only.
+    continuous node takes a modified treatment policy only.  A mixed node, a vector with a
+    continuous component, takes a :class:`~cleverly.interventions.JointPolicy` only, which
+    says what happens to each component.  A joint policy needs a vector node.
 
     Parameters
     ----------
@@ -1124,21 +1615,77 @@ def refuse_continuous_assignments(regimen: RegimenSpec, data: LongitudinalData) 
         The resolved regimen.
     data : LongitudinalData
         The validated panel.
+    allow_set_dose : bool, default=False
+        Accept a fixed dose, a number, or a known rule that sets a dose from the history, at a
+        continuous node.  A parametric model gives either a finite-dimensional target.
 
     Raises
     ------
     CapabilityError
-        If a continuous node holds anything other than a policy object.
+        If a continuous node holds anything other than a policy object, a mixed node holds
+        anything other than a joint policy, or a joint policy sits at a node of one column.
     """
-    if not data.has_continuous_node:
-        return
     nodes = regimen.values if isinstance(regimen, Regimen) else regimen.plan
     for time, node in enumerate(nodes, start=1):
-        if data.is_continuous_node(time) and _is_tilt(node):
+        kind = data.node_kind(time)
+        name = data.decision_name(time)
+        if (
+            allow_set_dose
+            and kind == "continuous"
+            and not _is_drawn(node)
+            and (
+                callable(node)
+                or (
+                    isinstance(node, (int, float, np.integer, np.floating))
+                    and not isinstance(node, bool)
+                )
+            )
+        ):
+            continue
+        if isinstance(node, JointPolicy):
+            if kind == "mixed" or len(data.component_names(time)) > 1:
+                continue
+            raise CapabilityError(
+                f"regimen {regimen.label!r} declares the JointPolicy {node.name!r} at the "
+                f"node {name!r}, which is one column. A JointPolicy declares one policy per "
+                "component of a vector node.",
+                reason=RefusalReason.INVALID_DECLARATION,
+                alternative="Declare the component's policy itself.",
+            )
+        if kind == "mixed" and _is_tilt(node):
+            raise CapabilityError.from_refusal(tilt_mixed_refusal(regimen.label, name))
+        if kind == "continuous" and _is_tilt(node):
             raise CapabilityError.from_refusal(
                 tilt_continuous_refusal(regimen.label, data.treatment_names[time - 1])
             )
-        if data.is_continuous_node(time) and not _is_mtp(node):
+        if kind == "mixed":
+            doses = [
+                component.name for component in data.node_components(time) if component.continuous
+            ]
+            what = (
+                describe_policy(node)
+                if _is_mtp(node)
+                else "a known policy density"
+                if isinstance(node, Stochastic)
+                else "a rule"
+                if callable(node)
+                else f"the label {node!r}"
+            )
+            raise CapabilityError(
+                f"regimen {regimen.label!r} declares {what} at the vector node {name!r}, "
+                f"which holds the continuous component(s) {doses}. A vector node with a "
+                "continuous component takes a JointPolicy, one policy per component: a "
+                "static or dynamic value is not pathwise differentiable (Díaz et al. 2023, "
+                "Section 4), and a policy of one column does not say which component it "
+                "moves.",
+                reason=RefusalReason.DIFFERENT_ESTIMAND,
+                alternative=(
+                    "Declare JointPolicy(name, components={...}, policy_kind='known'). It "
+                    "answers a different question: the mean outcome when the policy moves "
+                    "each received component."
+                ),
+            )
+        if kind == "continuous" and not _is_mtp(node):
             raise CapabilityError(
                 f"regimen {regimen.label!r} sets the continuous node "
                 f"{data.treatment_names[time - 1]!r} to a fixed dose or rule. A static dose on "
@@ -1367,6 +1914,35 @@ def tilt_mix_refusal(label: str, node: str, kind: str) -> Refusal:
         "plan with such a node.",
         alternative="Fit that plan without an odds tilt by LTMLE or SDR.",
         roadmap="F33",
+    )
+
+
+def tilt_mixed_refusal(label: str, node: str) -> Refusal:
+    """The refusal of an odds tilt declared on a whole mixed vector node.
+
+    Parameters
+    ----------
+    label : str
+        The regimen label.
+    node : str
+        The decision name of the vector node.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly._refusal.RefusalReason.INVALID_DECLARATION` record.
+    """
+    return Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        f"regimen {label!r} sets the vector node {node!r}, which holds a continuous "
+        "component, by an odds tilt. An odds tilt multiplies the odds of one categorical "
+        "node, Kennedy (2019), Equation (1), and a node with a continuous component is not "
+        "one categorical node: its joint density has no odds to multiply.",
+        alternative=(
+            "Declare the component's policy inside a JointPolicy at that node, with the "
+            "randomizer on the JointPolicy and a label map per branch for a randomized "
+            "categorical component, and fit it by LTMLE."
+        ),
     )
 
 

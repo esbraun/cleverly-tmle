@@ -1,0 +1,346 @@
+{
+ "canonical": {
+  "frame": {
+   "ci_lower": [
+    1.2887356612968972,
+    1.267375193120997,
+    1.2962544709911328,
+    3.2353446798571546,
+    1.671650855088933
+   ],
+   "ci_upper": [
+    1.861714834128367,
+    1.8670363737608069,
+    1.8693570815636418,
+    3.824894183104855,
+    2.238137512447812
+   ],
+   "estimand": [
+    "ate",
+    "att",
+    "atc",
+    "ey1",
+    "ey0"
+   ],
+   "p_value": [
+    4.4397661869138555e-27,
+    1.2504467842343157e-24,
+    2.5885987233708134e-27,
+    7.91099959944985e-122,
+    1.0789048411635283e-41
+   ],
+   "psi": [
+    1.575225247712632,
+    1.567205783440902,
+    1.5828057762773873,
+    3.5301194314810047,
+    1.9548941837683724
+   ],
+   "scale": [
+    "difference",
+    "difference",
+    "difference",
+    "level",
+    "level"
+   ],
+   "std_err": [
+    0.14617084225808652,
+    0.15297760197887839,
+    0.14620233205637181,
+    0.15039804504011087,
+    0.14451455787638273
+   ]
+  },
+  "repr": "ate: 1.5752 (se 0.1462, 95% CI [1.2887, 1.8617], p=4.44e-27)",
+  "summary": "Targeted maximum likelihood estimation\n======================================\nn = 200; covariates = 4; P(A=1) = 0.48\ncausal study protocol: absent\noutcome family: gaussian; fluctuation: logistic (iterative)\nTMLE (in-sample nuisances): nuisances fitted in-sample (cross_fit=False)\npropensity truncated to [0.06673, 0.9333]; ATT/ATC to [0.025, 0.975]\noutcome scaled from [-4.018, 8.685] to [0, 1]\ndata 0b0315ac18c0eb93 | folds c0de9174a8083c77 | cleverly VERSION | TIMESTAMP\n\nestimand  psi     std_err  95% CI            p_value\n--------  ------  -------  ----------------  -------\nate       1.5752  0.1462   [1.2887, 1.8617]  <1e-4  \natt       1.5672  0.153    [1.2674, 1.867]   <1e-4  \natc       1.5828  0.1462   [1.2963, 1.8694]  <1e-4  \ney1       3.5301  0.1504   [3.2353, 3.8249]  <1e-4  \ney0       1.9549  0.1445   [1.6717, 2.2381]  <1e-4  ",
+  "to_dict": {
+   "ci_lower": 1.2887356612968972,
+   "ci_upper": 1.861714834128367,
+   "estimand": "ate",
+   "p_value": 4.4397661869138555e-27,
+   "psi": 1.575225247712632,
+   "scale": "difference",
+   "std_err": 0.14617084225808652
+  }
+ },
+ "clusters_10": {
+  "frame": {
+   "ci_lower": [
+    0.11293478875021701,
+    -0.32080405234184584,
+    0.048430178866034845,
+    0.02488363513841141,
+    -0.6789240863121431
+   ],
+   "ci_upper": [
+    2.8846999722992113,
+    3.7872110595910278,
+    2.707190810160867,
+    3.855213021438188,
+    1.561385981839313
+   ],
+   "estimand": [
+    "ate",
+    "att",
+    "atc",
+    "ey1",
+    "ey0"
+   ],
+   "p_value": [
+    0.037293755856414645,
+    0.08755276423979357,
+    0.04385492009925322,
+    0.04771522897649526,
+    0.39024167547385624
+   ],
+   "psi": [
+    1.4988173805247142,
+    1.733203503624591,
+    1.377810494513451,
+    1.9400483282882997,
+    0.44123094776358496
+   ],
+   "reference_df": [
+    8,
+    8,
+    8,
+    8,
+    8
+   ],
+   "scale": [
+    "difference",
+    "difference",
+    "difference",
+    "level",
+    "level"
+   ],
+   "std_err": [
+    0.6009887712763342,
+    0.890721540611887,
+    0.5764865272150596,
+    0.8305122544718794,
+    0.4857558652975066
+   ]
+  },
+  "repr": "ate: 1.4988 (se 0.601, t(8) 95% CI [0.11293, 2.8847], p=0.0373)",
+  "summary": "Targeted maximum likelihood estimation\n======================================\nn = 40; covariates = 2; P(A=1) = 0.425\ncausal study protocol: absent\nclusters = 10 (cluster-robust variance)\noutcome family: gaussian; fluctuation: logistic (iterative)\nTMLE (in-sample nuisances): nuisances fitted in-sample (cross_fit=False)\npropensity truncated to [0.2143, 0.7857]; ATT/ATC to [0.025, 0.975]\noutcome scaled from [-6.203, 12.95] to [0, 1]\ndata 76b8a70886ead35c | folds f88757ed6fd197c0 | cleverly VERSION | TIMESTAMP\n\nestimand  psi      std_err  95% CI              p_value  df\n--------  -------  -------  ------------------  -------  --\nate       1.4988   0.601    [0.11293, 2.8847]   0.0373   8 \natt       1.7332   0.8907   [-0.3208, 3.7872]   0.0876   8 \natc       1.3778   0.5765   [0.04843, 2.7072]   0.0439   8 \ney1       1.94     0.8305   [0.024884, 3.8552]  0.0477   8 \ney0       0.44123  0.4858   [-0.67892, 1.5614]  0.3902   8 \n\nAn estimate that reads fewer than 40 clusters with positive weight mass reports its interval and p-value on a Student t reference with J - 2 degrees of freedom, where J is the count it reads (Nugent et al. (2024), Section 2.2); a fold-evaluated estimate over V folds takes min(J - 2, J - V). The fit reads 10 such clusters, and the fewest in one reported stratum is 10. The df column gives each estimate's degrees of freedom, and 'normal' marks the normal reference. The registered few-cluster evidence uses parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex learners at about 20 clusters.\n\nno simultaneous bands: an estimate of this fit reads fewer than 40 clusters with positive weight mass and carries a t reference, and no source gives a t-calibrated band, so the fit reports pointwise intervals only.",
+  "to_dict": {
+   "ci_lower": 0.11293478875021701,
+   "ci_upper": 2.8846999722992113,
+   "estimand": "ate",
+   "p_value": 0.037293755856414645,
+   "psi": 1.4988173805247142,
+   "reference_df": 8,
+   "scale": "difference",
+   "std_err": 0.6009887712763342
+  }
+ },
+ "clusters_20": {
+  "frame": {
+   "ci_lower": [
+    0.27152841462745836,
+    0.297758439444064,
+    0.17962986632911915,
+    0.919808040736714,
+    0.12322481242183736
+   ],
+   "ci_upper": [
+    2.2562810924931593,
+    2.5434747101402673,
+    1.9718899095186437,
+    3.5314304560771808,
+    1.8002041772714388
+   ],
+   "estimand": [
+    "ate",
+    "att",
+    "atc",
+    "ey1",
+    "ey0"
+   ],
+   "p_value": [
+    0.01542460068088163,
+    0.016014257071325665,
+    0.021307209058112488,
+    0.002136502211491597,
+    0.026887285537610477
+   ],
+   "psi": [
+    1.263904753560309,
+    1.4206165747921655,
+    1.0757598879238814,
+    2.2256192484069475,
+    0.9617144948466381
+   ],
+   "reference_df": [
+    18,
+    18,
+    18,
+    18,
+    18
+   ],
+   "scale": [
+    "difference",
+    "difference",
+    "difference",
+    "level",
+    "level"
+   ],
+   "std_err": [
+    0.47235276698748685,
+    0.5344596866713228,
+    0.426541301595346,
+    0.6215419623663989,
+    0.3991055671578375
+   ]
+  },
+  "repr": "ate: 1.2639 (se 0.4724, t(18) 95% CI [0.27153, 2.2563], p=0.0154)",
+  "summary": "Targeted maximum likelihood estimation\n======================================\nn = 80; covariates = 2; P(A=1) = 0.525\ncausal study protocol: absent\nclusters = 20 (cluster-robust variance)\noutcome family: gaussian; fluctuation: logistic (iterative)\nTMLE (in-sample nuisances): nuisances fitted in-sample (cross_fit=False)\npropensity truncated to [0.1276, 0.8724]; ATT/ATC to [0.025, 0.975]\noutcome scaled from [-5.284, 9.384] to [0, 1]\ndata aecafab8c5aa452f | folds 732d9ce4ef527610 | cleverly VERSION | TIMESTAMP\n\nestimand  psi      std_err  95% CI             p_value  df\n--------  -------  -------  -----------------  -------  --\nate       1.2639   0.4724   [0.27153, 2.2563]  0.0154   18\natt       1.4206   0.5345   [0.29776, 2.5435]  0.0160   18\natc       1.0758   0.4265   [0.17963, 1.9719]  0.0213   18\ney1       2.2256   0.6215   [0.91981, 3.5314]  0.0021   18\ney0       0.96171  0.3991   [0.12322, 1.8002]  0.0269   18\n\nAn estimate that reads fewer than 40 clusters with positive weight mass reports its interval and p-value on a Student t reference with J - 2 degrees of freedom, where J is the count it reads (Nugent et al. (2024), Section 2.2); a fold-evaluated estimate over V folds takes min(J - 2, J - V). The fit reads 20 such clusters, and the fewest in one reported stratum is 20. The df column gives each estimate's degrees of freedom, and 'normal' marks the normal reference. The registered few-cluster evidence uses parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex learners at about 20 clusters.\n\nno simultaneous bands: an estimate of this fit reads fewer than 40 clusters with positive weight mass and carries a t reference, and no source gives a t-calibrated band, so the fit reports pointwise intervals only.",
+  "to_dict": {
+   "ci_lower": 0.27152841462745836,
+   "ci_upper": 2.2562810924931593,
+   "estimand": "ate",
+   "p_value": 0.01542460068088163,
+   "psi": 1.263904753560309,
+   "reference_df": 18,
+   "scale": "difference",
+   "std_err": 0.47235276698748685
+  }
+ },
+ "clusters_39": {
+  "frame": {
+   "ci_lower": [
+    0.1750361713356401,
+    0.2935194174194171,
+    -0.0334107933929626,
+    0.9661788174690706,
+    0.3186840815890559
+   ],
+   "ci_upper": [
+    2.561097691414761,
+    2.383963794995911,
+    2.8280814554056004,
+    3.61348155847302,
+    1.524842431602633
+   ],
+   "estimand": [
+    "ate",
+    "att",
+    "atc",
+    "ey1",
+    "ey0"
+   ],
+   "p_value": [
+    0.025755550718274872,
+    0.013474951884568213,
+    0.0553090662769939,
+    0.001213303977865734,
+    0.0037200443537238246
+   ],
+   "psi": [
+    1.3680669313752005,
+    1.338741606207664,
+    1.3973353310063188,
+    2.289830187971045,
+    0.9217632565958445
+   ],
+   "reference_df": [
+    37,
+    37,
+    37,
+    37,
+    37
+   ],
+   "scale": [
+    "difference",
+    "difference",
+    "difference",
+    "level",
+    "level"
+   ],
+   "std_err": [
+    0.5888042630738088,
+    0.5158553335183493,
+    0.7061254794425353,
+    0.6532703060809669,
+    0.29764160414712015
+   ]
+  },
+  "repr": "ate: 1.3681 (se 0.5888, t(37) 95% CI [0.17504, 2.5611], p=0.0258)",
+  "summary": "Targeted maximum likelihood estimation\n======================================\nn = 156; covariates = 2; P(A=1) = 0.5256\ncausal study protocol: absent\nclusters = 39 (cluster-robust variance)\noutcome family: gaussian; fluctuation: logistic (iterative)\nTMLE (in-sample nuisances): nuisances fitted in-sample (cross_fit=False)\npropensity truncated to [0.07927, 0.9207]; ATT/ATC to [0.025, 0.975]\noutcome scaled from [-7.028, 11.25] to [0, 1]\ndata 69ff494f0d2ddcd9 | folds 73c52f0c8fa5a005 | cleverly VERSION | TIMESTAMP\n\nestimand  psi      std_err  95% CI               p_value  df\n--------  -------  -------  -------------------  -------  --\nate       1.3681   0.5888   [0.17504, 2.5611]    0.0258   37\natt       1.3387   0.5159   [0.29352, 2.384]     0.0135   37\natc       1.3973   0.7061   [-0.033411, 2.8281]  0.0553   37\ney1       2.2898   0.6533   [0.96618, 3.6135]    0.0012   37\ney0       0.92176  0.2976   [0.31868, 1.5248]    0.0037   37\n\nAn estimate that reads fewer than 40 clusters with positive weight mass reports its interval and p-value on a Student t reference with J - 2 degrees of freedom, where J is the count it reads (Nugent et al. (2024), Section 2.2); a fold-evaluated estimate over V folds takes min(J - 2, J - V). The fit reads 39 such clusters, and the fewest in one reported stratum is 39. The df column gives each estimate's degrees of freedom, and 'normal' marks the normal reference. The registered few-cluster evidence uses parametric nuisance learners; Wang et al. (2024), Remark 3, caution against complex learners at about 20 clusters.\n\nno simultaneous bands: an estimate of this fit reads fewer than 40 clusters with positive weight mass and carries a t reference, and no source gives a t-calibrated band, so the fit reports pointwise intervals only.",
+  "to_dict": {
+   "ci_lower": 0.1750361713356401,
+   "ci_upper": 2.561097691414761,
+   "estimand": "ate",
+   "p_value": 0.025755550718274872,
+   "psi": 1.3680669313752005,
+   "reference_df": 37,
+   "scale": "difference",
+   "std_err": 0.5888042630738088
+  }
+ },
+ "clusters_40": {
+  "frame": {
+   "ci_lower": [
+    0.11441968426980531,
+    0.3609092517529833,
+    -0.2683325768388434,
+    0.6747403984577356,
+    0.0640946185427903
+   ],
+   "ci_upper": [
+    2.390318808680859,
+    2.466010056328926,
+    2.4050077159263066,
+    3.2834272596076244,
+    1.389334546571905
+   ],
+   "estimand": [
+    "ate",
+    "att",
+    "atc",
+    "ey1",
+    "ey0"
+   ],
+   "p_value": [
+    0.031002828978960506,
+    0.008487974300502356,
+    0.11722996784811979,
+    0.0029408048513562116,
+    0.031590867047834974
+   ],
+   "psi": [
+    1.252369246475332,
+    1.4134596540409545,
+    1.0683375695437316,
+    1.97908382903268,
+    0.7267145825573476
+   ],
+   "scale": [
+    "difference",
+    "difference",
+    "difference",
+    "level",
+    "level"
+   ],
+   "std_err": [
+    0.5805971799387784,
+    0.537025379338781,
+    0.6819870961538368,
+    0.6654935707306048,
+    0.33807762246715706
+   ]
+  },
+  "repr": "ate: 1.2524 (se 0.5806, 95% CI [0.11442, 2.3903], p=0.031)",
+  "summary": "Targeted maximum likelihood estimation\n======================================\nn = 160; covariates = 2; P(A=1) = 0.5375\ncausal study protocol: absent\nclusters = 40 (cluster-robust variance)\noutcome family: gaussian; fluctuation: logistic (iterative)\nTMLE (in-sample nuisances): nuisances fitted in-sample (cross_fit=False)\npropensity truncated to [0.07789, 0.9221]; ATT/ATC to [0.025, 0.975]\noutcome scaled from [-11.4, 12.48] to [0, 1]\ndata 22fa992ef719d43e | folds d4d01339aadb75fa | cleverly VERSION | TIMESTAMP\n\nestimand  psi      std_err  95% CI              p_value\n--------  -------  -------  ------------------  -------\nate       1.2524   0.5806   [0.11442, 2.3903]   0.0310 \natt       1.4135   0.537    [0.36091, 2.466]    0.0085 \natc       1.0683   0.682    [-0.26833, 2.405]   0.1172 \ney1       1.9791   0.6655   [0.67474, 3.2834]   0.0029 \ney0       0.72671  0.3381   [0.064095, 1.3893]  0.0316 ",
+  "to_dict": {
+   "ci_lower": 0.11441968426980531,
+   "ci_upper": 2.390318808680859,
+   "estimand": "ate",
+   "p_value": 0.031002828978960506,
+   "psi": 1.252369246475332,
+   "scale": "difference",
+   "std_err": 0.5805971799387784
+  }
+ }
+}

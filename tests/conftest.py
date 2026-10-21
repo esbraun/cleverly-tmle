@@ -64,19 +64,32 @@ def pytest_configure(config: pytest.Config) -> None:
     _check_source_matches_checkout()
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Keep one study's evidence checks on one xdist worker.
+    """Run one study's evidence checks together, on one xdist worker.
 
-    The evidence module reads and summarizes the same immutable artifacts in several tests.
-    Grouping by registered study lets its process-local caches remove that duplicate work.
-    A serial run ignores the marker, so grouping changes scheduling and not correctness.
+    The evidence module reads and summarizes the same immutable artifacts in several tests,
+    and it holds the frames of one study at a time. So this hook does two things:
+
+    - It marks each study's tests with one ``xdist_group``. ``tryfirst`` matters: xdist reads
+      the marker in its own hook of this name, and without it xdist ran first and saw no mark.
+    - It sorts the module's tests by study, keeping their order otherwise, so that a serial
+      run also meets each study once.
+
+    Grouping changes scheduling and not correctness.
     """
-    for item in items:
-        if item.path.name != "test_method_evidence.py" or not hasattr(item, "callspec"):
-            continue
-        study = item.callspec.params.get("study")
-        if study is not None:
-            item.add_marker(pytest.mark.xdist_group(study.slug))
+    positions = [i for i, item in enumerate(items) if item.path.name == "test_method_evidence.py"]
+
+    def slug(item: pytest.Item) -> str:
+        callspec = getattr(item, "callspec", None)
+        study = callspec.params.get("study") if callspec is not None else None
+        return "" if study is None else str(study.slug)
+
+    ordered = sorted((items[i] for i in positions), key=slug)
+    for position, item in zip(positions, ordered, strict=True):
+        items[position] = item
+        if slug(item):
+            item.add_marker(pytest.mark.xdist_group(slug(item)))
 
 
 class _AdaptiveMean(BaseEstimator):
@@ -867,3 +880,28 @@ def assert_estimate_coherent(
         f"different branches, and this is where a scale confusion in either surfaces"
     )
     assert 0.0 <= pvalue <= 1.0, f"{name}: p={pvalue}"
+
+
+@pytest.fixture
+def exact_grid_law(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn off the undeclared-atom refusal (R-b4) for a fit on an exact grid law.
+
+    The exact oracles have finite support, so every grid dose is a recorded point mass and
+    R-b4 refuses the fit.  The fixture sets the private seam
+    ``cleverly.interventions.policy._ATOM_CHECK`` to ``False``.  The seam gates the refusal
+    only: the fit still runs the shipped density, ratio and design code.  No public object
+    reaches the seam (``tests/unit/test_mtp_atoms.py``, T-s1).
+    """
+    import cleverly.interventions.policy as policy_module
+
+    monkeypatch.setattr(policy_module, "_ATOM_CHECK", False)
+
+
+@pytest.fixture(scope="module")
+def exact_grid_law_module() -> Any:
+    """:func:`exact_grid_law` for a module-scoped fixture that fits a grid law."""
+    import cleverly.interventions.policy as policy_module
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(policy_module, "_ATOM_CHECK", False)
+        yield

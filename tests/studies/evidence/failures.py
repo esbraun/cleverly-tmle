@@ -946,7 +946,9 @@ def _rows(
             "leg": leg.name,
             "complete_case": leg.complete_case,
             "worst_case": leg.worst_case,
-            "imputation": leg.imputation,
+            # A bound leg names no imputation.  The CSV writes NaN as an empty cell, and the
+            # artifact reads back NaN, so the in-memory frame matches the committed one.
+            "imputation": leg.imputation or math.nan,
             "leg_passed": leg.passed,
             "gate_passed": passed,
             "reason": reason,
@@ -1178,8 +1180,11 @@ def hook_accounting(
     base = {
         "table": "hook",
         "implementation": "+".join(sides),
-        "scenario": "",
-        "estimand": "",
+        # A hook audit has no scenario, estimand or imputation.  The CSV writes NaN as an empty
+        # cell and reads an empty column back as NaN, so the in-memory frame matches the
+        # committed one.
+        "scenario": math.nan,
+        "estimand": math.nan,
         "requested": record.replicates,
         "failed": failed,
         "rate": math.nan,
@@ -1188,7 +1193,7 @@ def hook_accounting(
         "dropped_replications": failed,
         "complete_case": math.nan,
         "worst_case": math.nan,
-        "imputation": "",
+        "imputation": math.nan,
         "witness_failed_error": math.nan,
         "witness_succeeded_error": math.nan,
         "subject_failed": counts[record.implementation],

@@ -55,7 +55,8 @@ where :math:`h` is the *clever covariate*.  Its form depends on the target:
 ``ipsi``
     One column per *tilt of the mechanism*,
     :math:`h_r(A, W) = q_{\delta_r}(A \mid W) / (g(A \mid W)\,\pi(A, W))`, where
-    :math:`q_\delta` multiplies the odds of treatment by :math:`\delta`.  Entry for entry
+    :math:`q_\delta` multiplies the odds of treatment level :math:`a` by the factor
+    :math:`\delta_a` (one factor per level, so one scalar on two levels).  Entry for entry
     this is what ``regime`` builds at the density :math:`q_\delta`, and the two are
     nonetheless separate groups: :math:`q_\delta` is a functional of :math:`P`, so the
     influence curve carries a further term and the estimator must fluctuate the mechanism
@@ -145,6 +146,7 @@ __all__ = [
     "atc_submodel",
     "att_submodel",
     "check_arms",
+    "derivative_columns",
     "ipsi_submodel",
     "mean_submodel",
     "msm_submodel",
@@ -680,7 +682,10 @@ def ipsi_submodel(
     .. math::
 
         h_r(A, W) = \frac{q_{\delta_r}(A \mid W)}{g(A \mid W)\,\pi(A, W)}
-                  = \frac{\delta_r A + 1 - A}{\bigl(\delta_r g(W) + 1 - g(W)\bigr)\,\pi(A, W)}
+                  = \frac{\delta_{r,A}}{\bigl(\sum_b \delta_{r,b}\, g(b \mid W)\bigr)\,\pi(A, W)}
+
+    On two levels :math:`\delta_r = \delta_{r,1}/\delta_{r,0}` gives Kennedy's
+    :math:`(\delta_r A + 1 - A)/\{(\delta_r g + 1 - g)\,\pi\}`.
 
     with :math:`\pi(A, W) = P(\Delta = 1 \mid A, W)`, one where no outcome is missing.
 
@@ -696,15 +701,17 @@ def ipsi_submodel(
     **This is only half of the targeting.** Fluctuating :math:`\bar Q` along these columns
     solves the first of two score equations; the second lives in the tangent space of the
     treatment mechanism and is solved by
-    :func:`~cleverly.fluctuation.mechanism.fit_mechanism`, whose covariate is the blip
-    weighted by :attr:`~cleverly.interventions.IPSISet.derivative`.  See
-    :func:`~cleverly.fluctuation.mechanism.solve_ipsi` for the alternation between them.
+    :func:`~cleverly.fluctuation.mechanism.ipsi_mechanism_covariate`: the blip weighted by
+    :attr:`~cleverly.interventions.IPSISet.binary_derivative` on two levels, and
+    :math:`h_r(a)\{\bar Q(a) - m_r\}` on three or more.  The alternation between the two
+    equations is :func:`~cleverly.estimators.targeting.solve_with_mechanism`.
 
     Parameters
     ----------
     incremental:
         ``(n, K, R)``: ``incremental[i, j, r]`` is
         :math:`q_{\delta_r}(\text{arms}[j] \mid W_i) / g(\text{arms}[j] \mid W_i)`,
+        :attr:`~cleverly.interventions.IPSISet.weights`,
         precomputed by :class:`~cleverly.interventions.IPSISet` in the form where the
         mechanism has cancelled.
     propensity:
@@ -1440,6 +1447,96 @@ def stitch(pieces: Sequence[tuple[IntArray, Submodel]], n: int) -> Submodel:
     return replace(first, observed=observed, arms=arms)
 
 
+def derivative_columns(
+    submodel: Submodel,
+    ratio: FloatArray,
+    treatment: FloatArray,
+    observed: BoolArray | None = None,
+) -> tuple[Submodel, FloatArray]:
+    r"""Append one derivative column per arm to a ``mean`` submodel, normalized.
+
+    The C-TMLE0 fluctuation (Ju et al., C-LASSO, Section 4.2, equation (6); R ``ctmle``
+    ``ctmletype = 3``) adds, for each arm, the derivative of that arm's clever covariate
+    along a path of treatment mechanisms through ``g``.  Along a path ``g_t`` the chain
+    rule gives
+
+    .. math::
+
+        \frac{d}{dt} \frac{1}{g_{a,t}\,\pi_a} = -\frac{1}{g_a\,\pi_a}
+            \frac{\dot g_a}{g_a},
+
+    and the finite difference ``g - g^+`` towards a partner mechanism stands in for
+    :math:`-\dot g`.  So arm ``a``'s derivative column is :math:`h_a r_a` with
+    :math:`r_a = (g_a - g^+_a)/g_a`, at the observed treatment and in arm ``a``'s
+    counterfactual block alike.  With complete data it is
+    :math:`\mathbb 1\{A = a\}(g_a - g^+_a)/g_a^2`, R's ``ddH1W`` and ``ddH0W``, sign
+    included.
+
+    Each derivative column enters the fit only through its span, so it is divided by its
+    root mean square over the rows with ``A = a`` and an observed outcome.  The targeted
+    fit does not change, and the solver sees columns of comparable size.  Multiply a
+    derivative coefficient by the returned factor's reciprocal to read it on R's scale.
+
+    Parameters
+    ----------
+    submodel : Submodel
+        A ``mean`` submodel, one column per arm, built at the bounded mechanism.
+    ratio : ndarray
+        ``(n, K)``: :math:`r_a` per row and arm, in ``submodel.levels`` order, built from
+        the bounded mechanism and the bounded partner.
+    treatment : ndarray
+        The arm codes, length ``n``.
+    observed : ndarray or None
+        The rows with an observed outcome; ``None`` means every row.
+
+    Returns
+    -------
+    Submodel
+        The ``2K`` columns ``h_a`` then ``dh_a``, group ``"mean"``, with the arm columns
+        of ``submodel``.
+    ndarray
+        The ``K`` normalization factors, one per arm.
+    """
+    if submodel.group != "mean" or len(submodel.arm_columns) != submodel.dim:
+        raise ValueError(
+            "derivative columns extend the one-column-per-arm 'mean' submodel; got the "
+            f"{submodel.group!r} submodel with {submodel.dim} column(s)"
+        )
+    levels = submodel.levels
+    n, k = submodel.n, len(levels)
+    r = np.asarray(ratio, dtype=float)
+    if r.shape != (n, k):
+        raise ValueError(f"ratio must have shape ({n}, {k}); got {r.shape}")
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    mask = np.ones(n, dtype=bool) if observed is None else np.asarray(observed, dtype=bool)
+    scale = np.empty(k)
+    observed_columns = []
+    blocks = {level: np.zeros((n, k)) for level in levels}
+    for j, level in enumerate(levels):
+        column = submodel.arm_columns[level]
+        derivative = submodel.observed[:, column] * r[:, j]
+        rows = (a == level) & mask
+        rms = float(np.sqrt(np.mean(derivative[rows] ** 2))) if rows.any() else 0.0
+        if not np.isfinite(rms) or rms <= 0.0:
+            raise ValueError(
+                f"the derivative column of arm {level:g} is zero on every row with that "
+                "treatment and an observed outcome"
+            )
+        scale[j] = rms
+        observed_columns.append(derivative / rms)
+        blocks[level][:, j] = submodel.arms[level][:, column] * r[:, j] / rms
+    return (
+        Submodel(
+            np.column_stack([submodel.observed, *observed_columns]),
+            {level: np.column_stack([submodel.arms[level], blocks[level]]) for level in levels},
+            (*submodel.names, *(f"dh{level:g}" for level in levels)),
+            "mean",
+            dict(submodel.arm_columns),
+        ),
+        scale,
+    )
+
+
 def stratum_multipliers(strata: IntArray, probabilities: Sequence[float]) -> list[FloatArray]:
     r"""``I(S = s) / P_n(S = s)`` for each stratum code ``s``, in code order.
 
@@ -1463,13 +1560,19 @@ def stratify_columns(
     with a row-wise covariate takes its stratum form through this function: the outcome
     blocks of :func:`stratify`, the treatment-mechanism blocks of the incremental tilt, and
     the blocks of the DR-TMLE equations.
+
+    A ``(n, K, R)`` matrix is the covariate of the softmax mechanism equation, with one
+    ``(n, K)`` slab per score column.  It stratifies along the last axis and gives
+    ``(n, K, R S)`` with the same stratum-major layout, so each stratum owns ``R`` score
+    columns.
     """
     values = np.asarray(matrix, dtype=float)
+    multipliers = stratum_multipliers(strata, probabilities)
+    if values.ndim == 3:
+        return np.concatenate([values * m[:, None, None] for m in multipliers], axis=2)
     if values.ndim == 1:
         values = values[:, None]
-    return np.hstack(
-        [values * multiplier[:, None] for multiplier in stratum_multipliers(strata, probabilities)]
-    )
+    return np.hstack([values * multiplier[:, None] for multiplier in multipliers])
 
 
 def stratify(

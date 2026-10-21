@@ -1,0 +1,167 @@
+{
+  "schema_version": 2,
+  "study": "outcome-adaptive per-arm C-TMLE with a parametric outcome",
+  "slug": "ctmle-oat-per-arm-parametric",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-ctmle-oat-per-arm-parametric",
+      "cleverly_version": "0.1.3",
+      "cleverly_commit": "d1c76285e1cf015e9efadbf5ae9c865f93bfd671",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 800,
+    "n": 1500,
+    "seed": 20261158,
+    "resampling_seed": 2026115801,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-ctmle-oat-per-arm-parametric": 0.01
+    },
+    "scenarios": {
+      "binary_active": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ]
+    },
+    "strategy": "oat",
+    "oat_design": "per_arm",
+    "cross_fit": false,
+    "simultaneous_intervals": false,
+    "outcome_learner": "ParametricOutcome: unpenalized logistic GLM on [A indicators, W, A x W] (quasi-binomial on the scaled outcome when q_bounds is declared)",
+    "treatment_learner": "ParametricMechanism: per arm, unpenalized logistic regression of 1{A = a} on the cubic in l = logit(clip(Qbar(a, W), 1e-6, 1 - 1e-6)); the kappa cell also fits the linear basis",
+    "g_bounds": [
+      0.01,
+      0.99
+    ],
+    "g_bounds_by_cell": {
+      "bounds_active": [
+        0.05,
+        0.95
+      ],
+      "auto_bounds": "auto"
+    },
+    "q_bounds_by_cell": {
+      "bounded_outcome": [
+        2.0,
+        10.0
+      ]
+    },
+    "covariates_by_cell": {
+      "pseudo_true": [
+        "W2",
+        "W3"
+      ]
+    },
+    "max_iter": 100,
+    "tol": 1e-10,
+    "random_state": 0,
+    "primary": {
+      "scenario": "binary_active",
+      "n": 1500,
+      "replicates": 800,
+      "estimands": [
+        "ey0",
+        "ey1",
+        "ate",
+        "rr",
+        "or"
+      ],
+      "law": "binary_active of tests.studies.oat_per_arm_laws"
+    },
+    "comparator": "none: Python property evidence, no comparator",
+    "comparator_reason": "drtmle's adapt_g reports the shipped curve, so no R program measures the corrected curve; R parity of the point estimate carries through test_parametric_learners.py",
+    "budgets": {
+      "binary_active": 17200,
+      "ladder_500": 63600,
+      "ladder_2000": 8400,
+      "ladder_8000": 9200,
+      "shared_prognosis": 10000,
+      "kappa_law": 19600,
+      "bounds_active": 12400,
+      "auto_bounds": 9200,
+      "bounded_outcome": 16400,
+      "pseudo_true": 7600,
+      "generated_design": 9200,
+      "sharp_null": 800,
+      "power": 1200
+    },
+    "budget_rule": "predictive rule with tau_80 = 0.0080 pooled over the study's gated rows; each row centred on its own pilot SE ratio with variance s^2 + tau_80^2; each of the 12 gated calibration groups sized to the smallest multiple of 400 with pass probability >= 0.95 ** (1 / 12), so the study passes with probability >= 0.95; sharp_null and power are sized in this module's BUDGETS comment",
+    "failure_bounds": {
+      "declared": 0.01,
+      "applied": "0.01 in both phases: a cell may lose floor(0.01 R) replicates, and each clause is judged by its worst case over the lost values; one more lost replicate reads bound exceeded. A fit that raises, and an admitted fit whose stack status is not influence_curve, both count as failed replicates"
+    },
+    "shrunken_se_factor": 0.7,
+    "calibration_efficiency_ratio": "False: the noise control reads the SE-ratio rule, and no cell claims a ratio against an efficiency bound",
+    "declared_reading": "A red calibration row is finite-sample only under the AGENT-BRIEF rule (its 99% SE-ratio interval contains 1, its coverage is consistent with 0.95, and diagnosis finds no defect). shipped_curve_control and cross_term_dropped_control must be red, that is, their SE-ratio intervals must leave the calibration band below and above. The harness publishes passed=True for such a control. If either control stays inside or straddles the band, its cell cannot see its term, the study is invalid, and it is redesigned before any reading. The coverage of psi_0 in the pseudo-true cell, the sqrt(n) SD of the ladder and the Monte Carlo covariance of the arm means are reported and gate nothing.",
+    "negative_controls": {
+      "binary_active__ate__shipped_curve__shrunken_se_control": "below",
+      "shared_prognosis__ate__cross_term_dropped__inflated_se_control": "above"
+    },
+    "negative_control_expected_se_ratio": {
+      "shipped_curve_control": 0.845,
+      "cross_term_dropped_control": 1.228
+    },
+    "publication_reading": "gated: every row must pass, and a negative control passes by being red",
+    "family_mapping": "the ladder and the joint cells are interval_calibration cells named <label>__<estimand>__corrected, so the shared calibration verdict applies per estimand; the covariance is reported on the shared-prognosis ate row",
+    "failure_probe": "pilot of 5,000 draws per cell (plan section 11): no separation refusal, no stack failure, largest recomputed-Q* gap 4.4e-16",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_ctmle_oat_per_arm_parametric.py": "9b9a176295e91541e1bcf9b77f02147ad43b43ceeff74257365b3e35450b62b4",
+    "tests/studies/ctmle_oat_per_arm_parametric_properties.py": "7cdbfe68a83e6015f8082ac0aa670ba31fa166c9f7a393f88fc1c19af2e074aa",
+    "tests/studies/oat_parametric_quadrature.py": "df5bc30312d2e257147321c963632bc0c7b1323db3bc4ea2f88a5e3c5e88d7bf",
+    "tests/studies/oat_per_arm_laws.py": "081894d3d80766dbef1ea2ab44b39020ac3006ce604d1a732f0a3a414a197c2c",
+    "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
+    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "86a8ccd08e4c3348ff6253c9e5fcdcf31f866217c3e899a52817a31986c9cc28",
+    "summary.csv": "843d3e867cf1b3b842c71c5de16957566851e4f5768d95b1d8762b3ba8b75257",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "c1382f280d13dd602e256eca6cbb96e0548b17234bc966a53ebbb6eeaaab4435",
+    "property-replicates.csv.gz": "1131c54b22cc22eeadc8b286d514e7e6e1c1f7aeb8e836b55cf9825543bb426e",
+    "properties.csv": "6d1ad0b44c86de28ff21e48dced6943e4974aa8bd90ab4b5f02378f1cfd882e2"
+  }
+}

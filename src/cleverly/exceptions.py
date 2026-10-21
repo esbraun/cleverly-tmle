@@ -26,11 +26,13 @@ __all__ = [
     "DataWarning",
     "LongitudinalError",
     "MethodConfigurationError",
+    "MonteCarloWarning",
     "NotFittedError",
     "ParameterSpaceWarning",
     "PositivityWarning",
     "Refusal",
     "RefusalReason",
+    "SparseInfluenceWarning",
     "VersionMismatchWarning",
     "WeightingWarning",
     "inference_refusal",
@@ -201,6 +203,16 @@ class WeightingWarning(UserWarning):
     """
 
 
+class MonteCarloWarning(UserWarning):
+    """The simulation error is a large share of a parametric g-formula interval.
+
+    The parametric g-formula evaluates its estimand by simulating ``n_draws`` histories per unit.
+    The interval already includes that error.  A share above the warning threshold says that
+    more draws narrow the interval at no cost in bias.  ``result.simulation.monte_carlo_share``
+    holds the share of each parameter.
+    """
+
+
 class ParameterSpaceWarning(UserWarning):
     """An estimate left the range of the parameter it estimates.
 
@@ -216,6 +228,17 @@ class PositivityWarning(UserWarning):
     Practical positivity violations inflate the influence curve and can make
     the influence-curve based confidence intervals anti-conservative. See
     :mod:`cleverly.sensitivity.positivity` for diagnostics.
+    """
+
+
+class SparseInfluenceWarning(UserWarning):
+    """A few rows carry the influence curve, so the Wald interval may under-cover.
+
+    The warning fires when :math:`\\sqrt{(\\hat\\kappa - 1)/n} > 0.125`, with
+    :math:`\\hat\\kappa` the raw kurtosis of the influence curve. That is close to a Kish
+    effective sample size :math:`n / \\hat\\kappa` below 64. The threshold was set after
+    the X39 pilots were read. ``result.diagnostics.influence()`` reports the measures per
+    estimate.
     """
 
 
@@ -240,7 +263,7 @@ def capitalize_first(clause: str) -> str:
 
 
 def inference_refusal(operation: str, status: str) -> Refusal:
-    """The refusal of an inferential operation at a non-inferential status.
+    """The refusal of an inferential operation at a status that withholds its interval.
 
     One record for the raise in :func:`refuse_inference` and for a capability row that
     declares the same refusal before the call, so the row and the raise cannot disagree.
@@ -258,7 +281,7 @@ def inference_refusal(operation: str, status: str) -> Refusal:
     Refusal
         A record with the code the status declares (most statuses declare
         :attr:`~cleverly._refusal.RefusalReason.INFERENCE_GAP`): the operation and the
-        reason :data:`~cleverly._inference_status.NON_INFERENTIAL` records for ``status``,
+        reason :data:`~cleverly._inference_status.STATUS_RECORDS` records for ``status``,
         then that record's alternative.
     """
     record = status_record(status)
@@ -277,16 +300,16 @@ def refuse_inference(status: str, *, operation: str) -> None:
     ----------
     status : str
         The estimate's declared
-        :data:`~cleverly.inference.influence.InferenceStatus`. Only
-        ``"influence_curve"`` passes.
+        :data:`~cleverly.inference.influence.InferenceStatus`. ``"influence_curve"`` and a
+        status that shows its interval pass.
     operation : str
         The refused accessor, named as the caller writes it.
 
     Raises
     ------
     CapabilityError
-        When the estimate declares any status other than ``"influence_curve"``. The
-        error carries :func:`inference_refusal`.
+        When the estimate declares a status that withholds its interval. The error carries
+        :func:`inference_refusal`.
     """
     if not supplies_inference(status):
         raise CapabilityError.from_refusal(inference_refusal(operation, status))
