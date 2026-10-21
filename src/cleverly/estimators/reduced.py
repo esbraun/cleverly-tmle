@@ -844,6 +844,7 @@ def _reduced_column(
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
     companion_strata: IntArray | None = None,
+    constant_folds: list[int] | None = None,
 ) -> tuple[FloatArray, FloatArray | None]:
     """One reduced regression, out of fold, on a one- or two-column design.
 
@@ -865,6 +866,11 @@ def _reduced_column(
     and at its companion rows (``companion_strata``), and stitched.  A stratum's equations
     (9) and (10) then condition on ``(g_n(W), S)``, so they separate by stratum as the
     blocks that solve them do.  Without strata the path is the pooled one, unchanged.
+
+    ``constant_folds`` is :func:`~cleverly.estimators._nuisance.cross_fit_companion`'s list of
+    training folds whose positive-weight rows hold one binary target value, which then fit no
+    learner.  ``None``, the default of every caller but :class:`~cleverly.AdaptiveIPTW`, fits
+    the learner on every fold.
     """
     if data.strata is not None:
         return _stratified_column(
@@ -881,6 +887,7 @@ def _reduced_column(
             n_jobs=n_jobs,
             diagnostics=diagnostics,
             companion_strata=companion_strata,
+            constant_folds=constant_folds,
         )
     return _pooled_column(
         learner,
@@ -895,6 +902,7 @@ def _reduced_column(
         clip=clip,
         n_jobs=n_jobs,
         diagnostics=diagnostics,
+        constant_folds=constant_folds,
     )
 
 
@@ -913,6 +921,7 @@ def _stratified_column(
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
     companion_strata: IntArray | None,
+    constant_folds: list[int] | None = None,
 ) -> tuple[FloatArray, FloatArray | None]:
     """:func:`_reduced_column` fitted inside each baseline stratum, then stitched."""
     assert data.strata is not None
@@ -940,6 +949,7 @@ def _stratified_column(
                 clip=clip,
                 n_jobs=n_jobs,
                 diagnostics=diagnostics,
+                constant_folds=constant_folds,
             )
         except ValueError as error:
             # The preflight checks the outer training complements only.  A nested fold inside
@@ -976,6 +986,7 @@ def _pooled_column(
     clip: tuple[float, float] | None,
     n_jobs: int,
     diagnostics: list[SuperLearnerDiagnostics],
+    constant_folds: list[int] | None = None,
 ) -> tuple[FloatArray, FloatArray | None]:
     """:func:`_reduced_column` on every fitting row, without strata."""
     matrix = _as_reduced_design(design)
@@ -1007,6 +1018,7 @@ def _pooled_column(
         groups=data.cluster,
         clip=clip,
         n_jobs=n_jobs,
+        constant_folds=constant_folds,
     )
     diagnostics.extend(fitted)
     return predictions["values"], (None if elsewhere is None else at_companion["values"])

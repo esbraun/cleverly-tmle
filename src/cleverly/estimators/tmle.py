@@ -2024,7 +2024,7 @@ class TMLE:
                     extra = draw_extra
 
         # The construction this fit ran, which every reader of the result branches on.
-        extra = {**extra, "missing_data": missing_data_route(self, data)}
+        extra = {**extra, "missing_data": self._missing_data_route(data, estimands)}
         self._warn_on_positivity(data, nuisances[0], config, intermediate_value)
         self._warn_on_estimated_weights(data)
 
@@ -2168,6 +2168,27 @@ class TMLE:
             )
         record_fit(classification, result, source="TMLE._fit_single")
         return result
+
+    def _missing_data_route(self, data: CausalData, estimands: tuple[str, ...]) -> str:
+        """The construction this fit records under ``extra["missing_data"]``.
+
+        A hook so that an estimator with its own route rule records it without a copy of
+        :meth:`_fit_single`. ``estimands`` is the resolved target list of the fit.
+
+        Parameters
+        ----------
+        data : CausalData
+            The prepared data.
+        estimands : tuple of str
+            The resolved targets. This route rule does not read them.
+
+        Returns
+        -------
+        str
+            One of :data:`~cleverly.estimators.composite.MissingDataRoute`.
+        """
+        del estimands
+        return missing_data_route(self, data)
 
     def _targeted_draw(
         self,
@@ -3221,7 +3242,11 @@ class TMLE:
             data, estimands
         ):
             return
-        names = {"collaborative_tmle": "C-TMLE", "drtmle": "DR-TMLE"}
+        names = {
+            "collaborative_tmle": "C-TMLE",
+            "drtmle": "DR-TMLE",
+            "adaptive_iptw": "AdaptiveIPTW",
+        }
         self._check_training_support(
             data,
             folds,
@@ -3805,6 +3830,7 @@ class TMLE:
         companion: CausalData | None = None,
         fit_treatment: bool = True,
         fit_treatment_observation: bool = True,
+        fit_outcome: bool = True,
     ) -> NuisanceEstimates:
         outcome_task: Task = "classification" if data.family == "binomial" else "regression"
         msm = self._msm(data)
@@ -3871,6 +3897,7 @@ class TMLE:
             fit_treatment=fit_treatment,
             fit_treatment_observation=fit_treatment_observation,
             outcome_by_arm=self.outcome_by_arm,
+            fit_outcome=fit_outcome,
         )
         if tuned is not None:
             assert estimates.policies is not None

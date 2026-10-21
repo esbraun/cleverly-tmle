@@ -70,6 +70,7 @@ from .._refusal import NO_ALTERNATIVE, Refusal, RefusalReason
 from .._typing import FloatArray
 from ..data.validate import MISSING_OUTCOME_DECLARATION
 from ..estimators._nuisance import tilt_missingness
+from ..estimators.iptw import OPERATION_REFUSALS
 from ..exceptions import CapabilityError, refuse_inference
 from ..inference.delta import wald_ci
 from ..inference.influence import spread_name
@@ -169,6 +170,13 @@ def _refuse_natural_course(result: Any) -> Refusal | None:
         ),
         roadmap="X65",
     )
+
+
+def _refuse_adaptive_iptw(result: Any) -> Refusal | None:
+    """Refuse an AdaptiveIPTW fit, which has no outcome regression to tilt."""
+    if getattr(result, "fitted_method", None) == "adaptive_iptw":
+        return OPERATION_REFUSALS["missingness_tilt"]
+    return None
 
 
 def _refuse_learned_rule(result: Any) -> Refusal | None:
@@ -296,6 +304,7 @@ def _refuse_untiltable_parameters(result: Any) -> Refusal | None:
 #: message.
 _FIT_WIDE_TILT_RULES: tuple[tuple[str, Callable[[Any], Refusal | None]], ...] = (
     ("longitudinal", _refuse_longitudinal),
+    ("adaptive_iptw", _refuse_adaptive_iptw),
     ("learned_rule", _refuse_learned_rule),
     ("natural_course", _refuse_natural_course),
     ("missing_outcome", _refuse_complete_outcome),
