@@ -671,6 +671,8 @@ EXCLUDED_HOOKS: dict[str, str] = {
         "the replay gates, which compare the full-sample construction and the final step "
         "with R on R's own arrays"
     ),
+    "mtp-boundaries": "the lmtp exactness witnesses of the boundaries_ltmle and boundaries_sdr scenarios",
+    "mtp-pricing": "the lmtp exactness witnesses of every scenario",
 }
 
 #: The artefacts :func:`red_rows` reads, by the short names ``claims.ARTIFACTS`` uses.
