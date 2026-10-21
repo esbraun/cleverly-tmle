@@ -46,7 +46,7 @@ estimate, the delta-method standard error of ``psi``.  The SE ratio of a ratio c
 compares ``mean(psi_n SE(log psi_n))`` with the empirical SD of ``psi_n``.  The first summary
 of the rerun omitted this step and published SE ratios of 0.559 (``rr``) and 0.322 (``or``)
 for ``missing_outcome_crossfit``.  ``properties.csv`` was summarized again from the committed
-``property-replicates.csv.gz`` without a new fit;
+``property-replicates.parquet`` without a new fit;
 :data:`~tests.studies.canonical_ctmle_oat_per_arm_strata_missing.PROPERTY_SUMMARY_REVISION`
 records it.
 

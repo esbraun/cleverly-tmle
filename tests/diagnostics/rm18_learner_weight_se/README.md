@@ -8,7 +8,7 @@ verdict and no committed row.
 
 | file | what it does |
 | --- | --- |
-| `select.py` | reads the committed `tests/canonical/weighted_lmtp_ltmle/property-replicates.csv.gz`. It prints the selected and comparison sets, and any difference from the declared sets. It fits nothing |
+| `select.py` | reads the committed `tests/canonical/weighted_lmtp_ltmle/property-replicates.parquet`. It prints the selected and comparison sets, and any difference from the declared sets. It fits nothing |
 | `refit.py` | refits each selected and comparison replicate in both arms, records the declared statistics, and reads the predictions. It writes `refit.csv` and `reading.csv` |
 | `refit.csv` | one row per replicate, arm and fitted regimen. The replicate-and-arm columns repeat on the three regimen rows of their fit |
 | `reading.csv` | the reproduction control, P1 to P5, two supplementary rows, and the reading |

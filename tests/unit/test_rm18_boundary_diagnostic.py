@@ -386,7 +386,7 @@ def test_the_harness_rule_reproduces_each_registered_red_verdict(
     """The rule a re-read applies is the registered rule.  ``bd.registered_summary`` on the
     committed registered rows, on the registered stream and at the verdict budget, gives the
     published verdict and every published leg of the cell."""
-    committed = shared.read_rows(record.artifact("property-replicates.csv.gz"))
+    committed = shared.read_rows(record.artifact("property-replicates.parquet"))
     committed = _at_verdict_budget(
         committed, getattr(module, "CONTRACTION_VERDICT_REPLICATES", None)
     )

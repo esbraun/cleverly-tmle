@@ -42,7 +42,7 @@ recorded fitting failure too, so a resume replays it and does not refit it.
 Every property loop fits through `fit_properties` (RM39b2). A recorded failure costs the cells
 of its fit one replicate each, and the run goes on. The driver writes
 `property-failures.csv`, `property-failure-accounting.csv` and
-`property-failure-witnesses.csv`, and reads each cell under `FAILURE_BOUND = 0.01` by the
+`property-failure-witnesses.parquet`, and reads each cell under `FAILURE_BOUND = 0.01` by the
 worst case of its clauses in `PROPERTY_RULES`.
 
 ## Running in parts

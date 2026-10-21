@@ -3,8 +3,8 @@
 Two checks for a change that must not move a deterministic path.
 
 ``replay`` refits the first replications of each named study and compares every estimate and
-standard error with the committed ``replicates.csv.gz``, read with ``float_precision=
-"round_trip"`` so the comparison is exact.  A label map renames estimands first, for a study
+standard error with the committed ``replicates.parquet``, which holds every float64 exactly,
+so the comparison is exact.  A label map renames estimands first, for a study
 whose estimand names a change renamed.
 
 ``relabel`` compares every file of a regenerated study directory with the same file at a git
@@ -70,6 +70,7 @@ import numpy as np
 import pandas as pd
 
 from tests.studies.evidence import failures
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT, StudyRecord, registered
 
 #: The estimand renames of the modified-treatment-policy change: ``shifts=`` became
@@ -122,6 +123,8 @@ def relabel(frame: pd.DataFrame, labels: Mapping[str, str]) -> pd.DataFrame:
 
 def _read(source: Path | bytes, name: str) -> pd.DataFrame:
     handle = io.BytesIO(source) if isinstance(source, bytes) else source
+    if name.endswith(".parquet"):
+        return read_rows(handle)
     compression = "gzip" if name.endswith(".gz") else None
     return pd.read_csv(handle, compression=compression, float_precision="round_trip")
 
@@ -232,7 +235,7 @@ def _replay_one(
         (write / "rows").mkdir(parents=True, exist_ok=True)
         frame = result.rows.loc[:, [*ROW_KEYS, *REPLAYED]].sort_values(ROW_KEYS)
         frame.to_csv(write / "rows" / f"{slug}.csv", index=False)
-    committed = relabel(_read(record.artifacts / "replicates.csv.gz", ".gz"), labels)
+    committed = relabel(_read(record.artifacts / "replicates.parquet", ".parquet"), labels)
     committed = committed.loc[
         (committed["implementation"] == record.implementation)
         & (committed["replicate"] < replicates)
@@ -305,6 +308,25 @@ def equal_entries(left: pd.Series, right: pd.Series, rtol: float = 0.0) -> np.nd
     return np.asarray(missing | (left.astype(str) == right.astype(str)).to_numpy(), dtype=bool)
 
 
+def _show(ref: str, path: Path) -> tuple[bytes | None, str]:
+    """The bytes and the name of a row file at ``ref``.
+
+    A ref from before the row files were Parquet holds the same rows as gzipped CSV, so a
+    Parquet file with no blob at ``ref`` is looked up under its CSV name.
+    """
+    names = [path.name]
+    if path.suffix == ".parquet":
+        names += [f"{path.stem}.csv.gz", f"{path.stem}.csv"]
+    for name in names:
+        relative = path.with_name(name).relative_to(ROOT).as_posix()
+        shown = subprocess.run(
+            ["git", "show", f"{ref}:{relative}"], cwd=ROOT, capture_output=True, check=False
+        )
+        if shown.returncode == 0:
+            return shown.stdout, name
+    return None, path.name
+
+
 def relabel_check(
     slug: str, ref: str, labels: Mapping[str, str], rtol: float = 0.0
 ) -> tuple[list[str], list[str]]:
@@ -312,15 +334,13 @@ def relabel_check(
     record = _study(slug)
     problems: list[str] = []
     resampled: list[str] = []
-    for path in sorted(record.artifacts.glob("*.csv*")):
+    for path in sorted([*record.artifacts.glob("*.csv*"), *record.artifacts.glob("*.parquet")]):
         relative = path.relative_to(ROOT).as_posix()
-        shown = subprocess.run(
-            ["git", "show", f"{ref}:{relative}"], cwd=ROOT, capture_output=True, check=False
-        )
-        if shown.returncode != 0:
+        shown, name = _show(ref, path)
+        if shown is None:
             problems.append(f"{relative}: not present at {ref}")
             continue
-        before = relabel(_read(shown.stdout, path.name), labels)
+        before = relabel(_read(shown, name), labels)
         after = _read(path, path.name)
         if list(before.columns) != list(after.columns) or len(before) != len(after):
             problems.append(f"{relative}: columns or row count differ")

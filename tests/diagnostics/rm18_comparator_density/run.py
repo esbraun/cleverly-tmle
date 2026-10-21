@@ -126,7 +126,7 @@ def refit(replicate: int) -> list[dict[str, Any]]:
 
 
 def committed_rows() -> pd.DataFrame:
-    return shared.read_rows(SHIFT.artifact("replicates.csv.gz"))
+    return shared.read_rows(SHIFT.artifact("replicates.parquet"))
 
 
 def excess(rows: pd.DataFrame, subject: str, reference: str) -> dict[str, float]:

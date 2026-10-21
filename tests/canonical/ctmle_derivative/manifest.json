@@ -93,11 +93,11 @@
   },
   "reference_sha256": {},
   "sha256": {
-    "replicates.csv.gz": "c0ad66d0cf29513c8adae10a0d36c6e78fb2e9ba1c63ce97d288710ce0037553",
+    "replicates.parquet": "c8def71ceb83231e5c02dced87ba7263261e82aabd83db0e87735e4b929efcb5",
     "summary.csv": "05e402614dc9d7de5a4d087e540c3701a76739fd2480c0167166a324363cb1cf",
     "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
     "performance-tests.csv": "a09acd2c6dd531515a08f779eb56224b6ad37e460c987038bc08d6272877c11f",
-    "property-replicates.csv.gz": "969e0849599b4b8074be9e276a14434eb8f06b2c061b0e2314ab720818f69875",
+    "property-replicates.parquet": "10c169b87f56d39b6a74ac4549cf2be67a6cf7e09ded085bd9c28c082b37279f",
     "properties.csv": "0a9da22d046ae0e94b84b3b93967786b0b9934b9f01f1e3b80e7260126becc07",
     "paired-tmle.csv": "fb2384a57f3e83891beaa394e8a6e6269e7dcd78f462b59a0c85760625c838ea",
     "chosen-penalties.csv": "01747ff7ab1b8fc8ba6385a1313d439f35f39aac882b7a16cb20edb7ba7a858f"

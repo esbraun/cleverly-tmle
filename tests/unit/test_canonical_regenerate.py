@@ -16,6 +16,7 @@ import pytest
 
 from tests.canonical import regenerate
 from tests.studies import canonical_tmle, fold_evaluated_cvtmle
+from tests.studies.evidence.manifest import read_rows, write_rows
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 
 
@@ -142,7 +143,7 @@ def test_primary_only_stops_before_properties_manifest_and_gates(
     regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path, reference=reference)
 
     assert {path.name for path in tmp_path.iterdir()} == {
-        "replicates.csv.gz",
+        "replicates.parquet",
         "summary.csv",
         "equivalence.csv",
         "performance-tests.csv",
@@ -509,7 +510,7 @@ def test_a_property_failure_is_recorded_accounted_and_hashed(
     assert set(names) <= set(hashed[-1])
     records = property_failures.read(out / property_failures.PROPERTY_FAILURES)
     assert records is not None and list(records["group_id"]) == ["properties/c/r000000007"]
-    rows = pd.read_csv(out / "property-replicates.csv.gz")
+    rows = read_rows(out / "property-replicates.parquet")
     assert 7 not in set(rows["replicate"]) and set(rows["failed_replicates"]) == {1}
     accounting = pd.read_csv(out / property_failures.PROPERTY_ACCOUNTING)
     assert set(accounting["reason"]) == {"bound exceeded"}
@@ -523,7 +524,7 @@ def test_a_property_failure_is_recorded_accounted_and_hashed(
     # The committed files survive a run that skips the property phase.
     committed = tmp_path / "committed"
     committed.mkdir()
-    for name in ("property-replicates.csv.gz", "properties.csv", *names):
+    for name in ("property-replicates.parquet", "properties.csv", *names):
         (committed / name).write_bytes((out / name).read_bytes())
     arguments.skip_properties = True
     regenerate.main(study, _toy_properties(set()), here=committed)
@@ -609,7 +610,7 @@ def test_p36_skip_properties_carries_the_committed_bound_or_its_absence(
     assert manifests[-1]["property_failure_bound"] == 0.0
     committed = tmp_path / "committed"
     committed.mkdir()
-    for name in ("property-replicates.csv.gz", "properties.csv"):
+    for name in ("property-replicates.parquet", "properties.csv"):
         (committed / name).write_bytes((arguments.output / name).read_bytes())
     arguments.skip_properties = True
 
@@ -637,7 +638,7 @@ def test_a_property_bound_raised_after_recorded_failures_is_refused(
     committed = tmp_path / "committed"
     committed.mkdir()
     for name in (
-        "property-replicates.csv.gz",
+        "property-replicates.parquet",
         "properties.csv",
         property_failures.PROPERTY_FAILURES,
     ):
@@ -963,7 +964,7 @@ def test_skip_reference_reads_the_committed_failures_before_any_removal(
     record = dataclasses.replace(canonical_tmle.STUDY, artifacts=tmp_path, failure_bound={})
     reference = str(record.reference)
     committed = _rows(reference).assign(replicate=0, n=50)
-    committed.to_csv(tmp_path / "replicates.csv.gz", index=False)
+    write_rows(committed, tmp_path / "replicates.parquet")
     pd.DataFrame([_failure_record(reference, "1"), _failure_record(reference, "7")]).to_csv(
         tmp_path / failures.FAILURES, index=False
     )
@@ -1024,6 +1025,7 @@ def test_a_run_removes_the_stale_failure_files_only_when_it_writes_none(
     def write_csv(*args: Any, **kwargs: Any) -> None:
         raise _Stop
 
+    monkeypatch.setattr(regenerate, "write_rows", write_csv)
     monkeypatch.setattr(regenerate, "write_csv", write_csv)
     with pytest.raises(_Stop):
         regenerate.main(study, SimpleNamespace(FAILURE_BOUND=0.0), here=tmp_path)

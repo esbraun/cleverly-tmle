@@ -33,7 +33,7 @@ from tests.studies.evidence.seeds import replicate_seed, stream_seed
 #: its check.
 RECORDED: tuple[str, ...] = ("A", "AV", "B", "V4", "C")
 
-COMMITTED = shared.read_rows(study.STUDY.artifact("replicates.csv.gz"))
+COMMITTED = shared.read_rows(study.STUDY.artifact("replicates.parquet"))
 FULL = Switches(True, True, True, True)
 
 

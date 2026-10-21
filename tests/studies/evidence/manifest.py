@@ -12,11 +12,16 @@ bisecting developer needs to place one.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import subprocess
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
+
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from tests.studies.evidence.registry import ROOT, StudyRecord
 
@@ -61,6 +66,67 @@ def reference_hashes(paths: Iterable[Path]) -> dict[str, str]:
 def write_csv(frame: Any, path: Path, **options: Any) -> None:
     """Write one published table with the line ending :data:`NEWLINE` fixes."""
     frame.to_csv(path, index=False, lineterminator=NEWLINE, **options)
+
+
+def write_rows(frame: pd.DataFrame, path: Path, dtype: Mapping[str, Any] | None = None) -> None:
+    """Write one published row file as Parquet, as a function of the rows' CSV text.
+
+    The writer reads the CSV text of ``frame`` back with ``float_precision="round_trip"``
+    before it writes.  Two frames with one CSV text therefore give one table and one schema,
+    whatever their in-memory dtypes.  The file holds no index and no pandas schema metadata,
+    and zstd compresses it.  :func:`read_rows` returns the rows, and :func:`csv_text` returns
+    their CSV text.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        The rows.
+    path : pathlib.Path
+        The file to write.
+    dtype : mapping of str to type, optional
+        The column types the CSV text is read with, such as text for a column that can hold
+        only missing values.  The default infers each type.
+    """
+    rows = pd.read_csv(io.BytesIO(csv_text(frame)), float_precision="round_trip", dtype=dtype)
+    table = pa.Table.from_pandas(rows, preserve_index=False).replace_schema_metadata(None)
+    pq.write_table(table, path, compression="zstd")
+
+
+def read_rows(path: Path | IO[bytes], columns: list[str] | None = None) -> pd.DataFrame:
+    """Read one published row file written by :func:`write_rows`.
+
+    Parameters
+    ----------
+    path : pathlib.Path or binary file object
+        A Parquet row file, or its bytes in a file object.
+    columns : list of str, optional
+        The columns to read.  The default reads every column.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The rows, with a default index.
+    """
+    return pq.read_table(path, columns=columns).to_pandas()
+
+
+def csv_text(frame: pd.DataFrame) -> bytes:
+    """The canonical CSV text of a row frame, with the line ending :data:`NEWLINE` fixes.
+
+    The seed-repair receipts hash lines of this text, and a row file in Parquet has no lines
+    of its own.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        The rows, such as the result of :func:`read_rows`.
+
+    Returns
+    -------
+    bytes
+        The UTF-8 text :func:`write_csv` writes for the frame.
+    """
+    return frame.to_csv(index=False, lineterminator=NEWLINE).encode()
 
 
 def write_lines(path: Path, text: str) -> None:
@@ -205,7 +271,7 @@ def comparator_findings(
 ) -> list[str]:
     """Every way the manifest and the published rows disagree with the record's comparator state.
 
-    ``implementations`` are the names in ``replicates.csv.gz``, and ``paired_rows`` is the row
+    ``implementations`` are the names in ``replicates.parquet``, and ``paired_rows`` is the row
     count of ``equivalence.csv``.  An empty list means they agree.  A pending comparator is an
     asserted state, not a skip: its manifest must say pending, it records no reference
     provenance, and no row of the pending implementation and no paired row is published.  An

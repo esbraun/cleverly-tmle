@@ -13,6 +13,7 @@ import pytest
 
 from tests.studies import composite_drtmle_properties as design
 from tests.studies import mar_arm_indexed_laws as laws
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
 
 ARTIFACTS = ROOT / "tests" / "canonical" / "drtmle_composite"
@@ -22,7 +23,7 @@ NAME = "ey[high]"
 
 
 def _rows() -> pd.DataFrame:
-    rows = pd.read_csv(ARTIFACTS / "replicates.csv.gz")
+    rows = read_rows(ARTIFACTS / "replicates.parquet")
     return rows.loc[(rows["scenario"] == design.THREE_ARM) & (rows["estimand"] == NAME)]
 
 
