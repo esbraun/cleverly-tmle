@@ -1722,6 +1722,14 @@ _OUTCOME_KINDS: Final[frozenset[str]] = frozenset(
 )
 
 
+#: The limit of ``G45.hazard_model``: on the study law its valid bounds seldom change the fit.
+#: ``docs/technical-reference/method-evidence/survival-node-bounds.md`` reports the 10.1% share.
+HAZARD_BOUNDS_RARELY_BIND: Final[str] = (
+    "The bounds rarely bind (the estimate moved on 10% of draws), so the study reports the "
+    "binding witness of this fit and does not gate it."
+)
+
+
 def _x33_options(
     *, node_bounds: bool = False, hazard_pooling: str = "node"
 ) -> tuple[tuple[str, Any], ...]:
@@ -2739,9 +2747,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
             cells=["interval_calibration"],
             limits=[
                 "Calibrated in sample at n = 2,000 with valid bounds at 1.1 times the largest "
-                "true hazard and one pooled logistic hazard. The bounds moved the estimate on "
-                "one draw in ten, so the study reports the binding witness of this fit and does "
-                "not gate it. " + bounds_limit
+                "true hazard and one pooled logistic hazard. " + bounds_limit,
+                HAZARD_BOUNDS_RARELY_BIND,
             ],
         ),
     ]

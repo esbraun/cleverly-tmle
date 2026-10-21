@@ -321,6 +321,10 @@ class TestLongitudinalControls:
         )
         assert classify_key(mean, hazard.learners).row.id == "G14.survival"  # type: ignore[union-attr]
 
+    def test_the_hazard_row_states_that_its_bounds_rarely_bind(self) -> None:
+        (row,) = [row for row in LONGITUDINAL_ROWS if row.id == "G45.hazard_model"]
+        assert "The bounds rarely bind (the estimate moved on 10% of draws)" in " ".join(row.limits)
+
     @pytest.mark.parametrize("row", ["G45.mean_model", "G45.hazard_model"])
     @pytest.mark.parametrize(
         ("name", "value"), [("node_bounds", False), ("hazard_pooling", "node")]
