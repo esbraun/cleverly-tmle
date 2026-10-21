@@ -786,7 +786,6 @@ longitudinal-repeated-crossfit,ipsi_primary,coverage floor,coverage/0.5
 longitudinal-repeated-crossfit,ipsi_primary,se ratio in sanity band,se_high
 longitudinal-repeated-crossfit,repeat_increment,control increment at or above the ceiling,pair_collapse
 longitudinal-repeated-crossfit,repeat_increment,increment under its ceiling,se/2
-longitudinal-repeated-crossfit,repeat_stability,repeat spread ratio under its boundary above the spread floor,pair_collapse
 longitudinal-repeated-crossfit,root_n_and_efficiency,bias equivalent,bias
 longitudinal-repeated-crossfit,root_n_and_efficiency,coverage floor,affine
 longitudinal-repeated-crossfit,root_n_and_efficiency,se ratio sanity,se_high
@@ -1189,7 +1188,6 @@ repeated-crossfit-tmle,double_robustness,se ratio in union band,se/0.05
 repeated-crossfit-tmle,interval_calibration,coverage in calibration band,shift/0.7
 repeated-crossfit-tmle,interval_calibration,se ratio in calibration band,se/0.05
 repeated-crossfit-tmle,power,rejection floor,rejection/0.01
-repeated-crossfit-tmle,repeat_stability,repeat spread ratio under its boundary,pair_collapse
 repeated-crossfit-tmle,root_n_and_efficiency,bias equivalent,bias
 repeated-crossfit-tmle,root_n_and_efficiency,coverage floor,coverage/0.5
 repeated-crossfit-tmle,root_n_and_efficiency,se ratio sanity,se_high

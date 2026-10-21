@@ -362,6 +362,11 @@ fit, read as `SD(second_draw_control) / SD(one_repeat)` against a rule of `U >= 
 are exchangeable on one fixed sample, so the true ratio is exactly 1. The repeat layer, the
 estimators, the samples, the fold seeds, the trial counts and the positive rule are unchanged.
 
+The clause-binding table `tests/canonical/clause-bindings.csv` has no `repeat_stability` row for
+either study while the committed rows hold the old cells. After the run, search the two subjects
+with `python -m tests.canonical.property_differential --bindings DIR --subjects
+repeated-crossfit-tmle longitudinal-repeated-crossfit` and write the rows.
+
 The declared run has not happened when this section is written. Every value marked `placeholder`
 below is filled by the declared run's thread, from the run's manifest and the output of `inherit.py`.
 
