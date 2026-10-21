@@ -25,6 +25,7 @@ categorized API tables.
    cleverly.CausalResult
    cleverly.estimators.TMLEResult
    cleverly.longitudinal.LongitudinalResult
+   cleverly.longitudinal.LongitudinalRepeat
    cleverly.fluctuation.Fluctuation
    cleverly.fluctuation.FoldFluctuation
    cleverly.ParameterKey
@@ -221,3 +222,7 @@ categorized API tables.
    cleverly.datasets.offers_protocol
    cleverly.datasets.win_back
    cleverly.datasets.win_back_then_ship
+   cleverly.datasets.make_sequential_pricing
+   cleverly.datasets.pricing_truth
+   cleverly.datasets.pricing_protocol
+   cleverly.datasets.price_rise

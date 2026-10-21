@@ -886,6 +886,22 @@ def recording(implementation: str, *, witness: Witness | None = None) -> Iterato
         _RECORDING.reset(token)
 
 
+def recorded_failures() -> pd.DataFrame | None:
+    """The failure records of the property loops that have finished inside the open recording.
+
+    A study's ``generate_property_artifacts`` hook reads it after its :func:`fit_properties` call
+    returns, to publish a reading of the refusals beside the rows.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        The records in :data:`FAILURE_FIELDS`, or ``None`` when no recording is open or no
+        property fit failed.
+    """
+    collected = _RECORDING.get()
+    return None if collected is None else collected.failures
+
+
 def _rows_of(value: Any, rows_at: int | None) -> pd.DataFrame:
     """The rows a property worker returned, as one frame.
 

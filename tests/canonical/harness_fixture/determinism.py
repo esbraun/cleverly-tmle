@@ -76,6 +76,7 @@ from typing import Any
 import pandas as pd
 
 from tests.canonical import runner_source
+from tests.canonical.regenerate import THREAD_CAPS
 
 HERE = Path(__file__).resolve().parent
 CANONICAL = HERE.parent
@@ -294,7 +295,11 @@ def run(
     """
     folder = work / target.slug
     reference = target.reference
-    variables = {"CLEVERLY_R_CORES": str(cores), "CLEVERLY_REFERENCE_CORES": str(cores)}
+    variables = {
+        **THREAD_CAPS,
+        "CLEVERLY_R_CORES": str(cores),
+        "CLEVERLY_REFERENCE_CORES": str(cores),
+    }
     if seeds is not None:
         variables["CLEVERLY_R_SEEDS"] = f"/work/{seeds.name}"
     variables.update(env or {})

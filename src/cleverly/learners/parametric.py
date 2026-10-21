@@ -36,6 +36,7 @@ __all__ = [
     "ParametricMechanism",
     "ParametricOutcome",
     "logistic_newton",
+    "parametric_outcomes",
 ]
 
 MIN_RECIPROCAL_CONDITION = 1e-12
@@ -310,7 +311,10 @@ class ParametricOutcome(_ParametricLogistic):
         The feature map of :data:`OutcomeFeatures`.
     arm_columns : int
         The number of treatment columns that lead the outcome design: 1 for a binary
-        treatment, ``K - 1`` for ``K`` arms.
+        treatment, ``K - 1`` for ``K`` arms. A fit refuses a value that differs from the
+        width of the treatment block of its data, with
+        :class:`~cleverly.exceptions.MethodConfigurationError`, wherever the learner sits:
+        bare, in a library, or inside a wrapper.
 
     Attributes
     ----------
@@ -448,3 +452,48 @@ class ParametricMechanism(_ParametricLogistic):
             power * level ** (power - 1) for power in range(1, int(self.degree) + 1)
         ]
         return np.column_stack(columns) * inside[:, None]
+
+
+def parametric_outcomes(learner: Any) -> tuple[ParametricOutcome, ...]:
+    """Every :class:`ParametricOutcome` that ``learner`` holds, at any depth.
+
+    The walk reads the learner itself, the members of a sequence or a mapping (a
+    :class:`~cleverly.learners.SuperLearner` library, a pipeline's steps), and the
+    constructor parameters of an estimator (``get_params(deep=False)``), so a wrapper such as
+    a pipeline or a calibration estimator is searched too. A wrapper without ``get_params`` is
+    not searched.
+
+    Parameters
+    ----------
+    learner : Any
+        A learner specification, or ``None``.
+
+    Returns
+    -------
+    tuple of ParametricOutcome
+        Each instance once, in the order the walk meets it.
+    """
+    found: list[ParametricOutcome] = []
+    seen: set[int] = set()
+    pending: list[Any] = [learner]
+    while pending:
+        item = pending.pop()
+        if item is None or isinstance(item, (str, bytes, int, float, type)) or id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, ParametricOutcome):
+            found.append(item)
+            continue
+        if isinstance(item, dict):
+            pending.extend(reversed(list(item.values())))
+        elif isinstance(item, (list, tuple)):
+            pending.extend(reversed(item))
+        elif hasattr(item, "get_params"):
+            try:
+                params = item.get_params(deep=False)
+            except Exception:
+                # A learner whose parameters cannot be read holds no learner to check.
+                continue
+            if isinstance(params, dict):
+                pending.extend(reversed(list(params.values())))
+    return tuple(found)

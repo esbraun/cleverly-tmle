@@ -320,13 +320,13 @@ the committed results and checked at the precision printed.
 | --- | --- |
 | Five folds only | The study fits `n_folds=5`. The support row `C11.stacked` matches any fold count inside the cap of 20 folds, and the preflight labels a fit at another count `"experimental"` with the measured count as the reason. The interval also needs 30 rows in each held-out fold |
 | One draw and three draws | The study measures `repeats` of 1 and 3. A fit at another repeat count is `"experimental"`. A fit at `repeats=3` with `rr` or `or` matches no row and is `"experimental"`, because the `repeats` group measures no ratio |
-| Two arms, binary outcome, complete unweighted data | The study measures a binary treatment and a binary outcome with no weight, stratum, missing value or cluster. A continuous outcome with declared `q_bounds` has no row and is `"experimental"`. X58 part (b) holds more arms and part (d) holds weights |
+| Two arms, binary outcome, complete unweighted data | The study measures a binary treatment and a binary outcome with no weight, stratum, missing value or cluster. A continuous outcome with declared `q_bounds` has no row and is `"experimental"`. The [extensions study](outcome-adaptive-per-arm-c-tmle-parametric-extensions.md) measures three arms and a known fixed weight |
 | Two parametric learners only | Only `ParametricOutcome` and `ParametricMechanism` are admitted, as exact classes. A scikit-learn learner keeps the `"generated_design_plugin"` status, and [F19](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) owns its interval |
 | The interval covers $\psi^*$ | Under a wrong outcome model the interval covers the limit $\psi^*$ and not $\psi_0$. The pseudo-true cells report the coverage of $\psi_0$ and gate nothing on it. The claim is pointwise, not locally uniform over the nonparametric model |
 | Default `alpha` only | Every cell runs at the default `alpha`. No cell sets `alpha` below it |
 | Balanced folds | Every studied $n$ is a multiple of 5, so the folds are exactly balanced. The unbalanced fold map is checked by CW2 in `tests/unit/test_oat_crossfit_stack.py`, not by this study |
 | The split-adjustment term | The mean SD of the draws' ATE estimates is about 0.001 against a standard error near 0.03, so the term is about 0.2% of the variance. The `repeats` cells measure the calibration of the median rule and cannot see that term. `test_the_repeated_shipped_control_reads_the_reported_rule_on_stored_standard_errors` pins the identity |
-| No simultaneous band | The study sets `simultaneous=False`. The fit builds no band on an admitted fit, and X58 part (b) holds the band |
+| No simultaneous band | The study sets `simultaneous=False`. The default `simultaneous=True` builds a band on an admitted fit. With `repeats` above 1 and at least two estimates, it raises `CapabilityError`. The [extensions study](outcome-adaptive-per-arm-c-tmle-parametric-extensions.md) measures the band at one draw |
 | No comparator | The evidence is the exact truth of each law, the calibration bands and the negative controls. No R program reports the corrected curve |
 
 ## Reproduction

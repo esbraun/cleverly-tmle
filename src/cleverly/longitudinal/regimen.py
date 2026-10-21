@@ -46,13 +46,14 @@ policy density that is one-hot on every reachable row is the rule it equals, and
 :func:`resolve_plans` resolves it as that rule.
 
 A node can hold an **odds tilt** of the treatment mechanism, written as an
-:class:`~cleverly.interventions.Incremental` node (Kennedy 2019, Equation (1)).  Its density
-:math:`q_t(1 \\mid H_t) = \\delta_t \\pi_t / (\\delta_t \\pi_t + 1 - \\pi_t)` reads the fitted
-mechanism :math:`\\pi_t`, so :func:`resolve_plans` records only :math:`\\delta_t`, and
-:meth:`Plan.with_tilts` attaches the density once a mechanism is fitted.  At a tilt node the
-plan's ``values`` column holds the observed arm, as at a policy node, and every row with a
-treatment there stays on the plan.  Only :class:`~cleverly.longitudinal.IPSI` fits such a
-plan.
+:class:`~cleverly.interventions.Incremental` node (Kennedy 2019, Equation (1), and its
+categorical form).  Its density
+:math:`q_t(a \\mid H_t) = \\delta_{t,a} \\pi_t(a \\mid H_t) / D_t` reads the fitted
+mechanism :math:`\\pi_t`, so :func:`resolve_plans` records only the factors
+:math:`\\delta_{t,a}`, resolved against the node's own levels, and :meth:`Plan.with_tilts`
+attaches the density once a mechanism is fitted.  At a tilt node the plan's ``values`` column
+holds the observed arm, as at a policy node, and every row with a treatment there stays on
+the plan.  Only :class:`~cleverly.longitudinal.IPSI` fits such a plan.
 """
 
 from __future__ import annotations
@@ -594,6 +595,43 @@ def _describe_node(node: RuleNode) -> str:
     return "d" if name == "<lambda>" else f"d:{name}"
 
 
+def tilted_density_binary(pi: FloatArray, delta: float) -> FloatArray:
+    r"""Kennedy's tilted density :math:`(1 - q, q)` on two levels, from :math:`\pi(1 \mid H)`.
+
+    Parameters
+    ----------
+    pi : FloatArray
+        ``(n,)`` mechanism probability of the second level.
+    delta : float
+        The odds multiplier :math:`\delta = \delta_1/\delta_0`.
+
+    Returns
+    -------
+    FloatArray
+        ``(n, 2)`` density, :math:`q = \delta\pi/(\delta\pi + 1 - \pi)`.
+    """
+    tilted = delta * pi / (delta * pi + 1.0 - pi)
+    return np.column_stack([1.0 - tilted, tilted])
+
+
+def tilted_density_general(g: FloatArray, factors: FloatArray) -> FloatArray:
+    r"""The tilted density :math:`q(a) = \delta_a g(a)/\sum_b \delta_b g(b)` for any ``K``.
+
+    Parameters
+    ----------
+    g : FloatArray
+        ``(n, K)`` mechanism.
+    factors : FloatArray
+        ``(K,)`` odds factors.
+
+    Returns
+    -------
+    FloatArray
+        ``(n, K)`` density.
+    """
+    return np.asarray(g * factors[None, :] / (g @ factors)[:, None])
+
+
 @dataclass(frozen=True)
 class Plan:
     """A regimen together with the ``(n, T)`` arms it assigns *this* sample.
@@ -643,10 +681,11 @@ class Plan:
     mtp_numerators : tuple
         Per node, the ratio numerator of a policy node once the mechanism is fitted, and
         ``None`` elsewhere.  Empty until :func:`attach_policy_numerators` sets it.
-    tilt_deltas : tuple
-        Per node, the odds multiplier :math:`\\delta_t` of a tilt node, and ``None``
-        elsewhere.  Empty without a tilt node.  At a tilt node ``values`` holds the observed
-        code, and ``policy`` holds the tilted density once :meth:`with_tilts` attaches it.
+    node_factors : tuple
+        Per node, the ``(K_t,)`` tuple of odds factors :math:`\\delta_{t,a}` of a tilt node,
+        in arm-code order, and ``None`` elsewhere.  Empty without a tilt node.  At a tilt
+        node ``values`` holds the observed code, and ``policy`` holds the tilted density once
+        :meth:`with_tilts` attaches it.
 
     Attributes
     ----------
@@ -673,9 +712,9 @@ class Plan:
     #: :math:`g^d_t(A_t \mid H_t)` at a categorical node and :math:`r_t = g^d_t / g_t` at a
     #: continuous one.  Empty until :func:`attach_policy_numerators` sets it.
     mtp_numerators: tuple[FloatArray | None, ...] = ()
-    #: Per node, the odds multiplier of a tilt node, and ``None`` elsewhere.  Empty without
-    #: a tilt node.
-    tilt_deltas: tuple[float | None, ...] = ()
+    #: Per node, the ``(K_t,)`` odds factors of a tilt node in arm-code order, and ``None``
+    #: elsewhere.  Empty without a tilt node.
+    node_factors: tuple[tuple[float, ...] | None, ...] = ()
     #: The tuned nodes of a plan whose caps a fit read from the treatment law (X40 part
     #: (e)), in time order.  Empty on every other plan.
     tuning: tuple[NodeTuning, ...] = ()
@@ -695,7 +734,7 @@ class Plan:
     @property
     def has_tilt(self) -> bool:
         """Whether any node of this plan is an odds tilt of the treatment mechanism."""
-        return any(delta is not None for delta in self.tilt_deltas)
+        return any(factors is not None for factors in self.node_factors)
 
     def is_tilt_node(self, time: int) -> bool:
         """Whether node ``time``, counted from one, is an odds tilt.
@@ -710,10 +749,10 @@ class Plan:
         bool
             ``True`` at a tilt node, whether or not its density is attached.
         """
-        return bool(self.tilt_deltas) and self.tilt_deltas[time - 1] is not None
+        return bool(self.node_factors) and self.node_factors[time - 1] is not None
 
-    def tilt_delta(self, time: int) -> float:
-        """The odds multiplier of tilt node ``time``.
+    def tilt_factors(self, time: int) -> FloatArray:
+        """The odds factors of tilt node ``time``, one per level in arm-code order.
 
         Parameters
         ----------
@@ -722,26 +761,35 @@ class Plan:
 
         Returns
         -------
-        float
-            :math:`\\delta_t`.
+        FloatArray
+            ``(K_t,)`` strictly positive factors :math:`\\delta_{t,a}`.  A scalar declaration
+            on two levels reads ``(1, delta)``.
+
+        Raises
+        ------
+        ValueError
+            If ``time`` is not a tilt node.
         """
-        delta = self.tilt_deltas[time - 1] if self.tilt_deltas else None
-        if delta is None:
+        factors = self.node_factors[time - 1] if self.node_factors else None
+        if factors is None:
             raise ValueError(f"node {time} of regimen {self.label!r} is not a tilt node")
-        return float(delta)
+        return np.asarray(factors, dtype=float)
 
     def with_tilts(self, propensity: Mapping[int, FloatArray]) -> Plan:
         r"""This plan with each tilt node's density, from the mechanism :math:`\pi_t`.
 
-        At a tilt node the density is :math:`(1 - q_t, q_t)` with
-        :math:`q_t = \delta_t \pi_t / (\delta_t \pi_t + 1 - \pi_t)`, Kennedy (2019),
-        Equation (1).  The node then reads as a policy node: the regression holds the
+        At a tilt node the density is
+        :math:`q_t(a \mid H_t) = \delta_{t,a}\,\pi_t(a \mid H_t) / D_t` with
+        :math:`D_t = \sum_b \delta_{t,b}\,\pi_t(b \mid H_t)`.  On two levels it is evaluated
+        in the form of Kennedy (2019), Equation (1), on :math:`\pi_t(1 \mid H_t)` with
+        :math:`\delta = \delta_{t,1}/\delta_{t,0}`, so a binary node is bit-identical to the
+        scalar form.  The node then reads as a policy node: the regression holds the
         current arm as a column, and the node carries :math:`\sum_a q_t(a) m_t(a)`.
 
         Parameters
         ----------
         propensity : mapping of int to FloatArray
-            By tilt node, counted from one, the ``(n,)`` probability of the second level.
+            By tilt node, counted from one, the ``(n, K_t)`` mechanism in arm-code order.
 
         Returns
         -------
@@ -755,10 +803,12 @@ class Plan:
         for time in range(1, n_times + 1):
             if not self.is_tilt_node(time):
                 continue
-            pi = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
-            delta = self.tilt_delta(time)
-            tilted = delta * pi / (delta * pi + 1.0 - pi)
-            policy[time - 1] = np.column_stack([1.0 - tilted, tilted])
+            g = np.clip(np.asarray(propensity[time], dtype=float), 0.0, 1.0)
+            factors = self.tilt_factors(time)
+            if g.shape[1] == 2:
+                policy[time - 1] = tilted_density_binary(g[:, 1], factors[1] / factors[0])
+            else:
+                policy[time - 1] = tilted_density_general(g, factors)
         return replace(self, policy=tuple(policy))
 
     @property
@@ -1036,25 +1086,31 @@ def _resolve_plan(
     mtp_nodes: list[int] = []
     targets: list[tuple[FloatArray, ...] | None] = []
     assignments: list[tuple[tuple[float, IntArray], ...] | None] = []
-    deltas: list[float | None] = []
+    factors: list[tuple[float, ...] | None] = []
     for time in range(1, data.n_times + 1):
         if data.is_held_node(time):
             # An identity node of a held design: never a policy or MTP node.
             policy.append(None)
             targets.append(None)
             assignments.append(None)
-            deltas.append(None)
+            factors.append(None)
             continue
         if regimen.is_tilt(time):
             node = regimen.plan[time - 1]
             assert isinstance(node, Incremental)
-            refuse_multi_arm_tilt_node(data, time)
             policy.append(None)
             targets.append(None)
             assignments.append(None)
-            deltas.append(float(node.delta))
+            # Per-node resolution: the declared factors read against this node's own levels,
+            # so a scalar on a node with other than two levels (R1) and a key that is not a
+            # level of this node (R2) refuse here, before any learner.  A mixed or continuous
+            # node was refused above, by refuse_continuous_assignments.
+            odds = node.factors(
+                data.treatment_levels[time - 1], subject=f"node {data.treatment_names[time - 1]!r}"
+            )
+            factors.append(tuple(float(value) for value in odds))
             continue
-        deltas.append(None)
+        factors.append(None)
         if regimen.is_mtp(time):
             carry, target, assigned = _resolve_mtp_node(regimen, data, time)
             policy.append(carry)
@@ -1084,7 +1140,7 @@ def _resolve_plan(
         mtp_nodes=tuple(mtp_nodes),
         policy_targets=tuple(targets) if any(t is not None for t in targets) else (),
         mtp_assignments=tuple(assignments) if any(a is not None for a in assignments) else (),
-        tilt_deltas=tuple(deltas) if any(d is not None for d in deltas) else (),
+        node_factors=tuple(factors) if any(f is not None for f in factors) else (),
     )
 
 
@@ -1438,36 +1494,6 @@ def _stitched_plan(
         fold_plans=fold_plans,
         folds=folds,
         fold_average=True,
-    )
-
-
-def refuse_multi_arm_tilt_node(data: LongitudinalData, time: int) -> None:
-    """Refuse an odds tilt at a node with other than two treatment levels.
-
-    Parameters
-    ----------
-    data : LongitudinalData
-        The validated panel.
-    time : int
-        The tilt node, counted from one.
-
-    Raises
-    ------
-    DataError
-        If the node does not have exactly two levels.
-    """
-    from ..interventions.incremental import multi_arm_tilt_refusal
-
-    levels = list(data.treatment_levels[time - 1])
-    if len(levels) == 2:
-        return
-    raise DataError.from_refusal(
-        multi_arm_tilt_refusal(
-            f"node {data.treatment_names[time - 1]!r}",
-            len(levels),
-            levels,
-            alternative="A Stochastic node with density_kind='known' sets this node.",
-        )
     )
 
 

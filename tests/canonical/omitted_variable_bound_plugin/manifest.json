@@ -1,0 +1,240 @@
+{
+  "schema_version": 2,
+  "study": "omitted-variable bound plug-in standard error",
+  "slug": "omitted-variable-bound-plugin-se",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-omitted-variable-bound-plugin",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "7a275baead79f725a70d1a2a6a9bb69cda2c0353",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 10000,
+    "n": 1000,
+    "seed": 20262601,
+    "resampling_seed": 20262602,
+    "scenario_seed_owners": {
+      "binary_logistic_att": "binary_logistic_ate",
+      "binary_logistic_atc": "binary_logistic_ate",
+      "binary_logistic_crossfit_att": "binary_logistic_crossfit_ate",
+      "binary_logistic_crossfit_atc": "binary_logistic_crossfit_ate",
+      "binary_logistic_ridge_att": "binary_logistic_ridge_ate",
+      "binary_logistic_ridge_atc": "binary_logistic_ridge_ate",
+      "binary_logistic_ridge_crossfit_att": "binary_logistic_ridge_crossfit_ate",
+      "binary_logistic_ridge_crossfit_atc": "binary_logistic_ridge_crossfit_ate",
+      "multinomial_logistic_att_2v0": "multinomial_logistic_ate_2v0",
+      "multinomial_logistic_atc_1v0": "multinomial_logistic_ate_2v0",
+      "multinomial_logistic_crossfit_att_2v0": "multinomial_logistic_crossfit_ate_2v0",
+      "multinomial_logistic_crossfit_atc_1v0": "multinomial_logistic_crossfit_ate_2v0",
+      "binary_known_att": "binary_known_ate",
+      "binary_known_atc": "binary_known_ate",
+      "binary_unbalanced_att": "binary_unbalanced_ate",
+      "binary_unbalanced_atc": "binary_unbalanced_ate"
+    },
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-omitted-variable-bound-plugin": 0.01
+    },
+    "scenarios": {
+      "binary_logistic_ate": [
+        "plugin_ate_lower",
+        "plugin_ate_upper"
+      ],
+      "binary_logistic_att": [
+        "plugin_att_lower",
+        "plugin_att_upper"
+      ],
+      "binary_logistic_atc": [
+        "plugin_atc_lower",
+        "plugin_atc_upper"
+      ],
+      "binary_logistic_crossfit_ate": [
+        "plugin_ate_lower",
+        "plugin_ate_upper"
+      ],
+      "binary_logistic_crossfit_att": [
+        "plugin_att_lower",
+        "plugin_att_upper"
+      ],
+      "binary_logistic_crossfit_atc": [
+        "plugin_atc_lower",
+        "plugin_atc_upper"
+      ],
+      "binary_logistic_ridge_ate": [
+        "plugin_ate_lower",
+        "plugin_ate_upper"
+      ],
+      "binary_logistic_ridge_att": [
+        "plugin_att_lower",
+        "plugin_att_upper"
+      ],
+      "binary_logistic_ridge_atc": [
+        "plugin_atc_lower",
+        "plugin_atc_upper"
+      ],
+      "binary_logistic_ridge_crossfit_ate": [
+        "plugin_ate_lower",
+        "plugin_ate_upper"
+      ],
+      "binary_logistic_ridge_crossfit_att": [
+        "plugin_att_lower",
+        "plugin_att_upper"
+      ],
+      "binary_logistic_ridge_crossfit_atc": [
+        "plugin_atc_lower",
+        "plugin_atc_upper"
+      ],
+      "multinomial_logistic_ate_2v0": [
+        "plugin_ate_2v0_lower",
+        "plugin_ate_2v0_upper"
+      ],
+      "multinomial_logistic_att_2v0": [
+        "plugin_att_2v0_lower",
+        "plugin_att_2v0_upper"
+      ],
+      "multinomial_logistic_atc_1v0": [
+        "plugin_atc_1v0_lower",
+        "plugin_atc_1v0_upper"
+      ],
+      "multinomial_logistic_crossfit_ate_2v0": [
+        "plugin_ate_2v0_lower",
+        "plugin_ate_2v0_upper"
+      ],
+      "multinomial_logistic_crossfit_att_2v0": [
+        "plugin_att_2v0_lower",
+        "plugin_att_2v0_upper"
+      ],
+      "multinomial_logistic_crossfit_atc_1v0": [
+        "plugin_atc_1v0_lower",
+        "plugin_atc_1v0_upper"
+      ],
+      "binary_known_ate": [
+        "plugin_ate_lower",
+        "plugin_ate_upper"
+      ],
+      "binary_known_att": [
+        "plugin_att_lower",
+        "plugin_att_upper"
+      ],
+      "binary_known_atc": [
+        "plugin_atc_lower",
+        "plugin_atc_upper"
+      ],
+      "binary_unbalanced_ate": [
+        "plugin_ate_lower",
+        "plugin_ate_upper"
+      ],
+      "binary_unbalanced_att": [
+        "plugin_att_lower",
+        "plugin_att_upper"
+      ],
+      "binary_unbalanced_atc": [
+        "plugin_atc_lower",
+        "plugin_atc_upper"
+      ]
+    },
+    "laws": {
+      "balanced": "make_linear_ate(n=1000): W ~ N(0, I_4), g = expit(0.3 W1 - 0.2 W2 + 0.1 W3), Y = 2 + 1.5 A + W1 + 0.5 W2 - 0.8 W3 + 0.4 W4 + N(0, 1)",
+      "unbalanced": "the balanced law with g = expit(-1.5 + 0.3 W1 - 0.2 W2 + 0.1 W3), treated share about 0.19",
+      "multinomial": "W ~ N(0, I_3); logits (0, 0.3 W1 - 0.2 W2, -0.2 W1 + 0.3 W2); Y = 0.6 step[A] + W1 - 0.5 W2 + 0.2 W3 + N(0, 1), steps (0, 1, 2.4)"
+    },
+    "fits": {
+      "binary_logistic": "in-sample TMLE, LinearRegression outcome, LogisticRegression(C=inf, max_iter=2000)",
+      "binary_logistic_crossfit": "the same with cross_fit=True, n_folds=5, q_bounds=(-40.0, 45.0)",
+      "binary_logistic_ridge": "the same as binary_logistic with LogisticRegression(max_iter=1000), so C = 1",
+      "binary_logistic_ridge_crossfit": "the same as binary_logistic_ridge with cross_fit=True, n_folds=5, q_bounds=(-40.0, 45.0)",
+      "multinomial_logistic": "in-sample TMLE, LinearRegression outcome, LogisticRegression(C=inf, max_iter=2000), reference arm 0, g_bounds=(0.005, 0.995)",
+      "multinomial_logistic_crossfit": "the same with cross_fit=True, n_folds=5, q_bounds=(-40.0, 45.0), g_bounds=(0.005, 0.995)",
+      "binary_known": "in-sample TMLE, LinearRegression outcome, the law's own mechanism linear_dgp().propensity declared through treatment_probabilities=",
+      "binary_unbalanced": "in-sample TMLE, LinearRegression outcome, LogisticRegression(C=inf, max_iter=2000), treatment intercept -1.5, g_bounds=(0.005, 0.995)"
+    },
+    "nu2_estimator": "plugin, second-order corrected by the package (nu2_correction is a package value); the variance is the plain influence variance of the curve",
+    "strength": {
+      "cf_y": 0.5,
+      "cf_d": 0.5,
+      "rho": 1.0
+    },
+    "primary_rows": "lower and upper: estimate = the bound, std_error = (lower - ci_lower) / z_0.95 and (ci_upper - upper) / z_0.95, each checked against the rebuilt curve; interval = estimate +/- 1.959964 std_error. One primary scenario for each parameter, so a refusal of one parameter loses only its rows",
+    "refusal_reading": "the refusals of each parameter by key, published unjudged in refusal-reading.csv",
+    "nu2_reading": "the corrected nu2, its standard error, the raw E_n[alpha_hat^2] and B_hat of every draw, published unjudged in nu2-replicates.csv.gz and nu2-reading.csv",
+    "controls": {
+      "inflated_se_control": "the estimated-mechanism scenarios' ATT and ATC bound rows, with the package curve minus the independently rebuilt mechanism term, and the plain influence variance of that curve",
+      "shrunken_se_control": "binary_known's ATT and ATC bound rows, with the package curve plus the mechanism term of a study-side LogisticRegression(C=inf) fit, and the plain influence variance of that curve"
+    },
+    "truth": "sigma2 = 1. balanced: nu2 = 2 + 2 exp(0.07) for ate, 4 exp(0.07) for att and atc, effect 1.5. unbalanced: 1-D Gauss-Hermite quadrature, effect 1.5. multinomial: 80 x 80 Gauss-Hermite quadrature, effects 1.44, 1.44, 0.6",
+    "red_cell_policy": [
+      "the study publishes under reporting; no replicate count, margin, law, learner or strength changes after a verdict is seen",
+      "a red positive cell is diagnosed first: on 20 replicates of its scenario, the infinitesimal jackknife (unit witness W5) and the numerical sandwich (TestTheNumericalSandwich) are compared with the package curve. A mismatch is a defect, which is fixed and the study regenerated under a fresh declaration commit",
+      "when they agree, the cell is rerun at n = 4000 with 5,000 replicates and published red with owner X26-plugin-finite-sample and the reading 'finite-sample, contracting' or 'finite-sample, not contracting at n=4000', with a roadmap owner row",
+      "a red positive cell reads as finite-sample only when its 99% SE-ratio interval contains 1, its coverage is consistent with 0.95, and the diagnosis finds no defect; any other red positive cell is a defect suspect and never ends as an owner row unfixed, except a red cell that rule 7 or rule 8 reads",
+      "a control that does not leave the band is reported as 'control underpowered', with its ratio",
+      "the corrected nu2 rows are measured, not claimed: their reading is never a verdict, and a shortfall in it opens no red cell",
+      "a cell that is green on the complete case and red only because a worst-case clause fails reads 'refusal-limited' with owner X26-refusal-limited. It publishes the number of lost replicates, the complete-case value and the worst-case value, with the refusal rate of each key in refusal-reading.csv. It is not a defect suspect under rule 4",
+      "a red positive cell that clears both bands from below reads 'conservative' with owner X26-plugin-conservative: its 99% SE-ratio interval's lower endpoint is at least 0.93, its 99% coverage interval's lower endpoint is at least 0.92, its SE ratio is at least 1 and its coverage is at least 0.95. Rule 2's diagnosis runs first, and a mismatch is a defect. With agreement, the n = 4000 rerun of rule 3 gives the reading 'conservative, contracting' or 'conservative, not contracting at n=4000'. The plain influence variance omits the second-order variance term that the owner dropped on 2026-10-16, so the study expects this reading for cross-fitted cells. It is not a defect suspect under rule 4"
+    ],
+    "red_cell_owners": {
+      "finite_sample": "X26-plugin-finite-sample",
+      "conservative": "X26-plugin-conservative",
+      "refusal_limited": "X26-refusal-limited"
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/omitted_variable_bound_plugin.py": "592ca4cbe04a174a5379837d16876f12c5b595ba59b3ceb9c93be55c3b486ccb",
+    "tests/studies/omitted_variable_bound_plugin_properties.py": "f4f75d9378410855fd0af4442865b5e7e7b13141f8a5006f844038015d700e6e",
+    "tests/studies/evidence/properties.py": "30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577",
+    "tests/studies/evidence/property_verdicts.py": "e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db",
+    "tests/studies/evidence/schema.py": "86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "31ac275f9d7652cc5e73edc35f06ad070ca21c0f6df6169b4411d9852806d913",
+    "summary.csv": "78c360cce6bef8376712ec4d742d8dc8b1844fb3d39351162794fa263280f0c2",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "81b77ddfa61329da271d00f43bb8050e43cd4ecc3c225025707b9819c158f251",
+    "property-replicates.csv.gz": "64d789ad03b7f49fde2ed5c194e4dc81aa5bdc3a4265381992fd615fdb53bf54",
+    "properties.csv": "c2474ba29d33eebeabd8fdbc941d3ec588b570d8923902e6c03da7c497c91061",
+    "nu2-replicates.csv.gz": "a311d7cce45d4f3f4a03f60c4af7a6abc671dfdb413959625474b02708679b5f",
+    "nu2-reading.csv": "d15c7cc737c4568c1a3aff5bd1cf02af6f118e2bc85e11fa64a59ed00fdcddc0",
+    "refusal-reading.csv": "60b14b7514e2c65ac28f62c9a5bc992dbf316df0add0df30730b81fc3870d4ba",
+    "failures.csv": "0f8e8c2599794919eb5156286a164a50a308cb0893d80b1ab2de6b88de4a5485",
+    "failure-accounting.csv": "539f3810185fb0ed9eb40719022af29937296bcd55819db991f7797af099c20f",
+    "property-failures.csv": "ef1333a75c0c712e35735a4d12e42da231106d16b8e59f714724e1f78cdeea82",
+    "property-failure-accounting.csv": "4613591b5ef215231b778f90b5752df8113b0e0e576f545295a5fa77bc0d759f",
+    "property-failure-witnesses.csv": "8752293339040af88da30408dbfc20f194c332f9d5ddf57da1ce11c0736fd389"
+  }
+}

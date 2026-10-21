@@ -548,7 +548,11 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
         )
     if "missingness_necessity" in record.property_cells:
         declared["margin:missingness_displacement"] = record.properties().MISSINGNESS_DISPLACEMENT
-    if "correction_necessity" in record.property_cells:
+    # Two studies use the family name.  The DR-TMLE studies compare a closed score with the
+    # initial score, and their cells end in ``closed_score``.  A study with a corrected and an
+    # uncorrected arm publishes the displacement of the pair instead.
+    correction_cells = record.property_cells.get("correction_necessity", ())
+    if any(cell.endswith("__closed_score") for cell in correction_cells):
         properties = record.properties()
         declared.update(
             {
@@ -556,6 +560,8 @@ def thresholds(record: StudyRecord) -> dict[str, float]:
                 "margin:uncorrected_score_floor": properties.UNCORRECTED_SCORE_FLOOR,
             }
         )
+    elif correction_cells:
+        declared["margin:correction_displacement"] = record.properties().CORRECTION_DISPLACEMENT
     if set(record.property_cells) & {
         "atom_necessity",
         "classifier_split",

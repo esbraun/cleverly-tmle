@@ -75,7 +75,7 @@ def test_the_observed_column_is_the_closed_form_covariate() -> None:
     submodel = build(data, tilts)
     a = data.treatment
     for index, item in enumerate(DELTAS):
-        d = item.delta * tilts.propensity + (1.0 - tilts.propensity)
+        d = item.delta * tilts.propensity[:, 1] + (1.0 - tilts.propensity[:, 1])
         expected = (item.delta * a + (1.0 - a)) / d
         np.testing.assert_allclose(submodel.observed[:, index], expected, atol=1e-14, rtol=0)
 
@@ -85,7 +85,7 @@ def test_the_arm_columns_are_delta_over_d_and_one_over_d() -> None:
     tilts = make_tilts(data)
     submodel = build(data, tilts)
     for index, item in enumerate(DELTAS):
-        d = item.delta * tilts.propensity + (1.0 - tilts.propensity)
+        d = item.delta * tilts.propensity[:, 1] + (1.0 - tilts.propensity[:, 1])
         np.testing.assert_allclose(submodel.arms[1.0][:, index], item.delta / d, atol=1e-14, rtol=0)
         np.testing.assert_allclose(submodel.arms[0.0][:, index], 1.0 / d, atol=1e-14, rtol=0)
 
@@ -146,7 +146,7 @@ def test_the_missingness_mechanism_divides_every_column() -> None:
     )
     a = data.treatment
     for index, item in enumerate(DELTAS):
-        d = item.delta * tilts.propensity + (1.0 - tilts.propensity)
+        d = item.delta * tilts.propensity[:, 1] + (1.0 - tilts.propensity[:, 1])
         at_arm = np.where(a == 1.0, pi[:, 1], pi[:, 0])
         expected = (item.delta * a + (1.0 - a)) / (d * at_arm)
         np.testing.assert_allclose(submodel.observed[:, index], expected, atol=1e-14, rtol=0)
@@ -232,7 +232,9 @@ def test_the_mechanism_covariate_is_the_blip_times_the_derivative() -> None:
     fit = initial(data)
     covariate = mechanism_covariate("ipsi", fit, tilts)
     blip = fit.arms[1.0] - fit.arms[0.0]
-    np.testing.assert_allclose(covariate, tilts.derivative * blip[:, None], atol=1e-14, rtol=0)
+    np.testing.assert_allclose(
+        covariate, tilts.binary_derivative * blip[:, None], atol=1e-14, rtol=0
+    )
 
 
 def test_the_tilt_zeroes_its_own_score() -> None:
@@ -240,7 +242,7 @@ def test_the_tilt_zeroes_its_own_score() -> None:
     tilts = make_tilts(data)
     covariate = mechanism_covariate("ipsi", initial(data), tilts)
     weights = np.ones(data.n)
-    result = solve_mechanism(data.treatment, tilts.propensity, covariate, weights)
+    result = solve_mechanism(data.treatment, tilts.propensity[:, 1], covariate, weights)
     assert result.converged
     assert np.max(np.abs(result.score)) < 1e-10
     # ... and it started somewhere else, or the test would pass on a no-op.
@@ -253,9 +255,9 @@ def test_the_tilt_matches_a_grid_search_over_epsilon() -> None:
     tilts = IPSISet.evaluate((Incremental(2.5),), data, _mechanism(data))
     covariate = mechanism_covariate("ipsi", initial(data), tilts)
     weights = np.ones(data.n)
-    result = solve_mechanism(data.treatment, tilts.propensity, covariate, weights)
+    result = solve_mechanism(data.treatment, tilts.propensity[:, 1], covariate, weights)
 
-    offset = logit(tilts.propensity)
+    offset = logit(tilts.propensity[:, 1])
     a = data.treatment
 
     def score(eps: float) -> float:
@@ -271,18 +273,18 @@ def test_a_zero_covariate_leaves_the_mechanism_alone() -> None:
     data = make_data()
     tilts = make_tilts(data)
     result = solve_mechanism(
-        data.treatment, tilts.propensity, np.zeros((data.n, 1)), np.ones(data.n)
+        data.treatment, tilts.propensity[:, 1], np.zeros((data.n, 1)), np.ones(data.n)
     )
     assert result.converged
     np.testing.assert_array_equal(result.epsilon, np.zeros(1))
-    np.testing.assert_allclose(result.propensity, tilts.propensity, atol=1e-12, rtol=0)
+    np.testing.assert_allclose(result.propensity, tilts.propensity[:, 1], atol=1e-12, rtol=0)
 
 
 def test_the_tilted_mechanism_stays_a_probability() -> None:
     data = make_data()
     tilts = make_tilts(data)
     covariate = 50.0 * mechanism_covariate("ipsi", initial(data), tilts)
-    result = solve_mechanism(data.treatment, tilts.propensity, covariate, np.ones(data.n))
+    result = solve_mechanism(data.treatment, tilts.propensity[:, 1], covariate, np.ones(data.n))
     assert np.all(result.propensity > 0.0)
     assert np.all(result.propensity < 1.0)
 
@@ -295,7 +297,7 @@ def test_a_boundary_propensity_does_not_put_an_infinity_in_the_solve() -> None:
     one[3:6] = 1.0
     tilts = IPSISet.evaluate((Incremental(2.0),), data, np.column_stack([1.0 - one, one]))
     covariate = mechanism_covariate("ipsi", initial(data), tilts)
-    result = solve_mechanism(data.treatment, tilts.propensity, covariate, np.ones(data.n))
+    result = solve_mechanism(data.treatment, tilts.propensity[:, 1], covariate, np.ones(data.n))
     assert np.all(np.isfinite(result.propensity))
     assert np.all(np.isfinite(result.epsilon))
 

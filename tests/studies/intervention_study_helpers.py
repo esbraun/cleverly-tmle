@@ -126,7 +126,8 @@ def incremental_estimates(
     if targeted_mechanism:
         if fluctuation.mechanism is None:  # pragma: no cover - a study contract guard
             raise AssertionError("an incremental fit did not target its treatment mechanism")
-        tilts = tilts.at(fluctuation.mechanism.propensity)
+        treated = np.asarray(fluctuation.mechanism.propensity, dtype=float)
+        tilts = tilts.at(np.column_stack([1.0 - treated, treated]))
     arms = np.column_stack(
         [result.nuisance.scaler.unscale_levels(outcome.arms[arm]) for arm in result.data.arm_codes]
     )

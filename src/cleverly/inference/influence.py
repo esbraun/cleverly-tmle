@@ -1274,6 +1274,80 @@ def make_estimate(
     )
 
 
+def _median_adjusted_variance(points: FloatArray, variances: Sequence[float]) -> float:
+    r"""The split-adjusted variance of one coordinate over repeated draws.
+
+    :math:`\operatorname{median}_r\{\widehat\sigma_r^2 + (t_r - \tilde t)^2\}`, with
+    :math:`t_r` the draws' values on the inference scale and :math:`\tilde t` their median
+    (Chernozhukov et al. 2018, equation 3.14, for one coordinate).  :func:`median_estimates`
+    and the one-name route of
+    :func:`~cleverly.inference.results.median_covariance` both call it, so a one-name
+    covariance equals the reported variance bit for bit.
+
+    Parameters
+    ----------
+    points : ndarray
+        The draws' values on the inference scale.
+    variances : sequence of float
+        The draws' variances on the same scale.
+
+    Returns
+    -------
+    float
+        The median of the adjusted variances.
+    """
+    median_point = float(np.median(points))
+    return float(
+        np.median(
+            [
+                variance + (point - median_point) ** 2
+                for variance, point in zip(variances, points, strict=True)
+            ]
+        )
+    )
+
+
+def with_precedent_status(
+    per_repeat: Sequence[Mapping[str, ParameterEstimate]],
+) -> list[dict[str, ParameterEstimate]]:
+    """Copies of the draws, each estimate re-stamped with the precedent of its draws.
+
+    A longitudinal parameter can take a parameter status in one draw and not in another,
+    because a node regression can read a constant target in one draw's training rows only.
+    :func:`median_estimates` refuses such a mix.  This function stamps every draw's estimate
+    of a name with :func:`~cleverly._inference_status.precedent_status` over that name's
+    draws, so a parameter that withholds inference in any draw withholds it in the median.
+    A re-stamped estimate that supplies no inference loses its Student t reference, as
+    :func:`make_estimate` drops it.  The inputs are not changed.
+
+    Parameters
+    ----------
+    per_repeat : sequence of mappings
+        One estimate mapping per draw.
+
+    Returns
+    -------
+    list of dict
+        One re-stamped estimate mapping per draw, in the input order.
+    """
+    out = [dict(report) for report in per_repeat]
+    names = {name for report in per_repeat for name in report}
+    for name in names:
+        statuses = {report[name].inference for report in per_repeat if name in report}
+        if len(statuses) < 2:
+            continue
+        stamp = precedent_status(statuses)
+        for report in out:
+            if name in report and report[name].inference != stamp:
+                estimate = report[name]
+                report[name] = replace(
+                    estimate,
+                    inference=stamp,
+                    reference_df=estimate.reference_df if supplies_inference(stamp) else None,
+                )
+    return out
+
+
 def restamp_parameter_statuses(
     per_repeat: Sequence[Mapping[str, ParameterEstimate]],
 ) -> list[dict[str, ParameterEstimate]]:
@@ -1324,14 +1398,16 @@ def median_estimates(
     r"""Combine repeated cross-fitting estimates by their median.
 
     Each entry is one complete draw of the cross-fitting split. The point estimate is
-    the median over draws. Ratios use the log scale, which is also their inference scale.
-    The variance follows Chernozhukov et al. (2018, equation 3.14) and zEpid's repeated
-    cross-fit TMLE implementation:
+    the median over draws on each estimate's inference scale: the log scale for a ratio,
+    the transform's scale for an estimate with a ``transform``, and the reported scale
+    otherwise. A transformed estimate reports ``transform.inverse`` of that median and keeps
+    its transform. The variance follows Chernozhukov et al. (2018, equation 3.14) and zEpid's
+    repeated cross-fit TMLE implementation, on the same scale:
 
     .. math::
 
         \widetilde\sigma^2 = \operatorname{median}_r\left\{
-        \widehat\sigma_r^2 + (\widehat\psi_r - \widetilde\psi)^2\right\}.
+        \widehat\sigma_r^2 + (\widehat t_r - \widetilde t)^2\right\}.
 
     This rule includes within-draw uncertainty and between-draw displacement. For an odd
     repeat count, the reported marginal influence curve comes from the draw at the median
@@ -1352,6 +1428,12 @@ def median_estimates(
     -------
     dict
         Median-combined estimates for names present in every draw.
+
+    Raises
+    ------
+    ValueError
+        When the draws of one name declare different covariance rules, inference statuses
+        or transforms.
     """
     if not per_repeat:
         raise ValueError("median_estimates needs at least one repeat")
@@ -1389,6 +1471,14 @@ def median_estimates(
                 "repeats; a median over draws is inferential output or it is not, and "
                 "combining the two would report one draw's refusal under another's name"
             )
+        transforms = {None if part.transform is None else part.transform.name for part in parts}
+        if len(transforms) != 1:
+            shown = sorted(str(value) for value in transforms)
+            raise ValueError(
+                f"{name} declares different transforms {shown} across repeats; a median "
+                "over draws needs one inference scale"
+            )
+        transform = parts[0].transform
         supports = {part.support for part in parts}
         if len(supports) != 1:
             raise ValueError(
@@ -1397,19 +1487,25 @@ def median_estimates(
                 "with one draw's evidence"
             )
         scale = parts[0].scale
-        if scale == "ratio":
+        log_psi: float | None = None
+        if transform is not None:
+            # The transform's scale is the inference scale, so the median and the
+            # displacement are taken there and the reported value is mapped back.
+            points = np.asarray([part.inference_value for part in parts], dtype=float)
+            median_point = float(np.median(points))
+            psi = float(transform.inverse(median_point))
+        elif scale == "ratio":
             # ``points`` and ``median_point`` are on the reporting scale, which for a
             # ratio is the log scale.  The displacement term below reads them, so a ratio
             # gets its between-draw spread in log units and not in ratio units.
             points = np.asarray([part.log_psi for part in parts], dtype=float)
             median_point = float(np.median(points))
-            log_psi: float | None = median_point
+            log_psi = median_point
             psi = float(np.exp(median_point))
         else:
             points = np.asarray([part.psi for part in parts], dtype=float)
             median_point = float(np.median(points))
             psi = median_point
-            log_psi = None
 
         order = np.argsort(points, kind="stable")
         middle = len(parts) // 2
@@ -1418,14 +1514,7 @@ def median_estimates(
             [np.asarray(parts[int(index)].influence_curve, dtype=float) for index in central],
             axis=0,
         )
-        variance = float(
-            np.median(
-                [
-                    part.variance + (point - median_point) ** 2
-                    for part, point in zip(parts, points, strict=True)
-                ]
-            )
-        )
+        variance = _median_adjusted_variance(points, [part.variance for part in parts])
         out[name] = ParameterEstimate(
             name=name,
             psi=psi,
@@ -1440,6 +1529,7 @@ def median_estimates(
             # declaration. The declared rule still decides how covariance reads the curve.
             covariance_rule=parts[0].covariance_rule,
             inference=parts[0].inference,
+            transform=transform,
             reference_df=minimum_reference_df(parts),
             support=parts[0].support,
         )
@@ -2158,18 +2248,26 @@ def ipsi_means(
 
         \hat\Psi_r = \frac1n \sum_i m_r(W_i),
         \qquad
-        m_r(W) = \sum_a q_{\delta_r}(a \mid W)\, \bar Q^*(a, W)
+        m_r(W) = \sum_a q_{r}(a \mid W)\, \bar Q^*(a, W)
 
         D_r^*(O) = h_r(A, W)\,\{Y - \bar Q^*(A, W)\}
-                 + \frac{\delta_r\{\bar Q^*(1,W) - \bar Q^*(0,W)\}}{D_{\delta_r}^2}\,(A - g^*)
+                 + h_r(A, W)\,\{\bar Q^*(A, W) - m_r(W)\}
                  + m_r(W) - \Psi_r
+
+    with :math:`q_r(a) = \delta_{r,a} g(a)/D_r` and :math:`h_r(a) = \delta_{r,a}/D_r`.  The
+    middle term is the mechanism term: its coefficient is
+    :math:`\partial m_r/\partial g_b = h_r(b)\{\bar Q^*(b) - m_r\}`, evaluated on the
+    mechanism score :math:`1\{A=b\} - g_b` and summed over :math:`b`.  For two levels it is
+    :math:`\delta_r\{\bar Q^*(1,W) - \bar Q^*(0,W)\}(A - g^*)/D_r^2`, and that expression is
+    the one computed there, so the binary arrays are bit-identical to the ones the binary
+    path produced before the categorical form existed.
 
     **The middle term is the whole reason this is not** :func:`regime_means`.  A
     :class:`~cleverly.interventions.Stochastic` regime evaluated at the very same density
-    :math:`q_{\delta_r}` has the same mean and, entry for entry, the same clever
-    covariate; its influence curve is this one without the middle term.  Because
-    :math:`q_\delta` is built out of :math:`g`, the parameter moves when the mechanism
-    does, and that dependence is a pathwise derivative the regime curve has no term for.
+    :math:`q_{r}` has the same mean and, entry for entry, the same clever covariate; its
+    influence curve is this one without the middle term.  Because :math:`q_r` is built out of
+    :math:`g`, the parameter moves when the mechanism does, and that dependence is a pathwise
+    derivative the regime curve has no term for.
 
     The gap is not a wash.  The extra term is mean zero given :math:`W` and orthogonal to
     both halves of the regime curve -- the residual half is centred given :math:`(A, W)`,
@@ -2179,8 +2277,7 @@ def ipsi_means(
 
         \operatorname{Var}(D^*_{\text{ipsi}})
             = \operatorname{Var}(D^*_{\text{regime}})
-            + \operatorname{Var}\!\left(
-                \frac{\delta(\bar Q(1,W) - \bar Q(0,W))}{D_\delta^2}(A - g)\right),
+            + \operatorname{Var}\!\left(h_r(A)\{\bar Q(A) - m_r\}\right),
 
     an exact decomposition.  Treating an incremental intervention as the regime that
     induces it therefore does not merely report a different quantity: it reports a
@@ -2198,13 +2295,11 @@ def ipsi_means(
     A tilt of a **known** mechanism (:attr:`~cleverly.interventions.IPSISet.mechanism_known`)
     omits the middle term.  With :math:`g_0` known the model has no mechanism scores, so the
     efficient curve is the full-model curve projected off that tangent space, which removes
-    exactly the term in :math:`(A - g)`.  The result is the curve of the known stochastic
+    exactly the mechanism term.  The result is the curve of the known stochastic
     regime :math:`q_\delta(g_0)`.
     """
     _expect(submodel, "ipsi")
     density = np.asarray(incremental.values, dtype=float)
-    derivative = np.asarray(incremental.derivative, dtype=float)
-    mechanism = np.asarray(incremental.propensity, dtype=float).reshape(-1)
     w = np.asarray(weights, dtype=float).reshape(-1)
     residual = _residual(outcome, targeted, observed)
     levels = targeted.levels
@@ -2220,21 +2315,43 @@ def ipsi_means(
         )
     # (n, K) of the targeted predictions, columns in the same order the densities use.
     predictions = np.column_stack([targeted.arms[level] for level in levels])
-    # The blip is a contrast of arms, so it needs the two-arm layout the tilt declares;
-    # IPSISet.evaluate has already refused anything else.
-    blip = np.asarray(targeted.arms[1.0], dtype=float) - np.asarray(targeted.arms[0.0], dtype=float)
-    treated_residual = np.asarray(treatment, dtype=float).reshape(-1) - mechanism
+    a = np.asarray(treatment, dtype=float).reshape(-1)
+    # Two levels keep the expression the binary path has always used, so that its arrays are
+    # unchanged to the last bit.
+    term = _ipsi_term_binary if len(levels) == 2 else _ipsi_term_general
 
     out: dict[float, ArmMean] = {}
     for index in range(density.shape[2]):
         mixture = np.einsum("ij,ij->i", density[:, :, index], predictions)
         psi = float(np.average(mixture, weights=w))
         mechanism_term = (
-            0.0 if incremental.mechanism_known else derivative[:, index] * blip * treated_residual
+            0.0
+            if incremental.mechanism_known
+            else term(incremental, predictions, mixture, a, index)
         )
         curve = submodel.observed[:, index] * residual + mechanism_term + mixture - psi
         out[float(index)] = ArmMean(psi, w * curve)
     return out
+
+
+def _ipsi_term_binary(
+    incremental: Any, predictions: FloatArray, mixture: FloatArray, a: FloatArray, index: int
+) -> FloatArray:
+    r""":math:`\delta\{\bar Q^*(1,W) - \bar Q^*(0,W)\}(A - g^*)/D^2`, Kennedy's mechanism term."""
+    del mixture
+    blip = predictions[:, 1] - predictions[:, 0]
+    treated_residual = a - np.asarray(incremental.propensity, dtype=float)[:, 1]
+    return np.asarray(incremental.binary_derivative[:, index] * blip * treated_residual)
+
+
+def _ipsi_term_general(
+    incremental: Any, predictions: FloatArray, mixture: FloatArray, a: FloatArray, index: int
+) -> FloatArray:
+    r""":math:`h(A)\{\bar Q^*(A, W) - m(W)\}`: the mechanism term for any number of levels."""
+    at_observed = predictions[np.arange(a.size), np.rint(a).astype(int)]
+    # The tilt factor at the received level.  Not `submodel.observed`, which carries the
+    # missingness weight of the outcome half and has no place in this term.
+    return np.asarray(incremental.observed(a)[:, index] * (at_observed - mixture))
 
 
 def _raw_predictions(

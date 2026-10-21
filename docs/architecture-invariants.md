@@ -219,10 +219,11 @@ status that withholds inference comes first in `STATUS_RECORDS`, so it stays.
 | `smooth_contrast` | the status of its inputs, through `inference_status`. A mix of two fit statuses raises `ValueError`. A mix of a fit status and a parameter status takes the earlier one in `STATUS_RECORDS` |
 | `median_estimates` | the status of its repeats. Any mix raises `ValueError`, a parameter status included, because a median would report one draw's refusal under another draw's name |
 | `variable_importance` | none. It raises the fold-policy refusal first. On each candidate's prepared data it raises the outcome-scale refusal, then asks the hook. It refuses before the first fit. A cross-fitted run of a continuous outcome with no `q_bounds` meets the scale refusal first in two cases. With `delta=`, its fit would raise the arm-indexed refusal first. With a `CTMLE` template, the hook would give its collaborative status |
-| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of the result, so the replay at the fitted bound equals the fit in every field that `_fitted_replay_matches` compares |
+| a longitudinal estimator | `cluster_inference_status` on the prepared cluster labels and weights. The fit and the truncation-curve replay pass it through `_estimates` and `_msm_estimates` to each `make_estimate` call. The replay computes the status again from the data and folds of each draw, so the replay of each draw at the fitted bound equals that draw in every field that `_fitted_replay_matches` compares |
 | a longitudinal parameter | `_parameter_status` in `_estimates`: `constant_node_plugin` when `constant_nodes` of its fit, or of its reference fit for a contrast, is not empty. `_msm_estimates` never meets it, because `msm=` refuses a constant cell in the backward pass |
+| a longitudinal parameter under `repeats` above 1 | `with_precedent_status` over the draws, then `median_estimates`. Each draw's estimate of a name takes `precedent_status` of that name's draws, so a `constant_node_plugin` in one draw reaches the report. `median_derived`, `median_covariance` and `median_bands` apply the same stamp before they combine draws. `result.repeats[r].estimates` keep their own statuses |
 | `incidence_total()` | each total's own status, through `inference_status` over the incidences it sums |
-| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none |
+| a band | none. `LTMLE._bands` and `CausalStudy`'s `_narrow_bands` build the band over the estimates that supply inference, and below two of them they build none. Under `repeats` above 1 both use `median_bands`, which stamps each draw with the precedent status first |
 
 The same stamp sets the Student $t$ reference of a clustered fit. A builder records the rows an
 estimate reads, and not its degrees of freedom: `_stratum_estimates` returns the stratum code of
@@ -589,6 +590,27 @@ ratio, the support report and the longitudinal node read those branches and noth
 class adds a branch type there, not a new axis. `RiskRatioTilt` differs in its report only. It
 reads `g`, so it reports on the `rr_tilt` axis. `TMLE` refuses a tilt beside other policies.
 
+An incremental intervention is an odds tilt with one factor for each level of the treatment. A
+scalar names the second level of two. A mapping names levels by label. The `Incremental.factors`
+method resolves a declaration against one treatment or one node, and it is the only reader of the
+declaration. A new consumer calls it with the levels it holds and a subject for the refusal text.
+It does not read `.delta`.
+
+The binary surface rule holds at every consumer: with two levels, the
+code runs the arithmetic of Kennedy (2019) with $\delta=\delta_1/\delta_0$, and with more levels it
+runs the general formulas. The two branches meet in the mechanism fluctuation too, which is
+logistic for two levels and a softmax for more. A two-level estimate, influence curve, standard
+error and fluctuation are bit-identical to the ones before the categorical change. Two diagnostics
+changed: `IncrementalSupport.min_propensity` is the minimum over both columns of the mechanism, and
+`IncrementalSupport.delta` holds label and factor pairs instead of one float.
+
+`tests/unit/test_incremental_binary_surface.py` and
+`tests/unit/test_ipsi_binary_surface.py` replay the committed studies to check it. A three-level
+fit on a configuration of the rows `T35` and `G43` carries the label of the registered study
+[categorical incremental policies](technical-reference/method-evidence/categorical-incremental.md).
+Any other three-level fit is `experimental`, and no binary support row covers it.
+`tests/unit/test_categorical_ipsi_declaration.py` holds that check for nodes.
+
 An estimator variant that only changes which nuisance estimate is targeted should override the
 nuisance hook, return a replaced `NuisanceEstimates` with diagnostics, and inherit targeting and
 result behavior. `CTMLE` is the reference pattern. A method with different data ordering or
@@ -654,8 +676,12 @@ sample only. `tests/unit/test_sequential_baselines.py` checks that the g-computa
 the first-node mean of the shared recursion (W8).
 
 The incremental estimator `IPSI` shares plan resolution, masks, designs and the mechanism fit
-with LTMLE. An odds-tilt node's factor is computed in the cancelled form
-$(\delta A + 1 - A)/(\delta\pi + 1 - \pi)$. It is never divided by a bounded mechanism.
+with LTMLE. An odds-tilt node's factor is computed in the cancelled form $\delta_{A}/D$, with
+$D=\sum_b\delta_b\pi(b)$. With two levels it is $(\delta A + 1 - A)/(\delta\pi + 1 - \pi)$. It is
+never divided by a bounded mechanism, and it is never written as $q/\pi$. The mechanism term at a
+node is $W_{t-1}(\delta_{A_t}/D_t)\{m_t(H_t,A_t)-\bar m_t(H_t)\}$ for any number of levels. A
+node reads its own factors, and a node with two levels branches to Kennedy's arithmetic.
+
 `g_bounds` bounds only the cumulative censoring, label, rule and policy product, and the tilt
 product multiplies in after the bound. The influence function holds a mechanism term exactly at
 each tilt node whose treatment mechanism is estimated.

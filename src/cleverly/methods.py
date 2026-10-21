@@ -325,8 +325,8 @@ class CrossFitting:
     learner_folds : int, default=5
         Inner folds used by ensemble learners.
     repeats : int, default=1
-        Independent outer-fold assignments to combine by their median. A value above one
-        requires ``enabled=True``.
+        Independent outer-fold assignments to combine by their median, on a point-treatment
+        or a longitudinal design. A value above one requires ``enabled=True``.
     stratify_by : {"none", "treatment", "treatment+outcome"}, default="none"
         Fold-stratification policy. ``"none"`` draws folds that read neither the
         treatment nor the outcome, and it is the only value a fit that draws a split
@@ -445,10 +445,10 @@ class Targeting:
         can stop short of ``tol``. Then the fit warns, reports ``converged=False`` and
         ``failure="max_iter_reached"``, and ``score_check`` fails it. The ``tmle3`` pairing
         is ``stopping="sample_size"`` with a larger ``max_iter``. Under
-        ``stopping="relative"`` the walk reaches ``tol=1e-10`` only with
-        ``step_search=True`` and well over the default ``max_iter``: 25 to 190 iterations on
-        the six arm-mean fits of
-        ``tests/unit/test_step_bound.py::TestRelativeReachability``.
+        ``stopping="relative"`` the walk can need more than the default ``max_iter``.
+        Floating-point rounding and the platform affect the iteration count near ``tol``.
+        The six arm-mean fits of ``tests/unit/test_step_bound.py::TestRelativeReachability``
+        check the score criterion and recovery with a larger iteration budget.
         A fit whose initial regression already meets the rule takes no step.
     step_search : bool, default=True
         Under ``step_bound``, ``True`` takes the length in ``(0, step_bound]`` that
@@ -753,7 +753,6 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
     ("models", "screen_threshold", "screen_threshold"),
     ("models", "min_retain", "min_retain"),
     ("models", "outcome_by_arm", "outcome_by_arm"),
-    ("cross_fitting", "repeats", "repeats"),
     ("cross_fitting", "stratify_by", "stratify_folds"),
     ("cross_fitting", "targeting_scheme", "targeting_scheme"),
     ("cross_fitting", "fold_evaluation", "cv_evaluation"),
@@ -982,6 +981,7 @@ class TMLEMethod:
                     "censoring_learner": models.censoring_learner,
                     "n_bootstrap": inference.n_bootstrap,
                     "bootstrap_resampling": inference.bootstrap_resampling,
+                    "repeats": cross.repeats,
                     "stopping": targeting.stopping,
                     "step_bound": targeting.step_bound,
                     "step_search": targeting.step_search,
@@ -1068,7 +1068,8 @@ default="greedy"
         the reason. ``"oat"`` reports no interval, for the reason F19 holds, except on a
         per-arm fit with ``ParametricOutcome`` and ``ParametricMechanism`` that
         ``cleverly.estimators.ctmle.per_arm_parametric_support`` admits (X58), in sample or
-        cross-fitted. That fit reports pointwise intervals. ``"derivative"`` is C-TMLE0. It
+        cross-fitted, with any number of arms and with observation weights. That fit reports
+        pointwise intervals and a simultaneous band. ``"derivative"`` is C-TMLE0. It
         selects nothing and reports the ordinary TMLE interval.
     preorder : {"logistic", "partial_correlation"} or None, default=None
         Preordering rule for candidate covariates.

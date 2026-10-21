@@ -81,6 +81,7 @@ over two or more estimates. A direct call to `simultaneous_bands` can still rece
 | the same helpers | a `"second_moment"` estimate on a clustered result | the raw second-moment rule is defined for independent rows only |
 | `make_estimate` in `cleverly.inference.influence` | `covariance_rule="second_moment"` with clusters | the same reason |
 | `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different rules | a median over draws needs one rule |
+| `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different transforms | a median over draws needs one inference scale |
 | `simultaneous_bands` | any `"second_moment"` estimate | the multiplier draws center each influence curve. Centering matches the raw second moment only on a mean-zero curve, and `simultaneous_bands` does not check the mean |
 
 A fold-evaluated fit, with `cv_evaluation=True`, stores the cross-validated variance from
@@ -89,8 +90,24 @@ uncentered fold second moments, or from centered fold cluster variances with `id
 therefore differs from the stored variance on that fit.
 `tests/unit/test_cv_targeting.py::TestTheFoldEvaluatedCovarianceRule` checks that difference.
 `tests/unit/test_inference.py::TestTheCovarianceRule` checks both rules, contrast inheritance, and
-the five refusals. A repeated fit refuses `covariance()` and `contrast()` altogether, as the
-[CV-TMLE reference](cv-tmle.md) states.
+the five refusals. A repeated point-treatment fit refuses `covariance()` and `contrast()`
+altogether, as the [CV-TMLE reference](cv-tmle.md) states.
+
+A repeated longitudinal fit gives both. `contrast()` runs in every draw and then takes the median
+rule on its inference scale. `covariance(names)` returns the matrix rule of Chernozhukov et al.
+(2018, equation (3.14)) for the selected names. The draw that this rule picks depends on the
+selection. So an entry can differ between two selections that share a name, and from the reported
+variance. A one-name call equals the reported variance exactly. The table states which number each
+consumer reads.
+
+| consumer | variance it reads |
+| --- | --- |
+| `result[name]`, `ci`, `summary()`, `to_frame()` | the per-name median rule |
+| in-fit contrasts, `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()` | the per-name median rule on the derived value, computed per draw |
+| the simultaneous band | the per-name standard error, times the median of the per-draw critical values |
+| a Wald test over several names | `covariance(names)` |
+
+[Repeated fold draws](longitudinal-tmle.md#repeated-fold-draws) gives the rule and its argument.
 
 ## Inference status
 
@@ -106,8 +123,8 @@ status. A shown status returns the plug-in interval and the estimate carries the
 | `"influence_curve"` | every estimate except the ones below. This is the constructor default. It includes a per-arm `CTMLE` fit that `per_arm_parametric_support` admits | return the values on this page | `std_err` | not applicable |
 | `"working_mechanism_plugin"` | a `CTMLE` fit with `strategy="greedy"`, `"ordered"`, `"discrete"`, `"lasso"`, or `"learners"`. A `discrete` fit with one declared candidate, equal to the set the treatment mechanism reads, takes the TMLE status instead. That set is the full adjustment set, or the `treatment_adjustment=` subset. `patience=` leaves the status unchanged. A `learners` fit with an empty declared list does the same. A `"derivative"` fit (C-TMLE0) selects nothing and takes the TMLE status. [Collaborative TMLE](collaborative-tmle.md) gives the reason | raise `CapabilityError` with the reason of the status | `working-mechanism se` | [F18](../roadmap.md#f18-selector-path-c-tmle-inference) |
 | `"generated_design_plugin"` | every `CTMLE` fit with `strategy="oat"` that `per_arm_parametric_support` refuses, of either `oat_design=`. This includes a fit with `strata=`, `delta=` or `treatment_delta=`, a fit with a scikit-learn learner, and a fit that requests one arm mean outside the admitted set. [Collaborative TMLE](collaborative-tmle.md#the-applied-revert) gives the reason | raise `CapabilityError` with the reason of the status | `generated-design se` | [F19](../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
-| `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. A per-arm `CTMLE` fit with `strategy="oat"` and estimated weights takes `"generated_design_plugin"`, because `per_arm_parametric_support` refuses observation weights, and F19 holds its interval. A `SequentialGComputation` or `SequentialIPW` fit with weights declared estimated takes it too, because its stacked curve conditions on the weights. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | shown: return the plug-in values under the experimental label. The interval conditions on the weights | `std_err` |  [X50](../roadmap.md#x50-further-dr-tmle-compositions) |
-| `"adaptive_baseline_plugin"` | a `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula` fit that reads a model fitted by a learner other than `GLM`. A g-computation fit reads its outcome regressions, an IPW fit reads its treatment and censoring models, and a parametric g-formula fit reads its covariate, outcome, hazard and natural-treatment models. [Sequential baselines](sequential-baselines.md#inference) and [parametric g-formula](parametric-gformula.md#status) give the reason | raise `CapabilityError` with the reason of the status | `baseline diagnostic se` | [F35](../roadmap.md#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
+| `"estimated_weight_plugin"` | a `DRTMLE` fit with a non-empty `guard` and varying weights declared estimated (`weights_estimated=True`). A fit with `guard=()` keeps `"influence_curve"`. Constant weights fit the unweighted estimator, so they keep it too. A per-arm `CTMLE` fit that `per_arm_parametric_support` admits takes it too with weights declared estimated, because its stacked curve conditions on the weights. That curve equals the fixed-weight curve, and no registered cell measures estimated weights. A `SequentialGComputation` or `SequentialIPW` fit with weights declared estimated takes it too, for the same reason. A `StructuralNestedMean` fit with weights declared estimated takes it too. [DR-TMLE supported estimands](dr-tmle/supported-estimands.md#refused-by-name) gives the reason | shown: return the plug-in values under the experimental label. The interval conditions on the weights | `std_err` |  [X50](../roadmap.md#x50-further-dr-tmle-compositions) |
+| `"adaptive_baseline_plugin"` | a `SequentialGComputation`, `SequentialIPW` or `ParametricGFormula` fit that reads a model fitted by a learner other than `GLM`. A g-computation fit reads its outcome regressions, an IPW fit reads its treatment and censoring models, and a parametric g-formula fit reads its covariate, outcome, hazard and natural-treatment models. [Sequential baselines](sequential-baselines.md#inference) and [parametric g-formula](parametric-gformula.md#status) give the reason. A `StructuralNestedMean` fit with `n_folds=1` and a learner other than `GLM` takes it too. [Structural dynamic effects](structural-dynamic-effects.md#status) gives the reason | raise `CapabilityError` with the reason of the status | `baseline diagnostic se` | [F35](../roadmap.md#f35-inference-for-sequential-baselines-with-data-adaptive-nuisances) |
 | `"no_cluster_variance_plugin"` | a `TMLE`, `DRTMLE` or `CTMLE(strategy="derivative")` fit with `id=` and fewer than 3 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with fewer than 3. A Student t reference with $J - 2$ degrees of freedom has none left. [Clusters](#clusters) gives the reason | raise `CapabilityError` with the reason of the status | `no-df se` | [F28](../roadmap.md#f28-finite-sample-limits-of-clustered-intervals) |
 | `"few_cluster_plugin"` | a `TMLE`, `DRTMLE` or `CTMLE(strategy="derivative")` fit with `id=` and 3 to 9 clusters with positive weight mass in the fit or one reported baseline stratum, or an `LTMLE` fit with 3 to 19. The `LTMLE` range applies in sample and under cross-fitting. [Clusters](#clusters) gives the reason | shown: return the plug-in values on a Student t reference with $J - 2$ degrees of freedom, under the experimental label | `std_err` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
 | `"constant_node_plugin"` | an `LTMLE` parameter whose recursion read a node regression as a constant 0 or 1, such as a horizon at a grid node with no event among the regimen's followers at risk, and every contrast or restricted mean that reads it. The simultaneous band leaves it out. The other parameters of the fit keep their status. [A node with no event](longitudinal-tmle.md#a-node-with-no-event) gives the reason | raise `CapabilityError` with the reason of the status | `constant-node se` | [X54](../roadmap.md#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) |
@@ -185,10 +202,19 @@ the replicate distribution, and the status decides only the published name.
 `tests/unit/test_summary_and_message_accuracy.py` checks both names on a selector fit and an
 ordinary fit.
 
-Under `nu2_estimator="plugin"` an omitted-variable bound refuses its limits at every status, for a
-different reason. No derivation in a source this package cites gives their standard error. `to_dict()` then omits the three limit
-keys and carries `nu2_estimator`, and `robustness_value()` omits `rva` under every name. The
-[standard error of the omitted-variable bound](validation-methods.md#standard-error-of-the-omitted-variable-bound) gives the rule.
+Under `nu2_estimator="plugin"` an omitted-variable bound follows the rules above in two cases.
+The first case is a declared known treatment mechanism. The second case is a scikit-learn
+`LogisticRegression`, binary or multinomial, with no penalty or a fixed L2 penalty, fitted bare or
+after `StandardScaler` steps, fitted in sample or cross-fitted. The limits subtract a second-order bias of
+$\nu^2$ and keep the influence variance of its curve.
+
+Every other fit refuses its limits at every status, for a different
+reason. No source this package cites gives their standard error for another learner. A qualifying fit also refuses
+when the correction does not hold, with the key `truncation_active`, `correction_unstable` or `corrected_nonpositive`.
+Then `to_dict()` omits the three limit keys and carries `nu2_estimator` and `limit_refusal`. `robustness_value()`
+omits `rva` under every name. The
+[plug-in learner rule](validation-methods.md#plug-in-limits-and-the-learner-rule) gives the rule,
+the reason codes, and the checks on each fold.
 
 `CVTargeting.inference` reads the status from the two fold-level reports. The fit stamps those
 reports where it stamps its own estimates. `SensitivityBounds.inference` carries the status of the
@@ -216,6 +242,7 @@ A selection that mixes statuses either takes the parameter status or raises `Val
 | `contrast()`, `ratio()`, `rmst()`, `rmtl()`, and `smooth_contrast` in `cleverly.inference.results` | a fit status and the parameter status, such as an inferential risk and a constant-node risk | the derived estimate takes `"constant_node_plugin"`, the earlier status in the table. It reports no interval |
 | the same functions | two different fit statuses | `ValueError`. An inferential status would give the refused input an interval. No fit produces this input, because the estimator stamps one fit status on every estimate |
 | `median_estimates` in `cleverly.inference.influence` | repeats whose estimates declare different statuses, of any kind | `ValueError`. The median would report one draw's refusal under the other draw's name |
+| a longitudinal fit with `repeats` above 1, and its `contrast()`, `ratio()`, `rmst()`, `rmtl()`, `incidence_total()`, `covariance()` and band | one name with different statuses in different draws | each draw's estimate first takes the precedent status of the name's draws (`with_precedent_status`), so `median_estimates` sees one status. A `constant_node_plugin` in one draw withholds the interval of the report |
 
 `tests/unit/test_inference.py::TestTheInferenceStatus` checks the inheritance, both `ValueError`
 selections, and the band refusal.
@@ -456,7 +483,16 @@ data-adaptive case.
 `simultaneous_bands` refuses an estimate that declares the `"second_moment"` covariance rule. The
 multiplier draws center each influence curve. Centering matches the raw second moment only on a
 mean-zero curve, and `simultaneous_bands` does not check the mean.
-[Covariance rules](#covariance-rules) lists this refusal with the others. A repeated fit also refuses bands, as the [CV-TMLE reference](cv-tmle.md#variations) states.
+[Covariance rules](#covariance-rules) lists this refusal with the others. A repeated
+point-treatment fit also refuses bands, as the [CV-TMLE reference](cv-tmle.md#variations) states.
+
+A repeated longitudinal fit builds the band by `median_bands`. Each draw gives a multiplier critical
+value $c_r$ from its own curves and standard errors, with one multiplier seed for the fit. The band
+is $\tilde\psi_j \pm c_{\mathrm{med}}\,\tilde\sigma_j$, with $c_{\mathrm{med}} =
+\operatorname{median}_r c_r$ and the reported standard error $\tilde\sigma_j$. The band contains each
+marginal interval when $c_{\mathrm{med}}$ is at least the normal quantile. That is not guaranteed,
+because each $c_r$ is an empirical quantile. A `CausalStudy` result that narrows the family
+rebuilds the band by the same rule over the narrowed draws.
 
 Each fit seeds its multiplier draws with its own `random_state`. Every fit that uses one seed
 therefore draws the same multiplier sign matrix. A registered study that fixes `random_state`
@@ -493,7 +529,7 @@ These fit shapes publish no default band.
 
 | shape | why it publishes no band |
 | --- | --- |
-| more than one repeat | refused with two or more estimands, as the [CV-TMLE reference](cv-tmle.md#variations) states |
+| a point-treatment fit with more than one repeat | refused with two or more estimands, as the [CV-TMLE reference](cv-tmle.md#variations) states |
 | fold-targeted CV-TMLE, the learned-rule value, and the missing-outcome natural-course mean | one estimate per fit |
 | the C-TMLE selector and outcome-adaptive paths | their status supplies no inference, so no band is built |
 | a status that withholds its interval, or a $t$ reference | no band is built. A status that shows its interval with no $t$ reference builds a band that carries `support` |
@@ -522,7 +558,10 @@ Evidence for everything above:
 [`tests/unit/test_inference.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_inference.py)
 pins the exact covariance identities, the weighted effective sample size, cluster aggregation, the
 delta-method transformations, the multiplier critical value, and the simultaneous bands.
-A repeated cross-fitted fit reports no covariance.
+A repeated cross-fitted point-treatment fit reports no covariance.
 [`tests/unit/test_repeated_crossfit.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_repeated_crossfit.py)
 pins that refusal, and pins the median point and the split-adjusted median variance the fit reports
 instead.
+[`tests/unit/test_longitudinal_repeats.py`](https://github.com/esbraun/cleverly-tmle/blob/main/tests/unit/test_longitudinal_repeats.py)
+pins the longitudinal matrix rule, the per-draw derived estimates, the status precedence and the
+median band.

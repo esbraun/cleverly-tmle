@@ -465,6 +465,7 @@ def registered() -> tuple[StudyRecord, ...]:
     estimator configuration, and so a study module can import the framework.
     """
     from tests.studies.calibration_slope_warning import STUDY as CALIBRATION_SLOPE_WARNING
+    from tests.studies.canonical_categorical_incremental import STUDY as CATEGORICAL_INCREMENTAL
     from tests.studies.canonical_categorical_ltmle import STUDY as CANONICAL_CATEGORICAL_LTMLE
     from tests.studies.canonical_categorical_ltmle_crossfit import (
         STUDY as CANONICAL_CATEGORICAL_LTMLE_CROSSFIT,
@@ -483,6 +484,9 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_ctmle_oat_per_arm_parametric_crossfit import (
         STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC_CROSSFIT,
+    )
+    from tests.studies.canonical_ctmle_oat_per_arm_parametric_extensions import (
+        STUDY as CTMLE_OAT_PER_ARM_PARAMETRIC_EXTENSIONS,
     )
     from tests.studies.canonical_ctmle_oat_per_arm_strata_missing import (
         STUDY as CTMLE_OAT_PER_ARM_STRATA_MISSING,
@@ -564,6 +568,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as POINT_SURVIVAL_POLICIES,
     )
     from tests.studies.canonical_policy_point_mtp import STUDY as POLICY_POINT_MTP
+    from tests.studies.canonical_sdr_repeated import STUDY as CANONICAL_SDR_REPEATED
     from tests.studies.canonical_sequential_baselines import STUDY as SEQUENTIAL_BASELINES
     from tests.studies.canonical_shift_policies import STUDY as CANONICAL_SHIFT_POLICIES
     from tests.studies.canonical_stochastic_categorical_ltmle import (
@@ -578,6 +583,7 @@ def registered() -> tuple[StudyRecord, ...]:
         STUDY as CANONICAL_STRATIFIED_MSM_IDENTITY,
     )
     from tests.studies.canonical_stratified_tmle import STUDY as CANONICAL_STRATIFIED_TMLE
+    from tests.studies.canonical_structural_nested_mean import STUDY as STRUCTURAL_NESTED_MEAN
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.canonical_vector_mtp import STUDY as VECTOR_MTP
     from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
@@ -595,7 +601,11 @@ def registered() -> tuple[StudyRecord, ...]:
     from tests.studies.fold_targeted_cvtmle import STUDY as FOLD_TARGETED_CVTMLE
     from tests.studies.learned_rule_cvtmle import STUDY as LEARNED_RULE_CVTMLE
     from tests.studies.learned_rule_cvtmle_boundary import STUDY as LEARNED_RULE_CVTMLE_BOUNDARY
+    from tests.studies.longitudinal_repeated_crossfit import STUDY as LONGITUDINAL_REPEATED_CROSSFIT
     from tests.studies.omitted_variable_bound import STUDY as OMITTED_VARIABLE_BOUND_SE
+    from tests.studies.omitted_variable_bound_plugin import (
+        STUDY as OMITTED_VARIABLE_BOUND_PLUGIN_SE,
+    )
     from tests.studies.repeated_crossfit import STUDY as REPEATED_CROSSFIT_TMLE
 
     return (
@@ -616,6 +626,7 @@ def registered() -> tuple[StudyRecord, ...]:
         FOLD_EVALUATED_CVTMLE,
         FOLD_TARGETED_CVTMLE,
         REPEATED_CROSSFIT_TMLE,
+        LONGITUDINAL_REPEATED_CROSSFIT,
         CANONICAL_CTMLE_SELECTOR,
         CANONICAL_MULTI_ARM_CTMLE_SELECTOR,
         CANONICAL_CTMLE_SEQUENCES,
@@ -653,6 +664,7 @@ def registered() -> tuple[StudyRecord, ...]:
         LONGITUDINAL_SDR,
         LONGITUDINAL_IPSI,
         LONGITUDINAL_IPSI_DROPOUT,
+        CATEGORICAL_INCREMENTAL,
         CANONICAL_LONGITUDINAL_MSM,
         CROSSFIT_LONGITUDINAL_MSM,
         CANONICAL_LTMLE_CROSSFIT,
@@ -664,6 +676,7 @@ def registered() -> tuple[StudyRecord, ...]:
         CANONICAL_LTMLE_COMPETING_CROSSFIT,
         CANONICAL_LTMLE_REPEATED,
         CANONICAL_IPSI_REPEATED,
+        CANONICAL_SDR_REPEATED,
         POINT_SURVIVAL,
         POINT_SURVIVAL_CROSSFIT,
         POINT_SURVIVAL_HAZARD,
@@ -675,12 +688,15 @@ def registered() -> tuple[StudyRecord, ...]:
         DRTMLE_ONE_WRONG,
         KNOWN_NODE_MECHANISMS,
         SEQUENTIAL_BASELINES,
+        STRUCTURAL_NESTED_MEAN,
         PARAMETRIC_GFORMULA,
         CTMLE_OAT_PER_ARM,
         CTMLE_OAT_PER_ARM_PARAMETRIC,
         CTMLE_OAT_PER_ARM_PARAMETRIC_CROSSFIT,
+        CTMLE_OAT_PER_ARM_PARAMETRIC_EXTENSIONS,
         CTMLE_OAT_PER_ARM_STRATA_MISSING,
         OMITTED_VARIABLE_BOUND_SE,
+        OMITTED_VARIABLE_BOUND_PLUGIN_SE,
         CALIBRATION_SLOPE_WARNING,
         DEFAULT_SIMULTANEOUS_BANDS,
         FULL_REFIT_BOOTSTRAP,

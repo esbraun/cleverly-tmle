@@ -56,7 +56,6 @@ from cleverly.interventions import Incremental, Shift
 from cleverly.msm import MSM
 from cleverly.sensitivity.omitted_variable import (
     _FIT_WIDE_BOUND_RULES,
-    _PLUGIN_LIMITS_REFUSAL,
     NU2_ESTIMATORS,
     OMITTED_VARIABLE_OPERATIONS,
     SensitivityBounds,
@@ -915,30 +914,39 @@ LIMIT_ACCESSORS: tuple[str, ...] = (
 STRONG = {"cf_y": 0.5, "cf_d": 0.3, "rho": 1.0}
 
 
-def _refusal_text(accessor: str, estimator: str, reason: str) -> str:
-    """The exact message a guarded accessor raises."""
-    return (
-        f"SensitivityBounds.{accessor} is not defined under nu2_estimator={estimator!r}: "
-        + reason
-        + "."
-    )
+def _refusal_text(accessor: str, reason: str) -> str:
+    """The exact message a guarded accessor raises, from the bound's own stored reason.
+
+    ``reason`` is :attr:`MechanismRefusal.text`, which already opens with
+    ``nu2_estimator='plugin': `` and ends with a full stop.
+    """
+    return f"SensitivityBounds.{accessor} is not defined under {reason}"
 
 
-def _assert_the_limits_refuse(bound: Any, estimator: str, reason: str) -> None:
+def _assert_the_limits_refuse(bound: Any, key: str = "other_learner") -> None:
+    """Every guarded accessor raises the bound's stored refusal, which has clause ``key``."""
+    stored = bound.limit_refusal
+    assert stored is not None and stored.key == key
+    assert stored.text.startswith("nu2_estimator='plugin': ")
+    assert "This fit does not qualify: " in stored.text
     for accessor in LIMIT_ACCESSORS:
         with pytest.raises(CapabilityError) as refused:
             getattr(bound, accessor)
-        assert str(refused.value).startswith(_refusal_text(accessor, estimator, reason))
+        assert str(refused.value).startswith(_refusal_text(accessor, stored.text))
         assert refused.value.refusal.reason is RefusalReason.INFERENCE_GAP
+        assert refused.value.refusal.roadmap == stored.roadmap
+        assert refused.value.refusal.alternative == stored.alternative
 
 
 class TestThePluginLimitsRefuse:
-    """No derivation gives the standard error of a bound built on the plug-in nu^2.
+    """A fit whose mechanism is not a declared logistic model has no plug-in limits.
 
-    The plug-in keeps its point quantities: the bounds, ``max_bias`` and ``rv``.  The six
-    accessors that read the curve refuse with the F26 reason, the mapping and the summary
-    say so, and the elements carry no curve.  The doubly robust bound on the same fit
-    reports finite limits, which is what makes each refusal withhold a number.
+    The oracle learners and the SuperLearner of these fits are not a scikit-learn
+    ``LogisticRegression``, so the plug-in bound keeps its point quantities (the bounds,
+    ``max_bias`` and ``rv``) and the six accessors that read the curve refuse with the F26
+    reason.  The mapping and the summary say so, and the elements carry no curve.  The doubly
+    robust bound on the same fit reports finite limits, which is what makes each refusal
+    withhold a number.  ``test_omitted_variable_plugin_refusals.py`` pins every clause.
     """
 
     @pytest.fixture(scope="class")
@@ -949,18 +957,25 @@ class TestThePluginLimitsRefuse:
     def test_each_limit_accessor_refuses(self, exact_fit: Any, estimand: str) -> None:
         bound = omitted_variable_bounds(exact_fit, estimand, nu2_estimator="plugin", **STRONG)
         assert bound.nu2_estimator == "plugin"
-        _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
+        _assert_the_limits_refuse(bound, "other_learner")
+        assert bound.limit_refusal.text.endswith(
+            "This fit does not qualify: the treatment learner is OracleTreatment, "
+            "not LogisticRegression."
+        )
 
     def test_a_fitted_mechanism_refuses_too(self, plain_fit: Any) -> None:
         """The exact law's plug-in is exact; a learned mechanism is the case F26 is about."""
         bound = omitted_variable_bounds(plain_fit, "ate", nu2_estimator="plugin")
-        _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
+        _assert_the_limits_refuse(bound, "super_learner")
 
-    def test_the_refusal_names_the_doubly_robust_alternative(self) -> None:
-        assert (
-            "nu2_estimator='doubly_robust' gives the limits for any mechanism learner at the "
-            "rates of that Theorem 4." in _PLUGIN_LIMITS_REFUSAL
+    def test_the_refusal_names_the_doubly_robust_alternative(self, exact_fit: Any) -> None:
+        refusal = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").limit_refusal
+        assert refusal is not None
+        assert refusal.alternative == (
+            "Fit the bound with nu2_estimator='doubly_robust', which has derived limits for any "
+            "mechanism learner."
         )
+        assert refusal.roadmap == "F26"
 
     @pytest.mark.parametrize("estimand", ["ate", "att", "atc"])
     def test_the_doubly_robust_bound_reports_finite_limits(
@@ -998,10 +1013,16 @@ class TestThePluginLimitsRefuse:
         plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").to_dict()
         robust = omitted_variable_bounds(exact_fit, "att").to_dict()
         assert plugin["nu2_estimator"] == "plugin"
+        assert (
+            plugin["limit_refusal"]
+            == omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").limit_refusal.text
+        )
         assert not set(plugin) & set(LIMIT_ACCESSORS)
         assert list(plugin) == [
             "estimand",
             "nu2_estimator",
+            "nu2_correction",
+            "limit_refusal",
             "psi",
             "cf_y",
             "cf_d",
@@ -1033,6 +1054,7 @@ class TestThePluginLimitsRefuse:
         plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").summary()
         robust = omitted_variable_bounds(exact_fit, "att").summary()
         assert "F26" in plugin and "plug-in nu^2" in plugin
+        assert "This fit does not qualify: " in plugin
         assert "one-sided CIs" not in plugin and "RVa  =" not in plugin
         assert "robustness value RV   =" in plugin
         assert "one-sided CIs" in robust and "RVa  =" in robust and "F26" not in robust
@@ -1040,8 +1062,16 @@ class TestThePluginLimitsRefuse:
     def test_the_robustness_value_reports_no_limit_value(self, exact_fit: Any) -> None:
         plugin = robustness_value(exact_fit, "att", nu2_estimator="plugin")
         robust = robustness_value(exact_fit, "att")
-        assert list(plugin) == ["nu2_estimator", "rv", "max_bias"]
+        assert list(plugin) == [
+            "nu2_estimator",
+            "nu2_correction",
+            "rv",
+            "max_bias",
+            "limit_refusal",
+        ]
+        assert plugin["nu2_correction"] is None
         assert plugin["nu2_estimator"] == "plugin"
+        assert plugin["limit_refusal"].startswith("nu2_estimator='plugin': ")
         assert not any("rva" in key for key in plugin)
         assert list(robust) == ["rv", "rva", "max_bias"]
         assert plugin["rv"] == pytest.approx(robust["rv"], abs=1e-6)
@@ -1061,7 +1091,9 @@ class TestThePluginLimitsRefuse:
     def test_the_summary_uses_the_refusal_text(self, exact_fit: Any) -> None:
         """The summary line carries the accessors' own reason, not a second wording of it."""
         plugin = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").summary()
-        assert plugin.endswith(f"under nu2_estimator='plugin': {_PLUGIN_LIMITS_REFUSAL}.")
+        stored = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").limit_refusal
+        assert stored is not None
+        assert plugin.endswith(f"under {stored.text}")
 
     def test_the_elements_carry_no_curve(self, exact_fit: Any) -> None:
         plugin = sensitivity_elements(exact_fit, "att", nu2_estimator="plugin")
@@ -1078,10 +1110,11 @@ class TestThePluginLimitsRefuse:
         with pytest.raises(CapabilityError) as by_status:
             _ = bound.ci_lower
         assert "F26" not in str(by_status.value)
+        assert bound.limit_refusal is not None
         with pytest.raises(CapabilityError) as by_estimator:
             _ = bound.plugin_interval_lower
         assert str(by_estimator.value).startswith(
-            _refusal_text("plugin_interval_lower", "plugin", _PLUGIN_LIMITS_REFUSAL)
+            _refusal_text("plugin_interval_lower", bound.limit_refusal.text)
         )
         assert bound.to_dict()["inference"] == status
 
@@ -1105,7 +1138,7 @@ class TestThePluginLimitsRefuse:
             SensitivityBounds, "_limit_refusal", lambda self, operation, diagnostic=False: None
         )
         with pytest.raises(AssertionError):
-            _assert_the_limits_refuse(bound, "plugin", _PLUGIN_LIMITS_REFUSAL)
+            _assert_the_limits_refuse(bound)
 
     def test_the_assessment_row_names_the_stop(self, exact_fit: Any) -> None:
         report = replace(exact_fit).sensitivity.run_all(
@@ -1113,8 +1146,9 @@ class TestThePluginLimitsRefuse:
         )
         item = report["robustness_value"]
         assert item.status is AssessmentStatus.COMPLETED
-        assert "no confidence-limit value under nu2_estimator='plugin': " in item.detail
-        assert item.detail.endswith(_PLUGIN_LIMITS_REFUSAL + ".")
+        stored = omitted_variable_bounds(exact_fit, "att", nu2_estimator="plugin").limit_refusal
+        assert stored is not None
+        assert item.detail.endswith(f"no confidence-limit value: {stored.text}")
         assert "F26" in item.detail
 
 
@@ -1139,6 +1173,9 @@ PUBLIC_PARAMETERS: tuple[str, ...] = (
     "null_hypothesis",
     "inference",
     "nu2_estimator",
+    "limit_refusal",
+    "plugin_mechanism",
+    "nu2_correction",
 )
 
 
@@ -1211,7 +1248,7 @@ class TestReplaceKeepsTheStoredLimits:
         parameters = inspect.signature(SensitivityBounds).parameters
         assert tuple(parameters) == PUBLIC_PARAMETERS
         required = [name for name, p in parameters.items() if p.default is p.empty]
-        assert required == list(PUBLIC_PARAMETERS[:-2])
+        assert required == list(PUBLIC_PARAMETERS[:-5])
 
     @pytest.mark.parametrize(
         ("kind", "accessor"),

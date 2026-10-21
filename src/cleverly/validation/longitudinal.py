@@ -29,17 +29,19 @@ from typing import Any
 import numpy as np
 
 from .._typing import BoolArray, FloatArray
-from ..data.weighting import effective_sample_size
+from ..data.weighting import REPORTED_DRAW, effective_sample_size
 from ..longitudinal.sequential import constant_target
 from ..utils.frames import emit_frame
 from ..utils.records import sentinel_equality
 from .nuisance import (
     EvaluationBasis,
     NuisanceModelReport,
+    RepeatSpreadRow,
     _aggregate_learner_info,
     _binary_report,
     _continuous_report,
     _metric_names,
+    _spread_rows,
 )
 
 __all__ = [
@@ -170,18 +172,23 @@ class IPSINodeRow:
     Parameters
     ----------
     tilt_factor_min : float
-        The smallest node factor :math:`(\\delta A + 1 - A)/(\\delta\\pi + 1 - \\pi)` on the
-        rows at risk, ``nan`` off a tilt node.  It lies in
-        :math:`[\\min(\\delta, 1/\\delta), \\max(\\delta, 1/\\delta)]` by construction.
+        The smallest node factor :math:`\\delta_{t,A_t}/D_t` on the rows at risk, ``nan`` off a
+        tilt node, with :math:`D_t = \\sum_b \\delta_{t,b}\\pi_t(b \\mid H_t)`.  It lies in
+        :math:`[\\min_a \\delta_{t,a}/\\max_a \\delta_{t,a},
+        \\max_a \\delta_{t,a}/\\min_a \\delta_{t,a}]` by construction.  With two levels it is
+        :math:`(\\delta A + 1 - A)/(\\delta\\pi + 1 - \\pi)` with
+        :math:`\\delta = \\delta_{t,1}/\\delta_{t,0}`.
     tilt_factor_max : float
         The largest node factor on the rows at risk, ``nan`` off a tilt node.
     mechanism_share : float
         The variance of the node's mechanism term over the variance of the influence
         curve.  It is 0 off a tilt node and at a declared treatment mechanism.
     propensity_degenerate : float
-        The share of the rows at risk whose mechanism :math:`\\hat\\pi_t` is exactly 0 or 1,
-        ``nan`` off a tilt node.  A tilt needs no positivity, so this is reported and not
-        warned.
+        The share of the rows at risk where some level has mechanism
+        :math:`\\hat\\pi_t(a \\mid H_t)` exactly 0 (equivalently some tilted probability
+        :math:`q_t(a)` is 0 or 1), ``nan`` off a tilt node.  With two levels it is the share
+        whose :math:`\\hat\\pi_t` is exactly 0 or 1.  A tilt needs no positivity, so this is
+        reported and not warned.
     """
 
     tilt_factor_min: float
@@ -257,6 +264,14 @@ class LongitudinalDiagnostics:
     which ``g_bounds`` never bounds.  ``mechanism_share`` is the share of the influence
     curve's variance held by the node's mechanism term.  ``propensity_degenerate`` is the
     share of the rows at risk with a fitted mechanism of exactly 0 or 1.
+
+    **On a fit with** ``repeats > 1`` the rows describe draw :attr:`reported_repeat` of
+    :attr:`n_repeats`, for the reason
+    :attr:`~cleverly.validation.NuisanceDiagnostics.n_repeats` gives: a node's leverage is a
+    property of one fitted recursion.  ``result.repeats`` holds every draw.  The ``converged``
+    column is the reported draw's.  Two fields cover every draw:
+    :attr:`draw_max_share_truncated` and :attr:`draw_converged` hold one value per draw, so a
+    truncation breach or a failed targeting step in a later draw reaches ``assess``.
     """
 
     rows: tuple[LongitudinalStageRow, ...]
@@ -265,6 +280,15 @@ class LongitudinalDiagnostics:
     horizon_indexed: bool
     competing: bool
     backend: str | None = None
+    #: How many cross-fitting draws the fit combined.
+    n_repeats: int = 1
+    #: The one-based draw the rows describe.
+    reported_repeat: int = REPORTED_DRAW
+    #: The largest ``share_truncated`` over the nodes of each draw, in draw order.  ``nan``
+    #: for a draw with no node that reads a mechanism.
+    draw_max_share_truncated: tuple[float, ...] = ()
+    #: Whether every targeting step of each draw converged, in draw order.
+    draw_converged: tuple[bool, ...] = ()
 
     def to_frame(self, data: Any = None) -> Any:
         assignment = "assigned_shares" if self.categorical else "share_assigned_1"
@@ -329,6 +353,9 @@ class LongitudinalScoreRow:
 
     ``component`` names an MSM score component. Such a row pools all live regimen cells,
     so ``regimen`` and ``horizon`` are ``None``. Ordinary regimen rows have no component.
+
+    ``draw`` is the one-based draw of the cross-fitting split on a fit with ``repeats > 1``,
+    whose report holds one row per node and draw.  ``None`` on a fit with one draw.
     """
 
     regimen: str | None
@@ -343,6 +370,7 @@ class LongitudinalScoreRow:
     passed: bool
     n_iter: int
     failure: str | None
+    draw: int | None = None
 
 
 @dataclass(frozen=True)
@@ -366,8 +394,14 @@ class LongitudinalScoreDiagnostics:
         return all(row.passed for row in self.rows)
 
     def to_frame(self, data: Any = None) -> Any:
+        draws = (
+            {"draw": [row.draw for row in self.rows]}
+            if any(row.draw is not None for row in self.rows)
+            else {}
+        )
         return emit_frame(
             {
+                **draws,
                 "regimen": [row.regimen for row in self.rows],
                 "cause": [row.cause for row in self.rows],
                 "horizon": [row.horizon for row in self.rows],
@@ -479,11 +513,25 @@ class LongitudinalNuisanceDiagnostics:
         Dataframe backend used when :meth:`to_frame` receives no data.
     omissions : tuple of LongitudinalNuisanceOmission
         Machine-readable reasons for roles the result cannot report.
+    n_repeats : int
+        How many cross-fitting draws the fit combined.  The rows describe draw
+        ``reported_repeat`` only.
+    reported_repeat : int
+        The one-based draw the rows describe.
+    repeat_spread : tuple of RepeatSpreadRow
+        One split-sensitivity row per reported parameter on a fit with ``repeats > 1``,
+        read off every draw.  Empty on a fit with one draw.
+    repeat_spread_omission : str or None
+        Machine-readable reason no split-spread row is available.
     """
 
     rows: tuple[LongitudinalNuisanceRow, ...]
     backend: str | None = None
     omissions: tuple[LongitudinalNuisanceOmission, ...] = ()
+    n_repeats: int = 1
+    reported_repeat: int = REPORTED_DRAW
+    repeat_spread: tuple[RepeatSpreadRow, ...] = ()
+    repeat_spread_omission: str | None = None
 
     def to_frame(self, data: Any = None) -> Any:
         """Return one row per retained nuisance fit, in the input dataframe backend.
@@ -677,6 +725,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                     ipsi=None if step is None else _ipsi_node_row(result, fit, step),
                 )
             )
+    draws = [repeat.fits for repeat in getattr(result, "repeats", ())] or [result.fits]
     return LongitudinalDiagnostics(
         tuple(rows),
         epsilon_names,
@@ -684,7 +733,33 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
         result.data.reports_curve,
         result.data.is_competing,
         result.data.backend,
+        n_repeats=int(getattr(result, "n_repeats", 1)),
+        draw_max_share_truncated=tuple(_max_share_truncated(fits) for fits in draws),
+        draw_converged=tuple(
+            all(
+                step.fluctuation is None or bool(step.fluctuation.converged)
+                for fit in fits.values()
+                for step in fit.steps
+            )
+            for fits in draws
+        ),
     )
+
+
+def _max_share_truncated(fits: Any) -> float:
+    """The largest share of trained rows whose cumulative probability the bounds moved.
+
+    The ``share_truncated`` column of :class:`LongitudinalDiagnostics`, read over the fits of
+    one draw.  ``nan`` when no node has a trained row.
+    """
+    shares = [
+        float(np.mean(raw != bounded))
+        for fit in fits.values()
+        for step in fit.steps
+        if (raw := fit.cumulative_unbounded[:, step.time - 1][step.trained_on]).size
+        and (bounded := fit.cumulative[:, step.time - 1][step.trained_on]).size
+    ]
+    return max(shares) if shares else float("nan")
 
 
 def _sdr_node_row(step: Any) -> SDRNodeRow | None:
@@ -712,19 +787,29 @@ def _ipsi_node_row(result: Any, fit: Any, step: Any) -> IPSINodeRow | None:
     regimen = fit.regimen
     if not (hasattr(regimen, "is_tilt") and regimen.is_tilt(step.time)):
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
-    delta = float(regimen.plan[step.time - 1].delta)
-    q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk, 1]
-    # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
-    pi = q / (delta * (1.0 - q) + q)
+    odds = regimen.plan[step.time - 1].factors(result.data.treatment_levels[step.time - 1])
+    q = np.asarray(fit.policy[step.time - 1], dtype=float)[step.at_risk]
     arm = np.nan_to_num(result.data.node_codes(step.time)[step.at_risk], nan=0.0)
-    factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+    if q.shape[1] == 2:
+        delta = float(odds[1] / odds[0])
+        # The plan's tilt density inverts to the mechanism: pi = q / (delta (1 - q) + q).
+        q1 = q[:, 1]
+        pi = q1 / (delta * (1.0 - q1) + q1)
+        factor = (delta * arm + 1.0 - arm) / (delta * pi + 1.0 - pi)
+        degenerate = (q1 == 0.0) | (q1 == 1.0)
+    else:
+        # The density inverts to the mechanism by pi_a proportional to q_a / delta_a, and
+        # sum_b q_b / delta_b = 1 / D, so the node factor delta_A / D is
+        # delta_A sum_b q_b / delta_b.
+        factor = odds[arm.astype(np.int64)] * (q / odds[None, :]).sum(axis=1)
+        degenerate = np.any((q == 0.0) | (q == 1.0), axis=1)
     if not factor.size:
         return IPSINodeRow(float("nan"), float("nan"), share, float("nan"))
     return IPSINodeRow(
         tilt_factor_min=float(np.min(factor)),
         tilt_factor_max=float(np.max(factor)),
         mechanism_share=share,
-        propensity_degenerate=float(np.mean((q == 0.0) | (q == 1.0))),
+        propensity_degenerate=float(np.mean(degenerate)),
     )
 
 
@@ -767,7 +852,25 @@ def _longitudinal_msm_scores(result: Any, *, tolerance: float) -> LongitudinalSc
     covariate the last pass fluctuated along.
     """
     rows = []
-    for msm_fit in result.msm_fits:
+    for draw, msm_fits in _draw_artifacts(result, "msm_fits"):
+        rows.extend(_msm_score_rows(result, msm_fits, tolerance=tolerance, draw=draw))
+    return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
+
+
+def _draw_artifacts(result: Any, field: str) -> list[tuple[int | None, Any]]:
+    """``(draw, artifact)`` per draw of the split: ``draw`` is ``None`` on a one-draw fit."""
+    repeats = tuple(getattr(result, "repeats", ()))
+    if len(repeats) <= 1:
+        return [(None, getattr(result, field))]
+    return [(index, getattr(repeat, field)) for index, repeat in enumerate(repeats, start=1)]
+
+
+def _msm_score_rows(
+    result: Any, msm_fits: Any, *, tolerance: float, draw: int | None
+) -> list[LongitudinalScoreRow]:
+    """The working-model solver rows of one draw."""
+    rows = []
+    for msm_fit in msm_fits:
         times = sorted({step.time for fit in msm_fit.fits for step in fit.steps})
         for time in times:
             contribution, maximum, fluctuation = _msm_node_contributions(result, msm_fit, time)
@@ -791,9 +894,10 @@ def _longitudinal_msm_scores(result: Any, *, tolerance: float) -> LongitudinalSc
                         converged and solver_relative <= tolerance,
                         int(fluctuation.n_iter),
                         fluctuation.failure,
+                        draw,
                     )
                 )
-    return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
+    return rows
 
 
 def _hazard_score_row(result: Any, fit: Any, *, tolerance: float) -> LongitudinalScoreRow:
@@ -847,7 +951,17 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
         return _longitudinal_msm_scores(result, tolerance=tolerance)
 
     rows = []
-    for fit in result.fits.values():
+    for draw, fits in _draw_artifacts(result, "fits"):
+        rows.extend(_score_rows(result, fits, tolerance=tolerance, draw=draw))
+    return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
+
+
+def _score_rows(
+    result: Any, fits: Any, *, tolerance: float, draw: int | None
+) -> list[LongitudinalScoreRow]:
+    """The solver rows of one draw."""
+    rows = []
+    for fit in fits.values():
         if fit.hazard is not None:
             rows.append(_hazard_score_row(result, fit, tolerance=tolerance))
             continue
@@ -870,9 +984,10 @@ def _longitudinal_scores(result: Any, *, tolerance: float) -> LongitudinalScoreD
                     converged and solver_relative <= tolerance,
                     int(fluctuation.n_iter),
                     fluctuation.failure,
+                    draw,
                 )
             )
-    return LongitudinalScoreDiagnostics(tuple(rows), tolerance, result.data.backend)
+    return rows
 
 
 def _nuisance_row(
@@ -1177,9 +1292,17 @@ def _longitudinal_nuisances(result: Any) -> LongitudinalNuisanceDiagnostics:
                     horizon=fit.horizon if result.data.reports_curve else None,
                 )
             )
+    spread_rows, spread_omission = _spread_rows(result)
     if result.initial_hazards is not None:
         _hazard_nuisances(result, evaluation, rows, omissions)
-    return LongitudinalNuisanceDiagnostics(tuple(rows), result.data.backend, tuple(omissions))
+    return LongitudinalNuisanceDiagnostics(
+        tuple(rows),
+        result.data.backend,
+        tuple(omissions),
+        n_repeats=int(result.n_repeats),
+        repeat_spread=spread_rows,
+        repeat_spread_omission=spread_omission,
+    )
 
 
 def _hazard_nuisances(

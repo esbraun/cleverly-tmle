@@ -557,7 +557,8 @@ print(means.curve(scale="mean")[["estimand", "psi", "ci_lower", "ci_upper"]])
 | `curve(scale="mean")` | one row for each reported key and horizon. It is the only scale |
 | survival view | not available. A repeated outcome has no absorbing event |
 | missing `Y_t` on an uncensored row | refused. Encode the loss as `C_t = 0` |
-| `SDR` | refused before any learner. `IPSI` fits a repeated outcome |
+| `SDR` | fits. Each horizon is the end-of-study fit of the truncated panel |
+| `IPSI` | fits. Each horizon is the end-of-study fit of the truncated panel |
 
 `truth` holds the exact mean at each horizon, under the names the fit reports. In the generator, `W`
 takes three values and every later node is binary. The fit can therefore check its curve against
@@ -791,6 +792,93 @@ the estimators, the stacked influence curve, the settings, and the refusals. The
 [sequential offers tutorial](../examples/sequential-offers.ipynb) fits g-computation and `LTMLE`
 with the same misspecified outcome model on one campaign.
 
+## Estimate structural blips
+
+`StructuralNestedMean` fits a linear structural nested mean model. Use it to report the effect of
+each treatment node on the end-of-study outcome, and to let that effect vary with declared
+features. It is a separate method. `LTMLE` and `SDR` fit no model for the effect.
+
+| you want | fit |
+| --- | --- |
+| the effect of node $t$ with later treatment at the reference, as a coefficient matrix | `StructuralNestedMean` |
+| the mean outcome under a static regimen, with no model for the effect | `LTMLE` or `SDR` |
+| the value of a rule, a policy or an incremental intervention | `LTMLE`, `SDR` or `IPSI` |
+
+Declare the features of each node in `blip_features`. A key is a node counted from one, or its
+treatment column. A value lists columns. A tuple of columns declares a product. The intercept is
+always a feature. A feature may read the baseline columns, the covariates through its node, and
+the earlier treatments.
+
+```python
+from cleverly.datasets import make_longitudinal
+from cleverly.learners import GLM
+from cleverly.longitudinal import StructuralNestedMean
+
+frame, _ = make_longitudinal(n=300, seed=0, censoring=False)
+result = StructuralNestedMean(
+    {"always": 1, "never": 0},
+    reference="never",
+    blip_features={1: ["W1"], 2: ["W1", "A1"]},
+    outcome_learner=GLM(family="binomial"),
+    treatment_learner=GLM(family="binomial"),
+    n_folds=2,
+    random_state=0,
+).fit(
+    frame,
+    outcome="Y",
+    treatment=["A1", "A2"],
+    baseline=["W1", "W2"],
+    time_varying=[[], ["L2"]],
+)
+print(result.summary())
+print(result.blip(2))
+```
+
+`snmm()` is the one-call form. `result.blip(node)` returns the coefficients of a node as a matrix
+with one row per feature and one column per coding component. It is the transpose of the matrix
+$\Psi_t$ of the
+[technical page](../technical-reference/structural-dynamic-effects.md#the-model). A categorical node has one column for each level
+after the first sorted level. A continuous node has one column, the dose. The regimen levels and
+contrasts follow from the blips and the mean outcome at the reference level `ey_reference`.
+
+Pass `regression_learner=` when the outcome is binary and a node holds a dose or a feature is
+continuous. A classifier takes no target outside $\{0, 1\}$, and `regression_learner` fits those
+targets. It defaults to `outcome_learner`.
+
+Read the result with this condition. The intervals are valid under the linear structural nested
+mean model with the declared blip features. Every row of the summary and of `to_frame()` carries
+that label. A blip that depends on an undeclared earlier treatment or covariate makes the
+coefficients answer a different question.
+
+The evidence label is "Python property evidence, with comparator runs pending". The
+[structural nested mean study](../technical-reference/method-evidence/structural-nested-mean.md)
+covers cross-fitted fits with `GLM` nuisances on binary, three-level and dose nodes. It also
+covers known weights and 40 or more clusters. A fit inside those rows reads `supported`. Any other fit, such as an in-sample fit, reads `experimental`. The summary
+prints a `support` column and the reason.
+
+Check the model against `LTMLE`.
+
+```python
+check = result.check_model()
+print(check.summary())
+```
+
+`check_model()` fits `LTMLE` on the same rows and folds. A cross-fitted check refits both
+estimators on `n_splits` seeded splits (default 5) and averages the difference. It reports a joint
+Wald statistic on the difference of the contrasts. A rejection says that the model fails for these contrasts. A
+non-rejection does not confirm the model.
+
+| the fit | what it reports |
+| --- | --- |
+| `n_folds > 1` | the influence-curve intervals |
+| `n_folds=1` and every learner a `GLM` | the influence-curve intervals, valid when every `GLM` is correct |
+| `n_folds=1` and another learner | the point estimate, with a diagnostic standard error |
+
+The estimator refuses a rule, a policy, censoring, survival and repeated outcomes. It refuses a
+static level, a contrast and `check_model` when a feature reads a time-varying covariate.
+[Structural dynamic effects](../technical-reference/structural-dynamic-effects.md#refusals) lists
+each refusal and its alternative.
+
 ## Simulate the parametric g-formula
 
 `ParametricGFormula` estimates the same regimen levels and contrasts as `LTMLE`. It fits a model for
@@ -851,7 +939,10 @@ estimator, the argument, the settings, the refusals and the validation.
 
 Pass `IncrementalEffect` to `identify()` and `method="ipsi"` to `estimate()`. Each
 `Incremental(delta)` multiplies every unit's odds of treatment by `delta` at every node.
-`Incremental(1.0)` is the natural course, and the example uses it as the reference.
+`Incremental(1.0)` is the natural course, and the example uses it as the reference. A node with
+three or more levels takes one factor for each level, such as
+`Incremental({"high": 2.0, "low": 0.5})`. A level that the mapping does not name keeps the
+factor 1.
 
 ```python
 from sklearn.linear_model import LinearRegression, LogisticRegression
@@ -897,13 +988,17 @@ reason.
 | fit the engine directly | `IPSI([Incremental(1.0), Incremental(2.0)], ...)` from `cleverly.longitudinal` |
 | use one tilt per node | `DynamicRegimen("ramp", (Incremental(1.5), Incremental(2.0)))` |
 | tilt one node and fix another | `DynamicRegimen("tilt then stop", (Incremental(2.0), 0))` |
+| tilt a node with three levels | `Incremental({"high": 2.0, "low": 0.5})`. A scalar there is refused before any learner, and so is a key that is not a level of the node |
 | declare a known treatment mechanism | pass `treatment_probabilities=` to the design. The tilt is then a known policy |
 
 A level can leave the outcome range, because the estimate is an average of influence-function
 values. The fit then warns with `ParameterSpaceWarning`. A risk curve can also be non-monotone
 across horizons. A mean of a non-absorbing outcome $Y_t$ is the end-of-study estimand on the panel
 truncated after node $t$. Earlier $Y_s$ are covariates there (Kim et al. 2021, Theorem 3.1).
-`IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
+
+A fit with a node of three or more levels carries the label of the registered study
+[categorical incremental policies](../technical-reference/method-evidence/categorical-incremental.md)
+when it matches that study's rows. Any other such fit is labelled `experimental`. `IPSI` is Kennedy's odds tilt, and `lmtp::ipsi` is the risk-ratio tilt `RiskRatioTilt`.
 [Incremental interventions over time](../technical-reference/longitudinal-tmle.md#incremental-interventions-over-time) states
 the contract.
 
@@ -916,6 +1011,62 @@ A longitudinal MSM projection cross-fits by default, as every longitudinal fit d
 runs an untargeted recursion for every regimen, and one stacked fluctuation per node pools the
 update. [MSM projections](../technical-reference/msm-projections.md#the-longitudinal-projection)
 states the construction and its evidence.
+
+## Repeat the fold draws
+
+Pass `repeats=R` to `estimate()` to fit the whole estimator at `R` independent fold draws. The
+result reports the median of the draws, and its variance adds the spread of the draws. Use it when
+one split moves the estimate by more than you accept.
+
+```python
+from sklearn.linear_model import LinearRegression, LogisticRegression
+
+from cleverly import CausalStudy, LongitudinalTreatment, RegimeContrast
+from cleverly.datasets import make_longitudinal
+
+frame, _ = make_longitudinal(n=300, seed=0)
+study = CausalStudy(
+    frame,
+    design=LongitudinalTreatment(
+        outcome="Y",
+        treatment=("A1", "A2"),
+        baseline=("W1", "W2"),
+        time_varying=((), ("L2",)),
+        censoring=("C1", "C2"),
+    ),
+)
+repeated = study.identify(RegimeContrast({"always": 1, "never": 0}, reference="never")).estimate(
+    outcome_learner=LogisticRegression(),
+    pseudo_learner=LinearRegression(),
+    treatment_learner=LogisticRegression(),
+    censoring_learner=LogisticRegression(),
+    n_folds=2,
+    repeats=3,
+    random_state=0,
+)
+assert repeated.n_repeats == 3
+assert len({draw.seed for draw in repeated.repeats}) == 3
+print(repeated.repeat_spread())
+```
+
+| task | how |
+| --- | --- |
+| read one draw | `repeated.repeats[r]` holds its folds, seed, fits and estimates |
+| see how much the split moves each estimate | `repeated.repeat_spread()`, the standard deviation of the draws |
+| contrast or ratio the levels | `contrast()` and `ratio()` run in every draw and report the median |
+| set it on a method | `CrossFitting(repeats=3)` |
+
+The fit refuses `repeats` above 1 with `n_folds=1`, because one fold has no split to draw again. It
+also refuses `repeats` above 1 with `n_bootstrap` above 0. `SequentialGComputation` and
+`SequentialIPW` refuse `repeats` above 1, because they fit in sample. A fit with `repeats` above 1
+carries the `experimental` label until a registered study covers its configuration. With
+`isotonic=True` each draw projects its levels and the fit builds no simultaneous band.
+
+The rows of the support and nuisance reports describe draw 1. The support warning of `validate()` grades every draw and names the draw.
+The score report has one row per node and draw. A repeated outcome, `Repeated([...])`, takes
+`repeats` too.
+[Repeated fold draws](../technical-reference/longitudinal-tmle.md#repeated-fold-draws) states the
+rule, the seeds and the refusals.
 
 ## Diagnostics
 

@@ -1283,7 +1283,6 @@ def test_the_interval_level_and_the_submodel_bound_are_reachable_separately() ->
         {"screen_treatment": True},
         {"screen_threshold": 0.2},
         {"min_retain": 2},
-        {"repeats": 2},
         {"stratify_folds": "outcome"},
         {"targeting_scheme": "foldwise"},
         {"cv_evaluation": True},
@@ -1299,9 +1298,9 @@ def test_every_point_only_option_is_refused_by_longitudinal_translation(
     """A normalized declaration must reach the engine or fail before construction.
 
     These are the 13 point-only fields in the shared configuration. ``n_bootstrap``,
-    ``bootstrap_resampling``, ``density_bins``, ``ratio``, ``targeting`` and ``step_size``
-    reach ``LTMLE`` and are not in the list. Pinning the whole list prevents a future field
-    from disappearing just because the two engine signatures differ.
+    ``bootstrap_resampling``, ``density_bins``, ``ratio``, ``targeting``, ``step_size`` and
+    ``repeats`` reach ``LTMLE`` and are not in the list. Pinning the whole list prevents a
+    future field from disappearing just because the two engine signatures differ.
 
     ``stratify_folds`` is refused earlier than the rest: :class:`CrossFitting` now checks
     the fold policy in ``__post_init__``, so ``with_overrides`` itself raises rather than
@@ -1345,6 +1344,11 @@ def test_cross_fit_false_keeps_its_supported_longitudinal_meaning() -> None:
     assert method.estimator_kwargs(longitudinal=True)["n_folds"] == 1
 
 
+def test_repeats_reaches_the_longitudinal_engine() -> None:
+    method = TMLEMethod().with_overrides(repeats=3)
+    assert method.estimator_kwargs(longitudinal=True)["repeats"] == 3
+
+
 @pytest.mark.parametrize("method", [CollaborativeTMLEMethod(), DRTMLEMethod()])
 def test_variant_longitudinal_refusals_use_the_library_error_hierarchy(method) -> None:
     with pytest.raises(MethodConfigurationError) as raised:
@@ -1366,8 +1370,8 @@ def test_a_longitudinal_option_refuses_before_engine_construction(monkeypatch) -
     )
     effect = study.identify(RegimeMean({"always": 1}))
     monkeypatch.setattr("cleverly.study.LTMLE", _MustNotConstruct)
-    with pytest.raises(MethodConfigurationError, match="repeats"):
-        effect.estimate(repeats=2)
+    with pytest.raises(MethodConfigurationError, match="min_retain"):
+        effect.estimate(min_retain=2)
 
 
 def test_estimation_options_cannot_reassign_study_roles() -> None:

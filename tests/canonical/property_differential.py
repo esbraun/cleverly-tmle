@@ -176,7 +176,8 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     The module's ``fit_properties`` is replaced by a function that returns, for each key, one
     row per cell the key fills, at the declared budget.  Each row's truth is zero and its
     estimate a seeded normal draw with standard error ``n ** -0.5``, centred on zero in a
-    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control.  The
+    positive cell and on :data:`SYNTHETIC_CONTROL_BIAS` standard errors in a control, or on
+    the centre that the module's ``SYNTHETIC_CENTRES`` names.  The
     module's own code then derives its calibration controls and orders the rows, so the rows
     have the shape a run publishes.  They are no run's output: the differential reads only
     whether a rule and the module agree on them.
@@ -193,6 +194,10 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
     """
     declared = {(cell.property, cell.cell): cell for cell in module.declared_cells()}
     critical = float(norm.ppf(1.0 - module.STUDY.margins.alpha / 2.0))
+    # A control that must reach an exact alternative target is centred on it, so that its
+    # clauses can each decide a verdict alone.  The module names those cells in
+    # ``SYNTHETIC_CENTRES``, as ``property/cell`` to centre.
+    centres: dict[str, float] = dict(getattr(module, "SYNTHETIC_CENTRES", {}))
 
     def fit_properties(
         keys: Any, fit_one: Any, *, cells_of: Any, replicate_of: Any, **options: Any
@@ -216,6 +221,7 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
                 )
                 scale = float(spec.n) ** -0.5
                 centre = SYNTHETIC_CONTROL_BIAS * scale if spec.role == "control" else 0.0
+                centre = centres.get(name, centre)
                 estimate = rng.normal(centre, scale)
                 std_error = scale * rng.uniform(0.9, 1.1)
                 rows.append(
@@ -239,10 +245,17 @@ def synthetic_rows(module: ModuleType) -> pd.DataFrame:
 
     original = getattr(module, "fit_properties")  # noqa: B009
     setattr(module, "fit_properties", fit_properties)  # noqa: B010
+    # A module that refuses a declared run while its pilot tables are placeholders
+    # (``require_recorded_pilots``) fits nothing here, so the guard has nothing to protect.
+    guard = getattr(module, "require_recorded_pilots", None)
+    if guard is not None:
+        setattr(module, "require_recorded_pilots", lambda what: None)  # noqa: B010
     try:
         rows: pd.DataFrame = module.generate_property_rows(n_jobs=1)
     finally:
         setattr(module, "fit_properties", original)  # noqa: B010
+        if guard is not None:
+            setattr(module, "require_recorded_pilots", guard)  # noqa: B010
     return rows
 
 
@@ -596,7 +609,15 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
         ``(property, cell, clause, statistic, label, complete case, candidate)``.
     """
     module, record = subject_of(subject)
-    rows = subject_rows(subject)
+    rows = subject_rows(subject).copy()
+    # A subject with committed failures stamps its rows with the replicates it lost, and
+    # ``Context.k`` reads that stamp.  The candidates then fill the lost replicates, and they
+    # bound the complete case without equalling it.  Renumber the surviving replicates and
+    # restamp them as the requested set, so that ``k = 0`` holds for every cell.
+    cells = rows.groupby(["property", "cell"])["replicate"]
+    rows["replicate"] = cells.cumcount()
+    rows["requested_replicates"] = cells.transform("size")
+    rows["failed_replicates"] = 0
     wrong: list[tuple[Any, ...]] = []
     read = 0
     with reduced(record) as cheap:
@@ -609,6 +630,12 @@ def candidates_at_no_loss(subject: str) -> tuple[int, list[tuple[Any, ...]]]:
             for cell, judged in property_failures._judged(rule, family, summary, ctx).items():
                 selected = (summary["property"] == family) & (summary["cell"] == cell)
                 row = summary.loc[selected].iloc[0]
+                # A cell stamped with recorded failures fills its lost values, so its candidates
+                # are at k > 0 and differ from the complete case by design.  The fast tier
+                # recomputes that cell's accounting from the records instead.  Zeroing the stamp
+                # reads the candidates of the same cell at k = 0, where each is the complete case.
+                row = row.copy()
+                row["failed_replicates"] = 0
                 for clause, value in judged:
                     if clause.candidates is None:
                         continue

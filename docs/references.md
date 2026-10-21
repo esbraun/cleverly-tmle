@@ -217,10 +217,17 @@ previous reader had is not a citation; a page number is.
 - Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey & Robins (2018),
   [*Double/debiased machine learning for treatment and structural
   parameters*](https://academic.oup.com/ectj/article/21/1/C1/5056401), *The Econometrics
-  Journal* 21(1):C1-C68. Read first-hand. Section 3.4 defines the coordinatewise median point.
-  Equation (3.14) defines the median of the within-partition variance plus squared split
-  displacement. Corollary 3.3 gives the fixed-repeat interval under the paper's DML assumptions.
-  It does not establish that a targeted MAR plug-in satisfies those assumptions.
+  Journal* 21(1):C1-C68. Read first-hand. Section 3.4 starts on p. C29. Definition 3.3 and
+  equations (3.13) and (3.14) are on p. C30. Definition 3.3 defines the coordinatewise median
+  point. Equation (3.14) defines the median of the within-partition variance plus squared split
+  displacement. It is a variance-form matrix rule: each split gives the candidate
+  $\hat\Sigma_s + d_s d_s^\top$, and the rule takes the candidate of median operator norm.
+  Corollary 3.3, on p. C30, gives the fixed-repeat interval under the paper's DML assumptions.
+  It does not establish that a targeted MAR plug-in satisfies those assumptions. The package
+  applies the scalar rule per name and the matrix rule in `covariance()` to repeated longitudinal
+  fits ([repeated fold draws](technical-reference/longitudinal-tmle.md#repeated-fold-draws)).
+  There the licence is the per-draw expansion of each single-draw estimator, and Corollary 3.3 is
+  the DML analogue.
 
   The arXiv v7 manuscript, [arXiv:1608.00060](https://arxiv.org/abs/1608.00060), gives the split
   in Definitions 3.1 and 3.2, pages 23–24. Each says "Take a K-fold random partition" of the indices,
@@ -1520,6 +1527,14 @@ sizes only the cluster sum is the delta-method variance of the row mean
   p. 969, steps 1 to 5, gives the causal form. `SequentialGComputation` cites it for the ICE
   recursion. The paper states the causal form for a marginal structural model parameter. The
   plain g-formula is a special case.
+- Lewis & Syrgkanis (2021), *Double/debiased machine learning for dynamic treatment effects via
+  g-estimation*, in *Advances in Neural Information Processing Systems* 34, with the arXiv version
+  (v5). `StructuralNestedMean` cites the supplement, Appendix A: Assumption 1 and Assumption 2
+  (the linear structural nested mean model), Lemma 6 (the policy value from the blips), and
+  Theorem 8 (the normal limit with a linear blip). It cites the arXiv version for Theorem 4 and
+  Theorem 8 (the variance estimator and product rates) and Corollary 9 (the inference for a
+  policy value). The roadmap item X72 cites Lemma 6 and Corollary 9. The proceedings version has
+  no policy-value inference.
 - Robins, Hernán & Brumback (2000), *Marginal structural models and causal inference in
   epidemiology*, *Epidemiology* 11(5):550–560. Section 6.1, p. 554, and Section 7, p. 555,
   eq. (14), give stabilized weights. The paper does not discuss the normalization, so the Hajek
@@ -1790,7 +1805,7 @@ sizes only the cluster sum is the delta-method variance of the row mean
 - Hernán & Robins, [*Causal Inference: What If*](https://miguelhernan.org/whatifbook), Chapman &
   Hall/CRC. Chapter 20 treats treatment-confounder feedback. Section 20.3, pages 271-273 of the
   edition dated 19 August 2026, shows why adjustment for that confounder opens a collider path. Cited by the
-  [longitudinal TMLE tutorial](examples/longitudinal-tmle.ipynb).
+  [sequential pricing tutorial](examples/sequential-pricing.ipynb).
 - Young, Stensrud, Tchetgen Tchetgen & Hernán (2020), [*A causal framework for classical
   statistical estimands in failure-time settings with competing events*](https://doi.org/10.1002/sim.8471),
   *Statistics in Medicine* 39(8):1199-1236, DOI 10.1002/sim.8471. The paper defines the total
@@ -1895,7 +1910,9 @@ sizes only the cluster sum is the delta-method variance of the row mean
   arXiv:2511.11353v3. The preprint constructs scalar-parameter categorical propensity policies
   from a reference policy and treatment-specific costs and derives their influence functions.
   It shows that a multi-arm extension is possible after its extra policy inputs are declared.
-  It does not validate a multi-arm `TMLE(incremental=...)` in this package.
+  This package ships a categorical `TMLE(incremental=...)` that tilts the odds of each level by a
+  declared factor. That tilt is a different construction from the paper's interpolated policy, so
+  the paper is background and not a validation of the categorical fit.
 
 ## Riesz representation and nested targeted learning
 

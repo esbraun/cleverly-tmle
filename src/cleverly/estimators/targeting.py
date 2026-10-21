@@ -65,9 +65,11 @@ from ..fluctuation.mechanism import (
     armwise_mechanism_score,
     mechanism_covariate,
     mechanism_score,
+    multinomial_mechanism_score,
     solve_armwise_bounded_mechanism,
     solve_bounded_mechanism,
     solve_mechanism,
+    solve_multinomial_mechanism,
 )
 from ..fluctuation.one_step import solve_one_step
 from ..fluctuation.reduced import (
@@ -931,6 +933,35 @@ def _raw_arms(fit: InitialFit, arms: tuple[float, ...], scaler: OutcomeScaler) -
     return scaler.unscale_levels(np.column_stack([fit.arms[level] for level in arms]))
 
 
+def _solve_tilt_mechanism(
+    treatment: FloatArray, tilt: IPSISet, covariate: FloatArray, weights: FloatArray, tol: float
+) -> MechanismFluctuation:
+    """Solve the mechanism equation of a tilt: logistic on two levels, softmax on more.
+
+    Two levels keep :func:`~cleverly.fluctuation.mechanism.solve_mechanism` on the second
+    column, so the binary arrays are the ones the binary path produced before the softmax
+    solver existed.
+    """
+    if tilt.n_arms == 2:
+        return solve_mechanism(treatment, tilt.propensity[:, 1], covariate, weights, tol=tol)
+    return solve_multinomial_mechanism(treatment, tilt.propensity, covariate, weights, tol=tol)
+
+
+def _full_mechanism(propensity: FloatArray) -> FloatArray:
+    """The ``(n, K)`` mechanism of a solver's result: ``(n,)`` is :math:`g(1 \\mid W)`."""
+    g = np.asarray(propensity, dtype=float)
+    return np.column_stack([1.0 - g, g]) if g.ndim == 1 else g
+
+
+def _tilt_mechanism_score(
+    treatment: FloatArray, tilt: IPSISet, covariate: FloatArray, weights: FloatArray
+) -> tuple[FloatArray, FloatArray]:
+    """``(score, scale)`` of a tilt's mechanism equation at the tilt's own mechanism."""
+    if tilt.n_arms == 2:
+        return mechanism_score(treatment, tilt.propensity[:, 1], covariate, weights)
+    return multinomial_mechanism_score(treatment, tilt.propensity, covariate, weights)
+
+
 def solve_with_mechanism(
     data: CausalData,
     nuisance: NuisanceEstimates,
@@ -1013,10 +1044,8 @@ def solve_with_mechanism(
 
     for outer in range(1, max_outer + 1):
         covariate = mechanism_columns(fluctuation.targeted, tilt)
-        mechanism = solve_mechanism(
-            data.treatment, tilt.propensity, covariate, weights, tol=spec.tol
-        )
-        current = current.retilted(mechanism.propensity)
+        mechanism = _solve_tilt_mechanism(data.treatment, tilt, covariate, weights, spec.tol)
+        current = current.retilted(_full_mechanism(mechanism.propensity))
         assert current.incremental is not None
         tilt = current.incremental
 
@@ -1035,11 +1064,8 @@ def solve_with_mechanism(
         # Re-evaluate it at the fluctuated pair before testing convergence: a loop that
         # tested the stale one would exit having solved the outcome equation and left the
         # mechanism equation open, which is precisely what the delta=1 identity catches.
-        settled, scale = mechanism_score(
-            data.treatment,
-            tilt.propensity,
-            mechanism_columns(fluctuation.targeted, tilt),
-            weights,
+        settled, scale = _tilt_mechanism_score(
+            data.treatment, tilt, mechanism_columns(fluctuation.targeted, tilt), weights
         )
         mechanism = replace(mechanism, score=settled, score_scale=scale)
         joint = float(fluctuation.loglik) + float(mechanism.loglik or 0.0)

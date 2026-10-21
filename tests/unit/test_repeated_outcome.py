@@ -1,7 +1,7 @@
 """A repeated outcome: each horizon is the end-of-study fit on the truncated panel.
 
-W1 is the reduction, for ``LTMLE`` and ``IPSI``.  For every horizon ``h`` the repeated fit's estimate, influence
-curve, node regressions and cumulative mechanism equal those of the end-of-study fit on
+W1 is the reduction, for ``LTMLE``, ``SDR`` and ``IPSI``.  For every horizon ``h`` the repeated
+fit's estimate, influence curve, node regressions and cumulative mechanism equal those of the end-of-study fit on
 the panel truncated after ``h``, with ``Y_h`` as its outcome and each earlier ``Y_s`` as
 the first covariate of block ``s + 1``.  The test runs over every composition the
 repeated outcome supports.  Where the end-of-study fit of a kind refuses a composition, the
@@ -25,7 +25,8 @@ from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from cleverly.exceptions import CapabilityError
 from cleverly.interventions import Incremental, ModifiedPolicy, Stochastic
-from cleverly.longitudinal import IPSI, LTMLE, DynamicRegimen, LongitudinalData, Repeated
+from cleverly.longitudinal import IPSI, LTMLE, SDR, DynamicRegimen, LongitudinalData, Repeated
+from cleverly.methods import SDR_TILT_REFUSAL
 
 T = 3
 N = 400
@@ -198,15 +199,21 @@ TILTED = (
     Composition("incremental_known", {}, tilts=(0.5, 2.0, 1.0), known=True),
 )
 
-#: Each estimator kind and the compositions its end-of-study fit accepts.  ``IPSI`` fits no
+#: A plan with an odds tilt.  ``SDR`` needs a policy that does not read the law, so its
+#: end-of-study fit refuses it, and its repeated fit refuses it with the same message.
+TILT_PLAN = Composition("tilt_plan", {**PLANS, "x2": (Incremental(2.0),) * T})
+
+#: Each estimator kind and the compositions its end-of-study fit is handed.  ``IPSI`` fits no
 #: modified treatment policy and no held baseline decision, so its repeated fit refuses both
 #: (``test_w1_a_refused_composition_refuses_like_the_end_of_study_fit`` checks that).
 KINDS: dict[type[Any], tuple[Composition, ...]] = {
     LTMLE: COMPOSITIONS,
+    SDR: (*COMPOSITIONS, TILT_PLAN),
     IPSI: (*COMPOSITIONS, *TILTED),
 }
 REFUSED: dict[type[Any], frozenset[str]] = {
     LTMLE: frozenset(),
+    SDR: frozenset({"tilt_plan"}),
     IPSI: frozenset({"mtp", "held_treatment"}),
 }
 CASES = [
@@ -225,6 +232,13 @@ REFUSED_CASES = [
 
 def _case_id(case: tuple[type[Any], Composition]) -> str:
     return f"{case[0].__name__}-{case[1].name}"
+
+
+def test_w1_runs_over_thirteen_compositions_of_each_kind() -> None:
+    """The reference states the count: 13 compositions for ``LTMLE`` and for ``SDR``."""
+    for kind in (LTMLE, SDR):
+        assert len([composition for k, composition in CASES if k is kind]) == 13, kind.__name__
+    assert REFUSED[SDR] == {"tilt_plan"} and not REFUSED[LTMLE]
 
 
 def estimator(kind: type[Any], composition: Composition, plans: Any) -> Any:
@@ -310,8 +324,8 @@ def check_w1(
 ) -> None:
     """W1: the repeated fit at ``horizon`` equals the end-of-study fit of the truncated panel.
 
-    The mutation controls of ``test_repeated_outcome_ipsi_mutations.py`` call this function
-    with a mutated ``repeated`` fit.
+    The mutation controls of ``test_repeated_outcome_sdr_mutations.py`` and
+    ``test_repeated_outcome_ipsi_mutations.py`` call this function with a mutated ``repeated`` fit.
     """
     truncated = fit(kind, composition, frame, horizon, repeated=False)
     assert repeated.data.is_repeated and not truncated.data.is_repeated
@@ -356,7 +370,7 @@ def test_w1_each_horizon_is_the_truncated_end_of_study_fit(
     check_w1(kind, composition, frame, repeated, horizon)
 
 
-@pytest.mark.parametrize("kind", [LTMLE, IPSI], ids=lambda kind: kind.__name__)
+@pytest.mark.parametrize("kind", [LTMLE, SDR, IPSI], ids=lambda kind: kind.__name__)
 def test_w1_a_refused_composition_refuses_like_the_end_of_study_fit(
     kind: type[Any],
 ) -> None:
@@ -378,10 +392,12 @@ def test_w1_a_refused_composition_refuses_like_the_end_of_study_fit(
             refused.add(composition.name)
             assert len(errors) == 2, composition.name
             assert errors[0] == errors[1], composition.name
+            if kind is SDR:
+                assert errors[0] == SDR_TILT_REFUSAL.message(), composition.name
     assert refused == REFUSED[kind]
 
 
-@pytest.mark.parametrize("kind", [LTMLE, IPSI], ids=lambda kind: kind.__name__)
+@pytest.mark.parametrize("kind", [LTMLE, SDR, IPSI], ids=lambda kind: kind.__name__)
 def test_w8_the_last_horizon_is_the_end_of_study_fit(kind: type[Any]) -> None:
     """At ``horizons=[T]`` the repeated fit is the end-of-study fit, number for number."""
     composition = COMPOSITIONS[0]
@@ -417,7 +433,7 @@ def test_w8_the_last_horizon_is_the_end_of_study_fit(kind: type[Any]) -> None:
         )
 
 
-@pytest.mark.parametrize("kind", [LTMLE, IPSI], ids=lambda kind: kind.__name__)
+@pytest.mark.parametrize("kind", [LTMLE, SDR, IPSI], ids=lambda kind: kind.__name__)
 def test_w13_the_fit_never_reads_the_outcome_field(kind: type[Any]) -> None:
     """A permuted ``outcome`` field moves no estimate: every horizon reads ``repeated``.
 

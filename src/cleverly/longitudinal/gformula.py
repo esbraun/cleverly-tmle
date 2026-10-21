@@ -1572,7 +1572,8 @@ class _Simulator:
                 self._uniforms(paths, node, _COL_TREATMENT),
             )
         elif kind == "tilt":
-            value = self._tilted(paths, node, float(declared.delta))
+            factors = self.plan.tilt_factors(node)
+            value = self._tilted(paths, node, float(factors[1] / factors[0]))
         else:
             value = self._modified(paths, node, declared, continuous)
         write_treatment(paths.table, layout, data, node, value)

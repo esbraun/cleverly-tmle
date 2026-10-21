@@ -122,6 +122,9 @@ no longer imports. Remove the row when you regenerate the study.
 | `longitudinal-repeated-ipsi` | `tests/studies/canonical_cvtmle.py` | result-neutral: the study imports `fitted_rows`, the replication loop, and passes its own `draw_scenario` and `cleverly_rows` to it. The run read this source. Git shows the file unchanged between the run commit `f890c417` and the registering change. The module list omitted it, so the manifest records no hash for it |
 | `longitudinal-repeated-ipsi` | `tests/studies/canonical_tmle.py` | result-neutral: `tests/studies/canonical_cvtmle.py` imports `SCENARIO_ESTIMANDS` and `draw_from_seed` from this module. `fitted_rows` calls neither, because the study passes its own sampler. Git shows the file unchanged since the run commit `f890c417`. The module list omitted it, so the manifest records no hash for it |
 | `longitudinal-repeated-ipsi` | `tests/studies/point_study_helpers.py` | result-neutral: `tests/studies/canonical_tmle.py` imports `primary_rows` from this module for its own fits. No function of this module runs in the study. Git shows the file unchanged since the run commit `f890c417`. The module list omitted it, so the manifest records no hash for it |
+| `longitudinal-repeated-crossfit` | `tests/discrete_law_competing.py` | result-neutral: the competing-risks law draws the samples of the study, so the run read this source, but the first module list omitted it. This branch leaves the file unchanged from main. Two replicates of each primary fit, refitted after the merge, agree with the committed replicates to a maximum relative difference of 4.2e-14 on the estimate, standard error and interval ends |
+| `longitudinal-repeated-crossfit` | `tests/discrete_law_longitudinal_ipsi.py` | result-neutral: the longitudinal IPSI law draws the samples of the study, so the run read this source, but the first module list omitted it. This branch leaves the file unchanged from main. Two replicates of each primary fit, refitted after the merge, agree with the committed replicates to a maximum relative difference of 4.2e-14 on the estimate, standard error and interval ends |
+| `longitudinal-repeated-crossfit` | `tests/discrete_law_survival.py` | result-neutral: the survival law draws the samples of the study, so the run read this source, but the first module list omitted it. This branch leaves the file unchanged from main. Two replicates of each primary fit, refitted after the merge, agree with the committed replicates to a maximum relative difference of 4.2e-14 on the estimate, standard error and interval ends |
 
 ## Descriptive manifest text
 
@@ -148,6 +151,12 @@ Remove the row when you regenerate the study. No test parses this table.
 | `longitudinal-repeated-ipsi` | `tests/studies/evidence/comparison.py` | `cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b` | `cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486` | result-neutral: the merge of #308 (X16) adds `DESCRIPTIVE_CONCLUSION`, `DESCRIPTIVE_COLUMNS`, `is_descriptive` and `describe_only` for a record with `paired_role="descriptive"`. This study declares no reference and no such role, so no paired row is computed |
 | `longitudinal-repeated-ipsi` | `tests/studies/evidence/simultaneous.py` | `7e48abff2bed12a031533271754509a59ae714aa893adfa4ec42e1cfad380e15` | `7162dbce520449fbb29623932caf0de0571295f0881457fab0fc1e3dfcb194f9` | result-neutral: `joint_coverage_rows` reads `plugin_std_error` and `plugin_interval` in place of `std_error` and `ci`. On an inferential estimate they are equal. A refit of the study's `fit()` on its three configurations at n = 600 with `simultaneous=True` gives equal values for all 15 reported estimates, bitwise for the standard error and the interval. The merge also leaves the estimates and influence curves of those fits bitwise equal to those of `f890c417` |
 | `longitudinal-repeated-ipsi` | `tests/studies/ipsi_repeated_properties.py` | `43c1177f2f402983ef02cbff5640b10a08df9bd66fe789b159fcf37481a31ca8` | `57fc1df65ca670354dc5ea1753418df5ea8ed08da5bba5516c480ce9c161bbe9` | result-neutral: `declared_cells()` now lists the derived calibration controls with the role `control`, and the unused constant `SYNTHETIC_CENTRES` is removed. Neither is on the run path. `generate_property_rows`, `_payloads`, `_fit_drawn` and `_cells_of` do not call `declared_cells()`, and nothing reads `SYNTHETIC_CENTRES` once the study has committed rows. Only the failure differential and the truth read-back test read the declared cells. The run draws, fits and summarizes the same rows |
+| `longitudinal-repeated-sdr` | `tests/studies/sdr_repeated_properties.py` | `fdd351fc88cd2850e1c43054c5e6ec136848f7f073657204a79b2520378cdec6` | `ba30049415b469555128432630a6183b0fe4e4193eba4b78c633d1df5e3f1a3d` | result-neutral: `declared_cells()` now lists the derived calibration controls with the role `control`, and its docstring says so. Neither is on the run path. `generate_property_rows`, `_payloads`, `_fit_drawn` and `_cells_of` do not call `declared_cells()`. Only the truth read-back test reads the controls, and the failure differential skips them. The run draws, fits and summarizes the same rows |
+| `longitudinal-repeated-sdr` | `tests/studies/canonical_sdr_repeated.py` | `23fa5a687334e2f5f1128d1bf7c84037c23ba3bd40cd7877219e50a2233587ce` | `3ad139469ff7079e5f02e45d62a1a3689d0d5c24b0f76b8bffb33190d452ce7a` | result-neutral: only the module docstring changed after the run. The sentence on the registration state now says that the declared run has finished and the study is registered with its comparator pending. Python does not read a docstring for any value the study computes |
+| `longitudinal-repeated-sdr` | `tests/studies/fractional_glm.py` | `0d1658ccdcde01e0066be685c92c13b8615951913ff9005b1e90871dc7797b44` | `7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072` | result-neutral: the merge of main adds the class attribute `frequency_exact = True` to `QuasiBinomialGLM`. Only the frequency-weighted bootstrap replicate of `cleverly.longitudinal.frequency` reads it, and this study draws no bootstrap replicate. A fit of the study's `fit()` at n = 600 in sample, at five folds, with the continuous law and with the booster gives bitwise equal estimates, standard errors and influence curves on `9cac5fd6` and on the merge |
+| `longitudinal-repeated-sdr` | `tests/studies/evidence/properties.py` | `38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb` | `30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577` | result-neutral: `bootstrap_draw_blocks` gathers rows with `np.take` in place of fancy indexing. The comment at the line states that the draws are bit-identical. The merge of main brought the edit. The fast tier recomputes every verdict of the committed property rows with the merged code and reads the committed `properties.csv` back |
+| `longitudinal-repeated-sdr` | `tests/studies/evidence/property_verdicts.py` | `1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6` | `e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db` | result-neutral: the merge of main adds two X40 SE controls to `SE_CONTROL_SIDES` and a clause-name helper. This study declares neither control, and the two generic controls keep their clause names |
+| `longitudinal-repeated-sdr` | `tests/studies/evidence/schema.py` | `0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e` | `86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865` | result-neutral: the merge of main makes `validate_replicates` read the sample size per scenario. This study draws one size in both primary scenarios, so the check accepts the same rows |
 | `vector-mtp` | `tests/studies/evidence/comparison.py` | `cda1befd03a8b7509c8e1310bd911501dc2fd11c91b64451ba2b19476b689d6b` | `cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486` | result-neutral: the merge of #308 (X16) adds `DESCRIPTIVE_CONCLUSION`, `DESCRIPTIVE_COLUMNS`, `is_descriptive` and `describe_only` for a record with `paired_role="descriptive"`. This study does not declare that role, and its comparator is pending, so no paired row is computed |
 | `canonical-ltmle-crossfit` | `tests/studies/canonical_ltmle_crossfit.py` | `dd078bd6927a522b08157b7ba2bb9ca4388a8d221bf3d8520ebeef089310ef4d` | `d2ba645600b5aa9d77e12ab16737b9145e99d7d5d90960ba79a25fca0d4fc7b9` | result-neutral: only the two comments above `quoted_decimals` and `publication_policy` changed. They described the SE-ratio breach that the pooled update removed. Python ignores comments, so every law, cell, margin, seed, and registry value is unchanged. Then this PR adds the keyword-only argument `simultaneous: bool = False` to `fit_cleverly` and passes it where the literal `simultaneous=False` stood. Every caller in this study omits it, so each fit is the one that ran. Only `default-simultaneous-bands` passes `True` |
 | `canonical-drtmle` | `tests/studies/canonical_drtmle.py` | `b57a22979cee022c56f47a67ac3040224f891b7fcc1d991e8c4f27e312ff2543` | `94be60bd719b23c86ab81b9ff71ed8889ad72f6a9816379c2e7e9be824f2869d` | result-neutral: only the `source_law` string of `CONFIGURATION` changed, from Section 4 to Section 5.1. No computation reads it, and "Descriptive manifest text" above records the correction. Then this PR adds the keyword-only argument `simultaneous: bool = False` to `fit_cleverly` and passes it where the literal `simultaneous=False` stood. Every caller in this study omits it, so each fit is the one that ran. Only `default-simultaneous-bands` passes `True` |
@@ -208,6 +217,10 @@ Remove the row when you regenerate the study. No test parses this table.
 | `canonical-ltmle-competing-crossfit` | `tests/studies/canonical_ltmle.py` | `d1adf8f5df9fdaca29eb3d21367e0e479ed669bd572d7b824acf459d4b8b0bbd` | `db44a0fabb57fc19f37e94b9229f1f425de28745d6b109d4d1600eb60d0678f1` | result-neutral: this PR edits only the `canonical-ltmle` record in this module: its `property_cells`, `modules` and `CONFIGURATION` gain the joint cells. Every name this study imports from the module, such as `G_BOUNDS`, `declared_regimens` and `KnownLongitudinalMechanism`, is unchanged. The file had already moved since the run, before this PR, in edits this table does not record |
 | `canonical-ltmle-survival` | `tests/studies/canonical_ltmle_survival.py` | `5f8e2c2faabd846c39b9ef07d6d80f28f4b88a193d9cacf449cebcbf400143c4` | `f387c57e811c5c1ff5e13cc2ee3d196c86229f1b84c5f87e8b68c41f4c209049` | result-neutral: only the module docstring changed after the run. It now names the red cell's owner `band-finite-sample` and says the multiplier is not the main cause. Python does not read a docstring for any value the study computes |
 | `canonical-stratified-tmle` | `tests/studies/canonical_stratified_tmle.py` | `4415492621576525c176516d477d9bc158690c5c2853db641f0a1abdfe8f2ccd` | `a17cdc28569c469c4012c5bd3ef846735c247501a3731a60bd993b6bf9cec26a` | result-neutral: only the module docstring changed after the run, to say the multiplier is not the main cause. Python does not read a docstring for any value the study computes |
+| `structural-nested-mean` | `tests/studies/canonical_structural_nested_mean.py` | `445a2a7e9ae899af4633469824f7cac3d7782259a91d0143ee1a8d5f746747cf` | `0e0f7c7d83b9513472988bb3784cd6a93faae27646fca5a9a6ac6df9d524c7fb` | result-neutral: only the `PENDING_REASON` string changed. It now names Study queue row 43 of TRACKER.md, which owns the EconML `DynamicDML` container runs. No computation reads the string. The study registry copies it into `comparator.reason`, and `test_the_manifest_and_the_rows_agree_with_the_comparator_state` requires the manifest to equal the registry. So the manifest field carries the new text, and no artifact changed |
+| `structural-nested-mean` | `tests/studies/evidence/properties.py` | `38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb` | `30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577` | result-neutral: `bootstrap_draw_blocks` gathers rows with `np.take` in place of fancy indexing. The comment at the line states that the draws are bit-identical. The merge of main brought the edit |
+| `structural-nested-mean` | `tests/studies/evidence/property_verdicts.py` | `1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6` | `e53eeb443f12199ab95d81f818b8f00f17b8a6d355be84f5072b07d2f562d0db` | result-neutral: the merge of main adds two X40 SE controls to `SE_CONTROL_SIDES` and a clause-name helper. This study declares neither control, and the two generic controls keep their clause names |
+| `structural-nested-mean` | `tests/studies/evidence/schema.py` | `0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e` | `86ec2e270376350ecd4c43e07c248e11a4a4c87157d8015384b453356e343865` | result-neutral: the merge of main makes `validate_replicates` read the sample size per scenario. This study draws one size in every primary scenario, so the check accepts the same rows |
 
 ## Completed manifest provenance
 
@@ -280,3 +293,72 @@ bytes that fitted the property rows, and the package source under `src/` also ch
 | `vector-mtp` | `tests/studies/canonical_ltmle.py` | `3f15ff47823c8ff791fca05d12511f53786e4d89ad7bac4f954e5d735656ad6c` | result-neutral for the property rows: the budget-two output is byte-identical |
 | `vector-mtp` | `tests/studies/evidence/properties.py` | `47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab` | result-neutral for the property rows: the budget-two output is byte-identical |
 | `vector-mtp` | `tests/studies/evidence/property_verdicts.py` | `5e65c9ecce2c7d4e34d5d9bdd825ef7d41cf550c2138fa3d9621c4dd0028a4ef` | result-neutral for the property rows: the budget-two output is byte-identical |
+
+## Property fit sets inherited by the repeated cross-fit rerun
+
+The first declared run of `longitudinal-repeated-crossfit` read the `simultaneous_coverage` band
+and the `repeat_increment` pair off the calibration fits, so those families shared sample
+streams with `interval_calibration`. The rerun draws each of the two families its own samples:
+the fit sets `band_d`, `band_i`, `band_s`, `band_c`, `band_m` (2,400 replications each) and
+`increment_s` (2,800). Every other fit set keeps its law, size, replication count, seed label and
+fit. The rerun fits the new fit sets and the primary phase. It does not refit the rest.
+
+`tests.canonical.longitudinal_repeated_crossfit.inherit` writes the committed rows of each
+unchanged fit set (the five `calibration_*` sets, the three `rate_*` sets, `ipsi_primary`,
+`stability_d` and `stability_i`) into the declared run's checkpoints. It refuses a file that the
+source manifest does not hash, a missing replicate and a recorded loss. The derived controls
+(`shrunken_se_control`) are not inherited. The head derives them from the inherited base rows.
+The rows of the two redrawn families are not inherited either, because their cells changed.
+
+| item | value |
+| --- | --- |
+| commit that fitted the inherited rows | `e1b27e0f572921e7749604db0566d55d8179744d` |
+| source artifact commit | `07092dd43980ea626c7fc435bd71e1ff9e8dcbfe` |
+| SHA-256 of the source `property-replicates.csv.gz` | `6b7ea59dd3f6579e20fa83160e36e66293ea71c4502fad9b8b2d70774f91b78b` |
+| rerun commit, which the rerun's manifest records | `38ad7d052e5a477250bb629d1a7d27bb88a7f90b` |
+| rerun artifact commit | `8da46231` |
+
+`inherit.py` prints the source SHA-256 before it writes a checkpoint. The summary, the controls
+and the verdicts come from the head's code.
+
+The evidence that the head writes the committed rows is a comparison on one machine. The module
+at `6235b741` (before the rerun) and the head each fitted replicates 0 and 1 of `calibration_d`,
+`calibration_s`, `calibration_c`, `calibration_m`, `rate_2000` and `rate_8000`, and replicate 0 of
+`calibration_i`, `ipsi_primary`, `stability_d` and `stability_i`. Every row outside the two redrawn
+families was equal in all columns, bit for bit. The head's rows differ from the committed Windows
+rows by at most 7.4e-15 in a numeric column, a machine difference of the kind that the vector-mtp
+section above reports. No fit of `rate_32000` ran in the check. Its code path is that of
+`rate_8000`. After the run,
+`python -m tests.canonical.longitudinal_repeated_crossfit.inherit --check <baseline commit>`
+compares the new `property-replicates.csv.gz` outside the two redrawn families with the
+baseline commit, bit for bit. It also compares `replicates.csv.gz` at a relative tolerance of
+1e-12 and an absolute tolerance of 1e-14. It exits non-zero on a difference.
+
+The tolerance applies to the primary rows only, because the declared run refits the primary
+phase. The main merges between `e1b27e0f` and the rerun commit `38ad7d05` changed `src/`. The
+rerun on the same Windows machine moved the primary rows by at most 1.8e-15 in a numeric column.
+The keys, the discrete columns, the verdicts and the inherited property rows were identical. The
+rerun's manifest records `38ad7d05` and hashes the artifacts that the rerun wrote.
+
+| fit set | replicates | source of the rows |
+| --- | --- | --- |
+| `calibration_d`, `calibration_s`, `calibration_c`, `calibration_m` | 24,000 | committed rows |
+| `calibration_i` | 24,000 | committed rows |
+| `rate_2000`, `rate_8000`, `rate_32000` | 800 | committed rows |
+| `ipsi_primary` | 1,600 | committed rows |
+| `stability_d`, `stability_i` | 400 | committed rows |
+| `band_d`, `band_i`, `band_s`, `band_c`, `band_m` | 2,400 | the rerun |
+| `increment_s` | 2,800 | the rerun |
+
+## Runners that a pending study names
+
+The study `longitudinal-repeated-sdr` declares a pending lmtp comparator. Its `Reference` names
+`longitudinal_sdr_runner.R`, `lmtp_sdr_adapter.R` and the `lmtp_crossfit` Dockerfile, because the
+`Reference` type requires a runner path and plan X32b section K12 reuses the adapter and the
+Dockerfile unchanged. An edit to that runner for `longitudinal-sdr` is result-neutral for the
+pending study until PR C replaces it with the per-horizon runner. The pending study runs no
+reference process, so the recorded hash describes no committed result.
+
+The runner also sources `study_harness.R`. The pending manifest now lists that file among its
+declared sources, with the hash of its bytes at the run commit `77a31636`. The file has not changed
+since `182b6438`, which precedes the run. No reference ran, so the added entry changes no result.

@@ -54,6 +54,22 @@ The `X41-negative-control` owner holds the three `misspecification_control` cell
 [sequential baselines study](sequential-baselines.md). They are a declared negative control. The
 study lists them as red before the run, and no work is owed.
 
+The `X26-plugin-conservative` owner holds the lower bound of the ATE of arm 2 against arm 0 on the
+cross-fitted three-arm fit of the
+[plug-in bound study](omitted-variable-bound-plugin-standard-error.md). The study reads it as
+conservative. Its SE-ratio interval ends near 1.07, and the diagnosis found the package curve in
+agreement with a jackknife and a sandwich. The rerun at $n = 4000$ reads an SE ratio of 0.998, with
+a 99% interval of 0.973 to 1.025, so the cell reads "conservative, contracting".
+
+The `X26-refusal-limited` owner holds the lower bound of the ATT of the same arm pair and fit. Its
+SE-ratio interval, 1.0288 to 1.0683, is inside the band on the complete case. The worst-case
+clause of the failure accounting turns it red. The package refused 32 of 10,000 replicates, all
+with the key `truncation_active`, and no other key refused one. The SE-ratio leg reads 0.0017 on
+the complete case and -0.0048 on the worst case. The study reads the cell as refusal-limited.
+
+The rerun of this cell at $n = 4000$ lost no replicate. It reads an SE ratio of 1.002, with a 99%
+interval of 0.977 to 1.027.
+
 A red row stays red under the `reporting` policy. It is read again only under the condition its
 owner names. The ledger moves no margin and changes no verdict.
 
@@ -105,13 +121,15 @@ The test fails on four states.
 | [`X19-competing-calibration`](../../roadmap.md#red-cell-owners) | 1 | longitudinal incremental propensity-score interventions under dropout |
 | [`X13-finite-sample`](../../roadmap.md#red-cell-owners) | 2 | point-treatment survival, cross-fitted point-treatment survival |
 | [`X45-finite-sample`](../../roadmap.md#red-cell-owners) | 1 | parametric g-formula |
+| [`X26-plugin-conservative`](../../roadmap.md#red-cell-owners) | 1 | omitted-variable bound plug-in standard error |
+| [`X26-refusal-limited`](../../roadmap.md#red-cell-owners) | 1 | omitted-variable bound plug-in standard error |
 | [`F28`](../../roadmap.md#red-cell-owners) | 9 | clustered point-treatment CV-TMLE at unequal cluster sizes, clustered TMLE intervals on a t reference at few clusters |
 | [`mtp-pricing-calibration`](../../roadmap.md#red-cell-owners) | 4 | boundary-binding price plans over follow-up lengths |
 | [`mtp-pricing-learned-density`](../../roadmap.md#red-cell-owners) | 3 | boundary-binding price plans over follow-up lengths |
 | [`X40-sdr-heavy-ratios`](../../roadmap.md#red-cell-owners) | 1 | modified treatment policies at declared boundaries |
 | [`X20-bootstrap`](../../roadmap.md#red-cell-owners) | 3 | full-refit bootstrap and derived contrasts |
 | [`X41-negative-control`](../../roadmap.md#red-cell-owners) | 3 | sequential g-computation and IPW |
-| total | 182 | 35 studies |
+| total | 184 | 36 studies |
 <!-- /generated -->
 
 ## The red rows
@@ -298,6 +316,8 @@ same text as the "measured" column of its study page.
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_2000` | positive | its own rule | bias 0.000923, coverage 0.8963 to 0.9460, SE ratio 0.9292 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_4000` | positive | its own rule | bias 0.000466, coverage 0.8992 to 0.9481, SE ratio 0.8955 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
 | [outcome-adaptive per-arm C-TMLE with strata and missing data (point estimates)](outcome-adaptive-per-arm-c-tmle-strata-missing.md) | property | `root_n_and_efficiency/n_8000` | positive | its own rule | bias 0.000447, coverage 0.8949 to 0.9449, SE ratio 0.8812 | [`F19`](../../roadmap.md#f19-outcome-adaptive-c-tmle-generated-design-inference) |
+| [omitted-variable bound plug-in standard error](omitted-variable-bound-plugin-standard-error.md) | property | `interval_calibration/multinomial_logistic_crossfit_ate_2v0_lower__correctly_specified` | positive | its own rule | coverage 0.9556 to 0.9657, SE ratio 1.0332 to 1.0723, failures 32 of 10000 (complete case fails) | [`X26-plugin-conservative`](../../roadmap.md#red-cell-owners) |
+| [omitted-variable bound plug-in standard error](omitted-variable-bound-plugin-standard-error.md) | property | `interval_calibration/multinomial_logistic_crossfit_att_2v0_lower__correctly_specified` | positive | failure accounting: worst case fails | coverage 0.9568 to 0.9667, SE ratio 1.0288 to 1.0683, failures 32 of 10000 (worst case fails) | [`X26-refusal-limited`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle__simultaneous_band` | positive | its own rule | joint coverage 0.9101 to 0.9382 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/categorical_ltmle_crossfit__simultaneous_band` | positive | its own rule | joint coverage 0.9173 to 0.9443 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
 | [default simultaneous bands across shipped fit shapes](default-simultaneous-bands.md) | property | `simultaneous_coverage/cde_z0__simultaneous_band` | positive | its own rule | joint coverage 0.9015 to 0.9309 | [`band-finite-sample`](../../roadmap.md#red-cell-owners) |
@@ -317,6 +337,7 @@ row. A move to `gated` is a separate registry decision.
 | --- | --- | --- |
 | [cross-fitted clustered longitudinal TMLE on a t reference at few clusters](few-cluster-cross-fitted-longitudinal-tmle.md) | 13 | 0 |
 | [repeated point-treatment cross-fitted TMLE](repeated-cross-fitting.md) | 31 | 0 |
+| [repeated cross-fitted longitudinal TMLE, SDR and IPSI](repeated-cross-fitted-longitudinal.md) | 84 | 0 |
 | [C-TMLE0 derivative covariate](ctmle-derivative.md) | 24 | 0 |
 | [outcome-adaptive point-treatment C-TMLE](outcome-adaptive-point-treatment-c-tmle.md) | 29 | 0 |
 | [vector modified treatment policies](vector-modified-treatment-policies.md) | 56 | 0 |
@@ -330,6 +351,7 @@ row. A move to `gated` is a separate registry decision.
 | [DR-TMLE on a declared known treatment mechanism](known-mechanism-dr-tmle.md) | 55 | 0 |
 | [DR-TMLE with one inconsistent nuisance](dr-tmle-one-inconsistent-nuisance.md) | 22 | 0 |
 | [LTMLE on declared known node mechanisms](known-node-mechanisms-ltmle.md) | 20 | 0 |
+| [structural nested mean model](structural-nested-mean.md) | 298 | 0 |
 | [omitted-variable bound standard error](omitted-variable-bound-standard-error.md) | 14 | 0 |
 | [calibration-slope warning](calibration-slope-warning.md) | 13 | 0 |
 <!-- /generated -->

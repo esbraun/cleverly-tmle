@@ -1,0 +1,140 @@
+{
+  "schema_version": 2,
+  "study": "categorical incremental policies",
+  "slug": "categorical-incremental",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-categorical-incremental",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "2b5077d3aee33ab631b7a1902c9031d20116fad5",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pandas": "3.0.6",
+      "scikit_learn": "1.9.1"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1000,
+    "n": 8000,
+    "seed": 20261843,
+    "resampling_seed": 2026184301,
+    "publication_policy": "gated",
+    "failure_bound": {
+      "cleverly-categorical-incremental": 0.01
+    },
+    "scenarios": {
+      "point_in_sample": [
+        "ey_ipsi[natural course]",
+        "ey_ipsi[T_a]",
+        "ey_ipsi[T_b]",
+        "ate_ipsi[T_a vs natural course]",
+        "ate_ipsi[T_b vs natural course]"
+      ],
+      "point_crossfit": [
+        "ey_ipsi[natural course]",
+        "ey_ipsi[T_a]",
+        "ey_ipsi[T_b]",
+        "ate_ipsi[T_a vs natural course]",
+        "ate_ipsi[T_b vs natural course]"
+      ],
+      "longitudinal_dropout_folds_5": [
+        "ey_regimen[natural course]",
+        "ey_regimen[T_a]",
+        "ey_regimen[T_b]",
+        "ate_regimen[T_a vs natural course]",
+        "ate_regimen[T_b vs natural course]"
+      ],
+      "longitudinal_folds_5": [
+        "ey_regimen[natural course]",
+        "ey_regimen[T_a]",
+        "ey_regimen[T_b]",
+        "ate_regimen[T_a vs natural course]",
+        "ate_regimen[T_b vs natural course]"
+      ]
+    },
+    "construction": {
+      "P": "point TMLE, softmax mechanism fluctuation (X43-plan.md 3.1)",
+      "L": "IPSI one-step with categorical tilt nodes and dropout weights (X43-plan.md 3.2)"
+    },
+    "n_folds": {
+      "point_in_sample": 1,
+      "point_crossfit": 5,
+      "longitudinal_dropout_folds_5": 5,
+      "longitudinal_folds_5": 5
+    },
+    "learners": "CellFrequencies for each mechanism, CellMeans for each regression",
+    "q_bounds": [
+      -8.0,
+      14.0
+    ],
+    "tilts": {
+      "natural course": {
+        "a": 1.0
+      },
+      "T_a": {
+        "b": 2.0,
+        "c": 0.5
+      },
+      "T_b": {
+        "b": 0.5,
+        "c": 2.0
+      }
+    },
+    "reference": "natural course",
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/canonical_categorical_incremental.py": "655fc9b8303e0042a055dcf0decb102d395eb7bfadb1f7ad7a55e00dce4c256b",
+    "tests/studies/categorical_incremental_properties.py": "a1865665c8ba8671ccf8d283ca28e882422ec2c45dbaf64154ed2e639ccea4cd",
+    "tests/studies/categorical_incremental_common.py": "ba170b3e2e2fa9e19bbb5b94d12aff8cfab6b4510c05ffe6ee44f78afa427f2f",
+    "tests/discrete_law_categorical_ipsi_point.py": "f6124b035e3e389f30cd1d90731a5c75a08f5eee28ac1aa67c116ebfd1e8a249",
+    "tests/discrete_law_categorical_ipsi_longitudinal.py": "a39c4a1caf427fef34d3a57879857cfb52682e8399b69fbc8019a7c49c7c8abd",
+    "tests/discrete_law_longitudinal_incremental.py": "a1b01eeea0343037b33a6ce948884241e718f882a309dd35216b8217717df0a5",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/discrete_law.py": "c713584f4beb1016d6f7f50a538992dcd2a50fe271cd8537228a94e4a5feb834",
+    "tests/studies/intervention_study_helpers.py": "b414d2cc21b1212e6670dc4c29bac30f610eba30ef935ac0c7902086fd53fe8f",
+    "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
+    "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
+    "tests/studies/evidence/properties.py": "30b4a310d318cc5f5a57c407fb6854fef0a2a9665ea57dcc41a1518a871d0577",
+    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
+    "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
+    "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "59d32d5dc816b298fa7e9ffa1ccc447485ca865fd320276fa51b628454f93d18",
+    "summary.csv": "edb9ac07a15bbc979ae66796fe4266efa64ef4ffd62aab09791397dfc248f49a",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "32895599e6ef75d0cbc2ae9babc176dc03469afbeee492d07b1aa5557d43463b",
+    "property-replicates.csv.gz": "15d85798cd1d0919a39cf4eb3c9166f37142ceaa5e4a50abc43a7f7ef3a9446f",
+    "properties.csv": "1a0e8bb41189d0c9d043519ab912ef696dbe207ac13ff2a01a1bbd9b66df6698"
+  }
+}
