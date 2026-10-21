@@ -579,7 +579,7 @@ def _fold_average_on_two_copies(
     monkeypatch.setattr(
         estimator_module._SequentialEstimator,
         "_folds",
-        lambda self, prepared: Folds(assignment=owner, n_folds=2),
+        lambda self, prepared, seed=None: Folds(assignment=owner, n_folds=2),
     )
     fit_tuner = regimen_module.fit_tuner
 

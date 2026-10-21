@@ -276,8 +276,8 @@ class SupportKey:
         How the observation weights are read.
     splitting : tuple of str
         ``in_sample``, ``stacked``, ``fold_evaluated``, ``fold_targeted``,
-        ``fold_targeted_evaluated`` or ``cross_fitted``, followed by ``repeated`` and
-        ``supplied_plan`` where they apply.
+        ``fold_targeted_evaluated`` or ``cross_fitted``, followed by ``repeated`` (``repeats`` above
+        1) and ``supplied_plan`` where they apply.
     dependence : {"iid", "clustered", "t", "below_floor"}
         ``clustered`` from 40 clusters with positive weight mass, ``t`` from the interval floor
         to 39, ``below_floor`` under the floor. The floor is 10 for a point fit and 20 for a
@@ -658,7 +658,13 @@ def longitudinal_key(
         missing=("censoring",) if data.has_censoring else ("complete",),
         treatment=("held", *levels) if data.treatment_held else levels,
         weighting=_weighting(data),
-        splitting=("cross_fitted",) if cross_fitted else ("in_sample",),
+        splitting=(
+            ("cross_fitted", "repeated")
+            if cross_fitted and getattr(estimator, "repeats", 1) != 1
+            else ("cross_fitted",)
+            if cross_fitted
+            else ("in_sample",)
+        ),
         dependence=_dependence(
             _positive_mass_clusters(data), MINIMUM_LONGITUDINAL_INTERVAL_CLUSTERS
         ),

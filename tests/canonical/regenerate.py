@@ -213,6 +213,21 @@ def failures_path(output: Path) -> Path:
     return output.with_name(f"{output.stem}.failures.csv")
 
 
+# One thread per BLAS or OpenMP pool.  The R harness forks ``cores`` workers, so each worker
+# must stay single-threaded; otherwise OpenBLAS starts one pool per worker and the container
+# uses several times ``cores`` (21 cores at ``CLEVERLY_R_CORES=3`` for the lmtp image).
+THREAD_CAPS = dict.fromkeys(
+    (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "BLIS_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+    ),
+    "1",
+)
+
+
 def _docker_command(
     reference: Reference,
     root: Path,
@@ -232,6 +247,7 @@ def _docker_command(
         arguments.append(f"/fixture/{runner}")
     entrypoint = ["--entrypoint", reference.interpreter] if reference.mount_runner else []
     variables = {
+        **THREAD_CAPS,
         "CLEVERLY_REFERENCE_CORES": str(cores),
         "CLEVERLY_R_CORES": str(cores),
         **(env or {}),
@@ -241,6 +257,8 @@ def _docker_command(
         "docker",
         "run",
         "--rm",
+        "--cpus",
+        str(max(cores, 1)),
         *extra,
         *flags,
         *mounts,

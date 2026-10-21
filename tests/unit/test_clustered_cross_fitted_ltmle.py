@@ -215,7 +215,7 @@ class TestTheFoldsKeepEveryClusterWhole:
     ) -> None:
         """Mutation: ``_folds`` itself draws rows. The check sits outside it, so it still runs."""
 
-        def row_folds(self: LTMLE, data: Any) -> Folds:
+        def row_folds(self: LTMLE, data: Any, seed: int | None = None) -> Folds:
             return random_partition(data.n, self.n_folds, seed=0)
 
         monkeypatch.setattr(LTMLE, "_folds", row_folds)
@@ -331,7 +331,7 @@ class TestAHeldOutClusterIsUnseen:
     def test_a_row_level_split_lets_the_cluster_leak(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Mutation: the post-condition and the grouping both removed."""
 
-        def row_folds(self: LTMLE, data: Any) -> Folds:
+        def row_folds(self: LTMLE, data: Any, seed: int | None = None) -> Folds:
             return random_partition(data.n, self.n_folds, seed=0)
 
         monkeypatch.setattr(LTMLE, "_folds", row_folds)
@@ -714,7 +714,7 @@ class TestTheTruncationReplayKeepsTheClusters:
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(longitudinal_estimator, "_run_recursion", spy)
             replay = longitudinal_estimator._refit_bound(
-                unequal, unequal.replay_recipe, (0.3, subject_study.G_BOUNDS[1])
+                unequal, unequal.repeats[0], (0.3, subject_study.G_BOUNDS[1])
             )
         # The replay holds the fit's grouped folds rather than drawing a new split.
         assert seen

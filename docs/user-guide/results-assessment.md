@@ -267,6 +267,11 @@ spread gets its own machine-readable reason. A table cell with no finite value p
 Nuisance models and C-TMLE selection describe draw 1. Split-spread rows read every retained draw.
 The nuisance summary states the scope on its own line, as `describing draw 1 of 3`.
 
+A repeated longitudinal fit uses the same rows. `result.diagnostics.nuisance_models().repeat_spread`
+holds one row per reported parameter, and `result.repeat_spread()` returns the standard deviations
+alone. The nuisance rows describe draw 1, and the report records `n_repeats` and
+`reported_repeat`. The score report has one row per node and draw, with a `draw` column.
+
 The combined assessment row states the draw beside the C-TMLE selection fact alone. An ordinary
 repeated fit therefore carries no draw text in that row.
 `test_ctmle_repeats_its_selection_per_draw` in `tests/unit/test_repeated_crossfit.py` checks the

@@ -34,7 +34,7 @@ from .exceptions import (
     Refusal,
     RefusalReason,
 )
-from .inference.multiplier import SimultaneousBands, simultaneous_bands
+from .inference.multiplier import SimultaneousBands, median_bands, simultaneous_bands
 from .interventions import Incremental, IPSISet, Policy, PolicySet, RegimeSet, Stochastic
 from .interventions.base import InterventionKind, refuse_mixed_interventions
 from .interventions.learned import LearnedRule, refuse_learned_rule_composition
@@ -2360,6 +2360,11 @@ def _narrow_bands(
     A parameter that supplies no inference on its own, such as a constant-node risk of a
     longitudinal fit, stays out of the family, as the engine's band leaves it out.  The band is
     a joint statement over the retained parameters that supply inference.
+
+    A longitudinal fit with ``repeats > 1`` takes the engine's own repeat rule,
+    :func:`~cleverly.inference.multiplier.median_bands`: the median of the draws' critical
+    values over the narrowed family, from each draw's own curves, around the split-adjusted
+    estimates, with the multiplier seed the fit recorded.
     """
     bands = result.simultaneous
     if bands is None:
@@ -2369,14 +2374,25 @@ def _narrow_bands(
         return bands
     if len(family) < 2:
         return None
-    narrowed = simultaneous_bands(
-        family,
-        alpha=bands.alpha,
-        n_replicates=bands.n_replicates,
-        kind=bands.kind,
-        random_state=getattr(method, "runtime", Runtime()).random_state,
-        cluster=result.data.cluster,
-    )
+    if getattr(result, "n_repeats", 1) > 1:
+        narrowed = median_bands(
+            [{name: draw.estimates[name] for name in family} for draw in result.repeats],
+            family,
+            alpha=bands.alpha,
+            n_replicates=bands.n_replicates,
+            kind=bands.kind,
+            random_state=result.config.multiplier_seed,
+            cluster=result.data.cluster,
+        )
+    else:
+        narrowed = simultaneous_bands(
+            family,
+            alpha=bands.alpha,
+            n_replicates=bands.n_replicates,
+            kind=bands.kind,
+            random_state=getattr(method, "runtime", Runtime()).random_state,
+            cluster=result.data.cluster,
+        )
     return replace(narrowed, support=combine_support([bands.support, narrowed.support]))
 
 
@@ -4720,12 +4736,22 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         index = None
         if raw.parameter_index is not None:
             index = {name: raw.parameter_index[name] for name in estimates}
+        # Every draw keeps the same names as the report, so a per-draw functional, the
+        # repeat spread and the narrowed band read the identified target's family only.
+        repeats = tuple(
+            replace(
+                draw,
+                estimates={name: draw.estimates[name] for name in estimates},
+            )
+            for draw in raw.repeats
+        )
         raw = replace(
             raw,
             estimates=estimates,
             parameter_index=index,
             simultaneous=_narrow_bands(raw, estimates, method),
             bootstrap=_narrow_bootstrap(raw.bootstrap, estimates),
+            repeats=repeats,
         )
         return replace(
             raw,

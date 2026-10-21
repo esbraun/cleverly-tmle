@@ -27,24 +27,34 @@ from .influence import (
     CovarianceRule,
     ParameterEstimate,
     Scale,
+    _median_adjusted_variance,
     make_estimate,
+    median_estimates,
     minimum_reference_df,
+    spread_name,
+    with_precedent_status,
 )
 
 __all__ = [
     "attach_bootstrap",
+    "check_transform_scale",
     "covariance_rule",
     "derived_bootstrap",
     "estimate_covariance",
     "estimate_curves",
     "inference_status",
     "linear_functional",
+    "median_covariance",
+    "median_derived",
     "ratio_contrast",
     "refuse_odds_ratio",
+    "repeat_spread",
     "reported_status",
     "select_estimates",
     "smooth_contrast",
     "sole_estimate",
+    "split_noise_lines",
+    "transform_estimate",
 ]
 
 RatioKind = Literal["rr", "or"]
@@ -219,17 +229,7 @@ def smooth_contrast(
     estimate stores ``log_psi``, and saved frames name it. A test pins that the two give
     the same standard error, interval and p-value.
     """
-    if transform is not None:
-        if scale == "ratio":
-            raise ValueError(
-                "a ratio-scale estimate already carries the log transform. Pass "
-                'scale="ratio" or transform=, not both'
-            )
-        if scale not in ("level", "difference"):
-            raise ValueError(
-                "with transform=, scale names the scale of psi and must be 'level' or "
-                f"'difference'; the transform carries the inference scale. Got {scale!r}"
-            )
+    check_transform_scale(scale, transform)
     chosen = select_estimates(estimates, names)
     rule = covariance_rule(estimates, chosen, cluster=cluster)
     status = inference_status(estimates, chosen)
@@ -248,14 +248,7 @@ def smooth_contrast(
         # bit.
         curve = (1.0 / value) * curve
     if transform is not None:
-        mapped = float(transform.forward(value))
-        slope = transform.slope(value)
-        if not (np.isfinite(mapped) and np.isfinite(slope)):
-            raise ValueError(
-                f"the contrast value {value:.6g} has no finite value or slope under the "
-                f"transform {transform.name!r}"
-            )
-        curve = slope * curve
+        curve = _transform_slope(value, transform) * curve
     estimate = make_estimate(
         name or f"contrast({', '.join(chosen)})",
         value,
@@ -271,6 +264,359 @@ def smooth_contrast(
         support=combine_support((estimates[key].support for key in chosen), kind="derived"),
     )
     return estimate if transform is None else replace(estimate, transform=transform)
+
+
+def check_transform_scale(scale: Scale, transform: Transform | None) -> None:
+    """Refuse a reported scale that cannot carry ``transform``.
+
+    Parameters
+    ----------
+    scale : str
+        The reported scale of a derived estimate.
+    transform : Transform or None
+        The map of its inference scale.
+
+    Raises
+    ------
+    ValueError
+        When ``transform`` is given with ``scale="ratio"`` or a scale other than
+        ``"level"`` and ``"difference"``.
+    """
+    if transform is None:
+        return
+    if scale == "ratio":
+        raise ValueError(
+            "a ratio-scale estimate already carries the log transform. Pass "
+            'scale="ratio" or transform=, not both'
+        )
+    if scale not in ("level", "difference"):
+        raise ValueError(
+            "with transform=, scale names the scale of psi and must be 'level' or "
+            f"'difference'; the transform carries the inference scale. Got {scale!r}"
+        )
+
+
+def _transform_slope(value: float, transform: Transform) -> float:
+    """The transform's slope at ``value``, refusing a value outside its domain."""
+    mapped = float(transform.forward(value))
+    slope = transform.slope(value)
+    if not (np.isfinite(mapped) and np.isfinite(slope)):
+        raise ValueError(
+            f"the contrast value {value:.6g} has no finite value or slope under the "
+            f"transform {transform.name!r}"
+        )
+    return float(slope)
+
+
+def transform_estimate(
+    estimate: ParameterEstimate, transform: Transform, *, cluster: Any = None
+) -> ParameterEstimate:
+    """``estimate`` carried to the inference scale of ``transform``.
+
+    The arithmetic of :func:`smooth_contrast` with ``transform=``: the curve is multiplied
+    by the transform's slope at the value, and the variance is read off that curve under the
+    estimate's covariance rule.  So ``transform_estimate(smooth_contrast(...), T)`` equals
+    ``smooth_contrast(..., transform=T)`` bit for bit.
+
+    Parameters
+    ----------
+    estimate : ParameterEstimate
+        An untransformed estimate on the ``"level"`` or ``"difference"`` scale.
+    transform : Transform
+        The monotone map of the inference scale.
+    cluster : ndarray or None, default=None
+        Cluster codes of the fit, or ``None`` for independent rows.
+
+    Returns
+    -------
+    ParameterEstimate
+        The estimate with ``transform`` set.
+
+    Raises
+    ------
+    ValueError
+        When the value has no finite value or slope under ``transform``.
+    """
+    slope = _transform_slope(estimate.psi, transform)
+    mapped = make_estimate(
+        estimate.name,
+        estimate.psi,
+        slope * estimate.influence_curve,
+        n=estimate.n,
+        cluster=cluster,
+        scale=estimate.scale,
+        alpha=estimate.alpha,
+        log_psi=estimate.log_psi,
+        covariance_rule=estimate.covariance_rule,
+        inference=estimate.inference,
+        reference_df=estimate.reference_df,
+    )
+    return replace(mapped, transform=transform)
+
+
+def _named_draw(error: Exception, draw: int, total: int) -> Exception:
+    """``error`` again, of the same type, with its message prefixed by the draw."""
+    message = error.args[0] if len(error.args) == 1 and isinstance(error.args[0], str) else error
+    text = f"draw {draw} of {total}: {message}"
+    try:
+        return type(error)(text)
+    except TypeError:  # pragma: no cover - an exception type with a custom constructor
+        return ValueError(text)
+
+
+def median_derived(
+    per_draw: Sequence[Mapping[str, ParameterEstimate]],
+    function: Callable[[Mapping[str, ParameterEstimate]], ParameterEstimate],
+    *,
+    transform: Transform | None = None,
+    cluster: Any = None,
+) -> ParameterEstimate:
+    """A derived estimate of a repeated fit: computed in every draw, then combined.
+
+    ``function`` maps one draw's estimates to the derived estimate, such as a contrast, a
+    ratio or a restricted mean.  It runs on every draw.  A refusal it raises in draw ``r``
+    is raised again with its own type, prefixed ``draw r of R:``.  With ``transform=``,
+    every draw's value is carried to the transform's scale before any median, and a draw
+    where the transform is undefined is refused.  Each draw's result is then stamped with
+    the precedent of the draws' statuses
+    (:func:`~cleverly.inference.influence.with_precedent_status`), and
+    :func:`~cleverly.inference.influence.median_estimates` combines them on their inference
+    scale.  So the report is the median of the per-draw functional, never the functional
+    of the medians.
+
+    Parameters
+    ----------
+    per_draw : sequence of mappings
+        One estimate mapping per draw.
+    function : callable
+        The derived estimate of one draw, as a function of that draw's estimates.  It
+        returns an untransformed estimate when ``transform`` is given.
+    transform : Transform or None, default=None
+        The map of the inference scale, applied to each draw's result.
+    cluster : ndarray or None, default=None
+        Cluster codes of the fit, or ``None`` for independent rows.
+
+    Returns
+    -------
+    ParameterEstimate
+        The median-combined derived estimate.
+
+    Raises
+    ------
+    ValueError
+        When the transform has no finite value or slope at one draw's value, or when
+        ``function`` raises it in one draw.
+    KeyError
+        When ``function`` raises it in one draw, such as for a name a draw lacks.
+    TypeError
+        When ``function`` raises it in one draw.
+    CapabilityError
+        When ``function`` refuses one draw.  Each error from ``function`` keeps its type,
+        and its message starts ``draw r of R:``.
+    """
+    total = len(per_draw)
+    results: list[ParameterEstimate] = []
+    for index, estimates in enumerate(per_draw, start=1):
+        try:
+            results.append(function(estimates))
+        except (ValueError, KeyError, TypeError, CapabilityError) as error:
+            raise _named_draw(error, index, total) from error
+    if transform is not None:
+        mapped: list[ParameterEstimate] = []
+        for index, result in enumerate(results, start=1):
+            try:
+                mapped.append(transform_estimate(result, transform, cluster=cluster))
+            except ValueError as error:
+                raise CapabilityError(
+                    f"draw {index} of {total}: the contrast value {result.psi:.6g} has no "
+                    f"finite value or slope under the transform {transform.name!r}. The "
+                    "median over draws is taken on the transform's scale, so the transform "
+                    "must be defined at every draw's value.",
+                    reason=RefusalReason.INVALID_DECLARATION,
+                    alternative=(
+                        "Use a transform defined there, drop transform= for the natural "
+                        "scale, or read each draw in result.repeats."
+                    ),
+                ) from error
+        results = mapped
+    name = results[0].name
+    stamped = with_precedent_status([{name: result} for result in results])
+    return median_estimates(stamped)[name]
+
+
+def median_covariance(
+    per_draw: Sequence[Mapping[str, ParameterEstimate]],
+    names: Sequence[str],
+    *,
+    cluster: Any = None,
+) -> FloatArray:
+    r"""The joint covariance of a repeated fit, by the matrix rule of equation (3.14).
+
+    Chernozhukov et al. (2018, Definition 3.3 and equation 3.14, pp. C29-C30).  Let
+    :math:`t_r` be draw :math:`r`'s estimates of ``names`` on their inference scales,
+    :math:`\tilde t` their coordinatewise median, :math:`d_r = t_r - \tilde t`, and
+    :math:`\Sigma_r` draw :math:`r`'s :func:`estimate_covariance` of ``names``.  Each draw
+    gives the candidate :math:`C_r = \Sigma_r + d_r d_r^\top`.  The result is the candidate
+    with the median operator norm, its largest eigenvalue, with ties to the lower draw
+    index.  At an even draw count it is the mean of the two candidates with the central
+    operator norms.  That mean is nonnegative definite, and its norm can be below both
+    candidates' norms.
+
+    The matrix is the rule for the **selected** vector.  The chosen draw depends on the
+    selection, so an entry, the diagonal included, can differ between two selections that
+    share a name, and from that name's reported variance.  One name is the exception: its
+    1x1 matrix is the reported variance bit for bit, because it is computed by the same
+    scalar rule.  Each draw is first stamped with the precedent of the draws' statuses, so
+    the selection supplies inference only when every draw does.
+
+    Parameters
+    ----------
+    per_draw : sequence of mappings
+        One estimate mapping per draw.
+    names : sequence of str
+        The selected estimates, in output order.
+    cluster : ndarray or None, default=None
+        Cluster codes of the fit, or ``None`` for independent rows.
+
+    Returns
+    -------
+    ndarray
+        The ``(k, k)`` matrix.
+    """
+    stamped = with_precedent_status(per_draw)
+    chosen = select_estimates(stamped[0], names)
+    if len(chosen) == 1:
+        parts = [draw[chosen[0]] for draw in stamped]
+        points = np.asarray([part.inference_value for part in parts], dtype=float)
+        variance = _median_adjusted_variance(points, [part.variance for part in parts])
+        return np.array([[variance]], dtype=float)
+    values = np.array(
+        [[draw[name].inference_value for name in chosen] for draw in stamped], dtype=float
+    )
+    displacement = values - np.median(values, axis=0, keepdims=True)
+    candidates = [
+        estimate_covariance(draw, chosen, cluster=cluster) + np.outer(offset, offset)
+        for draw, offset in zip(stamped, displacement, strict=True)
+    ]
+    norms = np.array([float(np.linalg.eigvalsh(candidate)[-1]) for candidate in candidates])
+    order = np.argsort(norms, kind="stable")
+    middle = len(candidates) // 2
+    if len(candidates) % 2:
+        return np.asarray(candidates[int(order[middle])], dtype=float)
+    low, high = int(order[middle - 1]), int(order[middle])
+    return np.asarray((candidates[low] + candidates[high]) / 2.0, dtype=float)
+
+
+def repeat_spread(
+    estimates: Mapping[str, ParameterEstimate],
+    draws: Sequence[Mapping[str, float]],
+) -> dict[str, float]:
+    """Split spread of each estimate across the draws, on its inference scale.
+
+    The body of :meth:`cleverly.estimators.TMLEResult.repeat_spread` and
+    :meth:`cleverly.longitudinal.LongitudinalResult.repeat_spread`, which document it.
+
+    Parameters
+    ----------
+    estimates : Mapping of str to ParameterEstimate
+        The combined estimates, which give each name's reported scale.
+    draws : sequence of mappings
+        Each draw's point estimates, keyed by name.
+
+    Returns
+    -------
+    dict of str to float
+        The standard deviation across the draws, per estimand present in every draw.
+
+    Raises
+    ------
+    CapabilityError
+        When there are fewer than two draws.
+    """
+    if len(draws) < 2:
+        raise CapabilityError(
+            "repeat_spread() describes how much psi moved between draws of the "
+            f"cross-fitting split, and this fit has {len(draws)}.",
+            reason=RefusalReason.INVALID_DECLARATION,
+            alternative="Fit with repeats=2 or more.",
+        )
+    shared = [name for name in estimates if all(name in draw for draw in draws)]
+    spreads: dict[str, float] = {}
+    for name in shared:
+        values = np.asarray([draw[name] for draw in draws], dtype=float)
+        # Outside the ratio branch, because a draw that is not finite has no spread on
+        # any scale.  Leaving it inside sent an infinite difference-scale draw into
+        # ``np.std``, which warns and therefore raises under this project's
+        # ``error::RuntimeWarning`` filter rather than yielding the promised ``nan``.
+        if not np.all(np.isfinite(values)):
+            spreads[name] = float("nan")
+            continue
+        if estimates[name].scale == "ratio":
+            if np.any(values <= 0.0):
+                spreads[name] = float("nan")
+                continue
+            values = np.log(values)
+        spreads[name] = float(np.std(values, ddof=1))
+    return spreads
+
+
+def split_noise_lines(
+    estimates: Mapping[str, ParameterEstimate],
+    spreads: Mapping[str, float],
+    n_repeats: int,
+    status: InferenceStatus,
+) -> list[str]:
+    """The lines a repeated fit's summary prints under its table.
+
+    A note that the report is coordinatewise, then the split spread of each estimand beside
+    its plug-in standard error.  Shared by the point-treatment and longitudinal summaries.
+
+    Parameters
+    ----------
+    estimates : Mapping of str to ParameterEstimate
+        The combined estimates.
+    spreads : Mapping of str to float
+        :func:`repeat_spread` of the fit.
+    n_repeats : int
+        The number of draws.
+    status : str
+        The fit's inference status, which names the spread column.
+
+    Returns
+    -------
+    list of str
+        The lines, with an empty line before each block.
+    """
+    lines = [
+        "",
+        # Printed under the table rather than left to the scope document, because a
+        # reader who subtracts two rows of that table gets a third number the fit
+        # never reported.
+        "the report above is coordinatewise: each row is the median of its own "
+        "draws, so algebraic identities among the rows (ate versus ey1 - ey0, "
+        "say) do not hold.",
+        "",
+        # Beside the standard error rather than in a separate report, because the
+        # comparison is the whole content of the number: on its own "0.0065" says
+        # nothing about whether the split mattered.
+        f"split noise -- spread across the {n_repeats} draws on the inference "
+        "scale (the log scale for a ratio), a diagnostic and not a standard error:",
+    ]
+    for name, value in spreads.items():
+        # The plug-in accessor: this share is a diagnostic ratio, and the fit may
+        # be one whose standard error the package refuses to name as one.
+        error = estimates[name].plugin_std_error
+        # "-" and a named reason, as every other table in this package renders a
+        # cell it has no value for.
+        if not np.isfinite(value):
+            lines.append(f"  {name:<5s} -  (no spread on the inference scale)")
+            continue
+        # Named as ``to_frame`` names the same number, so a selector-path fit
+        # does not describe its diagnostic as a standard error here.
+        label = spread_name("std_err", status)
+        share = f"{value / error:.0%} of {label}" if error > 0 else f"{label} unavailable"
+        lines.append(f"  {name:<5s} {value:.4g}  ({share})")
+    return lines
 
 
 def _reported_curve(estimate: ParameterEstimate) -> FloatArray:

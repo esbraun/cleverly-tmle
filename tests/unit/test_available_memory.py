@@ -60,7 +60,10 @@ def test_linux_answers_with_mem_available_not_the_free_pages(
     monkeypatch.setattr(memory, "MEMINFO", str(path))
     monkeypatch.setattr(memory, "CGROUP", str(tmp_path / "no-cgroup"))
     monkeypatch.setattr(
-        memory.os, "sysconf", lambda name: {"SC_AVPHYS_PAGES": 3, "SC_PAGE_SIZE": 4096}[name]
+        memory.os,
+        "sysconf",
+        lambda name: {"SC_AVPHYS_PAGES": 3, "SC_PAGE_SIZE": 4096}[name],
+        raising=False,
     )
     assert memory.available_memory() == 9437184 * 1024
 

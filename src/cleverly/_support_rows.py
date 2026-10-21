@@ -2633,6 +2633,51 @@ def _long_rows() -> tuple[SupportRow, ...]:
             )
         )
     rows += _continuous_dose_rows()
+    # Repeated cross-fitting (X46): the cells of laws D, S, C, M at n = 8,000 and law I at
+    # n = 80,000, each with three draws of five folds.  ``repeated`` in the splitting axis keeps
+    # every single-draw row from covering a repeated fit.
+    xfr = ("cross_fitted", "repeated")
+    rep = ["longitudinal-repeated-crossfit"]
+    rep_cells = ["interval_calibration", "simultaneous_coverage"]
+    rows += [
+        long_row("G44.law_d.tmle", rep, splitting=xfr, kinds=_LONG_BAND, cells=rep_cells),
+        long_row(
+            "G44.law_d.sdr", rep, engine="sdr", splitting=xfr, kinds=_LONG_BAND, cells=rep_cells
+        ),
+        long_row(
+            "G44.law_s",
+            rep,
+            outcome_kind="survival",
+            treatment=("2",) * 3,
+            splitting=xfr,
+            kinds=_LONG_BAND,
+            cells=rep_cells,
+        ),
+        long_row(
+            "G44.law_c",
+            rep,
+            outcome=("gaussian", "bounded"),
+            treatment=("2",) * 3,
+            splitting=xfr,
+            dependence="clustered",
+            kinds=_LONG_BAND,
+            cells=rep_cells,
+        ),
+        long_row("G44.law_m", rep, msm=True, splitting=xfr, kinds=_LONG_BAND, cells=rep_cells),
+        long_row(
+            "G44.law_i",
+            rep,
+            regimens=("tilt",),
+            engine="ipsi",
+            outcome=("gaussian", "bounded"),
+            missing=("complete",),
+            treatment=("2",) * 3,
+            splitting=xfr,
+            kinds=_LONG_BAND,
+            cells=["ipsi_primary", *rep_cells],
+            limits=("law I is measured at n = 80,000, where its second-order bias is small",),
+        ),
+    ]
     return tuple(rows)
 
 

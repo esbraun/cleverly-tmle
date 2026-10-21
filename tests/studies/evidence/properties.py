@@ -856,18 +856,22 @@ def summarize_cells(
             canonical = summarize_replications(
                 tuple(
                     ReplicationRecord(
-                        replicate=int(row.replicate),
+                        replicate=int(replicate),
                         seed=-1,
                         estimand="cell",
-                        truth=float(row.truth),
-                        estimate=float(row.estimate),
-                        std_error=float(row.std_error),
-                        covered=bool(row.covered),
-                        rejected=bool(row.rejected),
-                        inference_estimate=float(row.estimate),
+                        truth=float(draw_truth),
+                        estimate=float(estimate),
+                        std_error=float(std_error),
+                        covered=bool(covered),
+                        rejected=bool(rejected),
+                        inference_estimate=float(estimate),
                         alpha=alpha,
                     )
-                    for row in group.itertuples(index=False)
+                    # Iterating unused Arrow string columns dominates large study summaries.
+                    # Keep the record order and conversions, and read only its numeric fields.
+                    for replicate, draw_truth, estimate, std_error, covered, rejected in group[
+                        ["replicate", "truth", "estimate", "std_error", "covered", "rejected"]
+                    ].itertuples(index=False, name=None)
                 ),
                 estimand="cell",
                 n=int(group["n"].iloc[0]),

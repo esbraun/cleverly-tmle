@@ -344,7 +344,12 @@ def test_role_specific_prediction_mutations_move_only_the_bound_loss(weighted_re
     changed_treatment[0] = np.full_like(changed_treatment[0], 0.5)
     mutated = replace(
         weighted_result,
-        mechanism=replace(mechanism, treatment_observed=tuple(changed_treatment)),
+        repeats=(
+            replace(
+                weighted_result.repeats[0],
+                mechanism=replace(mechanism, treatment_observed=tuple(changed_treatment)),
+            ),
+        ),
     )
     changed = _longitudinal_nuisances(mutated)
     assert _row(changed, "treatment", time=1).loss != _row(baseline, "treatment", time=1).loss
@@ -354,7 +359,12 @@ def test_role_specific_prediction_mutations_move_only_the_bound_loss(weighted_re
     changed_censoring[0] = np.full_like(changed_censoring[0], 0.5)
     mutated = replace(
         weighted_result,
-        mechanism=replace(mechanism, censoring_observed=tuple(changed_censoring)),
+        repeats=(
+            replace(
+                weighted_result.repeats[0],
+                mechanism=replace(mechanism, censoring_observed=tuple(changed_censoring)),
+            ),
+        ),
     )
     changed = _longitudinal_nuisances(mutated)
     assert _row(changed, "censoring", time=1).loss != _row(baseline, "censoring", time=1).loss
@@ -374,7 +384,13 @@ def test_role_specific_prediction_mutations_move_only_the_bound_loss(weighted_re
             for step in fit.steps
         )
         mutated = replace(
-            weighted_result, fits={**weighted_result.fits, key: replace(fit, steps=steps)}
+            weighted_result,
+            repeats=(
+                replace(
+                    weighted_result.repeats[0],
+                    fits={**weighted_result.fits, key: replace(fit, steps=steps)},
+                ),
+            ),
         )
         changed = _longitudinal_nuisances(mutated)
         assert _row(changed, role).loss != wanted.loss
@@ -414,7 +430,15 @@ def test_later_mechanism_node_uses_only_its_nontrivial_at_risk_rows(weighted_res
     treatment_outside[1] = treatment_outside[1].copy()
     treatment_outside[1][~at_risk] = 0.5
     outside = _longitudinal_nuisances(
-        replace(result, mechanism=replace(mechanism, treatment_observed=tuple(treatment_outside)))
+        replace(
+            result,
+            repeats=(
+                replace(
+                    result.repeats[0],
+                    mechanism=replace(mechanism, treatment_observed=tuple(treatment_outside)),
+                ),
+            ),
+        )
     )
     assert _row(outside, "treatment", time=2).loss == treatment.loss
     assert _row(outside, "treatment", time=2).n == treatment.n
@@ -423,7 +447,15 @@ def test_later_mechanism_node_uses_only_its_nontrivial_at_risk_rows(weighted_res
     treatment_inside[1] = treatment_inside[1].copy()
     treatment_inside[1][at_risk] = 0.5
     inside = _longitudinal_nuisances(
-        replace(result, mechanism=replace(mechanism, treatment_observed=tuple(treatment_inside)))
+        replace(
+            result,
+            repeats=(
+                replace(
+                    result.repeats[0],
+                    mechanism=replace(mechanism, treatment_observed=tuple(treatment_inside)),
+                ),
+            ),
+        )
     )
     assert _row(inside, "treatment", time=2).loss != treatment.loss
     assert _row(inside, "treatment", time=2).n == treatment.n
@@ -432,7 +464,15 @@ def test_later_mechanism_node_uses_only_its_nontrivial_at_risk_rows(weighted_res
     censoring_outside[1] = censoring_outside[1].copy()
     censoring_outside[1][~at_risk] = 0.5
     outside = _longitudinal_nuisances(
-        replace(result, mechanism=replace(mechanism, censoring_observed=tuple(censoring_outside)))
+        replace(
+            result,
+            repeats=(
+                replace(
+                    result.repeats[0],
+                    mechanism=replace(mechanism, censoring_observed=tuple(censoring_outside)),
+                ),
+            ),
+        )
     )
     assert _row(outside, "censoring", time=2).loss == censoring.loss
     assert _row(outside, "censoring", time=2).n == censoring.n
@@ -441,7 +481,15 @@ def test_later_mechanism_node_uses_only_its_nontrivial_at_risk_rows(weighted_res
     censoring_inside[1] = censoring_inside[1].copy()
     censoring_inside[1][at_risk] = 0.5
     inside = _longitudinal_nuisances(
-        replace(result, mechanism=replace(mechanism, censoring_observed=tuple(censoring_inside)))
+        replace(
+            result,
+            repeats=(
+                replace(
+                    result.repeats[0],
+                    mechanism=replace(mechanism, censoring_observed=tuple(censoring_inside)),
+                ),
+            ),
+        )
     )
     assert _row(inside, "censoring", time=2).loss != censoring.loss
     assert _row(inside, "censoring", time=2).n == censoring.n

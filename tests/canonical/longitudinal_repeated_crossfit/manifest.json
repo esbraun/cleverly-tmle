@@ -1,0 +1,139 @@
+{
+  "schema_version": 2,
+  "study": "repeated cross-fitted longitudinal TMLE, SDR and IPSI",
+  "slug": "longitudinal-repeated-crossfit",
+  "generated_with": {
+    "subject": {
+      "implementation": "cleverly-repeated-longitudinal",
+      "cleverly_version": "0.1.4",
+      "cleverly_commit": "38ad7d052e5a477250bb629d1a7d27bb88a7f90b",
+      "cleverly_worktree_clean": true,
+      "python": "3.13.16",
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
+    },
+    "reference": null
+  },
+  "configuration": {
+    "replicates": 1600,
+    "n": 8000,
+    "seed": 20261446,
+    "resampling_seed": 2026144601,
+    "scenario_seed_owners": {
+      "law_d_sdr": "law_d_ltmle"
+    },
+    "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-repeated-longitudinal": 0.01
+    },
+    "scenarios": {
+      "law_d_ltmle": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[treat_if_l2]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[treat_if_l2 vs never]",
+        "rr_regimen[always vs never]"
+      ],
+      "law_d_sdr": [
+        "ey_regimen[never]",
+        "ey_regimen[always]",
+        "ey_regimen[treat_if_l2]",
+        "ate_regimen[always vs never]",
+        "ate_regimen[treat_if_l2 vs never]",
+        "rr_regimen[always vs never]"
+      ],
+      "law_s": [
+        "risk_regimen[always @ t=1]",
+        "risk_regimen[always @ t=2]",
+        "risk_regimen[always @ t=3]",
+        "risk_regimen[never @ t=1]",
+        "risk_regimen[never @ t=2]",
+        "risk_regimen[never @ t=3]",
+        "ate_regimen[always vs never @ t=1]",
+        "ate_regimen[always vs never @ t=2]",
+        "ate_regimen[always vs never @ t=3]"
+      ],
+      "law_c": [
+        "ey_regimen[always]",
+        "ey_regimen[never]",
+        "ate_regimen[always vs never]"
+      ],
+      "law_m": [
+        "msm_regimen[(intercept)]",
+        "msm_regimen[duration]"
+      ]
+    },
+    "construction": "pooled_cross_fit",
+    "cross_fit": true,
+    "outer_folds": 5,
+    "learner_folds": 2,
+    "repeats": 3,
+    "g_bounds": [
+      0.01,
+      1.0
+    ],
+    "learners": "saturated cell means in every slot, refitted in every fold of every draw",
+    "repeat_aggregation": "coordinatewise median point; median of within-draw variance plus squared split displacement (Chernozhukov et al. 2018, Definition 3.3, equation 3.14); ratios on the log scale; bands by the median of the per-draw critical values",
+    "random_state": "0 in every primary and property fit except repeat stability",
+    "laws": {
+      "law_d": "tests/discrete_law_longitudinal.py, two censored decisions",
+      "law_i": "incremental law A at n = 80000 (ipsi_primary and calibration)",
+      "law_s": "incremental survival law D, horizons 1 to 3",
+      "law_c": "incremental clustered law Ck, clusters of 10, id=",
+      "law_m": "law D, identity MSM with duration centred at 1.230421"
+    },
+    "property_failure_bound": 0.01,
+    "margins": {
+      "confidence_level": 0.99,
+      "alpha": 0.05,
+      "bootstrap_replicates": 10000,
+      "standardized_bias_margin": 0.25,
+      "coverage_floor": 0.9,
+      "over_coverage_ceiling": 0.99,
+      "se_ratio_sanity_band": [
+        0.8,
+        1.2
+      ],
+      "calibration_se_ratio_band": [
+        0.93,
+        1.07
+      ],
+      "calibration_coverage_band": [
+        0.92,
+        0.98
+      ],
+      "type_i_margin": 0.05,
+      "paired_difference_margin_sd": 0.15,
+      "rmse_ratio_noninferiority_margin": 1.1,
+      "coverage_difference_noninferiority_margin": -0.025,
+      "calibration_excess_noninferiority_margin": 0.05
+    }
+  },
+  "study_module_sha256": {
+    "tests/studies/longitudinal_repeated_crossfit.py": "1c1ffb05e5f0d3577b4102e99e385e5dec24472597e6822bda9f9fc6efc46c7a",
+    "tests/studies/longitudinal_repeated_crossfit_properties.py": "bcd5e4d309c770c886f8d2017da4b85ef64ad1eda64ee0d0dfd59fdbd3274f3a",
+    "tests/studies/longitudinal_incremental_common.py": "ed586da4507db03e220361312974bb2bcd34ecdf34092879291f17cbf1e96ad6",
+    "tests/studies/longitudinal_msm_properties.py": "8a4959a1f04e07a9733232701bc77cb32361e9d216329239953ca13c1801e234",
+    "tests/studies/canonical_longitudinal_msm.py": "8c3562c7474a14bd283b10e224a02f0162947cd2f9f5bd82aa52815f9c1596c1",
+    "tests/studies/ltmle_crossfit_properties.py": "26329608194989a875bdc65b354c752e30bf7d18dc2b1b8108b30a1d645be179",
+    "tests/studies/canonical_ltmle_crossfit.py": "8b32f833532193c4b71956c9d2cb4454ed663dd46b0debcd982229145f2e3839",
+    "tests/studies/canonical_ltmle.py": "fa6fb1791c08f2ab67ed672b5d225d9fe213b705e7cd23e683fec7a3d3c147f9",
+    "tests/studies/ltmle_properties.py": "3de75ac36e7b5d0da5c61cf5f4e5deb30bafa0f6db784257c209b0597970d6de",
+    "tests/studies/fractional_glm.py": "7ae9da4d0b99c8a267b9c353aff5f8523bea223921328cc2c783ce2b48680072",
+    "tests/discrete_law_longitudinal.py": "39c27bffaafbd8f3aabfe7a5524db21764f7628cb591ceef9efe1af30807e4ad",
+    "tests/discrete_law_longitudinal_incremental.py": "a1b01eeea0343037b33a6ce948884241e718f882a309dd35216b8217717df0a5",
+    "tests/longitudinal_ipsi.py": "e0178cef68da828d421c16f68b02e0cc0662e4a82c1f7105ce03501c34677a05"
+  },
+  "reference_sha256": {},
+  "sha256": {
+    "replicates.csv.gz": "7d01a053dbb0e3f251f012c75d5a559a76faffa4e78212df39fb755e165ae2cd",
+    "summary.csv": "382ee9ea46600e72e37ce9e8f2f67cebf3d608c27c14c44f48c32f770499c15c",
+    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
+    "performance-tests.csv": "aa5d53f098e42169f5e00cb3c2300062fe58c819c0a22ba877d570986f081591",
+    "property-replicates.csv.gz": "ef1c414c099734bebcbe5ff4247c4fcb9fc927f7d1c0769823d7803c1d4809b4",
+    "properties.csv": "72ddb20493a1d090009e0db6393c3afa0eb4eed99b81c4075c26ce8173b1615f"
+  }
+}

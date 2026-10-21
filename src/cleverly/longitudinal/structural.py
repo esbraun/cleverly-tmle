@@ -2365,7 +2365,7 @@ class StructuralNestedMeanResult:
         settings = copy.copy(self.estimator)
         # The check reads the curves and the estimates; a band would be discarded.
         settings.simultaneous = False
-        settings._folds = lambda _data: folds  # type: ignore[method-assign, assignment]
+        settings._folds = lambda _data, _seed=None: folds  # type: ignore[method-assign, misc]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return settings.fit(self.data)
@@ -2387,7 +2387,7 @@ class StructuralNestedMeanResult:
             n_jobs=settings.n_jobs,
         )
         # The split is the structural fit's own, so both estimators hold out the same rows.
-        nonparametric_fit._folds = lambda _data: folds  # type: ignore[assignment]
+        nonparametric_fit._folds = lambda _data, _seed=None: folds  # type: ignore[assignment]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return nonparametric_fit.fit(self.data)
