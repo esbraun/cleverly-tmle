@@ -1430,6 +1430,7 @@ families, at the usual product rate. The restriction text that a fit records is 
 | `markov_order` is not a non-negative integer | `ValueError` |
 | $k \ge T - 1$, so the window keeps every earlier node | `DataError` |
 | one baseline treatment and no time-varying covariate | `CapabilityError` |
+| `ParametricGFormula` or `StructuralNestedMean` on the design | `CapabilityError`, `api_redirection`. Their models condition on the full history |
 
 `tests/unit/test_longitudinal_markov_order.py` holds the evidence. It checks each design's columns
 against the source columns for $T = 4$ and $k \in \{0, 1, 2\}$. On a three-node law whose

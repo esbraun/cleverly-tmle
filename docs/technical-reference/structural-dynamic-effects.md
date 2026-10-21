@@ -339,6 +339,7 @@ that returns a misleading number. The last column classifies each refusal of thi
 | one baseline decision held over every node | `api_redirection` | `LTMLE` or `SDR` | invalid design. The later blips have no treatment variation to read |
 | a declared treatment mechanism | `api_redirection` | `LTMLE` | no code. The estimator fits every treatment nuisance |
 | `msm=` | `api_redirection` | `LTMLE(regimens, msm=...)` | no code. The blips are the structural model |
+| a declared `markov_order` | `api_redirection` | omit `markov_order=`, or `LTMLE` or `SDR` | misleading. The Markov restriction names the regimen outcome regressions and the mechanisms. The g-estimation means $E[Y \mid H_t]$ and $E[Z_j \mid H_t]$ condition on the full history |
 | a vector node with a continuous component | `invalid_declaration` | `LTMLE` or `SDR`, or separate nodes | no code. The blip of a flag with a dose has no coding |
 | a static level, a contrast or `check_model` when a feature reads a covariate | `implementation_gap`, X72 | `LTMLE` or `SDR`, or features that read baseline columns and earlier treatments | no code. The level needs the law of the covariate under the regimen |
 | a static dose outside the observed range of its node | `invalid_declaration` | a dose inside the range | misleading. The level is regular under the model only inside the range |
