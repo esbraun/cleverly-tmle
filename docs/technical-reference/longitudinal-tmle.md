@@ -1058,7 +1058,7 @@ logits of the [contract table](#hazard-based-survival-targeting).
 | loss | the quasi-binomial loss of $(dN_j - l_j) / s_j$ with mean $\operatorname{expit}(\theta_j)$. Its derivative in $\epsilon_m$ is $h^m_j (dN_j - \lambda_j)$, the hazard score of the influence curve. So both algorithms solve the shipped score equations |
 | information | $\sum_j (s_j h_j)^2 p_j (1 - p_j)$ at a bounded node, with $p_j = \operatorname{expit}(\theta_j)$ and no cross-cause term |
 | initial hazards | the shipped pseudo-hazards, clipped into $[l_j + (1 - \alpha) s_j, u_j - (1 - \alpha) s_j]$. `HazardFit.share_clipped` holds the clipped share of `(unit, level)` cells per bounded node and cause |
-| held cells | an empty cell is held at zero only when $l_j = 0$. Any other empty cell, and every full cell, is an ordinary cell that the clip pins. `HazardFit.bound_excludes_data` lists such cells, the fit warns with `ConvergenceWarning`, and the cells take no `constant_node_plugin` status |
+| held cells | an empty cell is held at zero only when $l_j = 0$. Any other empty cell, and every full cell, is an ordinary cell that the clip pins. `HazardFit.bound_excludes_data` lists such cells, the fit warns with `ConvergenceWarning`, and the cells take no `constant_node_plugin` status. An unconverged horizon reports `failure="bound_excludes_data"` only when such a cell lies at a node at or before the horizon. Otherwise the failure reads the step count |
 | report | `res.summary()` prints `node_bounds:` with the hazard scale, and the largest clipped share |
 
 The fixed scale is a choice. `survtmle` uses $\min(u_j, 1 - \sum_{i \ne j} \lambda_i) - l_j$ and

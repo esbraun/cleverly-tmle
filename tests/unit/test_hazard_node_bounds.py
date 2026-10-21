@@ -453,6 +453,37 @@ class TestHeldCells:
             assert constant_nodes(fit) == ()
             assert fit.hazard.converged or fit.hazard.failure == "bound_excludes_data"
 
+    def test_an_excluded_cell_after_the_horizon_does_not_name_the_failure(
+        self, empty_witness: Any
+    ) -> None:
+        """A cell at node 3 enters no score of horizons 1 and 2, so their failure is the cap."""
+        bounds = _bounds(empty_witness, {3: (0.01, 0.5)})
+        inputs, start = _internals(empty_witness, bounds)
+        assert inputs.excluded is not None and inputs.excluded[2].any()
+        for horizon in (1, 2):
+            assert hazard_module._classify(start, inputs, 7, 7, horizon) == "max_iter_reached"
+        for horizon in (3, 4, 5):
+            assert hazard_module._classify(start, inputs, 7, 7, horizon) == "bound_excludes_data"
+
+    def test_an_unconverged_early_horizon_reports_the_iteration_cap(self) -> None:
+        frame, _ = make_point_survival(n=400, seed=36, layout="wide", hazard_scale={3: 0.05})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result = LTMLE(
+                {"a1": 1, "a0": 0},
+                n_folds=1,
+                survival_model="hazard",
+                node_bounds={3: (0.01, 0.5)},
+                max_iter=1,
+                tol=1e-14,
+                outcome_learner=LogisticRegression(max_iter=1000),
+                treatment_learner=LogisticRegression(max_iter=1000),
+                censoring_learner=LogisticRegression(max_iter=1000),
+            ).fit(frame, **WITNESS_COLUMNS)
+        early = [fit.hazard for fit in result.fits.values() if fit.horizon < 3]
+        assert early and all(not record.converged for record in early)
+        assert {record.failure for record in early} == {"max_iter_reached"}
+
     def test_a_full_cell_at_a_bounded_node_is_excluded(self) -> None:
         result = full_cells._fit("one_step")
         bounds = _bounds(result, {2: (0.0, 0.9)})

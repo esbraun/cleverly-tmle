@@ -1230,9 +1230,14 @@ def _clever_observed(state: HazardState, inputs: HazardInputs, horizon: int) -> 
 
 
 def _classify(
-    state: HazardState, inputs: HazardInputs, steps: int, max_steps: int
+    state: HazardState, inputs: HazardInputs, steps: int, max_steps: int, horizon: int
 ) -> TargetingFailure:
-    if inputs.excluded is not None and inputs.excluded.any():
+    """The cause of an unconverged hazard fit through node ``horizon``.
+
+    An excluded cell enters the scores only at a node at or before the horizon, so a cell
+    after it does not explain the failure and the step count is read instead.
+    """
+    if inputs.excluded is not None and inputs.excluded[:horizon].any():
         return "bound_excludes_data"
     if steps >= max_steps:
         return "max_iter_reached"
@@ -1393,7 +1398,7 @@ def solve_per_horizon(
         score_scale=scale.reshape(-1),
         trace=tuple(trace),
         initial_levels=initial_levels,
-        failure=None if converged else _classify(state, inputs, iterations, max_iter),
+        failure=None if converged else _classify(state, inputs, iterations, max_iter, horizon),
         tol=tol,
         stopping=stopping,
         thresholds=thresholds,
@@ -1727,7 +1732,7 @@ def walk_curve(
         sigma=sigma.reshape(-1),
         norm_trace=tuple(norms),
         walk_loss_trace=tuple(losses),
-        failure=None if converged else _classify(state, inputs, steps, max_steps),
+        failure=None if converged else _classify(state, inputs, steps, max_steps, max(horizons)),
         tol=tol,
         stopping=stopping,
         thresholds=thresholds,
