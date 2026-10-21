@@ -164,6 +164,9 @@ the committed results and checked at the precision printed.
 | `min_coverage_ci_lower` | 0.9006 | lowest exact 99% coverage endpoint |
 | `min_se_ratio_ci_lower` | 0.8783 | lowest bootstrap SE-ratio endpoint |
 | `max_se_ratio_ci_upper` | 1.1511 | highest bootstrap SE-ratio endpoint |
+| `equivalence[binary_declared_pair/ate]:mean_difference` | 4.366e-07 | mean `cleverly` minus R difference at the declared pair |
+| `equivalence[binary_constant_q/ate]:mean_difference` | 0.000001 | the same difference with the constant outcome regression |
+| `equivalence[binary_pipeline/ate]:rmse_ratio_upper` | 1.0003 | the 99% upper bound of the package's RMSE over R's, two pipelines |
 | `properties[clustered_inference/cluster_robust]:coverage` | 0.9387 | cluster-robust coverage |
 | `properties[clustered_inference/cluster_robust]:se_ratio` | 0.9742 | cluster-robust SE ratio |
 | `properties[clustered_inference/iid_control]:coverage` | 0.7671 | coverage of the IID variance on the same fits |
@@ -182,6 +185,10 @@ the committed results and checked at the precision printed.
 | `properties[root_n_rate/reported_se]:slope` | -0.4871 | fitted reported-SE rate |
 | `properties[targeting_necessity/ate__untargeted]:bias` | 0.0565 | bias of the initial plug-in estimate |
 | `margin:confidence_level` | 0.9900 | confidence level of Monte Carlo intervals |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell of `cleverly` may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 8 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `ctmle` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 8 | the same bound, in primary replications |
 | `margin:alpha` | 0.0500 | nominal estimator size |
 | `margin:nominal_coverage` | 0.9500 | nominal estimator coverage |
 | `margin:bootstrap_replicates` | 10000 | resamples per bootstrap interval |
