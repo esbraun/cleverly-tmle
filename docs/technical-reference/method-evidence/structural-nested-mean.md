@@ -7,22 +7,24 @@ declared static regimens. The page
 [Structural dynamic effects](../structural-dynamic-effects.md) states the estimator, its
 influence curve and its refusals.
 
-The declared comparator is EconML 0.17.0 `DynamicDML` (`econml`) in a pinned container. Its runs
-are a later change, so this page holds Python property evidence, with comparator runs pending.
-The fast-tier parity fixture of `tests/canonical/econml_dynamic_dml` checks the point estimates
-on one panel. That fixture is not a registered comparison.
+The comparator is EconML 0.17.0 `DynamicDML` (`econml`) in a pinned container. It fits the same
+samples as the subject. The paired variant gives 21 paired verdicts on the cells that
+`DynamicDML` reports, and the Markov variant gives a descriptive table. The fast-tier parity
+fixture of `tests/canonical/econml_dynamic_dml` checks the point estimates and the covariance on
+one panel.
 
 ## What was fitted
 
 | setting | value |
 | --- | --- |
-| datasets | 1,000 samples of 2,000 rows for each of 11 scenarios, drawn from exact finite laws in `tests/studies/structural_nested_mean_laws.py` |
+| datasets | 1,600 samples of 2,000 rows for each of 11 scenarios, drawn from exact finite laws in `tests/studies/structural_nested_mean_laws.py` |
 | fit | one `StructuralNestedMean` fit for each sample, with the blip features of its law |
 | scenarios | `s2` (two binary nodes), `s3` (three binary nodes), `k` (two nodes of three levels), `c` (two doses), `h` (features that read $W$ and $A_1$), `p` (a past-treatment feature), `m` (a treatment that reads an earlier covariate), `l` (a feature that reads a time-varying covariate), `n` (nonlinear nuisances), `s2w` (known weights) and `s2c` (clusters of ten) |
 | reported parameters | the blip coefficients, `ey_reference`, and the levels and contrasts of the declared static regimens. Law `l` reports the blips and `ey_reference` only |
 | nuisances | a Gaussian `GLM` outcome regression and a `GLM` treatment regression at the declared interaction order of each law. Law `n` uses an early-stopped gradient booster for both roles |
 | splitting | ten outer folds. Law `n` uses five |
 | intervals | pointwise 95% Wald from the influence curve |
+| comparator | EconML 0.17.0 `DynamicDML` on the same samples, in two variants. The paired variant fits the subject's rows, folds and `GLM` design with the full history as the period state, on `s2`, `s3`, `k`, `c` and `m`. The Markov variant fits the published period state $(W, S_t, A_{t-1})$ on `s2`, `s3`, `k`, `h`, `p` and `m` |
 | initial estimate | not published. The estimator fits no fluctuation |
 
 Each truth comes from an independent g-formula in `tests/discrete_law_structural.py`. Every law
@@ -35,74 +37,164 @@ the sizes and the reading rule before the run.
 <!-- generated: accuracy -->
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ate_regimen[dose_high vs dose0]` | difference in mean outcome between the plans "assign dose 1 at the first node and -0.5 at the second" against "assign dose 0 at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000916 to 0.0025 | 0.9460 | 0.9842 | pass |
-| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ate_regimen[dose_mid vs dose0]` | difference in mean outcome between the plans "assign dose 0.5 at the first node and 0.25 at the second" against "assign dose 0 at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000292 to 0.0012 | 0.9510 | 1.0201 | pass |
-| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `blip[A1:dose:intercept]` | blip of treatment A1 per unit dose | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000620 to 0.0023 | 0.9410 | 1.0055 | pass |
-| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `blip[A2:dose:intercept]` | blip of treatment A2 per unit dose | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0011 to 0.0014 | 0.9450 | 0.9735 | pass |
-| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0020 to 0.000479 | 0.9500 | 1.0080 | pass |
-| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ey_regimen[dose_mid]` | mean outcome under the plan assign dose 0.5 at the first node and 0.25 at the second | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0017 to 0.0010 | 0.9460 | 0.9937 | pass |
-| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `ate_regimen[r10 vs r00]` | difference in mean outcome between the plans "assign treatment at the first node only" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0028 to 0.0037 | 0.9490 | 1.0012 | pass |
-| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0022 to 0.0035 | 0.9570 | 1.0586 | pass |
-| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A1:1.0:W]` | blip of treatment A1 at level 1, coefficient of W | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0056 to 0.0045 | 0.9440 | 0.9655 | pass |
-| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0034 to 0.0043 | 0.9520 | 0.9912 | pass |
-| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A2:1.0:A1]` | blip of treatment A2 at level 1, coefficient of A1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0044 to 0.0040 | 0.9450 | 0.9969 | pass |
-| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A2:1.0:W]` | blip of treatment A2 at level 1, coefficient of W | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0046 to 0.0044 | 0.9390 | 0.9304 | pass |
-| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0029 to 0.0034 | 0.9390 | 0.9841 | pass |
-| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0013 to 0.0023 | 0.9610 | 1.0382 | pass |
-| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `ey_regimen[r11]` | mean outcome under the plan assign treatment at both nodes | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0013 to 0.0035 | 0.9530 | 1.0447 | pass |
-| law K: two nodes of three levels with unequal level effects | `ate_regimen[r12 vs r00]` | difference in mean outcome between the plans "assign level 1 at the first node and level 2 at the second" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0051 to 0.0017 | 0.9540 | 1.0252 | pass |
-| law K: two nodes of three levels with unequal level effects | `ate_regimen[r21 vs r00]` | difference in mean outcome between the plans "assign level 2 at the first node and level 1 at the second" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0056 to 0.0017 | 0.9480 | 0.9631 | pass |
-| law K: two nodes of three levels with unequal level effects | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0028 to 0.0024 | 0.9610 | 1.0246 | pass |
-| law K: two nodes of three levels with unequal level effects | `blip[A1:2.0:intercept]` | blip of treatment A1 at level 2 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0041 to 0.0016 | 0.9490 | 0.9823 | pass |
-| law K: two nodes of three levels with unequal level effects | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0032 to 0.0017 | 0.9380 | 0.9753 | pass |
-| law K: two nodes of three levels with unequal level effects | `blip[A2:2.0:intercept]` | blip of treatment A2 at level 2 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0038 to 0.000822 | 0.9450 | 1.0075 | pass |
-| law K: two nodes of three levels with unequal level effects | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0017 to 0.0023 | 0.9510 | 1.0094 | pass |
-| law K: two nodes of three levels with unequal level effects | `ey_regimen[r12]` | mean outcome under the plan assign level 1 at the first node and level 2 at the second | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0040 to 0.0011 | 0.9520 | 1.0142 | pass |
-| law L: the second blip depends on the second covariate, which the feature declares | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0020 to 0.0032 | 0.9430 | 0.9895 | pass |
-| law L: the second blip depends on the second covariate, which the feature declares | `blip[A2:1.0:S2]` | blip of treatment A2 at level 1, coefficient of S2 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0043 to 0.0039 | 0.9570 | 1.0169 | pass |
-| law L: the second blip depends on the second covariate, which the feature declares | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0035 to 0.0020 | 0.9610 | 1.0357 | pass |
-| law L: the second blip depends on the second covariate, which the feature declares | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0014 to 0.0020 | 0.9510 | 1.0333 | pass |
-| law M: the second treatment and the outcome read the first covariate | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0037 to 0.0024 | 0.9540 | 1.0074 | pass |
-| law M: the second treatment and the outcome read the first covariate | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0035 to 0.0013 | 0.9430 | 0.9917 | pass |
-| law M: the second treatment and the outcome read the first covariate | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0019 to 0.0029 | 0.9410 | 1.0144 | pass |
-| law M: the second treatment and the outcome read the first covariate | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0027 to 0.0022 | 0.9600 | 1.0082 | pass |
-| law N: nonlinear nuisances on a nine-point baseline, fitted by a shallow booster | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0051 to 0.0015 | 0.9360 | 0.9435 | pass |
-| law N: nonlinear nuisances on a nine-point baseline, fitted by a shallow booster | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0028 to 0.0023 | 0.9470 | 0.9933 | pass |
-| law N: nonlinear nuisances on a nine-point baseline, fitted by a shallow booster | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0037 to 0.000600 | 0.9430 | 0.9966 | pass |
-| law N: nonlinear nuisances on a nine-point baseline, fitted by a shallow booster | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0026 to 0.0024 | 0.9410 | 0.9792 | pass |
-| law P: the second blip depends on the first treatment | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0020 to 0.0036 | 0.9520 | 1.0058 | pass |
-| law P: the second blip depends on the first treatment | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000616 to 0.0056 | 0.9560 | 1.0445 | pass |
-| law P: the second blip depends on the first treatment | `blip[A2:1.0:A1]` | blip of treatment A2 at level 1, coefficient of A1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0067 to 0.0017 | 0.9420 | 0.9934 | pass |
-| law P: the second blip depends on the first treatment | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0018 to 0.0035 | 0.9530 | 1.0108 | pass |
-| law P: the second blip depends on the first treatment | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0029 to 0.000828 | 0.9610 | 1.0046 | pass |
-| law P: the second blip depends on the first treatment | `ey_regimen[r01]` | mean outcome under the plan assign treatment at the second node only | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0024 to 0.0020 | 0.9460 | 1.0237 | pass |
-| law S2: two binary nodes, a constant blip at each node | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0020 to 0.0036 | 0.9500 | 0.9964 | pass |
-| law S2: two binary nodes, a constant blip at each node | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0038 to 0.0010 | 0.9490 | 1.0019 | pass |
-| law S2: two binary nodes, a constant blip at each node | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | 0.000165 to 0.0042 | 0.9590 | 1.0262 | pass |
-| law S2: two binary nodes, a constant blip at each node | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0022 to 0.0013 | 0.9530 | 1.0002 | pass |
-| law S2: two binary nodes, a constant blip at each node | `ey_regimen[r10]` | mean outcome under the plan assign treatment at the first node only | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0041 to 0.000395 | 0.9520 | 0.9937 | pass |
-| law S2: two binary nodes, a constant blip at each node | `ey_regimen[r11]` | mean outcome under the plan assign treatment at both nodes | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0016 to 0.0023 | 0.9490 | 1.0031 | pass |
-| law S2 in clusters of ten that share the baseline and an outcome intercept | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0060 to 0.0049 | 0.9600 | 1.0286 | pass |
-| law S2 in clusters of ten that share the baseline and an outcome intercept | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0045 to 0.0047 | 0.9540 | 1.0047 | pass |
-| law S2 in clusters of ten that share the baseline and an outcome intercept | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0082 to 0.0043 | 0.9550 | 1.0301 | pass |
-| law S2 in clusters of ten that share the baseline and an outcome intercept | `ey_regimen[r11]` | mean outcome under the plan assign treatment at both nodes | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0092 to 0.0042 | 0.9470 | 1.0054 | pass |
-| law S2 with the known weight 0.5 + 1.5 W, target the reweighted population | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0015 to 0.0050 | 0.9590 | 1.0406 | pass |
-| law S2 with the known weight 0.5 + 1.5 W, target the reweighted population | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0024 to 0.0032 | 0.9540 | 1.0273 | pass |
-| law S2 with the known weight 0.5 + 1.5 W, target the reweighted population | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0027 to 0.0017 | 0.9470 | 0.9781 | pass |
-| law S2 with the known weight 0.5 + 1.5 W, target the reweighted population | `ey_regimen[r11]` | mean outcome under the plan assign treatment at both nodes | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000868 to 0.0034 | 0.9600 | 1.0570 | pass |
-| law S3: three binary nodes with a path from each treatment to the later ones | `ate_regimen[r101 vs r000]` | difference in mean outcome between the plans "assign treatment at the first and third nodes only" against "assign no treatment at the three nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0039 to 0.0023 | 0.9430 | 0.9829 | pass |
-| law S3: three binary nodes with a path from each treatment to the later ones | `ate_regimen[r111 vs r000]` | difference in mean outcome between the plans "assign treatment at the three nodes" against "assign no treatment at the three nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0033 to 0.0029 | 0.9470 | 0.9867 | pass |
-| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0041 to 0.0012 | 0.9580 | 0.9528 | pass |
-| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0018 to 0.0031 | 0.9460 | 0.9796 | pass |
-| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A3:1.0:intercept]` | blip of treatment A3 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0015 to 0.0028 | 0.9560 | 1.0208 | pass |
-| law S3: three binary nodes with a path from each treatment to the later ones | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0018 to 0.0020 | 0.9460 | 0.9671 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ate_regimen[dose_high vs dose0]` | difference in mean outcome between the plans "assign dose 1 at the first node and -0.5 at the second" against "assign dose 0 at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0012 to 0.0015 | 0.9481 | 0.9930 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ate_regimen[dose_high vs dose0]` | difference in mean outcome between the plans "assign dose 1 at the first node and -0.5 at the second" against "assign dose 0 at both nodes" | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0012 to 0.0015 | 0.9481 | 0.9928 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ate_regimen[dose_mid vs dose0]` | difference in mean outcome between the plans "assign dose 0.5 at the first node and 0.25 at the second" against "assign dose 0 at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000364 to 0.000839 | 0.9556 | 1.0189 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ate_regimen[dose_mid vs dose0]` | difference in mean outcome between the plans "assign dose 0.5 at the first node and 0.25 at the second" against "assign dose 0 at both nodes" | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.000364 to 0.000839 | 0.9556 | 1.0186 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `blip[A1:dose:intercept]` | blip of treatment A1 per unit dose | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000850 to 0.0015 | 0.9456 | 1.0061 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `blip[A1:dose:intercept]` | blip of treatment A1 per unit dose | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.000850 to 0.0015 | 0.9456 | 1.0059 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `blip[A2:dose:intercept]` | blip of treatment A2 per unit dose | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000657 to 0.0013 | 0.9506 | 0.9979 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `blip[A2:dose:intercept]` | blip of treatment A2 per unit dose | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.000657 to 0.0013 | 0.9506 | 0.9976 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0014 to 0.000585 | 0.9525 | 1.0107 | pass |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ey_regimen[dose_mid]` | mean outcome under the plan assign dose 0.5 at the first node and 0.25 at the second | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0012 to 0.000884 | 0.9475 | 1.0093 | pass |
+| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `ate_regimen[r10 vs r00]` | difference in mean outcome between the plans "assign treatment at the first node only" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0029 to 0.0021 | 0.9506 | 1.0110 | pass |
+| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0016 to 0.0029 | 0.9550 | 1.0455 | pass |
+| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A1:1.0:W]` | blip of treatment A1 at level 1, coefficient of W | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0038 to 0.0043 | 0.9413 | 0.9620 | pass |
+| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0036 to 0.0024 | 0.9519 | 1.0009 | pass |
+| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A2:1.0:A1]` | blip of treatment A2 at level 1, coefficient of A1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0021 to 0.0045 | 0.9456 | 1.0011 | pass |
+| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A2:1.0:W]` | blip of treatment A2 at level 1, coefficient of W | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0041 to 0.0029 | 0.9413 | 0.9467 | pass |
+| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0024 to 0.0025 | 0.9450 | 1.0013 | pass |
+| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000772 to 0.0021 | 0.9581 | 1.0261 | pass |
+| law H: blip features of the baseline at node 1 and of the baseline and the past treatment at node 2 | `ey_regimen[r11]` | mean outcome under the plan assign treatment at both nodes | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000639 to 0.0032 | 0.9537 | 1.0365 | pass |
+| law K: two nodes of three levels with unequal level effects | `ate_regimen[r12 vs r00]` | difference in mean outcome between the plans "assign level 1 at the first node and level 2 at the second" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0042 to 0.0011 | 0.9556 | 1.0373 | pass |
+| law K: two nodes of three levels with unequal level effects | `ate_regimen[r12 vs r00]` | difference in mean outcome between the plans "assign level 1 at the first node and level 2 at the second" against "assign no treatment at both nodes" | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0042 to 0.0011 | 0.9500 | 1.0110 | pass |
+| law K: two nodes of three levels with unequal level effects | `ate_regimen[r21 vs r00]` | difference in mean outcome between the plans "assign level 2 at the first node and level 1 at the second" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0039 to 0.0018 | 0.9494 | 0.9735 | pass |
+| law K: two nodes of three levels with unequal level effects | `ate_regimen[r21 vs r00]` | difference in mean outcome between the plans "assign level 2 at the first node and level 1 at the second" against "assign no treatment at both nodes" | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0039 to 0.0018 | 0.9525 | 1.0032 | pass |
+| law K: two nodes of three levels with unequal level effects | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0021 to 0.0020 | 0.9606 | 1.0215 | pass |
+| law K: two nodes of three levels with unequal level effects | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0021 to 0.0020 | 0.9606 | 1.0224 | pass |
+| law K: two nodes of three levels with unequal level effects | `blip[A1:2.0:intercept]` | blip of treatment A1 at level 2 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0020 to 0.0025 | 0.9475 | 0.9820 | pass |
+| law K: two nodes of three levels with unequal level effects | `blip[A1:2.0:intercept]` | blip of treatment A1 at level 2 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0020 to 0.0025 | 0.9463 | 0.9805 | pass |
+| law K: two nodes of three levels with unequal level effects | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0032 to 0.000624 | 0.9450 | 0.9907 | pass |
+| law K: two nodes of three levels with unequal level effects | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0032 to 0.000624 | 0.9450 | 0.9905 | pass |
+| law K: two nodes of three levels with unequal level effects | `blip[A2:2.0:intercept]` | blip of treatment A2 at level 2 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0033 to 0.000316 | 0.9494 | 1.0267 | pass |
+| law K: two nodes of three levels with unequal level effects | `blip[A2:2.0:intercept]` | blip of treatment A2 at level 2 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0033 to 0.000316 | 0.9494 | 1.0265 | pass |
+| law K: two nodes of three levels with unequal level effects | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0011 to 0.0020 | 0.9425 | 0.9995 | pass |
+| law K: two nodes of three levels with unequal level effects | `ey_regimen[r12]` | mean outcome under the plan assign level 1 at the first node and level 2 at the second | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0031 to 0.000953 | 0.9537 | 1.0197 | pass |
+| law L: the second blip depends on the second covariate, which the feature declares | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0017 to 0.0023 | 0.9494 | 1.0048 | pass |
+| law L: the second blip depends on the second covariate, which the feature declares | `blip[A2:1.0:S2]` | blip of treatment A2 at level 1, coefficient of S2 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0028 to 0.0037 | 0.9525 | 0.9992 | pass |
+| law L: the second blip depends on the second covariate, which the feature declares | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0030 to 0.0014 | 0.9563 | 1.0256 | pass |
+| law L: the second blip depends on the second covariate, which the feature declares | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0012 to 0.0015 | 0.9481 | 1.0262 | pass |
+| law M: the second treatment and the outcome read the first covariate | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0032 to 0.0016 | 0.9556 | 1.0128 | pass |
+| law M: the second treatment and the outcome read the first covariate | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0032 to 0.0016 | 0.9556 | 1.0126 | pass |
+| law M: the second treatment and the outcome read the first covariate | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0028 to 0.000977 | 0.9469 | 0.9837 | pass |
+| law M: the second treatment and the outcome read the first covariate | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0028 to 0.000977 | 0.9469 | 0.9834 | pass |
+| law M: the second treatment and the outcome read the first covariate | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0018 to 0.0020 | 0.9425 | 1.0152 | pass |
+| law M: the second treatment and the outcome read the first covariate | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0018 to 0.0020 | 0.9425 | 1.0149 | pass |
+| law M: the second treatment and the outcome read the first covariate | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0024 to 0.0014 | 0.9569 | 0.9990 | pass |
+| law N: nonlinear nuisances on a nine-point baseline, fitted by a shallow booster | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0058 to -0.000837 | 0.9469 | 0.9881 | pass |
+| law N: nonlinear nuisances on a nine-point baseline, fitted by a shallow booster | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0028 to 0.0013 | 0.9506 | 1.0032 | pass |
+| law N: nonlinear nuisances on a nine-point baseline, fitted by a shallow booster | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0043 to -0.000907 | 0.9494 | 0.9964 | pass |
+| law N: nonlinear nuisances on a nine-point baseline, fitted by a shallow booster | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.001000 to 0.0029 | 0.9463 | 0.9932 | pass |
+| law P: the second blip depends on the first treatment | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000489 to 0.0040 | 0.9481 | 0.9979 | pass |
+| law P: the second blip depends on the first treatment | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000581 to 0.0044 | 0.9550 | 1.0300 | pass |
+| law P: the second blip depends on the first treatment | `blip[A2:1.0:A1]` | blip of treatment A2 at level 1, coefficient of A1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0042 to 0.0024 | 0.9437 | 0.9960 | pass |
+| law P: the second blip depends on the first treatment | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0014 to 0.0028 | 0.9513 | 1.0123 | pass |
+| law P: the second blip depends on the first treatment | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0025 to 0.000502 | 0.9550 | 0.9929 | pass |
+| law P: the second blip depends on the first treatment | `ey_regimen[r01]` | mean outcome under the plan assign treatment at the second node only | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0020 to 0.0016 | 0.9513 | 1.0147 | pass |
+| law S2: two binary nodes, a constant blip at each node | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0018 to 0.0027 | 0.9513 | 0.9961 | pass |
+| law S2: two binary nodes, a constant blip at each node | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0018 to 0.0027 | 0.9506 | 0.9959 | pass |
+| law S2: two binary nodes, a constant blip at each node | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0031 to 0.000694 | 0.9531 | 1.0064 | pass |
+| law S2: two binary nodes, a constant blip at each node | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0031 to 0.000694 | 0.9531 | 1.0061 | pass |
+| law S2: two binary nodes, a constant blip at each node | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | 0.000012 to 0.0032 | 0.9563 | 1.0068 | pass |
+| law S2: two binary nodes, a constant blip at each node | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | 0.000012 to 0.0032 | 0.9563 | 1.0065 | pass |
+| law S2: two binary nodes, a constant blip at each node | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0018 to 0.000928 | 0.9481 | 0.9983 | pass |
+| law S2: two binary nodes, a constant blip at each node | `ey_regimen[r10]` | mean outcome under the plan assign treatment at the first node only | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0035 to 0.000166 | 0.9450 | 0.9740 | pass |
+| law S2: two binary nodes, a constant blip at each node | `ey_regimen[r11]` | mean outcome under the plan assign treatment at both nodes | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0016 to 0.0016 | 0.9450 | 0.9799 | pass |
+| law S2 in clusters of ten that share the baseline and an outcome intercept | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0060 to 0.0027 | 0.9550 | 1.0169 | pass |
+| law S2 in clusters of ten that share the baseline and an outcome intercept | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0048 to 0.0025 | 0.9581 | 1.0077 | pass |
+| law S2 in clusters of ten that share the baseline and an outcome intercept | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0053 to 0.0048 | 0.9500 | 1.0120 | pass |
+| law S2 in clusters of ten that share the baseline and an outcome intercept | `ey_regimen[r11]` | mean outcome under the plan assign treatment at both nodes | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0072 to 0.0034 | 0.9450 | 0.9998 | pass |
+| law S2 with the known weight 0.5 + 1.5 W, target the reweighted population | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0012 to 0.0040 | 0.9569 | 1.0257 | pass |
+| law S2 with the known weight 0.5 + 1.5 W, target the reweighted population | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0014 to 0.0030 | 0.9531 | 1.0216 | pass |
+| law S2 with the known weight 0.5 + 1.5 W, target the reweighted population | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0020 to 0.0015 | 0.9513 | 0.9911 | pass |
+| law S2 with the known weight 0.5 + 1.5 W, target the reweighted population | `ey_regimen[r11]` | mean outcome under the plan assign treatment at both nodes | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.000566 to 0.0029 | 0.9550 | 1.0268 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `ate_regimen[r101 vs r000]` | difference in mean outcome between the plans "assign treatment at the first and third nodes only" against "assign no treatment at the three nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0025 to 0.0023 | 0.9450 | 0.9858 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `ate_regimen[r101 vs r000]` | difference in mean outcome between the plans "assign treatment at the first and third nodes only" against "assign no treatment at the three nodes" | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0025 to 0.0023 | 0.9450 | 0.9855 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `ate_regimen[r111 vs r000]` | difference in mean outcome between the plans "assign treatment at the three nodes" against "assign no treatment at the three nodes" | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0023 to 0.0025 | 0.9463 | 0.9855 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `ate_regimen[r111 vs r000]` | difference in mean outcome between the plans "assign treatment at the three nodes" against "assign no treatment at the three nodes" | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0023 to 0.0025 | 0.9463 | 0.9852 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0026 to 0.0015 | 0.9544 | 0.9752 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0026 to 0.0015 | 0.9544 | 0.9750 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0018 to 0.0021 | 0.9487 | 0.9804 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0018 to 0.0021 | 0.9487 | 0.9801 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A3:1.0:intercept]` | blip of treatment A3 at level 1 | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0012 to 0.0022 | 0.9550 | 1.0144 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A3:1.0:intercept]` | blip of treatment A3 at level 1 | EconML 0.17.0 `DynamicDML`, full-history state, the subject's folds and `GLM` design | -0.0012 to 0.0022 | 0.9550 | 1.0141 | pass |
+| law S3: three binary nodes with a path from each treatment to the later ones | `ey_reference` | mean outcome with every treatment at its reference level | `cleverly` structural nested mean model, g-estimation with GLM nuisances (a shallow booster on law N) | -0.0012 to 0.0017 | 0.9469 | 0.9876 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. The EconML `DynamicDML` runs have not run
-on the declared draws, so this study publishes no paired verdict. `equivalence.csv` records no
-row. The change that registers the comparator runs adds the paired verdicts.
+The paired variant is an exactness witness. Each of the 21 paired estimands pairs 1,600 fits with
+`DynamicDML` on the same rows, folds and `GLM` design. The largest gap in the estimate is 2.4e-14,
+against a gate of 1e-9 (`exactness.csv`). The study fails a witness above the gate. The paired
+variant lost no fit.
+
+The standard errors are not gated, and `exactness.csv` publishes their ratios. On every scalar
+node the reference SE over the subject SE is 0.99975, which is $\sqrt{(n - 1) / n}$ at
+$n$ = 2,000. On the three-level law `k`, EconML fills the off-diagonal Jacobian blocks of the
+categorical coding in the transposed order (`tests/unit/test_structural_econml_parity.py`). The
+table gives the mean ratio of each `k` estimand.
+
+| `k` estimand | mean SE ratio, `econml` over subject | range |
+| --- | --- | --- |
+| `ate_regimen[r12 vs r00]` | 0.9747 | 0.9324 to 1.0109 |
+| `ate_regimen[r21 vs r00]` | 1.0306 | 0.9856 to 1.0806 |
+| `blip[A1:1.0:intercept]` | 1.0009 | 0.9949 to 1.0110 |
+| `blip[A1:2.0:intercept]` | 0.9985 | 0.9898 to 1.0079 |
+
+The `k` contrast `ate_regimen[r12 vs r00]` reads `superior`. The points of the two
+implementations are identical, so the verdict comes from the reference's SE defect on the
+categorical node. It does not show that the subject estimates better. The 21 `econml` truth rows
+all pass in the accuracy table.
+
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `econml` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ate_regimen[dose_high vs dose0]` | difference in mean outcome between the plans "assign dose 1 at the first node and -0.5 at the second" against "assign dose 0 at both nodes" | 2.359e-17 | 7.690e-15 | 1.0000 | 0 | matching implementation | 0.000507 vs 0.0500 | equivalent |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `ate_regimen[dose_mid vs dose0]` | difference in mean outcome between the plans "assign dose 0.5 at the first node and 0.25 at the second" against "assign dose 0 at both nodes" | 7.772e-18 | 5.550e-15 | 1.0000 | 0 | matching implementation | 0.000011 vs 0.0500 | equivalent |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `blip[A1:dose:intercept]` | blip of treatment A1 per unit dose | 1.874e-17 | 6.924e-15 | 1.0000 | 0 | matching implementation | 0.000011 vs 0.0500 | equivalent |
+| law C: two doses on -1, 0, 1, every conditional mean linear in the history | `blip[A2:dose:intercept]` | blip of treatment A2 per unit dose | -1.575e-17 | 6.889e-15 | 1.0000 | 0 | matching implementation | 0.000510 vs 0.0500 | equivalent |
+| law K: two nodes of three levels with unequal level effects | `ate_regimen[r12 vs r00]` | difference in mean outcome between the plans "assign level 1 at the first node and level 2 at the second" against "assign no treatment at both nodes" | -3.879e-16 | 6.253e-14 | 1.0000 | 0.0056 | matching implementation | 0.0014 vs 0.0500 | superior |
+| law K: two nodes of three levels with unequal level effects | `ate_regimen[r21 vs r00]` | difference in mean outcome between the plans "assign level 2 at the first node and level 1 at the second" against "assign no treatment at both nodes" | -1.415e-16 | 2.109e-14 | 1.0000 | -0.0031 | matching implementation | 0.0067 vs 0.0500 | equivalent |
+| law K: two nodes of three levels with unequal level effects | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | -3.117e-16 | 6.533e-14 | 1.0000 | 0 | matching implementation | 0.0018 vs 0.0500 | equivalent |
+| law K: two nodes of three levels with unequal level effects | `blip[A1:2.0:intercept]` | blip of treatment A1 at level 2 | -1.490e-16 | 2.854e-14 | 1.0000 | 0.0012 | matching implementation | 0.0031 vs 0.0500 | equivalent |
+| law K: two nodes of three levels with unequal level effects | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | 3.721e-17 | 8.359e-15 | 1.0000 | 0 | matching implementation | 0.000505 vs 0.0500 | equivalent |
+| law K: two nodes of three levels with unequal level effects | `blip[A2:2.0:intercept]` | blip of treatment A2 at level 2 | -4.420e-17 | 1.065e-14 | 1.0000 | 0 | matching implementation | 0.000011 vs 0.0500 | equivalent |
+| law M: the second treatment and the outcome read the first covariate | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | -1.832e-17 | 3.248e-15 | 1.0000 | 0 | matching implementation | 0.000011 vs 0.0500 | equivalent |
+| law M: the second treatment and the outcome read the first covariate | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | -1.124e-17 | 2.529e-15 | 1.0000 | 0 | matching implementation | 0.000503 vs 0.0500 | equivalent |
+| law M: the second treatment and the outcome read the first covariate | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | -4.337e-18 | 9.859e-16 | 1.0000 | 0 | matching implementation | 0.000012 vs 0.0500 | equivalent |
+| law S2: two binary nodes, a constant blip at each node | `ate_regimen[r11 vs r00]` | difference in mean outcome between the plans "assign treatment at both nodes" against "assign no treatment at both nodes" | 5.690e-18 | 1.097e-15 | 1.0000 | 0.000625 | matching implementation | 0.000509 vs 0.0500 | equivalent |
+| law S2: two binary nodes, a constant blip at each node | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | -6.939e-18 | 1.583e-15 | 1.0000 | 0 | matching implementation | 0.000011 vs 0.0500 | equivalent |
+| law S2: two binary nodes, a constant blip at each node | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | 2.318e-17 | 6.157e-15 | 1.0000 | 0 | matching implementation | 0.000011 vs 0.0500 | equivalent |
+| law S3: three binary nodes with a path from each treatment to the later ones | `ate_regimen[r101 vs r000]` | difference in mean outcome between the plans "assign treatment at the first and third nodes only" against "assign no treatment at the three nodes" | -2.290e-17 | 4.051e-15 | 1.0000 | 0 | matching implementation | 0.000504 vs 0.0500 | equivalent |
+| law S3: three binary nodes with a path from each treatment to the later ones | `ate_regimen[r111 vs r000]` | difference in mean outcome between the plans "assign treatment at the three nodes" against "assign no treatment at the three nodes" | -7.938e-17 | 1.406e-14 | 1.0000 | 0 | matching implementation | 0.000503 vs 0.0500 | equivalent |
+| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A1:1.0:intercept]` | blip of treatment A1 at level 1 | -1.887e-17 | 3.956e-15 | 1.0000 | 0 | matching implementation | 0.000498 vs 0.0500 | equivalent |
+| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A2:1.0:intercept]` | blip of treatment A2 at level 1 | -4.365e-17 | 9.603e-15 | 1.0000 | 0 | matching implementation | 0.000501 vs 0.0500 | equivalent |
+| law S3: three binary nodes with a path from each treatment to the later ones | `blip[A3:1.0:intercept]` | blip of treatment A3 at level 1 | 1.110e-18 | 2.790e-16 | 1.0000 | 0 | matching implementation | 0.000011 vs 0.0500 | equivalent |
+<!-- /generated -->
+
+### Markov variant
+
+The Markov variant fits `DynamicDML` as the published estimator states it, with the period state
+$(W, S_t, A_{t-1})$. On a law whose later treatment or outcome reads more of the history, that
+state omits a confounder. The fit then converges to a computed limit that differs from the truth.
+`markov_summary` of `tests/studies/canonical_structural_nested_mean.py` writes one row for each
+cell to `econml-markov.csv`. The table is descriptive and gates nothing.
+
+| law | cells | gap between limit and truth | coverage of the truth | coverage of the limit |
+| --- | --- | --- | --- | --- |
+| `s2` | 3 | 0 | 0.9513 to 0.9600 | 0.9513 to 0.9600 |
+| `k` | 6 | 0 | 0.9468 to 0.9606 | 0.9468 to 0.9606 |
+| `s3` | 5 | -0.0736 to 0.2376 | 0 to 0.6231 | 0.9463 to 0.9581 |
+| `h` | 6 | -0.0491 to 0.3011 | 0 to 0.9356 | 0.9388 to 0.9544 |
+| `p` | 3 | -0.0882 to 0.7902 | 0 to 0.4125 | 0.9531 to 0.9550 |
+| `m` | 3 | -0.1101 to 0.6879 | 0 to 0.0600 | 0.9444 to 0.9556 |
+
+All 26 cells read `agrees_with_limit`. A cell agrees when the 99% interval of its mean's distance
+from the limit lies inside 0.25 empirical SD. On `s2` and `k` the computed limit equals the
+truth. The `h` blip `blip[A1:1.0:W]` has a gap of -0.0091, so its truth coverage stays at 0.9356.
+A cell off its limit would be a finding about the limit computation, not about either estimator.
 
 ## Theory properties
 
@@ -399,7 +491,8 @@ writes 12 cells: the 4 positive cells of `m` and their 8 controls. Each of those
 | records | `property-failures.csv`, one row for each lost fit |
 | accounting | `property-failure-accounting.csv`. Every clause of the 12 cells holds at its worst case, and every cell reads `within bound` |
 | witnesses | `property-failure-witnesses.csv`, the draw statistic of each lost replicate among the survivors of its cell |
-| primary phase | no fit failed |
+| primary phase | no subject fit and no paired `econml` fit failed |
+| Markov variant | `econml-markov-failures.csv`. Three Markov fits of law `k`, at replicates 1100, 1192 and 1279, raised `LinAlgError` because the logistic fit did not converge. Each `k` cell of the Markov table holds 1,597 of 1,600 replications. The declared failure bound of 0.01 allows 16. The Markov table gates nothing |
 
 ## Measured values
 
@@ -408,19 +501,19 @@ the committed results and checked at the precision printed.
 
 | quantity | value | source |
 | --- | --- | --- |
-| `replicates` | 1000 | primary replications per scenario |
+| `replicates` | 1600 | primary replications per scenario |
 | `n` | 2000 | observations per primary replication |
-| `independent_tests_total` | 61 | implementation-estimand tests against the truth |
-| `independent_tests_passed` | 61 | of those, passing |
-| `paired_tests_total` | 0 | paired comparisons with EconML `DynamicDML` |
-| `paired_tests_passed` | 0 | of those, passing |
+| `independent_tests_total` | 82 | implementation-estimand tests against the truth |
+| `independent_tests_passed` | 82 | of those, passing |
+| `paired_tests_total` | 21 | paired comparisons with EconML `DynamicDML` |
+| `paired_tests_passed` | 21 | of those, passing |
 | `property_cells_total` | 237 | repeated-sampling property cells, reported cells excluded |
 | `property_cells_passed` | 237 | cells whose own and family verdicts pass |
 | `property_cells_reported` | 14 | cells reported with the `diagnostic` role: `positivity_reporting` and `unclustered_se`. Two of the 14, `s2c_ey0__unclustered` and `s2c_ey_r11__unclustered`, carry the directional gate and pass it. The 237 above do not count them |
-| `max_standardized_bias` | 0.0883 | largest absolute primary bias in empirical standard deviations |
-| `min_coverage` | 0.9360 | lowest measured primary-study coverage |
-| `min_se_ratio_ci_lower` | 0.8769 | lowest bootstrap primary SE-ratio endpoint |
-| `max_se_ratio_ci_upper` | 1.1279 | highest bootstrap primary SE-ratio endpoint |
+| `max_standardized_bias` | 0.0992 | largest absolute primary bias in empirical standard deviations |
+| `min_coverage` | 0.9413 | lowest measured primary-study coverage |
+| `min_se_ratio_ci_lower` | 0.9038 | lowest bootstrap primary SE-ratio endpoint |
+| `max_se_ratio_ci_upper` | 1.1001 | highest bootstrap primary SE-ratio endpoint |
 | `properties[warning_rate/sp_f10__model_check]:rejection_rate` | 0.0692 | the rejection rate of the check on `SP` at ten folds |
 | `properties[warning_rate/sp_f10__model_check]:rejection_ci_lower` | 0.0516 | its 99% lower bound |
 | `properties[warning_rate/sp_f10__model_check]:rejection_ci_upper` | 0.0902 | its 99% upper bound |
@@ -450,13 +543,15 @@ the committed results and checked at the precision printed.
 | `margin:type_i_ceiling` | 0.1000 | the rate a size cell must bound |
 | `margin:shrunken_se_factor` | 0.7000 | factor the shrunken-SE control multiplies the standard error by |
 | `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
-| `margin:subject_failures_allowed` | 10 | the same bound, in primary replications |
+| `margin:subject_failures_allowed` | 16 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of EconML `DynamicDML` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 16 | the same bound, in primary replications |
 
 ## Limitations
 
 | limit | what it means for use |
 | --- | --- |
-| the comparator runs are pending | the claim rests on exact truths, the exact-law witnesses and the controls. The EconML parity fixture covers the point estimate on one panel only |
+| the comparator pairs 21 of the 61 subject estimands | `DynamicDML` reports the blips and the static contrasts of `s2`, `s3`, `k`, `c` and `m` only. The other estimands rest on exact truths, the exact-law witnesses and the controls. The Markov variant is descriptive and gates nothing |
 | every positive law satisfies the linear structural nested mean model | the intervals are valid under that model. The controls `LU` and `VB` show the bias when a feature is missing. They do not bound it on another law |
 | one size for the calibration cells | the calibration cells draw $n$ = 2,000. Seven labels have a three-size ladder |
 | `GLM` nuisances on finite laws, and one booster | the `GLM` regressions are exact on each finite law. The booster of law `n` stops early on a validation split. No general proof gives its rate, and the claim that its rate suffices rests on a probe of law `n` at $n$ = 128,000 and 512,000. No support row covers a booster fit, because a row cannot name the booster settings |
@@ -475,4 +570,4 @@ assumption.
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/structural_nested_mean_study/README.md)
 gives the regeneration commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/structural_nested_mean_study/manifest.json)
-records the pending comparator, the declared EconML sources, the seeds and the artifact hashes.
+records the EconML 0.17.0 pin, the base image digest, the requirements hash, the EconML sources, the seeds and the artifact hashes.
