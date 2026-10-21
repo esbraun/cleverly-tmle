@@ -566,13 +566,16 @@ CLAIMS: dict[str, tuple[RedKey, ...]] = {
             "cleverly-ctmle-sequences/binary_lasso/ate",
         ),
     ),
-    # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.
+    # X40. The five-node ``price_down`` truth rows of the price study, on the exact ratio.  The
+    # ``lmtp`` twins fit the same samples and pass the exactness gate, so they read the same
+    # shortfall and share the owner.
     "mtp-pricing-calibration": (
         *_keys(
             "mtp-pricing",
             "truth",
             *(
-                f"cleverly-mtp-pricing/pricing_{engine}_tau5/{estimand}"
+                f"{subject}/pricing_{engine}_tau5/{estimand}"
+                for subject in ("cleverly-mtp-pricing", "lmtp")
                 for engine in ("ltmle", "sdr")
                 for estimand in (
                     "ey_regimen[price_down]",
