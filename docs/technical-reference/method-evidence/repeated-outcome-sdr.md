@@ -8,7 +8,9 @@ functional is Equation (4) of Díaz, Williams, Hoffman and Schenck (2023) on tha
 exact-law evidence. The declared comparator is R
 [`lmtp`](https://cran.r-project.org/package=lmtp) 1.5.4 with `cf_sdr`.
 
-Its runs are pending as the TRACKER Study queue item of plan X32b, PR C. This page holds Python property evidence, with comparator runs pending.
+The R runs paired with the Python runs on the same 2,400 draws for each scenario. The Agreement
+section holds the 26 paired verdicts. Section [Limits](#limits) names what the pairing does not
+cover.
 
 The study reports each unique parameter once. The dynamic plan equals the always-treated plan at the
 first node, so its mean and contrast at $t = 1$ duplicate those of `always`. A fast test checks that
@@ -16,7 +18,7 @@ identity. The duplicates are not cells of this study.
 
 ## What was compared
 
-The R column states the declared design of the pending comparator runs.
+The R column states the design of the comparator runs.
 
 | setting | `cleverly` | R `lmtp` |
 | --- | --- | --- |
@@ -52,40 +54,111 @@ unseen-cell fits over the run is at most 0.01. R `lmtp` returns `NA` on an unsee
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[always vs never @ t=1]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 1 | `cleverly` | -0.000632 to 0.000137 | 0.9500 | 1.0144 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[always vs never @ t=1]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 1 | R `lmtp` | -0.000632 to 0.000137 | 0.9500 | 1.0144 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[always vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 2 | `cleverly` | -0.000138 to 0.000945 | 0.9508 | 1.0040 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[always vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 2 | R `lmtp` | -0.000138 to 0.000945 | 0.9508 | 1.0040 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[always vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 3 | `cleverly` | -0.000556 to 0.0011 | 0.9487 | 1.0022 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[always vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 3 | R `lmtp` | -0.000556 to 0.0011 | 0.9487 | 1.0022 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[treat then treat after an outcome vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 2 | `cleverly` | -0.000388 to 0.000727 | 0.9546 | 1.0185 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[treat then treat after an outcome vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 2 | R `lmtp` | -0.000388 to 0.000727 | 0.9546 | 1.0185 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[treat then treat after an outcome vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 3 | `cleverly` | -0.000435 to 0.0013 | 0.9496 | 0.9967 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[treat then treat after an outcome vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 3 | R `lmtp` | -0.000435 to 0.0013 | 0.9496 | 0.9967 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[always @ t=1]` | mean of the repeated outcome under the plan treat at every time at horizon t = 1 | `cleverly` | -0.000258 to 0.000173 | 0.9387 | 0.9847 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[always @ t=1]` | mean of the repeated outcome under the plan treat at every time at horizon t = 1 | R `lmtp` | -0.000258 to 0.000173 | 0.9387 | 0.9847 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[always @ t=2]` | mean of the repeated outcome under the plan treat at every time at horizon t = 2 | `cleverly` | -0.000074 to 0.000568 | 0.9508 | 1.0005 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[always @ t=2]` | mean of the repeated outcome under the plan treat at every time at horizon t = 2 | R `lmtp` | -0.000074 to 0.000568 | 0.9508 | 1.0005 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[always @ t=3]` | mean of the repeated outcome under the plan treat at every time at horizon t = 3 | `cleverly` | -0.000484 to 0.000562 | 0.9400 | 0.9841 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[always @ t=3]` | mean of the repeated outcome under the plan treat at every time at horizon t = 3 | R `lmtp` | -0.000484 to 0.000562 | 0.9400 | 0.9841 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[never @ t=1]` | mean of the repeated outcome under the plan treat at no time at horizon t = 1 | `cleverly` | -0.000117 to 0.000527 | 0.9579 | 1.0171 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[never @ t=1]` | mean of the repeated outcome under the plan treat at no time at horizon t = 1 | R `lmtp` | -0.000117 to 0.000527 | 0.9579 | 1.0171 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[never @ t=2]` | mean of the repeated outcome under the plan treat at no time at horizon t = 2 | `cleverly` | -0.000590 to 0.000277 | 0.9537 | 1.0112 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[never @ t=2]` | mean of the repeated outcome under the plan treat at no time at horizon t = 2 | R `lmtp` | -0.000590 to 0.000277 | 0.9537 | 1.0112 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[never @ t=3]` | mean of the repeated outcome under the plan treat at no time at horizon t = 3 | `cleverly` | -0.000886 to 0.000422 | 0.9483 | 0.9922 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[never @ t=3]` | mean of the repeated outcome under the plan treat at no time at horizon t = 3 | R `lmtp` | -0.000886 to 0.000422 | 0.9483 | 0.9922 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[treat then treat after an outcome @ t=2]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 2 | `cleverly` | -0.000346 to 0.000372 | 0.9487 | 1.0037 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[treat then treat after an outcome @ t=2]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 2 | R `lmtp` | -0.000346 to 0.000372 | 0.9487 | 1.0037 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[treat then treat after an outcome @ t=3]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 3 | `cleverly` | -0.000390 to 0.000827 | 0.9467 | 0.9829 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[treat then treat after an outcome @ t=3]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 3 | R `lmtp` | -0.000390 to 0.000827 | 0.9467 | 0.9829 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[always vs never @ t=1]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 1 | `cleverly` | -0.000236 to 0.000521 | 0.9583 | 1.0298 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[always vs never @ t=1]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 1 | R `lmtp` | -0.000236 to 0.000521 | 0.9583 | 1.0298 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[always vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 2 | `cleverly` | -0.000303 to 0.000803 | 0.9458 | 0.9827 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[always vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 2 | R `lmtp` | -0.000303 to 0.000803 | 0.9458 | 0.9827 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[always vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 3 | `cleverly` | -0.000389 to 0.0013 | 0.9475 | 1.0092 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[always vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 3 | R `lmtp` | -0.000389 to 0.0013 | 0.9475 | 1.0092 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[treat then treat after an outcome vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 2 | `cleverly` | -0.000465 to 0.000676 | 0.9521 | 0.9953 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[treat then treat after an outcome vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 2 | R `lmtp` | -0.000465 to 0.000676 | 0.9521 | 0.9953 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[treat then treat after an outcome vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 3 | `cleverly` | -0.000385 to 0.0014 | 0.9496 | 0.9917 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[treat then treat after an outcome vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 3 | R `lmtp` | -0.000385 to 0.0014 | 0.9496 | 0.9917 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[always @ t=1]` | mean of the repeated outcome under the plan treat at every time at horizon t = 1 | `cleverly` | -0.000229 to 0.000184 | 0.9496 | 1.0282 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[always @ t=1]` | mean of the repeated outcome under the plan treat at every time at horizon t = 1 | R `lmtp` | -0.000229 to 0.000184 | 0.9496 | 1.0282 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[always @ t=2]` | mean of the repeated outcome under the plan treat at every time at horizon t = 2 | `cleverly` | -0.000199 to 0.000447 | 0.9483 | 0.9940 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[always @ t=2]` | mean of the repeated outcome under the plan treat at every time at horizon t = 2 | R `lmtp` | -0.000199 to 0.000447 | 0.9483 | 0.9940 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[always @ t=3]` | mean of the repeated outcome under the plan treat at every time at horizon t = 3 | `cleverly` | -0.000585 to 0.000438 | 0.9558 | 1.0074 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[always @ t=3]` | mean of the repeated outcome under the plan treat at every time at horizon t = 3 | R `lmtp` | -0.000585 to 0.000438 | 0.9558 | 1.0074 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[never @ t=1]` | mean of the repeated outcome under the plan treat at no time at horizon t = 1 | `cleverly` | -0.000486 to 0.000156 | 0.9533 | 1.0185 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[never @ t=1]` | mean of the repeated outcome under the plan treat at no time at horizon t = 1 | R `lmtp` | -0.000486 to 0.000156 | 0.9533 | 1.0185 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[never @ t=2]` | mean of the repeated outcome under the plan treat at no time at horizon t = 2 | `cleverly` | -0.000563 to 0.000313 | 0.9513 | 1.0016 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[never @ t=2]` | mean of the repeated outcome under the plan treat at no time at horizon t = 2 | R `lmtp` | -0.000563 to 0.000313 | 0.9513 | 1.0016 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[never @ t=3]` | mean of the repeated outcome under the plan treat at no time at horizon t = 3 | `cleverly` | -0.0012 to 0.000139 | 0.9513 | 1.0072 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[never @ t=3]` | mean of the repeated outcome under the plan treat at no time at horizon t = 3 | R `lmtp` | -0.0012 to 0.000139 | 0.9513 | 1.0072 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[treat then treat after an outcome @ t=2]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 2 | `cleverly` | -0.000377 to 0.000338 | 0.9521 | 1.0083 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[treat then treat after an outcome @ t=2]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 2 | R `lmtp` | -0.000377 to 0.000338 | 0.9521 | 1.0083 | pass |
 | three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[treat then treat after an outcome @ t=3]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 3 | `cleverly` | -0.000615 to 0.000619 | 0.9363 | 0.9767 | pass |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[treat then treat after an outcome @ t=3]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 3 | R `lmtp` | -0.000615 to 0.000619 | 0.9363 | 0.9767 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. The R `lmtp` 1.5.4 runs have not run on the
-declared draws, so this study publishes no paired verdict. The change that registers them adds the
-paired verdicts. The study commits no pairing column, because 2,400 replications of 12,000 rows hold
-about 29 GB. The change that adds the R rows reads samples that `pairing_sample` rebuilds from the
-committed seeds, one file for each fit.
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `lmtp` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[always vs never @ t=1]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 1 | -4.123e-18 | 3.762e-15 | 1.0000 | 0 | matching implementation | 1.776e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[always vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 2 | -6.783e-18 | 4.396e-15 | 1.0000 | 0 | matching implementation | 2.887e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[always vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 3 | -4.557e-18 | 1.933e-15 | 1.0000 | 0 | matching implementation | 8.882e-16 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[treat then treat after an outcome vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 2 | -7.098e-19 | 4.468e-16 | 1.0000 | 0 | matching implementation | 8.882e-16 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ate_regimen[treat then treat after an outcome vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 3 | -1.379e-17 | 5.462e-15 | 1.0000 | 0 | matching implementation | 8.882e-16 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[always @ t=1]` | mean of the repeated outcome under the plan treat at every time at horizon t = 1 | 1.550e-17 | 2.526e-14 | 1.0000 | 0 | matching implementation | 2.409e-14 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[always @ t=2]` | mean of the repeated outcome under the plan treat at every time at horizon t = 2 | 8.847e-19 | 9.668e-16 | 1.0000 | 0 | matching implementation | 1.998e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[always @ t=3]` | mean of the repeated outcome under the plan treat at every time at horizon t = 3 | 2.799e-18 | 1.877e-15 | 1.0000 | 0 | matching implementation | 7.772e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[never @ t=1]` | mean of the repeated outcome under the plan treat at no time at horizon t = 1 | -3.007e-19 | 3.278e-16 | 1.0000 | 0 | matching implementation | 2.442e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[never @ t=2]` | mean of the repeated outcome under the plan treat at no time at horizon t = 2 | 3.111e-18 | 2.517e-15 | 1.0000 | 0 | matching implementation | 1.776e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[never @ t=3]` | mean of the repeated outcome under the plan treat at no time at horizon t = 3 | 1.362e-17 | 7.304e-15 | 1.0000 | 0 | matching implementation | 1.221e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[treat then treat after an outcome @ t=2]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 2 | 8.373e-18 | 8.180e-15 | 1.0000 | 0 | matching implementation | 2.220e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, in sample | `ey_regimen[treat then treat after an outcome @ t=3]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 3 | -8.940e-18 | 5.154e-15 | 1.0000 | 0 | matching implementation | 2.109e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[always vs never @ t=1]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 1 | 6.361e-20 | 5.894e-17 | 1.0000 | 0 | matching implementation | 1.332e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[always vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 2 | -1.506e-17 | 9.551e-15 | 1.0000 | 0 | matching implementation | 1.110e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[always vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at every time" against "treat at no time" at horizon t = 3 | -4.811e-18 | 2.049e-15 | 1.0000 | 0 | matching implementation | 1.554e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[treat then treat after an outcome vs never @ t=2]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 2 | -4.614e-18 | 2.837e-15 | 1.0000 | 0 | matching implementation | 6.661e-16 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ate_regimen[treat then treat after an outcome vs never @ t=3]` | difference in the mean of the repeated outcome between the plans "treat at the first time, then treat at each later time after an outcome of one" against "treat at no time" at horizon t = 3 | -9.446e-18 | 3.700e-15 | 1.0000 | 0 | matching implementation | 8.882e-16 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[always @ t=1]` | mean of the repeated outcome under the plan treat at every time at horizon t = 1 | -2.105e-18 | 3.581e-15 | 1.0000 | 0 | matching implementation | 3.997e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[always @ t=2]` | mean of the repeated outcome under the plan treat at every time at horizon t = 2 | 4.857e-18 | 5.275e-15 | 1.0000 | 0 | matching implementation | 1.632e-14 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[always @ t=3]` | mean of the repeated outcome under the plan treat at every time at horizon t = 3 | -2.567e-18 | 1.761e-15 | 1.0000 | 0 | matching implementation | 1.554e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[never @ t=1]` | mean of the repeated outcome under the plan treat at no time at horizon t = 1 | 4.279e-18 | 4.674e-15 | 1.0000 | 0 | matching implementation | 2.665e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[never @ t=2]` | mean of the repeated outcome under the plan treat at no time at horizon t = 2 | 1.012e-17 | 8.106e-15 | 1.0000 | 0 | matching implementation | 1.776e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[never @ t=3]` | mean of the repeated outcome under the plan treat at no time at horizon t = 3 | 1.550e-18 | 8.398e-16 | 1.0000 | 0 | matching implementation | 1.110e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[treat then treat after an outcome @ t=2]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 2 | 2.891e-18 | 2.836e-15 | 1.0000 | 0 | matching implementation | 1.998e-15 vs 0.0500 | equivalent |
+| three-time-point law with a repeated binary outcome and monotone censoring, five folds | `ey_regimen[treat then treat after an outcome @ t=3]` | mean of the repeated outcome under the plan treat at the first time, then treat at each later time after an outcome of one at horizon t = 3 | -3.169e-18 | 1.801e-15 | 1.0000 | 0 | matching implementation | 1.554e-15 vs 0.0500 | equivalent |
+<!-- /generated -->
+
+The runner calls `lmtp_sdr_with_folds` once for each plan and horizon on each draw. The Python
+phase writes the per-node ratios, the shifted values and the fold of each draw. The runner reads
+them as `task$folds` and the ratio columns. The study commits no pairing column, because 2,400
+replications of 12,000 rows hold about 29 GB. The pairing sample is rebuilt from the committed seeds.
+
+Three gates cover the pairing beyond the paired verdicts above.
+
+| gate | what it checks | result |
+| --- | --- | --- |
+| G1r | on 20 draws of each scenario, the estimate and the centred influence curve of `cleverly` equal those of `lmtp` to 1e-10 in every cell. `lmtp` returns an uncentred influence curve, so the gate centres it | 520 of 520 cells pass. The largest estimate gap is 6.9e-16 and the largest influence curve gap is 9.1e-14 (`gates.csv`) |
+| parity ratio | in every cell and over all 2,400 draws, the largest absolute estimate difference is at most 1% of the root mean square of the `lmtp` correction, which is its estimate minus the first-node plug-in | 26 of 26 cells pass. The worst ratio is 3.4e-13, at `ey_regimen[always @ t=2]` in sample (`tests/unit/test_sdr_repeated_pairing_gates.py`) |
+| row equality | the Python rows of this run equal the rows of the earlier Python-only run to 1e-10 | passes against `pr-b-replicates.parquet` |
+
+The fast test of the parity ratio runs mutation N8 on the committed rows. A first-node plug-in in
+place of the estimate, and a correction shortened by 10%, each fail the gate.
+The lmtp rows also pass the truth gates of the accuracy table. The 26 rows have a largest
+standardized bias of 0.0413 and a lowest coverage of 0.9363.
 
 ## Theory properties
 
@@ -279,10 +352,10 @@ the committed results and checked at the precision printed.
 | --- | --- | --- |
 | `replicates` | 2400 | primary replications per scenario |
 | `n` | 12000 | observations per primary replication |
-| `independent_tests_total` | 26 | implementation-estimand tests against the truth |
-| `independent_tests_passed` | 26 | of those, passing |
-| `paired_tests_total` | 0 | paired comparisons with R `lmtp` |
-| `paired_tests_passed` | 0 | of those, passing |
+| `independent_tests_total` | 52 | implementation-estimand tests against the truth |
+| `independent_tests_passed` | 52 | of those, passing |
+| `paired_tests_total` | 26 | paired comparisons with R `lmtp` |
+| `paired_tests_passed` | 26 | of those, passing |
 | `property_cells_total` | 113 | repeated-sampling property cells, reported cells excluded |
 | `property_cells_passed` | 113 | cells whose own and family verdicts pass |
 | `property_cells_reported` | 10 | cells reported and not gated, as the `small_sample_calibration` diagnostics |
@@ -318,15 +391,17 @@ the committed results and checked at the precision printed.
 | `margin:shrunken_se_factor` | 0.7000 | factor the shrunken-SE control multiplies the standard error by |
 | `margin:necessity_displacement` | 0.2500 | smallest paired displacement of a necessity control, in empirical standard deviations |
 | `margin:correction_displacement` | 0.2500 | smallest displacement of the uncorrected plug-in from the corrected fit, in empirical standard deviations of the corrected arm |
-| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell may lose to a recordable fitting failure |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell of `cleverly` may lose to a recordable fitting failure |
 | `margin:subject_failures_allowed` | 24 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `lmtp` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 24 | the same bound, in primary replications |
 
 ## Limits
 
 | limit | what it means for use |
 | --- | --- |
 | one law with three nodes and a binary outcome | the continuous outcome has one calibration arm, and the rate in $n$ is not measured |
-| the comparator runs are pending | the claim rests on exact truths, exact-law witnesses and the controls. The pending R `lmtp` runs add a paired check of the estimate and the influence curve on the same draws |
+| `lmtp` shares the known mechanisms and the cell-means regressions | the pairing checks that the two implementations compute the same estimator on the same draws. It does not check the estimator against an independent learner or a learned mechanism |
 | the primary fit declares the mechanisms | the primary cells and the paired comparison do not claim parity for learned treatment or censoring models. The property cells use fitted quasibinomial mechanisms |
 | the in-sample interval runs below nominal at small $n$ | the `small_sample_calibration` cells report the shortfall at $n$ = 2,000 and no rule gates them. The gated in-sample cells draw $n$ = 32,000 |
 | the cross-fitted learners are one cell-mean regression and one shallow booster | the study does not cover a larger learner library or a different fold count than five |
@@ -343,7 +418,7 @@ positivity, and conditionally independent censoring.
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/README.md)
 gives the regeneration and pilot commands. The
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/manifest.json)
-records the pending comparator, the declared R sources, the seeds and the artifact hashes.
+records the comparator, the R sources, the seeds and the artifact hashes.
 The [replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sdr_repeated/properties.csv)
 carry every published row.

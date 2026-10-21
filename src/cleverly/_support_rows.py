@@ -2543,8 +2543,8 @@ def _long_rows() -> tuple[SupportRow, ...]:
     # the study share the row of their splitting and outcome scale.
     sdr_repeated = ["longitudinal-repeated-sdr"]
     sdr_repeated_limit = (
-        "The study's lmtp comparator runs are pending, so the evidence is Python property "
-        "evidence only."
+        "The paired lmtp comparison uses the known mechanisms and the cell-means regressions "
+        "of the study."
     )
     rows += [
         long_row(
