@@ -2871,6 +2871,8 @@ MARGIN_SOURCES: dict[str, Any] = {
     # ``failure_bound`` without naming it in its runner module.
     "margin:subject_failure_bound": lambda s: float(s.failure_bound[s.implementation]),
     "margin:subject_failures_allowed": lambda s: float(failures.allowed(s, s.implementation)),
+    "margin:reference_failure_bound": lambda s: float(s.failure_bound[s.reference]),
+    "margin:reference_failures_allowed": lambda s: float(failures.allowed(s, s.reference)),
 }
 
 

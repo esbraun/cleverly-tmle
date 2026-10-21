@@ -384,3 +384,73 @@ def run_in_parts(
             os.replace(temporary, path)
         frames.append(part)
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+# ---------------------------------------------------------------------------- exactness
+
+#: The columns of ``exactness.csv``: one row per exactness-witness estimand.
+EXACTNESS_COLUMNS = (
+    "scenario",
+    "estimand",
+    "pairs",
+    "max_abs_estimate_gap",
+    "max_abs_se_gap",
+    "gate",
+    "passed",
+)
+
+#: The audit name the regeneration driver and the failure ledger read.
+EXACTNESS_AUDIT = "exactness witness"
+
+
+def exactness_table(
+    rows: pd.DataFrame,
+    *,
+    subject: str,
+    reference: str,
+    scenarios: Sequence[str],
+    gate: float,
+) -> pd.DataFrame:
+    """The largest paired gap of each exactness-witness estimand, judged against ``gate``.
+
+    A witness pairs the subject and the reference on one replication's sample, with the same
+    ratios and shifted values on both sides, so their estimates and standard errors agree to
+    numerical precision.  A row passes only when every paired estimate and every paired
+    standard error differ by less than ``gate``.  A replication that either side lost is not
+    a pair, and the failure accounting counts it.  An estimand with no pairs reads red.
+    """
+    keys = ["scenario", "replicate", "estimand"]
+    chosen = rows.loc[rows["scenario"].isin(scenarios)]
+    sides = {
+        name: chosen.loc[chosen["implementation"] == name, [*keys, "estimate", "std_error"]]
+        for name in (subject, reference)
+    }
+    paired = sides[subject].merge(sides[reference], on=keys, suffixes=("_s", "_r"))
+    paired["estimate_gap"] = (paired["estimate_s"] - paired["estimate_r"]).abs()
+    paired["se_gap"] = (paired["std_error_s"] - paired["std_error_r"]).abs()
+    estimands = chosen[["scenario", "estimand"]].drop_duplicates()
+    summary = (
+        paired.groupby(["scenario", "estimand"])
+        .agg(
+            pairs=("replicate", "size"),
+            max_abs_estimate_gap=("estimate_gap", "max"),
+            max_abs_se_gap=("se_gap", "max"),
+        )
+        .reset_index()
+    )
+    table = estimands.merge(summary, on=["scenario", "estimand"], how="left")
+    table["pairs"] = table["pairs"].fillna(0).astype(int)
+    table["gate"] = gate
+    table["passed"] = (
+        (table["pairs"] > 0)
+        & (table["max_abs_estimate_gap"] < gate)
+        & (table["max_abs_se_gap"] < gate)
+    )
+    return table.loc[:, list(EXACTNESS_COLUMNS)].sort_values(
+        ["scenario", "estimand"], ignore_index=True
+    )
+
+
+def exactness_failures(table: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """The ``scientific_failures`` frame of a study with exactness witnesses."""
+    return {EXACTNESS_AUDIT: table.loc[~table["passed"].astype(bool)]}

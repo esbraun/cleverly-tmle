@@ -85,7 +85,8 @@ lmtp_policy_tmle <- function(
     .trim = 1,
     .learners_outcome_folds = 2,
     .return_full_fits = TRUE
-  )
+  ),
+  refuse_bound = TRUE
 ) {
   # data: one row per unit, natural columns.  draws: one n x copies character matrix per
   # node, the shifted arm of each copy.  ratios and density_at_observed: n x T, per node,
@@ -149,9 +150,11 @@ lmtp_policy_tmle <- function(
   )
 
   # No prediction may reach lmtp's bound of 1e-5, or cleverly's [0, 1] clip and lmtp's bound
-  # would be two different regularisations of one regression.
+  # would be two different regularisations of one regression.  A caller that judges each pair
+  # against an exactness gate of its own (mtp-boundaries, mtp-pricing) passes
+  # refuse_bound = FALSE: a bounded prediction then moves the pair, and that gate reads it.
   predictions <- cbind(regressions$natural[, seq_along(trt)], regressions$shifted[, seq_along(trt)])
-  if (any(predictions <= 1e-5 | predictions >= 1 - 1e-5, na.rm = TRUE)) {
+  if (refuse_bound && any(predictions <= 1e-5 | predictions >= 1 - 1e-5, na.rm = TRUE)) {
     stop("a sequential regression reached lmtp's prediction bound")
   }
 

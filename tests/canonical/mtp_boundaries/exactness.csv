@@ -1,0 +1,19 @@
+scenario,estimand,pairs,max_abs_estimate_gap,max_abs_se_gap,gate,passed
+boundaries_ltmle,ate_regimen[p1 vs natural],1000,7.996757769856977e-10,3.4625600997539863e-13,1e-06,True
+boundaries_ltmle,ate_regimen[p2 vs natural],1000,1.0003384213336242e-07,9.8777241594461e-11,1e-06,True
+boundaries_ltmle,ate_regimen[p3 vs natural],1000,1.3031811532671078e-09,1.3784130087346469e-12,1e-06,True
+boundaries_ltmle,ate_regimen[p4 vs natural],1000,1.0081490364743928e-09,2.032057161427403e-11,1e-06,True
+boundaries_ltmle,ey_regimen[natural],1000,1.0066767419658618e-09,9.627715291671279e-17,1e-06,True
+boundaries_ltmle,ey_regimen[p1],1000,7.996743267568718e-10,9.83107692476004e-13,1e-06,True
+boundaries_ltmle,ey_regimen[p2],1000,9.902716457954597e-08,7.543421391004168e-10,1e-06,True
+boundaries_ltmle,ey_regimen[p3],1000,1.3031814516395457e-09,1.2320769404716714e-12,1e-06,True
+boundaries_ltmle,ey_regimen[p4],1000,6.339930802568006e-10,1.989884645947626e-11,1e-06,True
+boundaries_sdr,ate_regimen[p1 vs natural],1000,4.642120021713936e-15,1.726049858596923e-16,1e-06,True
+boundaries_sdr,ate_regimen[p2 vs natural],1000,1.865174681370263e-14,1.811398253614982e-14,1e-06,True
+boundaries_sdr,ate_regimen[p3 vs natural],1000,5.207639874882375e-15,2.255140518769849e-16,1e-06,True
+boundaries_sdr,ate_regimen[p4 vs natural],1000,2.9563157477596747e-14,1.9040324872321435e-14,1e-06,True
+boundaries_sdr,ey_regimen[natural],1000,0.0,9.627715291671279e-17,1e-06,True
+boundaries_sdr,ey_regimen[p1],1000,4.551914400963142e-15,1.6132928326584306e-16,1e-06,True
+boundaries_sdr,ey_regimen[p2],1000,1.865174681370263e-14,1.7579687705548963e-14,1e-06,True
+boundaries_sdr,ey_regimen[p3],1000,5.329070518200751e-15,1.8735013540549517e-16,1e-06,True
+boundaries_sdr,ey_regimen[p4],1000,2.919886554764162e-14,1.8957058145474548e-14,1e-06,True
