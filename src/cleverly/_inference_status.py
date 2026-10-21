@@ -38,6 +38,7 @@ __all__ = [
     "PARAMETER_STATUSES",
     "STACK_FAILURE_STATUS",
     "STATUS_RECORDS",
+    "TRIMMED_RATIO_STATUS",
     "T_REFERENCE_NOTE",
     "InferenceStatus",
     "Interval",
@@ -57,6 +58,7 @@ InferenceStatus = Literal[
     "working_mechanism_plugin",
     "generated_design_plugin",
     "estimated_weight_plugin",
+    "trimmed_ratio_plugin",
     "adaptive_baseline_plugin",
     "no_cluster_variance_plugin",
     "few_cluster_plugin",
@@ -326,6 +328,36 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "that reopens it."
             ),
         ),
+        "trimmed_ratio_plugin": StatusRecord(
+            reason=(
+                "A longitudinal fit that trims its per-node density ratios at a declared "
+                "quantile (ratio_trim=) reports no confidence interval, no p-value and no "
+                "standard error. The trim binds on a fixed share of the ratios at every "
+                "sample size, so the remainder keeps a term of the size of the "
+                "outcome-regression error, and no result read here gives an interval for the "
+                "trimmed fit. The point estimate stands. The plug-in standard error of the "
+                "efficient influence curve at the trimmed ratios remains as a diagnostic "
+                "under plugin_std_error and plugin_interval; it is the standard error lmtp "
+                "reports. F30 in docs/roadmap.md reopens this when a paper supplies that "
+                "result."
+            ),
+            assessment_note=(
+                "the reported curve is a trimmed-ratio diagnostic: no confidence interval or "
+                "p-value is available for a fit that trims its ratios, and F30 in the roadmap "
+                "is the condition that reopens it"
+            ),
+            summary_label="trimmed-ratio se",
+            bootstrap_note=(
+                "a diagnostic; the bootstrap repeats the trim on each resample, and no result "
+                "validates its coverage for a trimmed fit"
+            ),
+            diagnostic_noun="trimmed-ratio plug-in diagnostic",
+            reopened_by="F30",
+            alternative=(
+                "ratio_trim=None fits the untrimmed estimator, whose interval the shipped "
+                "evidence covers."
+            ),
+        ),
         "adaptive_baseline_plugin": StatusRecord(
             reason=(
                 "A sequential g-computation or IPW fit reports no confidence interval, no "
@@ -491,6 +523,9 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
 )
 
 
+#: The status of a longitudinal fit whose ``ratio_trim=`` moved a positive per-node ratio.
+#: The estimator stamps it by name, so the name lives here once.
+TRIMMED_RATIO_STATUS: Final = "trimmed_ratio_plugin"
 #: The status of a sequential g-computation or IPW fit that reads a regression fitted by a
 #: learner other than :class:`~cleverly.learners.GLM`.
 ADAPTIVE_BASELINE_STATUS: Final = "adaptive_baseline_plugin"

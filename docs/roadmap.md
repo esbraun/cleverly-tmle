@@ -125,7 +125,6 @@ not change the package version.
 | --- | --- | --- | --- | --- |
 | B0 | Experimental status and support rows | no new theory | none | [RM42](#rm42-experimental-status-and-support-rows) |
 | B1 | Longitudinal evidence over three to five decisions | published support; code shipped as experimental, studies pending | the shipped `LTMLE` and `SDR` | [X39](#x39-longitudinal-evidence-over-three-to-five-decisions) |
-| B1 | Longitudinal fitting options | no new theory; each option keeps its default bit-identical | none | [X33](#x33-longitudinal-fitting-options) |
 | BP | Repeated outcomes for SDR and IPSI | published support for the incremental case; a per-horizon reduction for `SDR` | the shipped `LTMLE` repeated outcome | [X32b](#x32b-repeated-outcomes-for-sdr-and-ipsi) |
 | BP | Adaptive-propensity IPTW | published support; pending source read | none | [X21](#x21-adaptive-propensity-iptw) |
 | BP | Per-arm outcome-adaptive C-TMLE intervals with a parametric outcome | [natural extension](technical-reference/hard-stop-review.md) candidate; parts (a) to (d) implemented | RM42; the shipped per-arm design | [X58](#x58-per-arm-outcome-adaptive-c-tmle-intervals-with-a-parametric-outcome) |
@@ -168,6 +167,7 @@ not change the package version.
 | after beta | Pooled-over-time parametric g-formula models | no new theory; the stacked equations of the shipped `ParametricGFormula`, with unit-summed scores | the shipped `ParametricGFormula` | [X73](#x73-pooled-over-time-parametric-g-formula-models) |
 | after beta | Data-tuned policies beyond the shipped tuned caps | published support for the shipped caps; source audit for the other tuned policies | the shipped data-tuned caps of modified treatment policies | [X75](#x75-data-tuned-policies-beyond-the-shipped-tuned-caps) |
 | after beta | Censored data for continuous price policies | no new theory; Díaz, Williams, Hoffman and Schenck (2023) include censoring | the shipped continuous-node modified treatment policies and the learned censoring factor | [X77](#x77-censored-data-for-continuous-price-policies) |
+| after beta | Ratio trimming on the hazard path | source audit | the shipped `ratio_trim=` and `survival_model="hazard"` | [X80](#x80-ratio-trimming-on-the-hazard-path) |
 | after beta | EP learner | published support; pending source read | shared study, fold, learner, and assessment contracts; a concrete analysis need | [P1](#p1-ep-learner) |
 | after beta | Nested Riesz engine and initial catalog | published support; source audit complete | typed study, identification, result, and assessment contracts; a concrete analysis need | [R1](#r1-nested-riesz-engine-and-initial-catalog) |
 | after beta | Evidence-gated Riesz catalog expansion | source audit for each target | R1 and a target-specific derivation | [R2](#r2-evidence-gated-riesz-catalog-expansion) |
@@ -256,6 +256,7 @@ It moved each part that an established method or a natural extension carries to 
 | Time-respecting cross-fitting | blocked-temporal and rolling-origin folds for a dependent calendar series | serial dependence | iid and grouped cross-fitting only | [F7](#f7-time-respecting-cross-fitting) |
 | Learned-policy value outside the published conditions | an interval at an exceptional law; the full-refit bootstrap; a continuous treatment; a fold-evaluated `DRTMLE` learned rule; `CTMLE` with `learned_rule=`; a learned rule with missing outcomes or a missing treatment; an E-value for a learned-rule contrast | adaptive-optimum inference; asymptotic; regularity | `LearnedRuleValue` fits the fold-evaluated CV-TMLE of [learned rules](technical-reference/point-treatment-tmle.md#learned-rules) under the limiting-rule condition. Its boundary study measures under-coverage at an exceptional law. [X11](#x11-learned-policy-follow-ups) holds the compositions that moved | [F27](#f27-learned-policy-value-outside-the-published-conditions) |
 | Inference at a boundary node estimate | an interval in the rare-event local regime, where the node hazard shrinks with $n$ | asymptotic | the point estimate stands under the `constant_node_plugin` status. [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the interval at a fixed law | [F31](#f31-inference-at-a-boundary-node-estimate) |
+| Inference after quantile ratio trimming | an interval for a longitudinal TMLE whose per-node density ratios are trimmed at a fixed quantile, or a trim level that tends to 1 at stated rates, with its coverage | `LTMLE(ratio_trim=q)` reports the point estimate. A fit whose trim moves a positive ratio takes the `trimmed_ratio_plugin` status and reports the plug-in diagnostic only. `ratio_trim=None` keeps the untrimmed fit and its interval | [F30](#f30-inference-after-quantile-ratio-trimming) |
 | Finite-sample limits of clustered intervals | an interval below 4 clusters | arbitrary dependence | `few_cluster_plugin` from 3 to 9 positive-mass clusters, and to 19 for `LTMLE`, which shows a labelled $t_{J-2}$ interval. `no_cluster_variance_plugin` below 3. [X54](#x54-small-sample-evidence-for-clustered-intervals-and-boundary-nodes) holds the measurements from 3 clusters up to those floors | [F28](#f28-finite-sample-limits-of-clustered-intervals) |
 | The `ctmleGlmnet` type-2 path | a type-2 candidate sequence and its fluctuation | algorithm definition. No published source defines the type-2 sequence, and the R code disagrees with itself | `strategy="lasso"` runs the C-TMLE1 construction only, and no keyword selects a type-2 path | [F29](#f29-the-ctmleglmnet-type-2-path) |
 | Fold policies that read the treatment or the outcome | outer folds stratified on the treatment or the outcome | asymptotic | unstratified folds, `stratify_by="none"`, which is the default. A split that reads $A$ or $Y$ refuses before any learner | [F32](#f32-fold-policies-that-read-the-treatment-or-the-outcome) |
@@ -606,42 +607,6 @@ the package, and close this row. No coverage result for the new options exists i
 The R comparators named above are deferred to
 [X59](#x59-long-horizon-comparator-parity-for-ltmle-and-sdr), so the studies carry Python property
 evidence only. Do not remove this row until the studies land.
-
-
-
-
-### X33. Longitudinal fitting options
-
-These options belong to the longitudinal fit. They compose with the shipped targeting options of
-`TMLE`: `iterate=`, `stopping=` and `step_bound=`, described under
-[stopping rules, step bound and best iterate](technical-reference/point-treatment-tmle.md#stopping-rules-step-bound-and-best-iterate).
-Each comparator ships the option, and none needs new theory. Each option keeps every default fit
-bit-identical, and each changes a fit when it binds.
-
-| part | option | what it does | comparator |
-| --- | --- | --- | --- |
-| (d) ratio trim | trim the per-node density ratio at one pooled quantile `q` of all `n x T` entries, zeros included, then form the cumulative product | the trimming rule of `lmtp`: it trims the per-node ratio matrix and not the cumulative ratio. The fit records the trimmed share, as it records truncation now, and takes `trimmed_ratio_plugin` when the share is above zero. `SDR` reads the same per-node ratio | `lmtp` `.trim` |
-| (e) Markov order | restrict each node's nuisance history to the last `k` nodes | a restriction on the observed-data model. The identification summary states it, and the estimand does not change. `SDR` reads the same per-node ratio and regressions | `lmtp` `k` |
-| (i) node bounds | bound each node's regression into a declared interval before the logistic fluctuation | a fit on a declared range of the iterated mean or of the cause-specific hazard of `survival_model="hazard"` | `survtmle` `bounds` |
-| (j) pooled hazards | fit one hazard regression and one censoring regression over every node, with the node as a covariate, in place of one regression per node | a fit with fewer events per node. A pooled fit is a nuisance choice for `survival_model="hazard"`, which today fits one hazard regression per node and cause and one censoring regression per node | `survtmle`, MOSS and `tmle3` `tmle_survival` |
-
-At a continuous modified-treatment-policy node of `LTMLE`, the ratio that part (d) trims is the
-node's density ratio, which the fit stores as `RegimenFit.node_ratio`.
-
-Part (i) covers `survtmle` `method = "hazard"` as well as `method = "mean"`. On a fit with
-`survival_model="hazard"`, it bounds each node's cause-specific hazard. Part (j) applies only to a
-fit with `survival_model="hazard"`.
-
-The hazard walk of `survival_model="hazard"` steps along its own path in steps of `step_size`. It
-does not read the shipped settings `iterate=`, `stopping=` and `step_bound=`, so `LTMLE` refuses
-them beside that model. This item lifts the refusal for the bounded hazard walk.
-
-Acceptance: for each part, a test that the default fit is bit-identical to the fit before the
-option, an exact test on a finite law, a witness on a law where the option binds, and a mutation
-control that fails when the option is wrong. Parts (d) and (e) also name their assumption in the
-identification summary, and a test pins that text. Part (d) pins the `trimmed_ratio_plugin` record.
-A registered study covers the parts, with its red cells reported. The R fixtures can stay pending
-and do not block the merge.
 
 ### X21. Adaptive-propensity IPTW
 
@@ -1693,6 +1658,18 @@ treatments cover censored fits.
 Acceptance: the registered cells, and a support case in `tests/studies/support_cases.py`. This
 row ships after the beta release (owner decision, 2026-10-16).
 
+### X78. Bounded node fits under a working model
+
+`LTMLE` refuses `node_bounds=` beside `msm=` (R-i3). A working model over regimens pools one
+fluctuation across the regimens, and that fluctuation has no bounded form yet.
+
+### X80. Ratio trimming on the hazard path
+
+`LTMLE` refuses `ratio_trim=` beside `survival_model="hazard"` (R-d1). The `lmtp` trim acts on
+the per-node density ratios of the iterated-mean recursion. `lmtp` has no hazard model. The
+clever covariates of the hazard targeting read the cumulative inverse treatment and censoring
+probabilities, and no source read here defines a trim of them.
+
 ### P1. EP learner
 
 Van der Laan, Carone and Luedtke (2024), arXiv:2402.01972, govern this item. After first-hand
@@ -2360,7 +2337,6 @@ the registered measurements from 3 clusters up to each floor, and the other smal
 cluster-as-unit theory is the same at 4 clusters as at 10, so that work needs evidence and not a
 theorem. F28 stays the owner id of the clustered red cells, and X54 is the work that closes them.
 
-
 ### F29. The `ctmleGlmnet` type-2 path
 
 R `ctmle` 0.1.2 accepts `ctmletype = 2` in `ctmleGlmnet`. No published source defines it. Its
@@ -2374,6 +2350,19 @@ et al. (2019) describe only C-TMLE1 and C-TMLE0. The code is not consistent with
 | `ctmleGeneral` type 2 (`R/functions_general.R`, lines 34 to 36) | errors, because `eps_try` is undefined |
 
 F29 reopens when a published algorithm defines the type-2 sequence and its fluctuation.
+
+### F30. Inference after quantile ratio trimming
+
+`LTMLE(ratio_trim=q)` trims the per-node density ratios at the type-7 quantile `q` of all of
+them, as `lmtp` does with `lmtp_control(.trim=)`. The trim binds on a fixed share of the
+ratios at every sample size. The trimmed fit therefore converges to a value that differs from
+the parameter by a term of the size of the outcome-regression error, and the remainder is not
+second order. No source read here gives an interval result for a trimmed fit.
+
+| request | missing published result |
+| --- | --- |
+| an interval for a fit with a fixed trim quantile | the limit law of the trimmed estimator and the bias term it carries, with a coverage result |
+| an interval for a trim that relaxes with `n` | a trim level that tends to 1, with the rate at which the trimmed share vanishes and the conditions under which the bias is negligible |
 
 ### F31. Inference at a boundary node estimate
 

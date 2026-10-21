@@ -79,6 +79,7 @@ from .._inference_status import (
     NO_T_REFERENCE_BANDS,
     PARAMETER_STATUSES,
     T_REFERENCE_NOTE,
+    TRIMMED_RATIO_STATUS,
     InferenceStatus,
     is_labelled,
     precedent_status,
@@ -121,6 +122,7 @@ from ..exceptions import (
     RefusalReason,
 )
 from ..fluctuation._score import (
+    StopContext,
     check_iterate,
     check_step_bound,
     check_stopping_rule,
@@ -200,12 +202,17 @@ from ..learners.glm import GLM
 from ..learners.library import _validate_learner
 from ..learners.super_learner import SuperLearner, resolve_learner
 from ..methods import (
+    BASELINE_HAZARD_POOLING_REFUSAL,
+    BASELINE_RATIO_TRIM_REFUSAL,
     IPSI_NO_FLUCTUATION,
     IPSI_POINT_REFUSAL,
+    IPSI_RATIO_TRIM_REFUSAL,
     LTMLE_TILT_REFUSAL,
+    NODE_BOUNDS_MSM_REFUSAL,
     REPEATED_OUTCOME_REFUSAL,
     SDR_TILT_REFUSAL,
     baseline_no_fluctuation_refusal,
+    node_bounds_refusal,
     sdr_no_fluctuation_refusal,
 )
 from ..msm import MSM, refuse_msm_functions
@@ -243,7 +250,9 @@ from .gformula import (
 from .hazard import (
     HazardAlgorithm,
     InitialHazards,
+    check_hazard_node_bounds,
     fit_hazards,
+    hazard_bounds,
     level_plans,
     project_curves,
     refuse_hazard_design,
@@ -259,6 +268,8 @@ from .msm import (
     project_sdr_cells,
     refuse_evaluated_msm_functions,
 )
+from .pooled_hazards import check_hazard_pooling, refuse_pooled_designs
+from .ratio_trim import check_ratio_trim, trim_ratios
 from .regimen import (
     DynamicRegimen,
     Plan,
@@ -275,6 +286,7 @@ from .regimen import (
 from .sdr import FoldMechanism, SDRCell, fit_cells_sdr, fit_fold_mechanisms
 from .sequential import (
     Mechanism,
+    NodeBound,
     RegimenFit,
     _filled_matrix,
     constant_nodes,
@@ -428,6 +440,16 @@ def baseline_repeats_refusal(estimator: str) -> Refusal:
 
 
 #: Why a parametric g-formula fit refuses a pseudo-outcome learner.
+#: Why the parametric g-formula refuses a Markov order.
+GFORMULA_MARKOV_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the parametric g-formula simulates each covariate and outcome from a model of the full "
+    "history, and it does not restrict those models to a Markov window.",
+    alternative=(
+        "Omit markov_order=, or fit LTMLE, SDR, SequentialGComputation or SequentialIPW, "
+        "whose node models read the window."
+    ),
+)
 GFORMULA_PSEUDO_REFUSAL = Refusal(
     RefusalReason.INVALID_DECLARATION,
     "the parametric g-formula fits no sequential pseudo-outcome regression, so pseudo_learner= "
@@ -1241,6 +1263,9 @@ class _LongitudinalReplayRecipe:
     #: Whether every regression a baseline estimator reads is a GLM, which decides its
     #: status.  Always ``True`` on a targeted fit, which does not read it.
     parametric: bool = True
+    #: The resolved node bounds of a TMLE fit by cause, ``None`` unless the fit declared any.
+    #: A replay refits the bounded nodes with the same bounds.
+    node_bounds: dict[str | None, dict[int, NodeBound]] | None = None
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore a persisted recipe, then retake ownership of its plan matrices.
@@ -1317,6 +1342,7 @@ def _replay_recipe(
     step_search: bool = True,
     iterate: str = "last",
     normalization: str | None = None,
+    node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
 ) -> _LongitudinalReplayRecipe:
     """Freeze resolved plans and clone the unfitted recursive learner specifications.
 
@@ -1352,6 +1378,7 @@ def _replay_recipe(
         step_search=step_search,
         iterate=iterate,
         normalization=normalization,
+        node_bounds=node_bounds,
     )
 
 
@@ -1432,6 +1459,10 @@ class LongitudinalConfig:
     #: Whether each curve's reported levels and band limits were projected onto
     #: non-decreasing curves.
     isotonic: bool = False
+    #: The declared node bounds on the reported outcome scale, as
+    #: ``(cause, grid time, lower, upper)`` in declaration order.  ``cause`` is ``None`` unless
+    #: the fit declared competing risks.  Empty on a fit that declared none.
+    node_bounds: tuple[tuple[str | None, float, float, float], ...] = ()
     #: ``"tmle"`` for :class:`LTMLE`, ``"sdr"`` for :class:`SDR`, ``"ipsi"`` for
     #: :class:`IPSI`, ``"gcomp"`` for :class:`SequentialGComputation`, ``"ipw"`` for
     #: :class:`SequentialIPW` and ``"parametric_gformula"`` for :class:`ParametricGFormula`.
@@ -1646,6 +1677,19 @@ class LongitudinalConfig:
             lines.append(
                 f"known factors (declared, no learner): {', '.join(self.known_factors)}; no "
                 "truncation bound moved a declared value"
+            )
+        if self.node_bounds:
+            lines.append(
+                "node_bounds: "
+                + "; ".join(
+                    f"{'' if cause is None else f'{cause} '}t={time:g} in [{lower:g}, {upper:g}]"
+                    for cause, time, lower, upper in self.node_bounds
+                )
+                + (
+                    " (bounded cause-specific hazards at the named nodes, on the hazard scale)"
+                    if self.survival_model == "hazard"
+                    else " (bounded logistic fluctuation at the named nodes)"
+                )
             )
         if self.q_bounds is not None:
             lines.append(f"q_bounds: [{self.q_bounds[0]:.4g}, {self.q_bounds[1]:.4g}]")
@@ -3485,6 +3529,8 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
     def _declared_rule(self) -> str:
         """The stopping rule the fit declared, ``"relative"`` when it declared none."""
         for fit in self.fits.values():
+            if fit.hazard is not None and fit.hazard.stopping != "relative":
+                return fit.hazard.stopping
             for step in fit.steps:
                 if step.fluctuation is not None and step.fluctuation.stopping != "relative":
                     return step.fluctuation.stopping
@@ -3499,6 +3545,19 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
         seen: set[int] = set()
         missed: list[str] = []
         for key, fit in self.fits.items():
+            record = fit.hazard
+            if (
+                record is not None
+                and id(record) not in seen
+                and record.rule_ratio is not None
+                and record.rule_ratio > 1.0
+            ):
+                seen.add(id(record))
+                where = "every horizon" if record.algorithm == "one_step" else f"t={fit.horizon}"
+                missed.append(
+                    f"the hazard targeting of {where} is {record.rule_ratio:.3g} times its "
+                    "threshold"
+                )
             for step in fit.steps:
                 fluctuation = step.fluctuation
                 if (
@@ -3536,6 +3595,13 @@ class LongitudinalResult(Mapping[str, ParameterEstimate]):
                 lines.append(
                     f"hazard targeting: per horizon over {len(records)} horizon(s), at most "
                     f"{steps} iteration(s), largest relative score {largest:.2g}, {verdict}"
+                )
+            if first.share_clipped:
+                node, cause, share = max(first.share_clipped, key=lambda item: item[2])
+                lines.append(
+                    f"hazard node bounds: largest clipped share of initial hazards "
+                    f"{100 * share:.1f}% (node {node}, cause {cause + 1}); "
+                    f"{len(first.bound_excludes_data)} cell(s) excluded by a bound"
                 )
         if self.config.isotonic:
             lines.append(f"isotonic projection moved {len(self.isotonic_moves)} level(s)")
@@ -3582,6 +3648,7 @@ def _run_recursion(
     normalization: str | None = None,
     parametric: bool = True,
     gformula: GFormulaSettings | None = None,
+    node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
 ) -> tuple[dict[str, RegimenFit], tuple[MSMRegimenFit, ...]]:
     """Run the backward recursion over every reported cell, and file the fits by key.
 
@@ -3650,6 +3717,10 @@ def _run_recursion(
         the same flag, so the two agree.
     gformula : GFormulaSettings or None
         On a parametric g-formula fit, the simulation settings.
+    node_bounds : dict or None
+        On a TMLE fit, the resolved bound of each bounded node, by cause (``None`` is the
+        one cause of a fit without competing risks) and one-based node.  Only a TMLE fit
+        reads it.
 
     Returns
     -------
@@ -3736,8 +3807,17 @@ def _run_recursion(
     if msm is None:
         return {
             _fit_key(plan.label, cause, horizon, data.reports_curve): _with_node_ratio(
-                fit_regimen(data, plan, mechanism, horizon=horizon, cause=cause, **recursion),
+                fit_regimen(
+                    data,
+                    plan,
+                    mechanism,
+                    horizon=horizon,
+                    cause=cause,
+                    node_bounds=None if node_bounds is None else node_bounds.get(cause),
+                    **recursion,
+                ),
                 ratios[plan.label],
+                mechanism,
             )
             # Regimen-outer, then cause, then horizon, so the report reads down one curve
             # at a time rather than across the regimens at each time.
@@ -3753,7 +3833,7 @@ def _run_recursion(
     )
     return {
         _fit_key(fit.regimen.label, fit.cause, fit.horizon, data.reports_curve): _with_node_ratio(
-            fit, ratios[fit.regimen.label]
+            fit, ratios[fit.regimen.label], mechanism
         )
         for msm_fit in msm_fits
         for fit in msm_fit.fits
@@ -3774,6 +3854,11 @@ def _run_hazard(
     max_iter: int,
     tol: float,
     step_size: float,
+    node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
+    stopping: str = "relative",
+    step_bound: float | None = None,
+    step_search: bool = True,
+    iterate: str = "last",
 ) -> dict[str, RegimenFit]:
     """Target the initial hazards and file one fit per regimen, cause and horizon.
 
@@ -3806,6 +3891,18 @@ def _run_hazard(
         Relative-score tolerance.
     step_size : float
         The first step of a one-step walk.
+    node_bounds : dict or None
+        The resolved hazard-scale bounds by cause and one-based node, ``None`` when no node
+        is bounded.
+    stopping : {"relative", "scaled_var", "sample_size"}
+        The stopping rule of the targeting.  A declared rule reads the data's clusters as
+        its units, with a span of one, since a hazard lies on the ``[0, 1]`` scale.
+    step_bound : float or None
+        The longest per-horizon step in ``epsilon``.
+    step_search : bool
+        Whether a bounded step searches its length.
+    iterate : {"last", "best"}
+        Which iterate the targeting reports.
 
     Returns
     -------
@@ -3829,6 +3926,12 @@ def _run_hazard(
         max_iter=max_iter,
         tol=tol,
         step_size=step_size,
+        node_bounds=hazard_bounds(node_bounds, data.n_times, data.cause_labels or (None,)),
+        stopping=stopping,
+        stop=None if stopping == "relative" else StopContext(data.cluster, 1.0),
+        step_bound=step_bound,
+        step_search=step_search,
+        iterate=iterate,
     )
     return {
         _fit_key(label, cause, horizon, True): fit for (label, cause, horizon), fit in fits.items()
@@ -3963,7 +4066,7 @@ def _run_baseline(
                         stacked=parametric,
                     )
                 key = _fit_key(plan.label, cause, horizon, data.reports_curve)
-                fits[key] = _with_node_ratio(fit, ratios[plan.label])
+                fits[key] = _with_node_ratio(fit, ratios[plan.label], mechanism)
     return fits
 
 
@@ -3993,7 +4096,9 @@ def _run_gformula(
     )
     ratios = {plan.label: node_ratios(data, plan, mechanism) for plan in plans}
     return {
-        _fit_key(label, cause, horizon, data.reports_curve): _with_node_ratio(fit, ratios[label])
+        _fit_key(label, cause, horizon, data.reports_curve): _with_node_ratio(
+            fit, ratios[label], mechanism
+        )
         for (label, cause, horizon), fit in fits.items()
     }
 
@@ -4042,7 +4147,7 @@ def _run_sdr(
     )
     fits = {
         _fit_key(cell.label, cell.cause, cell.horizon, data.reports_curve): _with_node_ratio(
-            fit, ratios[cell.label]
+            fit, ratios[cell.label], mechanism
         )
         for cell, fit in zip(cells, fitted, strict=True)
     }
@@ -4131,9 +4236,12 @@ def _run_ipsi(
     return fits, msm_fits
 
 
-def _with_node_ratio(fit: RegimenFit, ratio: FloatArray | None) -> RegimenFit:
-    """The fit with its plan's raw per-node ratio, kept for a later trim of the policy ratio."""
-    return fit if ratio is None else replace(fit, node_ratio=ratio)
+def _with_node_ratio(fit: RegimenFit, ratio: FloatArray | None, mechanism: Mechanism) -> RegimenFit:
+    """The fit with its plan's raw per-node ratio and, under ``ratio_trim=``, its trim."""
+    trim = mechanism.ratio_trims.get(fit.regimen.label)
+    if ratio is None and trim is None:
+        return fit
+    return replace(fit, node_ratio=ratio, ratio_trim=trim)
 
 
 @dataclass(frozen=True)
@@ -4184,8 +4292,9 @@ def _inference_status(
     (``few-cluster-cross-fitted-ltmle``).
 
     The targeting pools every follower, so the curve is centred at the pooled estimate and
-    the folds do not enter the status or the degrees of freedom.  A fit can take
-    ``"few_cluster_plugin"`` only. ``LTMLE.fit`` and the
+    the folds do not enter the status or the degrees of freedom.  This status can be
+    ``"few_cluster_plugin"`` only, and :func:`_trimmed_status` adds the trimmed-ratio status
+    of a ``ratio_trim=`` fit. ``LTMLE.fit`` and the
     truncation-curve replay ``_refit_bound`` pass the status to :func:`_estimates` or
     :func:`_msm_estimates`, which also set the Student t reference of an inferential fit
     with fewer than :data:`~cleverly._inference_status.FEW_CLUSTER_THRESHOLD` clusters.
@@ -4227,6 +4336,31 @@ def _inference_status(
             "estimated_weight_plugin" if data.weight_spec.estimated else "influence_curve",
         )
     )
+
+
+def _trimmed_status(inference: InferenceStatus, mechanism: Mechanism) -> InferenceStatus:
+    """The fit status after a ratio trim: the trimmed-ratio status when the trim bound.
+
+    A fit with ``ratio_trim=`` whose trim moved a positive per-node ratio of any plan takes
+    :data:`~cleverly._inference_status.TRIMMED_RATIO_STATUS`, unless an earlier status in the
+    table applies.  The trimmed share is the one fitted quantity a fit status reads.
+    ``LTMLE.fit`` and the truncation-curve replay both apply it, to the same mechanism.
+
+    Parameters
+    ----------
+    inference : str
+        The status of :func:`_inference_status`.
+    mechanism : Mechanism
+        The fitted mechanism, with its trims attached.
+
+    Returns
+    -------
+    str
+        ``inference``, or the trimmed-ratio status by precedence.
+    """
+    if any(trim.trimmed_share > 0.0 for trim in mechanism.ratio_trims.values()):
+        return precedent_status((inference, TRIMMED_RATIO_STATUS))
+    return inference
 
 
 def _reference_df(data: LongitudinalData, inference: InferenceStatus) -> int | None:
@@ -4511,6 +4645,8 @@ class _SequentialEstimator:
     targeting: str = "iterative"
     step_size: float = 1e-3
     isotonic: bool = False
+    #: The declared node bounds.  Only :class:`LTMLE` takes them.
+    node_bounds: Mapping[Any, Any] | None = None
 
     #: Whether a fixed dose, or a known rule that sets a dose, at a continuous node is a
     #: regimen this estimator fits.  Only a model-based estimator accepts one.
@@ -4548,6 +4684,8 @@ class _SequentialEstimator:
         bootstrap_interval: BootstrapInterval = "percentile",
         density_bins: int | None = None,
         ratio: str = "density",
+        ratio_trim: float | None = None,
+        hazard_pooling: str = "node",
         repeats: int = 1,
         **refused: Any,
     ) -> None:
@@ -4579,6 +4717,8 @@ class _SequentialEstimator:
         self.bootstrap_interval = bootstrap_interval
         self.density_bins = density_bins
         self.ratio = ratio
+        self.ratio_trim = ratio_trim
+        self.hazard_pooling = hazard_pooling
         self.repeats = repeats
         refuse_unsupported(refused, where=type(self).__name__)
         self._validate_settings()
@@ -4651,6 +4791,8 @@ class _SequentialEstimator:
                 "continuous node's policy ratio is estimated: a binned conditional density, or "
                 "a stacked classification (Diaz et al. 2023, Section 5.4)"
             )
+        check_ratio_trim(self.ratio_trim)
+        check_hazard_pooling(self.hazard_pooling)
         if self.density_bins is not None and self.density_bins < 3:
             raise ValueError(f"density_bins must be at least 3; got {self.density_bins}")
         if self.msm is not None and not isinstance(self.msm, MSM):
@@ -4667,9 +4809,8 @@ class _SequentialEstimator:
             isotonic=self.isotonic,
             msm=self.msm is not None,
             pseudo_learner=self.pseudo_learner is not None,
-            iterate=getattr(self, "iterate", "last"),
-            stopping=getattr(self, "stopping", "relative"),
             step_bound=getattr(self, "step_bound", None),
+            ratio_trim=self.ratio_trim,
         )
         if self.msm is not None and self.reference is not None:
             raise ValueError(
@@ -4732,6 +4873,7 @@ class _SequentialEstimator:
             "step_bound": None,
             "step_search": True,
             "iterate": "last",
+            "node_bounds": None,
         }
 
     def _normalization(self) -> str | None:
@@ -4787,6 +4929,7 @@ class _SequentialEstimator:
             n_jobs=self.n_jobs,
             density_bins=self.density_bins,
             ratio=self.ratio,
+            hazard_pooling=self.hazard_pooling,
         )
 
     def _parametric(
@@ -5140,11 +5283,15 @@ class _SequentialEstimator:
         # One seed for every multiplier draw, fixed before any fold draw.
         multiplier_seed = self._multiplier_seed()
         scaler = self._scaler(prepared)
+        # Before any learner: a bound the data cannot hold is a declaration error.
+        resolved_bounds, declared_bounds = self._resolve_node_bounds(prepared, scaler)
         # A cumulative path probability is not a point-treatment propensity.  There is no
         # automatic rule here: the constructor default is the visible fixed R ``ltmle``
         # heuristic, and every other accepted value is an explicit scalar or pair.
         bounds = resolve_cumulative_g_bounds(self.g_bounds)
         horizons = self._horizons(prepared)
+        if self.hazard_pooling == "pooled":
+            refuse_pooled_designs(prepared)
         # Every draw is realized and preflighted before the first learner of any draw, so a
         # split that cannot be fitted is refused before any fitting time is spent.
         masks = prepared.regimen_masks(prepared.treatment)
@@ -5197,6 +5344,7 @@ class _SequentialEstimator:
                 model=model,
                 reference=reference,
                 classification=classification,
+                node_bounds=resolved_bounds,
             )
             for folds, seed in draws
         ]
@@ -5261,6 +5409,7 @@ class _SequentialEstimator:
             targeting=self.targeting,
             step_size=float(self.step_size),
             isotonic=self.isotonic,
+            node_bounds=declared_bounds,
         )
         # Each parameter takes the precedent of its draws' statuses before the median, so
         # a parameter that withholds inference in any draw withholds it in the report.  The
@@ -5363,6 +5512,7 @@ class _SequentialEstimator:
         model: RegimenMSM | None,
         reference: RegimenSpec,
         classification: Classification | None = None,
+        node_bounds: dict[str | None, dict[int, NodeBound]] | None = None,
     ) -> _DrawOutcome:
         """One complete single-draw fit at one fold assignment.
 
@@ -5388,6 +5538,7 @@ class _SequentialEstimator:
         # Build this record before the first backward pass. It holds only cloneable
         # unfitted templates and the already-resolved plan matrices, never a fitted Q.
         targeting = self._targeting()
+        targeting["node_bounds"] = node_bounds
         replay_recipe = _replay_recipe(
             plans,
             outcome_learner,
@@ -5444,7 +5595,15 @@ class _SequentialEstimator:
                 folds=folds,
                 density_bins=self.density_bins,
                 ratio=self.ratio,
+                hazard_pooling=self.hazard_pooling,
                 n_jobs=self.n_jobs,
+            )
+        if self.ratio_trim is not None:
+            # One trim per plan over the pooled out-of-fold ratios, attached to the mechanism
+            # so that every reader of the cumulative product, a truncation replay included,
+            # divides by the same trimmed ratio.
+            mechanism = replace(
+                mechanism, ratio_trims=trim_ratios(prepared, plans, mechanism, self.ratio_trim)
             )
         initial: InitialHazards | None = None
         msm_fits: tuple[MSMRegimenFit, ...]
@@ -5453,7 +5612,12 @@ class _SequentialEstimator:
                 "one_step" if self.targeting == "one_step" else "per_horizon"
             )
             initial = fit_hazards(
-                prepared, levels, learner=outcome_learner, folds=folds, n_jobs=self.n_jobs
+                prepared,
+                levels,
+                learner=outcome_learner,
+                folds=folds,
+                n_jobs=self.n_jobs,
+                hazard_pooling=self.hazard_pooling,
             )
             # A hazard replay refits no learner, so the learner audit does not apply to it.
             replay_recipe = replace(
@@ -5481,6 +5645,11 @@ class _SequentialEstimator:
                 max_iter=targeting["max_iter"],
                 tol=targeting["tol"],
                 step_size=self.step_size,
+                node_bounds=node_bounds,
+                stopping=targeting["stopping"],
+                step_bound=targeting["step_bound"],
+                step_search=targeting["step_search"],
+                iterate=targeting["iterate"],
             )
             msm_fits = ()
         else:
@@ -5504,8 +5673,9 @@ class _SequentialEstimator:
                 gformula=self._gformula_settings(prepared),
             )
         parametric = self._simulated_parametric(parametric, fits)
-        status = _inference_status(
-            prepared, folds, estimator=self._estimator, parametric=parametric
+        status = _trimmed_status(
+            _inference_status(prepared, folds, estimator=self._estimator, parametric=parametric),
+            mechanism,
         )
         unprojected_fits = fits
         moves: tuple[tuple[str, str | None, int, float, float], ...] = ()
@@ -5678,6 +5848,7 @@ class _SequentialEstimator:
             self._estimator in ("tmle", "sdr")
             and not hazard
             and not self.isotonic
+            and self.node_bounds is None
             and model is None
             and folds.is_single
             and prepared.cluster is None
@@ -6047,6 +6218,124 @@ class _SequentialEstimator:
             ),
         )
 
+    def _resolve_node_bounds(
+        self, data: LongitudinalData, scaler: OutcomeScaler
+    ) -> tuple[
+        dict[str | None, dict[int, NodeBound]] | None,
+        tuple[tuple[str | None, float, float, float], ...],
+    ]:
+        """Check the declared node bounds against the fit, before any learner.
+
+        Parameters
+        ----------
+        data : LongitudinalData
+            The prepared panel, whose grid and causes the keys must name.
+        scaler : OutcomeScaler
+            The outcome transformation, whose range the bounds must lie in.
+
+        Returns
+        -------
+        resolved : dict or None
+            The bound of each bounded node on the ``[0, 1]`` scale, by cause (``None`` for a
+            fit without competing risks) and one-based node.  ``None`` when no node is bounded.
+            A node whose bounds equal the outcome range is the shipped node and is left out.
+            On a fit with ``survival_model="hazard"`` the bounds are on the hazard scale, and
+            the range they must lie in is ``[0, 1]``.
+        declared : tuple
+            ``(cause, grid time, lower, upper)`` on the reported scale, in declaration order.
+
+        Raises
+        ------
+        ValueError
+            When a key is not a grid time or a declared cause, when ``lower >= upper``, or when
+            a bound lies outside the outcome range.
+        CapabilityError
+            On a hazard fit, when a node bounds some causes and not others (R-i6), or when the
+            upper bounds of a node sum to more than one (R-i2).
+        """
+        if self.node_bounds is None:
+            return None, ()
+        grid = (
+            tuple(data.time_grid)
+            if data.time_grid is not None
+            else tuple(range(1, data.n_times + 1))
+        )
+        causes = tuple(data.cause_labels)
+        if causes:
+            entries: list[tuple[str | None, Any, Any]] = []
+            for cause, mapping in self.node_bounds.items():
+                if cause not in causes:
+                    raise ValueError(
+                        f"node_bounds names cause {cause!r}; this fit declared {list(causes)}"
+                    )
+                if not isinstance(mapping, Mapping):
+                    raise ValueError(
+                        f"node_bounds for cause {cause!r} must map grid times to (lower, upper) "
+                        f"pairs; got {type(mapping).__name__}"
+                    )
+                entries.extend((cause, key, value) for key, value in mapping.items())
+        else:
+            entries = [(None, key, value) for key, value in self.node_bounds.items()]
+        hazard = self.survival_model == "hazard"
+        # A hazard is a probability, so a hazard fit reads its bounds on [0, 1] whatever the
+        # outcome transformation is.
+        low, high = (0.0, 1.0) if hazard else (float(scaler.lower), float(scaler.upper))
+        resolved: dict[str | None, dict[int, NodeBound]] = {}
+        declared: list[tuple[str | None, float, float, float]] = []
+        by_node: dict[int, dict[str | None, tuple[float, float]]] = {}
+        for cause, key, value in entries:
+            node = next(
+                (
+                    index
+                    for index, point in enumerate(grid, start=1)
+                    if isinstance(key, (int, float, np.number)) and float(key) == float(point)
+                ),
+                None,
+            )
+            if node is None:
+                raise ValueError(
+                    f"node_bounds names grid time {key!r}, which is not a node of this fit; "
+                    f"its grid is {list(grid)}"
+                )
+            try:
+                lower, upper = (float(bound) for bound in value)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"node_bounds at {key!r} must be a (lower, upper) pair of numbers; "
+                    f"got {value!r}"
+                ) from None
+            if not lower < upper:
+                raise ValueError(
+                    f"node_bounds at {key!r} needs lower < upper; got ({lower!r}, {upper!r})"
+                )
+            if lower < low or upper > high:
+                raise ValueError(
+                    f"node_bounds at {key!r} lies outside the "
+                    f"{'hazard' if hazard else 'outcome'} range [{low:g}, {high:g}]"
+                )
+            declared.append((cause, float(grid[node - 1]), lower, upper))
+            by_node.setdefault(node, {})[cause] = (lower, upper)
+            scaled = (
+                (lower, upper)
+                if hazard
+                else (
+                    float((lower - scaler.lower) / scaler.range),
+                    float((upper - scaler.lower) / scaler.range),
+                )
+            )
+            if scaled == (0.0, 1.0):
+                continue
+            resolved.setdefault(cause, {})[node] = NodeBound(
+                lower=scaled[0],
+                upper=scaled[1],
+                time=key,
+                reported=(lower, upper),
+                outcome=scaler,
+            )
+        if hazard:
+            check_hazard_node_bounds(by_node, grid, causes or (None,))
+        return (resolved or None), tuple(declared)
+
     def _scaler(self, data: LongitudinalData) -> OutcomeScaler:
         """The outcome transformation, refusing a bound that cannot apply.
 
@@ -6404,13 +6693,19 @@ class LTMLE(_SequentialEstimator):
         standard deviation of the node's per-unit score contribution.  A node stops at the
         first Newton iterate that meets the rule, so a declared rule changes ``converged``,
         ``n_iter`` and the warning, and it moves the estimate by the part of the last Newton
-        step it skips.
+        step it skips.  Under ``survival_model="hazard"`` the rule judges the score vector of
+        each horizon (``targeting="iterative"``) or of every target (``"one_step"``), with
+        each target's influence curve as its contribution.
     step_bound : float or None
         The longest step of one iteration of a node's targeting, in the units of the
         fluctuation coefficient.  ``None`` takes the full Newton step.  A positive number takes
         the ``tmle3`` constrained step: the node's single coefficient moves by ``sign(s)`` times
         a length in ``(0, step_bound]``, where ``s`` is the node's score.  A bounded node may
-        stop short of ``tol``, and then it warns and reports ``converged=False``.
+        stop short of ``tol``, and then it warns and reports ``converged=False``.  Under
+        ``survival_model="hazard"`` and ``targeting="iterative"`` each horizon steps along
+        ``s / ||s||``, with ``s`` its score vector.  The one-step hazard walk takes its steps
+        in ``step_size``, so a step bound beside it raises
+        :class:`~cleverly.exceptions.MethodConfigurationError`.
     step_search : bool
         With ``step_bound``, ``True`` takes the length that minimises the node's weighted mean
         quasi-loss over ``(0, step_bound]``, and ``False`` takes the whole bound.  It needs
@@ -6420,7 +6715,8 @@ class LTMLE(_SequentialEstimator):
         which the walk stopped.  ``"best"`` reports the iterate ``k >= 1`` whose score has the
         smallest 2-norm, the first of any tie, and judges the node's ``converged`` there.  A
         bounded step without a search can oscillate around the root, which is where the two
-        differ.
+        differ.  The one-step hazard walk ranks its steps by the norm it walks on and takes the
+        last of any tie, so ``"best"`` there reports the last accepted step.
     random_state : int or None
         The seed of the outer split.  A default learner, and a
         :class:`~cleverly.learners.SuperLearner` with no seed of its own, inherit it.
@@ -6489,6 +6785,44 @@ class LTMLE(_SequentialEstimator):
         unit-weight isotonic regression (Westling, van der Laan and Carone 2020).  Every
         influence curve, standard error and critical value is unchanged.  A curve with no
         violation is returned bit for bit.
+    density_bins : int or None
+        The bin count of a continuous node's conditional density.
+    ratio : {"density", "classifier"}
+        How a continuous node's policy ratio is estimated.
+    ratio_trim : float or None
+        A quantile in ``(0, 1)`` at which every per-node density ratio is trimmed, as
+        ``lmtp``'s ``.trim`` does (:mod:`cleverly.longitudinal.ratio_trim`).  A fit whose
+        trim moves a ratio reports no interval.  ``None`` trims nothing.
+        ``survival_model="hazard"`` refuses it with
+        :class:`~cleverly.exceptions.CapabilityError`, because the hazard targeting has no
+        density-ratio matrix to trim.
+    hazard_pooling : {"node", "pooled"}
+        ``"pooled"`` fits one censoring model over every node's at-risk rows, with the node
+        time as a column (:mod:`cleverly.longitudinal.pooled_hazards`).  Under
+        ``survival_model="hazard"`` it also fits each cause's hazard once over the eligible
+        rows of every node.
+    node_bounds : mapping or None
+        A declared outcome range for chosen nodes of an iterated-mean fit.  The keys are grid
+        times, the values are ``(lower, upper)`` pairs on the reported outcome scale, and a
+        competing-risk fit takes one such mapping for each cause name.  A named node regresses
+        ``(Y - lower) / (upper - lower)`` with the pseudo-outcome learner, clips the prediction
+        to ``[0, 1]`` and maps it back into the bounds.  It fluctuates along the logit of the
+        rescaled prediction (Gruber and van der Laan 2010), so its targeted prediction stays
+        inside the bounds.  A node with no entry, and ``None``, give the shipped fit bit for
+        bit, and so does a node whose bounds equal the outcome range.  The score equation of
+        a bounded node has a root only when the weighted mean outcome of the node's followers
+        lies strictly inside the bounds.  Otherwise the node runs no Newton step, the fit warns
+        with :class:`~cleverly.exceptions.ConvergenceWarning`, and the node reports
+        ``failure="bound_excludes_data"`` and ``converged=False``.  A grid time that is not a
+        node, a cause the fit did not declare, ``lower >= upper`` and bounds outside the outcome
+        range raise ``ValueError`` before any learner.  ``msm=`` raises
+        :class:`~cleverly.exceptions.CapabilityError`.  Under ``survival_model="hazard"`` the
+        bounds are on the cause-specific hazard, inside ``[0, 1]``, and a named node bounds
+        every cause.  Cause :math:`j` there fluctuates along
+        :math:`\\operatorname{logit}((\\lambda_j - l_j) / (u_j - l_j))`, the initial hazards
+        are clipped into the bounds, and the record holds the clipped share.  A node that
+        bounds some causes and not others, or whose upper bounds sum to more than one, raises
+        :class:`~cleverly.exceptions.CapabilityError` before any learner.
     **refused : Any
         A point-treatment keyword.  Each one raises :class:`CapabilityError` with the
         reason that a longitudinal fit does not support it.
@@ -6535,8 +6869,12 @@ class LTMLE(_SequentialEstimator):
         targeting: str = "iterative",
         step_size: float = 1e-3,
         isotonic: bool = False,
+        ratio_trim: float | None = None,
+        hazard_pooling: str = "node",
+        node_bounds: Mapping[Any, Any] | None = None,
         **refused: Any,
     ) -> None:
+        self.node_bounds = node_bounds
         self.alpha = alpha
         self.max_iter = max_iter
         self.tol = tol
@@ -6573,6 +6911,8 @@ class LTMLE(_SequentialEstimator):
             bootstrap_interval=bootstrap_interval,
             density_bins=density_bins,
             ratio=ratio,
+            ratio_trim=ratio_trim,
+            hazard_pooling=hazard_pooling,
             repeats=repeats,
             **refused,
         )
@@ -6590,6 +6930,14 @@ class LTMLE(_SequentialEstimator):
         check_iterate(self.iterate, "logistic")
         check_stopping_rule(self.stopping, "logistic")
         check_step_bound(self.step_bound, self.step_search, "logistic")
+        if self.node_bounds is not None:
+            if not isinstance(self.node_bounds, Mapping):
+                raise ValueError(
+                    "node_bounds must map grid times to (lower, upper) pairs, or one such "
+                    f"mapping to each cause; got {type(self.node_bounds).__name__}"
+                )
+            if self.msm is not None:
+                raise CapabilityError(refusal=NODE_BOUNDS_MSM_REFUSAL)
 
     def _targeting(self) -> dict[str, Any]:
         """The logistic shrink, the iteration limit, the score tolerance and the step rules."""
@@ -6601,6 +6949,7 @@ class LTMLE(_SequentialEstimator):
             "step_bound": self.step_bound,
             "step_search": self.step_search,
             "iterate": self.iterate,
+            "node_bounds": None,
         }
 
 
@@ -6696,6 +7045,13 @@ class SDR(_SequentialEstimator):
         The bin count of a continuous node's conditional density, as for :class:`LTMLE`.
     ratio : {"density", "classifier"}
         How a continuous node's policy ratio is estimated, as for :class:`LTMLE`.
+    ratio_trim : float or None
+        The per-node ratio trim, as for :class:`LTMLE`.  Each partial weight
+        :math:`W_{t,s}` is then the product of the trimmed ratios, as in ``lmtp``
+        (:func:`~cleverly.longitudinal.sdr.trimmed_factors`).
+    hazard_pooling : {"node", "pooled"}
+        The pooling, as for :class:`LTMLE`.  Each cross-fitted fold pools its own censoring
+        model.
     repeats : int
         How many independent draws of the outer split the fit combines by their median,
         as for :class:`LTMLE`.
@@ -6764,9 +7120,13 @@ class SDR(_SequentialEstimator):
         bootstrap_interval: BootstrapInterval = "percentile",
         density_bins: int | None = None,
         ratio: str = "density",
+        ratio_trim: float | None = None,
+        hazard_pooling: str = "node",
         repeats: int = 1,
         **refused: Any,
     ) -> None:
+        if "node_bounds" in refused:
+            raise MethodConfigurationError.from_refusal(node_bounds_refusal("the SDR estimator"))
         named = [name for name in SDR_REFUSED_SETTINGS if name in refused]
         if named:
             raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(named[0]))
@@ -6795,6 +7155,8 @@ class SDR(_SequentialEstimator):
             bootstrap_interval=bootstrap_interval,
             density_bins=density_bins,
             ratio=ratio,
+            ratio_trim=ratio_trim,
+            hazard_pooling=hazard_pooling,
             repeats=repeats,
             **refused,
         )
@@ -6950,6 +7312,8 @@ class IPSI(_SequentialEstimator):
         IPSI bootstrap, so the draws report a bootstrap sd and no percentile inference.
     bootstrap_resampling : {"auto", "iid", "cluster"}
         ``"auto"`` resamples clusters when ``id=`` is declared, and rows otherwise.
+    hazard_pooling : {"node", "pooled"}
+        The pooling, as for :class:`LTMLE`.
     repeats : int
         How many independent draws of the outer split the fit combines by their median,
         as for :class:`LTMLE`.
@@ -6957,7 +7321,9 @@ class IPSI(_SequentialEstimator):
         ``alpha``, ``max_iter``, ``tol``, ``stopping``, ``step_bound``, ``step_search``,
         ``iterate``, ``targeting`` and ``fluctuation``, which raise
         :class:`MethodConfigurationError` because the estimator fits no fluctuation, and each
-        point-treatment keyword that :class:`LTMLE` refuses.
+        point-treatment keyword that :class:`LTMLE` refuses.  ``ratio_trim`` other than
+        ``None`` raises :class:`~cleverly.exceptions.CapabilityError`
+        (:data:`~cleverly.methods.IPSI_RATIO_TRIM_REFUSAL`).
 
     See Also
     --------
@@ -7017,11 +7383,16 @@ class IPSI(_SequentialEstimator):
         n_jobs: int = 1,
         n_bootstrap: int = 0,
         bootstrap_resampling: Resampling = "auto",
+        hazard_pooling: str = "node",
         repeats: int = 1,
         **refused: Any,
     ) -> None:
+        if "node_bounds" in refused:
+            raise MethodConfigurationError.from_refusal(node_bounds_refusal("IPSI"))
         if any(name in refused for name in IPSI_REFUSED_SETTINGS):
             raise MethodConfigurationError.from_refusal(IPSI_NO_FLUCTUATION)
+        if refused.pop("ratio_trim", None) is not None:
+            raise CapabilityError.from_refusal(IPSI_RATIO_TRIM_REFUSAL)
         super().__init__(
             _tilt_shorthand(regimens),
             reference=reference,
@@ -7044,6 +7415,7 @@ class IPSI(_SequentialEstimator):
             n_jobs=n_jobs,
             n_bootstrap=n_bootstrap,
             bootstrap_resampling=bootstrap_resampling,
+            hazard_pooling=hazard_pooling,
             repeats=repeats,
             **refused,
         )
@@ -7251,11 +7623,19 @@ class _Baseline(_SequentialEstimator, metaclass=ABCMeta):
         msm: MSM | None = None,
         **refused: Any,
     ) -> None:
+        if "node_bounds" in refused:
+            raise MethodConfigurationError.from_refusal(
+                node_bounds_refusal("the sequential g-computation and IPW estimators")
+            )
         named = [name for name in SDR_REFUSED_SETTINGS if name in refused]
         if named:
             raise MethodConfigurationError.from_refusal(baseline_no_fluctuation_refusal(named[0]))
         if msm is not None:
             raise CapabilityError(refusal=BASELINE_MSM_REFUSAL)
+        if refused.get("ratio_trim") is not None:
+            raise CapabilityError(refusal=BASELINE_RATIO_TRIM_REFUSAL)
+        if refused.get("hazard_pooling", "node") != "node":
+            raise CapabilityError(refusal=BASELINE_HAZARD_POOLING_REFUSAL)
         super().__init__(
             regimens,
             reference=reference,
@@ -7389,7 +7769,8 @@ class SequentialGComputation(_Baseline):
     **refused : Any
         ``alpha``, ``max_iter`` and ``tol``, which raise :class:`TypeError` because the
         estimator fits no fluctuation, and each point-treatment keyword that :class:`LTMLE`
-        refuses.
+        refuses.  ``ratio_trim`` other than ``None`` and ``hazard_pooling`` other than
+        ``"node"`` raise :class:`CapabilityError`.
 
     See Also
     --------
@@ -7592,7 +7973,9 @@ class SequentialIPW(_Baseline):
         ``outcome_learner``, ``pseudo_learner``, ``density_bins``, ``ratio`` and ``msm``,
         which raise because the estimator fits no outcome regression and no density ratio;
         ``alpha``, ``max_iter`` and ``tol``, which raise :class:`TypeError`; and each
-        point-treatment keyword that :class:`LTMLE` refuses.
+        point-treatment keyword that :class:`LTMLE` refuses.  ``ratio_trim`` other than
+        ``None`` and ``hazard_pooling`` other than ``"node"`` raise
+        :class:`CapabilityError`.
 
     See Also
     --------
@@ -7972,13 +8355,15 @@ class ParametricGFormula(_Baseline):
         Raises
         ------
         CapabilityError
-            When a plan holds a risk-ratio tilt or an odds tilt at a node with other than two
-            levels, a covariate is untyped, a learner is declared
+            When the data declare a Markov order, a plan holds a risk-ratio tilt or an odds
+            tilt at a node with other than two levels, a covariate is untyped, a learner is declared
             that nothing reads, a learner carries a family the fit overrides, a Gaussian
             covariate has a learner that is not a GLM, a binomial GLM meets a continuous
             outcome with no declared scale, or a declared treatment mechanism is missing for a
             unit at a node whose natural treatment the simulation draws.
         """
+        if data.markov_order is not None:
+            raise CapabilityError(refusal=GFORMULA_MARKOV_REFUSAL)
         declared_natural(data, plans)
         for plan in plans:
             for node in range(1, data.n_times + 1):
@@ -8350,6 +8735,11 @@ def _refit_bound(
             max_iter=recipe.hazard.max_iter,
             tol=recipe.hazard.tol,
             step_size=recipe.hazard.step_size,
+            node_bounds=recipe.node_bounds,
+            stopping=recipe.stopping,
+            step_bound=recipe.step_bound,
+            step_search=recipe.step_search,
+            iterate=recipe.iterate,
         )
         msm_fits = ()
     else:
@@ -8380,14 +8770,18 @@ def _refit_bound(
             iterate=recipe.iterate,
             normalization=recipe.normalization,
             parametric=recipe.parametric,
+            node_bounds=recipe.node_bounds,
         )
     # The fit reports the projected levels, so the replay projects them too.
     if recipe.isotonic:
         fits, _ = _project_fits(fits)
     # The status the fit stamped, recomputed from the same data and folds, so the replay at
     # the fitted bound equals the fit in every field ``_fitted_replay_matches`` compares.
-    status = _inference_status(
-        result.data, draw.folds, estimator=recipe.estimator, parametric=recipe.parametric
+    status = _trimmed_status(
+        _inference_status(
+            result.data, draw.folds, estimator=recipe.estimator, parametric=recipe.parametric
+        ),
+        draw.mechanism,
     )
     if result.msm is None:
         reference = next(

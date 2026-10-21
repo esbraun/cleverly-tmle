@@ -132,6 +132,7 @@ class LongitudinalStageRow:
     epsilon: tuple[float, ...]
     #: Whether the fluctuation solved its score; ``None`` on a node with no fluctuation.
     converged: bool | None
+    share_trimmed: float | None = None
     #: On an SDR fit, the node's transform diagnostics; ``None`` on a TMLE fit.
     sdr: SDRNodeRow | None = None
     #: On an IPSI fit, the node's tilt diagnostics; ``None`` on every other fit.
@@ -245,6 +246,12 @@ class LongitudinalDiagnostics:
     cumulative mechanism and not the ratio.  A truncated row therefore need not carry a large
     ratio.
 
+    ``share_trimmed`` is present on a fit with ``ratio_trim=``, as ``cause`` is present on a
+    competing-risk fit only.  It is the share of the node's ``trained_on`` rows whose node
+    ratio the trim moved (:mod:`cleverly.longitudinal.ratio_trim`).
+
+    **On an SDR fit** the targeting columns ``epsilon`` and ``converged`` are absent,
+    because the estimator fits no fluctuation.  Five columns take their place.
     **On a fit with no fluctuation** the targeting columns ``epsilon`` and ``converged`` are
     absent, because no node holds a fluctuation parameter or a solver verdict.  This holds
     for ``SequentialGComputation`` and ``SequentialIPW``, whose nodes are untargeted, and for
@@ -307,6 +314,11 @@ class LongitudinalDiagnostics:
             "max_weight": [row.max_weight for row in self.rows],
             "effective_n": [row.effective_n for row in self.rows],
             "share_truncated": [row.share_truncated for row in self.rows],
+            **(
+                {"share_trimmed": [row.share_trimmed for row in self.rows]}
+                if any(row.share_trimmed is not None for row in self.rows)
+                else {}
+            ),
         }
         if self.rows and all(row.sdr is not None for row in self.rows):
             for name in (
@@ -634,6 +646,15 @@ def _policy_shares(density: FloatArray, levels: Sequence[object], categorical: b
     )
 
 
+def _share_trimmed(fit: Any, step: Any) -> float | None:
+    """The share of the node's scored rows whose node ratio the trim moved, or ``None``."""
+    trim = fit.ratio_trim
+    if trim is None:
+        return None
+    moved = trim.trimmed[step.trained_on, step.time - 1]
+    return float(np.mean(moved)) if moved.size else float("nan")
+
+
 def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
     """One row per node: how heavy the weights got and how much the bounds moved.
 
@@ -723,6 +744,7 @@ def _longitudinal_stagewise(result: Any) -> LongitudinalDiagnostics:
                     ),
                     sdr=None if step is None else _sdr_node_row(step),
                     ipsi=None if step is None else _ipsi_node_row(result, fit, step),
+                    share_trimmed=None if step is None else _share_trimmed(fit, step),
                 )
             )
     draws = [repeat.fits for repeat in getattr(result, "repeats", ())] or [result.fits]
