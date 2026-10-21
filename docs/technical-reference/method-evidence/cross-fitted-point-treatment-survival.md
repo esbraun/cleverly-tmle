@@ -152,6 +152,6 @@ The [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonica
 records the seeds, the margins, the estimator configuration, the source hashes and the result
 hashes. Run `python -m tests.canonical.point_survival_crossfit.regenerate` to regenerate the
 artifacts. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_crossfit/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_crossfit/replicates.parquet)
 and the [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_crossfit/properties.csv)
 carry every published row.

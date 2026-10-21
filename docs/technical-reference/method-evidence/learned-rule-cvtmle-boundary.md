@@ -173,7 +173,7 @@ gives the run command and the run form. The
 records the seeds, the margins, the estimator configuration, the source hashes and the result
 hashes. The [run log](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle_boundary/run.log)
 records the commit, the clean tree, the runtime and the wall time. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle_boundary/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle_boundary/replicates.parquet),
 the [harness columns](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle_boundary/harness.csv.gz)
 and the [readings](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/learned_rule_cvtmle_boundary/reading.csv)
 carry every published row.

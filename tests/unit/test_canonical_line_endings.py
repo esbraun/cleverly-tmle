@@ -18,6 +18,10 @@ original.
 
 So this reads the bytes.  It is the cheapest gate in the tree and the only one that can see
 this class of defect at all.
+
+The three row files (``replicates.parquet``, ``property-replicates.parquet`` and
+``property-failure-witnesses.parquet``) are Parquet.  They hold no line ending, so this check
+skips them.  :func:`~tests.studies.evidence.manifest.csv_text` writes their CSV text with LF.
 """
 
 from __future__ import annotations

@@ -629,11 +629,11 @@
     "tests/canonical/econml_dynamic_dml/generate_parity_fixture.py": "070398b1e62b712887e819c779e44c6bb0d14008cd2451d5debc64f6c3a8ad8f"
   },
   "sha256": {
-    "replicates.csv.gz": "48e8ae10bb882b9eb214828d8ef4ff9d738f5a978113ffeffd242fd6f9d7474a",
+    "replicates.parquet": "c785780cdf27bf36b0ce7d044ad7356655c89e45606add3911d09124efbf0ea8",
     "summary.csv": "3d26234605ec38e64858866522172737e952900655925a304abb3b27d81534c6",
     "equivalence.csv": "5bbc940c14ef9ad347fe710c76fc2e884ba64df1eb777e1454780cdc42b2cabd",
     "performance-tests.csv": "da86c7e17964f6292d3bad611d85c1c92077cd8d9ecf7e34cd3e0e7e39f35991",
-    "property-replicates.csv.gz": "1105a57ad3f1633fcb410f2f2c8ab2b840743157c9a4e909dbe4b2befc222ac8",
+    "property-replicates.parquet": "750e5b583c5b3b48b37f9e0cc75d2b30db6ebe65becc0f1bd53b48e991a098c4",
     "properties.csv": "81192f5bcc71da3b108290ead3906fb3f91865dea1a7e19a913fe2483dcb53be",
     "econml-markov-replicates.csv.gz": "e461d36cc30b5103b4ab02a4e9defb70c1804f2932cb3f431e1f93102729e47e",
     "econml-markov.csv": "309c320dd1e122e25b50ff01d1ce83c3ce285e8df3592a1828dfda893f9e7987",
@@ -641,6 +641,6 @@
     "exactness.csv": "0883dc51e185a45f6ff090e3243991e604a8b3984dcc1f45ca8f458a65de045e",
     "property-failures.csv": "8622819b7f347a09b3f325b21b8592f2b7b00d8b6f569b62d551b3b9e575822c",
     "property-failure-accounting.csv": "20dc42e8466b84141e9c7fb25c32224041bfdd5c02416061dd81017dde83ac8c",
-    "property-failure-witnesses.csv": "2dada7f565d7a12096c48df4197bd2810e23dc749f197731979d6107217eccf4"
+    "property-failure-witnesses.parquet": "9317807135ffe95e969a8bbf7ca4587c127072e276682f9f084c1576ec243a89"
   }
 }

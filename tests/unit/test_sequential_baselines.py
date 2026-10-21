@@ -27,6 +27,7 @@ from cleverly.longitudinal import (
     LTMLE,
     DynamicRegimen,
     LongitudinalData,
+    ParametricGFormula,
     SequentialGComputation,
     SequentialIPW,
 )
@@ -36,6 +37,13 @@ from cleverly.longitudinal.regimen import resolve_plans
 from cleverly.longitudinal.sequential import (
     FoldRecursionCell,
     _untargeted_recursion_in_fold,
+)
+from cleverly.methods import (
+    GComputationMethod,
+    IPWMethod,
+    ModelSpec,
+    ParametricGFormulaMethod,
+    Targeting,
 )
 
 from .. import discrete_law_competing as competing
@@ -917,6 +925,28 @@ def test_a_working_model_is_refused() -> None:
 
     with pytest.raises(CapabilityError, match=r"LTMLE\(msm=\.\.\.\)"):
         SequentialGComputation({"a": 1}, msm=DOSE)
+
+
+@pytest.mark.parametrize("engine", [SequentialGComputation, SequentialIPW, ParametricGFormula])
+def test_a_ratio_trim_and_pooled_hazards_are_refused(engine: Any) -> None:
+    from cleverly.methods import BASELINE_HAZARD_POOLING_REFUSAL, BASELINE_RATIO_TRIM_REFUSAL
+
+    with pytest.raises(CapabilityError) as trim:
+        engine({"a": 1}, ratio_trim=0.9)
+    assert trim.value.refusal == BASELINE_RATIO_TRIM_REFUSAL
+    with pytest.raises(CapabilityError) as pooled:
+        engine({"a": 1}, hazard_pooling="pooled")
+    assert pooled.value.refusal == BASELINE_HAZARD_POOLING_REFUSAL
+    # The defaults construct.
+    engine({"a": 1}, ratio_trim=None, hazard_pooling="node")
+
+
+@pytest.mark.parametrize("method", [GComputationMethod, IPWMethod, ParametricGFormulaMethod])
+def test_the_methods_refuse_a_ratio_trim_and_pooled_hazards(method: Any) -> None:
+    with pytest.raises(MethodConfigurationError, match="Omit ratio_trim="):
+        method(targeting=Targeting(ratio_trim=0.9)).estimator_kwargs(longitudinal=True)
+    with pytest.raises(MethodConfigurationError, match="hazard_pooling='node'"):
+        method(models=ModelSpec(hazard_pooling="pooled")).estimator_kwargs(longitudinal=True)
 
 
 def test_a_binomial_glm_on_an_unbounded_scale_is_refused() -> None:

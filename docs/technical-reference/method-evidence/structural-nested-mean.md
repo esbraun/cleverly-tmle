@@ -490,7 +490,7 @@ writes 12 cells: the 4 positive cells of `m` and their 8 controls. Each of those
 | --- | --- |
 | records | `property-failures.csv`, one row for each lost fit |
 | accounting | `property-failure-accounting.csv`. Every clause of the 12 cells holds at its worst case, and every cell reads `within bound` |
-| witnesses | `property-failure-witnesses.csv`, the draw statistic of each lost replicate among the survivors of its cell |
+| witnesses | `property-failure-witnesses.parquet`, the draw statistic of each lost replicate among the survivors of its cell |
 | primary phase | no subject fit and no paired `econml` fit failed |
 | Markov variant | `econml-markov-failures.csv`. Three Markov fits of law `k`, at replicates 1100, 1192 and 1279, raised `LinAlgError` because the logistic fit did not converge. Each `k` cell of the Markov table holds 1,597 of 1,600 replications. The declared failure bound of 0.01 allows 16. The Markov table gates nothing |
 

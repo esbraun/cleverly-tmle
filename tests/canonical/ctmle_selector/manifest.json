@@ -97,11 +97,11 @@
     "tests/canonical/ctmle_selector/run_ctmle.R": "d8567c5d8a3bdc5765f023729fa222d0b9452d2c6df4dc83b60f9b892e7ab486"
   },
   "sha256": {
-    "replicates.csv.gz": "9c56459c67b70ae28b83e8e523773f2c6cc7ceb01d9de8db6d4b67de09150d45",
+    "replicates.parquet": "e1ed548cda05ae12bc1155144305aae03c9c027a2ae7b4868b08473473fcd933",
     "summary.csv": "449254a428af7df84e789597fc65db93a776c9db6f0bd78da24d788ee759df6b",
     "equivalence.csv": "e861e0d2884a98f69059cdcb38895a7e0475bea3417329b627b5ac2b13eaa2db",
     "performance-tests.csv": "de9f45777400a398e75051f497424dfef8874ba87bb283b980a91ab95b5fe181",
-    "property-replicates.csv.gz": "3ea3d41c8204fe1fba3e36dfe378f5d72e2cd6a9137ae382f8c8c328717c42d5",
+    "property-replicates.parquet": "355e3017c67fb4a0ac142876ea491c983726a31d227300ff108a6aa5f51a1fea",
     "properties.csv": "a6433c2db9715d2046c3b70086a1318ab87992867fb051de88c242ea5c99486f"
   }
 }

@@ -6,7 +6,7 @@ rerun draws each of those families its own samples (``band_*`` and ``increment_s
 :data:`tests.studies.longitudinal_repeated_crossfit_properties.FIT_SETS`) and leaves every other
 fit set as it was.  An unchanged fit set draws the same samples, fits them with the same code,
 and writes the same rows.  This entry checkpoints those rows from the committed
-``property-replicates.csv.gz`` as if the declared run had fitted them, so the declared run fits
+``property-replicates.parquet`` as if the declared run had fitted them, so the declared run fits
 only the new fit sets and the primary phase.
 
     python -m tests.canonical.longitudinal_repeated_crossfit.inherit
@@ -49,11 +49,16 @@ from tests.canonical.regenerate import CHECKPOINTS, _claim_scratch, host_lock
 from tests.diagnostics.rm18_shared import refusals
 from tests.studies import longitudinal_repeated_crossfit_properties as properties
 from tests.studies.evidence import replication
+from tests.studies.evidence.manifest import read_rows
 from tests.studies.evidence.registry import ROOT
 
 HERE = Path(__file__).resolve().parent
-ROWS = "property-replicates.csv.gz"
-PRIMARY_ROWS = "replicates.csv.gz"
+ROWS = "property-replicates.parquet"
+PRIMARY_ROWS = "replicates.parquet"
+
+#: The names the row files had before they were stored as Parquet.  A baseline commit from that
+#: time holds the gzipped CSV, so :func:`baseline_rows` reads whichever form the commit has.
+CSV_NAMES = {ROWS: "property-replicates.csv.gz", PRIMARY_ROWS: "replicates.csv.gz"}
 
 #: The families whose samples the rerun redraws.  Every other property row is inherited.
 REDRAWN = ("simultaneous_coverage", "repeat_increment")
@@ -76,7 +81,7 @@ def committed_rows(here: Path = HERE) -> pd.DataFrame:
     if hashlib.sha256((here / ROWS).read_bytes()).hexdigest() != recorded:
         raise RuntimeError(f"refused: {ROWS} no longer matches its manifest hash")
     print(f"source {ROWS} sha256 {recorded}", flush=True)
-    rows = pd.read_csv(here / ROWS, float_precision="round_trip")
+    rows = read_rows(here / ROWS)
     if rows["failed_replicates"].ne(0).any():
         raise RuntimeError("refused: a committed row records a lost replicate")
     return rows
@@ -133,18 +138,21 @@ def baseline(commit: str, name: str) -> bytes:
     ).stdout
 
 
+def baseline_rows(commit: str, name: str) -> pd.DataFrame:
+    """The rows of ``name`` at ``commit``, from its Parquet file or its earlier gzipped CSV."""
+    try:
+        return read_rows(io.BytesIO(baseline(commit, name)))
+    except subprocess.CalledProcessError:
+        raw = baseline(commit, CSV_NAMES[name])
+        return pd.read_csv(io.BytesIO(raw), compression="gzip", float_precision="round_trip")
+
+
 def check(commit: str) -> list[str]:
     """What differs from ``commit`` outside the families that the rerun redraws."""
     differences: list[str] = []
     keys = ["implementation", "scenario", "replicate", "estimand"]
-    primary_old = pd.read_csv(
-        io.BytesIO(baseline(commit, PRIMARY_ROWS)),
-        compression="gzip",
-        float_precision="round_trip",
-    ).sort_values(keys, ignore_index=True)
-    primary_new = pd.read_csv(HERE / PRIMARY_ROWS, float_precision="round_trip").sort_values(
-        keys, ignore_index=True
-    )
+    primary_old = baseline_rows(commit, PRIMARY_ROWS).sort_values(keys, ignore_index=True)
+    primary_new = read_rows(HERE / PRIMARY_ROWS).sort_values(keys, ignore_index=True)
     try:
         # The declared run refits the primary phase, so its floats can move in the last bits.
         pd.testing.assert_frame_equal(
@@ -152,10 +160,8 @@ def check(commit: str) -> list[str]:
         )
     except AssertionError as error:
         differences.append(f"{PRIMARY_ROWS} differs from {commit}: {error}")
-    old = pd.read_csv(
-        io.BytesIO(baseline(commit, ROWS)), compression="gzip", float_precision="round_trip"
-    )
-    new = pd.read_csv(HERE / ROWS, float_precision="round_trip")
+    old = baseline_rows(commit, ROWS)
+    new = read_rows(HERE / ROWS)
     order = ["property", "cell", "replicate"]
     old = old.loc[~old["property"].isin(REDRAWN)].sort_values(order, ignore_index=True)
     new = new.loc[~new["property"].isin(REDRAWN)].sort_values(order, ignore_index=True)

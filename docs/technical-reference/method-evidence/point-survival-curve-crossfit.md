@@ -152,6 +152,6 @@ records the seeds, the margins, the estimator configuration, the source hashes a
 hashes. It records the comparator as absent. Run
 `python -m tests.canonical.point_survival_curve_crossfit.regenerate` to regenerate the artifacts.
 The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve_crossfit/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve_crossfit/replicates.parquet)
 and the [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/point_survival_curve_crossfit/properties.csv)
 carry every published row.

@@ -174,7 +174,7 @@ oracle band covers as the package band does.
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar_multi_arm/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar_multi_arm/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar_multi_arm/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar_multi_arm/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar_multi_arm/equivalence.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_mar_multi_arm/properties.csv)
 carry the protocol, provenance, and every published row.

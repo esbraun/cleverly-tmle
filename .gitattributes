@@ -7,9 +7,10 @@
 # and failed on Linux CI, which is the one thing a byte-exact claim must not do.
 #
 # `text=auto` still lets git detect binary content; `eol=lf` fixes the working-tree
-# ending for everything it does classify as text.  The compressed replicate archives
-# are marked explicitly rather than left to detection, since they are the artifacts
-# whose bytes matter most and a misdetection there would corrupt them silently.
+# ending for everything it does classify as text.  The compressed archives and the
+# Parquet row files are marked explicitly rather than left to detection, since they are the
+# artifacts whose bytes matter most and a misdetection there would corrupt them silently.
 * text=auto eol=lf
 
 *.gz binary
+*.parquet binary

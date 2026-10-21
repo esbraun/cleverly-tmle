@@ -226,14 +226,14 @@ Each `rr` and `or` row records the standard error of $\log \hat\psi$. The summar
 by $\hat\psi$, the delta-method standard error of $\hat\psi$, before it compares it with the
 empirical SD of $\hat\psi$. The first summary of the rerun did not, and it published SE ratios of
 0.559 for `rr` and 0.322 for `or`. The current `properties.csv` was summarized again from the
-committed `property-replicates.csv.gz`, with no new fit. No verdict changed.
+committed `property-replicates.parquet`, with no new fit. No verdict changed.
 `test_the_ratio_cells_compare_one_scale` checks both readings.
 
 A mean SE ratio is sensitive to a few fits with a large standard error. The table gives the
 median beside the mean for the ladder and for the cells that have a tail fit. A tail fit has a
 standard error above twice the empirical SD of its cell. `se_ratio_spread` in
 `tests/studies/ctmle_oat_per_arm_strata_missing_properties.py` computes the table from
-`property-replicates.csv.gz`, and `test_the_tail_fits_are_rare` checks it.
+`property-replicates.parquet`, and `test_the_tail_fits_are_rare` checks it.
 
 | cell | mean SE ratio | median SE ratio | tail fits of 800 |
 | --- | --- | --- | --- |
@@ -417,7 +417,7 @@ The [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonica
 records the seeds, the margins, the reading rule, the estimator configuration and the hashes. Run
 `python -m tests.canonical.drtmle_oat_per_arm_strata_missing.regenerate` to regenerate the
 artifacts. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm_strata_missing/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm_strata_missing/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm_strata_missing/equivalence.csv),
 [design gap](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm_strata_missing/design-gap.csv)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle_oat_per_arm_strata_missing/properties.csv)

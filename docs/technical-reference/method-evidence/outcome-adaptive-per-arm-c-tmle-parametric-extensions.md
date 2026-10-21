@@ -412,7 +412,7 @@ Run `python -m tests.canonical.ctmle_oat_per_arm_parametric_extensions.regenerat
 the artifacts. The directory
 [`tests/canonical/ctmle_oat_per_arm_parametric_extensions`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/canonical/ctmle_oat_per_arm_parametric_extensions)
 holds `manifest.json`, `run.log` and the committed results. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_oat_per_arm_parametric_extensions/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_oat_per_arm_parametric_extensions/replicates.parquet)
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_oat_per_arm_parametric_extensions/properties.csv)
 carry every published row. The run used commit `11b4579b` on a clean tree and 1,750 wall seconds
 on four cores. The run log records that the run resumed from saved parts of the same code.

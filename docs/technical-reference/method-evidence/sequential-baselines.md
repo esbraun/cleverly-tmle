@@ -353,7 +353,7 @@ records the seeds, the margins, the estimator configuration, the source hashes a
 hashes. The
 [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sequential_baselines_study/README.md)
 gives the regeneration command. The
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sequential_baselines_study/replicates.csv.gz)
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sequential_baselines_study/replicates.parquet)
 and the
 [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/sequential_baselines_study/properties.csv)
 carry every published row.

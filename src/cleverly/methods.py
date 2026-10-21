@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
@@ -21,15 +22,21 @@ from .inference.bootstrap import Resampling
 from .inference.multiplier import MultiplierKind
 from .learners.crossfit import SplitPlan, _cross_fit_policy_refusal
 from .learners.library import _validate_learner
+from .longitudinal.pooled_hazards import check_hazard_pooling
+from .longitudinal.ratio_trim import check_ratio_trim
 
 __all__ = [
+    "BASELINE_HAZARD_POOLING_REFUSAL",
     "BASELINE_POINT_REFUSAL",
+    "BASELINE_RATIO_TRIM_REFUSAL",
     "DEFAULT_LONGITUDINAL_G_BOUNDS",
     "DEFAULT_LONGITUDINAL_MULTIPLIER",
     "DEFAULT_POINT_MULTIPLIER",
     "IPSI_NO_FLUCTUATION",
     "IPSI_POINT_REFUSAL",
+    "IPSI_RATIO_TRIM_REFUSAL",
     "LTMLE_TILT_REFUSAL",
+    "NODE_BOUNDS_MSM_REFUSAL",
     "REPEATED_OUTCOME_REFUSAL",
     "SDR_POINT_REFUSAL",
     "SDR_TILT_REFUSAL",
@@ -50,6 +57,7 @@ __all__ = [
     "TMLEMethod",
     "Targeting",
     "baseline_no_fluctuation_refusal",
+    "node_bounds_refusal",
     "sdr_no_fluctuation_refusal",
 ]
 
@@ -80,6 +88,22 @@ _BASELINE_NO_FLUCTUATION = Refusal(
     "the sequential g-computation and IPW estimators fit no fluctuation, so they have no "
     "logistic shrink, iteration limit or score tolerance.",
     alternative="LTMLE takes {name}=, so pass the setting there.",
+)
+#: Why a baseline estimator refuses ``ratio_trim=``.
+BASELINE_RATIO_TRIM_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the baseline estimators (sequential g-computation, sequential IPW and the parametric "
+    "g-formula) do not apply ratio_trim=. The trim follows lmtp's rule for the per-node "
+    "density ratios of a targeted fit.",
+    alternative="Omit ratio_trim=, or trim the ratios of an LTMLE or SDR fit.",
+)
+#: Why a baseline estimator refuses ``hazard_pooling="pooled"``.
+BASELINE_HAZARD_POOLING_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "the baseline estimators (sequential g-computation, sequential IPW and the parametric "
+    "g-formula) fit their own per-node parametric models and do not read a pooled "
+    "censoring hazard.",
+    alternative="Pass hazard_pooling='node', or fit LTMLE or SDR for a pooled censoring hazard.",
 )
 #: Why a point-treatment functional refuses ``method="gcomp"``, ``method="ipw"`` and
 #: ``method="parametric_gformula"``.
@@ -127,12 +151,34 @@ REPEATED_OUTCOME_REFUSAL = Refusal(
     ),
     roadmap="X32b",
 )
+#: Why an estimator with no logistic node fluctuation refuses ``node_bounds=``. The condition
+#: holds ``{estimator}``, which :func:`node_bounds_refusal` fills in.
+_NODE_BOUNDS_NO_FLUCTUATION = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "{estimator} fits no logistic node fluctuation, so a node bound has nothing to bound.",
+    alternative="LTMLE(node_bounds=...) bounds the logistic fluctuation of each node.",
+)
+#: Why ``node_bounds=`` meets a working model over regimens (``msm=``) today.
+NODE_BOUNDS_MSM_REFUSAL = Refusal(
+    RefusalReason.IMPLEMENTATION_GAP,
+    "node_bounds= bounds the intercept fluctuation of a per-regimen mean. A working model over "
+    "regimens pools one fluctuation across the regimens, and its bounded form is not built.",
+    alternative="Fit node_bounds= without msm=, and report the regimen levels.",
+    roadmap="X78",
+)
 #: Why the IPSI estimator refuses a fluctuation setting (R5 in ``test_ipsi_e2e.py``).
 IPSI_NO_FLUCTUATION = Refusal(
     RefusalReason.INVALID_DECLARATION,
     "IPSI fits no fluctuation: Kennedy's estimator averages the influence function at the "
     "fitted nuisances, so it has no logistic shrink, iteration limit, score tolerance or "
     "submodel.",
+)
+#: Why the IPSI estimator refuses ``ratio_trim=``.
+IPSI_RATIO_TRIM_REFUSAL = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "IPSI does not apply ratio_trim=. The trim follows lmtp's rule for a per-node density "
+    "ratio, and an IPSI tilt node has no such ratio in its weight.",
+    alternative="Omit ratio_trim=, or trim a static, dynamic or policy regimen with LTMLE or SDR.",
 )
 #: Why ``method="sdr"`` and ``method="ipsi"`` refuse the hazard and isotonic settings.
 SURVIVAL_CURVE_TMLE_ONLY = (
@@ -165,6 +211,26 @@ def baseline_no_fluctuation_refusal(name: str) -> Refusal:
     return replace(
         _BASELINE_NO_FLUCTUATION,
         alternative=str(_BASELINE_NO_FLUCTUATION.alternative).format(name=name),
+    )
+
+
+def node_bounds_refusal(estimator: str) -> Refusal:
+    """The refusal of ``node_bounds=`` on an estimator with no logistic node fluctuation.
+
+    Parameters
+    ----------
+    estimator : str
+        The refusing estimator, such as ``"the SDR estimator"``.
+
+    Returns
+    -------
+    Refusal
+        An :attr:`~cleverly.exceptions.RefusalReason.INVALID_DECLARATION` record whose
+        alternative names ``LTMLE(node_bounds=...)``.
+    """
+    return replace(
+        _NODE_BOUNDS_NO_FLUCTUATION,
+        condition=str(_NODE_BOUNDS_NO_FLUCTUATION.condition).format(estimator=estimator),
     )
 
 
@@ -251,6 +317,12 @@ class ModelSpec:
         Absolute correlation threshold used by screening.
     min_retain : int or None
         Minimum number of covariates retained by screening.
+    hazard_pooling : {"node", "pooled"}
+        How a longitudinal fit estimates its censoring mechanism.  ``"node"`` fits one model
+        per node.  ``"pooled"`` fits one model over every at-risk unit and node, with the
+        node's grid time as a column, as ``survtmle`` does.  Under
+        ``survival_model="hazard"`` it also fits each cause's hazard once over the eligible
+        rows of every node.  It needs one baseline treatment and no time-varying covariate.
     outcome_by_arm : bool
         Whether to fit one outcome regression per treatment arm, each on the arm's rows and
         the covariates alone (R's ``drtmle(stratify=TRUE)``).  The default fits one regression
@@ -293,10 +365,12 @@ class ModelSpec:
     screen_treatment: bool = False
     screen_threshold: float = 0.1
     min_retain: int | None = None
+    hazard_pooling: str = "node"
     outcome_by_arm: bool = False
     survival_model: SurvivalModel = "iterated_mean"
 
     def __post_init__(self) -> None:
+        check_hazard_pooling(self.hazard_pooling)
         for name in (
             "outcome_learner",
             "treatment_learner",
@@ -470,6 +544,25 @@ class Targeting:
         Whether a longitudinal survival fit projects each curve's levels and band limits
         onto a non-decreasing curve; see :class:`~cleverly.longitudinal.LTMLE`.  A
         point-treatment fit refuses ``True``.
+    ratio_trim : float or None, default=None
+        A longitudinal fit's per-node density ratios are trimmed at this quantile of all of
+        them, as ``lmtp_control(.trim=)`` does. A fit whose trim moves a ratio reports its
+        point estimate with the ``"trimmed_ratio_plugin"`` status and no interval. ``None``
+        trims nothing. A point-treatment fit refuses it.
+    node_bounds : mapping or None, default=None
+        A declared outcome range for chosen nodes of a longitudinal fit.
+        The keys are grid times and the values are ``(lower, upper)`` pairs on the reported
+        outcome scale. A competing-risk fit takes one such mapping for each cause name.
+        A named node regresses the outcome rescaled to ``[0, 1]`` by its bounds. It fluctuates
+        along the logit of the rescaled prediction, as Gruber and van der Laan (2010) do for
+        a bounded continuous outcome. Its targeted prediction stays inside the bounds. A node
+        with no entry takes the shipped fit, bit for bit. The fit warns and reports the node
+        as not converged, with ``failure="bound_excludes_data"``, when the weighted mean
+        outcome of the node's followers lies outside the bounds, because no fluctuation
+        inside the bounds solves the score equation. ``node_bounds`` needs no ``msm=``. Under
+        ``survival_model="hazard"`` the bounds are on each cause-specific hazard, and a named
+        node bounds every cause. A point-treatment fit, ``SDR``, ``IPSI`` and the baselines
+        refuse it. See :class:`~cleverly.longitudinal.LTMLE`.
 
     See Also
     --------
@@ -510,11 +603,14 @@ class Targeting:
     step_search: bool = True
     iterate: IterateChoice = "last"
     isotonic: bool = False
+    ratio_trim: float | None = None
+    node_bounds: Mapping[Any, Any] | None = None
 
     def __post_init__(self) -> None:
         check_iterate(self.iterate, self.fluctuation)
         check_stopping_rule(self.stopping, self.fluctuation)
         check_step_bound(self.step_bound, self.step_search, self.fluctuation, self.algorithm)
+        check_ratio_trim(self.ratio_trim)
 
 
 @dataclass(frozen=True)
@@ -695,6 +791,7 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "screen_treatment": "screen_treatment",
         "screen_threshold": "screen_threshold",
         "min_retain": "min_retain",
+        "hazard_pooling": "hazard_pooling",
         "outcome_by_arm": "outcome_by_arm",
         "survival_model": "survival_model",
     },
@@ -719,11 +816,13 @@ SHORTCUTS: dict[str, dict[str, str]] = {
         "step_size": "step_size",
         "max_iter": "max_iter",
         "tol": "tol",
+        "ratio_trim": "ratio_trim",
         "stopping": "stopping",
         "step_bound": "step_bound",
         "step_search": "step_search",
         "iterate": "iterate",
         "isotonic": "isotonic",
+        "node_bounds": "node_bounds",
     },
     "inference": {
         "alpha": "alpha",
@@ -763,11 +862,45 @@ _LONGITUDINAL_POINT_ONLY: tuple[tuple[str, str, str], ...] = (
 )
 
 
+#: The refusal of ``ratio_trim=`` on a point-treatment fit, which names the bound it has.
+_POINT_RATIO_TRIM = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "ratio_trim= trims the per-node density ratios of a longitudinal fit, as lmtp's .trim "
+    "does. A point-treatment fit bounds its mechanism with g_bounds=.",
+    alternative=(
+        "Declare the point treatment as a one-node LongitudinalTreatment to trim its ratio."
+    ),
+)
+
+#: The refusal of ``hazard_pooling=`` other than ``"node"`` on a point-treatment fit.
+_POINT_HAZARD_POOLING = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "point-treatment TMLE cannot apply longitudinal option(s): ['hazard_pooling']. "
+    "hazard_pooling= pools the censoring model of a longitudinal fit over its nodes, and a "
+    "point-treatment fit has one censoring indicator.",
+    alternative="Remove it, or use a LongitudinalTreatment design.",
+)
+
+#: The refusal of ``node_bounds=`` on a point-treatment functional (R-i5).
+_POINT_NODE_BOUNDS = Refusal(
+    RefusalReason.INVALID_DECLARATION,
+    "node_bounds= bounds the logistic fluctuation of each node of a longitudinal "
+    "iterated-mean fit, and a point-treatment functional has no such nodes.",
+    alternative="Remove it, or declare a longitudinal or TimeToEvent design.",
+)
+
+
 def _differs_from_default(value: Any, default: Any) -> bool:
     """Compare normalized settings without asking learner objects to compare to ``None``."""
     if default is None:
         return value is not None
     return bool(value != default)
+
+
+def _refuse_node_bounds(method: TMLEMethod, estimator: str) -> None:
+    """Refuse ``node_bounds=`` on an estimator that fits no logistic node fluctuation."""
+    if method.targeting.node_bounds is not None:
+        raise MethodConfigurationError.from_refusal(node_bounds_refusal(estimator))
 
 
 def _refuse_curve_settings(method: TMLEMethod, name: str) -> None:
@@ -992,6 +1125,7 @@ class TMLEMethod:
                     "targeting": targeting.algorithm,
                     "step_size": targeting.step_size,
                     "isotonic": targeting.isotonic,
+                    "node_bounds": targeting.node_bounds,
                 }
             )
             # Longitudinal cumulative bounds have a fixed-pair contract. ``auto`` is a
@@ -1000,7 +1134,15 @@ class TMLEMethod:
                 common["g_bounds"] = DEFAULT_LONGITUDINAL_G_BOUNDS
             if common["n_multiplier"] == "auto":
                 common["n_multiplier"] = DEFAULT_LONGITUDINAL_MULTIPLIER
+            common["ratio_trim"] = targeting.ratio_trim
+            common["hazard_pooling"] = models.hazard_pooling
             return common
+        if targeting.ratio_trim is not None:
+            raise MethodConfigurationError.from_refusal(_POINT_RATIO_TRIM)
+        if models.hazard_pooling != TMLEMethod().models.hazard_pooling:
+            raise MethodConfigurationError.from_refusal(_POINT_HAZARD_POOLING)
+        if targeting.node_bounds is not None:
+            raise MethodConfigurationError.from_refusal(_POINT_NODE_BOUNDS)
         if models.survival_model != "iterated_mean" or targeting.isotonic:
             raise MethodConfigurationError(
                 "survival_model= and isotonic= apply to a survival curve over time nodes, and "
@@ -1438,6 +1580,7 @@ class SDRMethod(TMLEMethod):
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(sdr_no_fluctuation_refusal(engine_name))
+        _refuse_node_bounds(self, "the SDR estimator")
         _refuse_curve_settings(self, "SDR")
         kwargs = super().estimator_kwargs(longitudinal=True)
         for engine_name in (
@@ -1452,6 +1595,7 @@ class SDRMethod(TMLEMethod):
             "targeting",
             "step_size",
             "isotonic",
+            "node_bounds",
         ):
             del kwargs[engine_name]
         return kwargs
@@ -1491,11 +1635,16 @@ class _BaselineMethod(TMLEMethod):
         Raises
         ------
         MethodConfigurationError
-            When ``longitudinal`` is false, when a fluctuation setting differs from its
-            default, or when a survival-curve setting of the targeted fit is set.
+            When ``longitudinal`` is false, when ``ratio_trim`` or ``hazard_pooling`` is set,
+            when a fluctuation setting differs from its default, or when a survival-curve
+            setting of the targeted fit is set.
         """
         if not longitudinal:
             raise MethodConfigurationError.from_refusal(BASELINE_POINT_REFUSAL)
+        if self.targeting.ratio_trim is not None:
+            raise MethodConfigurationError.from_refusal(BASELINE_RATIO_TRIM_REFUSAL)
+        if self.models.hazard_pooling != "node":
+            raise MethodConfigurationError.from_refusal(BASELINE_HAZARD_POOLING_REFUSAL)
         defaults = Targeting()
         for field_name, engine_name in (
             ("submodel_alpha", "alpha"),
@@ -1512,6 +1661,7 @@ class _BaselineMethod(TMLEMethod):
                 raise MethodConfigurationError.from_refusal(
                     baseline_no_fluctuation_refusal(engine_name)
                 )
+        _refuse_node_bounds(self, "the sequential g-computation and IPW estimators")
         _refuse_curve_settings(self, _BASELINE_ENGINES[self.name])
         kwargs = super().estimator_kwargs(longitudinal=True)
         for engine_name in (
@@ -1526,6 +1676,7 @@ class _BaselineMethod(TMLEMethod):
             "targeting",
             "step_size",
             "isotonic",
+            "node_bounds",
         ):
             del kwargs[engine_name]
         return kwargs
@@ -1836,8 +1987,8 @@ class IPSIMethod(TMLEMethod):
         Raises
         ------
         MethodConfigurationError
-            When ``longitudinal`` is false, or when a fluctuation setting differs from its
-            default.
+            When ``longitudinal`` is false, when a fluctuation setting differs from its
+            default, or when ``ratio_trim`` is set.
         """
         if not longitudinal:
             raise MethodConfigurationError.from_refusal(IPSI_POINT_REFUSAL)
@@ -1855,6 +2006,9 @@ class IPSIMethod(TMLEMethod):
                 getattr(self.targeting, field_name), getattr(defaults, field_name)
             ):
                 raise MethodConfigurationError.from_refusal(IPSI_NO_FLUCTUATION)
+        if self.targeting.ratio_trim is not None:
+            raise MethodConfigurationError.from_refusal(IPSI_RATIO_TRIM_REFUSAL)
+        _refuse_node_bounds(self, "IPSI")
         _refuse_curve_settings(self, "IPSI")
         kwargs = super().estimator_kwargs(longitudinal=True)
         for engine_name in (
@@ -1869,6 +2023,7 @@ class IPSIMethod(TMLEMethod):
             "targeting",
             "step_size",
             "isotonic",
+            "node_bounds",
         ):
             del kwargs[engine_name]
         return kwargs

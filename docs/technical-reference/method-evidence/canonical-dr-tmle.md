@@ -315,7 +315,7 @@ each rung ran, which is 2,400 at each outer rung. The `bias` column beside a run
 the `800` replications that rung reads its coverage verdict from. The two samples differ. The log
 ratio of the outer rungs' published `bias` values, divided by the log of four, therefore gives a
 slope near `-0.8` and not `-0.9176`. The same ratio over every replication gives the published
-slope, and `property-replicates.csv.gz` carries those replications.
+slope, and `property-replicates.parquet` carries those replications.
 
 The extra draws serve the slope alone. Each rung reads its own coverage verdict from `800`
 replications, which `CONTRACTION_VERDICT_REPLICATES` declares beside the budget. A rung's coverage
@@ -373,7 +373,7 @@ Both positive slope intervals now exclude zero. The outcome-correct interval sti
 
 The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle/README.md),
 [manifest](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle/manifest.json),
-[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle/replicates.csv.gz),
+[replications](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle/replicates.parquet),
 [paired decisions](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle/equivalence.csv),
 [fit diagnostics](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle/fit-diagnostics.csv),
 and [property results](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/drtmle/properties.csv)

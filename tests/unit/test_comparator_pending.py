@@ -18,7 +18,7 @@ import pytest
 
 from tests.canonical import regenerate
 from tests.studies import canonical_tmle
-from tests.studies.evidence.manifest import comparator_findings
+from tests.studies.evidence.manifest import comparator_findings, write_rows
 from tests.studies.evidence.registry import StudyRecord
 from tests.studies.evidence.schema import REPLICATE_COLUMNS
 
@@ -264,7 +264,7 @@ def test_a_pending_run_reuses_the_committed_property_artifacts(
 ) -> None:
     """A property study run elsewhere and committed first survives the pending primary run."""
     committed = {
-        "property-replicates.csv.gz": b"committed property rows",
+        "property-replicates.parquet": b"committed property rows",
         "properties.csv": b"property,cell,passed\nscore,a,True\n",
     }
     for name, payload in committed.items():
@@ -296,14 +296,14 @@ def test_a_pending_study_must_name_its_reference(
 def _committed(tmp_path: Path, *, replicates: int = 2, n: int = 50) -> Path:
     rows = pd.concat([_rows("cleverly"), _rows(REFERENCE)], ignore_index=True)
     rows.loc[0, "estimate"] = 0.1 + 0.2
-    path = tmp_path / "replicates.csv.gz"
-    regenerate.write_csv(rows, path, compression={"method": "gzip", "mtime": 0})
+    path = tmp_path / "replicates.parquet"
+    write_rows(rows, path)
     digest = regenerate.hashlib.sha256(path.read_bytes()).hexdigest()
     (tmp_path / "manifest.json").write_text(
         regenerate.json.dumps(
             {
                 "configuration": {"replicates": replicates, "n": n},
-                "sha256": {"replicates.csv.gz": digest},
+                "sha256": {"replicates.parquet": digest},
             }
         ),
         encoding="utf-8",
@@ -327,7 +327,7 @@ def test_reuse_subject_reads_the_committed_subject_rows_bit_for_bit(tmp_path: Pa
 
 def test_reuse_subject_refuses_a_row_file_its_manifest_does_not_describe(tmp_path: Path) -> None:
     path = _committed(tmp_path)
-    regenerate.write_csv(_rows("cleverly"), path, compression={"method": "gzip", "mtime": 0})
+    write_rows(_rows("cleverly"), path)
     with pytest.raises(RuntimeError, match="no longer matches its manifest hash"):
         _reuse(tmp_path)
 

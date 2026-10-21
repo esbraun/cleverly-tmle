@@ -2,7 +2,7 @@
 
 RM18 of ``docs/roadmap.md`` declares this reading in "The one-sided robustness reading,
 declared before it is computed".  The subsection fixes four statistics and two rules.  This
-module computes them from the committed ``replicates.csv.gz`` and ``property-replicates.csv.gz``
+module computes them from the committed ``replicates.parquet`` and ``property-replicates.parquet``
 of ``canonical-drtmle`` and ``canonical-multi-arm-drtmle``.  It fits no estimator, and it changes
 no verdict.
 
@@ -42,7 +42,7 @@ import pandas as pd
 from scipy.stats import t
 
 from tests.studies.evidence.inference import Interval, student_interval
-from tests.studies.evidence.manifest import write_csv
+from tests.studies.evidence.manifest import read_rows, write_csv
 from tests.studies.evidence.property_verdicts import _at_verdict_budget
 from tests.studies.evidence.registry import ROOT
 from tests.studies.multi_arm_drtmle_properties import CONTRACTION_VERDICT_REPLICATES
@@ -55,10 +55,10 @@ CONFIDENCE_LEVEL = 0.99
 BINARY_STUDY = "canonical-drtmle"
 MULTI_ARM_STUDY = "canonical-multi-arm-drtmle"
 
-BINARY_PRIMARY = ROOT / "tests" / "canonical" / "drtmle" / "replicates.csv.gz"
-MULTI_ARM_PRIMARY = ROOT / "tests" / "canonical" / "multi_arm_drtmle" / "replicates.csv.gz"
+BINARY_PRIMARY = ROOT / "tests" / "canonical" / "drtmle" / "replicates.parquet"
+MULTI_ARM_PRIMARY = ROOT / "tests" / "canonical" / "multi_arm_drtmle" / "replicates.parquet"
 MULTI_ARM_PROPERTIES = (
-    ROOT / "tests" / "canonical" / "multi_arm_drtmle" / "property-replicates.csv.gz"
+    ROOT / "tests" / "canonical" / "multi_arm_drtmle" / "property-replicates.parquet"
 )
 
 BINARY_CLEVERLY = "cleverly"
@@ -408,9 +408,9 @@ def load() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     the budget the committed readings were computed at.
     """
     return (
-        pd.read_csv(BINARY_PRIMARY),
-        pd.read_csv(MULTI_ARM_PRIMARY),
-        _at_verdict_budget(pd.read_csv(MULTI_ARM_PROPERTIES), CONTRACTION_VERDICT_REPLICATES),
+        read_rows(BINARY_PRIMARY),
+        read_rows(MULTI_ARM_PRIMARY),
+        _at_verdict_budget(read_rows(MULTI_ARM_PROPERTIES), CONTRACTION_VERDICT_REPLICATES),
     )
 
 

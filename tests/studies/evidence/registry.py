@@ -627,6 +627,7 @@ def registered() -> tuple[StudyRecord, ...]:
     )
     from tests.studies.canonical_stratified_tmle import STUDY as CANONICAL_STRATIFIED_TMLE
     from tests.studies.canonical_structural_nested_mean import STUDY as STRUCTURAL_NESTED_MEAN
+    from tests.studies.canonical_survival_node_bounds import STUDY as SURVIVAL_NODE_BOUNDS
     from tests.studies.canonical_tmle import STUDY as CANONICAL_TMLE
     from tests.studies.canonical_vector_mtp import STUDY as VECTOR_MTP
     from tests.studies.canonical_weighted_ltmle import STUDY as CANONICAL_WEIGHTED_LTMLE
@@ -726,6 +727,7 @@ def registered() -> tuple[StudyRecord, ...]:
         POINT_SURVIVAL_CURVE,
         POINT_SURVIVAL_CURVE_CROSSFIT,
         POINT_SURVIVAL_POLICIES,
+        SURVIVAL_NODE_BOUNDS,
         KNOWN_MECHANISM,
         KNOWN_MECHANISM_DRTMLE,
         DRTMLE_ONE_WRONG,

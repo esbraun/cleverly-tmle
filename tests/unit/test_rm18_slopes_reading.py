@@ -19,6 +19,8 @@ import pandas as pd
 import pytest
 from scipy import stats
 
+from tests.studies.evidence.manifest import read_rows
+
 STUDY = Path(__file__).resolve().parents[1] / "canonical" / "multi_arm_drtmle"
 FAMILY = "double_robust_contraction"
 POSITIVES = ("outcome_correct", "treatment_correct")
@@ -57,10 +59,9 @@ def properties() -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def rungs() -> dict[str, pd.DataFrame]:
-    frame = pd.read_csv(
-        STUDY / "property-replicates.csv.gz",
-        float_precision="round_trip",
-        usecols=["property", "cell", "replicate", "truth", "estimate"],
+    frame = read_rows(
+        STUDY / "property-replicates.parquet",
+        columns=["property", "cell", "replicate", "truth", "estimate"],
     )
     ladder = frame.loc[frame["property"] == FAMILY]
     return {str(cell): group.sort_values("replicate") for cell, group in ladder.groupby("cell")}

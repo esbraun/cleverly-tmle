@@ -369,8 +369,13 @@ def _moving_metric_walk(
     tol: float,
     max_steps: int = 20_000,
     warn: bool = True,
+    **rules: Any,
 ) -> Any:
-    """``walk_curve`` with the metric re-estimated after every accepted step."""
+    """``walk_curve`` with the metric re-estimated after every accepted step.
+
+    The driver passes the default targeting rules, which a walk under ``"relative"`` ignores.
+    """
+    assert rules.get("stopping", "relative") == "relative"
     from dataclasses import replace
 
     from cleverly.fluctuation._score import relative_score
