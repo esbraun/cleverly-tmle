@@ -375,8 +375,8 @@ class TestMutationControls:
         estimator = _ltmle(ratio_trim=PER_FOLD, n_folds=3)
         draw = estimator._folds
 
-        def recording(prepared: Any) -> Any:
-            folds = draw(prepared)
+        def recording(prepared: Any, seed: int | None = None) -> Any:
+            folds = draw(prepared, seed)
             result_folds.append(np.asarray(folds.assignment))
             return folds
 

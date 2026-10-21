@@ -382,9 +382,9 @@ class TestDefaultIdentity:
         assert "node_bounds: t=1 in [0.3, 0.7]; t=2 in [0.3, 0.7]" in binding.summary()
 
     def test_the_replay_carries_the_bounds(self, binding: Any) -> None:
-        recipe = binding.replay_recipe
-        assert recipe.node_bounds is not None
-        replayed = estimator_module._refit_bound(binding, recipe, binding.config.g_bounds)
+        draw = binding.repeats[0]
+        assert draw.replay_recipe.node_bounds is not None
+        replayed = estimator_module._refit_bound(binding, draw, binding.config.g_bounds)
         for name, estimate in replayed.estimates.items():
             assert estimate.psi == pytest.approx(binding.psi(name), abs=1e-12)
 

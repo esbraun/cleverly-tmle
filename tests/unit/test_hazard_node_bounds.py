@@ -380,8 +380,8 @@ class TestBoundsChangeTheFit:
     @pytest.mark.parametrize("targeting", ALGORITHMS)
     def test_the_replay_carries_the_bounds(self, targeting: str) -> None:
         result = _witness(targeting, bounded=True)
-        replay = _refit_bound(result, result.replay_recipe, result.config.g_bounds)
-        assert _fitted_replay_matches(result, replay)
+        replay = _refit_bound(result, result.repeats[0], result.config.g_bounds)
+        assert _fitted_replay_matches(result, result.repeats[0], replay)
 
 
 # ------------------------------------------------------------- held and excluded cells

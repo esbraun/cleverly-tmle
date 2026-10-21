@@ -923,6 +923,58 @@ def test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental(
         assert result.simultaneous.support.label == "experimental"
 
 
+def _option_fit(setting: dict[str, Any], **split: Any) -> Any:
+    """A hazard-panel fit with one X33 option, at ``repeats=3`` unless ``split`` says otherwise."""
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+
+    hazard = setting.get("survival_model") == "hazard"
+    keywords: dict[str, Any] = {"n_folds": 2, "repeats": 3, "random_state": 1, **split}
+    return _quiet(
+        lambda data, **kwargs: LTMLE({"a1": 1, "a0": 0}, **kwargs).fit(data),
+        _held_treatment_data(),
+        horizons=[1, 2, 3],
+        outcome_learner=LogisticRegression(max_iter=500) if hazard else LinearRegression(),
+        treatment_learner=LogisticRegression(max_iter=500),
+        censoring_learner=LogisticRegression(max_iter=500),
+        **keywords,
+        **setting,
+    )
+
+
+#: Each X33 option, the default it moves off, and a setting under which it moves the estimate.
+X33_OPTIONS = {
+    "node_bounds": ({"node_bounds": {2: (0.0, 0.2)}}, {}),
+    "hazard_pooling": (
+        {"survival_model": "hazard", "hazard_pooling": "pooled"},
+        {"survival_model": "hazard"},
+    ),
+    "ratio_trim": ({"ratio_trim": 0.9}, {}),
+}
+
+
+@pytest.mark.parametrize("option", sorted(X33_OPTIONS))
+def test_each_draw_carries_the_x33_option(option: str) -> None:
+    """Draw ``r`` with the option is the single-draw fit at ``seed_r`` with the option.
+
+    The default fit at the same seeds is a nonzero witness: a draw that dropped the option
+    would equal it and fail the difference check.
+    """
+    setting, default = X33_OPTIONS[option]
+    result = _option_fit(setting)
+    plain = _option_fit(default)
+    assert result.n_repeats == 3
+    moved = 0.0
+    for draw, other in zip(result.repeats, plain.repeats, strict=True):
+        assert draw.seed == other.seed
+        single = _option_fit(setting, repeats=1, random_state=draw.seed)
+        _assert_draw_equals_fit(draw, single)
+        moved = max(
+            moved,
+            max(abs(draw.estimates[n].psi - other.estimates[n].psi) for n in draw.estimates),
+        )
+    assert moved > 1e-3
+
+
 def test_repeats_enter_the_support_key_so_a_single_draw_row_never_covers_them() -> None:
     """``repeated`` is a splitting flag, as on a point fit, so no single-draw row matches."""
     single = _fit("ltmle", repeats=1)
@@ -1308,6 +1360,9 @@ KEYWORDS: dict[str, tuple[str, str, str | None]] = {
     "isotonic": _witness(
         "test_repeats_on_a_hazard_or_projected_curve_are_computed_and_experimental"
     ),
+    "node_bounds": _witness("test_each_draw_carries_the_x33_option"),
+    "hazard_pooling": _witness("test_each_draw_carries_the_x33_option"),
+    "ratio_trim": _witness("test_each_draw_carries_the_x33_option"),
 }
 
 _READERS = _witness("test_readers_report_the_combined_estimates")

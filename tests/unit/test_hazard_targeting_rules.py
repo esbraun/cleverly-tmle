@@ -332,5 +332,5 @@ def test_a_step_bound_is_replayed() -> None:
     from cleverly.longitudinal.estimator import _fitted_replay_matches, _refit_bound
 
     result = _fit(ArmOnly(), step_bound=0.5, stopping="sample_size", iterate="best")
-    replay = _refit_bound(result, result.replay_recipe, result.config.g_bounds)
-    assert _fitted_replay_matches(result, replay)
+    replay = _refit_bound(result, result.repeats[0], result.config.g_bounds)
+    assert _fitted_replay_matches(result, result.repeats[0], replay)
