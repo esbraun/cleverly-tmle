@@ -6,10 +6,9 @@ pinned commit
 [`18de559`](https://github.com/jucheng1992/ctmle/tree/18de559f47dc1286617350a0668391e80e1dbf7c).
 The theory is van der Laan and Gruber (2010).
 
-The evidence on this page is Python property evidence, with comparator runs pending. The Python
-phase and the property study ran. The R `ctmle` runs wait for Study queue item 9, so this page
-has no paired row and no replay result yet. The `reporting` publication policy was declared
-before the run.
+The Python phase, the R `ctmle` phase and the property study ran. The replay gates and the
+descriptive paired rows read the R runs. The `reporting` publication policy was declared before
+the run.
 
 ## What was compared
 
@@ -82,14 +81,29 @@ and learners property fit.
 | law | estimand | what was tested | implementation | bias (99% interval) | coverage | SE ratio | result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | binary-outcome law, lasso candidate sequence | `ate` | average treatment effect | `cleverly` C-TMLE lasso and declared-learner sequences | -0.0032 to 0.0034 | 0.9237 | 0.9051 | **fail** |
+| binary-outcome law, lasso candidate sequence | `ate` | average treatment effect | R `ctmle` | -0.0042 to 0.0024 | 0.9287 | 0.9187 | pass |
 | binary-outcome law, four declared lasso learners | `ate` | average treatment effect | `cleverly` C-TMLE lasso and declared-learner sequences | -0.0032 to 0.0027 | 0.9500 | 0.9945 | pass |
+| binary-outcome law, four declared lasso learners | `ate` | average treatment effect | R `ctmle` | -0.0033 to 0.0027 | 0.9463 | 0.9901 | pass |
 <!-- /generated -->
 
 ## Agreement with the canonical implementation
 
-Python property evidence, with comparator runs pending. The R `ctmle` runs are not registered
-yet, so the committed `equivalence.csv` has no rows. The replay gates above read R's output, and
-they run when a later change registers the R runs.
+Both replay gates pass. In `replay-summary.csv`, no unflagged replicate of either scenario has an
+accepted-candidate mismatch, an estimate gap or a loss gap above $10^{-6}$. For `binary_lasso`,
+no final-step comparison has an index mismatch or a gap above $10^{-6}$. Each scenario keeps at
+least 400 unflagged replicates, and `binary_lasso` keeps at least 100 final-step comparisons.
+
+The paired rows below are descriptive. They state no verdict, and R's selected estimate is a
+different estimator (quirk 2).
+
+<!-- generated: agreement -->
+Comparator-backed: a paired comparison with `r-ctmle` on the same samples. Each row reports estimate equivalence within the declared margin, the RMSE ratio and the coverage difference, and names its comparison kind.
+
+| law | estimand | what was compared | paired difference | share of margin used | RMSE ratio bound | coverage difference | comparison kind | calibration resolution | result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| binary-outcome law, lasso candidate sequence | `ate` | average treatment effect | 0.000982 | 0.1821 | 1.0199 | -0.0050 | matching implementation | 0.0122 vs 0.0500 | descriptive |
+| binary-outcome law, four declared lasso learners | `ate` | average treatment effect | 0.000082 | 0.0167 | 1.0034 | 0.0037 | matching implementation | 0.0113 vs 0.0500 | descriptive |
+<!-- /generated -->
 
 ## Theory properties
 
@@ -115,15 +129,17 @@ they run when a later change registers the R runs.
 | --- | --- | --- |
 | `replicates` | 800 | replications per scenario |
 | `n` | 2000 | observations per replication |
-| `independent_tests_total` | 2 | package truth tests |
-| `independent_tests_passed` | 1 | package truth tests passing |
+| `independent_tests_total` | 4 | package truth tests |
+| `independent_tests_passed` | 3 | package truth tests passing |
 | `property_cells_total` | 11 | repeated-sampling property cells |
 | `property_cells_passed` | 8 | property cells passing |
 | `properties[selector_necessity/learners_collaborative]:standardized_bias` | 0.3246 | the declared expected red bias, in empirical standard deviations |
 | `properties[selector_necessity/learners_collaborative]:rmse_ratio_upper` | 0.2721 | the bootstrap 99% upper bound of its RMSE ratio, the discriminating gate |
 | `properties[selector_necessity/learners_collaborative]:coverage` | 0.9487 | its coverage of the plug-in diagnostic interval |
 | `properties[selector_necessity/lasso_collaborative]:rmse_ratio_upper` | 0.2333 | the same bound for the lasso sequence |
-| `max_standardized_bias` | 0.0076 | largest absolute standardized bias of a package truth row |
+| `equivalence[binary_lasso/ate]:rmse_ratio_upper` | 1.0199 | the 99% upper bound of the package's RMSE over R's on the lasso sequence, descriptive |
+| `equivalence[binary_learners/ate]:rmse_ratio_upper` | 1.0034 | the same bound on the declared learners, descriptive |
+| `max_standardized_bias` | 0.0247 | largest absolute standardized bias of a package truth row |
 | `min_coverage` | 0.9237 | lowest coverage of a package truth row |
 | `margin:confidence_level` | 0.9900 | Monte Carlo confidence level |
 | `margin:alpha` | 0.0500 | nominal estimator size |
@@ -151,6 +167,10 @@ they run when a later change registers the R runs.
 | `margin:selector_rmse_ratio` | 0.5000 | required bound on each collaborative-to-control RMSE ratio |
 | `margin:union_model_se_lower` | 0.1000 | union-model SE-ratio screen, lower limit |
 | `margin:union_model_se_upper` | 10 | union-model SE-ratio screen, upper limit |
+| `margin:subject_failure_bound` | 0.0100 | declared share of replications a cell of `cleverly` may lose to a recordable fitting failure |
+| `margin:subject_failures_allowed` | 8 | the same bound, in primary replications |
+| `margin:reference_failure_bound` | 0.0100 | declared share of replications a cell of R `ctmle` may lose to a recordable fitting failure |
+| `margin:reference_failures_allowed` | 8 | the same bound, in primary replications |
 
 ## Declared design
 
@@ -158,7 +178,7 @@ The values in this table are declared before the run.
 
 | setting | value | source |
 | --- | --- | --- |
-| paired role | descriptive, when the R runs are registered | the record's comment in `tests/studies/canonical_ctmle_sequences.py` |
+| paired role | descriptive | the record's comment in `tests/studies/canonical_ctmle_sequences.py` |
 | replay tolerance | $10^{-6}$ | `GLM_TOLERANCE` in `tests/studies/ctmle_sequence_replay.py` |
 | replay counts | 400 unflagged replicates per scenario, 100 final-step comparisons for `binary_lasso` | `MIN_UNFLAGGED` and `MIN_FINAL` in the same module |
 | selector RMSE ratio | 0.50, applied to the paired bootstrap 99% upper bound of each ratio | `SELECTOR_RMSE_RATIO` and `RMSE_BOUND_LEVEL` in `tests/studies/ctmle_sequence_properties.py` |
@@ -175,8 +195,7 @@ it. Every red row of this study is a declared expected red.
 
 | limitation | what it means for use |
 | --- | --- |
-| The R comparison is pending | The page holds Python property evidence, with comparator runs pending. No paired row and no replay gate is evidence yet |
-| The `binary_lasso` coverage row is red | Coverage is 0.92375 and the SE ratio 0.905. Plain TMLE with the same learners and bounds on the same 800 samples covers 0.9225 with an SE ratio of 0.913. The final step reports the penalty 0 on 771 of 800 fits. The cause is the plug-in variance under near-positivity, not the selection, and the row does not test $\Delta(P_1)$ of F18 ([`tests/diagnostics/x16_lasso_coverage/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x16_lasso_coverage)). The package refuses `ci`, `pvalue` and `std_error` on a lasso fit |
+| The `binary_lasso` coverage row is red | Coverage is 0.92375 and the SE ratio 0.905. Plain TMLE with the same learners and bounds on the same 800 samples covers 0.9225 with an SE ratio of 0.913. The final step reports the penalty 0 on 771 of 800 fits. R `ctmle` on the same samples covers 0.9287 with an SE ratio of 0.9187, and passes the floor. The cause is the plug-in variance under near-positivity, not the selection, and the row does not test $\Delta(P_1)$ of F18 ([`tests/diagnostics/x16_lasso_coverage/`](https://github.com/esbraun/cleverly-tmle/tree/main/tests/diagnostics/x16_lasso_coverage)). The package refuses `ci`, `pvalue` and `std_error` on a lasso fit |
 | The first run's necessity cell was a design defect | The first run declared `W2`, then `W1`. That order breaks the decreasing treatment loss, and `learners_collaborative` read a bias of 0.575 SD with an RMSE bound of 0.511 against 0.50. The [fixture README](https://github.com/esbraun/cleverly-tmle/blob/main/tests/canonical/ctmle_sequences/README.md#history) records that run. The committed cells use the nested order |
 | R refits on every row inside each fold | R refits the fluctuation on every row, and its evaluation refits the lasso path on every row. `cleverly` refits inside each selection fold. The selected candidate can differ for this reason alone. The paired rows are descriptive for this reason |
 | R penalizes its construction | R adds $\operatorname{var}(D^*)$ to each construction score, whatever `PEN` is. `cleverly` with `penalty=False` does not. The replay gates use `penalty=True` on both sides for this reason |
