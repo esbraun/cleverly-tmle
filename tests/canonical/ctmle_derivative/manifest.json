@@ -6,15 +6,22 @@
     "subject": {
       "implementation": "cleverly-ctmle-derivative",
       "cleverly_version": "0.1.3",
-      "cleverly_commit": "00cf59c247526ecf005261c3fb8e7c64da9ac7a8",
+      "cleverly_commit": "74562faee72eab0b647decca94f2291091b8baf4",
       "cleverly_worktree_clean": true,
       "python": "3.13.16",
-      "numpy": "2.5.4",
-      "scipy": "1.18.1",
-      "pandas": "3.0.6",
-      "scikit_learn": "1.9.1"
+      "numpy": "2.4.6",
+      "scipy": "1.18.0",
+      "pandas": "3.0.5",
+      "scikit_learn": "1.9.0"
     },
-    "reference": null
+    "reference": {
+      "implementation": "r-ctmle",
+      "ctmle_commit": "18de559f47dc1286617350a0668391e80e1dbf7c",
+      "ctmle_version": "0.1.2",
+      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
+      "reference_construction": "Q: glm(Y ~ A + W1 + W2 + W3 + W4, binomial); binary_constant_q: mean(Y) for both arms. binary_declared_pair and binary_constant_q: glmnet(W, factor(A), binomial, lambda = sort(PAIR, decreasing = TRUE), thresh = 1e-14, maxit = 1e7), g1W and g1WPrev by predict(type = 'response') at the mechanism and the partner penalty. binary_pipeline: cv.glmnet(W, factor(A), binomial, nfolds = 10, nlambda = 100), g1W at lambda.min and g1WPrev at 1.05 lambda.min. Both: ctmleGlmnet(ctmletype = 3, gbound = 0.025, alpha = 0.995, family = 'binomial'). glmnet.control(fdev = 0, devmax = 1)",
+      "red_cell_owner": "X30-derivative-reading"
+    }
   },
   "configuration": {
     "replicates": 800,
@@ -22,6 +29,10 @@
     "seed": 20263001,
     "resampling_seed": 2026300101,
     "publication_policy": "reporting",
+    "failure_bound": {
+      "cleverly-ctmle-derivative": 0.01,
+      "r-ctmle": 0.01
+    },
     "scenarios": {
       "binary_declared_pair": [
         "ate"
@@ -74,16 +85,16 @@
     }
   },
   "study_module_sha256": {
-    "tests/studies/canonical_ctmle_derivative.py": "621db751f58503596a182930dabf344511effca21410e77f509afc5a849d3d6b",
-    "tests/studies/ctmle_derivative_properties.py": "934ffbb521e0d3fd43287afabc3bb636682982486e534b45357eec837bb996c2",
+    "tests/studies/canonical_ctmle_derivative.py": "1a49e734a3dedc94508df58f8ba9cea87e29760ed10170b2175dd1617fac5356",
+    "tests/studies/ctmle_derivative_properties.py": "e313ecf439c2e5a00e715d7acef99c18e6a1d401a07748d03714144a930f9d4e",
     "tests/studies/ctmle_derivative_laws.py": "924595d6915223e87c2511e5983ea2eebcaed75bc1c7194e0025c95d2058e144",
     "tests/studies/point_study_helpers.py": "f374431920b1cc358a99413d5738174e000a46ded1c1d8b183cb282fadeddbbd",
     "tests/conftest.py": "8adf5363471ccc6aa16e94a141b521552bc7098983bfa59d7a80878590db6ba5",
     "tests/studies/evidence/comparison.py": "cda024d78d150d0295bd4328bf1bfce5093a0231f9425063ea7b42909779d486",
     "tests/studies/evidence/inference.py": "a7218e074c494502f360a31e68a0f64f0f447fd6f70967a559270b177b2df18d",
     "tests/studies/evidence/performance.py": "571183d18985b44bb432488961cde3e586eaf0483a99755e82b9e6fe0306bf00",
-    "tests/studies/evidence/properties.py": "47031348a18c7f610dd2e47441ed50d6a05bf120bceace63bfe93e6c7c7611ab",
-    "tests/studies/evidence/property_verdicts.py": "14e0e3daaea0a8fde5cedca2e5b3002ca50ac6f82b2355e7573853b57c5e8287",
+    "tests/studies/evidence/properties.py": "38ed24d900fce298ac6b0356e6bce62b3f255727dfdd4d363d81275467cd5ebb",
+    "tests/studies/evidence/property_verdicts.py": "1083dc4f6773c7293637216170a4f4d5debc7ff4c4327ee1ecc0e35c04f027d6",
     "tests/studies/evidence/schema.py": "0bd947501cc19c2abbbc78826079faf42043806a283889d6e2abe6e325b09c1e",
     "tests/studies/evidence/seeds.py": "6295ed70b1f7247afda8551e2042bda311a025ce1c75c1a4154c0d1876fc1cd5",
     "tests/canonical/ctmle_selector/Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
@@ -91,33 +102,20 @@
     "tests/canonical/ctmle_derivative/penalties.csv": "59c59e8dcdbeaa18cb6f7023a648aab163abcdd6026214f20f5b499a9e57be6c",
     "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51"
   },
-  "reference_sha256": {},
+  "reference_sha256": {
+    "tests/canonical/ctmle_selector/Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
+    "tests/canonical/ctmle_derivative/run_ctmle_derivative.R": "6e19ace0d59aeb3b73bcff3e2e280ee56271a628a5f9419de1e218c30dbe1c6c",
+    "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
+    "tests/canonical/ctmle_derivative/penalties.csv": "59c59e8dcdbeaa18cb6f7023a648aab163abcdd6026214f20f5b499a9e57be6c"
+  },
   "sha256": {
-    "replicates.parquet": "c8def71ceb83231e5c02dced87ba7263261e82aabd83db0e87735e4b929efcb5",
-    "summary.csv": "05e402614dc9d7de5a4d087e540c3701a76739fd2480c0167166a324363cb1cf",
-    "equivalence.csv": "83f6885a4d7bb9e66a23224359c25e1fdb63f33c048c5d65f359c00deaed5b67",
-    "performance-tests.csv": "a09acd2c6dd531515a08f779eb56224b6ad37e460c987038bc08d6272877c11f",
+    "replicates.parquet": "fe8480ace9d0bcb427c8d92c1b0de22e2ba5ddf80160c156e59d765eca70c433",
+    "summary.csv": "99678519349bb25df83ec18496551f9ff3e41aae7cb8892ab66d459f34f875ad",
+    "equivalence.csv": "1d007a0271068650c04ce10ec930d0b3db2c6efb5095d95ce57b1a06c797fdff",
+    "performance-tests.csv": "f1d411e9e4419a00bd9d98af0aee3014f60d625a8eeb46e87d22962d6a95b050",
     "property-replicates.parquet": "10c169b87f56d39b6a74ac4549cf2be67a6cf7e09ded085bd9c28c082b37279f",
     "properties.csv": "0a9da22d046ae0e94b84b3b93967786b0b9934b9f01f1e3b80e7260126becc07",
-    "paired-tmle.csv": "fb2384a57f3e83891beaa394e8a6e6269e7dcd78f462b59a0c85760625c838ea",
-    "chosen-penalties.csv": "01747ff7ab1b8fc8ba6385a1313d439f35f39aac882b7a16cb20edb7ba7a858f"
-  },
-  "comparator": {
-    "status": "pending",
-    "implementation": "r-ctmle",
-    "reason": "R ctmle 0.1.2 ctmletype = 3 runs on the local Study queue (beta-plans TRACKER item 18, the primary and R phases). The owner's rule merges a method on its Python studies",
-    "metadata": {
-      "ctmle_commit": "18de559f47dc1286617350a0668391e80e1dbf7c",
-      "ctmle_version": "0.1.2",
-      "r_base_image": "rocker/r-ver:4.5.2@sha256:fd4ccdd3a4a6f7ef805e2daeee2a0fe3bf126bc231f36351223baecf5a595a4c",
-      "reference_construction": "Q: glm(Y ~ A + W1 + W2 + W3 + W4, binomial); binary_constant_q: mean(Y) for both arms. binary_declared_pair and binary_constant_q: glmnet(W, factor(A), binomial, lambda = sort(PAIR, decreasing = TRUE), thresh = 1e-14, maxit = 1e7), g1W and g1WPrev by predict(type = 'response') at the mechanism and the partner penalty. binary_pipeline: cv.glmnet(W, factor(A), binomial, nfolds = 10, nlambda = 100), g1W at lambda.min and g1WPrev at 1.05 lambda.min. Both: ctmleGlmnet(ctmletype = 3, gbound = 0.025, alpha = 0.995, family = 'binomial'). glmnet.control(fdev = 0, devmax = 1)",
-      "red_cell_owner": "X30-derivative-reading"
-    },
-    "declared_sources_sha256": {
-      "tests/canonical/ctmle_selector/Dockerfile": "a7ee18b8b4c7a71b75ded567b85daae7995a7099badc45bf30f101c8d8bd430d",
-      "tests/canonical/ctmle_derivative/run_ctmle_derivative.R": "6e19ace0d59aeb3b73bcff3e2e280ee56271a628a5f9419de1e218c30dbe1c6c",
-      "tests/canonical/study_harness.R": "ef78795459f0d41a7e112435bee900b1a982b39044a6d44b66be0fb599664b51",
-      "tests/canonical/ctmle_derivative/penalties.csv": "59c59e8dcdbeaa18cb6f7023a648aab163abcdd6026214f20f5b499a9e57be6c"
-    }
+    "paired-tmle.csv": "1ea15a4b72899a79cd2c29ab6d06da0dbe78d61f154a6f536ef6570120a156c1",
+    "chosen-penalties.csv": "2080a0f8b5e7a6236b84f853828f776d6acf8bc7eedcb40deed6ed68e3614178"
   }
 }
