@@ -41,9 +41,10 @@ family                                   cells
 =======================================  =======================================================
 
 **Budgets.**  The pilot merge at 67ac67df sets the replicate counts below (plans
-``X39-pilot-merge-reading.md``).  Calibration R is 16,000, the ladder ceiling.  No R on the
-ladder reaches family pass probability 0.95: it reads 0.851 at 16,000.  The bias families keep
-2,000 although the bias ladder reads 1,000.
+``X39-pilot-merge-reading.md``).  Calibration R is 8,000 by the plan's rule.  No R on
+the ladder reaches family pass probability 0.95, and four categorical arms read low (plans
+``X39-pilot-merge-reading.md``, S3 calibration diagnosis).  A low arm that fails reads red.
+The bias families keep 2,000 although the bias ladder reads 1,000.
 
 **Declared red-cell reading** (plan section 5.6, before any run).  The study publishes under
 ``reporting``.  Its gated truth rows (``GATED_ROWS``) and gated property cells (``GATED_CELLS``)
@@ -127,8 +128,9 @@ from tests.studies.evidence.replication import fit_properties
 TAG = "S3"
 
 #: The calibration pilot sets each study's calibration R (pilot merge at 67ac67df).
-#: No R up to the 16,000 ceiling reaches family pass probability 0.95; it reads 0.851 at 16,000.
-CALIBRATION_REPLICATES = 16_000
+#: Plan section 5.3 rule (Eric 2026-10-21): R 8,000, where the family without its four low SDR
+#: categorical arms passes 0.963.  A low arm that fails reads red and is diagnosed (section 5.6).
+CALIBRATION_REPLICATES = 8_000
 #: The bias pilots read R 1,000 on the ladder 1,000 to 4,000; the study keeps 2,000.
 BIAS_REPLICATES = 2_000
 ROOT_N_REPLICATES = 1_000

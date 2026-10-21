@@ -684,6 +684,6 @@ def test_the_declared_replicate_counts_are_the_pilot_merge_reading() -> None:
         p1.CALIBRATION_REPLICATES,
         p2.CALIBRATION_REPLICATES,
         p3.CALIBRATION_REPLICATES,
-    ) == (6_000, 14_000, 16_000)
+    ) == (6_000, 14_000, 8_000)
     assert (p1.BAND_REPLICATES, p2.BAND_REPLICATES) == (4_000, 2_000)
     assert (p1.BIAS_REPLICATES, p2.BIAS_REPLICATES, p3.BIAS_REPLICATES) == (2_000, 2_000, 2_000)
