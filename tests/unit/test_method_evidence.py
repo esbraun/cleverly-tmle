@@ -1410,6 +1410,9 @@ BIAS_GATED_PROPERTIES = frozenset(
         # g-formula truth.  A control passes when its bias interval lies beyond the margin on
         # the side of the computed gap, which is the discrimination endpoint read on one side.
         "blip_feature_control",
+        # X33's bound necessity: valid bounds keep the bias inside the margin, and bounds that
+        # exclude the truth move it beyond the margin.
+        "bound_necessity",
     }
 )
 
@@ -1502,8 +1505,19 @@ ENDPOINT_GATED_PROPERTIES = frozenset(
         # The SE of a clustered fit made without its cluster column, which must leave the band
         # from below.
         "unclustered_se",
+        # X33's binding witness: the iterated-mean cell answers to two share floors, and the
+        # hazard cell carries the diagnostic role and states no verdict.
+        "binding_witness",
     }
 )
+
+#: Gated families that read one stream on purpose, by study.  A witness of this kind checks a
+#: premise of the other family on the draws that family measured, so independent draws would
+#: not test that premise.  ``survival-node-bounds``: the binding witness shows that the bounds
+#: bind on the draws of the calibration cells, so the calibration cells measure a bounded fit.
+SAME_DRAW_FAMILIES = {
+    "survival-node-bounds": frozenset({"binding_witness", "interval_calibration"}),
+}
 
 #: Families that publish numbers and no verdict.  A third list rather than a third entry in
 #: one of the two above, because the rule is not "which endpoint decides this row" but
@@ -1542,6 +1556,10 @@ DIAGNOSTIC_PROPERTIES = frozenset(
         # X46's first-draw reading and its displacement share, reported with no verdict.
         "single_draw_reading",
         "split_displacement",
+        # X33's bounded fits on the parameters the bounds do not gate, and the unbounded fits on
+        # the same draws, each reported with no verdict.
+        "reported_calibration",
+        "unbounded_fit",
     }
 )
 
@@ -1976,7 +1994,8 @@ class TestTheStudyStillMeasuresTheCode:
 
         A family in ``DIAGNOSTIC_PROPERTIES`` publishes a reading and no verdict, so it may read
         the fits of another family and does not count as a claim on the stream.  Every other
-        family still needs a stream of its own.
+        family still needs a stream of its own, except the one pair of a study that
+        ``SAME_DRAW_FAMILIES`` names.
         """
         declared_cells = getattr(study.properties(), "declared_cells", None)
         if declared_cells is None:
@@ -1989,7 +2008,7 @@ class TestTheStudyStillMeasuresTheCode:
         collisions = {
             stream: sorted(properties)
             for stream, properties in by_stream.items()
-            if len(properties) > 1
+            if len(properties) > 1 and frozenset(properties) != SAME_DRAW_FAMILIES.get(study.slug)
         }
         assert not collisions, f"property families reuse sample streams: {collisions}"
 
@@ -2836,6 +2855,8 @@ MARGIN_SOURCES: dict[str, Any] = {
     "margin:uncorrected_score_floor": lambda s: s.properties().UNCORRECTED_SCORE_FLOOR,
     "margin:correction_displacement": lambda s: s.properties().CORRECTION_DISPLACEMENT,
     "margin:necessity_displacement": lambda s: s.properties().NECESSITY_DISPLACEMENT,
+    "margin:witness_share": lambda s: s.properties().WITNESS_SHARE,
+    "margin:unconverged_share": lambda s: s.properties().UNCONVERGED_SHARE,
     "margin:weight_displacement": lambda s: s.properties().WEIGHT_DISPLACEMENT,
     "margin:learner_weight_displacement": lambda s: s.properties().LEARNER_WEIGHT_DISPLACEMENT,
     "margin:categorical_probability_displacement": (

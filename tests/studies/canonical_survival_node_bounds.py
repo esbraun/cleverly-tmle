@@ -53,9 +53,9 @@ commit, before any run.  More than 1 per cent of unconverged replicates in a cel
 red; N's control converges by design.  A red cell goes to the red-cell ledger, and an owner row
 enters the roadmap only for a red cell.  No re-run uses a new budget, margin or law.
 
-**Not registered.**  The record is not in ``registered()``, because a registered study needs
-its committed artifacts, and no run is queued.  The R runner is written and has not run, and the
-``survtmle`` image digest is not pinned (see ``pending_reason``).
+**Registered.**  The Python run finished with 7,200 replicates and its artifacts are committed,
+so the record is in ``registered()`` with its comparator pending.  The R runner is written and
+has not run, and the ``survtmle`` image digest is not pinned (see ``pending_reason``).
 """
 
 from __future__ import annotations
@@ -324,8 +324,11 @@ STUDY = StudyRecord(
         "declared known in the container, so no convention gap is routed; the P-cells stay "
         "comparator pending"
     ),
+    # The change that runs the comparator also declares
+    # ``comparison_overrides={f"{HAZARD_MODEL}:*": "different estimator"}``: the two hazard
+    # fluctuations differ, as the unmatched settings of ``canonical_point_survival_hazard``
+    # state.  A pending record carries no override, because no paired row exists for it to name.
     comparison="matching implementation",
-    comparison_overrides={f"{HAZARD_MODEL}:*": "different estimator"},
     failure_bound={"cleverly": FAILURE_BOUND, "survtmle": FAILURE_BOUND},
     efficiency_bounds={name: law.EFFICIENCY_SD[name] for name in ESTIMANDS[MEAN_MODEL]},
     modules=(

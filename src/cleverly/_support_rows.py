@@ -1722,6 +1722,22 @@ _OUTCOME_KINDS: Final[frozenset[str]] = frozenset(
 )
 
 
+def _x33_options(
+    *, node_bounds: bool = False, hazard_pooling: str = "node"
+) -> tuple[tuple[str, Any], ...]:
+    """The fitting options of a longitudinal key that change the fit's arithmetic.
+
+    No row declares ``ratio_trim=`` or a Markov order: no registered study fits either one,
+    so a fit that declares one matches no row.
+    """
+    return (
+        ("node_bounds", node_bounds),
+        ("hazard_pooling", hazard_pooling),
+        ("ratio_trim", False),
+        ("markov_order", None),
+    )
+
+
 def long_row(
     row_id: str,
     evidence: Sequence[str],
@@ -1743,6 +1759,8 @@ def long_row(
     targeting: str = "iterative",
     isotonic: bool = False,
     ratio: str = "density",
+    node_bounds: bool = False,
+    hazard_pooling: str = "node",
     kinds: frozenset[Kind] = _LONG_WALD,
     cells: Sequence[str] = (),
     limits: Sequence[str] = (),
@@ -1790,6 +1808,10 @@ def long_row(
         Whether the row projects the curve onto a monotone one.
     ratio : {"density", "classifier"}, default "density"
         The policy density ratio of a modified treatment policy row.
+    node_bounds : bool, default False
+        Whether the row's fits declare ``node_bounds=``.
+    hazard_pooling : {"node", "pooled"}, default "node"
+        How the row's fits pool the censoring and hazard regressions over the nodes.
     kinds : frozenset of str, default Wald
         What the row licenses.
     cells : sequence of str, default ()
@@ -1828,6 +1850,7 @@ def long_row(
             ("survival_model", survival_model),
             ("targeting", targeting),
             ("isotonic", isotonic),
+            *_x33_options(node_bounds=node_bounds, hazard_pooling=hazard_pooling),
         ),
     )
     return SupportRow(row_id, key, kinds, tuple(evidence), tuple(cells), learners, tuple(limits))
@@ -2678,6 +2701,50 @@ def _long_rows() -> tuple[SupportRow, ...]:
             limits=("law I is measured at n = 80,000, where its second-order bias is small",),
         ),
     ]
+    # Node bounds on a held survival fit (X33): every node bounded, the censoring model pooled
+    # over the nodes, and node 1's retention declared known (the qualifier ``time>=1``), in
+    # sample with GLM learners on one five-visit law at n = 2,000.
+    bounds = ["survival-node-bounds"]
+    bounds_limit = (
+        "The study's survtmle comparator runs are pending, so the evidence is Python property "
+        "evidence only."
+    )
+    rows += [
+        long_row(
+            "G45.mean_model",
+            bounds,
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            qualifiers=("time>=1",),
+            node_bounds=True,
+            hazard_pooling="pooled",
+            cells=["interval_calibration", "binding_witness", "bound_necessity"],
+            limits=[
+                "Calibrated in sample at n = 2,000 with valid bounds at 1.1 times the largest "
+                "at-risk iterated mean, quasibinomial node regressions and logistic mechanisms. "
+                + bounds_limit
+            ],
+        ),
+        long_row(
+            "G45.hazard_model",
+            bounds,
+            outcome_kind="survival",
+            held=True,
+            treatment=("2",) * 5,
+            qualifiers=("time>=1",),
+            survival_model="hazard",
+            node_bounds=True,
+            hazard_pooling="pooled",
+            cells=["interval_calibration"],
+            limits=[
+                "Calibrated in sample at n = 2,000 with valid bounds at 1.1 times the largest "
+                "true hazard and one pooled logistic hazard. The bounds moved the estimate on "
+                "one draw in ten, so the study reports the binding witness of this fit and does "
+                "not gate it. " + bounds_limit
+            ],
+        ),
+    ]
     return tuple(rows)
 
 
@@ -3066,6 +3133,7 @@ def _long_options(normalization: str) -> tuple[tuple[str, Any], ...]:
         ("survival_model", "iterated_mean"),
         ("targeting", "iterative"),
         ("isotonic", False),
+        *_x33_options(),
     )
 
 

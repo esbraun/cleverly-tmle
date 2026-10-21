@@ -14,10 +14,10 @@ A later change runs the R runner and registers the comparator runs.
 
 ## State of this directory
 
-No run artifact exists yet. The design is complete and the study is not in `registered()`, because
-a registered study needs its committed artifacts. The property module is listed in
-`SYNTHETIC_MODULES` of `tests/canonical/property_differential.py`. The change that commits the run
-artifacts also adds the registry line, the evidence page and the red-cell owners.
+The Python run finished with 7,200 replicates for each model. Its artifacts are committed here, and
+the study is in `registered()`. The evidence page is
+`docs/technical-reference/method-evidence/survival-node-bounds.md`, and the validation grid has its
+row. The support rows `G45.mean_model` and `G45.hazard_model` cite this study.
 
 The driver hashes the declared reference sources into the manifest. The R runner is
 `tests/canonical/survival_node_bounds/run_study.R`. It is written by inspection and has not run,

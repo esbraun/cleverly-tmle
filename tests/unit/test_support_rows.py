@@ -321,6 +321,37 @@ class TestLongitudinalControls:
         )
         assert classify_key(mean, hazard.learners).row.id == "G14.survival"  # type: ignore[union-attr]
 
+    @pytest.mark.parametrize("row", ["G45.mean_model", "G45.hazard_model"])
+    @pytest.mark.parametrize(
+        ("name", "value"), [("node_bounds", False), ("hazard_pooling", "node")]
+    )
+    def test_a_bounded_row_covers_only_a_bounded_pooled_fit(
+        self, row: str, name: str, value: Any
+    ) -> None:
+        bounded = self.observed(row)
+        assert classify_key(bounded.key, bounded.learners).row.id == row  # type: ignore[union-attr]
+        options = tuple((key, value if key == name else old) for key, old in bounded.key.options)
+        moved = classify_key(replace(bounded.key, options=options), bounded.learners)
+        assert moved.row is None or moved.row.id != row
+
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [
+            ("node_bounds", True),
+            ("hazard_pooling", "pooled"),
+            ("ratio_trim", True),
+            ("markov_order", 1),
+        ],
+    )
+    def test_an_x33_option_leaves_a_default_row(self, name: str, value: Any) -> None:
+        # No registered study fits a ratio trim or a Markov order, and the bounded and pooled
+        # fits have rows of their own, so each option moves a default fit off its row.
+        for row in ("G01", "G14.survival"):
+            built = self.observed(row)
+            assert classify_key(built.key, built.learners).row.id == row  # type: ignore[union-attr]
+            options = tuple((key, value if key == name else old) for key, old in built.key.options)
+            assert classify_key(replace(built.key, options=options), built.learners).row is None
+
     def test_a_hazard_fit_with_no_row_is_experimental(self) -> None:
         # A hazard fit with estimated weights has no registered row, and the iterated-mean row
         # of the same design must not absorb it.

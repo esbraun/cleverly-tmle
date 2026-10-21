@@ -38,7 +38,11 @@ exact efficient influence function (:data:`EFFICIENCY_SD`).  N reads
 is equivalent to zero, the control's bias is discriminated beyond the margin, and their paired
 displacement is at least :data:`NECESSITY_DISPLACEMENT` of the positive arm's SD.  W reads its
 two shares against :data:`WITNESS_SHARE` (S10, a share filled at its adverse support bound).
-The diagnostic families publish their numbers and state no verdict.
+Every gated cell also reads the failure rule of the declaration: more than
+:data:`UNCONVERGED_SHARE` unconverged replicates turn the cell red (:func:`convergence_verdicts`).
+:data:`PROPERTY_RULES` declares it as one more clause of each gated family's rule, so the
+failure accounting and the property differential restate it.  The diagnostic families publish
+their numbers and state no verdict.
 
 **N's control** sets the upper bound at every node to :data:`NECESSITY_SHARE` of the way from
 the arm-1 at-risk follower mean of the true iterated mean to its maximum over ``W``
@@ -60,6 +64,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -152,6 +157,16 @@ WITNESS_COLUMNS = ("exceeds_bound", "estimate_moved")
 #: (``X22-plan.md`` II-3.4, failure rule).
 CONVERGENCE_COLUMN = "converged"
 UNCONVERGED_SHARE = 0.01
+#: The gated families the convergence rule reads, each with the group of its joint verdict.
+#: The rule is one more clause of each family's declared rule (:data:`PROPERTY_RULES`), so a
+#: cell over the share fails its own verdict and every joint verdict its family shares.  The
+#: diagnostic families and the diagnostic hazard witness state no verdict, so the rule does not
+#: read them.  They still publish their share.
+CONVERGENCE_GROUPS: dict[str, str] = {
+    "interval_calibration": "row",
+    "bound_necessity": "family",
+    "binding_witness": "family",
+}
 
 
 # ---------------------------------------------------------------------------- N
@@ -552,24 +567,31 @@ def witness_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
 
 
 def convergence_verdicts(summary: pd.DataFrame, rows: pd.DataFrame) -> None:
-    """The failure rule: a cell with more than :data:`UNCONVERGED_SHARE` unconverged fails.
+    """The failure rule: a gated cell with more than :data:`UNCONVERGED_SHARE` unconverged fails.
 
-    A derived control reads its positive arm's fits, so it reads that arm's share.
+    Every cell publishes its share.  A derived control's rows copy its positive arm's flags,
+    so it reads that arm's share.  A gated cell over the share fails its own verdict, and the
+    joint verdict of its group (:data:`CONVERGENCE_GROUPS`) fails with it.
     """
     for index in summary.index:
-        cell = str(summary.loc[index, "cell"])
-        base = cell
-        for kind in ("shrunken_se_control", "noise_control"):
-            base = base.replace(f"__{kind}", "__correctly_specified")
         group = rows.loc[
-            (rows["property"] == summary.loc[index, "property"]) & (rows["cell"] == base)
+            (rows["property"] == summary.loc[index, "property"])
+            & (rows["cell"] == summary.loc[index, "cell"])
         ]
         flags = group[CONVERGENCE_COLUMN].dropna()
         share = float(1.0 - flags.mean()) if len(flags) else 0.0
         summary.loc[index, "unconverged_share"] = share
-        if share > UNCONVERGED_SHARE:
-            summary.loc[index, "passed"] = False
-            summary.loc[index, "property_passed"] = False
+    for family, joint in CONVERGENCE_GROUPS.items():
+        member = summary["property"] == family
+        failed = (
+            member
+            & (summary["role"] != DIAGNOSTIC_ROLE)
+            & (summary["unconverged_share"] > UNCONVERGED_SHARE)
+        )
+        if not failed.any():
+            continue
+        summary.loc[failed, "passed"] = False
+        summary.loc[failed if joint == "row" else member, "property_passed"] = False
 
 
 def reported_families(summary: pd.DataFrame) -> None:
@@ -651,11 +673,38 @@ def _witness_rule() -> property_failures.FamilyRule:
     )
 
 
-#: The failure accounting's declared rules.
+def _unconverged(group: pd.DataFrame) -> np.ndarray:
+    """The per-replicate indicator the unconverged share averages."""
+    return 1.0 - group[CONVERGENCE_COLUMN].to_numpy(dtype=float)
+
+
+def _with_convergence(rule: property_failures.FamilyRule) -> property_failures.FamilyRule:
+    """``rule`` with the failure rule of :func:`convergence_verdicts` as one more clause.
+
+    S10, a cap on the unconverged share of each gated cell, with a lost replicate filled as
+    unconverged.  The clause feeds the cell's own verdict, so the rule's group carries it to
+    the joint verdict.
+    """
+    assert rule.families <= set(CONVERGENCE_GROUPS)
+    assert all(CONVERGENCE_GROUPS[family] == rule.group for family in rule.families)
+    clause = property_failures.extra_mean_clause(
+        "unconverged share",
+        value=_unconverged,
+        summary_column="unconverged_share",
+        side="cap",
+        limit=UNCONVERGED_SHARE,
+        applies=property_failures.roles("positive", "control"),
+        support=(0.0, 1.0),
+    )
+    return replace(rule, clauses=(*rule.clauses, clause))
+
+
+#: The failure accounting's declared rules.  Each gated family's rule carries the convergence
+#: clause (:func:`_with_convergence`).
 PROPERTY_RULES = (
-    property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND),
-    *property_verdicts.necessity_rules(NECESSITY),
-    _witness_rule(),
+    _with_convergence(property_verdicts.calibration_rule(efficiency_band=EFFICIENCY_RATIO_BAND)),
+    *(_with_convergence(rule) for rule in property_verdicts.necessity_rules(NECESSITY)),
+    _with_convergence(_witness_rule()),
 )
 
 
