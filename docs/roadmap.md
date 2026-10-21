@@ -876,6 +876,20 @@ Acceptance:
   below the standard error of the shipped form;
 - truth-only registered study cells.
 
+### X36. Intervals for AdaptiveIPTW with an estimated mechanism
+
+An `AdaptiveIPTW` fit with an estimated treatment or missingness mechanism reports a point estimate
+and the status `estimated_mechanism_plugin`. Theorem 1 of van der Laan (2012), WP302, needs a term
+that is linear in $g_n - g_0$ to vanish. The term vanishes when the reduced regression is a
+function of the true $g$, or when the fitted $g$ is a function of the true one. No fit can check
+either condition.
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | an interval under a declared parametric mechanism | the curve that includes the estimation term of the mechanism, derived for a main-terms GLM |
+
+Acceptance: an exact-law witness of the term with a nonzero value; a registered coverage study.
+
 ### X5. Natural and interventional mediation effects
 
 `cleverly` reports controlled direct effects only. Natural and interventional direct and indirect
@@ -1275,6 +1289,8 @@ its run.
 | (b) | the HAL-TMLE bootstrap | Cai and van der Laan (2020), arXiv:1905.10299, Section 3.6, Theorem 4 | in sample; a HAL learner, which does not ship; $C$ fixed at the selected value; a per-replicate update |
 | (c) | the model-based targeted bootstrap | Coyle (2017), Berkeley dissertation, Section 1.4 and Appendix A.3, Theorem 9 (thesis numbering). The book chapter of Coyle and van der Laan (2018) was not read | resampling from the targeted fit, with Super Learner and TMLE refitted and retargeted on each sample. Theorem 9 needs the efficient score solved to the order it states, a negligible remainder, a uniform Donsker class, and $L_2$ convergence of $D^*$. The local read records that order as $o_P(1/n)$, and the row confirms it against Theorem 9 before it ships. The nuisance rates $o_P(n^{-1/4})$ under the targeted fit, positivity and bounded sectional variation come from Lemma 2 and Corollary 1, for the treatment-specific mean only. Other targets need their own rate lemma |
 
+| (d) | `n_bootstrap=` with `AdaptiveIPTW` and a known mechanism | a bootstrap of the targeted propensity, with the propensity refitted and retargeted on each sample |
+
 [F2](#f2-targeted-bootstrap-inference) keeps bootstrap consistency with data-adaptive or
 cross-fitted nuisances. Acceptance: a registered coverage study for each part.
 
@@ -1367,6 +1383,7 @@ settings that the package refuses.
 | (a) | `targeting_scheme="fold"` with `incremental=` | each fold's update solves the efficient influence function equation of Kennedy (2019), arXiv v3, Theorem 2, on its validation rows. That equation includes the mechanism term. The fold average is the estimator of Section 4.2, Algorithm 1, and Section 4.3, Theorem 3, gives its limit |
 | (b) | baseline strata with `targeting_scheme="fold"` | a finite partition of the fold-specific update. Each stratum solves its own fold-specific equation, and the strata are stacked |
 | (c) | `cv_evaluation=True` with `rr`, `or` or `msm=` | the delta method on the fold-evaluated arm means for a ratio, and a fixed full-rank projection of those means for an MSM. The estimator is the ratio of the fold averages, not the fold average of the fold ratios |
+| (d) | `targeting_scheme="fold"` or `cv_evaluation=True` with `AdaptiveIPTW` | one targeted propensity for each fold, or the fold-evaluated mean of the Horvitz-Thompson form. No reviewed result covers either |
 
 [F18](#f18-selector-path-c-tmle-inference) keeps a fold-specific selection on the C-TMLE selector
 paths. [F19](#f19-outcome-adaptive-c-tmle-generated-design-inference) keeps the fold average of
@@ -1526,6 +1543,7 @@ needs an exact calculation and no new theory.
 | (c) | a generated-outcome process for a controlled direct effect, an MSM, an intervention, a ratio, or a functional other than `BackdoorMeanContrast` | a registered process for each target, with its effect computed exactly. An intervention that reads the propensity, such as an odds tilt, needs a process that also generates the treatment |
 | (d) | a generated-outcome process with missing outcomes | a declared observation process under missing at random, and the effect computed on the complete law |
 | (e) | `bootstrap_measurement_error` on a result that is not a point-treatment result, or on the strata variables | a perturbation of each node's covariates, and a declared reading that keeps the reported strata at their recorded values |
+| (f) | `refute` on an `AdaptiveIPTW` fit | the placebo and resampled refits of the targeted propensity, with a generated-outcome process whose effect is exact |
 
 Acceptance: each process's effect checked against an exact calculation; a pre-fit refusal test
 for each request that stays refused.
@@ -1669,6 +1687,19 @@ fluctuation across the regimens, and that fluctuation has no bounded form yet.
 the per-node density ratios of the iterated-mean recursion. `lmtp` has no hazard model. The
 clever covariates of the hazard targeting read the cumulative inverse treatment and censoring
 probabilities, and no source read here defines a trim of them.
+
+### X81. AdaptiveIPTW follow-ups
+
+`AdaptiveIPTW` refuses the requests below. No registered study measures them.
+
+| part | request | step |
+| --- | --- | --- |
+| (a) | `repeats > 1` | a repeat aggregate of the targeted propensity, with the median rule of the other estimators |
+| (b) | a regime with missing data, cross-fitted | the composite indicator on the cross-fitted regime key. The pooled reduced cross-fit term of [F21](#f21-other-missing-outcome-cv-tmle-variants) stays open |
+| (c) | `truncation_curve` | a retargeting of the IPTW propensity at each bound |
+
+Acceptance: a pre-fit refusal test for each request that stays refused; a registered study for
+each request that ships.
 
 ### P1. EP learner
 

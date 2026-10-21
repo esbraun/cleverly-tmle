@@ -57,6 +57,7 @@ InferenceStatus = Literal[
     "influence_curve",
     "working_mechanism_plugin",
     "generated_design_plugin",
+    "estimated_mechanism_plugin",
     "estimated_weight_plugin",
     "trimmed_ratio_plugin",
     "adaptive_baseline_plugin",
@@ -292,6 +293,40 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "of arms and observation weights."
             ),
         ),
+        "estimated_mechanism_plugin": StatusRecord(
+            reason=(
+                "An AdaptiveIPTW fit with an estimated treatment or missingness mechanism "
+                "reports no confidence interval, no p-value and no standard error. Van der "
+                "Laan (2012, WP302) Theorem 1 then needs "
+                "P_0[(Q_0 - Qr_0)(g_0 - g_n)/g_0] = o_P(n^(-1/2)), where g is that mechanism "
+                "and Qr_0 is the regression of the outcome on the true g. That term is linear "
+                "in g_n - g_0. It vanishes when the outcome regression is a function of the "
+                "true g, or when the fitted g is a function of the true one, and no fit can "
+                "check either. The point estimate stands. The plug-in standard error of the "
+                "Theorem 1 curve remains as a diagnostic under plugin_std_error and "
+                "plugin_interval, but it is not valid inference here: when the outcome "
+                "regression is not a function of the true g, it can be too wide under a "
+                "parametric mechanism, and under a learner whose error is not a function of "
+                "the true g the estimate it is centred on can be biased at first order. X36 in "
+                "docs/roadmap.md reopens this for a declared parametric mechanism."
+            ),
+            assessment_note=(
+                "the plug-in interval is not valid inference here: the mechanism is estimated, "
+                "and the condition of WP302 Theorem 1 cannot be checked; X36 in the roadmap is "
+                "the condition that reopens it"
+            ),
+            summary_label="estimated-mechanism se",
+            bootstrap_note=(
+                "a diagnostic; AdaptiveIPTW refuses n_bootstrap=, so no bootstrap range is printed"
+            ),
+            diagnostic_noun="estimated-mechanism plug-in diagnostic",
+            reopened_by="X36",
+            alternative=(
+                "On complete data, pass the known treatment probabilities "
+                "(treatment_probabilities=) and fit those estimates on their own to get an "
+                "interval, or fit tmle or drtmle for an interval."
+            ),
+        ),
         "estimated_weight_plugin": StatusRecord(
             reason=(
                 "A DR-TMLE fit with a guard and weights declared estimated "
@@ -306,7 +341,9 @@ STATUS_RECORDS: Mapping[str, StatusRecord] = MappingProxyType(
                 "per_arm_parametric_support admits, take this status too with estimated "
                 "weights, because each one's stacked estimating-equation curve conditions on "
                 "the weights. A StructuralNestedMean fit with estimated weights takes it for the "
-                "same reason: its curve treats the weights as known."
+                "same reason: its curve treats the weights as known. An AdaptiveIPTW fit with "
+                "a known treatment mechanism takes it too, because its curve rests on the "
+                "reduced regression of the weighted law and holds the weights fixed."
             ),
             assessment_note=(
                 "the reported interval conditions on the weights and is experimental: no "

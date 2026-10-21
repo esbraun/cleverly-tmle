@@ -26,6 +26,7 @@ from .longitudinal.pooled_hazards import check_hazard_pooling
 from .longitudinal.ratio_trim import check_ratio_trim
 
 __all__ = [
+    "ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL",
     "BASELINE_HAZARD_POOLING_REFUSAL",
     "BASELINE_POINT_REFUSAL",
     "BASELINE_RATIO_TRIM_REFUSAL",
@@ -35,12 +36,14 @@ __all__ = [
     "IPSI_NO_FLUCTUATION",
     "IPSI_POINT_REFUSAL",
     "IPSI_RATIO_TRIM_REFUSAL",
+    "IPW_POINT_REFUSAL",
     "LTMLE_TILT_REFUSAL",
     "NODE_BOUNDS_MSM_REFUSAL",
     "REPEATED_OUTCOME_REFUSAL",
     "SDR_POINT_REFUSAL",
     "SDR_TILT_REFUSAL",
     "SHORTCUTS",
+    "AdaptiveIPTWMethod",
     "CollaborativeTMLEMethod",
     "CrossFitting",
     "DRTMLEMethod",
@@ -112,6 +115,22 @@ BASELINE_POINT_REFUSAL = Refusal(
     "sequential g-computation, sequential IPW and the parametric g-formula are the baselines "
     "of a longitudinal fit.",
     alternative="A point-treatment functional fits tmle, drtmle or collaborative_tmle.",
+)
+#: Why a point-treatment functional refuses ``method="ipw"`` (Q30). It names the point-treatment
+#: IPW estimate beside the targeted estimators.
+IPW_POINT_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "sequential IPW is the baseline of a longitudinal fit.",
+    alternative=(
+        "A point-treatment functional fits tmle, drtmle or collaborative_tmle. "
+        "adaptive_iptw is the point-treatment IPW estimate."
+    ),
+)
+#: Why a longitudinal design refuses ``method="adaptive_iptw"`` (R12).
+ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL = Refusal(
+    RefusalReason.API_REDIRECTION,
+    "Adaptive IPTW has no longitudinal derivation.",
+    alternative="Use SequentialIPW (method='ipw').",
 )
 #: Why a point-treatment functional refuses ``method="sdr"`` (R4).
 SDR_POINT_REFUSAL = Refusal(
@@ -1498,6 +1517,101 @@ class DRTMLEMethod(TMLEMethod):
 
 
 @dataclass(frozen=True)
+class AdaptiveIPTWMethod(TMLEMethod):
+    """Configure the adaptive-propensity IPTW estimator.
+
+    The estimator reports the Horvitz-Thompson mean of each arm with a propensity that is
+    targeted along the reduced regression of the outcome on the fitted propensity (van der
+    Laan 2012, WP302, Theorem 1). It fits no outcome regression, so the fluctuation settings
+    of :class:`Targeting` and the ``ratio`` and ``density_bins`` settings of :class:`ModelSpec`
+    stay at their defaults. An interval needs a known treatment mechanism. Otherwise the
+    fit reports point estimates under the status ``estimated_mechanism_plugin``.
+
+    Parameters
+    ----------
+    models : ModelSpec
+        Nuisance learners and related model settings.
+    cross_fitting : CrossFitting
+        Sample-splitting settings.
+    targeting : Targeting
+        Mechanism-tilt and solver settings.
+    inference : Inference
+        Interval and resampling settings.
+    runtime : Runtime
+        Seed, run identifier, and parallelism.
+    name : str
+        Stable method name.
+    form : {"targeted", "one_step"}, default="targeted"
+        The reported form. ``"targeted"`` is the Horvitz-Thompson mean at the tilted
+        propensity. ``"one_step"`` is the estimating-equation correction at the initial
+        nuisances. A fit computes both and records the other.
+    reduced_outcome_learner : estimator or None, default=None
+        Learner for the reduced regression of the outcome on the fitted propensity. ``None``
+        takes ``models.outcome_learner``, and then the default Super Learner.
+
+    See Also
+    --------
+    TMLEMethod : Fits an outcome regression and a fluctuation of it.
+    DRTMLEMethod : Corrects both nuisances with reduced-dimension regressions.
+    ModelSpec : Owns the treatment learner the propensity is fitted with.
+
+    Examples
+    --------
+    >>> from cleverly import AdaptiveIPTWMethod
+    >>> method = AdaptiveIPTWMethod(form="one_step")
+    >>> method.name, method.form
+    ('adaptive_iptw', 'one_step')
+    >>> sorted(method.estimator_kwargs())[:3]
+    ['alpha', 'alpha_sig', 'bootstrap_resampling']
+    """
+
+    _ratio_refusal: ClassVar[Refusal | None] = Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "AdaptiveIPTW fits no outcome regression, so ratio= does not apply. Remove it.",
+    )
+    _density_bins_refusal: ClassVar[Refusal | None] = Refusal(
+        RefusalReason.INVALID_DECLARATION,
+        "AdaptiveIPTW fits no outcome regression, so density_bins= does not apply. Remove it.",
+    )
+
+    form: str = "targeted"
+    reduced_outcome_learner: Any = None
+    name: str = "adaptive_iptw"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.form not in ("targeted", "one_step"):
+            raise ValueError(f"form must be 'targeted' or 'one_step'; got {self.form!r}")
+        _validate_learner(self.reduced_outcome_learner, "reduced_outcome_learner")
+
+    def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
+        """Translate this configuration for the point-treatment adaptive IPTW engine.
+
+        Parameters
+        ----------
+        longitudinal : bool
+            Must be false because adaptive IPTW has no longitudinal derivation.
+
+        Returns
+        -------
+        dict of str to Any
+            Engine keyword arguments.
+
+        Raises
+        ------
+        MethodConfigurationError
+            When ``longitudinal`` is true.
+        """
+        if longitudinal:
+            raise MethodConfigurationError.from_refusal(ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL)
+        return {
+            **super().estimator_kwargs(),
+            "form": self.form,
+            "reduced_outcome_learner": self.reduced_outcome_learner,
+        }
+
+
+@dataclass(frozen=True)
 class SDRMethod(TMLEMethod):
     """Configure the sequentially doubly robust longitudinal estimator.
 
@@ -1617,6 +1731,9 @@ class _BaselineMethod(TMLEMethod):
     no fluctuation, so the fluctuation settings of :class:`Targeting` stay at their defaults.
     """
 
+    #: Why this baseline refuses a point-treatment functional.
+    _point_refusal: ClassVar[Refusal] = BASELINE_POINT_REFUSAL
+
     cross_fitting: CrossFitting = CrossFitting(enabled=False)
 
     def estimator_kwargs(self, *, longitudinal: bool = False) -> dict[str, Any]:
@@ -1640,7 +1757,7 @@ class _BaselineMethod(TMLEMethod):
             setting of the targeted fit is set.
         """
         if not longitudinal:
-            raise MethodConfigurationError.from_refusal(BASELINE_POINT_REFUSAL)
+            raise MethodConfigurationError.from_refusal(self._point_refusal)
         if self.targeting.ratio_trim is not None:
             raise MethodConfigurationError.from_refusal(BASELINE_RATIO_TRIM_REFUSAL)
         if self.models.hazard_pooling != "node":
@@ -1783,6 +1900,8 @@ class IPWMethod(_BaselineMethod):
     >>> method.estimator_kwargs(longitudinal=True)["normalization"]
     'horvitz_thompson'
     """
+
+    _point_refusal: ClassVar[Refusal] = IPW_POINT_REFUSAL
 
     name: str = "ipw"
     normalization: Literal["hajek", "horvitz_thompson"] = "hajek"

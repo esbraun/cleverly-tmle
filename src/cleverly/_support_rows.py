@@ -52,7 +52,7 @@ def default_options(engine: str) -> dict[str, Any]:
     Parameters
     ----------
     engine : str
-        ``"tmle"``, ``"drtmle"`` or ``"collaborative_tmle"``.
+        ``"tmle"``, ``"drtmle"``, ``"collaborative_tmle"`` or ``"adaptive_iptw"``.
 
     Returns
     -------
@@ -74,6 +74,8 @@ def default_options(engine: str) -> dict[str, Any]:
             "randomized": False,
             "evaluation": False,
         }
+    if engine == "adaptive_iptw":
+        options["form"] = "targeted"
     return options
 
 
@@ -3207,6 +3209,7 @@ OPTION_ALLOWLIST: Final[Mapping[str, str]] = {
     "treatment_learner": "src/cleverly/estimators/tmle.py",
     "missingness_learner": "src/cleverly/estimators/tmle.py",
     "intermediate_learner": "src/cleverly/estimators/tmle.py",
+    "reduced_outcome_learner": "src/cleverly/estimators/iptw.py",
     "pseudo_learner": "docs/technical-reference/longitudinal-tmle.md",
     "censoring_learner": "docs/technical-reference/longitudinal-tmle.md",
     "g_bounds": "docs/technical-reference/point-treatment-tmle.md",

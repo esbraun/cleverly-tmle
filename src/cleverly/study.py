@@ -23,7 +23,8 @@ from .data.treatment_covariates import (
     treatment_mechanism_restriction,
 )
 from .data.validate import RANDOMIZED_INTERCEPT
-from .estimators import CTMLE, DRTMLE, TMLE, TMLEResult
+from .estimators import CTMLE, DRTMLE, TMLE, AdaptiveIPTW, TMLEResult
+from .estimators import iptw as iptw_estimator
 from .estimators._strata import check_stratified_targets
 from .estimators.composite import missing_treatment_design_refusal
 from .exceptions import (
@@ -58,11 +59,14 @@ from .longitudinal.estimator import (
 )
 from .longitudinal.regimen import declares_mtp, declares_policy, declares_tilt, tilt_nodes
 from .methods import (
+    ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL,
     BASELINE_POINT_REFUSAL,
     IPSI_POINT_REFUSAL,
+    IPW_POINT_REFUSAL,
     LTMLE_TILT_REFUSAL,
     SDR_POINT_REFUSAL,
     SDR_TILT_REFUSAL,
+    AdaptiveIPTWMethod,
     CollaborativeTMLEMethod,
     DRTMLEMethod,
     EstimationMethod,
@@ -4082,7 +4086,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
     >>> effect.estimand.name
     'ate'
     >>> sorted(method.name for method in effect.available_methods())[:2]
-    ['collaborative_tmle', 'drtmle']
+    ['adaptive_iptw', 'collaborative_tmle']
     """
 
     estimand: PointEstimand
@@ -4177,8 +4181,10 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         tmle, tmle_reason, sdr, sdr_reason, ipsi, ipsi_reason = self._sequential_methods()
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_methods()
         gformula, gformula_reason = self._gformula_method()
+        iptw_reason = self._adaptive_iptw_refusal(design)
         return (
             MethodAvailability("tmle", tmle, tmle_reason),
+            MethodAvailability("adaptive_iptw", iptw_reason is None, iptw_reason),
             MethodAvailability(
                 "collaborative_tmle",
                 collaborative,
@@ -4214,6 +4220,52 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                     ),
                 ),
             ),
+        )
+
+    def _adaptive_iptw_refusal(self, design: Any) -> Refusal | None:
+        """Why ``adaptive_iptw`` does not fit this functional, or ``None`` where it does.
+
+        The estimator reports arm means, the means of known regimes, the natural-course mean,
+        and the targets built from them. Every other axis, and ATT and ATC, belong to TMLE.
+        An intermediate variable needs an outcome regression, which the estimator does not fit.
+
+        Parameters
+        ----------
+        design : Any
+            The declared design, or ``None`` for an effect built without a study.
+
+        Returns
+        -------
+        Refusal or None
+            The refusal of the first rule that applies.
+        """
+        functional = self.functional
+        if functional.longitudinal:
+            return ADAPTIVE_IPTW_LONGITUDINAL_REFUSAL
+        if getattr(design, "treatment_kind", None) == "continuous" or (
+            isinstance(design, PointTreatment) and design.support == "vector"
+        ):
+            return iptw_estimator.R1
+        axis, target = functional.axis, functional.target
+        if functional.intermediate is not None:
+            return iptw_estimator.R4
+        if axis == "learned_rule":
+            return iptw_estimator.axis_refusal("learned_rule=")
+        if axis in {"policy", "rr_tilt"}:
+            return iptw_estimator.axis_refusal("policies=")
+        if axis == "ipsi":
+            return iptw_estimator.axis_refusal("incremental=")
+        if axis == "msm":
+            return iptw_estimator.target_refusal("an MSM")
+        if axis == "arm" and target in {"att", "atc"}:
+            return iptw_estimator.target_refusal(target)
+        if axis in {"arm", "regime"} and target in TARGETS:
+            return None
+        return Refusal(
+            RefusalReason.IMPLEMENTATION_GAP,
+            "no adaptive IPTW result was reviewed for this functional.",
+            alternative="Fit method='tmle'.",
+            roadmap="X81",
         )
 
     def _sequential_methods(
@@ -4276,7 +4328,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         ``REPEATED_OUTCOME_KINDS``, as the fit refuses it before any learner.
         """
         if not self.functional.longitudinal:
-            return False, BASELINE_POINT_REFUSAL, False, BASELINE_POINT_REFUSAL
+            return False, BASELINE_POINT_REFUSAL, False, IPW_POINT_REFUSAL
         if self.functional.msm is not None:
             return False, BASELINE_MSM_REFUSAL, False, BASELINE_MSM_REFUSAL
         gcomp, gcomp_reason, ipw, ipw_reason = self._baseline_plan_methods()
@@ -4380,7 +4432,9 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             ]
         )
 
-    def summary_lines(self, *, protocol: ProtocolDetail = "full") -> tuple[str, ...]:
+    def summary_lines(
+        self, *, protocol: ProtocolDetail = "full", fitted_method: str | None = None
+    ) -> tuple[str, ...]:
         """Return identification facts for inclusion in result summaries.
 
         Parameters
@@ -4388,16 +4442,27 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
         protocol : {"full", "fingerprint"}
             ``"full"`` gives every field of the protocol record. ``"fingerprint"`` gives
             only its schema and fingerprint.
+        fitted_method : str or None
+            The method that fitted the result. An ``"adaptive_iptw"`` fit fits no outcome
+            regression, so its lines name the reduced regression in place of the outcome
+            regression and leave the shipped model restriction to the fit's own line.
 
         Returns
         -------
         tuple of str
             The same facts as lines, for a result summary to append.
         """
+        iptw = fitted_method == "adaptive_iptw"
+        nuisances = self.identification.required_nuisances
+        if iptw:
+            nuisances = tuple(
+                "reduced_outcome_regression" if name == "outcome_regression" else name
+                for name in nuisances
+            )
         return (
             f"causal estimand: {self.estimand.definition}",
             f"identification: {self.provider.name}; {self.functional.expression}",
-            "required nuisances: " + ", ".join(self.identification.required_nuisances),
+            "required nuisances: " + ", ".join(nuisances),
             "identification assumptions: " + "; ".join(self.identification.assumptions),
             *(
                 f"interpretation {reading.label}: {reading.meaning}; needs "
@@ -4406,7 +4471,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             ),
             *(
                 ("model restrictions: " + "; ".join(self.identification.model_restrictions),)
-                if self.identification.model_restrictions
+                if self.identification.model_restrictions and not iptw
                 else ()
             ),
             *protocol_summary_lines(self.protocol, protocol),
@@ -4534,6 +4599,7 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
                 "tmle": TMLEMethod,
                 "collaborative_tmle": CollaborativeTMLEMethod,
                 "drtmle": DRTMLEMethod,
+                "adaptive_iptw": AdaptiveIPTWMethod,
                 "sdr": SDRMethod,
                 "ipsi": IPSIMethod,
                 "gcomp": GComputationMethod,
@@ -4574,6 +4640,8 @@ class IdentifiedEffect:  # numpydoc ignore=PR01
             estimator: Any = CTMLE(**kwargs)
         elif isinstance(method, DRTMLEMethod):
             estimator = DRTMLE(**kwargs)
+        elif isinstance(method, AdaptiveIPTWMethod):
+            estimator = AdaptiveIPTW(**kwargs)
         else:
             estimator = TMLE(**kwargs)
         result_set = estimator.fit(self._study.data)

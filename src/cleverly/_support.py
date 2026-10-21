@@ -548,6 +548,10 @@ def point_key(
         for name in ("guard", "reduction", "reduced_crossfit", "update_order", "randomized"):
             options[name] = getattr(estimator, name)
         options["evaluation"] = estimator.evaluation is not None
+    if method == "adaptive_iptw":
+        # The two forms are two estimators of one target, so a row of one never covers a
+        # fit of the other.
+        options["form"] = estimator.form
     if str(estimator._axis) == "policy":
         # The policy density ratio changes the clever covariate, so a classifier fit never
         # matches a row whose study fitted the density route.
